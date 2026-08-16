@@ -45,6 +45,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
             )
         }
 
+        private fun shortLocation(address: String): String {
+            val cleaned = address.replace("\n", " ").trim()
+            return if (cleaned.length <= 42) cleaned else cleaned.take(39) + "…"
+        }
+
         private fun updateWidget(
             context: Context,
             manager: AppWidgetManager,
@@ -55,15 +60,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 R.layout.widget_pointage
             )
 
-            val entryIntent =
-                Intent(context, PointageWidgetProvider::class.java).apply {
-                    action = ACTION_ENTRY
-                }
+            val entryIntent = Intent(context, PointageWidgetProvider::class.java).apply {
+                action = ACTION_ENTRY
+            }
 
-            val exitIntent =
-                Intent(context, PointageWidgetProvider::class.java).apply {
-                    action = ACTION_EXIT
-                }
+            val exitIntent = Intent(context, PointageWidgetProvider::class.java).apply {
+                action = ACTION_EXIT
+            }
 
             views.setOnClickPendingIntent(
                 R.id.widget_entry,
@@ -92,59 +95,41 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var durationText = "00h 00m"
             var stateText = "● HORS TRAVAIL"
             var stateColor = 0xFFA9A9A9.toInt()
+            var locationText = "📍 Aucune zone"
 
             if (data.length() > 0) {
                 val last = data.getJSONObject(data.length() - 1)
                 val entry = last.getLong("entry")
+                val zoneAddress = last.optString("zoneAddress").trim()
 
                 entryText = formatTime(entry)
 
-                if (last.isNull("exit")) {
-                    durationText =
-                        formatDuration(System.currentTimeMillis() - entry)
+                if (zoneAddress.isNotEmpty()) {
+                    locationText = "📍 ${shortLocation(zoneAddress)}"
+                } else if (last.isNull("exit")) {
+                    locationText = "📍 Pointage manuel"
+                }
 
+                if (last.isNull("exit")) {
+                    durationText = formatDuration(System.currentTimeMillis() - entry)
                     stateText = "● EN COURS"
                     stateColor = 0xFF54D66A.toInt()
                 } else {
                     val exit = last.getLong("exit")
-
                     exitText = formatTime(exit)
                     durationText = formatDuration(exit - entry)
-
                     stateText = "● TERMINÉ"
                     stateColor = 0xFFD84A4A.toInt()
                 }
             }
 
-            views.setTextViewText(
-                R.id.widget_entry_time,
-                entryText
-            )
-
-            views.setTextViewText(
-                R.id.widget_exit_time,
-                exitText
-            )
-
-            views.setTextViewText(
-                R.id.widget_duration,
-                durationText
-            )
-
-            views.setTextViewText(
-                R.id.widget_status,
-                "HP V8"
-            )
-
-            views.setTextViewText(
-                R.id.widget_state,
-                stateText
-            )
-
-            views.setTextColor(
-                R.id.widget_state,
-                stateColor
-            )
+            views.setTextViewText(R.id.widget_entry_time, entryText)
+            views.setTextViewText(R.id.widget_exit_time, exitText)
+            views.setTextViewText(R.id.widget_duration, durationText)
+            views.setTextViewText(R.id.widget_status, "HP V8")
+            views.setTextViewText(R.id.widget_state, stateText)
+            views.setTextViewText(R.id.widget_location, locationText)
+            views.setTextColor(R.id.widget_state, stateColor)
 
             manager.updateAppWidget(widgetId, views)
         }
@@ -167,40 +152,21 @@ class PointageWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
 
         when (intent.action) {
-
             ACTION_ENTRY -> {
                 if (PointageStore.entry(context)) {
-                    Toast.makeText(
-                        context,
-                        "Entrée enregistrée",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(
-                        context,
-                        "Une entrée est déjà en cours",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
                 }
-
                 updateAll(context)
             }
 
             ACTION_EXIT -> {
                 if (PointageStore.exit(context)) {
-                    Toast.makeText(
-                        context,
-                        "Sortie enregistrée",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(
-                        context,
-                        "Aucune entrée en cours",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 }
-
                 updateAll(context)
             }
         }
