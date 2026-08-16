@@ -1,0 +1,161 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="260dp"
+    android:height="260dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+
+    <!-- Ailes gauche -->
+    <path
+        android:fillColor="#111111"
+        android:strokeColor="#D6A84B"
+        android:strokeWidth="6"
+        android:pathData="M155,225 C90,185 45,185 22,210 C68,220 105,245 140,280 C90,255 48,260 28,286 C75,287 112,309 150,340 C108,323 72,329 52,350 C94,352 127,371 166,392 Z"/>
+
+    <!-- Ailes droite -->
+    <path
+        android:fillColor="#111111"
+        android:strokeColor="#D6A84B"
+        android:strokeWidth="6"
+        android:pathData="M357,225 C422,185 467,185 490,210 C444,220 407,245 372,280 C422,255 464,260 484,286 C437,287 400,309 362,340 C404,323 440,329 460,350 C418,352 385,371 346,392 Z"/>
+
+    <!-- cercle extérieur -->
+    <path
+        android:fillColor="#080808"
+        android:strokeColor="#FFD56A"
+        android:strokeWidth="16"
+        android:pathData="M256,92
+            A164,164 0,1 1,255.9 92"/>
+
+    <!-- cercle intérieur -->
+    <path
+        android:fillColor="#101010"
+        android:strokeColor="#A8791B"
+        android:strokeWidth="6"
+        android:pathData="M256,116
+            A140,140 0,1 1,255.9 116"/>
+
+    <!-- index cadran -->
+    <path
+        android:fillColor="#F7D77C"
+        android:pathData="
+        M250,126 L262,126 L262,156 L250,156 Z
+        M250,356 L262,356 L262,386 L250,386 Z
+        M126,250 L156,250 L156,262 L126,262 Z
+        M356,250 L386,250 L386,262 L356,262 Z"/>
+
+    <!-- Lettre H -->
+    <path
+        android:fillColor="#F4C95D"
+        android:strokeColor="#FFF1B5"
+        android:strokeWidth="2"
+        android:pathData="
+        M178,205 L198,205 L198,245
+        L232,245 L232,205 L252,205
+        L252,307 L232,307 L232,267
+        L198,267 L198,307 L178,307 Z"/>
+
+    <!-- Lettre P -->
+    <path
+        android:fillColor="#F4C95D"
+        android:strokeColor="#FFF1B5"
+        android:strokeWidth="2"
+        android:pathData="
+        M274,205 L294,205 L294,307
+        L274,307 Z
+        M294,205 L333,205
+        C360,205 374,220 374,244
+        C374,270 358,285 333,285
+        L294,285 L294,264 L330,264
+        C345,264 351,257 351,245
+        C351,232 344,226 330,226
+        L294,226 Z"/>
+
+    <!-- diamant central -->
+    <path
+        android:fillColor="#FFD56A"
+        android:strokeColor="#FFF4C9"
+        android:strokeWidth="3"
+        android:pathData="M256,236 L267,256 L256,276 L245,256 Z"/>
+
+    <!-- couronne -->
+    <path
+        android:fillColor="#E2AF3D"
+        android:strokeColor="#FFF0A8"
+        android:strokeWidth="4"
+        android:pathData="
+        M190,128
+        L205,82
+        L229,118
+        L256,60
+        L283,118
+        L307,82
+        L322,128
+        L306,151
+        L206,151 Z"/>
+
+    <!-- perles de couronne -->
+    <path
+        android:fillColor="#FFE58F"
+        android:pathData="
+        M197,76 A8,8 0,1 1,196.9 76
+        M256,52 A9,9 0,1 1,255.9 52
+        M315,76 A8,8 0,1 1,314.9 76"/>
+
+    <!-- étoile -->
+    <path
+        android:fillColor="#FFD76F"
+        android:strokeColor="#FFF5C6"
+        android:strokeWidth="2"
+        android:pathData="
+        M256,12
+        L266,35
+        L291,37
+        L272,53
+        L278,78
+        L256,65
+        L234,78
+        L240,53
+        L221,37
+        L246,35 Z"/>
+
+    <!-- bandeau -->
+    <path
+        android:fillColor="#080808"
+        android:strokeColor="#E1B04A"
+        android:strokeWidth="6"
+        android:pathData="
+        M125,355
+        L387,355
+        L410,380
+        L387,405
+        L125,405
+        L102,380 Z"/>
+
+    <!-- traits décoratifs bandeau -->
+    <path
+        android:strokeColor="#D6A84B"
+        android:strokeWidth="4"
+        android:pathData="M135,380 L190,380 M322,380 L377,380"/>
+
+    <!-- diamant bas -->
+    <path
+        android:fillColor="#F7D77C"
+        android:strokeColor="#FFF8D5"
+        android:strokeWidth="4"
+        android:pathData="M256,420 L278,444 L256,470 L234,444 Z"/>
+
+
+    <!-- Voyant dynamique VERT -->
+    <path
+        android:fillColor="#063D1D"
+        android:strokeColor="#F7D77C"
+        android:strokeWidth="5"
+        android:pathData="M425,392 A32,32 0,1 1,424.9 392"/>
+    <path
+        android:fillColor="#20E85A"
+        android:pathData="M425,402 A22,22 0,1 1,424.9 402"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M416,407 A6,6 0,1 1,415.9 407"/>
+
+</vector>

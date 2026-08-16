@@ -37,6 +37,7 @@ object PointageStore {
                 .put("exit", JSONObject.NULL)
         )
         save(context, data)
+        IconSwitcher.setWorking(context, true)
         return true
     }
 
@@ -47,7 +48,8 @@ object PointageStore {
             if (item.isNull("exit")) {
                 item.put("exit", System.currentTimeMillis())
                 save(context, data)
-                return true
+                IconSwitcher.setWorking(context, false)
+            return true
             }
         }
         return false
