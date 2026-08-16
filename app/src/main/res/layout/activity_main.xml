@@ -207,12 +207,10 @@
                 android:visibility="gone"
                 android:paddingTop="14dp">
 
-                <TextView
+                <com.amaury.pointage.LocationManagementView
+                    android:id="@id/locationManagementView"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Adresses des lieux de travail (10 maximum)"
-                    android:textColor="@color/hp_gold"
-                    android:textSize="15sp"/>
+                    android:layout_height="wrap_content" />
 
                 <EditText
                     android:id="@+id/workplaceAddress"
@@ -224,7 +222,8 @@
                     android:maxLines="10"
                     android:textColor="@color/hp_white"
                     android:textColorHint="@color/hp_grey"
-                    android:singleLine="false"/>
+                    android:singleLine="false"
+                    android:visibility="gone"/>
 
                 <TextView
                     android:layout_width="match_parent"
