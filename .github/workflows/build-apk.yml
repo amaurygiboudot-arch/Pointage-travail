@@ -20,10 +20,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
+      - name: Restaurer la cle de signature de test
+        run: base64 -d .github/pointage-test.keystore.b64 > pointage-test.keystore
+      - name: Incrementer automatiquement la version
+        run: |
+          sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"1.${{ github.run_number }}\"/" app/build.gradle.kts
       - name: Compiler APK
         run: gradle assembleDebug
       - name: Recuperer APK
         uses: actions/upload-artifact@v4
         with:
-          name: PointageTravail-APK
+          name: PointageTravail-APK-v1.${{ github.run_number }}
           path: app/build/outputs/apk/debug/app-debug.apk
