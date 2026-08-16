@@ -4,9 +4,9 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -175,6 +175,53 @@ object SettingsUiInstaller {
             }
         }
         section.addView(showPosition)
+
+        section.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
+
+        val driveStatus = TextView(activity).apply {
+            textSize = 14f
+            text = if (DriveBackupManager.isConfigured(activity)) {
+                "● Sauvegarde Drive active — PDF classés par lieu / année / mois"
+            } else {
+                "Drive non configuré"
+            }
+        }
+        section.addView(driveStatus)
+
+        val chooseDrive = Button(activity).apply {
+            text = if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE"
+            setOnClickListener {
+                activity.startActivity(Intent(activity, DriveFolderPickerActivity::class.java))
+            }
+        }
+        section.addView(chooseDrive)
+
+        val syncDrive = Button(activity).apply {
+            text = "SYNCHRONISER TOUT L'HISTORIQUE"
+            setOnClickListener {
+                if (!DriveBackupManager.isConfigured(activity)) {
+                    Toast.makeText(activity, "Choisis d'abord un dossier Google Drive", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(activity, "Synchronisation Drive démarrée", Toast.LENGTH_SHORT).show()
+                    DriveBackupManager.syncAllAsync(activity) { ok, message ->
+                        activity.runOnUiThread {
+                            Toast.makeText(activity, if (ok) "Drive : $message" else "Erreur Drive : $message", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+        section.addView(syncDrive)
+
+        val forgetDrive = Button(activity).apply {
+            text = "DÉCONNECTER LE DOSSIER DRIVE"
+            setOnClickListener {
+                DriveBackupManager.clear(activity)
+                driveStatus.text = "Drive non configuré"
+                Toast.makeText(activity, "Sauvegarde Drive désactivée", Toast.LENGTH_SHORT).show()
+            }
+        }
+        section.addView(forgetDrive)
 
         panel.addView(section)
     }
