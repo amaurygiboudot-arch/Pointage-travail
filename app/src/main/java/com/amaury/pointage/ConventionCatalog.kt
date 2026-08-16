@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URL
@@ -28,8 +30,7 @@ object ConventionCatalog {
 
     private fun legalOvertimeTiers()=listOf(OvertimeTier(35.0,43.0,1.25),OvertimeTier(43.0,null,1.50))
 
-    // Profils dont les règles de paie ont été intégrées/contrôlées dans l'application.
-    val conventions=listOf(
+    private val builtIns=listOf(
         Convention("0292","Plasturgie","Transformation des matières plastiques",true,legalOvertimeTiers(),1.12,2.00,
             listOf("Heures supplémentaires majorées à 25 % puis 50 %.","Majoration conventionnelle de nuit de 12 % lorsque les conditions sont réunies.","Travail exceptionnel le dimanche ou un jour férié : majoration conventionnelle de 100 %.","Repos compensateur prévu pour les travailleurs de nuit."),
             listOf("Un accord d'entreprise peut prévoir des règles différentes ou plus favorables.","Certaines majorations ne se cumulent pas entre elles.")),
@@ -50,12 +51,25 @@ object ConventionCatalog {
     private const val CACHE="kali_cache"
     private const val SOURCE="https://raw.githubusercontent.com/SocialGouv/kali-data/master/REFERENCES.md"
 
-    fun all(context: Context): List<Convention> {
-        val dynamic=decodeCache(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(CACHE,null))
+    @Volatile private var current: List<Convention> = builtIns
+    val conventions: List<Convention> get() = current
+
+    fun initialize(context: Context) {
+        current = mergeWithBuiltIns(decodeCache(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(CACHE,null)))
+        refreshAsync(context)
+    }
+
+    private fun mergeWithBuiltIns(dynamic: List<Convention>): List<Convention> {
         val byId=linkedMapOf<String,Convention>()
         dynamic.forEach { if(it.idcc.isNotBlank()) byId[it.idcc.padStart(4,'0')]=it }
-        conventions.forEach { if(it.idcc.isNotBlank()) byId[it.idcc.padStart(4,'0')]=it }
-        return (byId.values.sortedBy { it.shortName.lowercase() } + conventions.first { it.idcc.isBlank() })
+        builtIns.forEach { if(it.idcc.isNotBlank()) byId[it.idcc.padStart(4,'0')]=it }
+        return byId.values.sortedBy { it.shortName.lowercase() } + builtIns.first { it.idcc.isBlank() }
+    }
+
+    fun all(context: Context): List<Convention> {
+        val dynamic=decodeCache(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(CACHE,null))
+        current=mergeWithBuiltIns(dynamic)
+        return current
     }
 
     fun findByIdcc(context:Context,idcc:String?):Convention? {
@@ -63,7 +77,12 @@ object ConventionCatalog {
         val normalized=idcc.padStart(4,'0')
         return all(context).firstOrNull{it.idcc.padStart(4,'0')==normalized}
     }
-    fun findByIdcc(idcc:String?):Convention?=if(idcc==null)null else conventions.firstOrNull{it.idcc.padStart(4,'0')==idcc.padStart(4,'0')}
+
+    fun findByIdcc(idcc:String?):Convention? {
+        if(idcc==null)return null
+        val normalized=idcc.padStart(4,'0')
+        return current.firstOrNull{it.idcc.padStart(4,'0')==normalized}
+    }
 
     fun refreshAsync(context:Context,onDone:(Int)->Unit={}) {
         Executors.newSingleThreadExecutor().execute {
@@ -77,8 +96,11 @@ object ConventionCatalog {
                     Convention(idcc,title,title,false,cautions=listOf("Convention issue du catalogue KALI. Règles salariales spécifiques non encore intégrées : régime légal provisoire."))
                 }.distinctBy{it.idcc}.toList()
             }.getOrNull()
-            if(!parsed.isNullOrEmpty()) context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(CACHE,encodeCache(parsed)).apply()
-            android.os.Handler(android.os.Looper.getMainLooper()).post{onDone(parsed?.size?:0)}
+            if(!parsed.isNullOrEmpty()) {
+                context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(CACHE,encodeCache(parsed)).apply()
+                current=mergeWithBuiltIns(parsed)
+            }
+            Handler(Looper.getMainLooper()).post{onDone(if(parsed.isNullOrEmpty()) current.count{it.idcc.isNotBlank()} else parsed.size)}
         }
     }
 
