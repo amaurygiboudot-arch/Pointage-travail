@@ -22,6 +22,7 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.LinkedHashMap
 import java.util.Locale
@@ -29,17 +30,23 @@ import java.util.UUID
 
 class MainActivity : Activity() {
 
+    companion object {
+        private const val REQUEST_CREATE_MONTHLY_PDF = 2002
+    }
+
     private lateinit var statusCard: TextView
     private lateinit var historyText: TextView
     private lateinit var contentTitle: TextView
     private lateinit var clockDigital: TextClock
     private lateinit var pointageButtons: LinearLayout
     private lateinit var gpsSettingsPanel: LinearLayout
+    private lateinit var analyticsPdfPanel: LinearLayout
 
     private lateinit var workplaceAddress: EditText
     private lateinit var geofenceRadius: EditText
     private lateinit var autoGpsSwitch: Switch
     private lateinit var gpsStatusText: TextView
+    private lateinit var selectedReportMonthText: TextView
 
     private lateinit var tabToday: TextView
     private lateinit var tabHistory: TextView
@@ -47,8 +54,18 @@ class MainActivity : Activity() {
     private lateinit var tabSettings: TextView
 
     private var activeTab = "today"
+    private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
+        set(Calendar.DAY_OF_MONTH, 1)
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    private var pendingPdfYear = selectedReportMonth.get(Calendar.YEAR)
+    private var pendingPdfMonth = selectedReportMonth.get(Calendar.MONTH)
 
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
+    private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy {
         getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
@@ -64,11 +81,13 @@ class MainActivity : Activity() {
         clockDigital = findViewById(R.id.clockDigital)
         pointageButtons = findViewById(R.id.pointageButtons)
         gpsSettingsPanel = findViewById(R.id.gpsSettingsPanel)
+        analyticsPdfPanel = findViewById(R.id.analyticsPdfPanel)
 
         workplaceAddress = findViewById(R.id.workplaceAddress)
         geofenceRadius = findViewById(R.id.geofenceRadius)
         autoGpsSwitch = findViewById(R.id.autoGpsSwitch)
         gpsStatusText = findViewById(R.id.gpsStatusText)
+        selectedReportMonthText = findViewById(R.id.selectedReportMonthText)
 
         tabToday = findViewById(R.id.tabToday)
         tabHistory = findViewById(R.id.tabHistory)
@@ -80,8 +99,11 @@ class MainActivity : Activity() {
         val exitButton = findViewById<Button>(R.id.exitButton)
         val saveGpsSettingsButton = findViewById<Button>(R.id.saveGpsSettingsButton)
         val locationPermissionButton = findViewById<Button>(R.id.locationPermissionButton)
+        val chooseReportMonthButton = findViewById<Button>(R.id.chooseReportMonthButton)
+        val generateMonthlyPdfButton = findViewById<Button>(R.id.generateMonthlyPdfButton)
 
         loadGpsSettings()
+        updateSelectedReportMonthText()
 
         settingsButton.setOnClickListener {
             animateClick(settingsButton)
@@ -120,6 +142,16 @@ class MainActivity : Activity() {
             requestLocationAccess()
         }
 
+        chooseReportMonthButton.setOnClickListener {
+            animateClick(chooseReportMonthButton)
+            showReportMonthDialog()
+        }
+
+        generateMonthlyPdfButton.setOnClickListener {
+            animateClick(generateMonthlyPdfButton)
+            requestMonthlyPdfDestination()
+        }
+
         tabToday.setOnClickListener { showTodayTab() }
         tabHistory.setOnClickListener { showHistoryTab() }
         tabAnalytics.setOnClickListener { showAnalyticsTab() }
@@ -138,6 +170,32 @@ class MainActivity : Activity() {
             "analytics" -> showAnalyticsTab()
             "settings" -> showSettingsTab()
             else -> showTodayTab()
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode != REQUEST_CREATE_MONTHLY_PDF || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+
+        try {
+            contentResolver.openOutputStream(uri)?.use { output ->
+                MonthlyPdfReport.write(
+                    PointageStore.load(this),
+                    pendingPdfYear,
+                    pendingPdfMonth,
+                    output
+                )
+            } ?: throw IllegalStateException("Impossible d'ouvrir le fichier")
+
+            Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Impossible de générer le PDF : ${e.message ?: "erreur inconnue"}",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -163,6 +221,7 @@ class MainActivity : Activity() {
         statusCard.visibility = View.VISIBLE
         pointageButtons.visibility = View.VISIBLE
         historyText.visibility = View.VISIBLE
+        analyticsPdfPanel.visibility = View.GONE
         gpsSettingsPanel.visibility = View.GONE
         contentTitle.text = "HISTORIQUE DU JOUR"
         refreshScreen()
@@ -175,6 +234,7 @@ class MainActivity : Activity() {
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
         historyText.visibility = View.VISIBLE
+        analyticsPdfPanel.visibility = View.GONE
         gpsSettingsPanel.visibility = View.GONE
         contentTitle.text = "HISTORIQUE COMPLET"
         historyText.text = buildHistoryText()
@@ -187,9 +247,11 @@ class MainActivity : Activity() {
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
         historyText.visibility = View.VISIBLE
+        analyticsPdfPanel.visibility = View.VISIBLE
         gpsSettingsPanel.visibility = View.GONE
         contentTitle.text = "HEURES PAR LIEU"
         historyText.text = buildAnalyticsText()
+        updateSelectedReportMonthText()
     }
 
     private fun showSettingsTab() {
@@ -199,6 +261,7 @@ class MainActivity : Activity() {
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
         historyText.visibility = View.GONE
+        analyticsPdfPanel.visibility = View.GONE
         gpsSettingsPanel.visibility = View.VISIBLE
         contentTitle.text = "LIEUX DE TRAVAIL GPS"
         loadGpsSettings()
@@ -212,6 +275,68 @@ class MainActivity : Activity() {
         tabHistory.setTextColor(if (active == tabHistory) gold else grey)
         tabAnalytics.setTextColor(if (active == tabAnalytics) gold else grey)
         tabSettings.setTextColor(if (active == tabSettings) gold else grey)
+    }
+
+    private fun updateSelectedReportMonthText() {
+        val label = reportMonthFormat.format(selectedReportMonth.time)
+            .replaceFirstChar { it.uppercase() }
+        selectedReportMonthText.text = "Mois du rapport : $label"
+    }
+
+    private fun showReportMonthDialog() {
+        val options = ArrayList<String>()
+        val calendars = ArrayList<Calendar>()
+        val cursor = Calendar.getInstance(Locale.FRANCE).apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        repeat(36) {
+            calendars.add(cursor.clone() as Calendar)
+            options.add(reportMonthFormat.format(cursor.time).replaceFirstChar { it.uppercase() })
+            cursor.add(Calendar.MONTH, -1)
+        }
+
+        val selectedIndex = calendars.indexOfFirst {
+            it.get(Calendar.YEAR) == selectedReportMonth.get(Calendar.YEAR) &&
+                it.get(Calendar.MONTH) == selectedReportMonth.get(Calendar.MONTH)
+        }.coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle("Choisir le mois du rapport")
+            .setSingleChoiceItems(options.toTypedArray(), selectedIndex) { dialog, which ->
+                selectedReportMonth.timeInMillis = calendars[which].timeInMillis
+                updateSelectedReportMonthText()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun requestMonthlyPdfDestination() {
+        pendingPdfYear = selectedReportMonth.get(Calendar.YEAR)
+        pendingPdfMonth = selectedReportMonth.get(Calendar.MONTH)
+
+        val monthFile = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE)
+            .format(selectedReportMonth.time)
+            .replaceFirstChar { it.uppercase() }
+            .replace("é", "e")
+            .replace("è", "e")
+            .replace("ê", "e")
+            .replace("û", "u")
+            .replace("ô", "o")
+            .replace("à", "a")
+            .replace("ç", "c")
+
+        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/pdf"
+            putExtra(Intent.EXTRA_TITLE, "Pointage_$monthFile.pdf")
+        }
+        startActivityForResult(intent, REQUEST_CREATE_MONTHLY_PDF)
     }
 
     private fun loadGpsSettings() {
