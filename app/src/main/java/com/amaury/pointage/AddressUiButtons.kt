@@ -1,0 +1,172 @@
+package com.amaury.pointage
+
+import android.app.AlertDialog
+import android.content.Context
+import android.text.InputType
+import android.util.AttributeSet
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.Switch
+import android.widget.Toast
+
+/**
+ * Bouton + utilisé dans les paramètres GPS.
+ * Ajoute une adresse structurée (numéro/rue, code postal, ville)
+ * dans la liste existante sans lancer de navigation hors de l'application.
+ */
+class AddAddressButton @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : androidx.appcompat.widget.AppCompatButton(context, attrs) {
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        super.setOnClickListener { showAddressDialog() }
+    }
+
+    private fun showAddressDialog() {
+        val root = rootView
+        val addressList = root.findViewById<EditText>(R.id.workplaceAddress)
+        val existing = addressList.text.toString()
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        if (existing.size >= 10) {
+            Toast.makeText(context, "10 adresses maximum", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density).toInt()
+
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+
+        val street = EditText(context).apply {
+            hint = "N° et rue — ex. 12 rue des Lilas"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS
+            isSingleLine = true
+        }
+        val postalCode = EditText(context).apply {
+            hint = "Code postal — ex. 85190"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            isSingleLine = true
+        }
+        val city = EditText(context).apply {
+            hint = "Ville — ex. Aizenay"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            isSingleLine = true
+        }
+
+        container.addView(street)
+        container.addView(postalCode)
+        container.addView(city)
+
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Ajouter un lieu de travail")
+            .setView(container)
+            .setNegativeButton("Annuler", null)
+            .setPositiveButton("Ajouter", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val streetValue = street.text.toString().trim()
+                val postalValue = postalCode.text.toString().trim()
+                val cityValue = city.text.toString().trim()
+
+                if (streetValue.isBlank()) {
+                    street.error = "Indique le numéro et la rue"
+                    return@setOnClickListener
+                }
+                if (postalValue.isBlank() && cityValue.isBlank()) {
+                    city.error = "Indique la ville ou le code postal"
+                    return@setOnClickListener
+                }
+
+                val locality = listOf(postalValue, cityValue)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                val formatted = listOf(streetValue, locality)
+                    .filter { it.isNotBlank() }
+                    .joinToString(", ")
+
+                val updated = (existing + formatted)
+                    .distinctBy { it.lowercase() }
+                    .take(10)
+
+                addressList.setText(updated.joinToString("\n"))
+                context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("address", updated.joinToString("\n"))
+                    .apply()
+
+                Toast.makeText(context, "Adresse ajoutée et mémorisée", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+}
+
+/**
+ * Empêche le bouton ENREGISTRER LES LIEUX d'envoyer l'utilisateur
+ * vers les réglages Android quand la permission GPS manque.
+ * Les adresses restent mémorisées; l'autorisation se fait séparément
+ * via le bouton dédié.
+ */
+class SafeGpsSaveButton @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : androidx.appcompat.widget.AppCompatButton(context, attrs) {
+
+    override fun setOnClickListener(listener: View.OnClickListener?) {
+        super.setOnClickListener {
+            val root = rootView
+            val enabledSwitch = root.findViewById<Switch>(R.id.autoGpsSwitch)
+            val addressList = root.findViewById<EditText>(R.id.workplaceAddress)
+            val radiusInput = root.findViewById<EditText>(R.id.geofenceRadius)
+
+            val autoEnabled = enabledSwitch?.isChecked == true
+            if (autoEnabled && !GeofenceManager.hasRequiredPermissions(context)) {
+                val addresses = addressList?.text?.toString().orEmpty()
+                    .lines()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(10)
+
+                if (addresses.isEmpty()) {
+                    Toast.makeText(context, "Ajoute au moins une adresse avec le bouton +", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+
+                val radius = radiusInput?.text?.toString()?.toIntOrNull()?.coerceIn(50, 1000) ?: 150
+                context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("address", addresses.joinToString("\n"))
+                    .putInt("radius", radius)
+                    .putBoolean("enabled", true)
+                    .apply()
+
+                animate().scaleX(0.94f).scaleY(0.94f).setDuration(70).withEndAction {
+                    animate().scaleX(1f).scaleY(1f).setDuration(100).start()
+                }.start()
+
+                Toast.makeText(
+                    context,
+                    "Adresses enregistrées. Autorise ensuite la localisation avec le bouton dédié, puis appuie à nouveau sur Enregistrer pour activer les zones GPS.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+
+            listener?.onClick(this)
+        }
+    }
+}
