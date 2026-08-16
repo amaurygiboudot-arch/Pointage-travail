@@ -15,6 +15,8 @@ class BootReceiver : BroadcastReceiver() {
         if (!prefs.getBoolean("enabled", false)) return
         if (!GeofenceManager.hasRequiredPermissions(context)) return
 
+        prefs.edit().remove("active_zones").apply()
+
         val zonesJson = prefs.getString("zones", "[]") ?: "[]"
         val array = JSONArray(zonesJson)
         val zones = mutableListOf<WorkZone>()
