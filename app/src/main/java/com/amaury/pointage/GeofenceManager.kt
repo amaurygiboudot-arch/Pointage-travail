@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
@@ -30,6 +31,13 @@ object GeofenceManager {
             Intent(context, GeofenceBroadcastReceiver::class.java),
             flags
         )
+    }
+
+    fun hasLocationHardware(context: Context): Boolean {
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
+        return runCatching {
+            manager.allProviders.isNotEmpty()
+        }.getOrDefault(false)
     }
 
     fun hasRequiredPermissions(context: Context): Boolean {
@@ -58,6 +66,11 @@ object GeofenceManager {
         zones: List<WorkZone>,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
+        if (!hasLocationHardware(context)) {
+            onResult(false, "Aucun service de localisation disponible sur cet appareil")
+            return
+        }
+
         if (!hasRequiredPermissions(context)) {
             onResult(false, "Autorisation de localisation manquante")
             return
@@ -90,21 +103,38 @@ object GeofenceManager {
         try {
             val client = LocationServices.getGeofencingClient(context)
             client.removeGeofences(pendingIntent(context)).addOnCompleteListener {
-                client.addGeofences(request, pendingIntent(context))
-                    .addOnSuccessListener {
-                        onResult(true, "${geofences.size} zone(s) GPS activée(s)")
-                    }
-                    .addOnFailureListener {
-                        onResult(false, it.message ?: "Impossible d'activer les zones GPS")
-                    }
+                try {
+                    client.addGeofences(request, pendingIntent(context))
+                        .addOnSuccessListener {
+                            onResult(true, "${geofences.size} zone(s) GPS activée(s)")
+                        }
+                        .addOnFailureListener {
+                            onResult(
+                                false,
+                                it.message ?: "Service GPS automatique indisponible sur cet appareil"
+                            )
+                        }
+                } catch (_: SecurityException) {
+                    onResult(false, "Autorisation de localisation manquante")
+                } catch (_: Exception) {
+                    onResult(false, "Service GPS automatique indisponible sur cet appareil")
+                }
             }
         } catch (_: SecurityException) {
             onResult(false, "Autorisation de localisation manquante")
+        } catch (_: Exception) {
+            // Certains appareils Android sans services Google (par ex. certaines variantes Huawei)
+            // ne proposent pas l'API Geofencing de Google. Le reste de l'application reste utilisable.
+            onResult(false, "GPS automatique indisponible : utilise le pointage manuel ou le widget")
         }
     }
 
     fun remove(context: Context) {
-        LocationServices.getGeofencingClient(context)
-            .removeGeofences(pendingIntent(context))
+        try {
+            LocationServices.getGeofencingClient(context)
+                .removeGeofences(pendingIntent(context))
+        } catch (_: Exception) {
+            // Ne bloque jamais l'application si les services de localisation du constructeur sont absents.
+        }
     }
 }
