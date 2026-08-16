@@ -36,15 +36,24 @@ object PointageStore {
         val data = load(context)
         if (hasOpen(context)) return false
 
+        val detectedZone = if (zoneId.isNullOrBlank() && zoneAddress.isNullOrBlank()) {
+            currentActiveZone(context)
+        } else {
+            null
+        }
+
+        val finalZoneId = zoneId ?: detectedZone?.first
+        val finalZoneAddress = zoneAddress ?: detectedZone?.second
+
         val item = JSONObject()
             .put("entry", System.currentTimeMillis())
             .put("exit", JSONObject.NULL)
 
-        if (!zoneId.isNullOrBlank()) {
-            item.put("zoneId", zoneId)
+        if (!finalZoneId.isNullOrBlank()) {
+            item.put("zoneId", finalZoneId)
         }
-        if (!zoneAddress.isNullOrBlank()) {
-            item.put("zoneAddress", zoneAddress)
+        if (!finalZoneAddress.isNullOrBlank()) {
+            item.put("zoneAddress", finalZoneAddress)
         }
 
         data.put(item)
@@ -58,6 +67,13 @@ object PointageStore {
         for (i in data.length() - 1 downTo 0) {
             val item = data.getJSONObject(i)
             if (item.isNull("exit")) {
+                if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
+                    currentActiveZone(context)?.let { (zoneId, zoneAddress) ->
+                        if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
+                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", zoneAddress)
+                    }
+                }
+
                 item.put("exit", System.currentTimeMillis())
                 save(context, data)
                 IconSwitcher.setWorking(context, false)
@@ -65,5 +81,28 @@ object PointageStore {
             }
         }
         return false
+    }
+
+    private fun currentActiveZone(context: Context): Pair<String, String>? {
+        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        if (!gpsPrefs.getBoolean("enabled", false)) return null
+
+        val activeIds = gpsPrefs.getStringSet("active_zones", emptySet()).orEmpty()
+        if (activeIds.isEmpty()) return null
+
+        return try {
+            val zones = JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+            for (i in 0 until zones.length()) {
+                val zone = zones.optJSONObject(i) ?: continue
+                val id = zone.optString("id")
+                if (id in activeIds) {
+                    val address = zone.optString("address").trim()
+                    if (address.isNotBlank()) return id to address
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
     }
 }
