@@ -1,0 +1,21 @@
+# Android / Gradle
+.gradle/
+build/
+**/build/
+local.properties
+
+# Clés de signature et certificats
+*.jks
+*.keystore
+*.p12
+*.pem
+pointage-release.keystore
+
+# Secrets / environnements
+.env
+.env.*
+*.properties.local
+
+# IDE
+.idea/
+*.iml
