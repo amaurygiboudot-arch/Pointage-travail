@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.amaury.pointage"
-    compileSdk = 35
+    compileSdk = 36
 
     signingConfigs {
         create("release") {
@@ -22,24 +22,19 @@ android {
     defaultConfig {
         applicationId = "com.amaury.pointage"
         minSdk = 23
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 9
         versionName = "1.9"
     }
 
     buildTypes {
-        getByName("debug") {
-            isDebuggable = true
-        }
+        getByName("debug") { isDebuggable = true }
         getByName("release") {
             isDebuggable = false
             isMinifyEnabled = true
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
@@ -54,6 +49,4 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
 }
 
-kotlin {
-    jvmToolchain(17)
-}
+kotlin { jvmToolchain(17) }
