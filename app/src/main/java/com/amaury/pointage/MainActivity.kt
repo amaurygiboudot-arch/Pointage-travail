@@ -29,6 +29,8 @@ class MainActivity : Activity() {
         val exitButton = findViewById<Button>(R.id.exitButton)
 
         entryButton.setOnClickListener {
+            animateClick(entryButton)
+
             if (PointageStore.entry(this)) {
                 Toast.makeText(
                     this,
@@ -48,6 +50,8 @@ class MainActivity : Activity() {
         }
 
         exitButton.setOnClickListener {
+            animateClick(exitButton)
+
             if (PointageStore.exit(this)) {
                 Toast.makeText(
                     this,
@@ -72,6 +76,21 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refreshScreen()
+    }
+
+    private fun animateClick(button: Button) {
+        button.animate()
+            .scaleX(0.92f)
+            .scaleY(0.92f)
+            .setDuration(80)
+            .withEndAction {
+                button.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(120)
+                    .start()
+            }
+            .start()
     }
 
     private fun refreshScreen() {
