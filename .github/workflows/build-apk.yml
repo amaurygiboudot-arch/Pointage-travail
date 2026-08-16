@@ -1,4 +1,4 @@
-name: Compiler PointageTravail APK
+name: Compiler PointageTravail Release
 
 on:
   workflow_dispatch:
@@ -44,28 +44,32 @@ jobs:
           sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
           sed -i "s/versionName = \"[^\"]*\"/versionName = \"2.${{ github.run_number }}\"/" app/build.gradle.kts
 
-      - name: Compiler APK release
+      - name: Compiler APK et AAB release
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
           POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
           POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
           POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
-        run: gradle assembleRelease
+        run: gradle assembleRelease bundleRelease
 
       - name: Verifier la signature APK
         run: |
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Calculer SHA-256
-        run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/SHA256.txt
+      - name: Calculer empreintes SHA-256
+        run: |
+          sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/SHA256.txt
+          sha256sum app/build/outputs/bundle/release/app-release.aab > app/build/outputs/bundle/release/SHA256.txt
 
-      - name: Publier APK release
+      - name: Publier artefacts release
         uses: actions/upload-artifact@v4
         with:
           name: PointageTravail-Release-v2.${{ github.run_number }}
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/SHA256.txt
+            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/bundle/release/SHA256.txt
           if-no-files-found: error
           retention-days: 30
