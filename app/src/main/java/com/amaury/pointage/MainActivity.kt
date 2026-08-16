@@ -23,7 +23,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.LinkedHashMap
 import java.util.Locale
+import java.util.UUID
 
 class MainActivity : Activity() {
 
@@ -46,8 +48,7 @@ class MainActivity : Activity() {
 
     private var activeTab = "today"
 
-    private val dateFormat =
-        SimpleDateFormat("HH:mm", Locale.FRANCE)
+    private val dateFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
 
     private val gpsPrefs by lazy {
         getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
@@ -187,7 +188,7 @@ class MainActivity : Activity() {
         pointageButtons.visibility = View.GONE
         historyText.visibility = View.VISIBLE
         gpsSettingsPanel.visibility = View.GONE
-        contentTitle.text = "ANALYSES"
+        contentTitle.text = "HEURES PAR LIEU"
         historyText.text = buildAnalyticsText()
     }
 
@@ -218,6 +219,24 @@ class MainActivity : Activity() {
         workplaceAddress.hint = "Une adresse par ligne — 10 adresses maximum"
         geofenceRadius.setText(gpsPrefs.getInt("radius", 150).toString())
         autoGpsSwitch.isChecked = gpsPrefs.getBoolean("enabled", false)
+    }
+
+    private fun loadSavedZoneObjects(): JSONArray {
+        return try {
+            JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+        } catch (_: Exception) {
+            JSONArray()
+        }
+    }
+
+    private fun existingZoneIdForAddress(address: String, existingZones: JSONArray): String? {
+        for (i in 0 until existingZones.length()) {
+            val zone = existingZones.optJSONObject(i) ?: continue
+            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) {
+                return zone.optString("id").takeIf { it.isNotBlank() }
+            }
+        }
+        return null
     }
 
     private fun saveGpsSettings() {
@@ -261,6 +280,7 @@ class MainActivity : Activity() {
         }
 
         gpsStatusText.text = "Recherche des ${addresses.size} adresse(s)…"
+        val existingZones = loadSavedZoneObjects()
 
         Thread {
             val zones = mutableListOf<WorkZone>()
@@ -268,14 +288,17 @@ class MainActivity : Activity() {
             val failedAddresses = mutableListOf<String>()
             val geocoder = Geocoder(this, Locale.FRANCE)
 
-            addresses.forEachIndexed { index, address ->
+            addresses.forEach { address ->
                 try {
                     val location = geocoder.getFromLocationName(address, 1)?.firstOrNull()
                     if (location == null) {
                         failedAddresses.add(address)
                     } else {
+                        val stableId = existingZoneIdForAddress(address, existingZones)
+                            ?: "workplace_${UUID.randomUUID()}"
+
                         val zone = WorkZone(
-                            id = "workplace_${index + 1}",
+                            id = stableId,
                             latitude = location.latitude,
                             longitude = location.longitude,
                             radius = radius.toFloat()
@@ -392,7 +415,7 @@ class MainActivity : Activity() {
 
     private fun loadSavedZones(): List<WorkZone> {
         return try {
-            val array = JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+            val array = loadSavedZoneObjects()
             val zones = mutableListOf<WorkZone>()
             for (i in 0 until array.length()) {
                 val item = array.getJSONObject(i)
@@ -454,7 +477,12 @@ class MainActivity : Activity() {
         if (PointageStore.hasOpen(this)) {
             val last = data.getJSONObject(data.length() - 1)
             val entry = last.getLong("entry")
-            statusCard.text = "STATUT ACTUEL\n🟢 ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(entry))}"
+            val place = last.optString("zoneAddress").takeIf { it.isNotBlank() }
+            statusCard.text = if (place != null) {
+                "STATUT ACTUEL\n🟢 ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(entry))}\n📍 $place"
+            } else {
+                "STATUT ACTUEL\n🟢 ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(entry))}"
+            }
         } else {
             statusCard.text = "STATUT ACTUEL\n⚪ Aucune entrée en cours"
         }
@@ -474,6 +502,14 @@ class MainActivity : Activity() {
         for (i in 0 until data.length()) {
             val item = data.getJSONObject(i)
             val entry = item.getLong("entry")
+            val place = item.optString("zoneAddress").takeIf { it.isNotBlank() }
+
+            if (place != null) {
+                builder.append("📍 $place\n")
+            } else {
+                builder.append("📍 Pointage manuel / ancien pointage\n")
+            }
+
             builder.append("🟢  ${dateFormat.format(Date(entry))}   ENTRÉE")
 
             if (!item.isNull("exit")) {
@@ -489,26 +525,54 @@ class MainActivity : Activity() {
 
     private fun buildAnalyticsText(): String {
         val data = PointageStore.load(this)
-        if (data.length() == 0) return "Aucune donnée disponible pour le moment."
+        val totalsByPlace = LinkedHashMap<String, Long>()
+        val sessionsByPlace = LinkedHashMap<String, Int>()
 
-        var completedSessions = 0
-        var totalDuration = 0L
-
-        for (i in 0 until data.length()) {
-            val item = data.getJSONObject(i)
-            if (!item.isNull("exit")) {
-                val entry = item.getLong("entry")
-                val exit = item.getLong("exit")
-                totalDuration += (exit - entry).coerceAtLeast(0L)
-                completedSessions++
+        val savedZones = loadSavedZoneObjects()
+        for (i in 0 until savedZones.length()) {
+            val address = savedZones.optJSONObject(i)?.optString("address")?.trim().orEmpty()
+            if (address.isNotEmpty()) {
+                totalsByPlace.putIfAbsent(address, 0L)
+                sessionsByPlace.putIfAbsent(address, 0)
             }
         }
 
-        val averageDuration = if (completedSessions > 0) totalDuration / completedSessions else 0L
-        return "📊 Nombre de pointages : ${data.length()}\n\n" +
-            "✅ Sessions terminées : $completedSessions\n\n" +
-            "⏱ Temps total : ${formatDuration(totalDuration)}\n\n" +
-            "📈 Durée moyenne : ${formatDuration(averageDuration)}"
+        var grandTotal = 0L
+        var completedSessions = 0
+
+        for (i in 0 until data.length()) {
+            val item = data.getJSONObject(i)
+            if (item.isNull("exit")) continue
+
+            val entry = item.getLong("entry")
+            val exit = item.getLong("exit")
+            val duration = (exit - entry).coerceAtLeast(0L)
+            val place = item.optString("zoneAddress").takeIf { it.isNotBlank() }
+                ?: "Pointage manuel / ancien pointage"
+
+            totalsByPlace[place] = (totalsByPlace[place] ?: 0L) + duration
+            sessionsByPlace[place] = (sessionsByPlace[place] ?: 0) + 1
+            grandTotal += duration
+            completedSessions++
+        }
+
+        if (totalsByPlace.isEmpty() && completedSessions == 0) {
+            return "Aucune donnée disponible pour le moment."
+        }
+
+        val builder = StringBuilder()
+        builder.append("⏱ TOTAL : ${formatDuration(grandTotal)}\n")
+        builder.append("✅ Sessions terminées : $completedSessions\n\n")
+        builder.append("HEURES PAR ADRESSE\n\n")
+
+        totalsByPlace.forEach { (place, total) ->
+            val count = sessionsByPlace[place] ?: 0
+            builder.append("📍 $place\n")
+            builder.append("   ⏱ ${formatDuration(total)}")
+            builder.append("   •   $count session(s)\n\n")
+        }
+
+        return builder.toString()
     }
 
     private fun formatDuration(ms: Long): String {
