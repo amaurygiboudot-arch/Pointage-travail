@@ -10,8 +10,14 @@ import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 
+data class WorkZone(
+    val id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radius: Float
+)
+
 object GeofenceManager {
-    private const val GEOFENCE_ID = "workplace"
 
     private fun pendingIntent(context: Context): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -33,11 +39,9 @@ object GeofenceManager {
         return fine && background
     }
 
-    fun register(
+    fun registerAll(
         context: Context,
-        latitude: Double,
-        longitude: Double,
-        radius: Float,
+        zones: List<WorkZone>,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
         if (!hasRequiredPermissions(context)) {
@@ -45,24 +49,41 @@ object GeofenceManager {
             return
         }
 
-        val geofence = Geofence.Builder()
-            .setRequestId(GEOFENCE_ID)
-            .setCircularRegion(latitude, longitude, radius)
-            .setExpirationDuration(Geofence.NEVER_EXPIRE)
-            .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
-            .setNotificationResponsiveness(30_000)
-            .build()
+        if (zones.isEmpty()) {
+            remove(context)
+            onResult(false, "Aucune adresse configurée")
+            return
+        }
+
+        val geofences = zones.take(10).map { zone ->
+            Geofence.Builder()
+                .setRequestId(zone.id)
+                .setCircularRegion(zone.latitude, zone.longitude, zone.radius)
+                .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                .setTransitionTypes(
+                    Geofence.GEOFENCE_TRANSITION_ENTER or
+                        Geofence.GEOFENCE_TRANSITION_EXIT
+                )
+                .setNotificationResponsiveness(30_000)
+                .build()
+        }
 
         val request = GeofencingRequest.Builder()
             .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
-            .addGeofence(geofence)
+            .addGeofences(geofences)
             .build()
 
         try {
-            LocationServices.getGeofencingClient(context)
-                .addGeofences(request, pendingIntent(context))
-                .addOnSuccessListener { onResult(true, "Zone GPS activée") }
-                .addOnFailureListener { onResult(false, it.message ?: "Impossible d'activer la zone GPS") }
+            val client = LocationServices.getGeofencingClient(context)
+            client.removeGeofences(pendingIntent(context)).addOnCompleteListener {
+                client.addGeofences(request, pendingIntent(context))
+                    .addOnSuccessListener {
+                        onResult(true, "${geofences.size} zone(s) GPS activée(s)")
+                    }
+                    .addOnFailureListener {
+                        onResult(false, it.message ?: "Impossible d'activer les zones GPS")
+                    }
+            }
         } catch (_: SecurityException) {
             onResult(false, "Autorisation de localisation manquante")
         }
