@@ -6,10 +6,15 @@ import java.util.Locale
 
 object SalaryCalculator {
 
+    data class TierResult(
+        val label: String,
+        val durationMs: Long,
+        val multiplier: Double
+    )
+
     data class Result(
         val regularMs: Long,
-        val overtime25Ms: Long,
-        val overtime50Ms: Long,
+        val overtimeTiers: List<TierResult>,
         val totalWorkedMs: Long,
         val workedGross: Double,
         val monthlyBaseGross: Double,
@@ -18,30 +23,24 @@ object SalaryCalculator {
         val completedSessions: Int
     )
 
-    private data class Session(
-        val entry: Long,
-        val exit: Long
-    )
-
+    private data class Session(val entry: Long, val exit: Long)
     private data class WeekKey(val year: Int, val week: Int)
 
     fun calculate(
         data: JSONArray,
         year: Int,
         month: Int,
-        hourlyRate: Double
+        hourlyRate: Double,
+        convention: ConventionCatalog.Convention
     ): Result {
         val sessions = mutableListOf<Session>()
-
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             if (item.isNull("exit")) continue
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
-            if (entry <= 0L || exit <= entry) continue
-            sessions.add(Session(entry, exit))
+            if (entry > 0L && exit > entry) sessions.add(Session(entry, exit))
         }
-
         sessions.sortBy { it.entry }
 
         val sessionsByWeek = linkedMapOf<WeekKey, MutableList<Session>>()
@@ -51,70 +50,55 @@ object SalaryCalculator {
                 minimalDaysInFirstWeek = 4
                 timeInMillis = session.entry
             }
-            val key = WeekKey(
-                cal.getWeekYear(),
-                cal.get(Calendar.WEEK_OF_YEAR)
-            )
+            val key = WeekKey(cal.getWeekYear(), cal.get(Calendar.WEEK_OF_YEAR))
             sessionsByWeek.getOrPut(key) { mutableListOf() }.add(session)
         }
 
-        val normalLimit = 35L * 60L * 60L * 1000L
-        val firstOvertimeLimit = 43L * 60L * 60L * 1000L
-
+        val hourMs = 60L * 60L * 1000L
+        val normalLimit = 35L * hourMs
         var regularMs = 0L
-        var overtime25Ms = 0L
-        var overtime50Ms = 0L
         var completedSessions = 0
+        val overtimeByTier = LongArray(convention.overtimeTiers.size)
 
         sessionsByWeek.values.forEach { weekSessions ->
             var cumulative = 0L
-
             weekSessions.sortedBy { it.entry }.forEach { session ->
                 val duration = session.exit - session.entry
                 val startCum = cumulative
                 val endCum = cumulative + duration
-
-                val regularPart = overlap(startCum, endCum, 0L, normalLimit)
-                val overtime25Part = overlap(startCum, endCum, normalLimit, firstOvertimeLimit)
-                val overtime50Part = (duration - regularPart - overtime25Part).coerceAtLeast(0L)
-
-                val entryCal = Calendar.getInstance(Locale.FRANCE).apply {
-                    timeInMillis = session.entry
-                }
+                val entryCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
 
                 if (entryCal.get(Calendar.YEAR) == year && entryCal.get(Calendar.MONTH) == month) {
-                    regularMs += regularPart
-                    overtime25Ms += overtime25Part
-                    overtime50Ms += overtime50Part
+                    regularMs += overlap(startCum, endCum, 0L, normalLimit)
+                    convention.overtimeTiers.forEachIndexed { index, tier ->
+                        val from = (tier.fromHour * hourMs).toLong()
+                        val to = tier.toHour?.let { (it * hourMs).toLong() } ?: Long.MAX_VALUE
+                        overtimeByTier[index] += overlap(startCum, endCum, from, to)
+                    }
                     completedSessions++
                 }
-
                 cumulative = endCum
             }
         }
 
-        val hourMs = 60.0 * 60.0 * 1000.0
-        val regularHours = regularMs / hourMs
-        val overtime25Hours = overtime25Ms / hourMs
-        val overtime50Hours = overtime50Ms / hourMs
+        val tierResults = convention.overtimeTiers.mapIndexed { index, tier ->
+            val percent = ((tier.multiplier - 1.0) * 100.0).toInt()
+            TierResult("Heures sup. +$percent %", overtimeByTier[index], tier.multiplier)
+        }
 
-        val workedGross =
-            regularHours * hourlyRate +
-            overtime25Hours * hourlyRate * 1.25 +
-            overtime50Hours * hourlyRate * 1.50
-
-        val overtimeGross =
-            overtime25Hours * hourlyRate * 1.25 +
-            overtime50Hours * hourlyRate * 1.50
-
+        val regularHours = regularMs / hourMs.toDouble()
+        val overtimeGross = tierResults.sumOf {
+            (it.durationMs / hourMs.toDouble()) * hourlyRate * it.multiplier
+        }
+        val totalOvertimeMs = tierResults.sumOf { it.durationMs }
+        val workedGross = regularHours * hourlyRate + overtimeGross
         val monthlyBaseGross = hourlyRate * 151.67
         val monthlyEstimatedGross = monthlyBaseGross + overtimeGross
 
         return Result(
             regularMs = regularMs,
-            overtime25Ms = overtime25Ms,
-            overtime50Ms = overtime50Ms,
-            totalWorkedMs = regularMs + overtime25Ms + overtime50Ms,
+            overtimeTiers = tierResults,
+            totalWorkedMs = regularMs + totalOvertimeMs,
             workedGross = workedGross,
             monthlyBaseGross = monthlyBaseGross,
             overtimeGross = overtimeGross,
