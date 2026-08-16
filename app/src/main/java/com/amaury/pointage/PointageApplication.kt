@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -23,7 +24,7 @@ import org.json.JSONObject
 import java.io.File
 
 class PointageApplication : Application(), Application.ActivityLifecycleCallbacks {
-    override fun onCreate() { super.onCreate(); registerActivityLifecycleCallbacks(this) }
+    override fun onCreate() { super.onCreate(); registerActivityLifecycleCallbacks(this); ConventionCatalog.initialize(this) }
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
         activity.window.decorView.post {
             AppearanceManager.apply(activity)
@@ -48,12 +49,12 @@ object AppearanceManager {
         val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)
         val defaultBg = if (dark) "#080808" else "#F3F0E8"
-        val defaultPanel = if (dark) "#121212" else "#FFFFFF"
+        val defaultPanel = if (dark) "#181818" else "#FFFFFF"
         val bg = parseColor(prefs.getString("app_bg", null), defaultBg)
         val panel = if (prefs.getBoolean("custom_bg", false)) shift(bg, if (isDark(bg)) 1.28f else 0.90f) else Color.parseColor(defaultPanel)
         val text = bestTextColor(bg)
         val panelText = bestTextColor(panel)
-        val secondary = blend(panelText, panel, 0.72f)
+        val secondary = if (isDark(panel)) Color.parseColor("#E0E0E0") else Color.parseColor("#333333")
         val imageFile = File(activity.filesDir, BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && imageFile.exists()
 
@@ -62,35 +63,51 @@ object AppearanceManager {
         val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)
         if (hasImage) {
             val bitmap = runCatching { BitmapFactory.decodeFile(imageFile.absolutePath) }.getOrNull()
-            if (bitmap != null) {
-                root.background = BitmapDrawable(activity.resources, bitmap).apply { gravity = Gravity.FILL }
-            } else root.setBackgroundColor(bg)
+            if (bitmap != null) root.background = BitmapDrawable(activity.resources, bitmap).apply { gravity = Gravity.FILL }
+            else root.setBackgroundColor(bg)
         } else root.setBackgroundColor(bg)
-        recolor(root, bg, panel, text, panelText, secondary, hasImage)
+        recolor(root, bg, panel, text, panelText, secondary, hasImage, false)
     }
 
-    private fun recolor(view: View, bg: Int, panel: Int, text: Int, panelText: Int, secondary: Int, imageBg: Boolean) {
+    private fun recolor(view: View, bg: Int, panel: Int, text: Int, panelText: Int, secondary: Int, imageBg: Boolean, inheritedPanel: Boolean) {
+        val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+        val ownPanel = idName.contains("Panel", true) || idName.contains("Card", true) || idName == "contentPanel"
+        val onPanel = inheritedPanel || ownPanel
+
         if (view is ViewGroup) {
-            if (view.parent != null && view.background != null && view !is android.widget.ScrollView) {
-                val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-                if (idName.contains("Panel", true) || idName.contains("Card", true) || idName == "contentPanel") view.backgroundTintList = android.content.res.ColorStateList.valueOf(panel)
+            if (view.parent != null && view.background != null && view !is android.widget.ScrollView && ownPanel) {
+                view.backgroundTintList = ColorStateList.valueOf(panel)
             }
-            for (i in 0 until view.childCount) recolor(view.getChildAt(i), bg, panel, text, panelText, secondary, imageBg)
+            for (i in 0 until view.childCount) recolor(view.getChildAt(i), bg, panel, text, panelText, secondary, imageBg, onPanel)
         }
-        if (view is TextView && view !is Button) {
-            val parentName = (view.parent as? View)?.let { runCatching { it.resources.getResourceEntryName(it.id) }.getOrNull() }.orEmpty()
-            val onPanel = parentName.contains("Panel", true) || parentName.contains("Card", true)
-            val current = view.currentTextColor
-            when {
-                current == Color.parseColor("#D6A84B") || current == Color.parseColor("#F3D58A") -> {
-                    val gold = Color.parseColor("#F3D58A")
-                    view.setTextColor(if (contrastRatio(gold, if (onPanel) panel else bg) >= 4.5) gold else if (onPanel) panelText else text)
-                }
-                current == Color.parseColor("#A99F8C") -> view.setTextColor(secondary)
-                else -> view.setTextColor(if (onPanel) panelText else text)
+
+        val surface = if (onPanel) panel else bg
+        val strongText = bestTextColor(surface)
+        val softText = if (isDark(surface)) Color.parseColor("#E0E0E0") else Color.parseColor("#333333")
+
+        when (view) {
+            is EditText -> {
+                view.setTextColor(strongText)
+                view.setHintTextColor(softText)
+            }
+            is Button -> {
+                // Les boutons ont généralement un fond de panneau : contraste calculé sur ce fond.
+                val buttonSurface = if (view.background != null) panel else surface
+                view.setTextColor(bestTextColor(buttonSurface))
+            }
+            is TextView -> {
+                val current = view.currentTextColor
+                val gold = Color.parseColor("#D6A84B")
+                val lightGold = Color.parseColor("#F3D58A")
+                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold)
+                else view.setTextColor(strongText)
             }
         }
-        if (view is EditText) { view.setTextColor(panelText); view.setHintTextColor(secondary) }
+
+        if (view is Switch) {
+            view.setTextColor(strongText)
+            view.buttonTintList = null
+        }
         if (view is android.widget.ScrollView) {
             if (imageBg) view.setBackgroundColor(Color.TRANSPARENT) else view.setBackgroundColor(bg)
         }
@@ -102,7 +119,6 @@ object AppearanceManager {
         val l1=lum(foreground); val l2=lum(background); return (maxOf(l1,l2)+0.05)/(minOf(l1,l2)+0.05)
     }
     private fun isDark(color:Int):Boolean=((Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000)<145
-    private fun blend(fg:Int,bg:Int,amount:Float)=Color.rgb((Color.red(fg)*amount+Color.red(bg)*(1f-amount)).toInt().coerceIn(0,255),(Color.green(fg)*amount+Color.green(bg)*(1f-amount)).toInt().coerceIn(0,255),(Color.blue(fg)*amount+Color.blue(bg)*(1f-amount)).toInt().coerceIn(0,255))
     private fun parseColor(value:String?,fallback:String):Int=runCatching{Color.parseColor(value?:fallback)}.getOrElse{Color.parseColor(fallback)}
     private fun shift(color:Int,factor:Float)=Color.rgb((Color.red(color)*factor).toInt().coerceIn(0,255),(Color.green(color)*factor).toInt().coerceIn(0,255),(Color.blue(color)*factor).toInt().coerceIn(0,255))
 }
@@ -122,13 +138,11 @@ object SettingsUiInstaller {
         val address = activity.findViewById<EditText>(R.id.workplaceAddress)
         address.isFocusable = false; address.isClickable = false
 
-        // Bouton retour commun aux onglets principaux.
         val settingsButton = activity.findViewById<Button>(R.id.settingsButton)
         val header = settingsButton.parent as? LinearLayout
         if (header != null && header.findViewWithTag<View>("main_back_button") == null) {
             val back = styledButton(activity, "←").apply {
-                tag = "main_back_button"
-                textSize = 24f
+                tag = "main_back_button"; textSize = 24f
                 layoutParams = LinearLayout.LayoutParams(dp(activity,56), dp(activity,56)).apply { marginEnd = dp(activity,8) }
                 setOnClickListener { activity.findViewById<TextView>(R.id.tabToday)?.performClick() }
             }
@@ -157,9 +171,9 @@ object SettingsUiInstaller {
         panel.addView(section);AppearanceManager.apply(activity)
     }
 
-    private fun styledButton(context: Context, label:String)=Button(context).apply{text=label;setBackgroundResource(R.drawable.hp_panel);setTextColor(Color.parseColor("#F3D58A"));isAllCaps=false}
+    private fun styledButton(context: Context, label:String)=Button(context).apply{text=label;setBackgroundResource(R.drawable.hp_panel);isAllCaps=false}
     private fun dp(context:Context,value:Int)=(value*context.resources.displayMetrics.density).toInt()
-    private fun title(context:Context,text:String)=TextView(context).apply{this.text=text;textSize=16f;setTextColor(Color.parseColor("#D6A84B"));setPadding(0,18,0,10)}
+    private fun title(context:Context,text:String)=TextView(context).apply{this.text=text;textSize=16f;setPadding(0,18,0,10)}
     private fun chooseAppBackground(activity:Activity){val labels=arrayOf("Noir","Anthracite","Bleu nuit","Vert profond","Bordeaux","Beige clair","Couleur personnalisée");val colors=arrayOf("#080808","#242424","#0D1B2A","#102A20","#351015","#F3F0E8");AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels){_,which->if(which<colors.size)saveAppBg(activity,colors[which])else customColorDialog(activity,"Couleur du fond"){saveAppBg(activity,it)}}.show()}
     private fun saveAppBg(activity:Activity,color:String){activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).edit().putString("app_bg",color).putBoolean("custom_bg",true).putBoolean("custom_image_bg",false).apply();AppearanceManager.apply(activity)}
     private fun chooseWidgetColor(activity:Activity,key:String,title:String){val labels=arrayOf("Noir","Anthracite","Bleu nuit","Vert profond","Doré","Blanc","Couleur personnalisée");val colors=arrayOf("#080808","#242424","#0D1B2A","#102A20","#D6A84B","#FFFFFF");AlertDialog.Builder(activity).setTitle(title).setItems(labels){_,which->if(which<colors.size)saveWidgetColor(activity,key,colors[which])else customColorDialog(activity,title){saveWidgetColor(activity,key,it)}}.show()}
