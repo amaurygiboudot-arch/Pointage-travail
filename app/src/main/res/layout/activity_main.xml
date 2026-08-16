@@ -297,7 +297,7 @@
                 android:focusable="true"
                 android:text="AUJOURD'HUI"
                 android:textColor="@color/hp_gold"
-                android:textSize="13sp"/>
+                android:textSize="11sp"/>
 
             <TextView
                 android:id="@+id/tabHistory"
@@ -309,7 +309,7 @@
                 android:focusable="true"
                 android:text="HISTORIQUE"
                 android:textColor="@color/hp_grey"
-                android:textSize="13sp"/>
+                android:textSize="11sp"/>
 
             <TextView
                 android:id="@+id/tabAnalytics"
@@ -321,7 +321,17 @@
                 android:focusable="true"
                 android:text="ANALYSES"
                 android:textColor="@color/hp_grey"
-                android:textSize="13sp"/>
+                android:textSize="11sp"/>
+
+            <com.amaury.pointage.SalaryTabTextView
+                android:id="@+id/tabSalary"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="SALAIRE"
+                android:textColor="@color/hp_grey"
+                android:textSize="11sp"/>
 
             <TextView
                 android:id="@+id/tabSettings"
@@ -333,7 +343,7 @@
                 android:focusable="true"
                 android:text="PARAMÈTRES"
                 android:textColor="@color/hp_grey"
-                android:textSize="13sp"/>
+                android:textSize="11sp"/>
         </LinearLayout>
 
     </LinearLayout>
