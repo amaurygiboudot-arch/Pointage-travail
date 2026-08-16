@@ -11,14 +11,18 @@ android {
         applicationId = "com.amaury.pointage"
         minSdk = 23
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.8"
+        versionCode = 9
+        versionName = "1.9"
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-location:21.4.0")
 }
 
 kotlin {
