@@ -37,12 +37,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val totalMinutes = ms.coerceAtLeast(0L) / 60000
             val hours = totalMinutes / 60
             val minutes = totalMinutes % 60
-            return String.format(
-                Locale.FRANCE,
-                "%02dh %02dm",
-                hours,
-                minutes
-            )
+            return String.format(Locale.FRANCE, "%02dh %02dm", hours, minutes)
         }
 
         private fun shortLocation(address: String): String {
@@ -50,30 +45,24 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return if (cleaned.length <= 42) cleaned else cleaned.take(39) + "…"
         }
 
-        private fun updateWidget(
-            context: Context,
-            manager: AppWidgetManager,
-            widgetId: Int
-        ) {
-            val views = RemoteViews(
-                context.packageName,
-                R.layout.widget_pointage
-            )
+        private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            val views = RemoteViews(context.packageName, R.layout.widget_pointage)
 
             val entryIntent = Intent(context, PointageWidgetProvider::class.java).apply {
                 action = ACTION_ENTRY
             }
-
             val exitIntent = Intent(context, PointageWidgetProvider::class.java).apply {
                 action = ACTION_EXIT
+            }
+            val locationIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra("open_tab", "settings")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
             views.setOnClickPendingIntent(
                 R.id.widget_entry,
                 PendingIntent.getBroadcast(
-                    context,
-                    1,
-                    entryIntent,
+                    context, 1, entryIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )
@@ -81,9 +70,15 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(
                 R.id.widget_exit,
                 PendingIntent.getBroadcast(
-                    context,
-                    2,
-                    exitIntent,
+                    context, 2, exitIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+
+            views.setOnClickPendingIntent(
+                R.id.widget_location,
+                PendingIntent.getActivity(
+                    context, 30, locationIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
             )
@@ -135,20 +130,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onUpdate(
-        context: Context,
-        manager: AppWidgetManager,
-        ids: IntArray
-    ) {
-        ids.forEach {
-            updateWidget(context, manager, it)
-        }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        ids.forEach { updateWidget(context, manager, it) }
     }
 
-    override fun onReceive(
-        context: Context,
-        intent: Intent
-    ) {
+    override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
 
         when (intent.action) {
