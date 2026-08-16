@@ -28,14 +28,26 @@ object PointageStore {
         return false
     }
 
-    fun entry(context: Context): Boolean {
+    fun entry(
+        context: Context,
+        zoneId: String? = null,
+        zoneAddress: String? = null
+    ): Boolean {
         val data = load(context)
         if (hasOpen(context)) return false
-        data.put(
-            JSONObject()
-                .put("entry", System.currentTimeMillis())
-                .put("exit", JSONObject.NULL)
-        )
+
+        val item = JSONObject()
+            .put("entry", System.currentTimeMillis())
+            .put("exit", JSONObject.NULL)
+
+        if (!zoneId.isNullOrBlank()) {
+            item.put("zoneId", zoneId)
+        }
+        if (!zoneAddress.isNullOrBlank()) {
+            item.put("zoneAddress", zoneAddress)
+        }
+
+        data.put(item)
         save(context, data)
         IconSwitcher.setWorking(context, true)
         return true
@@ -49,7 +61,7 @@ object PointageStore {
                 item.put("exit", System.currentTimeMillis())
                 save(context, data)
                 IconSwitcher.setWorking(context, false)
-            return true
+                return true
             }
         }
         return false
