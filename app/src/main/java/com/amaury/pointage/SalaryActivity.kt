@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -22,7 +23,7 @@ class SalaryActivity : Activity() {
 
     private lateinit var hourlyRateInput: EditText
     private lateinit var salaryMonthText: TextView
-    private lateinit var salaryResultText: TextView
+    private lateinit var salaryResultContainer: LinearLayout
     private lateinit var selectedConventionText: TextView
     private lateinit var conventionRuleStatusText: TextView
 
@@ -45,7 +46,7 @@ class SalaryActivity : Activity() {
 
         hourlyRateInput = findViewById(R.id.hourlyRateInput)
         salaryMonthText = findViewById(R.id.salaryMonthText)
-        salaryResultText = findViewById(R.id.salaryResultText)
+        salaryResultContainer = findViewById(R.id.salaryResultContainer)
         selectedConventionText = findViewById(R.id.selectedConventionText)
         conventionRuleStatusText = findViewById(R.id.conventionRuleStatusText)
 
@@ -60,12 +61,25 @@ class SalaryActivity : Activity() {
 
         updateConventionDisplay()
         updateMonthLabel()
+        showInitialState()
+
+        hourlyRateInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val value = s?.toString().orEmpty().trim().replace(',', '.')
+                prefs.edit().putString("hourly_rate", value).apply()
+                calculateSalary(showError = false)
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
 
         backButton.setOnClickListener { finish() }
         chooseMonthButton.setOnClickListener { showMonthDialog() }
         searchConventionButton.setOnClickListener { showConventionSearchDialog() }
         selectedConventionText.setOnClickListener { showConventionSearchDialog() }
         calculateButton.setOnClickListener { calculateSalary() }
+
+        calculateSalary(showError = false)
     }
 
     private fun updateConventionDisplay() {
@@ -87,22 +101,12 @@ class SalaryActivity : Activity() {
             isSingleLine = true
         }
         val list = ListView(this)
-        container.addView(search, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ))
-        container.addView(list, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            720
-        ))
+        container.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        container.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 720))
 
         var filtered = ConventionCatalog.conventions.toMutableList()
-        var adapter = ArrayAdapter(
-            this,
-            android.R.layout.simple_list_item_2,
-            android.R.id.text1,
-            filtered.map { "${it.displayName}\n${it.fullName}" }
-        )
+        var adapter = ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1,
+            filtered.map { "${it.displayName}\n${it.fullName}" })
         list.adapter = adapter
 
         val dialog = AlertDialog.Builder(this)
@@ -113,12 +117,8 @@ class SalaryActivity : Activity() {
 
         fun refresh(query: String) {
             filtered = ConventionCatalog.conventions.filter { it.matches(query) }.toMutableList()
-            adapter = ArrayAdapter(
-                this,
-                android.R.layout.simple_list_item_2,
-                android.R.id.text1,
-                filtered.map { "${it.displayName}\n${it.fullName}" }
-            )
+            adapter = ArrayAdapter(this, android.R.layout.simple_list_item_2, android.R.id.text1,
+                filtered.map { "${it.displayName}\n${it.fullName}" })
             list.adapter = adapter
         }
 
@@ -135,7 +135,7 @@ class SalaryActivity : Activity() {
             selectedConvention = convention
             prefs.edit().putString("convention_idcc", convention.idcc).apply()
             updateConventionDisplay()
-            calculateSalaryIfRateAvailable()
+            calculateSalary(showError = false)
             dialog.dismiss()
         }
 
@@ -172,23 +172,18 @@ class SalaryActivity : Activity() {
             .setSingleChoiceItems(labels.toTypedArray(), selectedIndex) { dialog, which ->
                 selectedMonth.timeInMillis = months[which].timeInMillis
                 updateMonthLabel()
-                calculateSalaryIfRateAvailable()
+                calculateSalary(showError = false)
                 dialog.dismiss()
             }
             .setNegativeButton("Annuler", null)
             .show()
     }
 
-    private fun calculateSalaryIfRateAvailable() {
-        if (hourlyRateInput.text.toString().trim().replace(',', '.').toDoubleOrNull() != null) {
-            calculateSalary(showError = false)
-        }
-    }
-
     private fun calculateSalary(showError: Boolean = true) {
         val rateText = hourlyRateInput.text.toString().trim().replace(',', '.')
         val hourlyRate = rateText.toDoubleOrNull()
         if (hourlyRate == null || hourlyRate <= 0.0) {
+            showInitialState()
             if (showError) Toast.makeText(this, "Entre un taux horaire brut valide", Toast.LENGTH_LONG).show()
             return
         }
@@ -207,35 +202,89 @@ class SalaryActivity : Activity() {
         )
 
         val euro = NumberFormat.getCurrencyInstance(Locale.FRANCE)
-        salaryResultText.text = buildString {
-            append("CONVENTION\n${selectedConvention.displayName}\n${selectedConvention.fullName}\n\n")
-            if (!selectedConvention.rulesIntegrated) {
-                append("⚠ CALCUL PROVISOIRE : les règles propres à cette convention ne sont pas encore toutes intégrées. Le barème légal est utilisé.\n\n")
+        salaryResultContainer.removeAllViews()
+
+        addSection("CONVENTION")
+        addCard("Convention collective", selectedConvention.displayName)
+        addCard("Intitulé", selectedConvention.fullName)
+        addCard("Statut des règles", if (selectedConvention.rulesIntegrated) "Règles intégrées" else "Calcul légal provisoire")
+
+        addSection("HEURES DU MOIS")
+        addCard("Heures normales", formatDuration(result.regularMs))
+        result.overtimeTiers.forEach { addCard(it.label, formatDuration(it.durationMs)) }
+        addCard("Total pointé", formatDuration(result.totalWorkedMs))
+        addCard("Sessions terminées", result.completedSessions.toString())
+
+        addSection("ESTIMATION BRUTE")
+        addCard("Taux horaire brut", euro.format(hourlyRate))
+        addCard("Valeur des heures pointées", euro.format(result.workedGross))
+        addCard("Base mensualisée 151,67 h", euro.format(result.monthlyBaseGross))
+        addCard("Heures supplémentaires payées", euro.format(result.overtimeGross))
+        addCard("Salaire mensualisé estimé", euro.format(result.monthlyEstimatedGross), highlight = true)
+
+        addSection("AVANTAGES / GARANTIES")
+        if (selectedConvention.advantages.isEmpty()) {
+            addCard("Informations intégrées", "Aucun avantage spécifique intégré pour le moment.")
+        } else {
+            selectedConvention.advantages.forEachIndexed { index, value ->
+                addCard("Avantage ${index + 1}", value)
             }
+        }
 
-            append("HEURES DU MOIS\n")
-            append("Heures normales : ${formatDuration(result.regularMs)}\n")
-            result.overtimeTiers.forEach { append("${it.label} : ${formatDuration(it.durationMs)}\n") }
-            append("Total pointé : ${formatDuration(result.totalWorkedMs)}\n")
-            append("Sessions terminées : ${result.completedSessions}\n\n")
-
-            append("ESTIMATION BRUTE\n")
-            append("Valeur des heures pointées : ${euro.format(result.workedGross)}\n")
-            append("Base mensualisée 151,67 h : ${euro.format(result.monthlyBaseGross)}\n")
-            append("Heures supplémentaires payées : ${euro.format(result.overtimeGross)}\n")
-            append("Salaire mensualisé estimé : ${euro.format(result.monthlyEstimatedGross)}\n\n")
-
-            append("AVANTAGES / GARANTIES IDENTIFIÉS\n")
-            if (selectedConvention.advantages.isEmpty()) append("• Aucun avantage spécifique intégré pour le moment.\n")
-            selectedConvention.advantages.forEach { append("• $it\n") }
-
-            append("\nPOINTS DE VIGILANCE\n")
-            if (selectedConvention.cautions.isEmpty()) append("• Aucun point particulier enregistré.\n")
-            selectedConvention.cautions.forEach { append("• $it\n") }
-
-            append("\nCette estimation ne remplace pas une fiche de paie : accords d'entreprise, primes, ancienneté, absences et dispositifs d'aménagement du temps de travail peuvent modifier le résultat.")
+        addSection("POINTS DE VIGILANCE")
+        if (selectedConvention.cautions.isEmpty()) {
+            addCard("Informations intégrées", "Aucun point particulier enregistré.")
+        } else {
+            selectedConvention.cautions.forEachIndexed { index, value ->
+                addCard("Point ${index + 1}", value)
+            }
         }
     }
+
+    private fun showInitialState() {
+        if (!::salaryResultContainer.isInitialized) return
+        salaryResultContainer.removeAllViews()
+        addCard("Calcul automatique", "Entre ou modifie ton taux horaire : les résultats se mettront à jour immédiatement.")
+    }
+
+    private fun addSection(title: String) {
+        val view = TextView(this).apply {
+            text = title
+            setTextColor(getColor(R.color.hp_gold))
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(2, dp(16), 2, dp(5))
+        }
+        salaryResultContainer.addView(view)
+    }
+
+    private fun addCard(label: String, value: String, highlight: Boolean = false) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundResource(R.drawable.hp_panel)
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        val labelView = TextView(this).apply {
+            text = label
+            setTextColor(getColor(R.color.hp_grey))
+            textSize = 12f
+        }
+        val valueView = TextView(this).apply {
+            text = value
+            setTextColor(getColor(if (highlight) R.color.hp_gold_light else R.color.hp_white))
+            textSize = if (highlight) 21f else 17f
+            if (highlight) setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(3), 0, 0)
+        }
+        card.addView(labelView)
+        card.addView(valueView)
+        salaryResultContainer.addView(card, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(6) })
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun formatDuration(ms: Long): String {
         val totalMinutes = ms.coerceAtLeast(0L) / 60000L
