@@ -148,6 +148,58 @@
                 android:paddingTop="14dp"/>
 
             <LinearLayout
+                android:id="@+id/analyticsPdfPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="18dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="RAPPORT PDF MENSUEL"
+                    android:textColor="@color/hp_gold"
+                    android:textSize="16sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:id="@+id/selectedReportMonthText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Mois sélectionné"
+                    android:textColor="@color/hp_white"
+                    android:textSize="15sp"/>
+
+                <Button
+                    android:id="@+id/chooseReportMonthButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="CHOISIR LE MOIS"
+                    android:textColor="@color/hp_gold_light"
+                    android:background="@drawable/hp_panel"/>
+
+                <Button
+                    android:id="@+id/generateMonthlyPdfButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="GÉNÉRER LE PDF"
+                    android:textColor="@color/hp_gold_light"
+                    android:background="@drawable/hp_panel"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Le PDF contient le total du mois, le récapitulatif par adresse et le détail complet des entrées/sorties."
+                    android:textColor="@color/hp_grey"
+                    android:textSize="13sp"/>
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/gpsSettingsPanel"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -158,7 +210,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Adresse du lieu de travail"
+                    android:text="Adresses des lieux de travail (10 maximum)"
                     android:textColor="@color/hp_gold"
                     android:textSize="15sp"/>
 
@@ -166,8 +218,10 @@
                     android:id="@+id/workplaceAddress"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Ex. 12 rue ..., 85190 Aizenay"
-                    android:inputType="textPostalAddress"
+                    android:hint="Une adresse par ligne"
+                    android:inputType="textPostalAddress|textMultiLine"
+                    android:minLines="3"
+                    android:maxLines="10"
                     android:textColor="@color/hp_white"
                     android:textColorHint="@color/hp_grey"
                     android:singleLine="false"/>
@@ -210,7 +264,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
-                    android:text="ENREGISTRER LE LIEU"
+                    android:text="ENREGISTRER LES LIEUX"
                     android:textColor="@color/hp_gold_light"
                     android:background="@drawable/hp_panel"/>
 
