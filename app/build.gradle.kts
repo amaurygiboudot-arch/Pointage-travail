@@ -23,6 +23,7 @@ android {
 
 dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("androidx.core:core-ktx:1.15.0")
 }
 
 kotlin {
