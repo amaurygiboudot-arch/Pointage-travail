@@ -8,28 +8,64 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
     steps:
       - name: Recuperer le projet
         uses: actions/checkout@v4
+
       - name: Installer Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+
       - name: Installer Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.7"
-      - name: Restaurer la cle de signature de test
-        run: base64 -d .github/pointage-test.keystore.b64 > pointage-test.keystore
+
+      - name: Verifier la configuration de signature
+        env:
+          KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_B64" || (echo "Secret POINTAGE_KEYSTORE_B64 manquant" && exit 1)
+          test -n "$KEYSTORE_PASSWORD" || (echo "Secret POINTAGE_KEYSTORE_PASSWORD manquant" && exit 1)
+          test -n "$KEY_ALIAS" || (echo "Secret POINTAGE_KEY_ALIAS manquant" && exit 1)
+          test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
+
       - name: Incrementer automatiquement la version
         run: |
           sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
-          sed -i "s/versionName = \"[^\"]*\"/versionName = \"1.${{ github.run_number }}\"/" app/build.gradle.kts
-      - name: Compiler APK
-        run: gradle assembleDebug
-      - name: Recuperer APK
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"2.${{ github.run_number }}\"/" app/build.gradle.kts
+
+      - name: Compiler APK release
+        env:
+          POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
+          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
+          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
+          POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
+        run: gradle assembleRelease
+
+      - name: Verifier la signature APK
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+
+      - name: Calculer SHA-256
+        run: sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/SHA256.txt
+
+      - name: Publier APK release
         uses: actions/upload-artifact@v4
         with:
-          name: PointageTravail-APK-v1.${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: PointageTravail-Release-v2.${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/apk/release/SHA256.txt
+          if-no-files-found: error
+          retention-days: 30
