@@ -3,6 +3,10 @@ package com.amaury.pointage
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.content.Context
+import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Editable
@@ -40,10 +44,41 @@ class SalaryActivity : Activity() {
         val backButton=findViewById<Button>(R.id.salaryBackButton); val chooseMonthButton=findViewById<Button>(R.id.chooseSalaryMonthButton); val calculateButton=findViewById<Button>(R.id.calculateSalaryButton); val searchConventionButton=findViewById<Button>(R.id.searchConventionButton); val chooseStartDateButton=findViewById<Button>(R.id.chooseEmploymentStartDateButton)
         hourlyRateInput.setText(prefs.getString("hourly_rate","") ?: "")
         selectedConvention=ConventionCatalog.findByIdcc(prefs.getString("convention_idcc","0292")) ?: ConventionCatalog.conventions.first{it.idcc=="0292"}
-        updateConventionDisplay(); updateMonthLabel(); updateStartDateLabel(); showInitialState()
+        updateConventionDisplay(); updateMonthLabel(); updateStartDateLabel(); showInitialState(); applySalaryTheme()
         hourlyRateInput.addTextChangedListener(object:TextWatcher{ override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){ val value=s?.toString().orEmpty().trim().replace(',','.'); prefs.edit().putString("hourly_rate",value).apply(); calculateSalary(false)}; override fun afterTextChanged(s:Editable?)=Unit })
         backButton.setOnClickListener{finish()}; chooseMonthButton.setOnClickListener{showMonthDialog()}; searchConventionButton.setOnClickListener{showConventionSearchDialog()}; selectedConventionText.setOnClickListener{showConventionSearchDialog()}; calculateButton.setOnClickListener{calculateSalary()}; chooseStartDateButton.setOnClickListener{showStartDatePicker()}
         calculateSalary(false)
+    }
+
+    override fun onResume() { super.onResume(); applySalaryTheme(); calculateSalary(false) }
+
+    private fun themeColors(): Triple<Int,Int,Int> {
+        val appearance=getSharedPreferences("appearance_settings",Context.MODE_PRIVATE)
+        val mode=appearance.getString("mode","auto")?:"auto"
+        val systemDark=(resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES
+        val dark=mode=="dark" || (mode=="auto" && systemDark)
+        val defaultBg=if(dark) "#080808" else "#F3F0E8"
+        val bg=runCatching{Color.parseColor(appearance.getString("app_bg",null)?:defaultBg)}.getOrElse{Color.parseColor(defaultBg)}
+        val custom=appearance.getBoolean("custom_bg",false)
+        val panel=if(custom) mix(bg, if(AppearanceManager.bestTextColor(bg)==Color.WHITE) Color.WHITE else Color.BLACK, if(AppearanceManager.bestTextColor(bg)==Color.WHITE) 0.16f else 0.07f) else if(dark) Color.parseColor("#1B1B1B") else Color.WHITE
+        val text=AppearanceManager.bestTextColor(panel)
+        val secondary=mix(text,panel,0.68f)
+        return Triple(panel,text,secondary)
+    }
+
+    private fun mix(a:Int,b:Int,bAmount:Float):Int=Color.rgb(
+        (Color.red(a)*(1f-bAmount)+Color.red(b)*bAmount).toInt().coerceIn(0,255),
+        (Color.green(a)*(1f-bAmount)+Color.green(b)*bAmount).toInt().coerceIn(0,255),
+        (Color.blue(a)*(1f-bAmount)+Color.blue(b)*bAmount).toInt().coerceIn(0,255)
+    )
+
+    private fun applySalaryTheme(){
+        val (panel,text,secondary)=themeColors()
+        (hourlyRateInput.parent as? LinearLayout)?.backgroundTintList=ColorStateList.valueOf(panel)
+        hourlyRateInput.setTextColor(text);hourlyRateInput.setHintTextColor(secondary)
+        selectedConventionText.backgroundTintList=ColorStateList.valueOf(panel);selectedConventionText.setTextColor(text)
+        employmentStartDateText.setTextColor(text);salaryMonthText.setTextColor(text);conventionRuleStatusText.setTextColor(secondary)
+        AppearanceManager.apply(this)
     }
 
     private fun updateConventionDisplay(){ selectedConventionText.text=selectedConvention.displayName; conventionRuleStatusText.text=if(selectedConvention.rulesIntegrated) "✓ Règles intégrées dans le calcul" else "⚠ Règles détaillées non intégrées : calcul légal provisoire" }
@@ -75,7 +110,7 @@ class SalaryActivity : Activity() {
     }
     private fun formatSeniority(startMs:Long):String{val start=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=startMs};val end=(selectedMonth.clone() as Calendar).apply{add(Calendar.MONTH,1);add(Calendar.MILLISECOND,-1)};if(start.after(end))return "0 mois";var years=end.get(Calendar.YEAR)-start.get(Calendar.YEAR);var months=end.get(Calendar.MONTH)-start.get(Calendar.MONTH);if(end.get(Calendar.DAY_OF_MONTH)<start.get(Calendar.DAY_OF_MONTH))months--;if(months<0){years--;months+=12};return when{years>0&&months>0->"$years an${if(years>1)"s" else ""} et $months mois";years>0->"$years an${if(years>1)"s" else ""}";else->"${months.coerceAtLeast(0)} mois"}}
     private fun showInitialState(){if(!::salaryResultContainer.isInitialized)return;salaryResultContainer.removeAllViews();addCard("Calcul automatique","Entre ou modifie ton taux horaire : les résultats se mettront à jour immédiatement.")}
-    private fun addSection(title:String){salaryResultContainer.addView(TextView(this).apply{text=title;setTextColor(getColor(R.color.hp_gold));textSize=15f;setTypeface(typeface,Typeface.BOLD);setPadding(2,dp(16),2,dp(5))})}
-    private fun addCard(label:String,value:String,highlight:Boolean=false){val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundResource(R.drawable.hp_panel);setPadding(dp(14),dp(11),dp(14),dp(11))};card.addView(TextView(this).apply{text=label;setTextColor(getColor(R.color.hp_grey));textSize=12f});card.addView(TextView(this).apply{text=value;setTextColor(getColor(if(highlight)R.color.hp_gold_light else R.color.hp_white));textSize=if(highlight)21f else 17f;if(highlight)setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(3),0,0)});salaryResultContainer.addView(card,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT).apply{topMargin=dp(6)})}
+    private fun addSection(title:String){val (_,text,_)=themeColors();val gold=Color.parseColor("#D6A84B");salaryResultContainer.addView(TextView(this).apply{this.text=title;setTextColor(if(AppearanceManager.contrastRatio(gold,Color.TRANSPARENT)>0) gold else text);textSize=15f;setTypeface(typeface,Typeface.BOLD);setPadding(2,dp(16),2,dp(5))})}
+    private fun addCard(label:String,value:String,highlight:Boolean=false){val(panel,text,secondary)=themeColors();val gold=Color.parseColor("#F3D58A");val highlightColor=if(AppearanceManager.contrastRatio(gold,panel)>=4.5)gold else text;val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundResource(R.drawable.hp_panel);backgroundTintList=ColorStateList.valueOf(panel);setPadding(dp(14),dp(11),dp(14),dp(11))};card.addView(TextView(this).apply{this.text=label;setTextColor(secondary);textSize=12f});card.addView(TextView(this).apply{this.text=value;setTextColor(if(highlight)highlightColor else text);textSize=if(highlight)21f else 17f;if(highlight)setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(3),0,0)});salaryResultContainer.addView(card,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT).apply{topMargin=dp(6)})}
     private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt();private fun formatDuration(ms:Long):String{val min=ms.coerceAtLeast(0)/60000;return String.format(Locale.FRANCE,"%02dh %02dm",min/60,min%60)}
 }
