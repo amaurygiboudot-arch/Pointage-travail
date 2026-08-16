@@ -1,7 +1,11 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
@@ -25,8 +29,14 @@ class MainActivity : Activity() {
         statusCard = findViewById(R.id.statusCard)
         historyText = findViewById(R.id.historyText)
 
+        val settingsButton = findViewById<Button>(R.id.settingsButton)
         val entryButton = findViewById<Button>(R.id.entryButton)
         val exitButton = findViewById<Button>(R.id.exitButton)
+
+        settingsButton.setOnClickListener {
+            animateClick(settingsButton)
+            showSettingsDialog()
+        }
 
         entryButton.setOnClickListener {
             animateClick(entryButton)
@@ -91,6 +101,21 @@ class MainActivity : Activity() {
                     .start()
             }
             .start()
+    }
+
+    private fun showSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Paramètres")
+            .setMessage("Tu peux ouvrir les paramètres Android de Pointage Travail pour gérer les notifications, le stockage et les autorisations de l'application.")
+            .setPositiveButton("Ouvrir") { _, _ ->
+                val intent = Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }
+            .setNegativeButton("Fermer", null)
+            .show()
     }
 
     private fun refreshScreen() {
