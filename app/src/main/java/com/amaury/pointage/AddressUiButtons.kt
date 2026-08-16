@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.Toast
+import org.json.JSONObject
 
 class AddAddressButton @JvmOverloads constructor(
     context: Context,
@@ -42,6 +43,20 @@ class AddAddressButton @JvmOverloads constructor(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             isSingleLine = true
         }
+        val contactName = EditText(context).apply {
+            hint = "Nom du contact — ex. Responsable atelier"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            isSingleLine = true
+        }
+        val phone = EditText(context).apply {
+            hint = "Téléphone du contact — ex. 06 12 34 56 78"
+            inputType = InputType.TYPE_CLASS_PHONE
+            isSingleLine = true
+        }
+        val notifyOnArrival = Switch(context).apply {
+            text = "Proposer de prévenir ce contact à l'arrivée"
+            isChecked = phone.text.toString().isNotBlank()
+        }
         val street = EditText(context).apply {
             hint = "N° et rue — ex. 12 rue des Lilas"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS
@@ -57,7 +72,11 @@ class AddAddressButton @JvmOverloads constructor(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             isSingleLine = true
         }
+
         container.addView(placeName)
+        container.addView(contactName)
+        container.addView(phone)
+        container.addView(notifyOnArrival)
         container.addView(street)
         container.addView(postalCode)
         container.addView(city)
@@ -72,6 +91,8 @@ class AddAddressButton @JvmOverloads constructor(
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val nameValue = placeName.text.toString().trim()
+                val contactValue = contactName.text.toString().trim()
+                val phoneValue = phone.text.toString().trim()
                 val streetValue = street.text.toString().trim()
                 val postalValue = postalCode.text.toString().trim()
                 val cityValue = city.text.toString().trim()
@@ -88,15 +109,32 @@ class AddAddressButton @JvmOverloads constructor(
                     city.error = "Indique la ville ou le code postal"
                     return@setOnClickListener
                 }
+                if (notifyOnArrival.isChecked && phoneValue.isBlank()) {
+                    phone.error = "Ajoute un numéro pour prévenir à l'arrivée"
+                    return@setOnClickListener
+                }
 
                 val locality = listOf(postalValue, cityValue).filter { it.isNotBlank() }.joinToString(" ")
                 val formatted = listOf(streetValue, locality).filter { it.isNotBlank() }.joinToString(", ")
                 val updated = (existing + formatted).distinctBy { it.lowercase() }.take(10)
 
                 addressList.setText(updated.joinToString("\n"))
-                context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-                    .edit().putString("address", updated.joinToString("\n")).apply()
+                val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                prefs.edit().putString("address", updated.joinToString("\n")).apply()
                 PlaceNames.put(context, formatted, nameValue)
+
+                val contacts = runCatching {
+                    JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
+                }.getOrElse { JSONObject() }
+
+                contacts.put(
+                    formatted,
+                    JSONObject()
+                        .put("contactName", contactValue)
+                        .put("phone", phoneValue)
+                        .put("enabled", notifyOnArrival.isChecked)
+                )
+                prefs.edit().putString("arrival_contacts", contacts.toString()).apply()
 
                 Toast.makeText(context, "$nameValue ajouté et mémorisé", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
