@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
+import org.json.JSONArray
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,8 +25,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 activeZones.addAll(triggeredIds)
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
-                if (wasOutsideAllZones && activeZones.isNotEmpty() && PointageStore.entry(context)) {
-                    PointageWidgetProvider.updateAll(context)
+                if (wasOutsideAllZones && activeZones.isNotEmpty()) {
+                    val zoneId = triggeredIds.firstOrNull()
+                    val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
+
+                    if (PointageStore.entry(context, zoneId, zoneAddress)) {
+                        PointageWidgetProvider.updateAll(context)
+                    }
                 }
             }
 
@@ -37,6 +43,23 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     PointageWidgetProvider.updateAll(context)
                 }
             }
+        }
+    }
+
+    private fun findZoneAddress(zonesJson: String?, zoneId: String?): String? {
+        if (zoneId.isNullOrBlank()) return null
+
+        return try {
+            val zones = JSONArray(zonesJson ?: "[]")
+            for (i in 0 until zones.length()) {
+                val zone = zones.getJSONObject(i)
+                if (zone.optString("id") == zoneId) {
+                    return zone.optString("address").takeIf { it.isNotBlank() }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
         }
     }
 }
