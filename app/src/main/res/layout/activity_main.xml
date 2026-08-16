@@ -60,6 +60,7 @@
             android:textSize="18sp"/>
 
         <LinearLayout
+            android:id="@+id/pointageButtons"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
@@ -120,6 +121,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/contentPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -128,6 +130,7 @@
             android:layout_marginTop="18dp">
 
             <TextView
+                android:id="@+id/contentTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="HISTORIQUE DU JOUR"
@@ -154,37 +157,49 @@
             android:paddingBottom="8dp">
 
             <TextView
+                android:id="@+id/tabToday"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="AUJOURD'HUI"
                 android:textColor="@color/hp_gold"
                 android:textSize="13sp"/>
 
             <TextView
+                android:id="@+id/tabHistory"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="HISTORIQUE"
                 android:textColor="@color/hp_grey"
                 android:textSize="13sp"/>
 
             <TextView
+                android:id="@+id/tabAnalytics"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="ANALYSES"
                 android:textColor="@color/hp_grey"
                 android:textSize="13sp"/>
 
             <TextView
+                android:id="@+id/tabSettings"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="48dp"
                 android:layout_weight="1"
                 android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
                 android:text="PARAMÈTRES"
                 android:textColor="@color/hp_grey"
                 android:textSize="13sp"/>
