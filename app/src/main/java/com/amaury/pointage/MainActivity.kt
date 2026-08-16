@@ -157,7 +157,24 @@ class MainActivity : Activity() {
         tabAnalytics.setOnClickListener { showAnalyticsTab() }
         tabSettings.setOnClickListener { showSettingsTab() }
 
-        showTodayTab()
+        openRequestedTab(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (intent != null) {
+            setIntent(intent)
+            openRequestedTab(intent)
+        }
+    }
+
+    private fun openRequestedTab(intent: Intent?) {
+        when (intent?.getStringExtra("open_tab")) {
+            "settings" -> showSettingsTab()
+            "history" -> showHistoryTab()
+            "analytics" -> showAnalyticsTab()
+            else -> showTodayTab()
+        }
     }
 
     override fun onResume() {
