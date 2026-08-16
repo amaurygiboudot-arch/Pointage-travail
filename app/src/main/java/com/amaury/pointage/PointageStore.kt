@@ -15,9 +15,7 @@ object PointageStore {
 
     fun save(context: Context, data: JSONArray) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY, data.toString())
-            .apply()
+            .edit().putString(KEY, data.toString()).apply()
     }
 
     fun hasOpen(context: Context): Boolean {
@@ -28,33 +26,21 @@ object PointageStore {
         return false
     }
 
-    fun entry(
-        context: Context,
-        zoneId: String? = null,
-        zoneAddress: String? = null
-    ): Boolean {
+    fun entry(context: Context, zoneId: String? = null, zoneAddress: String? = null): Boolean {
         val data = load(context)
         if (hasOpen(context)) return false
 
-        val detectedZone = if (zoneId.isNullOrBlank() && zoneAddress.isNullOrBlank()) {
-            currentActiveZone(context)
-        } else {
-            null
-        }
-
+        val detectedZone = if (zoneId.isNullOrBlank() && zoneAddress.isNullOrBlank()) currentActiveZone(context) else null
         val finalZoneId = zoneId ?: detectedZone?.first
-        val finalZoneAddress = zoneAddress ?: detectedZone?.second
+        val rawAddress = zoneAddress ?: detectedZone?.second
+        val finalZoneAddress = rawAddress?.takeIf { it.isNotBlank() }?.let { PlaceNames.display(context, it) }
 
         val item = JSONObject()
             .put("entry", System.currentTimeMillis())
             .put("exit", JSONObject.NULL)
 
-        if (!finalZoneId.isNullOrBlank()) {
-            item.put("zoneId", finalZoneId)
-        }
-        if (!finalZoneAddress.isNullOrBlank()) {
-            item.put("zoneAddress", finalZoneAddress)
-        }
+        if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
+        if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
 
         data.put(item)
         save(context, data)
@@ -68,12 +54,11 @@ object PointageStore {
             val item = data.getJSONObject(i)
             if (item.isNull("exit")) {
                 if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
-                    currentActiveZone(context)?.let { (zoneId, zoneAddress) ->
+                    currentActiveZone(context)?.let { (zoneId, rawAddress) ->
                         if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
-                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", zoneAddress)
+                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
                     }
                 }
-
                 item.put("exit", System.currentTimeMillis())
                 save(context, data)
                 IconSwitcher.setWorking(context, false)
@@ -86,7 +71,6 @@ object PointageStore {
     private fun currentActiveZone(context: Context): Pair<String, String>? {
         val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         if (!gpsPrefs.getBoolean("enabled", false)) return null
-
         val activeIds = gpsPrefs.getStringSet("active_zones", emptySet()).orEmpty()
         if (activeIds.isEmpty()) return null
 
