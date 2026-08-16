@@ -22,15 +22,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, PointageWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(component)
-
-            ids.forEach {
-                updateWidget(context, manager, it)
-            }
+            ids.forEach { updateWidget(context, manager, it) }
         }
 
         private fun formatTime(time: Long): String {
-            return SimpleDateFormat("HH:mm", Locale.FRANCE)
-                .format(Date(time))
+            return SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(time))
         }
 
         private fun formatDuration(ms: Long): String {
@@ -54,11 +50,25 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val exitIntent = Intent(context, PointageWidgetProvider::class.java).apply {
                 action = ACTION_EXIT
             }
+            val todayIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra("open_tab", "today")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
             val locationIntent = Intent(context, MainActivity::class.java).apply {
                 putExtra("open_tab", "settings")
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
+            // Tout le widget ouvre Aujourd'hui, sauf les trois zones ci-dessous
+            views.setOnClickPendingIntent(
+                R.id.widget_root,
+                PendingIntent.getActivity(
+                    context, 20, todayIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            )
+
+            // Exceptions : boutons Entrée / Sortie
             views.setOnClickPendingIntent(
                 R.id.widget_entry,
                 PendingIntent.getBroadcast(
@@ -75,6 +85,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 )
             )
 
+            // Exception : la position ouvre directement l'onglet des adresses
             views.setOnClickPendingIntent(
                 R.id.widget_location,
                 PendingIntent.getActivity(
