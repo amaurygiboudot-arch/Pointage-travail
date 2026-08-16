@@ -23,6 +23,7 @@
         <activity android:name=".SalaryActivity" android:exported="false" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />
+        <activity android:name=".PdfPreviewActivity" android:exported="false" />
 
         <receiver android:name=".PointageWidgetProvider" android:exported="false">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
