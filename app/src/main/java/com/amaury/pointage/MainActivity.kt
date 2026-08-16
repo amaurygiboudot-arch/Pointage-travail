@@ -19,6 +19,8 @@ import android.widget.Switch
 import android.widget.TextClock
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -197,7 +199,7 @@ class MainActivity : Activity() {
         pointageButtons.visibility = View.GONE
         historyText.visibility = View.GONE
         gpsSettingsPanel.visibility = View.VISIBLE
-        contentTitle.text = "PARAMÈTRES GPS"
+        contentTitle.text = "LIEUX DE TRAVAIL GPS"
         loadGpsSettings()
         updateGpsStatus()
     }
@@ -213,28 +215,40 @@ class MainActivity : Activity() {
 
     private fun loadGpsSettings() {
         workplaceAddress.setText(gpsPrefs.getString("address", "") ?: "")
+        workplaceAddress.hint = "Une adresse par ligne — 10 adresses maximum"
         geofenceRadius.setText(gpsPrefs.getInt("radius", 150).toString())
         autoGpsSwitch.isChecked = gpsPrefs.getBoolean("enabled", false)
     }
 
     private fun saveGpsSettings() {
-        val address = workplaceAddress.text.toString().trim()
-        val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
-        val enabled = autoGpsSwitch.isChecked
+        val rawLines = workplaceAddress.text.toString()
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
 
-        if (address.isEmpty()) {
-            Toast.makeText(this, "Entre d'abord l'adresse du lieu de travail", Toast.LENGTH_LONG).show()
+        if (rawLines.isEmpty()) {
+            Toast.makeText(this, "Entre au moins une adresse", Toast.LENGTH_LONG).show()
             return
         }
 
+        val addresses = rawLines.take(10)
+        if (rawLines.size > 10) {
+            Toast.makeText(this, "Seules les 10 premières adresses seront enregistrées", Toast.LENGTH_LONG).show()
+        }
+
+        val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
+        val enabled = autoGpsSwitch.isChecked
+
         gpsPrefs.edit()
-            .putString("address", address)
+            .putString("address", addresses.joinToString("\n"))
             .putInt("radius", radius)
             .putBoolean("enabled", enabled)
             .apply()
 
         if (!enabled) {
             GeofenceManager.remove(this)
+            gpsPrefs.edit().remove("active_zones").apply()
             updateGpsStatus()
             Toast.makeText(this, "Pointage automatique désactivé", Toast.LENGTH_SHORT).show()
             return
@@ -246,45 +260,70 @@ class MainActivity : Activity() {
             return
         }
 
-        gpsStatusText.text = "Recherche de l'adresse…"
+        gpsStatusText.text = "Recherche des ${addresses.size} adresse(s)…"
 
         Thread {
-            try {
-                val results = Geocoder(this, Locale.FRANCE).getFromLocationName(address, 1)
-                val location = results?.firstOrNull()
+            val zones = mutableListOf<WorkZone>()
+            val zonesJson = JSONArray()
+            val failedAddresses = mutableListOf<String>()
+            val geocoder = Geocoder(this, Locale.FRANCE)
 
-                runOnUiThread {
+            addresses.forEachIndexed { index, address ->
+                try {
+                    val location = geocoder.getFromLocationName(address, 1)?.firstOrNull()
                     if (location == null) {
-                        gpsStatusText.text = "Adresse introuvable"
-                        Toast.makeText(this, "Impossible de trouver cette adresse", Toast.LENGTH_LONG).show()
-                        return@runOnUiThread
+                        failedAddresses.add(address)
+                    } else {
+                        val zone = WorkZone(
+                            id = "workplace_${index + 1}",
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            radius = radius.toFloat()
+                        )
+                        zones.add(zone)
+                        zonesJson.put(
+                            JSONObject()
+                                .put("id", zone.id)
+                                .put("address", address)
+                                .put("latitude", zone.latitude)
+                                .put("longitude", zone.longitude)
+                                .put("radius", zone.radius.toDouble())
+                        )
                     }
-
-                    gpsPrefs.edit()
-                        .putLong("latitude", java.lang.Double.doubleToRawLongBits(location.latitude))
-                        .putLong("longitude", java.lang.Double.doubleToRawLongBits(location.longitude))
-                        .apply()
-
-                    GeofenceManager.register(
-                        this,
-                        location.latitude,
-                        location.longitude,
-                        radius.toFloat()
-                    ) { success, message ->
-                        runOnUiThread {
-                            gpsStatusText.text = if (success) {
-                                "● GPS automatique actif — rayon ${radius} m"
-                            } else {
-                                message
-                            }
-                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                        }
-                    }
+                } catch (_: Exception) {
+                    failedAddresses.add(address)
                 }
-            } catch (_: Exception) {
-                runOnUiThread {
-                    gpsStatusText.text = "Erreur lors de la recherche de l'adresse"
-                    Toast.makeText(this, "Vérifie l'adresse et ta connexion", Toast.LENGTH_LONG).show()
+            }
+
+            runOnUiThread {
+                if (zones.isEmpty()) {
+                    gpsStatusText.text = "Aucune adresse n'a pu être localisée"
+                    Toast.makeText(this, "Vérifie les adresses et ta connexion", Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+
+                gpsPrefs.edit()
+                    .putString("zones", zonesJson.toString())
+                    .remove("latitude")
+                    .remove("longitude")
+                    .remove("active_zones")
+                    .apply()
+
+                GeofenceManager.registerAll(this, zones) { success, message ->
+                    runOnUiThread {
+                        gpsStatusText.text = if (success) {
+                            "● ${zones.size} lieu(x) GPS actif(s) — rayon ${radius} m"
+                        } else {
+                            message
+                        }
+
+                        val extra = if (failedAddresses.isNotEmpty()) {
+                            " — ${failedAddresses.size} adresse(s) introuvable(s)"
+                        } else {
+                            ""
+                        }
+                        Toast.makeText(this, message + extra, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }.start()
@@ -307,10 +346,8 @@ class MainActivity : Activity() {
         ) {
             AlertDialog.Builder(this)
                 .setTitle("Localisation en arrière-plan")
-                .setMessage("Pour pointer automatiquement quand tu arrives ou quittes le travail, choisis l'autorisation de localisation « Toujours autoriser » dans les paramètres Android.")
-                .setPositiveButton("Ouvrir les paramètres") { _, _ ->
-                    openAppSettings()
-                }
+                .setMessage("Pour pointer automatiquement quand tu arrives ou quittes un des lieux enregistrés, choisis l'autorisation de localisation « Toujours autoriser » dans les paramètres Android.")
+                .setPositiveButton("Ouvrir les paramètres") { _, _ -> openAppSettings() }
                 .setNegativeButton("Plus tard", null)
                 .show()
             return
@@ -338,12 +375,40 @@ class MainActivity : Activity() {
     private fun tryRestoreGeofence() {
         if (!gpsPrefs.getBoolean("enabled", false)) return
         if (!GeofenceManager.hasRequiredPermissions(this)) return
-        if (!gpsPrefs.contains("latitude") || !gpsPrefs.contains("longitude")) return
 
-        val latitude = java.lang.Double.longBitsToDouble(gpsPrefs.getLong("latitude", 0L))
-        val longitude = java.lang.Double.longBitsToDouble(gpsPrefs.getLong("longitude", 0L))
-        val radius = gpsPrefs.getInt("radius", 150).toFloat()
-        GeofenceManager.register(this, latitude, longitude, radius)
+        val zones = loadSavedZones()
+        if (zones.isNotEmpty()) {
+            GeofenceManager.registerAll(this, zones)
+            return
+        }
+
+        if (gpsPrefs.contains("latitude") && gpsPrefs.contains("longitude")) {
+            val latitude = java.lang.Double.longBitsToDouble(gpsPrefs.getLong("latitude", 0L))
+            val longitude = java.lang.Double.longBitsToDouble(gpsPrefs.getLong("longitude", 0L))
+            val radius = gpsPrefs.getInt("radius", 150).toFloat()
+            GeofenceManager.register(this, latitude, longitude, radius)
+        }
+    }
+
+    private fun loadSavedZones(): List<WorkZone> {
+        return try {
+            val array = JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+            val zones = mutableListOf<WorkZone>()
+            for (i in 0 until array.length()) {
+                val item = array.getJSONObject(i)
+                zones.add(
+                    WorkZone(
+                        id = item.getString("id"),
+                        latitude = item.getDouble("latitude"),
+                        longitude = item.getDouble("longitude"),
+                        radius = item.getDouble("radius").toFloat()
+                    )
+                )
+            }
+            zones
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun updateGpsStatus() {
@@ -352,10 +417,16 @@ class MainActivity : Activity() {
             return
         }
 
-        gpsStatusText.text = if (GeofenceManager.hasRequiredPermissions(this)) {
-            "● GPS automatique configuré"
+        if (!GeofenceManager.hasRequiredPermissions(this)) {
+            gpsStatusText.text = "⚠ Autorisation « Toujours autoriser » nécessaire"
+            return
+        }
+
+        val count = loadSavedZones().size
+        gpsStatusText.text = if (count > 0) {
+            "● GPS automatique configuré sur $count lieu(x)"
         } else {
-            "⚠ Autorisation « Toujours autoriser » nécessaire"
+            "● GPS autorisé — enregistre tes adresses"
         }
     }
 
