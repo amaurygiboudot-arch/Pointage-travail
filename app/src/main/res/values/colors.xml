@@ -1,1 +1,12 @@
-<resources><color name="green">#16A34A</color><color name="red">#DC2626</color><color name="white">#FFFFFF</color></resources>
+<resources>
+    <color name="hp_black">#080808</color>
+    <color name="hp_panel">#121212</color>
+    <color name="hp_gold">#D6A84B</color>
+    <color name="hp_gold_light">#F3D58A</color>
+    <color name="hp_green">#159447</color>
+    <color name="hp_green_dark">#063D1D</color>
+    <color name="hp_red">#C51F28</color>
+    <color name="hp_red_dark">#4D080C</color>
+    <color name="hp_white">#F4EFE3</color>
+    <color name="hp_grey">#A99F8C</color>
+</resources>

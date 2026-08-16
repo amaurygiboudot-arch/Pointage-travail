@@ -2,99 +2,145 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.os.Bundle
-import android.widget.*
-import android.graphics.Color
+import android.widget.Button
+import android.widget.TextView
+import android.widget.Toast
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
-    private lateinit var status: TextView
-    private lateinit var history: TextView
-    private val fmt = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.FRANCE)
 
-    override fun onCreate(b: Bundle?) {
-        super.onCreate(b)
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(28, 28, 28, 28)
-        }
-        val title = TextView(this).apply {
-            text = "🏱️ Mes temps de travail"
-            textSize = 26f
-            setPadding(0, 0, 0, 20)
-        }
-        status = TextView(this).apply {
-            textSize = 18f
-            setPadding(0, 10, 0, 20)
-        }
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+    private lateinit var statusCard: TextView
+    private lateinit var historyText: TextView
 
-        val ent = Button(this).apply {
-            text = "�" ENTRÉE"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(22, 163, 74))
-            setOnClickListener {
-                if (!PointageStore.entry(this@MainActivity)) toast("Une entrée est déjà en cours.")
-                PointageWidgetProvider.updateAll(this@MainActivity)
-                render()
+    private val dateFormat =
+        SimpleDateFormat("HH:mm", Locale.FRANCE)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        setContentView(R.layout.activity_main)
+
+        statusCard = findViewById(R.id.statusCard)
+        historyText = findViewById(R.id.historyText)
+
+        val entryButton = findViewById<Button>(R.id.entryButton)
+        val exitButton = findViewById<Button>(R.id.exitButton)
+
+        entryButton.setOnClickListener {
+            if (PointageStore.entry(this)) {
+                Toast.makeText(
+                    this,
+                    "Entrée enregistrée",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                PointageWidgetProvider.updateAll(this)
+                refreshScreen()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Une entrée est déjà en cours",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
-        val sor = Button(this).apply {
-            text = "🔴 SORTIE"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(Color.rgb(220, 38, 38))
-            setOnClickListener {
-                if (!PointageStore.exit(this@MainActivity)) toast("Aucune entrée en cours.")
-                PointageWidgetProvider.updateAll(this@MainActivity)
-                render()
+        exitButton.setOnClickListener {
+            if (PointageStore.exit(this)) {
+                Toast.makeText(
+                    this,
+                    "Sortie enregistrée",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                PointageWidgetProvider.updateAll(this)
+                refreshScreen()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Aucune entrée en cours",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
 
-        buttons.addView(ent, LinearLayout.LayoutParams(0, 150, 1f))
-        buttons.addView(sor, LinearLayout.LayoutParams(0, 150, 1f))
-        history = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, 25, 0, 0)
-        }
-        box.addView(title)
-        box.addView(status)
-        box.addView(buttons)
-        box.addView(history)
-        setContentView(box)
-        render()
+        refreshScreen()
     }
 
     override fun onResume() {
         super.onResume()
-        render()
+        refreshScreen()
     }
 
-    private fun render() {
-        val a = PointageStore.load(this)
-        var s = ""
-        var open = false
-        for (i in 0 until a.length()) {
-            val o = a.getJSONObject(i)
-            val e = o.getLong("entry")
-            if (o.isNull("exit")) {
-                open = true
-                s += "\n${fmt.format(Date(e))} → EN COURS"
-            } else {
-                val x = o.getLong("exit")
-                s += "\n${fmt.format(Date(e))} → ${fmt.format(Date(x))}  (${dur(x - e)})"
-            }
+    private fun refreshScreen() {
+
+        val data = PointageStore.load(this)
+
+        if (PointageStore.hasOpen(this)) {
+            val last = data.getJSONObject(data.length() - 1)
+            val entry = last.getLong("entry")
+
+            statusCard.text =
+                "STATUT ACTUEL\n🟢 ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(entry))}"
+        } else {
+            statusCard.text =
+                "STATUT ACTUEL\n⚪ Aucune entrée en cours"
         }
-        status.text = if (open) "🟁 Entrée en cours" else "⚚ Aucune entrée en cours"
-        history.text = if (s.isEmpty()) "Aucun horaire enregistré." else "Historique :$s"
+
+        if (data.length() == 0) {
+            historyText.text = "Aucun pointage aujourd'hui."
+            return
+        }
+
+        val builder = StringBuilder()
+
+        for (i in 0 until data.length()) {
+
+            val item = data.getJSONObject(i)
+
+            val entry = item.getLong("entry")
+            val entryText = dateFormat.format(Date(entry))
+
+            builder.append("🟢  ")
+            builder.append(entryText)
+            builder.append("   ENTRÉE")
+
+            if (!item.isNull("exit")) {
+
+                val exit = item.getLong("exit")
+                val exitText = dateFormat.format(Date(exit))
+
+                builder.append("\n🔴  ")
+                builder.append(exitText)
+                builder.append("   SORTIE")
+
+                val duration = exit - entry
+                builder.append("   ")
+                builder.append(formatDuration(duration))
+
+            } else {
+                builder.append("   EN COURS")
+            }
+
+            builder.append("\n\n")
+        }
+
+        historyText.text = builder.toString()
     }
 
-    private fun dur(ms: Long): String {
-        val sec = ms / 1000
-        return "%02h %02dmin".format(sec / 3600, (sec % 3600) / 60)
-    }
+    private fun formatDuration(ms: Long): String {
 
-    private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+        val totalMinutes = ms / 60000
+        val hours = totalMinutes / 60
+        val minutes = totalMinutes % 60
+
+        return String.format(
+            Locale.FRANCE,
+            "%02dh %02dm",
+            hours,
+            minutes
+        )
+    }
 }
