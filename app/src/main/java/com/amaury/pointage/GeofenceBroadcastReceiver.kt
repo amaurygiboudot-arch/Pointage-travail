@@ -1,11 +1,20 @@
 package com.amaury.pointage
 
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import org.json.JSONArray
+import org.json.JSONObject
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -31,6 +40,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
                     if (PointageStore.entry(context, zoneId, zoneAddress)) {
                         PointageWidgetProvider.updateAll(context)
+                        if (!zoneAddress.isNullOrBlank()) {
+                            showArrivalContactNotification(context, zoneAddress)
+                        }
                     }
                 }
             }
@@ -61,5 +73,61 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun showArrivalContactNotification(context: Context, address: String) {
+        val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val contact = runCatching {
+            val contacts = JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
+            contacts.optJSONObject(address)
+        }.getOrNull() ?: return
+
+        if (!contact.optBoolean("enabled", false)) return
+        val phone = contact.optString("phone").trim()
+        if (phone.isBlank()) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
+        val placeName = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: address
+        val contactName = contact.optString("contactName").trim().takeIf { it.isNotBlank() } ?: phone
+        val message = "Bonjour, je viens d'arriver à $placeName."
+
+        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("smsto:${Uri.encode(phone)}")
+            putExtra("sms_body", message)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            address.hashCode(),
+            smsIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "arrival_contact"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    channelId,
+                    "Prévenir à l'arrivée",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
+            )
+        }
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_email)
+            .setContentTitle("Arrivé à $placeName")
+            .setContentText("Prévenir $contactName")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Tu viens d'arriver à $placeName. Appuie ici pour prévenir $contactName par SMS."))
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        manager.notify(address.hashCode(), notification)
     }
 }
