@@ -37,6 +37,11 @@ class AddAddressButton @JvmOverloads constructor(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
         }
+        val placeName = EditText(context).apply {
+            hint = "Nom du lieu — ex. Ocewood"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            isSingleLine = true
+        }
         val street = EditText(context).apply {
             hint = "N° et rue — ex. 12 rue des Lilas"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS
@@ -52,6 +57,7 @@ class AddAddressButton @JvmOverloads constructor(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
             isSingleLine = true
         }
+        container.addView(placeName)
         container.addView(street)
         container.addView(postalCode)
         container.addView(city)
@@ -65,10 +71,15 @@ class AddAddressButton @JvmOverloads constructor(
 
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val nameValue = placeName.text.toString().trim()
                 val streetValue = street.text.toString().trim()
                 val postalValue = postalCode.text.toString().trim()
                 val cityValue = city.text.toString().trim()
 
+                if (nameValue.isBlank()) {
+                    placeName.error = "Donne un nom à ce lieu"
+                    return@setOnClickListener
+                }
                 if (streetValue.isBlank()) {
                     street.error = "Indique le numéro et la rue"
                     return@setOnClickListener
@@ -85,7 +96,9 @@ class AddAddressButton @JvmOverloads constructor(
                 addressList.setText(updated.joinToString("\n"))
                 context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
                     .edit().putString("address", updated.joinToString("\n")).apply()
-                Toast.makeText(context, "Adresse ajoutée et mémorisée", Toast.LENGTH_SHORT).show()
+                PlaceNames.put(context, formatted, nameValue)
+
+                Toast.makeText(context, "$nameValue ajouté et mémorisé", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
         }
