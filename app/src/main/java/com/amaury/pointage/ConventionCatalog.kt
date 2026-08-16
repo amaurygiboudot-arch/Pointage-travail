@@ -54,6 +54,14 @@ object ConventionCatalog {
     @Volatile private var current: List<Convention> = builtIns
     val conventions: List<Convention> get() = current
 
+    init {
+        // Premier chargement réseau en arrière-plan. Le catalogue local minimal reste utilisable immédiatement.
+        Executors.newSingleThreadExecutor().execute {
+            val parsed=downloadCatalog()
+            if(parsed.isNotEmpty()) current=mergeWithBuiltIns(parsed)
+        }
+    }
+
     fun initialize(context: Context) {
         current = mergeWithBuiltIns(decodeCache(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(CACHE,null)))
         refreshAsync(context)
@@ -68,7 +76,7 @@ object ConventionCatalog {
 
     fun all(context: Context): List<Convention> {
         val dynamic=decodeCache(context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(CACHE,null))
-        current=mergeWithBuiltIns(dynamic)
+        if(dynamic.isNotEmpty()) current=mergeWithBuiltIns(dynamic)
         return current
     }
 
@@ -86,23 +94,24 @@ object ConventionCatalog {
 
     fun refreshAsync(context:Context,onDone:(Int)->Unit={}) {
         Executors.newSingleThreadExecutor().execute {
-            val parsed=runCatching {
-                val text=URL(SOURCE).readText()
-                text.lineSequence().mapNotNull { line ->
-                    val p=line.split('|').map{it.trim()}
-                    if(p.size<4 || !p[0].startsWith("KALICONT")) return@mapNotNull null
-                    val raw=p[1].filter{it.isDigit()}; if(raw.isBlank()) return@mapNotNull null
-                    val idcc=raw.padStart(4,'0'); val title=p[2].trim(); if(title.isBlank()) return@mapNotNull null
-                    Convention(idcc,title,title,false,cautions=listOf("Convention issue du catalogue KALI. Règles salariales spécifiques non encore intégrées : régime légal provisoire."))
-                }.distinctBy{it.idcc}.toList()
-            }.getOrNull()
-            if(!parsed.isNullOrEmpty()) {
+            val parsed=downloadCatalog()
+            if(parsed.isNotEmpty()) {
                 context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(CACHE,encodeCache(parsed)).apply()
                 current=mergeWithBuiltIns(parsed)
             }
-            Handler(Looper.getMainLooper()).post{onDone(if(parsed.isNullOrEmpty()) current.count{it.idcc.isNotBlank()} else parsed.size)}
+            Handler(Looper.getMainLooper()).post{onDone(if(parsed.isEmpty()) current.count{it.idcc.isNotBlank()} else parsed.size)}
         }
     }
+
+    private fun downloadCatalog():List<Convention> = runCatching {
+        URL(SOURCE).readText().lineSequence().mapNotNull { line ->
+            val p=line.split('|').map{it.trim()}
+            if(p.size<4 || !p[0].startsWith("KALICONT")) return@mapNotNull null
+            val raw=p[1].filter{it.isDigit()}; if(raw.isBlank()) return@mapNotNull null
+            val idcc=raw.padStart(4,'0'); val title=p[2].trim(); if(title.isBlank()) return@mapNotNull null
+            Convention(idcc,title,title,false,cautions=listOf("Convention issue du catalogue KALI. Règles salariales spécifiques non encore intégrées : régime légal provisoire."))
+        }.distinctBy{it.idcc}.toList()
+    }.getOrElse{emptyList()}
 
     private fun encodeCache(items:List<Convention>):String { val a=JSONArray();items.forEach{a.put(JSONObject().put("idcc",it.idcc).put("title",it.fullName))};return a.toString() }
     private fun decodeCache(raw:String?):List<Convention>{if(raw.isNullOrBlank())return emptyList();return runCatching{val a=JSONArray(raw);buildList{for(i in 0 until a.length()){val o=a.getJSONObject(i);val id=o.optString("idcc");val t=o.optString("title");if(id.isNotBlank()&&t.isNotBlank())add(Convention(id,t,t,false,cautions=listOf("Convention issue du catalogue KALI. Règles salariales spécifiques non encore intégrées : régime légal provisoire.")))}}}.getOrElse{emptyList()}}
