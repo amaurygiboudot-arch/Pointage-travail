@@ -7,12 +7,27 @@ android {
     namespace = "com.amaury.pointage"
     compileSdk = 35
 
+    signingConfigs {
+        create("stableDebug") {
+            storeFile = rootProject.file("pointage-test.keystore")
+            storePassword = "PointageTest2026"
+            keyAlias = "pointage"
+            keyPassword = "PointageTest2026"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.amaury.pointage"
         minSdk = 23
         targetSdk = 35
         versionCode = 9
         versionName = "1.9"
+    }
+
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("stableDebug")
+        }
     }
 
     compileOptions {
