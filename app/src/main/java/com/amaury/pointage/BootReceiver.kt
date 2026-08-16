@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import org.json.JSONArray
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -12,13 +13,26 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) return
-        if (!prefs.contains("latitude") || !prefs.contains("longitude")) return
         if (!GeofenceManager.hasRequiredPermissions(context)) return
 
-        val latitude = java.lang.Double.longBitsToDouble(prefs.getLong("latitude", 0L))
-        val longitude = java.lang.Double.longBitsToDouble(prefs.getLong("longitude", 0L))
-        val radius = prefs.getInt("radius", 150).toFloat()
+        val zonesJson = prefs.getString("zones", "[]") ?: "[]"
+        val array = JSONArray(zonesJson)
+        val zones = mutableListOf<WorkZone>()
 
-        GeofenceManager.register(context, latitude, longitude, radius)
+        for (i in 0 until array.length()) {
+            val item = array.getJSONObject(i)
+            zones.add(
+                WorkZone(
+                    id = item.getString("id"),
+                    latitude = item.getDouble("latitude"),
+                    longitude = item.getDouble("longitude"),
+                    radius = item.getDouble("radius").toFloat()
+                )
+            )
+        }
+
+        if (zones.isNotEmpty()) {
+            GeofenceManager.registerAll(context, zones)
+        }
     }
 }
