@@ -1,7 +1,11 @@
 package com.amaury.pointage
 
+import android.Manifest
+import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.View
@@ -55,7 +59,6 @@ class AddAddressButton @JvmOverloads constructor(
         }
         val notifyOnArrival = Switch(context).apply {
             text = "Proposer de prévenir ce contact à l'arrivée"
-            isChecked = phone.text.toString().isNotBlank()
         }
         val street = EditText(context).apply {
             hint = "N° et rue — ex. 12 rue des Lilas"
@@ -135,6 +138,16 @@ class AddAddressButton @JvmOverloads constructor(
                         .put("enabled", notifyOnArrival.isChecked)
                 )
                 prefs.edit().putString("arrival_contacts", contacts.toString()).apply()
+
+                if (notifyOnArrival.isChecked &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    (context as? Activity)?.requestPermissions(
+                        arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                        1102
+                    )
+                }
 
                 Toast.makeText(context, "$nameValue ajouté et mémorisé", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
