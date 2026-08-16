@@ -8,11 +8,14 @@ android {
     compileSdk = 35
 
     signingConfigs {
-        create("stableDebug") {
-            storeFile = rootProject.file("pointage-test.keystore")
-            storePassword = "PointageTest2026"
-            keyAlias = "pointage"
-            keyPassword = "PointageTest2026"
+        create("release") {
+            val storePath = System.getenv("POINTAGE_KEYSTORE_PATH")
+            if (!storePath.isNullOrBlank()) {
+                storeFile = file(storePath)
+                storePassword = System.getenv("POINTAGE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("POINTAGE_KEY_ALIAS")
+                keyPassword = System.getenv("POINTAGE_KEY_PASSWORD")
+            }
         }
     }
 
@@ -26,7 +29,17 @@ android {
 
     buildTypes {
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("stableDebug")
+            isDebuggable = true
+        }
+        getByName("release") {
+            isDebuggable = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
