@@ -39,6 +39,20 @@ object GeofenceManager {
         return fine && background
     }
 
+    fun register(
+        context: Context,
+        latitude: Double,
+        longitude: Double,
+        radius: Float,
+        onResult: (Boolean, String) -> Unit = { _, _ -> }
+    ) {
+        registerAll(
+            context,
+            listOf(WorkZone("workplace_1", latitude, longitude, radius)),
+            onResult
+        )
+    }
+
     fun registerAll(
         context: Context,
         zones: List<WorkZone>,
