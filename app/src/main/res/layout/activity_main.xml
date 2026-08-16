@@ -181,7 +181,7 @@
                     android:textColor="@color/hp_gold_light"
                     android:background="@drawable/hp_panel"/>
 
-                <Button
+                <com.amaury.pointage.PreviewPdfButton
                     android:id="@+id/generateMonthlyPdfButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
