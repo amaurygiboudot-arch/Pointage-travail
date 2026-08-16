@@ -46,7 +46,7 @@
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="1.25"
+        android:layout_weight="1.35"
         android:background="@drawable/widget_center"
         android:gravity="center"
         android:orientation="vertical"
@@ -84,9 +84,21 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:text="HORS SERVICE"
+            android:text="HORS TRAVAIL"
             android:textColor="#A9A9A9"
             android:textSize="10sp"/>
+
+        <TextView
+            android:id="@+id/widget_location"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="3dp"
+            android:ellipsize="end"
+            android:gravity="center"
+            android:maxLines="2"
+            android:text="📍 Aucune zone"
+            android:textColor="#D6A84B"
+            android:textSize="9sp"/>
     </LinearLayout>
 
     <LinearLayout
