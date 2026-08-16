@@ -41,7 +41,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             addressList.setText(updated.joinToString("\n"));val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE);prefs.edit().putString("address",updated.joinToString("\n")).apply();PlaceNames.put(context,formatted,nameValue)
             val contacts=runCatching{JSONObject(prefs.getString("arrival_contacts","{}")?:"{}")}.getOrElse{JSONObject()};contacts.put(formatted,JSONObject().put("contactName",contactValue).put("phone",phoneValue).put("enabled",notifyOnArrival.isChecked));prefs.edit().putString("arrival_contacts",contacts.toString()).apply()
             if(notifyOnArrival.isChecked&&Build.VERSION.SDK_INT>=Build.VERSION_CODES.TIRAMISU&&context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)(context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),1102)
-            rootView.findViewById<LocationManagementView?>(R.id.locationManagementView)?.refresh()
+            rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
             Toast.makeText(context,"$nameValue ajouté et mémorisé",Toast.LENGTH_SHORT).show();dialog.dismiss()
         } }
         dialog.show()
