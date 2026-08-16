@@ -8,12 +8,15 @@ import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
 import android.widget.Toast
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class PointageWidgetProvider : AppWidgetProvider() {
 
     companion object {
-        const val ACTION_ENTRY = "com.amaury.pointage.ENTRY"
-        const val ACTION_EXIT = "com.amaury.pointage.EXIT"
+        const val ACTION_ENTRY = "com.amaury.pointage.ACTION_ENTRY"
+        const val ACTION_EXIT = "com.amaury.pointage.ACTION_EXIT"
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -23,6 +26,23 @@ class PointageWidgetProvider : AppWidgetProvider() {
             ids.forEach {
                 updateWidget(context, manager, it)
             }
+        }
+
+        private fun formatTime(time: Long): String {
+            return SimpleDateFormat("HH:mm", Locale.FRANCE)
+                .format(Date(time))
+        }
+
+        private fun formatDuration(ms: Long): String {
+            val totalMinutes = ms.coerceAtLeast(0L) / 60000
+            val hours = totalMinutes / 60
+            val minutes = totalMinutes % 60
+            return String.format(
+                Locale.FRANCE,
+                "%02dh %02dm",
+                hours,
+                minutes
+            )
         }
 
         private fun updateWidget(
@@ -65,12 +85,65 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 )
             )
 
+            val data = PointageStore.load(context)
+
+            var entryText = "--:--"
+            var exitText = "--:--"
+            var durationText = "00h 00m"
+            var stateText = "● HORS TRAVAIL"
+            var stateColor = 0xFFA9A9A9.toInt()
+
+            if (data.length() > 0) {
+                val last = data.getJSONObject(data.length() - 1)
+                val entry = last.getLong("entry")
+
+                entryText = formatTime(entry)
+
+                if (last.isNull("exit")) {
+                    durationText =
+                        formatDuration(System.currentTimeMillis() - entry)
+
+                    stateText = "● EN COURS"
+                    stateColor = 0xFF54D66A.toInt()
+                } else {
+                    val exit = last.getLong("exit")
+
+                    exitText = formatTime(exit)
+                    durationText = formatDuration(exit - entry)
+
+                    stateText = "● TERMINÉ"
+                    stateColor = 0xFFD84A4A.toInt()
+                }
+            }
+
+            views.setTextViewText(
+                R.id.widget_entry_time,
+                entryText
+            )
+
+            views.setTextViewText(
+                R.id.widget_exit_time,
+                exitText
+            )
+
+            views.setTextViewText(
+                R.id.widget_duration,
+                durationText
+            )
+
             views.setTextViewText(
                 R.id.widget_status,
-                if (PointageStore.hasOpen(context))
-                    "🟢 Entrée en cours"
-                else
-                    "⚪ Aucune entrée en cours"
+                "H P"
+            )
+
+            views.setTextViewText(
+                R.id.widget_state,
+                stateText
+            )
+
+            views.setTextColor(
+                R.id.widget_state,
+                stateColor
             )
 
             manager.updateAppWidget(widgetId, views)
@@ -87,7 +160,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onReceive(context: Context, intent: Intent) {
+    override fun onReceive(
+        context: Context,
+        intent: Intent
+    ) {
         super.onReceive(context, intent)
 
         when (intent.action) {

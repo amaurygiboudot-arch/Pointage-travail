@@ -2,47 +2,127 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="8dp"
-    android:background="#F9FAFB">
-
-    <TextView
-        android:id="@+id/widget_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="⚪ Aucune entrée en cours"
-        android:textStyle="bold"
-        android:textSize="14sp"
-        android:textColor="#111827"
-        android:gravity="center"
-        android:paddingBottom="6dp"/>
+    android:background="@drawable/widget_bg"
+    android:gravity="center"
+    android:orientation="horizontal"
+    android:padding="8dp">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
         android:layout_weight="1"
-        android:orientation="horizontal">
+        android:gravity="center"
+        android:orientation="vertical">
 
-        <Button
+        <TextView
             android:id="@+id/widget_entry"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:text="ENTRÉE"
-            android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#16A34A"/>
+            android:layout_width="78dp"
+            android:layout_height="78dp"
+            android:background="@drawable/widget_green"
+            android:gravity="center"
+            android:text="↪"
+            android:textColor="#F7D77C"
+            android:textSize="34sp"
+            android:textStyle="bold"/>
 
-        <Button
-            android:id="@+id/widget_exit"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:text="SORTIE"
-            android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:backgroundTint="#DC2626"/>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="ENTRÉE"
+            android:textColor="#D6A84B"
+            android:textSize="13sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/widget_entry_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--"
+            android:textColor="#63D86B"
+            android:textSize="15sp"/>
     </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1.25"
+        android:background="@drawable/widget_center"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="8dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="★"
+            android:textColor="#F4CE6A"
+            android:textSize="18sp"/>
+
+        <TextView
+            android:id="@+id/widget_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="HP"
+            android:textColor="#EBC45F"
+            android:textSize="20sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/widget_duration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="00h 00m"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/widget_state"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="HORS SERVICE"
+            android:textColor="#A9A9A9"
+            android:textSize="10sp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_exit"
+            android:layout_width="78dp"
+            android:layout_height="78dp"
+            android:background="@drawable/widget_red"
+            android:gravity="center"
+            android:text="↪"
+            android:textColor="#F7D77C"
+            android:textSize="34sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="SORTIE"
+            android:textColor="#D6A84B"
+            android:textSize="13sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:id="@+id/widget_exit_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="--:--"
+            android:textColor="#FF5757"
+            android:textSize="15sp"/>
+    </LinearLayout>
+
 </LinearLayout>
