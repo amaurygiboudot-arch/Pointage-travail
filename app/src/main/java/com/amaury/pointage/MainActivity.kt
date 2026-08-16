@@ -29,6 +29,8 @@ class MainActivity : Activity() {
     private lateinit var tabAnalytics: TextView
     private lateinit var tabSettings: TextView
 
+    private var activeTab = "today"
+
     private val dateFormat =
         SimpleDateFormat("HH:mm", Locale.FRANCE)
 
@@ -109,7 +111,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refreshScreen()
+
+        when (activeTab) {
+            "history" -> showHistoryTab()
+            "analytics" -> showAnalyticsTab()
+            "settings" -> showSettingsTab()
+            else -> showTodayTab()
+        }
     }
 
     private fun animateClick(button: Button) {
@@ -128,6 +136,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
+        activeTab = "today"
         setActiveTab(tabToday)
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.VISIBLE
@@ -137,6 +146,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
+        activeTab = "history"
         setActiveTab(tabHistory)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -146,6 +156,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
+        activeTab = "analytics"
         setActiveTab(tabAnalytics)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -155,6 +166,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
+        activeTab = "settings"
         setActiveTab(tabSettings)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
