@@ -1,14 +1,18 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.Application
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Bundle
+import java.util.WeakHashMap
 
 object IconSwitcher {
 
     private const val PREFS = "icon_switcher"
     private const val KEY_PENDING = "pending_working"
+    private val callbacks = WeakHashMap<Activity, Application.ActivityLifecycleCallbacks>()
 
     fun setWorking(context: Context, working: Boolean) {
         if (context is Activity) {
@@ -16,10 +20,37 @@ object IconSwitcher {
                 .edit()
                 .putBoolean(KEY_PENDING, working)
                 .apply()
+            registerApplyWhenStopped(context)
             return
         }
 
-        applyState(context, working)
+        applyState(context.applicationContext, working)
+    }
+
+    private fun registerApplyWhenStopped(activity: Activity) {
+        if (callbacks.containsKey(activity)) return
+
+        val application = activity.application
+        lateinit var callback: Application.ActivityLifecycleCallbacks
+        callback = object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityStopped(stoppedActivity: Activity) {
+                if (stoppedActivity !== activity) return
+
+                application.unregisterActivityLifecycleCallbacks(callback)
+                callbacks.remove(activity)
+                applyPending(application.applicationContext)
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityPaused(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        }
+
+        callbacks[activity] = callback
+        application.registerActivityLifecycleCallbacks(callback)
     }
 
     fun applyPending(context: Context) {
