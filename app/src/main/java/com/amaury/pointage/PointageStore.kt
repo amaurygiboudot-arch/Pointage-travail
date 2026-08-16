@@ -62,6 +62,7 @@ object PointageStore {
                 item.put("exit", System.currentTimeMillis())
                 save(context, data)
                 IconSwitcher.setWorking(context, false)
+                DriveBackupManager.syncCurrentMonthAsync(context)
                 return true
             }
         }
