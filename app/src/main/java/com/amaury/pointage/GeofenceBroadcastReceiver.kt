@@ -14,15 +14,26 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val event = GeofencingEvent.fromIntent(intent) ?: return
         if (event.hasError()) return
 
+        val activeZones = prefs.getStringSet("active_zones", emptySet())?.toMutableSet()
+            ?: mutableSetOf()
+        val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
+
         when (event.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
-                if (PointageStore.entry(context)) {
+                val wasOutsideAllZones = activeZones.isEmpty()
+                activeZones.addAll(triggeredIds)
+                prefs.edit().putStringSet("active_zones", activeZones).apply()
+
+                if (wasOutsideAllZones && activeZones.isNotEmpty() && PointageStore.entry(context)) {
                     PointageWidgetProvider.updateAll(context)
                 }
             }
 
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
-                if (PointageStore.exit(context)) {
+                activeZones.removeAll(triggeredIds.toSet())
+                prefs.edit().putStringSet("active_zones", activeZones).apply()
+
+                if (activeZones.isEmpty() && PointageStore.exit(context)) {
                     PointageWidgetProvider.updateAll(context)
                 }
             }
