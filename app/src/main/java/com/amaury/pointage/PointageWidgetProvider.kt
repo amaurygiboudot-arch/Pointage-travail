@@ -133,7 +133,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             views.setTextViewText(
                 R.id.widget_status,
-                "H P"
+                "HP V8"
             )
 
             views.setTextViewText(
