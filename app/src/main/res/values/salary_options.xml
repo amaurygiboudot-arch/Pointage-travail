@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="convention_options">
+        <item>Plasturgie — régime hebdomadaire 35 h</item>
+        <item>Régime légal — sans accord spécifique</item>
+    </string-array>
+</resources>
