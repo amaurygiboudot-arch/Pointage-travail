@@ -11,6 +11,7 @@
         android:resizeableActivity="true">
 
         <activity android:name=".MainActivity" android:exported="true" />
+        <activity android:name=".SalaryActivity" android:exported="false" />
 
         <receiver android:name=".PointageWidgetProvider" android:exported="false">
             <intent-filter>
