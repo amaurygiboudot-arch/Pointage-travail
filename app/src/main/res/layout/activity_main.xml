@@ -146,6 +146,83 @@
                 android:textColor="@color/hp_white"
                 android:textSize="16sp"
                 android:paddingTop="14dp"/>
+
+            <LinearLayout
+                android:id="@+id/gpsSettingsPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                android:paddingTop="14dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Adresse du lieu de travail"
+                    android:textColor="@color/hp_gold"
+                    android:textSize="15sp"/>
+
+                <EditText
+                    android:id="@+id/workplaceAddress"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Ex. 12 rue ..., 85190 Aizenay"
+                    android:inputType="textPostalAddress"
+                    android:textColor="@color/hp_white"
+                    android:textColorHint="@color/hp_grey"
+                    android:singleLine="false"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Rayon de déclenchement (mètres)"
+                    android:textColor="@color/hp_gold"
+                    android:textSize="15sp"/>
+
+                <EditText
+                    android:id="@+id/geofenceRadius"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:text="150"
+                    android:textColor="@color/hp_white"/>
+
+                <Switch
+                    android:id="@+id/autoGpsSwitch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="Pointage automatique par GPS"
+                    android:textColor="@color/hp_white"/>
+
+                <TextView
+                    android:id="@+id/gpsStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="GPS automatique désactivé"
+                    android:textColor="@color/hp_grey"
+                    android:textSize="14sp"/>
+
+                <Button
+                    android:id="@+id/saveGpsSettingsButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="ENREGISTRER LE LIEU"
+                    android:textColor="@color/hp_gold_light"
+                    android:background="@drawable/hp_panel"/>
+
+                <Button
+                    android:id="@+id/locationPermissionButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="AUTORISER LA LOCALISATION"
+                    android:textColor="@color/hp_gold_light"
+                    android:background="@drawable/hp_panel"/>
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
