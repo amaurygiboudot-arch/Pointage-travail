@@ -13,6 +13,7 @@
 
         <activity android:name=".MainActivity" android:exported="true" />
         <activity android:name=".SalaryActivity" android:exported="false" />
+        <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
 
         <receiver android:name=".PointageWidgetProvider" android:exported="false">
             <intent-filter>
