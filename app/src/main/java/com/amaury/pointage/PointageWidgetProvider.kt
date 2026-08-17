@@ -29,68 +29,70 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
         private fun formatDuration(ms: Long): String {
             val totalMinutes = ms.coerceAtLeast(0L) / 60000L
-            return String.format(
-                Locale.FRANCE,
-                "%02dh %02dm",
-                totalMinutes / 60L,
-                totalMinutes % 60L
-            )
+            return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
         }
 
-        private fun updateWidget(
-            context: Context,
-            manager: AppWidgetManager,
-            widgetId: Int
-        ) {
+        private fun shortLocation(address: String): String {
+            val cleaned = address.replace("\n", " ").trim()
+            return if (cleaned.length <= 34) cleaned else cleaned.take(31) + "…"
+        }
+
+        private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
 
-            val entryIntent = Intent(context, PointageWidgetProvider::class.java).apply {
-                action = ACTION_ENTRY
-            }
-            val exitIntent = Intent(context, PointageWidgetProvider::class.java).apply {
-                action = ACTION_EXIT
-            }
+            val entryIntent = Intent(context, PointageWidgetProvider::class.java).apply { action = ACTION_ENTRY }
+            val exitIntent = Intent(context, PointageWidgetProvider::class.java).apply { action = ACTION_EXIT }
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
                 putExtra("open_tab", "today")
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val openSettingsIntent = Intent(context, MainActivity::class.java).apply {
+                putExtra("open_tab", "settings")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
             val openAppPending = PendingIntent.getActivity(
-                context,
-                20,
-                openAppIntent,
+                context, 20, openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val openSettingsPending = PendingIntent.getActivity(
+                context, 30, openSettingsIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val entryPending = PendingIntent.getBroadcast(
-                context,
-                1,
-                entryIntent,
+                context, 1, entryIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val exitPending = PendingIntent.getBroadcast(
-                context,
-                2,
-                exitIntent,
+                context, 2, exitIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
             views.setOnClickPendingIntent(R.id.widget_root, openAppPending)
             views.setOnClickPendingIntent(R.id.widget_entry, entryPending)
             views.setOnClickPendingIntent(R.id.widget_exit, exitPending)
+            views.setOnClickPendingIntent(R.id.widget_location, openSettingsPending)
+            views.setOnClickPendingIntent(R.id.widget_status_area, openAppPending)
 
             var entryText = "--:--"
             var exitText = "--:--"
             var durationText = "00h 00m"
             var stateText = "PRÊT"
             var stateColor = Color.parseColor("#E8C25E")
+            var locationText = "📍 Aucune zone"
 
             val data = PointageStore.load(context)
             if (data.length() > 0) {
                 val last = data.getJSONObject(data.length() - 1)
                 val entry = last.getLong("entry")
+                val zoneAddress = last.optString("zoneAddress").trim()
                 entryText = formatTime(entry)
+
+                if (zoneAddress.isNotEmpty()) {
+                    locationText = "📍 ${shortLocation(zoneAddress)}"
+                } else if (last.isNull("exit")) {
+                    locationText = "📍 Pointage manuel"
+                }
 
                 if (last.isNull("exit")) {
                     durationText = formatDuration(System.currentTimeMillis() - entry)
@@ -111,16 +113,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_state, stateText)
             views.setTextColor(R.id.widget_state, stateColor)
             views.setTextViewText(R.id.widget_pause, "00h 00m")
+            views.setTextViewText(R.id.widget_location, locationText)
 
             manager.updateAppWidget(widgetId, views)
         }
     }
 
-    override fun onUpdate(
-        context: Context,
-        manager: AppWidgetManager,
-        ids: IntArray
-    ) {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         ids.forEach { updateWidget(context, manager, it) }
     }
 
@@ -135,7 +134,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 }
                 updateAll(context)
             }
-
             ACTION_EXIT -> {
                 if (PointageStore.exit(context)) {
                     Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
