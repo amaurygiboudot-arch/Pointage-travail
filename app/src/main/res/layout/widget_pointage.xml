@@ -2,12 +2,14 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#FF050505">
 
     <ImageView
         android:id="@+id/widget_background"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:background="#FF050505"
         android:contentDescription="HP Travail"
         android:scaleType="fitXY"
         android:src="@drawable/widget_luxury_exact" />
@@ -19,165 +21,30 @@
         android:paddingStart="8dp"
         android:paddingEnd="8dp">
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="14" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="14" />
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="21">
-
-            <TextView
-                android:id="@+id/widget_entry"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="#01000000"
-                android:text="" />
-
-            <TextView
-                android:id="@+id/widget_entry_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="24dp"
-                android:gravity="center"
-                android:text="--:--"
-                android:textColor="#59DB60"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/widget_entry_location"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="6dp"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:text=""
-                android:textColor="#D8D1C3"
-                android:textSize="7sp" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="21">
+            <TextView android:id="@+id/widget_entry" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#01000000" android:text="" />
+            <TextView android:id="@+id/widget_entry_time" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="24dp" android:gravity="center" android:text="--:--" android:textColor="#59DB60" android:textSize="12sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_entry_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="6dp" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:text="" android:textColor="#D8D1C3" android:textSize="7sp" />
         </FrameLayout>
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="28">
-
-            <AnalogClock
-                android:id="@+id/widget_clock"
-                android:layout_width="104dp"
-                android:layout_height="104dp"
-                android:layout_gravity="center"
-                android:dial="@drawable/widget_clock_transparent"
-                android:hand_hour="@drawable/widget_clock_hour"
-                android:hand_minute="@drawable/widget_clock_minute" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="28">
+            <AnalogClock android:id="@+id/widget_clock" android:layout_width="104dp" android:layout_height="104dp" android:layout_gravity="center" android:dial="@drawable/widget_clock_transparent" android:hand_hour="@drawable/widget_clock_hour" android:hand_minute="@drawable/widget_clock_minute" />
         </FrameLayout>
 
-        <FrameLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="20">
-
-            <TextView
-                android:id="@+id/widget_exit"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="#01000000"
-                android:text="" />
-
-            <TextView
-                android:id="@+id/widget_exit_time"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="24dp"
-                android:gravity="center"
-                android:text="--:--"
-                android:textColor="#FF3E35"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/widget_exit_location"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="6dp"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="1"
-                android:text=""
-                android:textColor="#D8D1C3"
-                android:textSize="7sp" />
+        <FrameLayout android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="20">
+            <TextView android:id="@+id/widget_exit" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#01000000" android:text="" />
+            <TextView android:id="@+id/widget_exit_time" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="24dp" android:gravity="center" android:text="--:--" android:textColor="#FF3E35" android:textSize="12sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_exit_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="6dp" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:text="" android:textColor="#D8D1C3" android:textSize="7sp" />
         </FrameLayout>
 
-        <FrameLayout
-            android:id="@+id/widget_status_area"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="17">
-
-            <TextClock
-                android:id="@+id/widget_now"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top"
-                android:layout_marginTop="8dp"
-                android:format24Hour="HH:mm"
-                android:gravity="center"
-                android:textColor="#DDB34E"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_state"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top"
-                android:layout_marginTop="27dp"
-                android:gravity="center"
-                android:text="PRÊT"
-                android:textColor="#F3D58A"
-                android:textSize="10sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/widget_duration"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:gravity="center"
-                android:text="00h 00m"
-                android:textColor="#F3D58A"
-                android:textSize="16sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/widget_pause"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="42dp"
-                android:gravity="center"
-                android:text="00h 00m"
-                android:textColor="#CFC7B8"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_location"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:layout_marginBottom="8dp"
-                android:ellipsize="end"
-                android:gravity="center"
-                android:maxLines="2"
-                android:text="📍 Aucune zone"
-                android:textColor="#E0B64E"
-                android:textSize="7sp" />
+        <FrameLayout android:id="@+id/widget_status_area" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="17">
+            <TextClock android:id="@+id/widget_now" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="top" android:layout_marginTop="8dp" android:format24Hour="HH:mm" android:gravity="center" android:textColor="#DDB34E" android:textSize="9sp" />
+            <TextView android:id="@+id/widget_state" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="top" android:layout_marginTop="27dp" android:gravity="center" android:text="PRÊT" android:textColor="#F3D58A" android:textSize="10sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_duration" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="center" android:gravity="center" android:text="00h 00m" android:textColor="#F3D58A" android:textSize="16sp" android:textStyle="bold" />
+            <TextView android:id="@+id/widget_pause" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="42dp" android:gravity="center" android:text="00h 00m" android:textColor="#CFC7B8" android:textSize="9sp" />
+            <TextView android:id="@+id/widget_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:layout_marginBottom="8dp" android:ellipsize="end" android:gravity="center" android:maxLines="2" android:text="📍 Aucune zone" android:textColor="#E0B64E" android:textSize="7sp" />
         </FrameLayout>
     </LinearLayout>
 </FrameLayout>
