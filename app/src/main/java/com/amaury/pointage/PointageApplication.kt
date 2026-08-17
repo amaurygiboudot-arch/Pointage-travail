@@ -49,50 +49,50 @@ object AppearanceManager {
     const val BACKGROUND_FILE = "custom_app_background.jpg"
 
     fun apply(activity: Activity) {
-        // L'écran principal HP Travail a un design noir/doré volontairement fixe.
-        // On ne le recolore pas avec le mode clair, sinon les cartes deviennent blanches
-        // et les textes dorés/noirs perdent leur contraste.
-        if (activity is MainActivity) {
-            applyLuxuryMain(activity)
-            return
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "auto") ?: "auto"
+        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val dark = when (mode) {
+            "light" -> false
+            "dark" -> true
+            else -> systemDark
         }
 
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val mode = prefs.getString("mode", "dark") ?: "dark"
-        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = mode == "dark" || (mode == "auto" && systemDark)
-        val defaultBg = if (dark) "#080808" else "#F3F0E8"
+        val defaultBg = if (dark) "#050505" else "#F3F0E8"
         val defaultPanel = if (dark) "#181818" else "#FFFFFF"
-        val bg = parseColor(prefs.getString("app_bg", null), defaultBg)
-        val panel = if (prefs.getBoolean("custom_bg", false)) shift(bg, if (isDark(bg)) 1.28f else 0.90f) else Color.parseColor(defaultPanel)
+        val useCustomBg = prefs.getBoolean("custom_bg", false)
+        val bg = if (useCustomBg) parseColor(prefs.getString("app_bg", null), defaultBg) else Color.parseColor(defaultBg)
+        val panel = if (useCustomBg) shift(bg, if (isDark(bg)) 1.28f else 0.90f) else Color.parseColor(defaultPanel)
         val text = bestTextColor(bg)
         val panelText = bestTextColor(panel)
-        val secondary = if (isDark(panel)) Color.parseColor("#E0E0E0") else Color.parseColor("#333333")
+        val secondary = if (isDark(panel)) Color.parseColor("#F0ECE4") else Color.parseColor("#292929")
         val imageFile = File(activity.filesDir, BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && imageFile.exists()
 
         activity.window.statusBarColor = bg
         activity.window.navigationBarColor = bg
+        var flags = activity.window.decorView.systemUiVisibility
+        if (!dark) {
+            flags = flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) flags = flags or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+        } else {
+            flags = flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) flags = flags and View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+        }
+        activity.window.decorView.systemUiVisibility = flags
+
         val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)
         if (hasImage) {
             val bitmap = runCatching { BitmapFactory.decodeFile(imageFile.absolutePath) }.getOrNull()
             if (bitmap != null) root.background = BitmapDrawable(activity.resources, bitmap).apply { gravity = Gravity.FILL }
             else root.setBackgroundColor(bg)
-        } else root.setBackgroundColor(bg)
-        recolor(root, bg, panel, text, panelText, secondary, hasImage, false)
-    }
+        } else {
+            root.background = null
+            root.setBackgroundColor(bg)
+        }
 
-    private fun applyLuxuryMain(activity: MainActivity) {
-        val black = Color.parseColor("#050505")
-        activity.window.statusBarColor = black
-        activity.window.navigationBarColor = black
-        activity.window.decorView.systemUiVisibility = activity.window.decorView.systemUiVisibility and
-            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv() and
-            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv() else -1)
-
-        val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)
-        root.setBackgroundColor(black)
         clearRuntimeTints(root)
+        recolor(root, bg, panel, text, panelText, secondary, hasImage, false)
     }
 
     private fun clearRuntimeTints(view: View) {
@@ -109,36 +109,77 @@ object AppearanceManager {
         val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
         val ownPanel = idName.contains("Panel", true) || idName.contains("Card", true) || idName == "contentPanel"
         val onPanel = inheritedPanel || ownPanel
+
         if (view is ViewGroup) {
-            if (view.parent != null && view.background != null && view !is android.widget.ScrollView && ownPanel) view.backgroundTintList = ColorStateList.valueOf(panel)
-            for (i in 0 until view.childCount) recolor(view.getChildAt(i), bg, panel, text, panelText, secondary, imageBg, onPanel)
+            if (view.parent != null && view.background != null && view !is android.widget.ScrollView && ownPanel) {
+                view.backgroundTintList = ColorStateList.valueOf(panel)
+            }
+            for (i in 0 until view.childCount) {
+                recolor(view.getChildAt(i), bg, panel, text, panelText, secondary, imageBg, onPanel)
+            }
         }
+
         val surface = if (onPanel) panel else bg
         val strongText = bestTextColor(surface)
-        val softText = if (isDark(surface)) Color.parseColor("#E0E0E0") else Color.parseColor("#333333")
+        val softText = if (isDark(surface)) Color.parseColor("#F0ECE4") else Color.parseColor("#292929")
+
         when (view) {
-            is EditText -> { view.setTextColor(strongText); view.setHintTextColor(softText) }
+            is EditText -> {
+                view.setTextColor(strongText)
+                view.setHintTextColor(softText)
+            }
             is Button -> {
                 val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
                 val isEntryExit = id == "entryButton" || id == "exitButton"
-                if (!isEntryExit && view.background != null) view.setTextColor(Color.parseColor("#F3D58A"))
-                else { val buttonSurface = if (view.background != null) panel else surface; view.setTextColor(bestTextColor(buttonSurface)) }
+                if (!isEntryExit) {
+                    val gold = Color.parseColor("#F3D58A")
+                    view.setTextColor(if (contrastRatio(gold, surface) >= 4.5) gold else strongText)
+                }
             }
             is TextView -> {
                 val current = view.currentTextColor
-                val gold = Color.parseColor("#D6A84B"); val lightGold = Color.parseColor("#F3D58A")
-                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold) else view.setTextColor(strongText)
+                val gold = Color.parseColor("#D6A84B")
+                val lightGold = Color.parseColor("#F3D58A")
+                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) {
+                    view.setTextColor(lightGold)
+                } else {
+                    view.setTextColor(strongText)
+                }
             }
         }
-        if (view is Switch) { view.setTextColor(strongText); view.buttonTintList = null }
-        if (view is android.widget.ScrollView) { if (imageBg) view.setBackgroundColor(Color.TRANSPARENT) else view.setBackgroundColor(bg) }
+
+        if (view is Switch) {
+            view.setTextColor(strongText)
+            view.buttonTintList = null
+        }
+
+        if (view is android.widget.ScrollView) {
+            if (imageBg) view.setBackgroundColor(Color.TRANSPARENT) else view.setBackgroundColor(bg)
+        }
     }
 
     fun bestTextColor(background: Int): Int = if (isDark(background)) Color.WHITE else Color.parseColor("#111111")
-    fun contrastRatio(foreground: Int, background: Int): Double { fun lum(c: Int): Double { fun channel(v:Int):Double { val s=v/255.0; return if(s<=0.03928)s/12.92 else Math.pow((s+0.055)/1.055,2.4) }; return 0.2126*channel(Color.red(c))+0.7152*channel(Color.green(c))+0.0722*channel(Color.blue(c)) }; val l1=lum(foreground); val l2=lum(background); return (maxOf(l1,l2)+0.05)/(minOf(l1,l2)+0.05) }
-    private fun isDark(color:Int):Boolean=((Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000)<145
-    private fun parseColor(value:String?,fallback:String):Int=runCatching{Color.parseColor(value?:fallback)}.getOrElse{Color.parseColor(fallback)}
-    private fun shift(color:Int,factor:Float)=Color.rgb((Color.red(color)*factor).toInt().coerceIn(0,255),(Color.green(color)*factor).toInt().coerceIn(0,255),(Color.blue(color)*factor).toInt().coerceIn(0,255))
+
+    fun contrastRatio(foreground: Int, background: Int): Double {
+        fun lum(c: Int): Double {
+            fun channel(v: Int): Double {
+                val s = v / 255.0
+                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
+            }
+            return 0.2126 * channel(Color.red(c)) + 0.7152 * channel(Color.green(c)) + 0.0722 * channel(Color.blue(c))
+        }
+        val l1 = lum(foreground)
+        val l2 = lum(background)
+        return (maxOf(l1, l2) + 0.05) / (minOf(l1, l2) + 0.05)
+    }
+
+    private fun isDark(color: Int): Boolean = ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 145
+    private fun parseColor(value: String?, fallback: String): Int = runCatching { Color.parseColor(value ?: fallback) }.getOrElse { Color.parseColor(fallback) }
+    private fun shift(color: Int, factor: Float) = Color.rgb(
+        (Color.red(color) * factor).toInt().coerceIn(0, 255),
+        (Color.green(color) * factor).toInt().coerceIn(0, 255),
+        (Color.blue(color) * factor).toInt().coerceIn(0, 255)
+    )
 }
 
 object PlaceNames {
@@ -162,7 +203,7 @@ object SettingsUiInstaller {
         val section = LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(0,28,0,0); tag=TAG }
         section.addView(title(activity,"APPARENCE DE L'APPLICATION"))
         val modeButton=styledButton(activity,"")
-        fun updateModeLabel(){val mode=activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).getString("mode","dark")?:"dark";modeButton.text="MODE : "+when(mode){"light"->"CLAIR";"dark"->"SOMBRE";else->"AUTOMATIQUE"}}
+        fun updateModeLabel(){val mode=activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).getString("mode","auto")?:"auto";modeButton.text="MODE : "+when(mode){"light"->"CLAIR";"dark"->"SOMBRE";else->"AUTOMATIQUE"}}
         updateModeLabel();modeButton.setOnClickListener{val values=arrayOf("Automatique","Clair","Sombre");AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values){_,which->val mode=arrayOf("auto","light","dark")[which];activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).edit().putString("mode",mode).apply();updateModeLabel();AppearanceManager.apply(activity)}.show()};section.addView(modeButton)
         val bgButton=styledButton(activity,"COULEUR DU FOND");bgButton.setOnClickListener{chooseAppBackground(activity)};section.addView(bgButton)
         val imageButton=styledButton(activity,"CHOISIR UNE IMAGE DE FOND");imageButton.setOnClickListener{activity.startActivity(Intent(activity,BackgroundPickerActivity::class.java))};section.addView(imageButton)
