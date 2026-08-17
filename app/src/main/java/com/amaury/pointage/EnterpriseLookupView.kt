@@ -35,6 +35,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
     private val searchButton = Button(context)
     private val companyText = TextView(context)
     private val advantagesText = TextView(context)
+    private val enterpriseAdvantagesText = TextView(context)
     private val agreementsButton = Button(context)
     private var currentSiren: String? = null
     private var currentCompanyName: String? = null
@@ -52,7 +53,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         addView(titleText)
 
         helpText.apply {
-            text = "Entre le SIRET de ton établissement pour récupérer automatiquement l'entreprise et sa convention collective déclarée."
+            text = "Entre le SIRET de ton établissement pour récupérer l'entreprise, sa convention et les accords de rémunération publiés."
             textSize = 12f
             setPadding(0, dp(5), 0, dp(8))
         }
@@ -71,23 +72,16 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { lookup() }
         }
-        addView(searchButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8)
-        })
+        addView(searchButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
-        companyText.apply {
-            textSize = 14f
-            setPadding(0, dp(10), 0, 0)
-            visibility = View.GONE
-        }
+        companyText.apply { textSize = 14f; setPadding(0, dp(10), 0, 0); visibility = View.GONE }
         addView(companyText)
 
-        advantagesText.apply {
-            textSize = 13f
-            setPadding(0, dp(8), 0, 0)
-            visibility = View.GONE
-        }
+        advantagesText.apply { textSize = 13f; setPadding(0, dp(8), 0, 0); visibility = View.GONE }
         addView(advantagesText)
+
+        enterpriseAdvantagesText.apply { textSize = 13f; setPadding(0, dp(12), 0, 0); visibility = View.GONE }
+        addView(enterpriseAdvantagesText)
 
         agreementsButton.apply {
             text = "VOIR LES ACCORDS D'ENTREPRISE SUR LÉGIFRANCE"
@@ -95,9 +89,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
             visibility = View.GONE
             setOnClickListener { openLegifranceAgreements() }
         }
-        addView(agreementsButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10)
-        })
+        addView(agreementsButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
 
         applyTheme()
         restoreSavedCompany()
@@ -114,15 +106,10 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)
         val defaultBg = if (dark) "#080808" else "#F3F0E8"
-        val bg = runCatching { Color.parseColor(appearance.getString("app_bg", null) ?: defaultBg) }
-            .getOrElse { Color.parseColor(defaultBg) }
+        val bg = runCatching { Color.parseColor(appearance.getString("app_bg", null) ?: defaultBg) }.getOrElse { Color.parseColor(defaultBg) }
         val custom = appearance.getBoolean("custom_bg", false)
         val panel = if (custom) {
-            mix(
-                bg,
-                if (AppearanceManager.bestTextColor(bg) == Color.WHITE) Color.WHITE else Color.BLACK,
-                if (AppearanceManager.bestTextColor(bg) == Color.WHITE) 0.16f else 0.07f
-            )
+            mix(bg, if (AppearanceManager.bestTextColor(bg) == Color.WHITE) Color.WHITE else Color.BLACK, if (AppearanceManager.bestTextColor(bg) == Color.WHITE) 0.16f else 0.07f)
         } else if (dark) Color.parseColor("#1B1B1B") else Color.WHITE
         val text = AppearanceManager.bestTextColor(panel)
         val secondary = mix(text, panel, 0.68f)
@@ -146,6 +133,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         siretInput.setHintTextColor(secondary)
         companyText.setTextColor(text)
         advantagesText.setTextColor(secondary)
+        enterpriseAdvantagesText.setTextColor(text)
         searchButton.backgroundTintList = ColorStateList.valueOf(panel)
         searchButton.setTextColor(text)
         agreementsButton.backgroundTintList = ColorStateList.valueOf(panel)
@@ -159,11 +147,13 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val address = prefs.getString("company_address", "").orEmpty()
         val ape = prefs.getString("company_ape", "").orEmpty()
         val idcc = prefs.getString("company_idcc", "").orEmpty()
+        val companyAdvantages = prefs.getString("company_agreement_summary", "").orEmpty()
         if (name.isNotBlank() || siret.isNotBlank()) {
             currentCompanyName = name
             currentSiren = siren.ifBlank { siret.take(9) }
             showCompanyInformation(buildCompanySummary(name, siret, address, ape, idcc))
             showAdvantages(buildAdvantagesSummary(idcc))
+            showEnterpriseAdvantages(companyAdvantages)
             agreementsButton.visibility = if (currentSiren.isNullOrBlank() && currentCompanyName.isNullOrBlank()) View.GONE else View.VISIBLE
         }
     }
@@ -180,6 +170,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         companyText.text = "Recherche dans les données publiques…"
         companyText.visibility = View.VISIBLE
         advantagesText.visibility = View.GONE
+        enterpriseAdvantagesText.visibility = View.GONE
         agreementsButton.visibility = View.GONE
 
         Thread {
@@ -203,28 +194,16 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée pour ce SIRET")
 
                 val result = results.getJSONObject(0)
-                val companyName = firstNonBlank(
-                    result.optString("nom_complet"),
-                    result.optString("nom_raison_sociale"),
-                    result.optString("denomination"),
-                    result.optString("nom")
-                )
+                val companyName = firstNonBlank(result.optString("nom_complet"), result.optString("nom_raison_sociale"), result.optString("denomination"), result.optString("nom"))
                 val siren = result.optString("siren").ifBlank { siret.take(9) }
                 val establishment = findMatchingEstablishment(result, siret)
-                val address = firstNonBlank(
-                    establishment?.optString("adresse"),
-                    establishment?.optString("adresse_complete"),
-                    result.optString("adresse")
-                )
-                val ape = firstNonBlank(
-                    establishment?.optString("activite_principale"),
-                    result.optString("activite_principale")
-                )
+                val address = firstNonBlank(establishment?.optString("adresse"), establishment?.optString("adresse_complete"), result.optString("adresse"))
+                val ape = firstNonBlank(establishment?.optString("activite_principale"), result.optString("activite_principale"))
 
-                val idccs = findIdccs(result)
-                val idcc = idccs.firstOrNull().orEmpty()
+                val idcc = findIdccs(result).firstOrNull().orEmpty()
                 val localConvention = ConventionCatalog.findByIdcc(idcc)
                 val conventionName = localConvention?.fullName.orEmpty()
+                val agreementSummary = fetchCompanyAgreementSummary(siren, companyName)
 
                 prefs.edit()
                     .putString("company_siret", siret)
@@ -234,11 +213,10 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     .putString("company_ape", ape)
                     .putString("company_idcc", idcc)
                     .putString("company_convention_name", conventionName)
+                    .putString("company_agreement_summary", agreementSummary)
                     .apply()
 
-                if (localConvention != null) {
-                    prefs.edit().putString("convention_idcc", localConvention.idcc).apply()
-                }
+                if (localConvention != null) prefs.edit().putString("convention_idcc", localConvention.idcc).apply()
 
                 post {
                     currentSiren = siren
@@ -246,15 +224,12 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     applyTheme()
                     showCompanyInformation(buildCompanySummary(companyName, siret, address, ape, idcc, conventionName))
                     showAdvantages(buildAdvantagesSummary(idcc))
+                    showEnterpriseAdvantages(agreementSummary)
                     agreementsButton.visibility = if (siren.isBlank() && companyName.isBlank()) View.GONE else View.VISIBLE
                     searchButton.isEnabled = true
                     searchButton.text = "RECHERCHER L'ENTREPRISE"
-
                     when {
-                        localConvention != null -> {
-                            Toast.makeText(context, "Entreprise trouvée — convention ${localConvention.displayName} sélectionnée", Toast.LENGTH_LONG).show()
-                            (context as? Activity)?.recreate()
-                        }
+                        localConvention != null -> Toast.makeText(context, "Entreprise trouvée — convention ${localConvention.displayName} sélectionnée", Toast.LENGTH_LONG).show()
                         idcc.isNotBlank() -> Toast.makeText(context, "Entreprise trouvée — IDCC $idcc détecté", Toast.LENGTH_LONG).show()
                         else -> Toast.makeText(context, "Entreprise trouvée", Toast.LENGTH_SHORT).show()
                     }
@@ -264,6 +239,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     companyText.text = "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}"
                     companyText.visibility = View.VISIBLE
                     advantagesText.visibility = View.GONE
+                    enterpriseAdvantagesText.visibility = View.GONE
                     agreementsButton.visibility = View.GONE
                     searchButton.isEnabled = true
                     searchButton.text = "RECHERCHER L'ENTREPRISE"
@@ -273,80 +249,101 @@ class EnterpriseLookupView @JvmOverloads constructor(
         }.start()
     }
 
+    private fun fetchCompanyAgreementSummary(siren: String, companyName: String): String {
+        if (siren.isBlank() && companyName.isBlank()) return ""
+        return runCatching {
+            val query = listOf(siren, companyName).filter { it.isNotBlank() }.joinToString(" ")
+            val url = "https://www.legifrance.gouv.fr/liste/acco?query=${URLEncoder.encode(query, StandardCharsets.UTF_8.name())}&searchField=ALL&tab_selection=acco"
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 10000
+            connection.readTimeout = 15000
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("Accept", "text/html")
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 HP-Travail-Android")
+            val code = connection.responseCode
+            val html = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else ""
+            connection.disconnect()
+            if (html.isBlank()) return@runCatching ""
+
+            val text = decodeHtml(html)
+            val relevantLines = text.lineSequence()
+                .map { it.trim().replace(Regex("\\s+"), " ") }
+                .filter { it.length in 6..240 }
+                .filter { line -> remunerationKeywords.any { key -> line.contains(key, ignoreCase = true) } }
+                .filterNot { it.contains("Rechercher", true) || it.contains("Filtrer", true) }
+                .distinct()
+                .take(12)
+                .toList()
+
+            if (relevantLines.isEmpty()) "" else buildString {
+                append("AVANTAGES / ACCORDS DE L'ENTREPRISE\n")
+                relevantLines.forEach { append("• ").append(it).append('\n') }
+            }.trim()
+        }.getOrDefault("")
+    }
+
+    private val remunerationKeywords = listOf(
+        "prime", "primes", "salaire", "salaires", "rémunération", "remuneration",
+        "indemnité", "indemnites", "indemnités", "intéressement", "interessement",
+        "participation", "heures supplémentaires", "heures supplementaires", "majoration",
+        "travail de nuit", "travail du dimanche", "dimanche", "panier", "repas",
+        "13e mois", "treizième mois", "treizieme mois", "RTT", "congés", "conges",
+        "partage de la valeur", "PPV", "évolution des salaires", "evolution des salaires"
+    )
+
+    private fun decodeHtml(html: String): String = html
+        .replace(Regex("(?is)<script.*?</script>"), " ")
+        .replace(Regex("(?is)<style.*?</style>"), " ")
+        .replace(Regex("(?i)<br\\s*/?>"), "\n")
+        .replace(Regex("(?i)</(p|li|h1|h2|h3|div|article)>"), "\n")
+        .replace(Regex("<[^>]+>"), " ")
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&eacute;", "é")
+        .replace("&Eacute;", "É")
+        .replace("&agrave;", "à")
+        .replace("&ccedil;", "ç")
+
     private fun findIdccs(result: JSONObject): List<String> {
         val values = linkedSetOf<String>()
-
-        val complements = result.optJSONObject("complements")
-        val listIdcc = complements?.optJSONArray("liste_idcc")
+        val listIdcc = result.optJSONObject("complements")?.optJSONArray("liste_idcc")
         if (listIdcc != null) {
-            for (i in 0 until listIdcc.length()) {
-                normalizeIdcc(listIdcc.optString(i)).takeIf { it.isNotBlank() }?.let(values::add)
-            }
+            for (i in 0 until listIdcc.length()) normalizeIdcc(listIdcc.optString(i)).takeIf { it.isNotBlank() }?.let(values::add)
         }
-
         fun collectFromObject(obj: JSONObject) {
-            val direct = listOf(
-                obj.optString("idcc"),
-                obj.optString("numero_idcc"),
-                obj.optString("id_convention_collective")
-            )
-            direct.forEach { normalizeIdcc(it).takeIf(String::isNotBlank)?.let(values::add) }
-
+            listOf(obj.optString("idcc"), obj.optString("numero_idcc"), obj.optString("id_convention_collective"))
+                .forEach { normalizeIdcc(it).takeIf(String::isNotBlank)?.let(values::add) }
             val conventions = obj.optJSONArray("conventions_collectives")
-            if (conventions != null) {
-                for (i in 0 until conventions.length()) {
-                    val item = conventions.optJSONObject(i) ?: continue
-                    normalizeIdcc(firstNonBlank(
-                        item.optString("idcc"),
-                        item.optString("numero_idcc"),
-                        item.optString("id_convention_collective")
-                    )).takeIf(String::isNotBlank)?.let(values::add)
-                }
+            if (conventions != null) for (i in 0 until conventions.length()) {
+                val item = conventions.optJSONObject(i) ?: continue
+                normalizeIdcc(firstNonBlank(item.optString("idcc"), item.optString("numero_idcc"), item.optString("id_convention_collective"))).takeIf(String::isNotBlank)?.let(values::add)
             }
         }
-
         collectFromObject(result)
         result.optJSONObject("siege")?.let(::collectFromObject)
-        val matching = result.optJSONArray("matching_etablissements")
-        if (matching != null) {
-            for (i in 0 until matching.length()) matching.optJSONObject(i)?.let(::collectFromObject)
-        }
-
+        result.optJSONArray("matching_etablissements")?.let { array -> for (i in 0 until array.length()) array.optJSONObject(i)?.let(::collectFromObject) }
         return values.toList()
     }
 
     private fun normalizeIdcc(raw: String): String {
         val digits = raw.filter(Char::isDigit)
-        if (digits.isBlank()) return ""
-        return digits.padStart(4, '0').takeLast(4)
+        return if (digits.isBlank()) "" else digits.padStart(4, '0').takeLast(4)
     }
 
-    private fun showCompanyInformation(value: String) {
-        companyText.text = value
-        companyText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE
-    }
+    private fun showCompanyInformation(value: String) { companyText.text = value; companyText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE }
+    private fun showAdvantages(value: String) { advantagesText.text = value; advantagesText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE }
+    private fun showEnterpriseAdvantages(value: String) { enterpriseAdvantagesText.text = value; enterpriseAdvantagesText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE }
 
-    private fun showAdvantages(value: String) {
-        advantagesText.text = value
-        advantagesText.visibility = if (value.isBlank()) View.GONE else View.VISIBLE
-    }
-
-    private fun buildCompanySummary(
-        name: String,
-        siret: String,
-        address: String,
-        ape: String,
-        idcc: String,
-        conventionName: String = prefs.getString("company_convention_name", "").orEmpty()
-    ): String {
+    private fun buildCompanySummary(name: String, siret: String, address: String, ape: String, idcc: String, conventionName: String = prefs.getString("company_convention_name", "").orEmpty()): String {
         val lines = mutableListOf<String>()
         if (name.isNotBlank()) lines += "🏢 $name"
         if (siret.isNotBlank()) lines += "SIRET : $siret"
         if (address.isNotBlank()) lines += "Adresse : $address"
         if (ape.isNotBlank()) lines += "APE/NAF : $ape"
-        if (idcc.isNotBlank()) {
-            lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
-        }
+        if (idcc.isNotBlank()) lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
         return lines.joinToString("\n")
     }
 
@@ -356,13 +353,8 @@ class EnterpriseLookupView @JvmOverloads constructor(
         if (convention.advantages.isEmpty() && convention.cautions.isEmpty()) return ""
         val items = mutableListOf<String>()
         if (convention.advantages.isNotEmpty()) {
-            items += "Rémunération / avantages connus dans l'application :"
+            items += "CONVENTION COLLECTIVE"
             convention.advantages.forEach { items += "• $it" }
-        }
-        if (convention.cautions.isNotEmpty()) {
-            if (items.isNotEmpty()) items += ""
-            items += "À vérifier dans les accords de l'entreprise :"
-            convention.cautions.take(4).forEach { items += "• $it" }
         }
         return items.joinToString("\n")
     }
@@ -370,11 +362,8 @@ class EnterpriseLookupView @JvmOverloads constructor(
     private fun openLegifranceAgreements() {
         val query = listOf(currentCompanyName.orEmpty(), currentSiren.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
         val url = "https://www.legifrance.gouv.fr/liste/acco?query=${Uri.encode(query)}&searchField=ALL&tab_selection=acco"
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onFailure {
-            Toast.makeText(context, "Impossible d'ouvrir Légifrance", Toast.LENGTH_LONG).show()
-        }
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+            .onFailure { Toast.makeText(context, "Impossible d'ouvrir Légifrance", Toast.LENGTH_LONG).show() }
     }
 
     private fun findMatchingEstablishment(result: JSONObject, siret: String): JSONObject? {
