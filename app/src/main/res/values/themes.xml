@@ -5,7 +5,13 @@
 
     <style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#16A34A</item>
+        <item name="android:colorAccent">#D6A84B</item>
+        <item name="android:windowBackground">#050505</item>
+        <item name="android:navigationBarColor">#050505</item>
+        <item name="android:statusBarColor">#050505</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:forceDarkAllowed">false</item>
         <item name="android:scrollViewStyle">@style/PointageScrollViewStyle</item>
     </style>
 </resources>
