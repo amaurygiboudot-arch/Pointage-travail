@@ -31,6 +31,7 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
             if (activity is MainActivity) {
                 SettingsUiInstaller.install(activity)
                 LuxuryUiInstaller.install(activity)
+                UpdateChecker.check(activity, silent = true)
             }
         }
     }
@@ -76,56 +77,33 @@ object AppearanceManager {
         val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
         val ownPanel = idName.contains("Panel", true) || idName.contains("Card", true) || idName == "contentPanel"
         val onPanel = inheritedPanel || ownPanel
-
         if (view is ViewGroup) {
-            if (view.parent != null && view.background != null && view !is android.widget.ScrollView && ownPanel) {
-                view.backgroundTintList = ColorStateList.valueOf(panel)
-            }
+            if (view.parent != null && view.background != null && view !is android.widget.ScrollView && ownPanel) view.backgroundTintList = ColorStateList.valueOf(panel)
             for (i in 0 until view.childCount) recolor(view.getChildAt(i), bg, panel, text, panelText, secondary, imageBg, onPanel)
         }
-
         val surface = if (onPanel) panel else bg
         val strongText = bestTextColor(surface)
         val softText = if (isDark(surface)) Color.parseColor("#E0E0E0") else Color.parseColor("#333333")
-
         when (view) {
-            is EditText -> {
-                view.setTextColor(strongText)
-                view.setHintTextColor(softText)
-            }
+            is EditText -> { view.setTextColor(strongText); view.setHintTextColor(softText) }
             is Button -> {
                 val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
                 val isEntryExit = id == "entryButton" || id == "exitButton"
-                if (!isEntryExit && view.background != null) {
-                    view.setTextColor(Color.parseColor("#F3D58A"))
-                } else {
-                    val buttonSurface = if (view.background != null) panel else surface
-                    view.setTextColor(bestTextColor(buttonSurface))
-                }
+                if (!isEntryExit && view.background != null) view.setTextColor(Color.parseColor("#F3D58A"))
+                else { val buttonSurface = if (view.background != null) panel else surface; view.setTextColor(bestTextColor(buttonSurface)) }
             }
             is TextView -> {
                 val current = view.currentTextColor
-                val gold = Color.parseColor("#D6A84B")
-                val lightGold = Color.parseColor("#F3D58A")
-                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold)
-                else view.setTextColor(strongText)
+                val gold = Color.parseColor("#D6A84B"); val lightGold = Color.parseColor("#F3D58A")
+                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold) else view.setTextColor(strongText)
             }
         }
-
-        if (view is Switch) {
-            view.setTextColor(strongText)
-            view.buttonTintList = null
-        }
-        if (view is android.widget.ScrollView) {
-            if (imageBg) view.setBackgroundColor(Color.TRANSPARENT) else view.setBackgroundColor(bg)
-        }
+        if (view is Switch) { view.setTextColor(strongText); view.buttonTintList = null }
+        if (view is android.widget.ScrollView) { if (imageBg) view.setBackgroundColor(Color.TRANSPARENT) else view.setBackgroundColor(bg) }
     }
 
     fun bestTextColor(background: Int): Int = if (isDark(background)) Color.WHITE else Color.parseColor("#111111")
-    fun contrastRatio(foreground: Int, background: Int): Double {
-        fun lum(c: Int): Double { fun channel(v:Int):Double { val s=v/255.0; return if(s<=0.03928)s/12.92 else Math.pow((s+0.055)/1.055,2.4) }; return 0.2126*channel(Color.red(c))+0.7152*channel(Color.green(c))+0.0722*channel(Color.blue(c)) }
-        val l1=lum(foreground); val l2=lum(background); return (maxOf(l1,l2)+0.05)/(minOf(l1,l2)+0.05)
-    }
+    fun contrastRatio(foreground: Int, background: Int): Double { fun lum(c: Int): Double { fun channel(v:Int):Double { val s=v/255.0; return if(s<=0.03928)s/12.92 else Math.pow((s+0.055)/1.055,2.4) }; return 0.2126*channel(Color.red(c))+0.7152*channel(Color.green(c))+0.0722*channel(Color.blue(c)) }; val l1=lum(foreground); val l2=lum(background); return (maxOf(l1,l2)+0.05)/(minOf(l1,l2)+0.05) }
     private fun isDark(color:Int):Boolean=((Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000)<145
     private fun parseColor(value:String?,fallback:String):Int=runCatching{Color.parseColor(value?:fallback)}.getOrElse{Color.parseColor(fallback)}
     private fun shift(color:Int,factor:Float)=Color.rgb((Color.red(color)*factor).toInt().coerceIn(0,255),(Color.green(color)*factor).toInt().coerceIn(0,255),(Color.blue(color)*factor).toInt().coerceIn(0,255))
@@ -139,24 +117,16 @@ object PlaceNames {
 
 object SettingsUiInstaller {
     private const val TAG = "settings_personalization_installed"
-
     fun install(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         if (panel.findViewWithTag<View>(TAG) != null) return
-        val address = activity.findViewById<EditText>(R.id.workplaceAddress)
-        address.isFocusable = false; address.isClickable = false
-
+        val address = activity.findViewById<EditText>(R.id.workplaceAddress); address.isFocusable = false; address.isClickable = false
         val settingsButton = activity.findViewById<Button>(R.id.settingsButton)
         val header = settingsButton.parent as? LinearLayout
         if (header != null && header.findViewWithTag<View>("main_back_button") == null) {
-            val back = styledButton(activity, "←").apply {
-                tag = "main_back_button"; textSize = 24f
-                layoutParams = LinearLayout.LayoutParams(dp(activity,56), dp(activity,56)).apply { marginEnd = dp(activity,8) }
-                setOnClickListener { activity.findViewById<TextView>(R.id.tabToday)?.performClick() }
-            }
+            val back = styledButton(activity, "←").apply { tag = "main_back_button"; textSize = 24f; layoutParams = LinearLayout.LayoutParams(dp(activity,56), dp(activity,56)).apply { marginEnd = dp(activity,8) }; setOnClickListener { activity.findViewById<TextView>(R.id.tabToday)?.performClick() } }
             header.addView(back, 0)
         }
-
         val section = LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(0,28,0,0); tag=TAG }
         section.addView(title(activity,"APPARENCE DE L'APPLICATION"))
         val modeButton=styledButton(activity,"")
@@ -165,20 +135,19 @@ object SettingsUiInstaller {
         val bgButton=styledButton(activity,"COULEUR DU FOND");bgButton.setOnClickListener{chooseAppBackground(activity)};section.addView(bgButton)
         val imageButton=styledButton(activity,"CHOISIR UNE IMAGE DE FOND");imageButton.setOnClickListener{activity.startActivity(Intent(activity,BackgroundPickerActivity::class.java))};section.addView(imageButton)
         val resetBg=styledButton(activity,"RÉINITIALISER LE FOND");resetBg.setOnClickListener{File(activity.filesDir,AppearanceManager.BACKGROUND_FILE).delete();activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).edit().remove("app_bg").putBoolean("custom_bg",false).putBoolean("custom_image_bg",false).apply();AppearanceManager.apply(activity)};section.addView(resetBg)
-
         section.addView(title(activity,"PERSONNALISER LE WIDGET"))
         val widgetBg=styledButton(activity,"COULEUR DU FOND DU WIDGET");widgetBg.setOnClickListener{chooseWidgetColor(activity,"widget_bg","Fond du widget")};section.addView(widgetBg)
         val widgetAccent=styledButton(activity,"COULEUR D'ACCENT DU WIDGET");widgetAccent.setOnClickListener{chooseWidgetColor(activity,"widget_accent","Accent du widget")};section.addView(widgetAccent)
         val showPosition=Switch(activity).apply{text="Afficher la position dans le widget";isChecked=activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).getBoolean("show_position",true);setOnCheckedChangeListener{_,checked->activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).edit().putBoolean("show_position",checked).apply();PointageWidgetProvider.updateAll(activity)}};section.addView(showPosition)
-
         section.addView(title(activity,"SAUVEGARDE GOOGLE DRIVE"))
         val driveStatus=TextView(activity).apply{textSize=14f;text=if(DriveBackupManager.isConfigured(activity))"● Sauvegarde Drive active — PDF classés par lieu / année / mois" else "Drive non configuré"};section.addView(driveStatus)
         val chooseDrive=styledButton(activity,if(DriveBackupManager.isConfigured(activity))"CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE");chooseDrive.setOnClickListener{activity.startActivity(Intent(activity,DriveFolderPickerActivity::class.java))};section.addView(chooseDrive)
         val syncDrive=styledButton(activity,"SYNCHRONISER TOUT L'HISTORIQUE");syncDrive.setOnClickListener{if(!DriveBackupManager.isConfigured(activity))Toast.makeText(activity,"Choisis d'abord un dossier Google Drive",Toast.LENGTH_LONG).show()else{Toast.makeText(activity,"Synchronisation Drive démarrée",Toast.LENGTH_SHORT).show();DriveBackupManager.syncAllAsync(activity){ok,message->activity.runOnUiThread{Toast.makeText(activity,if(ok)"Drive : $message" else "Erreur Drive : $message",Toast.LENGTH_LONG).show()}}}};section.addView(syncDrive)
         val forgetDrive=styledButton(activity,"DÉCONNECTER LE DOSSIER DRIVE");forgetDrive.setOnClickListener{DriveBackupManager.clear(activity);driveStatus.text="Drive non configuré";Toast.makeText(activity,"Sauvegarde Drive désactivée",Toast.LENGTH_SHORT).show()};section.addView(forgetDrive)
+        section.addView(title(activity,"MISES À JOUR"))
+        val updateButton=styledButton(activity,"VÉRIFIER LES MISES À JOUR");updateButton.setOnClickListener{UpdateChecker.check(activity, silent=false)};section.addView(updateButton)
         panel.addView(section);AppearanceManager.apply(activity)
     }
-
     private fun styledButton(context: Context, label:String)=Button(context).apply{text=label;setBackgroundResource(R.drawable.hp_panel);isAllCaps=false}
     private fun dp(context:Context,value:Int)=(value*context.resources.displayMetrics.density).toInt()
     private fun title(context:Context,text:String)=TextView(context).apply{this.text=text;textSize=16f;setPadding(0,18,0,10)}
