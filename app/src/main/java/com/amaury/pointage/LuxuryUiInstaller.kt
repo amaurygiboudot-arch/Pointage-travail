@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextClock
 import android.widget.TextView
@@ -31,6 +32,7 @@ object LuxuryUiInstaller {
         buttons?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             syncTodayVisibility()
             syncTabs(activity)
+            syncTodayLuxuryText(activity)
         }
         digital.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (digital.visibility == View.VISIBLE) digital.visibility = View.GONE
@@ -46,7 +48,6 @@ object LuxuryUiInstaller {
         }
 
         activity.findViewById<TextView>(R.id.statusCard)?.apply {
-            setTextColor(Color.parseColor("#F4EFE3"))
             typeface = Typeface.create("serif", Typeface.NORMAL)
             textSize = 17f
             letterSpacing = 0.04f
@@ -68,17 +69,22 @@ object LuxuryUiInstaller {
         AppearanceManager.apply(activity)
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
+        syncTodayLuxuryText(activity)
 
         val decor = activity.window.decorView
         decor.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
             if (hasFocus && !activity.isFinishing && !activity.isDestroyed) {
-                decor.post { syncTabs(activity) }
+                decor.post {
+                    syncTabs(activity)
+                    syncTodayLuxuryText(activity)
+                }
             }
         }
 
         decor.post {
             AppearanceManager.apply(activity)
             syncTabs(activity)
+            syncTodayLuxuryText(activity)
         }
     }
 
@@ -95,11 +101,31 @@ object LuxuryUiInstaller {
                     AppearanceManager.apply(activity)
                     activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                     syncTabs(activity)
+                    syncTodayLuxuryText(activity)
                 }
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
         appearanceListeners[activity] = listener
+    }
+
+    private fun syncTodayLuxuryText(activity: MainActivity) {
+        // These two surfaces are intentionally always black/gold, independently from
+        // the global Light/Dark theme. AppearanceManager therefore must not leave dark
+        // text on them when the app itself is in Light mode.
+        activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(Color.parseColor("#F4EFE3"))
+
+        val pointagePanel = activity.findViewById<ViewGroup>(R.id.pointageButtons) ?: return
+        recolorTextChildren(pointagePanel, Color.parseColor("#F3D58A"))
+    }
+
+    private fun recolorTextChildren(view: View, color: Int) {
+        if (view is TextView) view.setTextColor(color)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                recolorTextChildren(view.getChildAt(i), color)
+            }
+        }
     }
 
     private fun syncTabs(activity: MainActivity) {
