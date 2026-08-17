@@ -137,7 +137,7 @@ class LocationManagementView @JvmOverloads constructor(
             content.addView(TextView(context).apply {
                 text = "$label\n$value"
                 textSize = 15f
-                setTextColor(Color.parseColor("#1A1A1A"))
+                setTextColor(Color.parseColor("#F4EFE3"))
                 setPadding(0, dp(7), 0, dp(7))
             })
         }
@@ -218,8 +218,8 @@ class LocationManagementView @JvmOverloads constructor(
     private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply {
         hint = hintText
         setText(value)
-        setTextColor(Color.parseColor("#1A1A1A"))
-        setHintTextColor(Color.parseColor("#6F675A"))
+        setTextColor(Color.parseColor("#F4EFE3"))
+        setHintTextColor(Color.parseColor("#CFC7B8"))
     }
 
     private fun confirmDelete(address: String, name: String) {
