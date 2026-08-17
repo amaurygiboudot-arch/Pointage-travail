@@ -90,7 +90,16 @@ object LuxuryUiInstaller {
         if (appearanceListeners.containsKey(activity)) return
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "mode" || key == "app_bg" || key == "custom_bg" || key == "custom_image_bg") {
+            if (key == "mode") {
+                // Recreate the activity so every XML view, dynamically-created setting,
+                // navigation tab and work-place card is rebuilt with the selected mode.
+                // This also prevents stale runtime tints from keeping the previous theme.
+                activity.window.decorView.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        activity.recreate()
+                    }
+                }
+            } else if (key == "app_bg" || key == "custom_bg" || key == "custom_image_bg") {
                 activity.window.decorView.post {
                     AppearanceManager.apply(activity)
                     activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
