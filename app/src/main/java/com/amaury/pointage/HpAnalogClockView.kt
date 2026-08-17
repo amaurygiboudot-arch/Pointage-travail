@@ -39,29 +39,31 @@ class HpAnalogClockView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (width <= 0 || height <= 0) return
 
-        // The watch in luxury_hero is centred in the hero artwork.
-        // Keep the overlay transparent: only the live hands are painted.
-        val cx = width / 2f
-        val cy = height / 2f
-        val faceRadius = min(width, height) * 0.31f
+        /*
+         * The visual centre of the watch in luxury_hero is slightly above the
+         * geometric centre of the hero container. Using height / 2f made the
+         * pivot/cap sit too low on the printed dial. Keep these values tied to
+         * the artwork so all three hands share exactly the same pivot.
+         */
+        val cx = width * 0.50f
+        val cy = height * 0.475f
+        val faceRadius = min(width, height) * 0.40f
 
         val now = Calendar.getInstance()
         val seconds = now.get(Calendar.SECOND) + now.get(Calendar.MILLISECOND) / 1000f
         val minutes = now.get(Calendar.MINUTE) + seconds / 60f
         val hours = (now.get(Calendar.HOUR) % 12) + minutes / 60f
 
-        drawHand(canvas, cx, cy, faceRadius * 0.52f, hours * 30f - 90f, dpF(4.2f), lightGold)
-        drawHand(canvas, cx, cy, faceRadius * 0.76f, minutes * 6f - 90f, dpF(3.0f), lightGold)
-        drawHand(canvas, cx, cy, faceRadius * 0.84f, seconds * 6f - 90f, dpF(1.1f), gold)
+        drawHand(canvas, cx, cy, faceRadius * 0.48f, hours * 30f - 90f, dpF(4.0f), lightGold)
+        drawHand(canvas, cx, cy, faceRadius * 0.70f, minutes * 6f - 90f, dpF(2.8f), lightGold)
+        drawHand(canvas, cx, cy, faceRadius * 0.78f, seconds * 6f - 90f, dpF(1.0f), gold)
 
-        // Small centre cap, matching the gold/black visual language of the hero.
         paint.style = Paint.Style.FILL
         paint.color = gold
-        canvas.drawCircle(cx, cy, dpF(5.2f), paint)
+        canvas.drawCircle(cx, cy, dpF(4.7f), paint)
         paint.color = black
-        canvas.drawCircle(cx, cy, dpF(2.0f), paint)
+        canvas.drawCircle(cx, cy, dpF(1.8f), paint)
 
-        // Smooth second-hand movement while the view is visible.
         postInvalidateDelayed(50L)
     }
 
