@@ -79,11 +79,21 @@ object LuxuryUiInstaller {
 
         installAppearanceListener(activity)
 
-        // Decorative defaults are applied first. The selected appearance is always
-        // applied last so Light / Dark / Automatic keeps sufficient contrast.
+        // Apply once immediately, then once again after the first layout/resume pass.
+        // Some Android versions repaint the navigation strip after onResume, which
+        // previously left the tabs with the old dark tint until the first tab click.
         AppearanceManager.apply(activity)
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
+        activity.window.decorView.post {
+            AppearanceManager.apply(activity)
+            syncTabs(activity)
+        }
+        activity.window.decorView.postDelayed({
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                syncTabs(activity)
+            }
+        }, 120L)
     }
 
     private fun installAppearanceListener(activity: MainActivity) {
