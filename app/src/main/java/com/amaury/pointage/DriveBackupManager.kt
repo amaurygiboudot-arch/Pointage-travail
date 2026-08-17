@@ -102,7 +102,7 @@ object DriveBackupManager {
             val fileName = "Pointage_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
             val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
             context.contentResolver.openOutputStream(pdfUri, "w")?.use { output ->
-                MonthlyPdfReport.write(data, year, month, output)
+                MonthlyPdfReport.write(context, data, year, month, output)
             } ?: error("Impossible d'écrire $fileName")
         }
     }
@@ -134,7 +134,7 @@ object DriveBackupManager {
     private fun ensureFile(context: Context, parent: Uri, name: String, mime: String): Uri {
         findChild(context, parent, name, mime)?.let { return it }
         return DocumentsContract.createDocument(context.contentResolver, parent, mime, name)
-            ?: error("Impossible de créer le fichier $name")
+            ?: error("Impossible de créer $name")
     }
 
     private fun findChild(context: Context, parent: Uri, name: String, mime: String): Uri? {
