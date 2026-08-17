@@ -36,7 +36,12 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
             }
         }
     }
-    override fun onActivityResumed(activity: Activity) { AppearanceManager.apply(activity) }
+    override fun onActivityResumed(activity: Activity) {
+        // MainActivity already applies its appearance through LuxuryUiInstaller.
+        // Recoloring it again here happened after MainActivity.onResume() and replaced
+        // the navigation-tab colors until the user clicked a tab.
+        if (activity !is MainActivity) AppearanceManager.apply(activity)
+    }
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) = Unit
     override fun onActivityStopped(activity: Activity) = Unit
