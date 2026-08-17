@@ -78,6 +78,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setTextColor(context.getColor(R.color.hp_white))
             textSize = 14f
             setPadding(0, dp(10), 0, 0)
+            visibility = View.GONE
         }
         addView(companyText)
 
@@ -85,6 +86,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setTextColor(context.getColor(R.color.hp_grey))
             textSize = 13f
             setPadding(0, dp(8), 0, 0)
+            visibility = View.GONE
         }
         addView(advantagesText)
 
@@ -110,12 +112,12 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val ape = prefs.getString("company_ape", "").orEmpty()
         val idcc = prefs.getString("company_idcc", "").orEmpty()
 
-        if (name.isNotBlank()) {
+        if (name.isNotBlank() || siret.isNotBlank()) {
             currentCompanyName = name
             currentSiren = siren.ifBlank { siret.take(9) }
-            companyText.text = buildCompanySummary(name, siret, address, ape, idcc)
-            advantagesText.text = buildAdvantagesSummary(idcc)
-            agreementsButton.visibility = View.VISIBLE
+            showCompanyInformation(buildCompanySummary(name, siret, address, ape, idcc))
+            showAdvantages(buildAdvantagesSummary(idcc))
+            agreementsButton.visibility = if (currentSiren.isNullOrBlank() && currentCompanyName.isNullOrBlank()) View.GONE else View.VISIBLE
         }
     }
 
@@ -129,7 +131,10 @@ class EnterpriseLookupView @JvmOverloads constructor(
         searchButton.isEnabled = false
         searchButton.text = "RECHERCHE…"
         companyText.text = "Recherche dans les données publiques…"
+        companyText.visibility = View.VISIBLE
         advantagesText.text = ""
+        advantagesText.visibility = View.GONE
+        agreementsButton.visibility = View.GONE
 
         Thread {
             try {
@@ -158,7 +163,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     result.optString("nom_raison_sociale"),
                     result.optString("denomination"),
                     result.optString("nom")
-                ).ifBlank { "Entreprise trouvée" }
+                )
                 val siren = result.optString("siren").ifBlank { siret.take(9) }
                 val establishment = findMatchingEstablishment(result, siret)
                 val address = firstNonBlank(
@@ -192,9 +197,9 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 post {
                     currentSiren = siren
                     currentCompanyName = companyName
-                    companyText.text = buildCompanySummary(companyName, siret, address, ape, idcc, conventionName)
-                    advantagesText.text = buildAdvantagesSummary(idcc)
-                    agreementsButton.visibility = View.VISIBLE
+                    showCompanyInformation(buildCompanySummary(companyName, siret, address, ape, idcc, conventionName))
+                    showAdvantages(buildAdvantagesSummary(idcc))
+                    agreementsButton.visibility = if (siren.isBlank() && companyName.isBlank()) View.GONE else View.VISIBLE
                     searchButton.isEnabled = true
                     searchButton.text = "RECHERCHER L'ENTREPRISE"
 
@@ -204,19 +209,31 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     } else if (idcc.isNotBlank()) {
                         Toast.makeText(context, "Entreprise trouvée — IDCC $idcc détecté", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(context, "Entreprise trouvée, mais aucune convention n'est déclarée dans la source publique", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, "Entreprise trouvée", Toast.LENGTH_SHORT).show()
                     }
                 }
             } catch (e: Exception) {
                 post {
                     companyText.text = "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}"
-                    advantagesText.text = "Vérifie le SIRET et ta connexion Internet."
+                    companyText.visibility = View.VISIBLE
+                    advantagesText.text = ""
+                    advantagesText.visibility = View.GONE
                     agreementsButton.visibility = View.GONE
                     searchButton.isEnabled = true
                     searchButton.text = "RECHERCHER L'ENTREPRISE"
                 }
             }
         }.start()
+    }
+
+    private fun showCompanyInformation(text: String) {
+        companyText.text = text
+        companyText.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    private fun showAdvantages(text: String) {
+        advantagesText.text = text
+        advantagesText.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
     }
 
     private fun buildCompanySummary(
@@ -228,31 +245,28 @@ class EnterpriseLookupView @JvmOverloads constructor(
         conventionName: String = prefs.getString("company_convention_name", "").orEmpty()
     ): String {
         val lines = mutableListOf<String>()
-        lines += "🏢 $name"
-        lines += "SIRET : $siret"
+        if (name.isNotBlank()) lines += "🏢 $name"
+        if (siret.isNotBlank()) lines += "SIRET : $siret"
         if (address.isNotBlank()) lines += "Adresse : $address"
         if (ape.isNotBlank()) lines += "APE/NAF : $ape"
-        if (idcc.isNotBlank()) lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
-        else lines += "Convention : non renseignée dans la source publique"
+        if (idcc.isNotBlank()) {
+            lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
+        }
         return lines.joinToString("\n")
     }
 
     private fun buildAdvantagesSummary(idcc: String): String {
-        val convention = ConventionCatalog.findByIdcc(idcc)
-        if (convention == null) {
-            return if (idcc.isBlank()) {
-                "Les primes et avantages ne peuvent pas être déterminés automatiquement sans convention collective déclarée."
-            } else {
-                "IDCC $idcc détecté. Les règles détaillées de cette convention ne sont pas encore intégrées au calcul de l'application."
-            }
-        }
+        if (idcc.isBlank()) return ""
+        val convention = ConventionCatalog.findByIdcc(idcc) ?: return ""
+        if (convention.advantages.isEmpty() && convention.cautions.isEmpty()) return ""
 
         val items = mutableListOf<String>()
-        items += "Rémunération / avantages connus dans l'application :"
-        if (convention.advantages.isEmpty()) items += "• Aucun avantage spécifique encore intégré."
-        else convention.advantages.forEach { items += "• $it" }
+        if (convention.advantages.isNotEmpty()) {
+            items += "Rémunération / avantages connus dans l'application :"
+            convention.advantages.forEach { items += "• $it" }
+        }
         if (convention.cautions.isNotEmpty()) {
-            items += ""
+            if (items.isNotEmpty()) items += ""
             items += "À vérifier dans les accords de l'entreprise :"
             convention.cautions.take(4).forEach { items += "• $it" }
         }
