@@ -14,7 +14,6 @@ import android.view.ScaleGestureDetector
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -46,51 +45,77 @@ class BackgroundPickerActivity : Activity() {
     private fun showCropEditor(bitmap: Bitmap) {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(10), dp(6), dp(10), dp(8))
         }
         val title = TextView(this).apply {
             text = "CADRER L'IMAGE DE FOND"
-            textSize = 18f
+            textSize = 17f
             gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(8))
+            setPadding(0, dp(4), 0, dp(3))
         }
         val help = TextView(this).apply {
-            text = "Déplace l'image avec un doigt et pince avec deux doigts pour agrandir ou réduire. La zone visible sera conservée."
-            textSize = 14f
+            text = "Déplace avec un doigt • Pince pour zoomer"
+            textSize = 13f
             gravity = Gravity.CENTER
-            setPadding(dp(8), 0, dp(8), dp(10))
+            setPadding(dp(4), 0, dp(4), dp(5))
         }
         val crop = CropImageView(this).apply { setBitmap(bitmap) }
         val preview = FrameLayout(this).apply {
             addView(crop, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
         val previewParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val cancel = Button(this).apply { text = "ANNULER"; setOnClickListener { finish() } }
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        val cancel = Button(this).apply {
+            text = "ANNULER"
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setOnClickListener { finish() }
+        }
         val save = Button(this).apply {
-            text = "UTILISER CETTE ZONE"
+            text = "VALIDER"
+            textSize = 13f
+            minHeight = 0
+            minimumHeight = 0
+            isAllCaps = true
             setOnClickListener {
+                if (crop.width <= 0 || crop.height <= 0) {
+                    Toast.makeText(this@BackgroundPickerActivity, "L'image n'est pas encore prête", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
                 runCatching {
                     val target = File(filesDir, AppearanceManager.BACKGROUND_FILE)
                     val result = crop.renderVisibleArea()
                     target.outputStream().use { result.compress(Bitmap.CompressFormat.JPEG, 92, it) }
                     getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit()
                         .putBoolean("custom_image_bg", true).apply()
+                    result.recycle()
+                    setResult(RESULT_OK)
                     Toast.makeText(this@BackgroundPickerActivity, "Image de fond enregistrée", Toast.LENGTH_SHORT).show()
                     finish()
                 }.onFailure {
-                    Toast.makeText(this@BackgroundPickerActivity, "Impossible d'enregistrer cette image", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@BackgroundPickerActivity, "Impossible d'enregistrer cette image : ${it.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                 }
             }
         }
-        buttons.addView(cancel, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(4) })
-        buttons.addView(save, LinearLayout.LayoutParams(0, dp(52), 2f).apply { marginStart = dp(4) })
-        root.addView(title)
-        root.addView(help)
+        buttons.addView(cancel, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(4) })
+        buttons.addView(save, LinearLayout.LayoutParams(0, dp(48), 1.4f).apply { marginStart = dp(4) })
+        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        root.addView(help, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(preview, previewParams)
-        root.addView(buttons)
+        root.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
         setContentView(root)
         AppearanceManager.apply(this)
+        // Le thème peut modifier la taille/minHeight des boutons : on force à nouveau la barre après application.
+        buttons.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58))
+        cancel.layoutParams.height = dp(48)
+        save.layoutParams.height = dp(48)
+        cancel.requestLayout()
+        save.requestLayout()
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
