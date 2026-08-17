@@ -2,6 +2,8 @@ package com.amaury.pointage
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Color
 import android.util.AttributeSet
 import android.view.Gravity
@@ -27,13 +29,27 @@ class LocationManagementView @JvmOverloads constructor(
         refresh()
     }
 
+    private fun darkMode(): Boolean {
+        val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        return when (appearance.getString("mode", "auto") ?: "auto") {
+            "light" -> false
+            "dark" -> true
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
+    }
+
+    private fun panelColor() = Color.parseColor(if (darkMode()) "#181818" else "#FFFFFF")
+    private fun primaryText() = Color.parseColor(if (darkMode()) "#FFFFFF" else "#111111")
+    private fun secondaryText() = Color.parseColor(if (darkMode()) "#F0ECE4" else "#3A3A3A")
+    private fun accentText() = Color.parseColor(if (darkMode()) "#F3D58A" else "#795600")
+
     fun refresh() {
         removeAllViews()
 
         addView(TextView(context).apply {
             text = "MES LIEUX DE TRAVAIL"
             textSize = 16f
-            setTextColor(Color.parseColor("#F3D58A"))
+            setTextColor(accentText())
             setPadding(0, dp(18), 0, dp(8))
         })
 
@@ -42,7 +58,7 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply {
                 text = "Aucun lieu enregistré"
                 textSize = 15f
-                setTextColor(Color.parseColor("#CFC7B8"))
+                setTextColor(secondaryText())
                 setPadding(0, dp(10), 0, dp(12))
             })
         } else {
@@ -55,7 +71,8 @@ class LocationManagementView @JvmOverloads constructor(
             text = "+ NOUVEAU LIEU"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
-            setTextColor(Color.parseColor("#F3D58A"))
+            backgroundTintList = ColorStateList.valueOf(panelColor())
+            setTextColor(accentText())
         }
         addView(add, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(12)
@@ -77,6 +94,7 @@ class LocationManagementView @JvmOverloads constructor(
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
             setBackgroundResource(R.drawable.hp_panel)
+            backgroundTintList = ColorStateList.valueOf(panelColor())
             isClickable = true
             isFocusable = true
             setOnClickListener { showDetails(address) }
@@ -84,13 +102,13 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply {
                 text = "📍 $name"
                 textSize = 17f
-                setTextColor(Color.parseColor("#F3D58A"))
+                setTextColor(accentText())
             })
 
             addView(TextView(context).apply {
                 text = address
                 textSize = 14f
-                setTextColor(Color.parseColor("#F4EFE3"))
+                setTextColor(primaryText())
                 setPadding(0, dp(5), 0, 0)
             })
 
@@ -98,7 +116,7 @@ class LocationManagementView @JvmOverloads constructor(
                 addView(TextView(context).apply {
                     text = "Contact : $contactName"
                     textSize = 13f
-                    setTextColor(Color.parseColor("#CFC7B8"))
+                    setTextColor(secondaryText())
                     setPadding(0, dp(7), 0, 0)
                 })
             }
@@ -106,7 +124,7 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply {
                 text = "Rayon GPS : $radius m   •   Temps : ${formatDuration(total)}"
                 textSize = 13f
-                setTextColor(Color.parseColor("#CFC7B8"))
+                setTextColor(secondaryText())
                 setPadding(0, dp(5), 0, 0)
             })
         }.also { card ->
@@ -137,7 +155,7 @@ class LocationManagementView @JvmOverloads constructor(
             content.addView(TextView(context).apply {
                 text = "$label\n$value"
                 textSize = 15f
-                setTextColor(Color.parseColor("#F4EFE3"))
+                setTextColor(primaryText())
                 setPadding(0, dp(7), 0, dp(7))
             })
         }
@@ -218,8 +236,8 @@ class LocationManagementView @JvmOverloads constructor(
     private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply {
         hint = hintText
         setText(value)
-        setTextColor(Color.parseColor("#F4EFE3"))
-        setHintTextColor(Color.parseColor("#CFC7B8"))
+        setTextColor(primaryText())
+        setHintTextColor(secondaryText())
     }
 
     private fun confirmDelete(address: String, name: String) {
