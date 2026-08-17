@@ -91,16 +91,27 @@ object AppearanceManager {
                 view.setHintTextColor(softText)
             }
             is Button -> {
-                // Les boutons ont généralement un fond de panneau : contraste calculé sur ce fond.
-                val buttonSurface = if (view.background != null) panel else surface
-                view.setTextColor(bestTextColor(buttonSurface))
+                // Les boutons HP gardent leur fond sombre même en mode clair.
+                // On force donc un texte doré clair, sauf les gros boutons Entrée/Sortie
+                // dont le pictogramme noir reste très lisible sur le vert/rouge.
+                val isPointageButton = idName == "entryButton" || idName == "exitButton"
+                view.setTextColor(
+                    if (isPointageButton) Color.parseColor("#111111")
+                    else Color.parseColor("#F3D58A")
+                )
             }
             is TextView -> {
                 val current = view.currentTextColor
                 val gold = Color.parseColor("#D6A84B")
                 val lightGold = Color.parseColor("#F3D58A")
-                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold)
-                else view.setTextColor(strongText)
+                if (idName == "statusCard") {
+                    // La carte de statut conserve son fond noir : texte clair obligatoire.
+                    view.setTextColor(Color.parseColor("#F4EFE3"))
+                } else if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) {
+                    view.setTextColor(lightGold)
+                } else {
+                    view.setTextColor(strongText)
+                }
             }
         }
 
@@ -125,7 +136,7 @@ object AppearanceManager {
 
 object PlaceNames {
     fun get(context: Context, address: String): String? { val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE); return runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}").optString(address).trim().takeIf{it.isNotBlank()}}.getOrNull() }
-    fun put(context:Context,address:String,name:String){val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE);val obj=runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}")}.getOrElse{JSONObject()};obj.put(address,name);prefs.edit().putString("address_names",obj.toString()).apply()}
+    fun put(context:Context,address:String,name:String){val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE);val obj=runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}")} .getOrElse{JSONObject()};obj.put(address,name);prefs.edit().putString("address_names",obj.toString()).apply()}
     fun display(context:Context,address:String):String{val name=get(context,address);return if(name.isNullOrBlank())address else "$name — $address"}
 }
 
