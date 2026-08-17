@@ -14,31 +14,17 @@ import android.widget.TextView
 import java.util.WeakHashMap
 
 object LuxuryUiInstaller {
-    private const val TAG_CLOCK = "hp_luxury_analog_clock"
     private val appearanceListeners = WeakHashMap<MainActivity, SharedPreferences.OnSharedPreferenceChangeListener>()
 
     fun install(activity: MainActivity) {
         val digital = activity.findViewById<TextClock>(R.id.clockDigital) ?: return
-        val parent = digital.parent as? LinearLayout ?: return
-
-        val analog = (parent.findViewWithTag<View>(TAG_CLOCK) as? HpAnalogClockView)
-            ?: HpAnalogClockView(activity).apply {
-                tag = TAG_CLOCK
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    dp(activity, 320)
-                ).apply {
-                    topMargin = dp(activity, 8)
-                    bottomMargin = dp(activity, 10)
-                }
-                parent.addView(this, parent.indexOfChild(digital))
-            }
+        val analog = activity.findViewById<HpAnalogClockView>(R.id.heroClockHands)
 
         digital.visibility = View.GONE
 
         val buttons = activity.findViewById<LinearLayout>(R.id.pointageButtons)
         fun syncTodayVisibility() {
-            analog.visibility = if (buttons?.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+            analog?.visibility = if (buttons?.visibility == View.VISIBLE) View.VISIBLE else View.GONE
             digital.visibility = View.GONE
         }
         syncTodayVisibility()
@@ -83,15 +69,10 @@ object LuxuryUiInstaller {
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
 
-        // Android can re-apply theme tints after onResume. Re-sync the navigation strip
-        // whenever the app window actually gains focus, so the first visible frame has
-        // the correct Light / Dark / Automatic colors without needing a tab click.
         val decor = activity.window.decorView
         decor.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
             if (hasFocus && !activity.isFinishing && !activity.isDestroyed) {
-                decor.post {
-                    syncTabs(activity)
-                }
+                decor.post { syncTabs(activity) }
             }
         }
 
@@ -99,11 +80,6 @@ object LuxuryUiInstaller {
             AppearanceManager.apply(activity)
             syncTabs(activity)
         }
-        decor.postDelayed({
-            if (!activity.isFinishing && !activity.isDestroyed) {
-                syncTabs(activity)
-            }
-        }, 350L)
     }
 
     private fun installAppearanceListener(activity: MainActivity) {
@@ -112,9 +88,7 @@ object LuxuryUiInstaller {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "mode") {
                 activity.window.decorView.post {
-                    if (!activity.isFinishing && !activity.isDestroyed) {
-                        activity.recreate()
-                    }
+                    if (!activity.isFinishing && !activity.isDestroyed) activity.recreate()
                 }
             } else if (key == "app_bg" || key == "custom_bg" || key == "custom_image_bg") {
                 activity.window.decorView.post {
@@ -165,7 +139,4 @@ object LuxuryUiInstaller {
             tab?.setTextColor(if (tab === active) activeColor else inactiveColor)
         }
     }
-
-    private fun dp(activity: MainActivity, value: Int): Int =
-        (value * activity.resources.displayMetrics.density).toInt()
 }
