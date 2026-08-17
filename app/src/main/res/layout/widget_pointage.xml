@@ -50,18 +50,9 @@
             android:layout_width="84dp"
             android:layout_height="84dp"
             android:layout_gravity="center"
-            android:dial="@drawable/widget_clock_dial"
+            android:dial="@drawable/widget_clock_luxury"
             android:hand_hour="@drawable/widget_clock_hour"
             android:hand_minute="@drawable/widget_clock_minute" />
-        <TextView
-            android:layout_width="84dp"
-            android:layout_height="84dp"
-            android:layout_gravity="center"
-            android:gravity="center"
-            android:text="H P"
-            android:textColor="#D6A84B"
-            android:textSize="7sp"
-            android:textStyle="bold" />
     </FrameLayout>
 
     <LinearLayout
