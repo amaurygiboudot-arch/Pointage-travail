@@ -10,6 +10,7 @@ import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -48,6 +49,14 @@ object AppearanceManager {
     const val BACKGROUND_FILE = "custom_app_background.jpg"
 
     fun apply(activity: Activity) {
+        // L'écran principal HP Travail a un design noir/doré volontairement fixe.
+        // On ne le recolore pas avec le mode clair, sinon les cartes deviennent blanches
+        // et les textes dorés/noirs perdent leur contraste.
+        if (activity is MainActivity) {
+            applyLuxuryMain(activity)
+            return
+        }
+
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val mode = prefs.getString("mode", "dark") ?: "dark"
         val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -71,6 +80,29 @@ object AppearanceManager {
             else root.setBackgroundColor(bg)
         } else root.setBackgroundColor(bg)
         recolor(root, bg, panel, text, panelText, secondary, hasImage, false)
+    }
+
+    private fun applyLuxuryMain(activity: MainActivity) {
+        val black = Color.parseColor("#050505")
+        activity.window.statusBarColor = black
+        activity.window.navigationBarColor = black
+        activity.window.decorView.systemUiVisibility = activity.window.decorView.systemUiVisibility and
+            View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv() and
+            (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv() else -1)
+
+        val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)
+        root.setBackgroundColor(black)
+        clearRuntimeTints(root)
+    }
+
+    private fun clearRuntimeTints(view: View) {
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) clearRuntimeTints(view.getChildAt(i))
+        }
+        val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+        if (id == "contentPanel" || id == "statusCard" || id == "pointageButtons" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel") {
+            view.backgroundTintList = null
+        }
     }
 
     private fun recolor(view: View, bg: Int, panel: Int, text: Int, panelText: Int, secondary: Int, imageBg: Boolean, inheritedPanel: Boolean) {
