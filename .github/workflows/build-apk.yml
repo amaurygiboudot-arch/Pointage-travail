@@ -9,7 +9,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Recuperer le projet
@@ -73,3 +73,15 @@ jobs:
             app/build/outputs/bundle/release/SHA256.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publier la mise a jour GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v2.${{ github.run_number }}"
+          gh release create "$TAG" \
+            app/build/outputs/apk/release/app-release.apk#PointageTravail.apk \
+            app/build/outputs/apk/release/SHA256.txt \
+            --title "Pointage Travail 2.${{ github.run_number }}" \
+            --notes "Mise a jour automatique Pointage Travail - build ${{ github.run_number }}" \
+            --latest
