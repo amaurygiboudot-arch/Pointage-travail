@@ -2,6 +2,9 @@ package com.amaury.pointage
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.graphics.Color
 import android.util.AttributeSet
 import android.view.ViewGroup
 import android.widget.EditText
@@ -43,12 +46,24 @@ class SalaryTabTextView @JvmOverloads constructor(
         addressList.setPadding(dp(12), dp(10), dp(12), dp(10))
         addressList.setBackgroundResource(R.drawable.hp_panel)
 
+        val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val mode = appearance.getString("mode", "auto") ?: "auto"
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val dark = when (mode) {
+            "light" -> false
+            "dark" -> true
+            else -> systemDark
+        }
+        val buttonBackground = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
+        val buttonText = Color.parseColor(if (dark) "#F3D58A" else "#111111")
+
         val addButton = AddAddressButton(context).apply {
             tag = "add_address_button"
             text = "+  AJOUTER UNE ADRESSE"
             textSize = 16f
-            setTextColor(context.getColor(R.color.hp_gold_light))
             setBackgroundResource(R.drawable.hp_panel)
+            backgroundTintList = ColorStateList.valueOf(buttonBackground)
+            setTextColor(buttonText)
             isAllCaps = false
         }
 
