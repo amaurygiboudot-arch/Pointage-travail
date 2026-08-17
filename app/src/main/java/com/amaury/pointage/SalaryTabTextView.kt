@@ -2,7 +2,6 @@ package com.amaury.pointage
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.ViewGroup
 import android.widget.EditText
@@ -44,14 +43,6 @@ class SalaryTabTextView @JvmOverloads constructor(
         addressList.setPadding(dp(12), dp(10), dp(12), dp(10))
         addressList.setBackgroundResource(R.drawable.hp_panel)
 
-        val title = TextView(context).apply {
-            text = "AJOUTER UN LIEU"
-            setTextColor(context.getColor(R.color.hp_gold))
-            textSize = 13f
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(10), 0, dp(5))
-        }
-
         val addButton = AddAddressButton(context).apply {
             tag = "add_address_button"
             text = "+  AJOUTER UNE ADRESSE"
@@ -63,14 +54,10 @@ class SalaryTabTextView @JvmOverloads constructor(
 
         val addressIndex = panel.indexOfChild(addressList)
         if (addressIndex >= 0) {
-            panel.addView(title, addressIndex + 1, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ))
-            panel.addView(addButton, addressIndex + 2, LinearLayout.LayoutParams(
+            panel.addView(addButton, addressIndex + 1, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 dp(54)
-            ).apply { topMargin = dp(4) })
+            ).apply { topMargin = dp(8) })
         }
     }
 
