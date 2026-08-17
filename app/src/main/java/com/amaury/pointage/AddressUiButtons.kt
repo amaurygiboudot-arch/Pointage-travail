@@ -9,12 +9,13 @@ import android.os.Build
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.View
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.Spinner
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.Switch
+import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONObject
 
@@ -42,16 +43,28 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
         val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val company1Name = salaryPrefs.getString("company_name", "").orEmpty().ifBlank { "Entreprise 1" }
         val company2Name = salaryPrefs.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
-        val companyChoices = listOf(company1Name, company2Name)
 
-        val companyLabel = android.widget.TextView(context).apply {
+        val companyLabel = TextView(context).apply {
             text = "Entreprise associée"
-            textSize = 13f
-            setPadding(0, dp(4), 0, dp(3))
+            textSize = 14f
+            setPadding(0, dp(6), 0, dp(4))
         }
-        val companySpinner = Spinner(context).apply {
-            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, companyChoices)
+        val companyGroup = RadioGroup(context).apply {
+            orientation = RadioGroup.VERTICAL
         }
+        val company1Button = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = "Entreprise 1 — $company1Name"
+            textSize = 15f
+        }
+        val company2Button = RadioButton(context).apply {
+            id = View.generateViewId()
+            text = "Entreprise 2 — $company2Name"
+            textSize = 15f
+        }
+        companyGroup.addView(company1Button)
+        companyGroup.addView(company2Button)
+
         val placeName = EditText(context).apply {
             hint = "Nom du lieu / client"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
@@ -84,7 +97,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             isSingleLine = true
         }
 
-        listOf(companyLabel, companySpinner, placeName, contactName, phone, notifyOnArrival, street, postalCode, city)
+        listOf(companyLabel, companyGroup, placeName, contactName, phone, notifyOnArrival, street, postalCode, city)
             .forEach { container.addView(it) }
 
         val dialog = AlertDialog.Builder(context)
@@ -102,8 +115,16 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 val streetValue = street.text.toString().trim()
                 val postalValue = postalCode.text.toString().trim()
                 val cityValue = city.text.toString().trim()
-                val companySlot = companySpinner.selectedItemPosition + 1
+                val companySlot = when (companyGroup.checkedRadioButtonId) {
+                    company1Button.id -> 1
+                    company2Button.id -> 2
+                    else -> 0
+                }
 
+                if (companySlot == 0) {
+                    Toast.makeText(context, "Choisis Entreprise 1 ou Entreprise 2", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
                 if (nameValue.isBlank()) {
                     placeName.error = "Donne un nom à ce lieu"
                     return@setOnClickListener
@@ -158,7 +179,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 }
 
                 rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
-                val companyName = companyChoices[companySlot - 1]
+                val companyName = if (companySlot == 1) company1Name else company2Name
                 Toast.makeText(context, "$nameValue ajouté à $companyName", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
