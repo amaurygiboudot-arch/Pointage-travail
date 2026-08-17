@@ -10,58 +10,53 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:paddingStart="14dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="10dp"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="6dp"
         android:paddingBottom="8dp">
 
-        <LinearLayout
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_height="210dp">
+
+            <ImageView
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:src="@drawable/luxury_hero"
+                android:scaleType="centerCrop"
+                android:contentDescription="Décor HP Travail" />
 
             <TextView
                 android:id="@+id/logoText"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="♛\nH  P\nT R A V A I L"
-                android:textColor="@color/hp_gold_light"
-                android:textSize="18sp"
-                android:letterSpacing="0.18"
-                android:gravity="start|center_vertical"
-                android:fontFamily="serif"/>
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:alpha="0"
+                android:text="HP TRAVAIL" />
+
+            <TextClock
+                android:id="@+id/clockDigital"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:alpha="0"
+                android:format24Hour="HH:mm:ss" />
 
             <Button
                 android:id="@+id/settingsButton"
-                android:layout_width="58dp"
-                android:layout_height="58dp"
-                android:text="⚙"
-                android:textSize="27sp"
-                android:textColor="@color/hp_gold_light"
-                android:background="@drawable/hp_panel"/>
-        </LinearLayout>
-
-        <TextClock
-            android:id="@+id/clockDigital"
-            android:layout_width="220dp"
-            android:layout_height="220dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/hp_watch_face"
-            android:gravity="center"
-            android:format24Hour="HH:mm"
-            android:textColor="@color/hp_gold_light"
-            android:textSize="34sp"
-            android:fontFamily="serif"
-            android:letterSpacing="0.08"/>
+                android:layout_width="68dp"
+                android:layout_height="68dp"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="4dp"
+                android:layout_marginEnd="2dp"
+                android:background="@android:color/transparent"
+                android:text=""
+                android:contentDescription="Paramètres" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/statusCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="6dp"
             android:background="@drawable/hp_panel"
             android:gravity="center"
             android:padding="14dp"
@@ -75,12 +70,12 @@
             android:id="@+id/pointageButtons"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal"
             android:gravity="center"
             android:background="@drawable/hp_panel"
-            android:paddingTop="14dp"
-            android:paddingBottom="10dp">
+            android:paddingTop="10dp"
+            android:paddingBottom="8dp">
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -90,16 +85,15 @@
                 android:gravity="center">
                 <Button
                     android:id="@+id/entryButton"
-                    android:layout_width="126dp"
-                    android:layout_height="126dp"
-                    android:background="@drawable/hp_entry"
-                    android:text="↪"
-                    android:textColor="#F7D979"
-                    android:textSize="43sp"/>
+                    android:layout_width="145dp"
+                    android:layout_height="135dp"
+                    android:background="@drawable/luxury_entry"
+                    android:text=""
+                    android:contentDescription="Entrée"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="7dp"
+                    android:layout_marginTop="4dp"
                     android:text="E N T R É E"
                     android:textColor="@color/hp_gold_light"
                     android:textSize="15sp"
@@ -107,12 +101,12 @@
             </LinearLayout>
 
             <TextView
-                android:layout_width="36dp"
+                android:layout_width="30dp"
                 android:layout_height="match_parent"
                 android:gravity="center"
                 android:text="♛"
                 android:textColor="@color/hp_gold"
-                android:textSize="24sp"/>
+                android:textSize="22sp"/>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -122,16 +116,15 @@
                 android:gravity="center">
                 <Button
                     android:id="@+id/exitButton"
-                    android:layout_width="126dp"
-                    android:layout_height="126dp"
-                    android:background="@drawable/hp_exit"
-                    android:text="↪"
-                    android:textColor="#F7D979"
-                    android:textSize="43sp"/>
+                    android:layout_width="145dp"
+                    android:layout_height="135dp"
+                    android:background="@drawable/luxury_exit"
+                    android:text=""
+                    android:contentDescription="Sortie"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="7dp"
+                    android:layout_marginTop="4dp"
                     android:text="S O R T I E"
                     android:textColor="@color/hp_gold_light"
                     android:textSize="15sp"
@@ -209,7 +202,6 @@
             android:background="@drawable/hp_nav_panel"
             android:paddingTop="7dp"
             android:paddingBottom="7dp">
-
             <TextView android:id="@+id/tabToday" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="◷\nAUJOURD'HUI" android:textColor="@color/hp_gold_light" android:textSize="10sp" android:fontFamily="serif"/>
             <TextView android:id="@+id/tabHistory" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="▥\nHISTORIQUE" android:textColor="@color/hp_grey" android:textSize="10sp" android:fontFamily="serif"/>
             <TextView android:id="@+id/tabAnalytics" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="◔\nANALYSES" android:textColor="@color/hp_grey" android:textSize="10sp" android:fontFamily="serif"/>
