@@ -1,1 +1,11 @@
-<resources><style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item><item name="android:colorAccent">#16A34A</item></style></resources>
+<resources>
+    <style name="PointageScrollViewStyle" parent="@android:style/Widget.ScrollView">
+        <item name="android:fitsSystemWindows">true</item>
+    </style>
+
+    <style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#16A34A</item>
+        <item name="android:scrollViewStyle">@style/PointageScrollViewStyle</item>
+    </style>
+</resources>
