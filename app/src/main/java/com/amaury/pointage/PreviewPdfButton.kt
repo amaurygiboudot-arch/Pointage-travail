@@ -35,7 +35,7 @@ class PreviewPdfButton @JvmOverloads constructor(
         runCatching {
             val file = File(activity.cacheDir, "Pointage_${cal.get(Calendar.YEAR)}_${cal.get(Calendar.MONTH) + 1}.pdf")
             file.outputStream().use { out ->
-                MonthlyPdfReport.write(PointageStore.load(activity), cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), out)
+                MonthlyPdfReport.write(activity, PointageStore.load(activity), cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), out)
             }
             val pretty = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(cal.time)
                 .replaceFirstChar { it.uppercase() }
