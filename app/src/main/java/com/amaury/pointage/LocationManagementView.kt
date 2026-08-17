@@ -33,7 +33,7 @@ class LocationManagementView @JvmOverloads constructor(
         addView(TextView(context).apply {
             text = "MES LIEUX DE TRAVAIL"
             textSize = 16f
-            setTextColor(Color.parseColor("#1A1A1A"))
+            setTextColor(Color.parseColor("#F3D58A"))
             setPadding(0, dp(18), 0, dp(8))
         })
 
@@ -42,7 +42,7 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply {
                 text = "Aucun lieu enregistré"
                 textSize = 15f
-                setTextColor(Color.parseColor("#6F675A"))
+                setTextColor(Color.parseColor("#CFC7B8"))
                 setPadding(0, dp(10), 0, dp(12))
             })
         } else {
@@ -137,6 +137,7 @@ class LocationManagementView @JvmOverloads constructor(
             content.addView(TextView(context).apply {
                 text = "$label\n$value"
                 textSize = 15f
+                setTextColor(Color.parseColor("#1A1A1A"))
                 setPadding(0, dp(7), 0, dp(7))
             })
         }
@@ -160,10 +161,12 @@ class LocationManagementView @JvmOverloads constructor(
     private fun showEdit(oldAddress: String) {
         val contacts = runCatching { JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}") }.getOrElse { JSONObject() }
         val contact = contacts.optJSONObject(oldAddress)
-        val nameInput = EditText(context).apply { hint = "Nom du lieu"; setText(PlaceNames.get(context, oldAddress).orEmpty()) }
-        val addressInput = EditText(context).apply { hint = "Adresse"; setText(oldAddress) }
-        val contactInput = EditText(context).apply { hint = "Nom du contact"; setText(contact?.optString("contactName").orEmpty()) }
-        val phoneInput = EditText(context).apply { hint = "Téléphone"; inputType = android.text.InputType.TYPE_CLASS_PHONE; setText(contact?.optString("phone").orEmpty()) }
+        val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, oldAddress).orEmpty())
+        val addressInput = dialogInput("Adresse", oldAddress)
+        val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty())
+        val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply {
+            inputType = android.text.InputType.TYPE_CLASS_PHONE
+        }
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(20), dp(6), dp(20), 0)
@@ -210,6 +213,13 @@ class LocationManagementView @JvmOverloads constructor(
             }
             .setNegativeButton("Annuler", null)
             .show()
+    }
+
+    private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply {
+        hint = hintText
+        setText(value)
+        setTextColor(Color.parseColor("#1A1A1A"))
+        setHintTextColor(Color.parseColor("#6F675A"))
     }
 
     private fun confirmDelete(address: String, name: String) {
