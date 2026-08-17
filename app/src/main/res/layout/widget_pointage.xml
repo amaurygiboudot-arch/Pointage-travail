@@ -45,12 +45,22 @@
         android:layout_weight="1.35"
         android:layout_marginStart="5dp"
         android:layout_marginEnd="5dp">
+
+        <ImageView
+            android:id="@+id/widget_clock_face"
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:layout_gravity="center"
+            android:contentDescription="Cadran de l'horloge"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_clock_luxury" />
+
         <AnalogClock
             android:id="@+id/widget_clock"
             android:layout_width="84dp"
             android:layout_height="84dp"
             android:layout_gravity="center"
-            android:dial="@drawable/widget_clock_luxury"
+            android:dial="@android:color/transparent"
             android:hand_hour="@drawable/widget_clock_hour"
             android:hand_minute="@drawable/widget_clock_minute" />
     </FrameLayout>
