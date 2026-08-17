@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.util.AttributeSet
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -13,7 +14,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
-class LocationManagementView(context: Context) : LinearLayout(context) {
+class LocationManagementView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : LinearLayout(context, attrs, defStyleAttr) {
     private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
 
     init {
