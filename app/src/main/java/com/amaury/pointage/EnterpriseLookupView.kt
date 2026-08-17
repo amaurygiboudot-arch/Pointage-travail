@@ -1,0 +1,346 @@
+package com.amaury.pointage
+
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
+import android.graphics.Typeface
+import android.net.Uri
+import android.util.AttributeSet
+import android.view.Gravity
+import android.view.View
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
+class EnterpriseLookupView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
+) : LinearLayout(context, attrs, defStyleAttr) {
+
+    private val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+    private val siretInput = EditText(context)
+    private val searchButton = Button(context)
+    private val companyText = TextView(context)
+    private val advantagesText = TextView(context)
+    private val agreementsButton = Button(context)
+
+    private var currentSiren: String? = null
+    private var currentCompanyName: String? = null
+
+    init {
+        orientation = VERTICAL
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+        setBackgroundResource(R.drawable.hp_panel)
+
+        addView(TextView(context).apply {
+            text = "ENTREPRISE — RECHERCHE PAR SIRET"
+            setTextColor(context.getColor(R.color.hp_gold))
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+        })
+
+        addView(TextView(context).apply {
+            text = "Entre le SIRET de ton établissement pour récupérer automatiquement l'entreprise et sa convention collective déclarée."
+            setTextColor(context.getColor(R.color.hp_grey))
+            textSize = 12f
+            setPadding(0, dp(5), 0, dp(8))
+        })
+
+        siretInput.apply {
+            hint = "SIRET — 14 chiffres"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            isSingleLine = true
+            setTextColor(context.getColor(R.color.hp_white))
+            setHintTextColor(context.getColor(R.color.hp_grey))
+            setText(prefs.getString("company_siret", "") ?: "")
+        }
+        addView(siretInput, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        searchButton.apply {
+            text = "RECHERCHER L'ENTREPRISE"
+            setTextColor(context.getColor(R.color.hp_gold_light))
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { lookup() }
+        }
+        addView(searchButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+
+        companyText.apply {
+            setTextColor(context.getColor(R.color.hp_white))
+            textSize = 14f
+            setPadding(0, dp(10), 0, 0)
+        }
+        addView(companyText)
+
+        advantagesText.apply {
+            setTextColor(context.getColor(R.color.hp_grey))
+            textSize = 13f
+            setPadding(0, dp(8), 0, 0)
+        }
+        addView(advantagesText)
+
+        agreementsButton.apply {
+            text = "VOIR LES ACCORDS D'ENTREPRISE SUR LÉGIFRANCE"
+            setTextColor(context.getColor(R.color.hp_gold_light))
+            setBackgroundResource(R.drawable.hp_panel)
+            visibility = View.GONE
+            setOnClickListener { openLegifranceAgreements() }
+        }
+        addView(agreementsButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+
+        restoreSavedCompany()
+    }
+
+    private fun restoreSavedCompany() {
+        val name = prefs.getString("company_name", "").orEmpty()
+        val siret = prefs.getString("company_siret", "").orEmpty()
+        val siren = prefs.getString("company_siren", "").orEmpty()
+        val address = prefs.getString("company_address", "").orEmpty()
+        val ape = prefs.getString("company_ape", "").orEmpty()
+        val idcc = prefs.getString("company_idcc", "").orEmpty()
+
+        if (name.isNotBlank()) {
+            currentCompanyName = name
+            currentSiren = siren.ifBlank { siret.take(9) }
+            companyText.text = buildCompanySummary(name, siret, address, ape, idcc)
+            advantagesText.text = buildAdvantagesSummary(idcc)
+            agreementsButton.visibility = View.VISIBLE
+        }
+    }
+
+    private fun lookup() {
+        val siret = siretInput.text.toString().filter(Char::isDigit)
+        if (siret.length != 14) {
+            Toast.makeText(context, "Le SIRET doit contenir exactement 14 chiffres", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        searchButton.isEnabled = false
+        searchButton.text = "RECHERCHE…"
+        companyText.text = "Recherche dans les données publiques…"
+        advantagesText.text = ""
+
+        Thread {
+            try {
+                val encoded = URLEncoder.encode(siret, StandardCharsets.UTF_8.name())
+                val connection = URL("https://recherche-entreprises.api.gouv.fr/search?q=$encoded&per_page=1").openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10000
+                connection.readTimeout = 15000
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("User-Agent", "HP-Travail-Android")
+
+                val code = connection.responseCode
+                val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+                val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                connection.disconnect()
+
+                if (code !in 200..299) throw IllegalStateException("service indisponible ($code)")
+
+                val root = JSONObject(body)
+                val results = root.optJSONArray("results") ?: JSONArray()
+                if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée pour ce SIRET")
+
+                val result = results.getJSONObject(0)
+                val companyName = firstNonBlank(
+                    result.optString("nom_complet"),
+                    result.optString("nom_raison_sociale"),
+                    result.optString("denomination"),
+                    result.optString("nom")
+                ).ifBlank { "Entreprise trouvée" }
+                val siren = result.optString("siren").ifBlank { siret.take(9) }
+                val siege = findMatchingEstablishment(result, siret)
+                val address = firstNonBlank(
+                    siege?.optString("adresse"),
+                    siege?.optString("adresse_complete"),
+                    result.optString("adresse")
+                )
+                val ape = firstNonBlank(
+                    siege?.optString("activite_principale"),
+                    result.optString("activite_principale")
+                )
+                val conventions = findConventionObjects(result)
+                val idcc = conventions.firstOrNull()?.let { extractIdcc(it) }.orEmpty()
+                val conventionName = conventions.firstOrNull()?.let { extractConventionName(it) }.orEmpty()
+
+                prefs.edit()
+                    .putString("company_siret", siret)
+                    .putString("company_siren", siren)
+                    .putString("company_name", companyName)
+                    .putString("company_address", address)
+                    .putString("company_ape", ape)
+                    .putString("company_idcc", idcc)
+                    .putString("company_convention_name", conventionName)
+                    .apply()
+
+                val localConvention = ConventionCatalog.findByIdcc(idcc)
+                if (localConvention != null) {
+                    prefs.edit().putString("convention_idcc", localConvention.idcc).apply()
+                }
+
+                post {
+                    currentSiren = siren
+                    currentCompanyName = companyName
+                    companyText.text = buildCompanySummary(companyName, siret, address, ape, idcc, conventionName)
+                    advantagesText.text = buildAdvantagesSummary(idcc)
+                    agreementsButton.visibility = View.VISIBLE
+                    searchButton.isEnabled = true
+                    searchButton.text = "RECHERCHER L'ENTREPRISE"
+
+                    if (localConvention != null) {
+                        Toast.makeText(context, "Entreprise trouvée — convention ${localConvention.displayName} sélectionnée", Toast.LENGTH_LONG).show()
+                        (context as? Activity)?.recreate()
+                    } else if (idcc.isNotBlank()) {
+                        Toast.makeText(context, "Entreprise trouvée — IDCC $idcc détecté", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Entreprise trouvée, mais aucune convention n'est déclarée dans la source publique", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (e: Exception) {
+                post {
+                    companyText.text = "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}"
+                    advantagesText.text = "Vérifie le SIRET et ta connexion Internet."
+                    agreementsButton.visibility = View.GONE
+                    searchButton.isEnabled = true
+                    searchButton.text = "RECHERCHER L'ENTREPRISE"
+                }
+            }
+        }.start()
+    }
+
+    private fun buildCompanySummary(
+        name: String,
+        siret: String,
+        address: String,
+        ape: String,
+        idcc: String,
+        conventionName: String = prefs.getString("company_convention_name", "").orEmpty()
+    ): String {
+        val lines = mutableListOf<String>()
+        lines += "🏢 $name"
+        lines += "SIRET : $siret"
+        if (address.isNotBlank()) lines += "Adresse : $address"
+        if (ape.isNotBlank()) lines += "APE/NAF : $ape"
+        if (idcc.isNotBlank()) lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
+        else lines += "Convention : non renseignée dans la source publique"
+        return lines.joinToString("\n")
+    }
+
+    private fun buildAdvantagesSummary(idcc: String): String {
+        val convention = ConventionCatalog.findByIdcc(idcc)
+        if (convention == null) {
+            return if (idcc.isBlank()) {
+                "Les primes et avantages ne peuvent pas être déterminés automatiquement sans convention collective déclarée."
+            } else {
+                "IDCC $idcc détecté. Les règles détaillées de cette convention ne sont pas encore intégrées au calcul de l'application."
+            }
+        }
+
+        val items = mutableListOf<String>()
+        items += "Rémunération / avantages connus dans l'application :"
+        if (convention.advantages.isEmpty()) items += "• Aucun avantage spécifique encore intégré."
+        else convention.advantages.forEach { items += "• $it" }
+        if (convention.cautions.isNotEmpty()) {
+            items += ""
+            items += "À vérifier dans les accords de l'entreprise :"
+            convention.cautions.take(4).forEach { items += "• $it" }
+        }
+        return items.joinToString("\n")
+    }
+
+    private fun openLegifranceAgreements() {
+        val name = currentCompanyName.orEmpty()
+        val siren = currentSiren.orEmpty()
+        val query = listOf(name, siren).filter { it.isNotBlank() }.joinToString(" ")
+        val encoded = Uri.encode(query)
+        val url = "https://www.legifrance.gouv.fr/liste/acco?query=$encoded&searchField=ALL&tab_selection=acco"
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(context, "Impossible d'ouvrir Légifrance", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun findMatchingEstablishment(result: JSONObject, siret: String): JSONObject? {
+        val siege = result.optJSONObject("siege")
+        if (siege != null && siege.optString("siret") == siret) return siege
+
+        val matching = result.optJSONArray("matching_etablissements")
+        if (matching != null) {
+            for (i in 0 until matching.length()) {
+                val item = matching.optJSONObject(i) ?: continue
+                if (item.optString("siret") == siret) return item
+            }
+            if (matching.length() > 0) return matching.optJSONObject(0)
+        }
+        return siege
+    }
+
+    private fun findConventionObjects(root: JSONObject): List<JSONObject> {
+        val found = mutableListOf<JSONObject>()
+
+        fun walkObject(obj: JSONObject) {
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val value = obj.opt(key)
+                if (key.equals("conventions_collectives", ignoreCase = true) && value is JSONArray) {
+                    for (i in 0 until value.length()) value.optJSONObject(i)?.let(found::add)
+                } else when (value) {
+                    is JSONObject -> walkObject(value)
+                    is JSONArray -> walkArray(value)
+                }
+            }
+        }
+
+        fun walkArrayInternal(array: JSONArray) {
+            for (i in 0 until array.length()) {
+                when (val value = array.opt(i)) {
+                    is JSONObject -> walkObject(value)
+                    is JSONArray -> walkArrayInternal(value)
+                }
+            }
+        }
+
+        // Local wrapper avoids exposing recursive helpers outside this method.
+        fun walkArray(array: JSONArray) = walkArrayInternal(array)
+
+        walkObject(root)
+        return found.distinctBy { extractIdcc(it) + "|" + extractConventionName(it) }
+    }
+
+    private fun extractIdcc(obj: JSONObject): String {
+        val raw = firstNonBlank(
+            obj.optString("idcc"),
+            obj.optString("numero_idcc"),
+            obj.optString("id_convention_collective"),
+            obj.optString("id")
+        ).filter(Char::isDigit)
+        return if (raw.isBlank()) "" else raw.padStart(4, '0').takeLast(4)
+    }
+
+    private fun extractConventionName(obj: JSONObject): String = firstNonBlank(
+        obj.optString("nom"),
+        obj.optString("titre"),
+        obj.optString("libelle"),
+        obj.optString("short_name"),
+        obj.optString("title")
+    )
+
+    private fun firstNonBlank(vararg values: String?): String =
+        values.firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+}
