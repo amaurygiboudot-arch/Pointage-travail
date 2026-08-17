@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -66,17 +65,6 @@ class LocationManagementView @JvmOverloads constructor(
                 addView(createPlaceCard(address))
             }
         }
-
-        val add = AddAddressButton(context).apply {
-            text = "+ NOUVEAU LIEU"
-            isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
-            backgroundTintList = ColorStateList.valueOf(panelColor())
-            setTextColor(accentText())
-        }
-        addView(add, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(12)
-        })
     }
 
     private fun createPlaceCard(address: String): LinearLayout {
