@@ -67,6 +67,11 @@ object LuxuryUiInstaller {
             typeface = Typeface.create("serif", Typeface.NORMAL)
             letterSpacing = 0.03f
         }
+
+        // The luxury styling above sets colors intended for a dark background.
+        // Re-apply the selected Light / Dark / Automatic appearance last so those
+        // decorative defaults cannot make text disappear in light mode.
+        AppearanceManager.apply(activity)
     }
 
     private fun dp(activity: MainActivity, value: Int): Int =
