@@ -2,121 +2,140 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/hp_black"
-    android:fillViewport="true">
+    android:background="#050505"
+    android:fillViewport="true"
+    android:clipToPadding="false">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="14dp"
+        android:paddingEnd="14dp"
+        android:paddingTop="10dp"
+        android:paddingBottom="8dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
                 android:id="@+id/logoText"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="★\nHP\nTRAVAIL"
-                android:textColor="@color/hp_gold"
-                android:textSize="22sp"
-                android:gravity="center"/>
+                android:text="♛\nH  P\nT R A V A I L"
+                android:textColor="@color/hp_gold_light"
+                android:textSize="18sp"
+                android:letterSpacing="0.18"
+                android:gravity="start|center_vertical"
+                android:fontFamily="serif"/>
 
             <Button
                 android:id="@+id/settingsButton"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="58dp"
+                android:layout_height="58dp"
                 android:text="⚙"
-                android:textSize="24sp"
-                android:textColor="@color/hp_gold"
+                android:textSize="27sp"
+                android:textColor="@color/hp_gold_light"
                 android:background="@drawable/hp_panel"/>
         </LinearLayout>
 
         <TextClock
             android:id="@+id/clockDigital"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_width="220dp"
+            android:layout_height="220dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/hp_watch_face"
             android:gravity="center"
-            android:format24Hour="HH:mm:ss"
+            android:format24Hour="HH:mm"
             android:textColor="@color/hp_gold_light"
-            android:textSize="46sp"
-            android:paddingTop="18dp"
-            android:paddingBottom="8dp"/>
+            android:textSize="34sp"
+            android:fontFamily="serif"
+            android:letterSpacing="0.08"/>
 
         <TextView
             android:id="@+id/statusCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:background="@drawable/hp_panel"
             android:gravity="center"
-            android:padding="18dp"
-            android:text="STATUT ACTUEL\n⚪ Aucune entrée en cours"
-            android:textColor="@color/hp_white"
-            android:textSize="18sp"/>
+            android:padding="14dp"
+            android:text="STATUT ACTUEL\n●  AUCUNE ENTRÉE EN COURS"
+            android:textColor="@color/hp_gold_light"
+            android:textSize="16sp"
+            android:fontFamily="serif"
+            android:letterSpacing="0.08"/>
 
         <LinearLayout
             android:id="@+id/pointageButtons"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:orientation="horizontal"
-            android:paddingTop="18dp"
-            android:gravity="center">
+            android:gravity="center"
+            android:background="@drawable/hp_panel"
+            android:paddingTop="14dp"
+            android:paddingBottom="10dp">
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:gravity="center"
-                android:padding="8dp">
-
+                android:gravity="center">
                 <Button
                     android:id="@+id/entryButton"
-                    android:layout_width="140dp"
-                    android:layout_height="140dp"
+                    android:layout_width="126dp"
+                    android:layout_height="126dp"
                     android:background="@drawable/hp_entry"
                     android:text="↪"
-                    android:textColor="@color/hp_gold_light"
-                    android:textSize="48sp"/>
-
+                    android:textColor="#F7D979"
+                    android:textSize="43sp"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="ENTRÉE"
-                    android:textColor="@color/hp_gold"
-                    android:textSize="20sp"
-                    android:paddingTop="8dp"/>
+                    android:layout_marginTop="7dp"
+                    android:text="E N T R É E"
+                    android:textColor="@color/hp_gold_light"
+                    android:textSize="15sp"
+                    android:fontFamily="serif"/>
             </LinearLayout>
+
+            <TextView
+                android:layout_width="36dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="♛"
+                android:textColor="@color/hp_gold"
+                android:textSize="24sp"/>
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical"
-                android:gravity="center"
-                android:padding="8dp">
-
+                android:gravity="center">
                 <Button
                     android:id="@+id/exitButton"
-                    android:layout_width="140dp"
-                    android:layout_height="140dp"
+                    android:layout_width="126dp"
+                    android:layout_height="126dp"
                     android:background="@drawable/hp_exit"
                     android:text="↪"
-                    android:textColor="@color/hp_gold_light"
-                    android:textSize="48sp"/>
-
+                    android:textColor="#F7D979"
+                    android:textSize="43sp"/>
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="SORTIE"
-                    android:textColor="@color/hp_gold"
-                    android:textSize="20sp"
-                    android:paddingTop="8dp"/>
+                    android:layout_marginTop="7dp"
+                    android:text="S O R T I E"
+                    android:textColor="@color/hp_gold_light"
+                    android:textSize="15sp"
+                    android:fontFamily="serif"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -124,28 +143,30 @@
             android:id="@+id/contentPanel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:orientation="vertical"
             android:background="@drawable/hp_panel"
-            android:padding="16dp"
-            android:layout_marginTop="18dp">
+            android:padding="14dp">
 
             <TextView
                 android:id="@+id/contentTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="HISTORIQUE DU JOUR"
                 android:gravity="center"
-                android:textColor="@color/hp_gold"
-                android:textSize="18sp"/>
+                android:text="H I S T O R I Q U E   D U   J O U R"
+                android:textColor="@color/hp_gold_light"
+                android:textSize="14sp"
+                android:fontFamily="serif"/>
 
             <TextView
                 android:id="@+id/historyText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:paddingTop="12dp"
                 android:text="Aucun pointage aujourd'hui."
                 android:textColor="@color/hp_white"
-                android:textSize="16sp"
-                android:paddingTop="14dp"/>
+                android:textSize="15sp"
+                android:fontFamily="serif"/>
 
             <LinearLayout
                 android:id="@+id/analyticsPdfPanel"
@@ -153,50 +174,12 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone"
-                android:paddingTop="18dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="RAPPORT PDF MENSUEL"
-                    android:textColor="@color/hp_gold"
-                    android:textSize="16sp"
-                    android:textStyle="bold"/>
-
-                <TextView
-                    android:id="@+id/selectedReportMonthText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Mois sélectionné"
-                    android:textColor="@color/hp_white"
-                    android:textSize="15sp"/>
-
-                <Button
-                    android:id="@+id/chooseReportMonthButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="CHOISIR LE MOIS"
-                    android:textColor="@color/hp_gold_light"
-                    android:background="@drawable/hp_panel"/>
-
-                <com.amaury.pointage.PreviewPdfButton
-                    android:id="@+id/generateMonthlyPdfButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="GÉNÉRER LE PDF"
-                    android:textColor="@color/hp_gold_light"
-                    android:background="@drawable/hp_panel"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Le PDF contient le total du mois, le récapitulatif par adresse et le détail complet des entrées/sorties."
-                    android:textColor="@color/hp_grey"
-                    android:textSize="13sp"/>
+                android:paddingTop="16dp">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="RAPPORT PDF MENSUEL" android:textColor="@color/hp_gold_light" android:textSize="15sp" android:fontFamily="serif"/>
+                <TextView android:id="@+id/selectedReportMonthText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Mois sélectionné" android:textColor="@color/hp_white" android:textSize="14sp"/>
+                <Button android:id="@+id/chooseReportMonthButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="CHOISIR LE MOIS" android:textColor="@color/hp_gold_light" android:background="@drawable/hp_panel"/>
+                <com.amaury.pointage.PreviewPdfButton android:id="@+id/generateMonthlyPdfButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="GÉNÉRER LE PDF" android:textColor="@color/hp_gold_light" android:background="@drawable/hp_panel"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Le PDF contient le total du mois, le récapitulatif par adresse et le détail complet des entrées/sorties." android:textColor="@color/hp_grey" android:textSize="12sp"/>
             </LinearLayout>
 
             <LinearLayout
@@ -205,145 +188,33 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone"
-                android:paddingTop="14dp">
-
-                <com.amaury.pointage.LocationManagementView
-                    android:id="@id/locationManagementView"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <EditText
-                    android:id="@+id/workplaceAddress"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Une adresse par ligne"
-                    android:inputType="textPostalAddress|textMultiLine"
-                    android:minLines="3"
-                    android:maxLines="10"
-                    android:textColor="@color/hp_white"
-                    android:textColorHint="@color/hp_grey"
-                    android:singleLine="false"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Rayon de déclenchement (mètres)"
-                    android:textColor="@color/hp_gold"
-                    android:textSize="15sp"/>
-
-                <EditText
-                    android:id="@+id/geofenceRadius"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="number"
-                    android:text="150"
-                    android:textColor="@color/hp_white"/>
-
-                <Switch
-                    android:id="@+id/autoGpsSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="Pointage automatique par GPS"
-                    android:textColor="@color/hp_white"/>
-
-                <TextView
-                    android:id="@+id/gpsStatusText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="GPS automatique désactivé"
-                    android:textColor="@color/hp_grey"
-                    android:textSize="14sp"/>
-
-                <Button
-                    android:id="@+id/saveGpsSettingsButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="ENREGISTRER LES LIEUX"
-                    android:textColor="@color/hp_gold_light"
-                    android:background="@drawable/hp_panel"/>
-
-                <Button
-                    android:id="@+id/locationPermissionButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="AUTORISER LA LOCALISATION"
-                    android:textColor="@color/hp_gold_light"
-                    android:background="@drawable/hp_panel"/>
+                android:paddingTop="12dp">
+                <com.amaury.pointage.LocationManagementView android:id="@+id/locationManagementView" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                <EditText android:id="@+id/workplaceAddress" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:inputType="textPostalAddress|textMultiLine" android:textColor="@color/hp_white"/>
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Rayon de déclenchement (mètres)" android:textColor="@color/hp_gold_light" android:textSize="14sp"/>
+                <EditText android:id="@+id/geofenceRadius" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="150" android:textColor="@color/hp_white"/>
+                <Switch android:id="@+id/autoGpsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Pointage automatique par GPS" android:textColor="@color/hp_white"/>
+                <TextView android:id="@+id/gpsStatusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="GPS automatique désactivé" android:textColor="@color/hp_grey" android:textSize="13sp"/>
+                <Button android:id="@+id/saveGpsSettingsButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="ENREGISTRER LES LIEUX" android:textColor="@color/hp_gold_light" android:background="@drawable/hp_panel"/>
+                <Button android:id="@+id/locationPermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="AUTORISER LA LOCALISATION" android:textColor="@color/hp_gold_light" android:background="@drawable/hp_panel"/>
             </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal"
             android:gravity="center"
-            android:paddingTop="20dp"
-            android:paddingBottom="8dp">
+            android:background="@drawable/hp_nav_panel"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp">
 
-            <TextView
-                android:id="@+id/tabToday"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:text="AUJOURD'HUI"
-                android:textColor="@color/hp_gold"
-                android:textSize="11sp"/>
-
-            <TextView
-                android:id="@+id/tabHistory"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:text="HISTORIQUE"
-                android:textColor="@color/hp_grey"
-                android:textSize="11sp"/>
-
-            <TextView
-                android:id="@+id/tabAnalytics"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:text="ANALYSES"
-                android:textColor="@color/hp_grey"
-                android:textSize="11sp"/>
-
-            <com.amaury.pointage.SalaryTabTextView
-                android:id="@+id/tabSalary"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="SALAIRE"
-                android:textColor="@color/hp_grey"
-                android:textSize="11sp"/>
-
-            <TextView
-                android:id="@+id/tabSettings"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true"
-                android:text="PARAMÈTRES"
-                android:textColor="@color/hp_grey"
-                android:textSize="11sp"/>
+            <TextView android:id="@+id/tabToday" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="◷\nAUJOURD'HUI" android:textColor="@color/hp_gold_light" android:textSize="10sp" android:fontFamily="serif"/>
+            <TextView android:id="@+id/tabHistory" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="▥\nHISTORIQUE" android:textColor="@color/hp_grey" android:textSize="10sp" android:fontFamily="serif"/>
+            <TextView android:id="@+id/tabAnalytics" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="◔\nANALYSES" android:textColor="@color/hp_grey" android:textSize="10sp" android:fontFamily="serif"/>
+            <com.amaury.pointage.SalaryTabTextView android:id="@+id/tabSalary" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:text="€\nSALAIRE" android:textColor="@color/hp_grey" android:textSize="10sp" android:fontFamily="serif"/>
+            <TextView android:id="@+id/tabSettings" android:layout_width="0dp" android:layout_height="54dp" android:layout_weight="1" android:gravity="center" android:clickable="true" android:focusable="true" android:text="⚙\nPARAMÈTRES" android:textColor="@color/hp_grey" android:textSize="9sp" android:fontFamily="serif"/>
         </LinearLayout>
-
     </LinearLayout>
 </ScrollView>
