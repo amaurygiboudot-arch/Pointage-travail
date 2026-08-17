@@ -9,12 +9,16 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextClock
 import android.widget.TextView
 import java.util.WeakHashMap
 
 object LuxuryUiInstaller {
+    private const val TAG_TRANSPARENCY = "hp_ui_transparency_control"
+    private const val PREF_TRANSPARENCY = "ui_transparency"
     private val appearanceListeners = WeakHashMap<MainActivity, SharedPreferences.OnSharedPreferenceChangeListener>()
 
     fun install(activity: MainActivity) {
@@ -33,6 +37,7 @@ object LuxuryUiInstaller {
             syncTodayVisibility()
             syncTabs(activity)
             syncTodayLuxuryText(activity)
+            applyTransparency(activity)
         }
         digital.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (digital.visibility == View.VISIBLE) digital.visibility = View.GONE
@@ -65,11 +70,13 @@ object LuxuryUiInstaller {
         }
 
         installAppearanceListener(activity)
+        installTransparencyControl(activity)
 
         AppearanceManager.apply(activity)
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
         syncTodayLuxuryText(activity)
+        applyTransparency(activity)
 
         val decor = activity.window.decorView
         decor.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
@@ -77,6 +84,7 @@ object LuxuryUiInstaller {
                 decor.post {
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
+                    applyTransparency(activity)
                 }
             }
         }
@@ -85,6 +93,98 @@ object LuxuryUiInstaller {
             AppearanceManager.apply(activity)
             syncTabs(activity)
             syncTodayLuxuryText(activity)
+            applyTransparency(activity)
+        }
+    }
+
+    private fun installTransparencyControl(activity: MainActivity) {
+        val gpsPanel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val settingsSection = gpsPanel.findViewWithTag<View>("settings_personalization_installed") as? LinearLayout ?: return
+        if (settingsSection.findViewWithTag<View>(TAG_TRANSPARENCY) != null) return
+
+        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val wrapper = LinearLayout(activity).apply {
+            tag = TAG_TRANSPARENCY
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(activity, 8), 0, dp(activity, 8))
+        }
+        val label = TextView(activity).apply {
+            textSize = 14f
+        }
+        val seekBar = SeekBar(activity).apply {
+            max = 100
+            progress = prefs.getInt(PREF_TRANSPARENCY, 0).coerceIn(0, 100)
+        }
+
+        fun updateLabel(value: Int) {
+            label.text = "TRANSPARENCE DES BOUTONS ET AFFICHAGES : $value %"
+        }
+        updateLabel(seekBar.progress)
+
+        seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                updateLabel(progress)
+                if (fromUser) {
+                    prefs.edit().putInt(PREF_TRANSPARENCY, progress).apply()
+                    applyTransparency(activity)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+
+        wrapper.addView(label, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+        wrapper.addView(seekBar, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ))
+
+        var insertIndex = settingsSection.childCount
+        for (i in 0 until settingsSection.childCount) {
+            val text = (settingsSection.getChildAt(i) as? TextView)?.text?.toString()
+            if (text == "PERSONNALISER LE WIDGET") {
+                insertIndex = i
+                break
+            }
+        }
+        settingsSection.addView(wrapper, insertIndex)
+    }
+
+    private fun applyTransparency(activity: MainActivity) {
+        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val transparency = prefs.getInt(PREF_TRANSPARENCY, 0).coerceIn(0, 100)
+        val alpha = ((100 - transparency) * 255 / 100).coerceIn(0, 255)
+        val root = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
+        applyTransparencyToView(root, alpha)
+    }
+
+    private fun applyTransparencyToView(view: View, alpha: Int) {
+        val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+        val isProtectedImageButton = idName == "entryButton" || idName == "exitButton" || idName == "settingsButton"
+        val isPanel = idName == "statusCard" ||
+            idName == "pointageButtons" ||
+            idName == "contentPanel" ||
+            idName == "gpsSettingsPanel" ||
+            idName == "analyticsPdfPanel" ||
+            idName.contains("Panel", ignoreCase = true) ||
+            idName.contains("Card", ignoreCase = true)
+        val isStandardButton = view is Button && !isProtectedImageButton
+        val isNavigationBar = view is LinearLayout && (0 until view.childCount).any {
+            view.getChildAt(it).id == R.id.tabToday
+        }
+
+        if ((isPanel || isStandardButton || isNavigationBar) && view.background != null) {
+            view.background.mutate().alpha = alpha
+        }
+
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyTransparencyToView(view.getChildAt(i), alpha)
+            }
         }
     }
 
@@ -102,6 +202,7 @@ object LuxuryUiInstaller {
                     activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
+                    applyTransparency(activity)
                 }
             }
         }
@@ -165,4 +266,7 @@ object LuxuryUiInstaller {
             tab?.setTextColor(if (tab === active) activeColor else inactiveColor)
         }
     }
+
+    private fun dp(activity: MainActivity, value: Int): Int =
+        (value * activity.resources.displayMetrics.density).toInt()
 }
