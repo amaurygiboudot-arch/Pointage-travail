@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -28,12 +29,27 @@ class LocationManagementView @JvmOverloads constructor(
 
     fun refresh() {
         removeAllViews()
+
         addView(TextView(context).apply {
             text = "MES LIEUX DE TRAVAIL"
             textSize = 16f
-            setTextColor(Color.parseColor("#D6A84B"))
+            setTextColor(Color.parseColor("#1A1A1A"))
             setPadding(0, dp(18), 0, dp(8))
         })
+
+        val addresses = savedAddresses()
+        if (addresses.isEmpty()) {
+            addView(TextView(context).apply {
+                text = "Aucun lieu enregistré"
+                textSize = 15f
+                setTextColor(Color.parseColor("#6F675A"))
+                setPadding(0, dp(10), 0, dp(12))
+            })
+        } else {
+            addresses.forEach { address ->
+                addView(createPlaceCard(address))
+            }
+        }
 
         val add = AddAddressButton(context).apply {
             text = "+ NOUVEAU LIEU"
@@ -41,30 +57,65 @@ class LocationManagementView @JvmOverloads constructor(
             setBackgroundResource(R.drawable.hp_panel)
             setTextColor(Color.parseColor("#F3D58A"))
         }
-        addView(add)
+        addView(add, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(12)
+        })
+    }
 
-        val addresses = savedAddresses()
-        if (addresses.isEmpty()) {
+    private fun createPlaceCard(address: String): LinearLayout {
+        val name = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
+        val contacts = runCatching {
+            JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
+        }.getOrElse { JSONObject() }
+        val contact = contacts.optJSONObject(address)
+        val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
+        val radius = prefs.getInt("radius", 150)
+        val total = totalWorkedAt(address)
+
+        return LinearLayout(context).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setBackgroundResource(R.drawable.hp_panel)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { showDetails(address) }
+
             addView(TextView(context).apply {
-                text = "Aucun lieu enregistré"
-                setTextColor(Color.parseColor("#A99F8C"))
-                setPadding(0, dp(10), 0, 0)
+                text = "📍 $name"
+                textSize = 17f
+                setTextColor(Color.parseColor("#F3D58A"))
             })
-            return
-        }
 
-        addresses.forEach { address ->
-            val name = PlaceNames.get(context, address) ?: "Lieu sans nom"
-            val button = Button(context).apply {
-                text = "$name\n$address"
-                isAllCaps = false
-                gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(10), dp(14), dp(10))
-                setBackgroundResource(R.drawable.hp_panel)
+            addView(TextView(context).apply {
+                text = address
+                textSize = 14f
                 setTextColor(Color.parseColor("#F4EFE3"))
-                setOnClickListener { showDetails(address) }
+                setPadding(0, dp(5), 0, 0)
+            })
+
+            if (contactName != null) {
+                addView(TextView(context).apply {
+                    text = "Contact : $contactName"
+                    textSize = 13f
+                    setTextColor(Color.parseColor("#CFC7B8"))
+                    setPadding(0, dp(7), 0, 0)
+                })
             }
-            addView(button, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
+
+            addView(TextView(context).apply {
+                text = "Rayon GPS : $radius m   •   Temps : ${formatDuration(total)}"
+                textSize = 13f
+                setTextColor(Color.parseColor("#CFC7B8"))
+                setPadding(0, dp(5), 0, 0)
+            })
+        }.also { card ->
+            card.layoutParams = LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8)
+            }
         }
     }
 
@@ -113,27 +164,52 @@ class LocationManagementView @JvmOverloads constructor(
         val addressInput = EditText(context).apply { hint = "Adresse"; setText(oldAddress) }
         val contactInput = EditText(context).apply { hint = "Nom du contact"; setText(contact?.optString("contactName").orEmpty()) }
         val phoneInput = EditText(context).apply { hint = "Téléphone"; inputType = android.text.InputType.TYPE_CLASS_PHONE; setText(contact?.optString("phone").orEmpty()) }
-        val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); addView(nameInput); addView(addressInput); addView(contactInput); addView(phoneInput) }
+        val box = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(20), dp(6), dp(20), 0)
+            addView(nameInput)
+            addView(addressInput)
+            addView(contactInput)
+            addView(phoneInput)
+        }
 
-        AlertDialog.Builder(context).setTitle("Modifier le lieu").setView(box).setPositiveButton("Enregistrer") { _, _ ->
-            val newAddress = addressInput.text.toString().trim()
-            val newName = nameInput.text.toString().trim()
-            if (newAddress.isBlank()) return@setPositiveButton
-            val addresses = savedAddresses().map { if (it.equals(oldAddress, true)) newAddress else it }.distinctBy { it.lowercase() }.take(10)
-            prefs.edit().putString("address", addresses.joinToString("\n")).apply()
-            rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n"))
+        AlertDialog.Builder(context)
+            .setTitle("Modifier le lieu")
+            .setView(box)
+            .setPositiveButton("Enregistrer") { _, _ ->
+                val newAddress = addressInput.text.toString().trim()
+                val newName = nameInput.text.toString().trim()
+                if (newAddress.isBlank()) return@setPositiveButton
 
-            val names = runCatching { JSONObject(prefs.getString("address_names", "{}") ?: "{}") }.getOrElse { JSONObject() }
-            names.remove(oldAddress); names.put(newAddress, newName)
-            prefs.edit().putString("address_names", names.toString()).apply()
+                val addresses = savedAddresses()
+                    .map { if (it.equals(oldAddress, true)) newAddress else it }
+                    .distinctBy { it.lowercase() }
+                    .take(10)
 
-            val enabled = contact?.optBoolean("enabled", false) ?: false
-            contacts.remove(oldAddress)
-            contacts.put(newAddress, JSONObject().put("contactName", contactInput.text.toString().trim()).put("phone", phoneInput.text.toString().trim()).put("enabled", enabled))
-            prefs.edit().putString("arrival_contacts", contacts.toString()).apply()
-            refresh()
-            Toast.makeText(context, "Lieu modifié", Toast.LENGTH_SHORT).show()
-        }.setNegativeButton("Annuler", null).show()
+                prefs.edit().putString("address", addresses.joinToString("\n")).apply()
+                rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n"))
+
+                val names = runCatching { JSONObject(prefs.getString("address_names", "{}") ?: "{}") }.getOrElse { JSONObject() }
+                names.remove(oldAddress)
+                names.put(newAddress, newName)
+                prefs.edit().putString("address_names", names.toString()).apply()
+
+                val enabled = contact?.optBoolean("enabled", false) ?: false
+                contacts.remove(oldAddress)
+                contacts.put(
+                    newAddress,
+                    JSONObject()
+                        .put("contactName", contactInput.text.toString().trim())
+                        .put("phone", phoneInput.text.toString().trim())
+                        .put("enabled", enabled)
+                )
+                prefs.edit().putString("arrival_contacts", contacts.toString()).apply()
+
+                refresh()
+                Toast.makeText(context, "Lieu modifié", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
     }
 
     private fun confirmDelete(address: String, name: String) {
@@ -175,7 +251,13 @@ class LocationManagementView @JvmOverloads constructor(
         Toast.makeText(context, "Lieu supprimé. Historique conservé.", Toast.LENGTH_LONG).show()
     }
 
-    private fun savedAddresses(): List<String> = prefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+    private fun savedAddresses(): List<String> = prefs
+        .getString("address", "")
+        .orEmpty()
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
 
     private fun totalWorkedAt(address: String): Long {
         val data = PointageStore.load(context)
