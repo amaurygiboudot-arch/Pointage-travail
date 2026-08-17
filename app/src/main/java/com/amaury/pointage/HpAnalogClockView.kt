@@ -40,13 +40,12 @@ class HpAnalogClockView @JvmOverloads constructor(
         if (width <= 0 || height <= 0) return
 
         /*
-         * The visual centre of the watch in luxury_hero is slightly above the
-         * geometric centre of the hero container. Using height / 2f made the
-         * pivot/cap sit too low on the printed dial. Keep these values tied to
-         * the artwork so all three hands share exactly the same pivot.
+         * The watch pivot is slightly above the exact middle of the hero, but
+         * 0.475 was visibly too high on-device. Move it down a little while
+         * keeping the horizontal centre and hand proportions unchanged.
          */
         val cx = width * 0.50f
-        val cy = height * 0.475f
+        val cy = height * 0.49f
         val faceRadius = min(width, height) * 0.40f
 
         val now = Calendar.getInstance()
