@@ -6,7 +6,6 @@ import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
 import android.util.AttributeSet
-import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -161,14 +160,14 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     result.optString("nom")
                 ).ifBlank { "Entreprise trouvée" }
                 val siren = result.optString("siren").ifBlank { siret.take(9) }
-                val siege = findMatchingEstablishment(result, siret)
+                val establishment = findMatchingEstablishment(result, siret)
                 val address = firstNonBlank(
-                    siege?.optString("adresse"),
-                    siege?.optString("adresse_complete"),
+                    establishment?.optString("adresse"),
+                    establishment?.optString("adresse_complete"),
                     result.optString("adresse")
                 )
                 val ape = firstNonBlank(
-                    siege?.optString("activite_principale"),
+                    establishment?.optString("activite_principale"),
                     result.optString("activite_principale")
                 )
                 val conventions = findConventionObjects(result)
@@ -290,34 +289,31 @@ class EnterpriseLookupView @JvmOverloads constructor(
 
     private fun findConventionObjects(root: JSONObject): List<JSONObject> {
         val found = mutableListOf<JSONObject>()
+        val stack = mutableListOf<Any>(root)
 
-        fun walkObject(obj: JSONObject) {
-            val keys = obj.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                val value = obj.opt(key)
-                if (key.equals("conventions_collectives", ignoreCase = true) && value is JSONArray) {
-                    for (i in 0 until value.length()) value.optJSONObject(i)?.let(found::add)
-                } else when (value) {
-                    is JSONObject -> walkObject(value)
-                    is JSONArray -> walkArray(value)
+        while (stack.isNotEmpty()) {
+            when (val current = stack.removeAt(stack.lastIndex)) {
+                is JSONObject -> {
+                    val keys = current.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = current.opt(key)
+                        if (key.equals("conventions_collectives", ignoreCase = true) && value is JSONArray) {
+                            for (i in 0 until value.length()) value.optJSONObject(i)?.let(found::add)
+                        } else if (value is JSONObject || value is JSONArray) {
+                            stack += value
+                        }
+                    }
+                }
+                is JSONArray -> {
+                    for (i in 0 until current.length()) {
+                        val value = current.opt(i)
+                        if (value is JSONObject || value is JSONArray) stack += value
+                    }
                 }
             }
         }
 
-        fun walkArrayInternal(array: JSONArray) {
-            for (i in 0 until array.length()) {
-                when (val value = array.opt(i)) {
-                    is JSONObject -> walkObject(value)
-                    is JSONArray -> walkArrayInternal(value)
-                }
-            }
-        }
-
-        // Local wrapper avoids exposing recursive helpers outside this method.
-        fun walkArray(array: JSONArray) = walkArrayInternal(array)
-
-        walkObject(root)
         return found.distinctBy { extractIdcc(it) + "|" + extractConventionName(it) }
     }
 
