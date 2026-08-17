@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
@@ -43,9 +44,10 @@ class BackgroundPickerActivity : Activity() {
     }
 
     private fun showCropEditor(bitmap: Bitmap) {
+        val baseBottomPadding = dp(8)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(6), dp(10), dp(8))
+            setPadding(dp(10), dp(6), dp(10), baseBottomPadding)
         }
         val title = TextView(this).apply {
             text = "CADRER L'IMAGE DE FOND"
@@ -110,6 +112,17 @@ class BackgroundPickerActivity : Activity() {
         root.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
         setContentView(root)
         AppearanceManager.apply(this)
+
+        // Garde la barre VALIDER / ANNULER au-dessus de la navigation système,
+        // quel que soit le mode de navigation Android (3 boutons ou gestes).
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val bottomInset = insets.systemWindowInsetBottom.coerceAtLeast(0)
+            view.setPadding(dp(10), dp(6), dp(10), baseBottomPadding + bottomInset)
+            insets
+        }
+        root.systemUiVisibility = root.systemUiVisibility and View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION.inv()
+        root.requestApplyInsets()
+
         // Le thème peut modifier la taille/minHeight des boutons : on force à nouveau la barre après application.
         buttons.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58))
         cancel.layoutParams.height = dp(48)
