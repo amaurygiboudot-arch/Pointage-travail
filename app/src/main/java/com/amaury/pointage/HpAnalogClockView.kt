@@ -39,13 +39,10 @@ class HpAnalogClockView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (width <= 0 || height <= 0) return
 
-        /*
-         * The watch pivot is slightly above the exact middle of the hero, but
-         * 0.475 was visibly too high on-device. Move it down a little while
-         * keeping the horizontal centre and hand proportions unchanged.
-         */
+        // On-device the previous 0.49 pivot was still too high. Move only the
+        // vertical pivot down; hand sizes and horizontal alignment stay intact.
         val cx = width * 0.50f
-        val cy = height * 0.49f
+        val cy = height * 0.53f
         val faceRadius = min(width, height) * 0.40f
 
         val now = Calendar.getInstance()
