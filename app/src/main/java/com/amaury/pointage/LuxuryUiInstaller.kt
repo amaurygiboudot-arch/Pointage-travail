@@ -79,21 +79,31 @@ object LuxuryUiInstaller {
 
         installAppearanceListener(activity)
 
-        // Apply once immediately, then once again after the first layout/resume pass.
-        // Some Android versions repaint the navigation strip after onResume, which
-        // previously left the tabs with the old dark tint until the first tab click.
         AppearanceManager.apply(activity)
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
-        activity.window.decorView.post {
+
+        // Android can re-apply theme tints after onResume. Re-sync the navigation strip
+        // whenever the app window actually gains focus, so the first visible frame has
+        // the correct Light / Dark / Automatic colors without needing a tab click.
+        val decor = activity.window.decorView
+        decor.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus && !activity.isFinishing && !activity.isDestroyed) {
+                decor.post {
+                    syncTabs(activity)
+                }
+            }
+        }
+
+        decor.post {
             AppearanceManager.apply(activity)
             syncTabs(activity)
         }
-        activity.window.decorView.postDelayed({
+        decor.postDelayed({
             if (!activity.isFinishing && !activity.isDestroyed) {
                 syncTabs(activity)
             }
-        }, 120L)
+        }, 350L)
     }
 
     private fun installAppearanceListener(activity: MainActivity) {
@@ -101,9 +111,6 @@ object LuxuryUiInstaller {
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == "mode") {
-                // Recreate the activity so every XML view, dynamically-created setting,
-                // navigation tab and work-place card is rebuilt with the selected mode.
-                // This also prevents stale runtime tints from keeping the previous theme.
                 activity.window.decorView.post {
                     if (!activity.isFinishing && !activity.isDestroyed) {
                         activity.recreate()
