@@ -131,9 +131,10 @@ object AppearanceManager {
             is Button -> {
                 val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
                 val isEntryExit = id == "entryButton" || id == "exitButton"
-                if (!isEntryExit) {
-                    val gold = Color.parseColor("#F3D58A")
-                    view.setTextColor(if (contrastRatio(gold, surface) >= 4.5) gold else strongText)
+                val isSettingsButton = id == "settingsButton"
+                if (!isEntryExit && !isSettingsButton) {
+                    view.backgroundTintList = ColorStateList.valueOf(surface)
+                    view.setTextColor(strongText)
                 }
             }
             is TextView -> {
