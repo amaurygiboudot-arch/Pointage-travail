@@ -227,7 +227,25 @@ object SettingsUiInstaller {
         val updateButton=styledButton(activity,"VÉRIFIER LES MISES À JOUR");updateButton.setOnClickListener{UpdateChecker.check(activity, silent=false)};section.addView(updateButton)
         panel.addView(section);AppearanceManager.apply(activity)
     }
-    private fun styledButton(context: Context, label:String)=Button(context).apply{text=label;setBackgroundResource(R.drawable.hp_panel);isAllCaps=false}
+    private fun styledButton(context: Context, label:String)=Button(context).apply {
+        text = label
+        setBackgroundResource(R.drawable.hp_panel)
+        isAllCaps = false
+        textSize = 13f
+        minHeight = 0
+        minimumHeight = 0
+        minWidth = 0
+        minimumWidth = 0
+        gravity = Gravity.CENTER
+        setPadding(dp(context, 12), 0, dp(context, 12), 0)
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            dp(context, 46)
+        ).apply {
+            topMargin = dp(context, 4)
+            bottomMargin = dp(context, 4)
+        }
+    }
     private fun dp(context:Context,value:Int)=(value*context.resources.displayMetrics.density).toInt()
     private fun title(context:Context,text:String)=TextView(context).apply{this.text=text;textSize=16f;setPadding(0,18,0,10)}
     private fun chooseAppBackground(activity:Activity){val labels=arrayOf("Noir","Anthracite","Bleu nuit","Vert profond","Bordeaux","Beige clair","Couleur personnalisée");val colors=arrayOf("#080808","#242424","#0D1B2A","#102A20","#351015","#F3F0E8");AlertDialog.Builder(activity).setTitle("Fond de l'application").setItems(labels){_,which->if(which<colors.size)saveAppBg(activity,colors[which])else customColorDialog(activity,"Couleur du fond"){saveAppBg(activity,it)}}.show()}
