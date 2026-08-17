@@ -44,6 +44,9 @@ object ConventionCatalog {
         Convention("2216","Commerce alimentaire","Commerce de détail et de gros à prédominance alimentaire",cautions=listOf("Règles détaillées non encore intégrées : régime légal provisoire.")),
         Convention("1596","Bâtiment — jusqu'à 10 salariés","Ouvriers des entreprises du bâtiment occupant jusqu'à 10 salariés",cautions=listOf("Règles détaillées non encore intégrées : régime légal provisoire.")),
         Convention("1597","Bâtiment — plus de 10 salariés","Ouvriers des entreprises du bâtiment occupant plus de 10 salariés",cautions=listOf("Règles détaillées non encore intégrées : régime légal provisoire.")),
+        Convention("3127","Services à la personne","Convention collective nationale des entreprises de services à la personne du 20 septembre 2012",cautions=listOf("Règles détaillées de paie non encore intégrées : régime légal appliqué provisoirement.")),
+        Convention("2941","Aide et services à domicile","Convention collective nationale de la branche de l'aide, de l'accompagnement, des soins et des services à domicile du 21 mai 2010",cautions=listOf("Règles détaillées de paie non encore intégrées : régime légal appliqué provisoirement.")),
+        Convention("3239","Particuliers employeurs / emploi à domicile","Convention collective de la branche du secteur des particuliers employeurs et de l'emploi à domicile du 15 mars 2021",cautions=listOf("Règles détaillées de paie non encore intégrées : régime légal appliqué provisoirement.")),
         Convention("","Régime légal / autre convention","Régime légal sans règle conventionnelle intégrée",true,legalOvertimeTiers(),advantages=listOf("Calcul basé sur les majorations légales de référence."),cautions=listOf("Ne tient pas compte d'une convention collective ou d'un accord d'entreprise plus favorable."))
     )
 
@@ -55,7 +58,6 @@ object ConventionCatalog {
     val conventions: List<Convention> get() = current
 
     init {
-        // Premier chargement réseau en arrière-plan. Le catalogue local minimal reste utilisable immédiatement.
         Executors.newSingleThreadExecutor().execute {
             val parsed=downloadCatalog()
             if(parsed.isNotEmpty()) current=mergeWithBuiltIns(parsed)
