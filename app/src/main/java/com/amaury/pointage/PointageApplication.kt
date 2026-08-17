@@ -28,7 +28,10 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
         activity.window.decorView.post {
             AppearanceManager.apply(activity)
-            if (activity is MainActivity) SettingsUiInstaller.install(activity)
+            if (activity is MainActivity) {
+                SettingsUiInstaller.install(activity)
+                LuxuryUiInstaller.install(activity)
+            }
         }
     }
     override fun onActivityResumed(activity: Activity) { AppearanceManager.apply(activity) }
@@ -45,7 +48,7 @@ object AppearanceManager {
 
     fun apply(activity: Activity) {
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val mode = prefs.getString("mode", "auto") ?: "auto"
+        val mode = prefs.getString("mode", "dark") ?: "dark"
         val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)
         val defaultBg = if (dark) "#080808" else "#F3F0E8"
@@ -91,27 +94,21 @@ object AppearanceManager {
                 view.setHintTextColor(softText)
             }
             is Button -> {
-                // Les boutons HP gardent leur fond sombre même en mode clair.
-                // On force donc un texte doré clair, sauf les gros boutons Entrée/Sortie
-                // dont le pictogramme noir reste très lisible sur le vert/rouge.
-                val isPointageButton = idName == "entryButton" || idName == "exitButton"
-                view.setTextColor(
-                    if (isPointageButton) Color.parseColor("#111111")
-                    else Color.parseColor("#F3D58A")
-                )
+                val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+                val isEntryExit = id == "entryButton" || id == "exitButton"
+                if (!isEntryExit && view.background != null) {
+                    view.setTextColor(Color.parseColor("#F3D58A"))
+                } else {
+                    val buttonSurface = if (view.background != null) panel else surface
+                    view.setTextColor(bestTextColor(buttonSurface))
+                }
             }
             is TextView -> {
                 val current = view.currentTextColor
                 val gold = Color.parseColor("#D6A84B")
                 val lightGold = Color.parseColor("#F3D58A")
-                if (idName == "statusCard") {
-                    // La carte de statut conserve son fond noir : texte clair obligatoire.
-                    view.setTextColor(Color.parseColor("#F4EFE3"))
-                } else if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) {
-                    view.setTextColor(lightGold)
-                } else {
-                    view.setTextColor(strongText)
-                }
+                if ((current == gold || current == lightGold) && contrastRatio(lightGold, surface) >= 4.5) view.setTextColor(lightGold)
+                else view.setTextColor(strongText)
             }
         }
 
@@ -136,7 +133,7 @@ object AppearanceManager {
 
 object PlaceNames {
     fun get(context: Context, address: String): String? { val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE); return runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}").optString(address).trim().takeIf{it.isNotBlank()}}.getOrNull() }
-    fun put(context:Context,address:String,name:String){val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE);val obj=runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}")} .getOrElse{JSONObject()};obj.put(address,name);prefs.edit().putString("address_names",obj.toString()).apply()}
+    fun put(context:Context,address:String,name:String){val prefs=context.getSharedPreferences("gps_settings",Context.MODE_PRIVATE);val obj=runCatching{JSONObject(prefs.getString("address_names","{}")?:"{}")}.getOrElse{JSONObject()};obj.put(address,name);prefs.edit().putString("address_names",obj.toString()).apply()}
     fun display(context:Context,address:String):String{val name=get(context,address);return if(name.isNullOrBlank())address else "$name — $address"}
 }
 
@@ -163,7 +160,7 @@ object SettingsUiInstaller {
         val section = LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL; setPadding(0,28,0,0); tag=TAG }
         section.addView(title(activity,"APPARENCE DE L'APPLICATION"))
         val modeButton=styledButton(activity,"")
-        fun updateModeLabel(){val mode=activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).getString("mode","auto")?:"auto";modeButton.text="MODE : "+when(mode){"light"->"CLAIR";"dark"->"SOMBRE";else->"AUTOMATIQUE"}}
+        fun updateModeLabel(){val mode=activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).getString("mode","dark")?:"dark";modeButton.text="MODE : "+when(mode){"light"->"CLAIR";"dark"->"SOMBRE";else->"AUTOMATIQUE"}}
         updateModeLabel();modeButton.setOnClickListener{val values=arrayOf("Automatique","Clair","Sombre");AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values){_,which->val mode=arrayOf("auto","light","dark")[which];activity.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE).edit().putString("mode",mode).apply();updateModeLabel();AppearanceManager.apply(activity)}.show()};section.addView(modeButton)
         val bgButton=styledButton(activity,"COULEUR DU FOND");bgButton.setOnClickListener{chooseAppBackground(activity)};section.addView(bgButton)
         val imageButton=styledButton(activity,"CHOISIR UNE IMAGE DE FOND");imageButton.setOnClickListener{activity.startActivity(Intent(activity,BackgroundPickerActivity::class.java))};section.addView(imageButton)
