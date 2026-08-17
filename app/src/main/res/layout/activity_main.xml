@@ -4,7 +4,8 @@
     android:layout_height="match_parent"
     android:background="#050505"
     android:fillViewport="true"
-    android:clipToPadding="false">
+    android:fitsSystemWindows="true"
+    android:clipToPadding="true">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -25,6 +26,12 @@
                 android:src="@drawable/luxury_hero"
                 android:scaleType="centerCrop"
                 android:contentDescription="Décor HP Travail" />
+
+            <com.amaury.pointage.HpAnalogClockView
+                android:id="@+id/heroClockHands"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_gravity="center" />
 
             <TextView
                 android:id="@+id/logoText"
@@ -183,9 +190,9 @@
                 android:visibility="gone"
                 android:paddingTop="12dp">
                 <com.amaury.pointage.LocationManagementView android:id="@+id/locationManagementView" android:layout_width="match_parent" android:layout_height="wrap_content"/>
-                <EditText android:id="@+id/workplaceAddress" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:inputType="textPostalAddress|textMultiLine" android:textColor="@color/hp_white"/>
+                <EditText android:id="@+id/workplaceAddress" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:inputType="textPostalAddress|textMultiLine" android:textColor="@color/hp_white" android:textColorHint="@color/hp_grey"/>
                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Rayon de déclenchement (mètres)" android:textColor="@color/hp_gold_light" android:textSize="14sp"/>
-                <EditText android:id="@+id/geofenceRadius" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="150" android:textColor="@color/hp_white"/>
+                <EditText android:id="@+id/geofenceRadius" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="150" android:textColor="@color/hp_white" android:textColorHint="@color/hp_grey"/>
                 <Switch android:id="@+id/autoGpsSwitch" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Pointage automatique par GPS" android:textColor="@color/hp_white"/>
                 <TextView android:id="@+id/gpsStatusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="GPS automatique désactivé" android:textColor="@color/hp_grey" android:textSize="13sp"/>
                 <Button android:id="@+id/saveGpsSettingsButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="ENREGISTRER LES LIEUX" android:textColor="@color/hp_gold_light" android:background="@drawable/hp_panel"/>
