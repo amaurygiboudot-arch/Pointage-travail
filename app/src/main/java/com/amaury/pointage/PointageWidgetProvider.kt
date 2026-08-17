@@ -32,9 +32,9 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
         }
 
-        private fun shortLocation(address: String): String {
+        private fun shortLocation(address: String, max: Int = 34): String {
             val cleaned = address.replace("\n", " ").trim()
-            return if (cleaned.length <= 34) cleaned else cleaned.take(31) + "…"
+            return if (cleaned.length <= max) cleaned else cleaned.take(max - 1) + "…"
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
@@ -78,8 +78,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var exitText = "--:--"
             var durationText = "00h 00m"
             var stateText = "PRÊT"
-            var stateColor = Color.parseColor("#E8C25E")
+            var stateColor = Color.parseColor("#F3D58A")
             var locationText = "📍 Aucune zone"
+            var entryLocation = ""
+            var exitLocation = ""
 
             val data = PointageStore.load(context)
             if (data.length() > 0) {
@@ -88,11 +90,12 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 val zoneAddress = last.optString("zoneAddress").trim()
                 entryText = formatTime(entry)
 
-                if (zoneAddress.isNotEmpty()) {
-                    locationText = "📍 ${shortLocation(zoneAddress)}"
-                } else if (last.isNull("exit")) {
-                    locationText = "📍 Pointage manuel"
+                val place = when {
+                    zoneAddress.isNotEmpty() -> shortLocation(zoneAddress, 30)
+                    else -> "Pointage manuel"
                 }
+                entryLocation = place
+                locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 40)}"
 
                 if (last.isNull("exit")) {
                     durationText = formatDuration(System.currentTimeMillis() - entry)
@@ -101,6 +104,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 } else {
                     val exit = last.getLong("exit")
                     exitText = formatTime(exit)
+                    exitLocation = place
                     durationText = formatDuration(exit - entry)
                     stateText = "TERMINÉ"
                     stateColor = Color.parseColor("#CFC7B8")
@@ -109,6 +113,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             views.setTextViewText(R.id.widget_entry_time, entryText)
             views.setTextViewText(R.id.widget_exit_time, exitText)
+            views.setTextViewText(R.id.widget_entry_location, entryLocation)
+            views.setTextViewText(R.id.widget_exit_location, exitLocation)
             views.setTextViewText(R.id.widget_duration, durationText)
             views.setTextViewText(R.id.widget_state, stateText)
             views.setTextColor(R.id.widget_state, stateColor)
