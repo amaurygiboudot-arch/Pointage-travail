@@ -3,10 +3,14 @@
         <item name="android:fitsSystemWindows">true</item>
     </style>
 
-    <style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="Theme.PointageTravail" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:colorAccent">#D6A84B</item>
         <item name="android:windowBackground">#050505</item>
+        <item name="android:colorBackground">#050505</item>
+        <item name="android:textColorPrimary">#F4EFE3</item>
+        <item name="android:textColorSecondary">#CFC7B8</item>
+        <item name="android:textColorHint">#9B9386</item>
         <item name="android:navigationBarColor">#050505</item>
         <item name="android:statusBarColor">#050505</item>
         <item name="android:windowLightStatusBar">false</item>
