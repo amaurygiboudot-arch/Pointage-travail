@@ -12,7 +12,7 @@
         android:background="#FF050505"
         android:contentDescription="HP Travail"
         android:scaleType="fitXY"
-        android:src="@drawable/widget_luxury_exact" />
+        android:src="@drawable/widget_panel_exact" />
 
     <LinearLayout
         android:layout_width="match_parent"
