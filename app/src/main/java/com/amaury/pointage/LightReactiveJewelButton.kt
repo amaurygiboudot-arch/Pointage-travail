@@ -5,10 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -28,6 +28,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     private val lightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val pauseGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val clipPath = Path()
     private val dst = RectF()
 
@@ -74,6 +75,18 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         if (resId != 0) bitmap = BitmapFactory.decodeResource(resources, resId)
     }
 
+    private fun pauseOrangeFilter(): ColorMatrixColorFilter {
+        // Transforme la luminosité du bijou d'origine en nuances d'orange
+        // au lieu de peindre un disque uniforme. Les facettes et reflets restent visibles.
+        val matrix = ColorMatrix(floatArrayOf(
+            0.72f, 0.72f, 0.18f, 0f, 10f,
+            0.34f, 0.34f, 0.09f, 0f, 4f,
+            0.035f, 0.035f, 0.012f, 0f, 0f,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        return ColorMatrixColorFilter(matrix)
+    }
+
     override fun onDraw(canvas: Canvas) {
         ensureBitmap()
         val source = bitmap ?: return
@@ -89,9 +102,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         dst.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
         val isPause = id == R.id.pauseButton
-        if (isPause) {
-            imagePaint.colorFilter = PorterDuffColorFilter(Color.parseColor("#F28C28"), PorterDuff.Mode.SRC_ATOP)
-        }
+        if (isPause) imagePaint.colorFilter = pauseOrangeFilter()
 
         val save = canvas.save()
         clipPath.reset()
@@ -142,10 +153,23 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, radius, shadePaint)
         shadePaint.shader = null
 
+        if (isPause) {
+            // Symbole pause intégré au bijou, lisible sans casser le relief.
+            pauseGlyphPaint.color = Color.argb(if (isPressed) 195 else 230, 72, 35, 5)
+            pauseGlyphPaint.style = Paint.Style.FILL
+            val barW = radius * 0.13f
+            val barH = radius * 0.54f
+            val gap = radius * 0.10f
+            val top = cy - barH / 2f
+            val bottom = cy + barH / 2f
+            canvas.drawRoundRect(cx - gap - barW, top, cx - gap, bottom, barW * 0.28f, barW * 0.28f, pauseGlyphPaint)
+            canvas.drawRoundRect(cx + gap, top, cx + gap + barW, bottom, barW * 0.28f, barW * 0.28f, pauseGlyphPaint)
+        }
+
         canvas.restoreToCount(save)
 
         val normalAccent = if (isPause) Color.parseColor("#F57C00") else jewelAccent
-        val normalAccentLight = if (isPause) Color.parseColor("#FFB74D") else jewelAccentLight
+        val normalAccentLight = if (isPause) Color.parseColor("#FFD08A") else jewelAccentLight
         ringPaint.strokeWidth = 2.4f * density
         ringPaint.color = if (nightLight && !isPause) Color.parseColor("#AFC7E8") else normalAccent
         canvas.drawCircle(cx, cy, radius - 1.2f * density, ringPaint)
