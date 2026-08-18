@@ -39,6 +39,13 @@ class SuggestionBoxView @JvmOverloads constructor(
             setPadding(0, 0, 0, dp(8))
         })
 
+        addView(TextView(context).apply {
+            text = "Les idées sont uniquement des propositions. Elles sont examinées par le propriétaire de l'application et ne peuvent jamais modifier automatiquement HP Travail."
+            textSize = 12f
+            setTextColor(Color.parseColor("#D6A84B"))
+            setPadding(0, 0, 0, dp(10))
+        })
+
         ideaInput = EditText(context).apply {
             hint = "Ex. : ce serait bien d'avoir…"
             minLines = 4
@@ -70,7 +77,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         })
 
         addView(TextView(context).apply {
-            text = "Les rapports automatiques servent à corriger les crashs. Ils n'incluent pas l'historique, les adresses, les salaires ni les données GPS enregistrées."
+            text = "Les rapports automatiques servent à corriger les crashs. Ils n'incluent pas l'historique, les adresses, les salaires ni les données GPS enregistrées. Un rapport ne déclenche jamais de modification automatique du code."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
