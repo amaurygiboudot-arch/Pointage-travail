@@ -52,7 +52,6 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <com.amaury.pointage.ManualHoursButton android:id="@+id/manualHoursButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_marginEnd="10dp" android:layout_marginTop="10dp" android:background="@drawable/hp_panel" android:text="✎  SAISIE MANUELLE DES HEURES" android:textColor="@color/hp_gold_light" android:textSize="14sp" />
             <com.amaury.pointage.ManualPauseButton android:id="@+id/manualPauseButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_marginEnd="10dp" android:layout_marginTop="8dp" android:background="@drawable/hp_panel" android:text="⏸  SAISIE MANUELLE D'UNE PAUSE" android:textColor="#F3A64A" android:textSize="14sp" />
         </LinearLayout>
 
