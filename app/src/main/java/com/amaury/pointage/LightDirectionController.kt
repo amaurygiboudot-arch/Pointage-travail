@@ -23,14 +23,20 @@ import kotlin.math.tan
  * Calcule un angle de lumière écran-local.
  * - orientation du téléphone via TYPE_ROTATION_VECTOR ;
  * - azimut solaire calculé localement si une dernière position connue existe ;
- * - aucun suivi GPS continu, aucune donnée envoyée.
+ * - aucun suivi GPS continu, aucune donnée envoyée ;
+ * - le capteur peut être complètement détaché lorsque l'utilisateur désactive l'effet.
  */
 object LightDirectionController {
-    private val listeners = mutableMapOf<Int, SensorEventListener>()
+    private data class Registration(
+        val manager: SensorManager,
+        val listener: SensorEventListener
+    )
+
+    private val registrations = mutableMapOf<Int, Registration>()
 
     fun attach(activity: Activity, onAngleChanged: (Float) -> Unit) {
         val key = System.identityHashCode(activity)
-        if (listeners.containsKey(key)) return
+        if (registrations.containsKey(key)) return
 
         val sensorManager = activity.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return
@@ -53,7 +59,7 @@ object LightDirectionController {
                 val tiltInfluence = (roll * 0.45f) + (pitch * 0.20f)
                 val angle = normalize(base + tiltInfluence - 90f)
 
-                if (lastAngle.isNaN() || kotlin.math.abs(shortestDelta(lastAngle, angle)) >= 1.5f) {
+                if (lastAngle.isNaN() || kotlin.math.abs(shortestDelta(lastAngle, angle)) >= 1.2f) {
                     lastAngle = angle
                     activity.runOnUiThread { onAngleChanged(angle) }
                 }
@@ -63,15 +69,13 @@ object LightDirectionController {
         }
 
         sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
-        listeners[key] = listener
+        registrations[key] = Registration(sensorManager, listener)
+    }
 
-        activity.window.decorView.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: android.view.View) = Unit
-            override fun onViewDetachedFromWindow(v: android.view.View) {
-                listeners.remove(key)?.let { sensorManager.unregisterListener(it) }
-                v.removeOnAttachStateChangeListener(this)
-            }
-        })
+    fun detach(activity: Activity) {
+        val key = System.identityHashCode(activity)
+        val registration = registrations.remove(key) ?: return
+        registration.manager.unregisterListener(registration.listener)
     }
 
     private fun lastKnownLocation(context: Context): Location? {
