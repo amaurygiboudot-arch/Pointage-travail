@@ -7,6 +7,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -86,11 +88,17 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val cy = h / 2f
         dst.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
+        val isPause = id == R.id.pauseButton
+        if (isPause) {
+            imagePaint.colorFilter = PorterDuffColorFilter(Color.parseColor("#F28C28"), PorterDuff.Mode.SRC_ATOP)
+        }
+
         val save = canvas.save()
         clipPath.reset()
         clipPath.addCircle(cx, cy, radius, Path.Direction.CW)
         canvas.clipPath(clipPath)
         canvas.drawBitmap(source, null, dst, imagePaint)
+        imagePaint.colorFilter = null
 
         val rad = Math.toRadians(jewelLightAngle.toDouble())
         val lx = cx + (cos(rad) * radius * 0.42).toFloat()
@@ -136,11 +144,13 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
 
         canvas.restoreToCount(save)
 
+        val normalAccent = if (isPause) Color.parseColor("#F57C00") else jewelAccent
+        val normalAccentLight = if (isPause) Color.parseColor("#FFB74D") else jewelAccentLight
         ringPaint.strokeWidth = 2.4f * density
-        ringPaint.color = if (nightLight) Color.parseColor("#AFC7E8") else jewelAccent
+        ringPaint.color = if (nightLight && !isPause) Color.parseColor("#AFC7E8") else normalAccent
         canvas.drawCircle(cx, cy, radius - 1.2f * density, ringPaint)
         ringPaint.strokeWidth = 0.9f * density
-        ringPaint.color = if (nightLight) Color.parseColor("#EAF2FF") else jewelAccentLight
+        ringPaint.color = if (nightLight && !isPause) Color.parseColor("#EAF2FF") else normalAccentLight
         canvas.drawCircle(cx, cy, radius - 4.2f * density, ringPaint)
 
         super.onDraw(canvas)
