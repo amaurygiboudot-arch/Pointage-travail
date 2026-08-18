@@ -1,0 +1,141 @@
+package com.amaury.pointage
+
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.location.Location
+import android.location.LocationManager
+import androidx.core.content.ContextCompat
+import java.util.Calendar
+import java.util.TimeZone
+import kotlin.math.PI
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.tan
+
+/**
+ * Calcule un angle de lumière écran-local.
+ * - orientation du téléphone via TYPE_ROTATION_VECTOR ;
+ * - azimut solaire calculé localement si une dernière position connue existe ;
+ * - aucun suivi GPS continu, aucune donnée envoyée.
+ */
+object LightDirectionController {
+    private val listeners = mutableMapOf<Int, SensorEventListener>()
+
+    fun attach(activity: Activity, onAngleChanged: (Float) -> Unit) {
+        val key = System.identityHashCode(activity)
+        if (listeners.containsKey(key)) return
+
+        val sensorManager = activity.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return
+        val location = lastKnownLocation(activity)
+
+        val listener = object : SensorEventListener {
+            private val rotation = FloatArray(9)
+            private val orientation = FloatArray(3)
+            private var lastAngle = Float.NaN
+
+            override fun onSensorChanged(event: SensorEvent) {
+                SensorManager.getRotationMatrixFromVector(rotation, event.values)
+                SensorManager.getOrientation(rotation, orientation)
+                val deviceAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
+                val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+
+                val sunAzimuth = location?.let { solarAzimuth(it.latitude, it.longitude, System.currentTimeMillis()) }
+                val base = if (sunAzimuth != null) sunAzimuth.toFloat() - deviceAzimuth else -deviceAzimuth
+                val tiltInfluence = (roll * 0.45f) + (pitch * 0.20f)
+                val angle = normalize(base + tiltInfluence - 90f)
+
+                if (lastAngle.isNaN() || kotlin.math.abs(shortestDelta(lastAngle, angle)) >= 1.5f) {
+                    lastAngle = angle
+                    activity.runOnUiThread { onAngleChanged(angle) }
+                }
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+
+        sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
+        listeners[key] = listener
+
+        activity.window.decorView.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: android.view.View) = Unit
+            override fun onViewDetachedFromWindow(v: android.view.View) {
+                listeners.remove(key)?.let { sensorManager.unregisterListener(it) }
+                v.removeOnAttachStateChangeListener(this)
+            }
+        })
+    }
+
+    private fun lastKnownLocation(context: Context): Location? {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) return null
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return runCatching {
+            lm.getProviders(true)
+                .mapNotNull { provider -> runCatching { lm.getLastKnownLocation(provider) }.getOrNull() }
+                .maxByOrNull { it.time }
+        }.getOrNull()
+    }
+
+    private fun solarAzimuth(latitude: Double, longitude: Double, timeMs: Long): Double {
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply { timeInMillis = timeMs }
+        val year = cal.get(Calendar.YEAR)
+        val month = cal.get(Calendar.MONTH) + 1
+        val day = cal.get(Calendar.DAY_OF_MONTH)
+        val hour = cal.get(Calendar.HOUR_OF_DAY) + cal.get(Calendar.MINUTE) / 60.0 + cal.get(Calendar.SECOND) / 3600.0
+
+        var y = year
+        var m = month
+        if (m <= 2) { y -= 1; m += 12 }
+        val a = y / 100
+        val b = 2 - a + a / 4
+        val jd = kotlin.math.floor(365.25 * (y + 4716)) + kotlin.math.floor(30.6001 * (m + 1)) + day + b - 1524.5 + hour / 24.0
+        val t = (jd - 2451545.0) / 36525.0
+
+        val l0 = normalizeDouble(280.46646 + t * (36000.76983 + t * 0.0003032))
+        val meanAnomaly = 357.52911 + t * (35999.05029 - 0.0001537 * t)
+        val e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t)
+        val c = sinDeg(meanAnomaly) * (1.914602 - t * (0.004817 + 0.000014 * t)) + sinDeg(2 * meanAnomaly) * (0.019993 - 0.000101 * t) + sinDeg(3 * meanAnomaly) * 0.000289
+        val trueLong = l0 + c
+        val omega = 125.04 - 1934.136 * t
+        val lambda = trueLong - 0.00569 - 0.00478 * sinDeg(omega)
+        val epsilon0 = 23.0 + (26.0 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60.0) / 60.0
+        val epsilon = epsilon0 + 0.00256 * cosDeg(omega)
+        val decl = asin(sinDeg(epsilon) * sinDeg(lambda))
+
+        val yTerm = tan(Math.toRadians(epsilon / 2.0)).let { it * it }
+        val eqTime = 4.0 * Math.toDegrees(
+            yTerm * sin(2 * Math.toRadians(l0)) - 2 * e * sin(Math.toRadians(meanAnomaly)) +
+                4 * e * yTerm * sin(Math.toRadians(meanAnomaly)) * cos(2 * Math.toRadians(l0)) -
+                0.5 * yTerm * yTerm * sin(4 * Math.toRadians(l0)) -
+                1.25 * e * e * sin(2 * Math.toRadians(meanAnomaly))
+        )
+
+        val minutesUtc = hour * 60.0
+        val trueSolarMinutes = normalizeDouble(minutesUtc + eqTime + 4.0 * longitude) % 1440.0
+        val hourAngleDeg = if (trueSolarMinutes / 4.0 < 0) trueSolarMinutes / 4.0 + 180.0 else trueSolarMinutes / 4.0 - 180.0
+        val ha = Math.toRadians(hourAngleDeg)
+        val lat = Math.toRadians(latitude)
+
+        val elevation = asin(sin(lat) * sin(decl) + cos(lat) * cos(decl) * cos(ha))
+        val az = atan2(sin(ha), cos(ha) * sin(lat) - tan(decl) * cos(lat))
+        return normalizeDouble(Math.toDegrees(az) + 180.0)
+    }
+
+    private fun sinDeg(v: Double) = sin(Math.toRadians(v))
+    private fun cosDeg(v: Double) = cos(Math.toRadians(v))
+    private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
+    private fun normalizeDouble(value: Double): Double = ((value % 360.0) + 360.0) % 360.0
+    private fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
+}
