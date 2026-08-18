@@ -1,0 +1,26 @@
+name: HPTravail
+options:
+  bundleIdPrefix: com.amaury
+settings:
+  base:
+    SWIFT_VERSION: 5.9
+targets:
+  HPTravail:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - HPTravail
+    info:
+      path: HPTravail/Info.plist
+      properties:
+        CFBundleDisplayName: HP Travail
+        UILaunchScreen: {}
+        NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
+        NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail
+        PRODUCT_NAME: HP Travail
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
