@@ -51,7 +51,7 @@ class PauseJewelButton @JvmOverloads constructor(
         val d = resources.displayMetrics.density
         val r = min(w, h) / 2f - 2f * d
         val cx = w / 2f; val cy = h / 2f
-        val rad = Math.toRadians(lightAngle.toDouble())
+        val rad = Math.toRadians(jewelLightAngle.toDouble())
         val lx = cx + (cos(rad) * r * 0.40).toFloat()
         val ly = cy + (sin(rad) * r * 0.40).toFloat()
 
@@ -85,19 +85,19 @@ class PauseJewelButton @JvmOverloads constructor(
 
         val diamondRadius = r - 3.7f * d
         for (i in 0 until 18) {
-            val a = Math.toRadians((i * 20.0) + lightAngle)
+            val a = Math.toRadians((i * 20.0) + jewelLightAngle)
             val x = cx + cos(a).toFloat() * diamondRadius
             val y = cy + sin(a).toFloat() * diamondRadius
-            val facing = ((cos(Math.toRadians(i * 20.0 - lightAngle.toDouble())) + 1.0) / 2.0).toFloat()
+            val facing = ((cos(Math.toRadians(i * 20.0 - jewelLightAngle.toDouble())) + 1.0) / 2.0).toFloat()
             paint.color = Color.argb((75 + 175 * facing).toInt().coerceIn(0,255), 255,255,255)
             canvas.drawCircle(x, y, (1.4f + 1.2f * facing) * d, paint)
         }
 
         ringPaint.strokeWidth = 3.2f * d
-        ringPaint.color = accent
+        ringPaint.color = jewelAccent
         canvas.drawCircle(cx, cy, r - 1.5f * d, ringPaint)
         ringPaint.strokeWidth = 1.1f * d
-        ringPaint.color = accentLight
+        ringPaint.color = jewelAccentLight
         canvas.drawCircle(cx, cy, r - 7.0f * d, ringPaint)
 
         paint.color = Color.argb(230, 35, 20, 8)
