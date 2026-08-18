@@ -47,7 +47,7 @@ class SalaryTabTextView @JvmOverloads constructor(
         )
         ids.forEach { id ->
             root.findViewById<TextView>(id)?.apply {
-                textSize = 11f
+                textSize = 12f
                 typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
                 maxLines = 2
                 includeFontPadding = false
