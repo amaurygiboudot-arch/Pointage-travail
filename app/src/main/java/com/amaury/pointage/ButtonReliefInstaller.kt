@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
@@ -21,38 +22,112 @@ import java.util.WeakHashMap
 /**
  * Style global des boutons et garde-fou de lisibilité HP Travail.
  *
- * Les conteneurs visuels sans id (notamment les cartes Salaire créées
- * dynamiquement) sont également reconnus comme surfaces de panneau.
+ * L'effet diamant reste toujours actif. Le déplacement solaire/orientation
+ * est facultatif et désactivé par défaut.
  */
 object ButtonReliefInstaller {
     private const val TAG_KEY = 0x4850524C
+    private const val PREFS = "appearance_settings"
+    private const val PREF_SOLAR = "solar_lighting_enabled"
+    private const val TAG_SOLAR_SWITCH = "solar_lighting_switch"
+    private const val FIXED_LIGHT_ANGLE = -55f
+
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
-    private var currentLightAngle = -55f
+    private var currentLightAngle = FIXED_LIGHT_ANGLE
 
     fun install(activity: Activity) {
         val decor = activity.window.decorView
         refresh(activity, decor)
+        configureSolarLighting(activity, decor)
 
-        LightDirectionController.attach(activity) { angle ->
-            currentLightAngle = angle
-            dynamicDrawables.entries.toList().forEach { (button, drawable) ->
-                if (button.rootView === decor) drawable.setLightAngle(angle)
+        decor.viewTreeObserver.addOnGlobalLayoutListener {
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                refresh(activity, decor)
+                installSolarToggleIfPossible(activity)
+            }
+        }
+    }
+
+    private fun configureSolarLighting(activity: Activity, decor: View) {
+        if (isSolarEnabled(activity)) {
+            LightDirectionController.attach(activity) { angle ->
+                if (!isSolarEnabled(activity)) return@attach
+                currentLightAngle = angle
+                updateDynamicLight(decor, angle)
+            }
+        } else {
+            LightDirectionController.detach(activity)
+            currentLightAngle = FIXED_LIGHT_ANGLE
+            updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
+        }
+    }
+
+    private fun updateDynamicLight(decor: View, angle: Float) {
+        dynamicDrawables.entries.toList().forEach { (button, drawable) ->
+            if (button.rootView === decor) drawable.setLightAngle(angle)
+        }
+    }
+
+    private fun isSolarEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
+
+    private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
+        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(PREF_SOLAR, enabled)
+            .apply()
+
+        val decor = activity.window.decorView
+        if (enabled) {
+            LightDirectionController.attach(activity) { angle ->
+                if (!isSolarEnabled(activity)) return@attach
+                currentLightAngle = angle
+                updateDynamicLight(decor, angle)
+            }
+        } else {
+            LightDirectionController.detach(activity)
+            currentLightAngle = FIXED_LIGHT_ANGLE
+            updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
+        }
+    }
+
+    private fun installSolarToggleIfPossible(activity: Activity) {
+        if (activity !is MainActivity) return
+        val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
+        if (section.findViewWithTag<View>(TAG_SOLAR_SWITCH) != null) return
+
+        val toggle = Switch(activity).apply {
+            tag = TAG_SOLAR_SWITCH
+            text = "Éclairage solaire dynamique"
+            textSize = 15f
+            isChecked = isSolarEnabled(activity)
+            setPadding(0, dp(activity, 8), 0, dp(activity, 8))
+            setOnCheckedChangeListener { _, checked ->
+                setSolarEnabled(activity, checked)
             }
         }
 
-        decor.viewTreeObserver.addOnGlobalLayoutListener {
-            if (!activity.isFinishing && !activity.isDestroyed) refresh(activity, decor)
-        }
+        // Juste après le bouton de mode lorsque c'est possible.
+        val insertAt = if (section.childCount >= 2) 2 else section.childCount
+        section.addView(
+            toggle,
+            insertAt,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
     }
 
     private fun refresh(activity: Activity, decor: View) {
         val dark = isDarkMode(activity)
         applyThemeSafety(decor, dark)
         applyToTree(decor, dark)
+        installSolarToggleIfPossible(activity)
     }
 
     private fun isDarkMode(activity: Activity): Boolean {
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val mode = prefs.getString("mode", "auto") ?: "auto"
         val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         return when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
@@ -83,8 +158,6 @@ object ButtonReliefInstaller {
             id == "gpsSettingsPanel" || id == "analyticsPdfPanel" ||
             id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)
 
-        // Les cartes Salaire et plusieurs blocs ajoutés dynamiquement n'ont aucun id.
-        // Un ViewGroup avec son propre fond est donc une surface visuelle, sauf racine/scroll.
         val anonymousSurface = !isRoot && view is ViewGroup && view !is ScrollView &&
             view.background != null && !isProtectedContainer(id)
         val ownPanel = namedPanel || anonymousSurface
@@ -92,7 +165,6 @@ object ButtonReliefInstaller {
 
         if (ownPanel && view.background != null) {
             view.backgroundTintList = ColorStateList.valueOf(panel)
-            // Avec une photo de fond, garder une opacité suffisante pour lire.
             view.background.mutate().alpha = if (dark) 232 else 244
         }
 
@@ -139,7 +211,7 @@ object ButtonReliefInstaller {
     private fun applyToButton(button: Button, dark: Boolean) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = if (dark) "diamond_dynamic_dark_v2" else "diamond_dynamic_light_v2"
+        val styleKey = if (dark) "diamond_dynamic_dark_v3" else "diamond_dynamic_light_v3"
         val alreadyStyled = button.getTag(TAG_KEY) == styleKey
 
         if (!protected && !alreadyStyled) {
@@ -213,4 +285,7 @@ object ButtonReliefInstaller {
         val b = lum(background)
         return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
     }
+
+    private fun dp(context: Context, value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
 }
