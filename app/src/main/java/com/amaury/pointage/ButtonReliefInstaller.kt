@@ -43,17 +43,17 @@ object ButtonReliefInstaller {
         val pressedElevation = 1.5f * density
         val normalTranslation = 1f * density
 
-        button.elevation = normalElevation
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            button.elevation = normalElevation
             button.stateListAnimator = StateListAnimator().apply {
                 addState(
                     intArrayOf(android.R.attr.state_pressed),
                     AnimatorSet().apply {
                         playTogether(
-                            ObjectAnimator.ofFloat(button, View.ELEVATION, pressedElevation),
-                            ObjectAnimator.ofFloat(button, View.TRANSLATION_Z, 0f),
-                            ObjectAnimator.ofFloat(button, View.SCALE_X, 0.985f),
-                            ObjectAnimator.ofFloat(button, View.SCALE_Y, 0.985f)
+                            ObjectAnimator.ofFloat(button, "elevation", pressedElevation),
+                            ObjectAnimator.ofFloat(button, "translationZ", 0f),
+                            ObjectAnimator.ofFloat(button, "scaleX", 0.985f),
+                            ObjectAnimator.ofFloat(button, "scaleY", 0.985f)
                         )
                         duration = 80L
                     }
@@ -62,10 +62,10 @@ object ButtonReliefInstaller {
                     intArrayOf(),
                     AnimatorSet().apply {
                         playTogether(
-                            ObjectAnimator.ofFloat(button, View.ELEVATION, normalElevation),
-                            ObjectAnimator.ofFloat(button, View.TRANSLATION_Z, normalTranslation),
-                            ObjectAnimator.ofFloat(button, View.SCALE_X, 1f),
-                            ObjectAnimator.ofFloat(button, View.SCALE_Y, 1f)
+                            ObjectAnimator.ofFloat(button, "elevation", normalElevation),
+                            ObjectAnimator.ofFloat(button, "translationZ", normalTranslation),
+                            ObjectAnimator.ofFloat(button, "scaleX", 1f),
+                            ObjectAnimator.ofFloat(button, "scaleY", 1f)
                         )
                         duration = 120L
                     }
