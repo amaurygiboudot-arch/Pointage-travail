@@ -25,6 +25,12 @@
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <provider
+            android:name=".TelemetryInitProvider"
+            android:authorities="${applicationId}.telemetry-init"
+            android:exported="false"
+            android:initOrder="100" />
+
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".SalaryActivity" android:exported="false" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
