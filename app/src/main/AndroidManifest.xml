@@ -25,13 +25,13 @@
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
 
-        <!-- Sentry ne doit jamais s'initialiser automatiquement avant notre code.
-             Sans DSN, son provider natif peut faire crasher l'application au démarrage.
-             TelemetryInitProvider initialise Sentry explicitement seulement si la
-             configuration est valide. -->
-        <meta-data
-            android:name="io.sentry.auto-init"
-            android:value="false" />
+        <meta-data android:name="io.sentry.auto-init" android:value="false" />
+
+        <provider
+            android:name=".RecoveryInitProvider"
+            android:authorities="${applicationId}.recovery-init"
+            android:exported="false"
+            android:initOrder="200" />
 
         <provider
             android:name=".TelemetryInitProvider"
@@ -39,6 +39,8 @@
             android:exported="false"
             android:initOrder="100" />
 
+        <activity android:name=".LaunchActivity" android:exported="false" android:noHistory="true" />
+        <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".SalaryActivity" android:exported="false" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
@@ -57,10 +59,14 @@
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
 
-        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" android:targetActivity=".MainActivity">
+        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" android:targetActivity=".LaunchActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HP Travail" android:targetActivity=".MainActivity">
+        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity-alias>
+
+        <activity-alias android:name=".RecoveryIcon" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail Secours" android:targetActivity=".RecoveryActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
     </application>
