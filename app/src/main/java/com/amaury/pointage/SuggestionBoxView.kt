@@ -1,7 +1,6 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.text.InputType
 import android.util.AttributeSet
@@ -10,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 
@@ -34,7 +34,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         })
 
         addView(TextView(context).apply {
-            text = "Une idée pour améliorer HP Travail ? Écris-la ici."
+            text = "Une idée pour améliorer HP Travail ? Écris-la ici. Seul ce texte et des informations techniques de version/appareil seront envoyés."
             textSize = 13f
             setPadding(0, 0, 0, dp(8))
         })
@@ -52,14 +52,40 @@ class SuggestionBoxView @JvmOverloads constructor(
         addView(ideaInput, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val send = Button(context).apply {
-            text = "💡  PARTAGER L'IDÉE"
+            text = "💡  ENVOYER L'IDÉE"
             isAllCaps = false
             textSize = 13f
             setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener { shareIdea() }
+            setOnClickListener { sendIdea() }
         }
         addView(send, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
             topMargin = dp(8)
+        })
+
+        addView(TextView(context).apply {
+            text = "RAPPORTS D'ERREUR"
+            textSize = 15f
+            setTextColor(Color.parseColor("#D6A84B"))
+            setPadding(0, dp(18), 0, dp(6))
+        })
+
+        addView(TextView(context).apply {
+            text = "Les rapports automatiques servent à corriger les crashs. Ils n'incluent pas l'historique, les adresses, les salaires ni les données GPS enregistrées."
+            textSize = 12f
+            setPadding(0, 0, 0, dp(6))
+        })
+
+        addView(Switch(context).apply {
+            text = "Envoyer automatiquement les rapports d'erreur anonymisés"
+            isChecked = TelemetryManager.crashReportsEnabled(context)
+            setOnCheckedChangeListener { _, enabled ->
+                TelemetryManager.setCrashReportsEnabled(context, enabled)
+                Toast.makeText(
+                    context,
+                    if (enabled) "Rapports d'erreur activés" else "Rapports d'erreur désactivés",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         })
 
         ideaInput.setOnFocusChangeListener { _, hasFocus ->
@@ -67,7 +93,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         }
     }
 
-    private fun shareIdea() {
+    private fun sendIdea() {
         val idea = ideaInput.text.toString().trim()
         if (idea.isBlank()) {
             Toast.makeText(context, "Écris d'abord ton idée", Toast.LENGTH_SHORT).show()
@@ -75,26 +101,23 @@ class SuggestionBoxView @JvmOverloads constructor(
         }
 
         prefs.edit().putString("draft_idea", idea).apply()
-        val version = runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull().orEmpty()
 
-        val text = buildString {
-            append("💡 Idée pour HP Travail")
-            if (version.isNotBlank()) append(" — version $version")
-            append("\n\n")
-            append(idea)
+        if (!TelemetryManager.isConfigured()) {
+            Toast.makeText(
+                context,
+                "Le service d'envoi des idées n'est pas encore configuré. Ton brouillon est conservé.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
         }
 
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Idée d'amélioration HP Travail")
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
-        runCatching {
-            context.startActivity(Intent.createChooser(intent, "Envoyer l'idée avec…").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.onFailure {
-            Toast.makeText(context, "Aucune application disponible pour partager l'idée", Toast.LENGTH_LONG).show()
+        val queued = runCatching { TelemetryManager.sendIdea(context, idea) }.getOrDefault(false)
+        if (queued) {
+            ideaInput.setText("")
+            prefs.edit().remove("draft_idea").apply()
+            Toast.makeText(context, "Merci pour ton idée 💡", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(context, "Envoi impossible pour le moment. Ton brouillon est conservé.", Toast.LENGTH_LONG).show()
         }
     }
 
