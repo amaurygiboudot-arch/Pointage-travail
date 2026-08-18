@@ -16,15 +16,7 @@ import kotlin.math.cos
 import kotlin.math.min
 import kotlin.math.sin
 
-/**
- * Bouton bijou entièrement piloté par le code.
- *
- * - découpe circulaire de l'image source : les coins noirs du PNG disparaissent ;
- * - halo, ombre et reflet calculés dynamiquement ;
- * - angle de lumière modifiable par ButtonReliefInstaller ;
- * - bordure et intensité facilement modifiables sans refaire une image complète.
- */
-class LightReactiveJewelButton @JvmOverloads constructor(
+open class LightReactiveJewelButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = android.R.attr.buttonStyle
@@ -38,9 +30,9 @@ class LightReactiveJewelButton @JvmOverloads constructor(
     private val dst = RectF()
 
     private var bitmap: Bitmap? = null
-    private var lightAngle = -55f
-    private var accent = Color.parseColor("#D6A84B")
-    private var accentLight = Color.parseColor("#F3D58A")
+    protected var lightAngle = -55f
+    protected var accent = Color.parseColor("#D6A84B")
+    protected var accentLight = Color.parseColor("#F3D58A")
 
     init {
         background = null
@@ -49,14 +41,14 @@ class LightReactiveJewelButton @JvmOverloads constructor(
         isAllCaps = false
     }
 
-    fun setLightAngle(angle: Float) {
+    open fun setLightAngle(angle: Float) {
         val normalized = ((angle % 360f) + 360f) % 360f
         if (kotlin.math.abs(shortestDelta(lightAngle, normalized)) < 0.6f) return
         lightAngle = normalized
         invalidate()
     }
 
-    fun setJewelAccent(color: Int, lightColor: Int) {
+    open fun setJewelAccent(color: Int, lightColor: Int) {
         accent = color
         accentLight = lightColor
         invalidate()
@@ -90,15 +82,12 @@ class LightReactiveJewelButton @JvmOverloads constructor(
         clipPath.reset()
         clipPath.addCircle(cx, cy, radius, Path.Direction.CW)
         canvas.clipPath(clipPath)
-
-        // L'image n'est qu'une texture interne : la forme extérieure est créée en code.
         canvas.drawBitmap(source, null, dst, imagePaint)
 
         val rad = Math.toRadians(lightAngle.toDouble())
         val lx = cx + (cos(rad) * radius * 0.42).toFloat()
         val ly = cy + (sin(rad) * radius * 0.42).toFloat()
 
-        // Lumière directe : petite zone intense suivie d'un halo doux.
         lightPaint.shader = RadialGradient(
             lx, ly, radius * 0.72f,
             intArrayOf(
@@ -112,7 +101,6 @@ class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, radius, lightPaint)
         lightPaint.shader = null
 
-        // Ombre opposée, avec un minimum de lumière ambiante pour éviter un côté mort.
         val sx = cx - (cos(rad) * radius * 0.36).toFloat()
         val sy = cy - (sin(rad) * radius * 0.36).toFloat()
         shadePaint.shader = RadialGradient(
@@ -130,7 +118,6 @@ class LightReactiveJewelButton @JvmOverloads constructor(
 
         canvas.restoreToCount(save)
 
-        // Double anneau codé : facile à recolorer par thème.
         ringPaint.strokeWidth = 2.4f * density
         ringPaint.color = accent
         canvas.drawCircle(cx, cy, radius - 1.2f * density, ringPaint)
@@ -138,9 +125,8 @@ class LightReactiveJewelButton @JvmOverloads constructor(
         ringPaint.color = accentLight
         canvas.drawCircle(cx, cy, radius - 4.2f * density, ringPaint)
 
-        // Le bouton n'a pas de texte visuel, mais Button garde son comportement de clic/accessibilité.
         super.onDraw(canvas)
     }
 
-    private fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
+    protected fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
 }
