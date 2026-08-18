@@ -11,7 +11,6 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -46,7 +45,7 @@ class SalaryActivity : Activity() {
         val backButton=findViewById<Button>(R.id.salaryBackButton); val chooseMonthButton=findViewById<Button>(R.id.chooseSalaryMonthButton); val calculateButton=findViewById<Button>(R.id.calculateSalaryButton); val searchConventionButton=findViewById<Button>(R.id.searchConventionButton); val chooseStartDateButton=findViewById<Button>(R.id.chooseEmploymentStartDateButton)
         hourlyRateInput.setText(prefs.getString("hourly_rate","") ?: "")
         selectedConvention=ConventionCatalog.findByIdcc(prefs.getString("company_idcc", prefs.getString("convention_idcc","0292"))) ?: ConventionCatalog.conventions.first{it.idcc=="0292"}
-        updateConventionDisplay(); updateMonthLabel(); updateStartDateLabel(); showInitialState(); applySalaryTheme(); showPrincipalEnterpriseOnly()
+        updateConventionDisplay(); updateMonthLabel(); updateStartDateLabel(); showInitialState(); applySalaryTheme()
         hourlyRateInput.addTextChangedListener(object:TextWatcher{ override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit; override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){ val value=s?.toString().orEmpty().trim().replace(',','.'); prefs.edit().putString("hourly_rate",value).apply(); calculateSalary(false)}; override fun afterTextChanged(s:Editable?)=Unit })
         backButton.setOnClickListener{finish()}; chooseMonthButton.setOnClickListener{showMonthDialog()}; searchConventionButton.setOnClickListener{showConventionSearchDialog()}; selectedConventionText.setOnClickListener{showConventionDetailsDialog()}; calculateButton.setOnClickListener{calculateSalary()}; chooseStartDateButton.setOnClickListener{showStartDatePicker()}
         calculateSalary(false)
@@ -60,18 +59,8 @@ class SalaryActivity : Activity() {
             prefs.edit().putString("convention_idcc", selectedConvention.idcc).apply()
             updateConventionDisplay()
         }
-        showPrincipalEnterpriseOnly()
         applySalaryTheme()
         calculateSalary(false)
-    }
-
-    private fun showPrincipalEnterpriseOnly() {
-        val enterpriseView = findViewById<EnterpriseLookupView>(R.id.enterpriseLookupView)
-        enterpriseView.post {
-            if (enterpriseView.childCount >= 4) enterpriseView.getChildAt(3)?.visibility = View.GONE
-            (enterpriseView.getChildAt(0) as? TextView)?.text = "ENTREPRISE PRINCIPALE"
-            (enterpriseView.getChildAt(1) as? TextView)?.text = "Le salaire, la convention et les règles affichés ci-dessous utilisent uniquement l'Entreprise 1 (principale)."
-        }
     }
 
     private fun themeColors(): Triple<Int,Int,Int> {
@@ -105,11 +94,11 @@ class SalaryActivity : Activity() {
 
     private fun updateConventionDisplay(){
         selectedConventionText.text=selectedConvention.displayName
-        conventionRuleStatusText.text=(if(selectedConvention.rulesIntegrated) "✓ Règles intégrées dans le calcul" else "⚠ Règles détaillées non intégrées : calcul légal provisoire") + "  •  Appuie sur la convention pour tout voir"
+        conventionRuleStatusText.text=(if(selectedConvention.rulesIntegrated) "✓ Règles intégrées" else "⚠ Calcul légal provisoire") + "  •  Appuie pour les détails"
     }
 
     private fun showConventionDetailsDialog() {
-        val (_, textColor, secondaryColor) = themeColors()
+        val (_, textColor, _) = themeColors()
         val companyName = prefs.getString("company_name", "").orEmpty().ifBlank { "Entreprise principale" }
         val companySiret = prefs.getString("company_siret", "").orEmpty()
         val companyAgreements = prefs.getString("company_agreement_summary", "").orEmpty()
@@ -182,11 +171,12 @@ class SalaryActivity : Activity() {
         val container=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(28,12,28,12)}; val search=EditText(this).apply{hint="🔎 Nom ou IDCC (ex. plasturgie, 292…)";isSingleLine=true}; val list=ListView(this)
         container.addView(search,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT)); container.addView(list,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,720))
         var filtered=ConventionCatalog.conventions.toMutableList(); var adapter=ArrayAdapter(this,android.R.layout.simple_list_item_2,android.R.id.text1,filtered.map{"${it.displayName}\n${it.fullName}"}); list.adapter=adapter
-        val dialog=AlertDialog.Builder(this).setTitle("Choisir la convention collective de l'entreprise principale").setView(container).setNegativeButton("Annuler",null).create()
+        val dialog=AlertDialog.Builder(this).setTitle("Convention de l'entreprise principale").setView(container).setNegativeButton("Annuler",null).create()
         fun refresh(q:String){filtered=ConventionCatalog.conventions.filter{it.matches(q)}.toMutableList();adapter=ArrayAdapter(this,android.R.layout.simple_list_item_2,android.R.id.text1,filtered.map{"${it.displayName}\n${it.fullName}"});list.adapter=adapter}
         search.addTextChangedListener(object:TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit;override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){refresh(s?.toString().orEmpty())};override fun afterTextChanged(s:Editable?)=Unit})
         list.setOnItemClickListener{_,_,position,_->val convention=filtered.getOrNull(position)?:return@setOnItemClickListener;selectedConvention=convention;prefs.edit().putString("convention_idcc",convention.idcc).putString("company_idcc", convention.idcc).apply();updateConventionDisplay();calculateSalary(false);dialog.dismiss()};dialog.show()
     }
+
     private fun updateMonthLabel(){salaryMonthText.text="Mois : ${monthFormat.format(selectedMonth.time).replaceFirstChar{it.uppercase()}}"}
     private fun showMonthDialog(){val labels=ArrayList<String>();val months=ArrayList<Calendar>();val cursor=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};repeat(36){months.add(cursor.clone() as Calendar);labels.add(monthFormat.format(cursor.time).replaceFirstChar{it.uppercase()});cursor.add(Calendar.MONTH,-1)};val idx=months.indexOfFirst{it.get(Calendar.YEAR)==selectedMonth.get(Calendar.YEAR)&&it.get(Calendar.MONTH)==selectedMonth.get(Calendar.MONTH)}.coerceAtLeast(0);AlertDialog.Builder(this).setTitle("Choisir le mois").setSingleChoiceItems(labels.toTypedArray(),idx){d,w->selectedMonth.timeInMillis=months[w].timeInMillis;updateMonthLabel();calculateSalary(false);d.dismiss()}.setNegativeButton("Annuler",null).show()}
 
@@ -195,14 +185,16 @@ class SalaryActivity : Activity() {
         prefs.edit().putString("hourly_rate",rateText).putString("convention_idcc",selectedConvention.idcc).putString("company_idcc", selectedConvention.idcc).apply()
         val result=SalaryCalculator.calculate(PointageStore.load(this),selectedMonth.get(Calendar.YEAR),selectedMonth.get(Calendar.MONTH),hourlyRate,selectedConvention);val euro=NumberFormat.getCurrencyInstance(Locale.FRANCE);salaryResultContainer.removeAllViews()
         val principalName=prefs.getString("company_name","").orEmpty().ifBlank{"Entreprise principale"}
-        addSection("ENTREPRISE PRINCIPALE");addCard("Employeur utilisé pour le calcul",principalName);addCard("Convention collective",selectedConvention.displayName);addCard("Détails de la convention","Appuie sur la convention en haut de l'écran pour afficher toutes les informations.")
-        val start=prefs.getLong("employment_start_date",0L);if(start>0){addCard("Date d'entrée dans l'entreprise",dateFormat.format(start));addCard("Ancienneté au mois sélectionné",formatSeniority(start))}else addCard("Ancienneté","Renseigne ta date d'entrée pour calculer l'ancienneté et les primes associées.")
-        addSection("HEURES DU MOIS");addCard("Heures normales",formatDuration(result.regularMs));result.overtimeTiers.forEach{addCard(it.label,formatDuration(it.durationMs))};addCard("Total pointé",formatDuration(result.totalWorkedMs));addCard("Sessions terminées",result.completedSessions.toString())
-        addSection("ESTIMATION BRUTE");addCard("Taux horaire brut",euro.format(hourlyRate));addCard("Valeur des heures pointées",euro.format(result.workedGross));addCard("Base mensualisée 151,67 h",euro.format(result.monthlyBaseGross));addCard("Heures supplémentaires payées",euro.format(result.overtimeGross));addCard("Salaire mensualisé estimé",euro.format(result.monthlyEstimatedGross),true)
+        addSection("ENTREPRISE PRINCIPALE");addCard("Employeur",principalName);addCard("Convention",selectedConvention.displayName)
+        val start=prefs.getLong("employment_start_date",0L);if(start>0)addCard("Ancienneté",formatSeniority(start))else addCard("Ancienneté","Non renseignée")
+        addSection("HEURES DU MOIS");addCard("Heures normales",formatDuration(result.regularMs));result.overtimeTiers.forEach{addCard(it.label,formatDuration(it.durationMs))};addCard("Total pointé",formatDuration(result.totalWorkedMs))
+        addSection("ESTIMATION BRUTE");addCard("Taux horaire",euro.format(hourlyRate));addCard("Heures supplémentaires",euro.format(result.overtimeGross));addCard("Salaire estimé",euro.format(result.monthlyEstimatedGross),true)
     }
+
     private fun formatSeniority(startMs:Long):String{val start=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=startMs};val end=(selectedMonth.clone() as Calendar).apply{add(Calendar.MONTH,1);add(Calendar.MILLISECOND,-1)};if(start.after(end))return "0 mois";var years=end.get(Calendar.YEAR)-start.get(Calendar.YEAR);var months=end.get(Calendar.MONTH)-start.get(Calendar.MONTH);if(end.get(Calendar.DAY_OF_MONTH)<start.get(Calendar.DAY_OF_MONTH))months--;if(months<0){years--;months+=12};return when{years>0&&months>0->"$years an${if(years>1)"s" else ""} et $months mois";years>0->"$years an${if(years>1)"s" else ""}";else->"${months.coerceAtLeast(0)} mois"}}
     private fun showInitialState(){if(!::salaryResultContainer.isInitialized)return;salaryResultContainer.removeAllViews();addCard("Calcul automatique","Entre ou modifie ton taux horaire : les résultats se mettront à jour immédiatement.")}
     private fun addSection(title:String){val (_,text,_)=themeColors();val gold=Color.parseColor("#D6A84B");salaryResultContainer.addView(TextView(this).apply{this.text=title;setTextColor(if(AppearanceManager.contrastRatio(gold,Color.TRANSPARENT)>0) gold else text);textSize=15f;setTypeface(typeface,Typeface.BOLD);setPadding(2,dp(16),2,dp(5))})}
     private fun addCard(label:String,value:String,highlight:Boolean=false){val(panel,text,secondary)=themeColors();val gold=Color.parseColor("#F3D58A");val highlightColor=if(AppearanceManager.contrastRatio(gold,panel)>=4.5)gold else text;val card=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundResource(R.drawable.hp_panel);backgroundTintList=ColorStateList.valueOf(panel);setPadding(dp(14),dp(11),dp(14),dp(11))};card.addView(TextView(this).apply{this.text=label;setTextColor(secondary);textSize=12f});card.addView(TextView(this).apply{this.text=value;setTextColor(if(highlight)highlightColor else text);textSize=if(highlight)21f else 17f;if(highlight)setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(3),0,0)});salaryResultContainer.addView(card,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT).apply{topMargin=dp(6)})}
-    private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt();private fun formatDuration(ms:Long):String{val min=ms.coerceAtLeast(0)/60000;return String.format(Locale.FRANCE,"%02dh %02dm",min/60,min%60)}
+    private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
+    private fun formatDuration(ms:Long):String{val min=ms.coerceAtLeast(0)/60000;return String.format(Locale.FRANCE,"%02dh %02dm",min/60,min%60)}
 }
