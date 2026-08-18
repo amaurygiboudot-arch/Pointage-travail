@@ -21,13 +21,27 @@ class SalaryTabTextView @JvmOverloads constructor(
         isClickable = true
         isFocusable = true
         setOnClickListener {
-            context.startActivity(Intent(context, SalaryActivity::class.java))
+            if (context !is SalaryActivity) {
+                context.startActivity(Intent(context, SalaryActivity::class.java))
+            }
         }
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        post { installAddressUi() }
+        post {
+            applyTabTypography()
+            installAddressUi()
+        }
+    }
+
+    private fun applyTabTypography() {
+        val root = rootView ?: return
+        root.findViewById<TextView>(R.id.tabToday)?.textSize = 14f
+        root.findViewById<TextView>(R.id.tabHistory)?.textSize = 14f
+        root.findViewById<TextView>(R.id.tabAnalytics)?.textSize = 14f
+        root.findViewById<TextView>(R.id.tabSalary)?.textSize = 14f
+        root.findViewById<TextView>(R.id.tabSettings)?.textSize = 13f
     }
 
     private fun installAddressUi() {
@@ -37,7 +51,6 @@ class SalaryTabTextView @JvmOverloads constructor(
 
         if (panel.findViewWithTag<AddAddressButton>("add_address_button") != null) return
 
-        // La liste reste visible mais ne déclenche plus le clavier / validation accidentelle.
         addressList.isFocusable = false
         addressList.isFocusableInTouchMode = false
         addressList.isCursorVisible = false
