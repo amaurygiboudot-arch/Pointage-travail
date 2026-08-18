@@ -121,7 +121,8 @@ Le widget rapide contient seulement Entrée, Pause/Reprendre et Sortie pour poin
         parent.addView(body(context, text))
     }
 
-    private fun title(context: Context) = TextView(context).apply {
+    private fun title(context: Context, value: String) = TextView(context).apply {
+        text = value
         textSize = 20f
         setTypeface(typeface, Typeface.BOLD)
         setPadding(0, dp(context, 8), 0, dp(context, 12))
