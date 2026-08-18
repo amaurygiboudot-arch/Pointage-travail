@@ -13,21 +13,19 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import java.util.WeakHashMap
 
 /**
- * Style global des boutons HP Travail.
+ * Style global des boutons et garde-fou de lisibilité HP Travail.
  *
- * - garde-fou de contraste Clair / Sombre / Automatique ;
- * - relief facette "diamant" ;
- * - reflet dynamique piloté par l'orientation du téléphone et le soleil ;
- * - interaction physique à l'appui ;
- * - les boutons graphiques Entrée / Sortie / Réglages conservent leur visuel.
+ * Les conteneurs visuels sans id (notamment les cartes Salaire créées
+ * dynamiquement) sont également reconnus comme surfaces de panneau.
  */
 object ButtonReliefInstaller {
-    private const val TAG_KEY = 0x4850524C // "HPRL"
+    private const val TAG_KEY = 0x4850524C
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
     private var currentLightAngle = -55f
 
@@ -49,7 +47,7 @@ object ButtonReliefInstaller {
 
     private fun refresh(activity: Activity, decor: View) {
         val dark = isDarkMode(activity)
-        applyThemeSafety(activity, decor, dark)
+        applyThemeSafety(decor, dark)
         applyToTree(decor, dark)
     }
 
@@ -60,26 +58,47 @@ object ButtonReliefInstaller {
         return when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
     }
 
-    private fun applyThemeSafety(activity: Activity, root: View, dark: Boolean) {
+    private fun applyThemeSafety(root: View, dark: Boolean) {
         val bg = Color.parseColor(if (dark) "#050505" else "#F3F0E8")
-        val panel = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
-        val bgText = if (dark) Color.parseColor("#F7F3EC") else Color.parseColor("#111111")
-        val panelText = if (dark) Color.parseColor("#F7F3EC") else Color.parseColor("#111111")
-        val hint = if (dark) Color.parseColor("#C9C1B4") else Color.parseColor("#55514B")
-        sanitizeView(root, bg, panel, bgText, panelText, hint, false)
+        val panel = Color.parseColor(if (dark) "#181818" else "#FFFDF9")
+        val bgText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
+        val panelText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
+        val hint = Color.parseColor(if (dark) "#C9C1B4" else "#55514B")
+        sanitizeView(root, bg, panel, bgText, panelText, hint, false, true)
     }
 
-    private fun sanitizeView(view: View, bg: Int, panel: Int, bgText: Int, panelText: Int, hint: Int, inheritedPanel: Boolean) {
+    private fun sanitizeView(
+        view: View,
+        bg: Int,
+        panel: Int,
+        bgText: Int,
+        panelText: Int,
+        hint: Int,
+        inheritedPanel: Boolean,
+        isRoot: Boolean = false
+    ) {
         val id = resourceName(view)
-        val ownPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" ||
+        val namedPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" ||
             id == "gpsSettingsPanel" || id == "analyticsPdfPanel" ||
             id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)
+
+        // Les cartes Salaire et plusieurs blocs ajoutés dynamiquement n'ont aucun id.
+        // Un ViewGroup avec son propre fond est donc une surface visuelle, sauf racine/scroll.
+        val anonymousSurface = !isRoot && view is ViewGroup && view !is ScrollView &&
+            view.background != null && !isProtectedContainer(id)
+        val ownPanel = namedPanel || anonymousSurface
         val onPanel = inheritedPanel || ownPanel
 
-        if (ownPanel && view.background != null) view.backgroundTintList = ColorStateList.valueOf(panel)
+        if (ownPanel && view.background != null) {
+            view.backgroundTintList = ColorStateList.valueOf(panel)
+            // Avec une photo de fond, garder une opacité suffisante pour lire.
+            view.background.mutate().alpha = if (dark) 232 else 244
+        }
 
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel)
+            for (i in 0 until view.childCount) {
+                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false)
+            }
         }
 
         val textColor = if (onPanel) panelText else bgText
@@ -87,7 +106,10 @@ object ButtonReliefInstaller {
             is EditText -> {
                 view.setTextColor(textColor)
                 view.setHintTextColor(hint)
-                if (view.background != null) view.backgroundTintList = ColorStateList.valueOf(panel)
+                if (view.background != null) {
+                    view.backgroundTintList = ColorStateList.valueOf(panel)
+                    view.background.mutate().alpha = if (dark) 240 else 250
+                }
             }
             is Button -> {
                 if (!isProtectedButton(id)) {
@@ -100,7 +122,9 @@ object ButtonReliefInstaller {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
                 if (!tab) {
                     val current = view.currentTextColor
-                    if (!isGold(current) || contrastRatio(current, if (onPanel) panel else bg) < 4.5) view.setTextColor(textColor)
+                    if (!isGold(current) || contrastRatio(current, if (onPanel) panel else bg) < 4.5) {
+                        view.setTextColor(textColor)
+                    }
                 }
             }
         }
@@ -114,7 +138,7 @@ object ButtonReliefInstaller {
     private fun applyToButton(button: Button, dark: Boolean) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = if (dark) "diamond_dynamic_dark" else "diamond_dynamic_light"
+        val styleKey = if (dark) "diamond_dynamic_dark_v2" else "diamond_dynamic_light_v2"
         val alreadyStyled = button.getTag(TAG_KEY) == styleKey
 
         if (!protected && !alreadyStyled) {
@@ -135,9 +159,9 @@ object ButtonReliefInstaller {
     private fun installPressAnimator(button: Button) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
         val density = button.resources.displayMetrics.density
-        val normalElevation = 7f * density
+        val normalElevation = 8f * density
         val pressedElevation = 2f * density
-        val normalTranslation = 1.5f * density
+        val normalTranslation = 2f * density
 
         button.elevation = normalElevation
         button.stateListAnimator = StateListAnimator().apply {
@@ -145,11 +169,11 @@ object ButtonReliefInstaller {
                 playTogether(
                     ObjectAnimator.ofFloat(button, "elevation", pressedElevation),
                     ObjectAnimator.ofFloat(button, "translationZ", 0f),
-                    ObjectAnimator.ofFloat(button, "scaleX", 0.975f),
-                    ObjectAnimator.ofFloat(button, "scaleY", 0.975f),
-                    ObjectAnimator.ofFloat(button, "alpha", 0.92f)
+                    ObjectAnimator.ofFloat(button, "scaleX", 0.97f),
+                    ObjectAnimator.ofFloat(button, "scaleY", 0.97f),
+                    ObjectAnimator.ofFloat(button, "alpha", 0.94f)
                 )
-                duration = 75L
+                duration = 70L
             })
             addState(intArrayOf(), AnimatorSet().apply {
                 playTogether(
@@ -159,23 +183,33 @@ object ButtonReliefInstaller {
                     ObjectAnimator.ofFloat(button, "scaleY", 1f),
                     ObjectAnimator.ofFloat(button, "alpha", 1f)
                 )
-                duration = 150L
+                duration = 160L
             })
         }
     }
 
-    private fun isProtectedButton(id: String): Boolean = id == "entryButton" || id == "exitButton" || id == "settingsButton"
+    private fun isProtectedButton(id: String): Boolean =
+        id == "entryButton" || id == "exitButton" || id == "settingsButton"
 
-    private fun resourceName(view: View): String = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+    private fun isProtectedContainer(id: String): Boolean =
+        id == "heroPanel" || id == "heroClock" || id == "headerImage"
 
-    private fun isGold(color: Int): Boolean = color == Color.parseColor("#D6A84B") || color == Color.parseColor("#F3D58A") || color == Color.parseColor("#795600")
+    private fun resourceName(view: View): String =
+        runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+
+    private fun isGold(color: Int): Boolean =
+        color == Color.parseColor("#D6A84B") || color == Color.parseColor("#F3D58A") || color == Color.parseColor("#795600")
 
     private fun contrastRatio(foreground: Int, background: Int): Double {
         fun lum(color: Int): Double {
-            fun c(v: Int): Double { val s = v / 255.0; return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4) }
+            fun c(v: Int): Double {
+                val s = v / 255.0
+                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
+            }
             return 0.2126 * c(Color.red(color)) + 0.7152 * c(Color.green(color)) + 0.0722 * c(Color.blue(color))
         }
-        val a = lum(foreground); val b = lum(background)
+        val a = lum(foreground)
+        val b = lum(background)
         return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
     }
 }
