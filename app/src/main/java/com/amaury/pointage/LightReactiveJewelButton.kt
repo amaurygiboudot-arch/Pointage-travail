@@ -58,6 +58,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         if (bitmap != null) return
         val resId = when (id) {
             R.id.entryButton -> R.drawable.luxury_entry
+            R.id.pauseButton -> R.drawable.luxury_entry
             R.id.exitButton -> R.drawable.luxury_exit
             else -> 0
         }
