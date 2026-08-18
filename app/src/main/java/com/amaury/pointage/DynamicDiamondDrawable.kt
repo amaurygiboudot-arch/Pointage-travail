@@ -11,16 +11,16 @@ import android.graphics.drawable.Drawable
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import java.util.concurrent.atomic.AtomicInteger
 
-/**
- * Fond facetté dont chaque facette réagit différemment à la direction de lumière.
- * Une facette tournée vers la source devient franchement lumineuse ; la facette
- * opposée s'assombrit nettement afin que le mouvement solaire soit perceptible.
- */
+/** Fond diamant avec une taille pseudo-aleatoire stable propre a chaque bouton. */
 class DynamicDiamondDrawable(
     private val dark: Boolean,
     private val density: Float
 ) : Drawable() {
+    companion object { private val nextSeed = AtomicInteger(1) }
+
+    private val seed = nextSeed.getAndIncrement()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val facetPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -28,6 +28,13 @@ class DynamicDiamondDrawable(
     private val rect = RectF()
     private var lightAngle = -55f
     private var pressed = false
+
+    private fun variant(index: Int, min: Float, max: Float): Float {
+        var x = seed * 1103515245 + 12345 + index * 1013904223
+        x = x xor (x ushr 16)
+        val unit = (x and 0x7fffffff) / 2147483647f
+        return min + (max - min) * unit
+    }
 
     fun setLightAngle(degrees: Float) {
         val normalized = ((degrees % 360f) + 360f) % 360f
@@ -37,7 +44,6 @@ class DynamicDiamondDrawable(
     }
 
     override fun isStateful(): Boolean = true
-
     override fun onStateChange(state: IntArray): Boolean {
         val nowPressed = state.any { it == android.R.attr.state_pressed || it == android.R.attr.state_focused }
         if (nowPressed == pressed) return false
@@ -50,165 +56,75 @@ class DynamicDiamondDrawable(
         val b = bounds
         if (b.isEmpty) return
         rect.set(b.left.toFloat(), b.top.toFloat(), b.right.toFloat(), b.bottom.toFloat())
-
-        val radius = 15f * density
+        val radius = variant(1, 11f, 20f) * density
         val save = canvas.save()
         val clip = Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
         canvas.clipPath(clip)
 
-        val cx = rect.centerX()
-        val cy = rect.centerY()
-        val diagonal = sqrt(rect.width() * rect.width() + rect.height() * rect.height()) * 0.78f
+        val cx = rect.left + rect.width() * variant(2, 0.42f, 0.58f)
+        val cy = rect.top + rect.height() * variant(3, 0.40f, 0.60f)
+        val diagonal = sqrt(rect.width()*rect.width()+rect.height()*rect.height()) * 0.78f
         val rad = Math.toRadians(lightAngle.toDouble())
-        val dx = (cos(rad) * diagonal).toFloat()
-        val dy = (sin(rad) * diagonal).toFloat()
+        val dx = (cos(rad)*diagonal).toFloat(); val dy = (sin(rad)*diagonal).toFloat()
 
-        // Base volontairement plus contrastée pour donner de la profondeur.
         val colors = if (dark) {
-            if (pressed) intArrayOf(
-                Color.parseColor("#030303"), Color.parseColor("#463815"), Color.parseColor("#17130C"), Color.parseColor("#000000")
-            ) else intArrayOf(
-                Color.parseColor("#020202"), Color.parseColor("#725B22"), Color.parseColor("#20190D"), Color.parseColor("#000000")
-            )
+            if (pressed) intArrayOf(Color.parseColor("#030303"),Color.parseColor("#463815"),Color.parseColor("#17130C"),Color.BLACK)
+            else intArrayOf(Color.parseColor("#020202"),Color.parseColor("#725B22"),Color.parseColor("#20190D"),Color.BLACK)
         } else {
-            if (pressed) intArrayOf(
-                Color.parseColor("#9D8969"), Color.parseColor("#FFFFFF"), Color.parseColor("#EEE2CF"), Color.parseColor("#897454")
-            ) else intArrayOf(
-                Color.parseColor("#8D7652"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFF9EE"), Color.parseColor("#7C6645")
-            )
+            if (pressed) intArrayOf(Color.parseColor("#9D8969"),Color.WHITE,Color.parseColor("#EEE2CF"),Color.parseColor("#897454"))
+            else intArrayOf(Color.parseColor("#8D7652"),Color.WHITE,Color.parseColor("#FFF9EE"),Color.parseColor("#7C6645"))
         }
+        fillPaint.shader = LinearGradient(cx-dx,cy-dy,cx+dx,cy+dy,colors,floatArrayOf(0f,.28f,.62f,1f),Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(rect,radius,radius,fillPaint)
 
-        fillPaint.shader = LinearGradient(
-            cx - dx, cy - dy, cx + dx, cy + dy,
-            colors,
-            floatArrayOf(0f, 0.28f, 0.62f, 1f),
-            Shader.TileMode.CLAMP
+        // Points de taille differents pour chaque bouton : les facettes ne se repetent plus.
+        val leftMidX = rect.left + rect.width() * variant(4, .18f, .38f)
+        val rightMidX = rect.right - rect.width() * variant(5, .16f, .36f)
+        val topX = rect.left + rect.width() * variant(6, .35f, .65f)
+        val bottomX = rect.left + rect.width() * variant(7, .35f, .65f)
+        val splitY = rect.top + rect.height() * variant(8, .38f, .62f)
+
+        val facets = listOf(
+            Path().apply { moveTo(rect.left,rect.top); lineTo(topX,rect.top); lineTo(leftMidX,splitY); close() } to variant(9,195f,250f),
+            Path().apply { moveTo(topX,rect.top); lineTo(rect.right,rect.top); lineTo(rightMidX,splitY); close() } to variant(10,285f,345f),
+            Path().apply { moveTo(rect.right,rect.bottom); lineTo(rightMidX,splitY); lineTo(bottomX,rect.bottom); close() } to variant(11,20f,75f),
+            Path().apply { moveTo(rect.left,rect.bottom); lineTo(leftMidX,splitY); lineTo(bottomX,rect.bottom); close() } to variant(12,105f,165f),
+            Path().apply { moveTo(leftMidX,splitY); lineTo(topX,rect.top); lineTo(rightMidX,splitY); lineTo(bottomX,rect.bottom); close() } to variant(13,245f,295f)
         )
-        canvas.drawRoundRect(rect, radius, radius, fillPaint)
+        facets.forEachIndexed { i,(path,normal) -> drawFacet(canvas,path,normal,i==4) }
 
-        val topLeft = Path().apply {
-            moveTo(rect.left, rect.top)
-            lineTo(cx, rect.top)
-            lineTo(rect.left + rect.width() * 0.30f, cy)
-            close()
+        // Une ou deux petites facettes supplementaires selon la variante.
+        if (seed % 2 == 0) {
+            val extra = Path().apply { moveTo(rect.left,rect.top); lineTo(leftMidX,splitY); lineTo(rect.left,rect.bottom); close() }
+            drawFacet(canvas,extra,variant(14,150f,220f))
         }
-        val topRight = Path().apply {
-            moveTo(cx, rect.top)
-            lineTo(rect.right, rect.top)
-            lineTo(rect.right - rect.width() * 0.22f, cy)
-            close()
-        }
-        val bottomLeft = Path().apply {
-            moveTo(rect.left, rect.bottom)
-            lineTo(rect.left + rect.width() * 0.30f, cy)
-            lineTo(cx, rect.bottom)
-            close()
-        }
-        val bottomRight = Path().apply {
-            moveTo(rect.right, rect.bottom)
-            lineTo(rect.right - rect.width() * 0.22f, cy)
-            lineTo(cx, rect.bottom)
-            close()
-        }
-        val centre = Path().apply {
-            moveTo(rect.left + rect.width() * 0.30f, cy)
-            lineTo(cx, rect.top)
-            lineTo(rect.right - rect.width() * 0.22f, cy)
-            lineTo(cx, rect.bottom)
-            close()
+        if (seed % 3 == 0) {
+            val extra = Path().apply { moveTo(rect.right,rect.top); lineTo(rightMidX,splitY); lineTo(rect.right,rect.bottom); close() }
+            drawFacet(canvas,extra,variant(15,320f,380f))
         }
 
-        // Chaque facette possède une normale différente : c'est ce qui crée
-        // l'alternance claire/sombre quand la lumière tourne.
-        drawFacet(canvas, topLeft, 225f)
-        drawFacet(canvas, topRight, 315f)
-        drawFacet(canvas, bottomRight, 45f)
-        drawFacet(canvas, bottomLeft, 135f)
-        drawFacet(canvas, centre, 270f, centreFacet = true)
-
-        // Faisceau spéculaire étroit : il doit être immédiatement visible.
-        val beamWidth = rect.width() * 0.15f
-        val perpX = (-sin(rad) * beamWidth).toFloat()
-        val perpY = (cos(rad) * beamWidth).toFloat()
-        val beamAlpha = if (pressed) 130 else if (dark) 205 else 225
-        val beamColor = if (dark) Color.argb(beamAlpha, 255, 224, 125)
-        else Color.argb(beamAlpha, 255, 255, 255)
-        shinePaint.shader = LinearGradient(
-            cx - perpX, cy - perpY, cx + perpX, cy + perpY,
-            intArrayOf(Color.TRANSPARENT, beamColor, Color.TRANSPARENT),
-            floatArrayOf(0f, 0.5f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(rect, radius, radius, shinePaint)
-        shinePaint.shader = null
-
+        val beamWidth = rect.width()*variant(16,.10f,.18f)
+        val perpX=(-sin(rad)*beamWidth).toFloat(); val perpY=(cos(rad)*beamWidth).toFloat()
+        val beamAlpha=if(pressed)130 else if(dark)205 else 225
+        val beamColor=if(dark) Color.argb(beamAlpha,255,224,125) else Color.argb(beamAlpha,255,255,255)
+        shinePaint.shader=LinearGradient(cx-perpX,cy-perpY,cx+perpX,cy+perpY,intArrayOf(Color.TRANSPARENT,beamColor,Color.TRANSPARENT),floatArrayOf(0f,.5f,1f),Shader.TileMode.CLAMP)
+        canvas.drawRoundRect(rect,radius,radius,shinePaint); shinePaint.shader=null
         canvas.restoreToCount(save)
 
-        strokePaint.strokeWidth = 1.7f * density
-        strokePaint.color = if (dark) {
-            if (pressed) Color.parseColor("#9C7424") else Color.parseColor("#F0C35A")
-        } else {
-            if (pressed) Color.parseColor("#8A6117") else Color.parseColor("#D5A63A")
-        }
-        val half = strokePaint.strokeWidth / 2f
-        rect.inset(half, half)
-        canvas.drawRoundRect(rect, radius, radius, strokePaint)
-        rect.inset(-half, -half)
+        strokePaint.strokeWidth=1.7f*density
+        strokePaint.color=if(dark){if(pressed)Color.parseColor("#9C7424") else Color.parseColor("#F0C35A")}else{if(pressed)Color.parseColor("#8A6117") else Color.parseColor("#D5A63A")}
+        val half=strokePaint.strokeWidth/2f; rect.inset(half,half); canvas.drawRoundRect(rect,radius,radius,strokePaint); rect.inset(-half,-half)
     }
 
-    private fun drawFacet(canvas: Canvas, path: Path, normalAngle: Float, centreFacet: Boolean = false) {
-        val light = illumination(normalAngle)
-        val magnitude = kotlin.math.abs(light)
-
-        facetPaint.style = Paint.Style.FILL
-        if (light >= 0f) {
-            // Face au soleil : montée très franche vers blanc/or.
-            val alphaBase = if (centreFacet) 55 else 75
-            val alphaRange = if (pressed) 105 else 165
-            val alpha = (alphaBase + alphaRange * magnitude).toInt().coerceIn(0, 235)
-            facetPaint.color = if (dark) {
-                Color.argb(alpha, 255, 218, 115)
-            } else {
-                Color.argb(alpha, 255, 255, 255)
-            }
-        } else {
-            // Dos au soleil : ombre nettement renforcée.
-            val alphaBase = if (centreFacet) 55 else 70
-            val alphaRange = if (pressed) 85 else 145
-            val alpha = (alphaBase + alphaRange * magnitude).toInt().coerceIn(0, 225)
-            facetPaint.color = if (dark) {
-                Color.argb(alpha, 0, 0, 0)
-            } else {
-                Color.argb(alpha, 55, 36, 15)
-            }
-        }
-        canvas.drawPath(path, facetPaint)
+    private fun drawFacet(canvas:Canvas,path:Path,normalAngle:Float,centreFacet:Boolean=false){
+        val light=illumination(normalAngle); val magnitude=kotlin.math.abs(light); facetPaint.style=Paint.Style.FILL
+        if(light>=0f){ val alpha=((if(centreFacet)55 else 75)+(if(pressed)105 else 165)*magnitude).toInt().coerceIn(0,235); facetPaint.color=if(dark)Color.argb(alpha,255,218,115)else Color.argb(alpha,255,255,255) }
+        else { val alpha=((if(centreFacet)55 else 70)+(if(pressed)85 else 145)*magnitude).toInt().coerceIn(0,225); facetPaint.color=if(dark)Color.argb(alpha,0,0,0)else Color.argb(alpha,55,36,15) }
+        canvas.drawPath(path,facetPaint)
     }
-
-    /** -1 = complètement dos à la lumière, +1 = complètement face. */
-    private fun illumination(normalAngle: Float): Float {
-        val delta = Math.toRadians(shortestDelta(normalAngle, lightAngle).toDouble())
-        return cos(delta).toFloat().coerceIn(-1f, 1f)
-    }
-
-    private fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
-
-    override fun setAlpha(alpha: Int) {
-        fillPaint.alpha = alpha
-        strokePaint.alpha = alpha
-        facetPaint.alpha = alpha
-        shinePaint.alpha = alpha
-        invalidateSelf()
-    }
-
-    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
-        fillPaint.colorFilter = colorFilter
-        strokePaint.colorFilter = colorFilter
-        facetPaint.colorFilter = colorFilter
-        shinePaint.colorFilter = colorFilter
-        invalidateSelf()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    private fun illumination(normalAngle:Float):Float=cos(Math.toRadians(shortestDelta(normalAngle,lightAngle).toDouble())).toFloat().coerceIn(-1f,1f)
+    private fun shortestDelta(a:Float,b:Float):Float=((b-a+540f)%360f)-180f
+    override fun setAlpha(alpha:Int){fillPaint.alpha=alpha;strokePaint.alpha=alpha;facetPaint.alpha=alpha;shinePaint.alpha=alpha;invalidateSelf()}
+    override fun setColorFilter(colorFilter:android.graphics.ColorFilter?){fillPaint.colorFilter=colorFilter;strokePaint.colorFilter=colorFilter;facetPaint.colorFilter=colorFilter;shinePaint.colorFilter=colorFilter;invalidateSelf()}
+    @Deprecated("Deprecated in Java") override fun getOpacity():Int=android.graphics.PixelFormat.TRANSLUCENT
 }
