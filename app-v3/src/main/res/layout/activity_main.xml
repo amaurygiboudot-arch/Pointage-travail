@@ -63,6 +63,7 @@
         android:layout_height="match_parent"
         android:clickable="false"
         android:focusable="false"
-        android:importantForAccessibility="no" />
+        android:importantForAccessibility="no"
+        android:contentDescription="Position du soleil" />
 
 </FrameLayout>
