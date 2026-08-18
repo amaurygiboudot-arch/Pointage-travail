@@ -39,6 +39,65 @@ jobs:
           test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
 
+      - name: Appliquer compatibilite localisation Android recente
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/src/main/java/com/amaury/pointage/MainActivity.kt')
+          s = p.read_text()
+          old = '''    private fun requestLocationAccess() {
+                  val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) permissions += Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                  val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+                  if (missing.isEmpty()) {
+                      Toast.makeText(this, "Localisation déjà autorisée", Toast.LENGTH_SHORT).show()
+                  } else {
+                      requestPermissions(missing.toTypedArray(), 3001)
+                  }
+              }'''
+          new = '''    private fun requestLocationAccess() {
+                  val fineGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                  if (!fineGranted) {
+                      Toast.makeText(this, "Autorise d'abord la position précise pendant l'utilisation", Toast.LENGTH_LONG).show()
+                      requestPermissions(
+                          arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION),
+                          3001
+                      )
+                      return
+                  }
+
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                      checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+                  ) {
+                      AlertDialog.Builder(this)
+                          .setTitle("Pointage GPS automatique")
+                          .setMessage("Pour pointer automatiquement même lorsque HP Travail est fermé, Android doit autoriser la localisation en permanence. Dans l'écran suivant, ouvre Autorisations > Localisation puis choisis Autoriser tout le temps.")
+                          .setNegativeButton("Plus tard", null)
+                          .setPositiveButton("OUVRIR LES RÉGLAGES") { _, _ ->
+                              startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                  data = Uri.parse("package:$packageName")
+                              })
+                          }
+                          .show()
+                      return
+                  }
+
+                  if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q &&
+                      checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+                  ) {
+                      requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), 3002)
+                      return
+                  }
+
+                  Toast.makeText(this, "Localisation autorisée pour le pointage automatique", Toast.LENGTH_SHORT).show()
+                  updateGpsStatus()
+                  tryRestoreGeofence()
+              }'''
+          if old not in s:
+              raise SystemExit('Bloc requestLocationAccess attendu introuvable')
+          p.write_text(s.replace(old, new))
+          PY
+
       - name: Incrementer automatiquement la version
         run: |
           sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
@@ -84,5 +143,5 @@ jobs:
             app/build/outputs/apk/release/app-release.apk#PointageTravail.apk \
             app/build/outputs/apk/release/SHA256.txt \
             --title "Pointage Travail 2.${{ github.run_number }}" \
-            --notes "Mise a jour automatique Pointage Travail - build ${{ github.run_number }}" \
+            --notes "Correction du pointage GPS automatique sur Samsung et Android 11+. La localisation précise est demandée d'abord, puis l'autorisation en arrière-plan est configurée séparément." \
             --latest
