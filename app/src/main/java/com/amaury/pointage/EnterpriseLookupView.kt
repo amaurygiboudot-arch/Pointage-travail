@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -8,10 +9,12 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import org.json.JSONArray
@@ -32,10 +35,9 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val title: TextView,
         val siret: EditText,
         val search: Button,
-        val company: TextView,
-        val convention: TextView,
-        val agreements: TextView,
-        val legifrance: Button
+        val summary: TextView,
+        val details: Button,
+        val delete: Button
     )
 
     private val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
@@ -56,7 +58,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         addView(header)
 
         help.apply {
-            text = "Ajoute jusqu'à deux employeurs. Chaque SIRET garde sa convention et ses accords séparément."
+            text = "Entreprise 1 = principale. Appuie sur DÉTAILS pour afficher toutes les informations."
             textSize = 12f
             setPadding(0, dp(5), 0, dp(8))
         }
@@ -64,8 +66,6 @@ class EnterpriseLookupView @JvmOverloads constructor(
 
         slots[1] = createSlot(1)
         slots[2] = createSlot(2)
-
-        migrateLegacyCompanyToSlot1()
         restoreSlot(1)
         restoreSlot(2)
         applyTheme()
@@ -74,6 +74,8 @@ class EnterpriseLookupView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         applyTheme()
+        restoreSlot(1)
+        restoreSlot(2)
     }
 
     private fun createSlot(slot: Int): SlotViews {
@@ -83,7 +85,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setBackgroundResource(R.drawable.hp_panel)
         }
         val title = TextView(context).apply {
-            text = "ENTREPRISE $slot"
+            text = if (slot == 1) "ENTREPRISE 1 • PRINCIPALE" else "ENTREPRISE 2"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
         }
@@ -97,51 +99,53 @@ class EnterpriseLookupView @JvmOverloads constructor(
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { lookup(slot) }
         }
-        val company = TextView(context).apply { textSize = 14f; setPadding(0, dp(8), 0, 0); visibility = View.GONE }
-        val convention = TextView(context).apply { textSize = 13f; setPadding(0, dp(7), 0, 0); visibility = View.GONE }
-        val agreements = TextView(context).apply { textSize = 13f; setPadding(0, dp(7), 0, 0); visibility = View.GONE }
-        val legifrance = Button(context).apply {
-            text = "VOIR LES ACCORDS SUR LÉGIFRANCE"
+        val summary = TextView(context).apply {
+            textSize = 14f
+            setPadding(0, dp(8), 0, 0)
+        }
+        val actions = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val details = Button(context).apply {
+            text = "DÉTAILS"
             setBackgroundResource(R.drawable.hp_panel)
-            visibility = View.GONE
-            setOnClickListener { openLegifrance(slot) }
+            setOnClickListener { showDetails(slot) }
+        }
+        val delete = Button(context).apply {
+            text = "SUPPRIMER"
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { confirmDelete(slot) }
         }
 
         root.addView(title)
         root.addView(siret, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         root.addView(search, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(5) })
-        root.addView(company)
-        root.addView(convention)
-        root.addView(agreements)
-        root.addView(legifrance, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
+        root.addView(summary)
+        actions.addView(details, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        actions.addView(delete, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
+        root.addView(actions, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
         addView(root, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(if (slot == 1) 4 else 10) })
-        return SlotViews(root, title, siret, search, company, convention, agreements, legifrance)
+        return SlotViews(root, title, siret, search, summary, details, delete)
     }
 
-    private fun prefix(slot: Int): String = if (slot == 1) "company_" else "company2_"
-    private fun key(slot: Int, field: String): String = prefix(slot) + field
-
-    private fun migrateLegacyCompanyToSlot1() {
-        // Slot 1 deliberately keeps the old company_* keys for compatibility.
-        // This method exists to make the two-slot model explicit and future-proof.
-    }
+    private fun prefix(slot: Int) = if (slot == 1) "company_" else "company2_"
+    private fun key(slot: Int, field: String) = prefix(slot) + field
 
     private fun restoreSlot(slot: Int) {
         val v = slots[slot] ?: return
         val siret = prefs.getString(key(slot, "siret"), "").orEmpty()
         val name = prefs.getString(key(slot, "name"), "").orEmpty()
-        val siren = prefs.getString(key(slot, "siren"), "").orEmpty()
-        val address = prefs.getString(key(slot, "address"), "").orEmpty()
-        val ape = prefs.getString(key(slot, "ape"), "").orEmpty()
         val idcc = prefs.getString(key(slot, "idcc"), "").orEmpty()
-        val conventionName = prefs.getString(key(slot, "convention_name"), "").orEmpty()
-        val agreementSummary = prefs.getString(key(slot, "agreement_summary"), "").orEmpty()
-
         v.siret.setText(siret)
-        show(v.company, buildCompanySummary(name, siret, address, ape))
-        show(v.convention, buildConventionSummary(idcc, conventionName))
-        show(v.agreements, agreementSummary)
-        v.legifrance.visibility = if (siren.isBlank() && name.isBlank()) View.GONE else View.VISIBLE
+        v.summary.text = when {
+            name.isBlank() && siret.isBlank() -> "Aucune entreprise enregistrée"
+            idcc.isBlank() -> name.ifBlank { "Entreprise enregistrée" }
+            else -> "${name.ifBlank { "Entreprise enregistrée" }}\nConvention : IDCC $idcc"
+        }
+        val hasData = name.isNotBlank() || siret.isNotBlank()
+        v.details.isEnabled = hasData
+        v.delete.isEnabled = hasData
     }
 
     private fun lookup(slot: Int) {
@@ -154,10 +158,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
 
         v.search.isEnabled = false
         v.search.text = "RECHERCHE…"
-        show(v.company, "Recherche dans les données publiques…")
-        show(v.convention, "")
-        show(v.agreements, "")
-        v.legifrance.visibility = View.GONE
+        v.summary.text = "Recherche dans les données publiques…"
 
         Thread {
             try {
@@ -168,7 +169,6 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 connection.readTimeout = 15000
                 connection.setRequestProperty("Accept", "application/json")
                 connection.setRequestProperty("User-Agent", "HP-Travail-Android")
-
                 val code = connection.responseCode
                 val stream = if (code in 200..299) connection.inputStream else connection.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -180,27 +180,15 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée pour ce SIRET")
                 val result = results.getJSONObject(0)
 
-                val name = firstNonBlank(
-                    result.optString("nom_complet"),
-                    result.optString("nom_raison_sociale"),
-                    result.optString("denomination"),
-                    result.optString("nom")
-                )
+                val name = firstNonBlank(result.optString("nom_complet"), result.optString("nom_raison_sociale"), result.optString("denomination"), result.optString("nom"))
                 val siren = result.optString("siren").ifBlank { siret.take(9) }
                 val establishment = findMatchingEstablishment(result, siret)
-                val address = firstNonBlank(
-                    establishment?.optString("adresse"),
-                    establishment?.optString("adresse_complete"),
-                    result.optString("adresse")
-                )
-                val ape = firstNonBlank(
-                    establishment?.optString("activite_principale"),
-                    result.optString("activite_principale")
-                )
+                val address = firstNonBlank(establishment?.optString("adresse"), establishment?.optString("adresse_complete"), result.optString("adresse"))
+                val ape = firstNonBlank(establishment?.optString("activite_principale"), result.optString("activite_principale"))
                 val idcc = findIdccs(result).firstOrNull().orEmpty()
-                val localConvention = ConventionCatalog.findByIdcc(idcc)
-                val conventionName = localConvention?.fullName.orEmpty()
-                val agreementSummary = fetchCompanyAgreementSummary(siren, name)
+                val convention = ConventionCatalog.findByIdcc(idcc)
+                val conventionName = convention?.fullName.orEmpty()
+                val agreements = fetchCompanyAgreementSummary(siren, name)
 
                 prefs.edit()
                     .putString(key(slot, "siret"), siret)
@@ -210,66 +198,93 @@ class EnterpriseLookupView @JvmOverloads constructor(
                     .putString(key(slot, "ape"), ape)
                     .putString(key(slot, "idcc"), idcc)
                     .putString(key(slot, "convention_name"), conventionName)
-                    .putString(key(slot, "agreement_summary"), agreementSummary)
+                    .putString(key(slot, "agreement_summary"), agreements)
                     .apply()
 
-                // Keep the historical salary convention tied to employer 1 only.
-                if (slot == 1 && localConvention != null) {
-                    prefs.edit().putString("convention_idcc", localConvention.idcc).apply()
+                if (slot == 1 && convention != null) {
+                    prefs.edit().putString("convention_idcc", convention.idcc).apply()
                 }
 
                 post {
-                    applyTheme()
-                    show(v.company, buildCompanySummary(name, siret, address, ape))
-                    show(v.convention, buildConventionSummary(idcc, conventionName))
-                    show(v.agreements, agreementSummary)
-                    v.legifrance.visibility = if (siren.isBlank() && name.isBlank()) View.GONE else View.VISIBLE
                     v.search.isEnabled = true
                     v.search.text = "RECHERCHER"
-                    Toast.makeText(
-                        context,
-                        if (idcc.isNotBlank()) "Entreprise $slot trouvée — IDCC $idcc" else "Entreprise $slot trouvée",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    restoreSlot(slot)
+                    Toast.makeText(context, if (slot == 1) "Entreprise principale enregistrée" else "Entreprise 2 enregistrée", Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 post {
-                    show(v.company, "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}")
-                    show(v.convention, "")
-                    show(v.agreements, "")
-                    v.legifrance.visibility = View.GONE
                     v.search.isEnabled = true
                     v.search.text = "RECHERCHER"
-                    applyTheme()
+                    v.summary.text = "Impossible de récupérer l'entreprise : ${e.message ?: "erreur inconnue"}"
                 }
             }
         }.start()
     }
 
-    private fun buildCompanySummary(name: String, siret: String, address: String, ape: String): String {
-        val lines = mutableListOf<String>()
-        if (name.isNotBlank()) lines += "🏢 $name"
-        if (siret.isNotBlank()) lines += "SIRET : $siret"
-        if (address.isNotBlank()) lines += "Adresse : $address"
-        if (ape.isNotBlank()) lines += "APE/NAF : $ape"
-        return lines.joinToString("\n")
-    }
+    private fun showDetails(slot: Int) {
+        val name = prefs.getString(key(slot, "name"), "").orEmpty().ifBlank { "Entreprise $slot" }
+        val siret = prefs.getString(key(slot, "siret"), "").orEmpty()
+        val siren = prefs.getString(key(slot, "siren"), "").orEmpty()
+        val address = prefs.getString(key(slot, "address"), "").orEmpty()
+        val ape = prefs.getString(key(slot, "ape"), "").orEmpty()
+        val idcc = prefs.getString(key(slot, "idcc"), "").orEmpty()
+        val conventionName = prefs.getString(key(slot, "convention_name"), "").orEmpty()
+        val agreements = prefs.getString(key(slot, "agreement_summary"), "").orEmpty()
+        val convention = ConventionCatalog.findByIdcc(idcc)
 
-    private fun buildConventionSummary(idcc: String, conventionName: String): String {
-        if (idcc.isBlank()) return ""
-        val lines = mutableListOf<String>()
-        lines += "Convention : ${conventionName.ifBlank { "IDCC $idcc" }}${if (conventionName.isNotBlank()) " — IDCC $idcc" else ""}"
-        ConventionCatalog.findByIdcc(idcc)?.advantages?.takeIf { it.isNotEmpty() }?.let { advantages ->
-            lines += ""
-            lines += "Rémunération / avantages de branche :"
-            advantages.forEach { lines += "• $it" }
+        val text = buildString {
+            append(if (slot == 1) "ENTREPRISE PRINCIPALE\n\n" else "ENTREPRISE 2\n\n")
+            append(name)
+            if (siret.isNotBlank()) append("\nSIRET : ").append(siret)
+            if (siren.isNotBlank()) append("\nSIREN : ").append(siren)
+            if (address.isNotBlank()) append("\nAdresse : ").append(address)
+            if (ape.isNotBlank()) append("\nAPE/NAF : ").append(ape)
+            if (idcc.isNotBlank()) {
+                append("\n\nCONVENTION COLLECTIVE\n")
+                append(conventionName.ifBlank { "IDCC $idcc" }).append("\nIDCC : ").append(idcc)
+            }
+            convention?.advantages?.takeIf { it.isNotEmpty() }?.let {
+                append("\n\nAVANTAGES / GARANTIES\n")
+                it.forEach { item -> append("• ").append(item).append('\n') }
+            }
+            convention?.cautions?.takeIf { it.isNotEmpty() }?.let {
+                append("\nPOINTS DE VIGILANCE\n")
+                it.forEach { item -> append("• ").append(item).append('\n') }
+            }
+            if (agreements.isNotBlank()) append("\nACCORDS D'ENTREPRISE\n").append(agreements)
         }
-        return lines.joinToString("\n")
+        val tv = TextView(context).apply {
+            this.text = text.trim()
+            textSize = 15f
+            setPadding(dp(20), dp(12), dp(20), dp(20))
+            setTextColor(themeColors().second)
+        }
+        val scroll = ScrollView(context).apply { addView(tv) }
+        AlertDialog.Builder(context)
+            .setTitle(name)
+            .setView(scroll)
+            .setPositiveButton("Fermer", null)
+            .setNeutralButton("Légifrance") { _, _ -> openLegifrance(slot) }
+            .show()
     }
 
-    private fun show(view: TextView, value: String) {
-        view.text = value
-        view.visibility = if (value.isBlank()) View.GONE else View.VISIBLE
+    private fun confirmDelete(slot: Int) {
+        val name = prefs.getString(key(slot, "name"), "").orEmpty().ifBlank { "Entreprise $slot" }
+        AlertDialog.Builder(context)
+            .setTitle("Supprimer $name ?")
+            .setMessage("Les informations de cette entreprise seront supprimées. Les pointages déjà enregistrés restent conservés.")
+            .setPositiveButton("Supprimer") { _, _ -> deleteSlot(slot) }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun deleteSlot(slot: Int) {
+        val editor = prefs.edit()
+        listOf("siret", "siren", "name", "address", "ape", "idcc", "convention_name", "agreement_summary").forEach { editor.remove(key(slot, it)) }
+        if (slot == 1) editor.remove("convention_idcc")
+        editor.apply()
+        restoreSlot(slot)
+        Toast.makeText(context, "Entreprise $slot supprimée", Toast.LENGTH_SHORT).show()
     }
 
     private fun openLegifrance(slot: Int) {
@@ -304,13 +319,8 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 .filter { it.length in 6..240 }
                 .filter { line -> remunerationKeywords.any { line.contains(it, ignoreCase = true) } }
                 .filterNot { it.contains("Rechercher", true) || it.contains("Filtrer", true) }
-                .distinct()
-                .take(10)
-                .toList()
-            if (relevant.isEmpty()) "" else buildString {
-                append("AVANTAGES / ACCORDS DE L'ENTREPRISE\n")
-                relevant.forEach { append("• ").append(it).append('\n') }
-            }.trim()
+                .distinct().take(10).toList()
+            if (relevant.isEmpty()) "" else relevant.joinToString("\n") { "• $it" }
         }.getOrDefault("")
     }
 
@@ -379,13 +389,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
         val mode = appearance.getString("mode", "auto") ?: "auto"
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         val dark = mode == "dark" || (mode == "auto" && systemDark)
-        val defaultBg = if (dark) "#080808" else "#F3F0E8"
-        val bg = runCatching { Color.parseColor(appearance.getString("app_bg", null) ?: defaultBg) }.getOrElse { Color.parseColor(defaultBg) }
-        val custom = appearance.getBoolean("custom_bg", false)
-        val panel = if (custom) {
-            mix(bg, if (AppearanceManager.bestTextColor(bg) == Color.WHITE) Color.WHITE else Color.BLACK,
-                if (AppearanceManager.bestTextColor(bg) == Color.WHITE) 0.16f else 0.07f)
-        } else if (dark) Color.parseColor("#1B1B1B") else Color.WHITE
+        val panel = if (dark) Color.parseColor("#1B1B1B") else Color.WHITE
         val text = AppearanceManager.bestTextColor(panel)
         val secondary = mix(text, panel, 0.68f)
         return Triple(panel, text, secondary)
@@ -403,13 +407,11 @@ class EnterpriseLookupView @JvmOverloads constructor(
             v.title.setTextColor(accent)
             v.siret.setTextColor(text)
             v.siret.setHintTextColor(secondary)
-            v.company.setTextColor(text)
-            v.convention.setTextColor(secondary)
-            v.agreements.setTextColor(text)
-            v.search.backgroundTintList = ColorStateList.valueOf(panel)
-            v.search.setTextColor(text)
-            v.legifrance.backgroundTintList = ColorStateList.valueOf(panel)
-            v.legifrance.setTextColor(text)
+            v.summary.setTextColor(text)
+            listOf(v.search, v.details, v.delete).forEach { b ->
+                b.backgroundTintList = ColorStateList.valueOf(panel)
+                b.setTextColor(text)
+            }
         }
     }
 
