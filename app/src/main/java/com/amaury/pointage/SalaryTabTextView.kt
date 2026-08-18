@@ -28,6 +28,7 @@ class SalaryTabTextView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        WidgetThemeSync.install(context)
         post { applyTabTypography(); installAddressUi(); installSalaryAutoHide() }
     }
 
