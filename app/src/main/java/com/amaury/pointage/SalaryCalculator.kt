@@ -23,7 +23,7 @@ object SalaryCalculator {
         val completedSessions: Int
     )
 
-    private data class Session(val entry: Long, val exit: Long)
+    private data class Session(val entry: Long, val exit: Long, val workedDuration: Long)
     private data class WeekKey(val year: Int, val week: Int)
 
     fun calculate(
@@ -39,7 +39,9 @@ object SalaryCalculator {
             if (item.isNull("exit")) continue
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
-            if (entry > 0L && exit > entry) sessions.add(Session(entry, exit))
+            if (entry > 0L && exit > entry) {
+                sessions.add(Session(entry, exit, PointageStore.workedDuration(item, exit)))
+            }
         }
         sessions.sortBy { it.entry }
 
@@ -63,7 +65,7 @@ object SalaryCalculator {
         sessionsByWeek.values.forEach { weekSessions ->
             var cumulative = 0L
             weekSessions.sortedBy { it.entry }.forEach { session ->
-                val duration = session.exit - session.entry
+                val duration = session.workedDuration
                 val startCum = cumulative
                 val endCum = cumulative + duration
                 val entryCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
