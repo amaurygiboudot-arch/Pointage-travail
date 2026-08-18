@@ -26,10 +26,10 @@ class SalaryNavBarView @JvmOverloads constructor(
         addTab("▥\nHISTORIQUE", "history", false)
         addTab("◔\nANALYSES", "analytics", false)
         addTab("€\nSALAIRE", "salary", true)
-        addTab("⚙\nPARAMÈTRES", "settings", false, 13f)
+        addTab("⚙\nPARAMÈTRES", "settings", false)
     }
 
-    private fun addTab(label: String, target: String, active: Boolean, size: Float = 14f) {
+    private fun addTab(label: String, target: String, active: Boolean) {
         val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val mode = appearance.getString("mode", "auto") ?: "auto"
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -40,11 +40,16 @@ class SalaryNavBarView @JvmOverloads constructor(
         val tab = TextView(context).apply {
             text = label
             gravity = Gravity.CENTER
-            textSize = size
-            typeface = Typeface.create("serif", Typeface.NORMAL)
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
+            maxLines = 2
+            includeFontPadding = false
+            setPadding(dp(1), dp(2), dp(1), dp(2))
             setTextColor(if (active) activeColor else inactiveColor)
             isClickable = !active
             isFocusable = !active
+            minWidth = 0
+            minimumWidth = 0
             if (!active) setOnClickListener {
                 val intent = Intent(context, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
