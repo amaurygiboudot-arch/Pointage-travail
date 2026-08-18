@@ -4,16 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
-    paths:
-      - "app/**"
-      - "build.gradle.kts"
-      - "settings.gradle.kts"
-      - "gradle.properties"
-      - ".github/workflows/build-apk.yml"
 
+# Ne plus annuler une compilation simplement parce qu'un autre commit arrive.
+# Chaque version valide peut ainsi aller jusqu'a la publication de sa release.
 concurrency:
   group: hp-travail-apk
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -51,8 +47,12 @@ jobs:
 
       - name: Incrementer la version
         run: |
-          sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
-          sed -i "s/versionName = \"[^\"]*\"/versionName = \"1.${{ github.run_number }}\"/" app/build.gradle.kts
+          VERSION_CODE=${{ github.run_number }}
+          VERSION_NAME="1.${{ github.run_number }}"
+          sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${VERSION_CODE}/" app/build.gradle.kts
+          sed -i "s/versionName = \"[^\"]*\"/versionName = \"${VERSION_NAME}\"/" app/build.gradle.kts
+          echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_ENV"
 
       - name: Compiler APK release signe
         env:
@@ -66,12 +66,15 @@ jobs:
       - name: Verifier la signature APK
         run: |
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer APK
+      - name: Preparer APK et informations de version
         run: |
           cp app/build/outputs/apk/release/app-release.apk HP-Travail.apk
           sha256sum HP-Travail.apk > HP-Travail-SHA256.txt
+          printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
+          test -s HP-Travail.apk
 
       - name: Publier artefact APK
         uses: actions/upload-artifact@v4
@@ -80,6 +83,7 @@ jobs:
           path: |
             HP-Travail.apk
             HP-Travail-SHA256.txt
+            HP-Travail-version.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -87,10 +91,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v1.${{ github.run_number }}"
+          TAG="v${VERSION_NAME}"
+          # Rend aussi un re-run du meme workflow fiable : une ancienne release
+          # du meme numero ne doit jamais bloquer la nouvelle publication.
+          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" \
             HP-Travail.apk \
             HP-Travail-SHA256.txt \
-            --title "HP Travail 1.${{ github.run_number }}" \
+            HP-Travail-version.txt \
+            --target "${GITHUB_SHA}" \
+            --title "HP Travail ${VERSION_NAME}" \
             --notes "Mise à jour automatique HP Travail" \
             --latest
+
+      - name: Verifier que la mise a jour est publiquement disponible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${VERSION_NAME}"
+          gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets,url
+          gh release download "$TAG" -p "HP-Travail.apk" -D "$RUNNER_TEMP/release-check"
+          test -s "$RUNNER_TEMP/release-check/HP-Travail.apk"
