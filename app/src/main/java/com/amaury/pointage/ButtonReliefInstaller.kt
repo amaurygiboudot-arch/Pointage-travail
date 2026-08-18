@@ -20,7 +20,6 @@ import android.widget.Switch
 import android.widget.TextView
 import java.util.WeakHashMap
 
-/** Style global, thèmes, effet diamant et garde-fou de lisibilité HP Travail. */
 object ButtonReliefInstaller {
     private const val TAG_KEY = 0x4850524C
     private const val PREFS = "appearance_settings"
@@ -31,6 +30,7 @@ object ButtonReliefInstaller {
 
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
     private var currentLightAngle = FIXED_LIGHT_ANGLE
+    private var currentNight = false
 
     fun install(activity: Activity) {
         val decor = activity.window.decorView
@@ -47,35 +47,47 @@ object ButtonReliefInstaller {
     }
 
     private fun configureSolarLighting(activity: Activity, decor: View) {
-        val sun = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
+        val indicator = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
         if (isSolarEnabled(activity)) {
-            sun?.setSunVisible(true)
-            sun?.updateLightAngle(currentLightAngle)
-            LightDirectionController.attach(activity) { angle ->
+            indicator?.setSunVisible(false)
+            LightDirectionController.attach(activity) { state ->
                 if (!isSolarEnabled(activity)) return@attach
-                currentLightAngle = angle
-                updateDynamicLight(decor, angle)
+                currentLightAngle = state.lightAngle
+                currentNight = state.night
+                updateDynamicLight(decor, state.lightAngle, state.night)
+
+                indicator?.setNightMode(state.night)
+                val celestial = state.celestialAngle
+                if (celestial != null) {
+                    indicator?.updateLightAngle(celestial)
+                    indicator?.setSunVisible(true)
+                } else {
+                    indicator?.setSunVisible(false)
+                }
             }
         } else {
             LightDirectionController.detach(activity)
-            sun?.setSunVisible(false)
+            indicator?.setSunVisible(false)
+            currentNight = false
             currentLightAngle = FIXED_LIGHT_ANGLE
-            updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
+            updateDynamicLight(decor, FIXED_LIGHT_ANGLE, false)
         }
     }
 
-    private fun updateDynamicLight(decor: View, angle: Float) {
+    private fun updateDynamicLight(decor: View, angle: Float, night: Boolean) {
         dynamicDrawables.entries.toList().forEach { (button, drawable) ->
             if (button.rootView === decor) drawable.setLightAngle(angle)
         }
-        updateJewelLights(decor, angle)
-        decor.findViewById<SunIndicatorView>(R.id.sunIndicator)?.updateLightAngle(angle)
+        updateJewelLights(decor, angle, night)
     }
 
-    private fun updateJewelLights(view: View, angle: Float) {
-        if (view is LightReactiveJewelButton) view.setLightAngle(angle)
+    private fun updateJewelLights(view: View, angle: Float, night: Boolean) {
+        if (view is LightReactiveJewelButton) {
+            view.setLightAngle(angle)
+            view.setNightLight(night)
+        }
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle)
+            for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle, night)
         }
     }
 
@@ -85,20 +97,27 @@ object ButtonReliefInstaller {
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
         activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
         val decor = activity.window.decorView
-        val sun = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
+        val indicator = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
         if (enabled) {
-            sun?.setSunVisible(true)
-            sun?.updateLightAngle(currentLightAngle)
-            LightDirectionController.attach(activity) { angle ->
+            indicator?.setSunVisible(false)
+            LightDirectionController.attach(activity) { state ->
                 if (!isSolarEnabled(activity)) return@attach
-                currentLightAngle = angle
-                updateDynamicLight(decor, angle)
+                currentLightAngle = state.lightAngle
+                currentNight = state.night
+                updateDynamicLight(decor, state.lightAngle, state.night)
+                indicator?.setNightMode(state.night)
+                val celestial = state.celestialAngle
+                if (celestial != null) {
+                    indicator?.updateLightAngle(celestial)
+                    indicator?.setSunVisible(true)
+                } else indicator?.setSunVisible(false)
             }
         } else {
             LightDirectionController.detach(activity)
-            sun?.setSunVisible(false)
+            indicator?.setSunVisible(false)
+            currentNight = false
             currentLightAngle = FIXED_LIGHT_ANGLE
-            updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
+            updateDynamicLight(decor, FIXED_LIGHT_ANGLE, false)
         }
     }
 
@@ -146,7 +165,7 @@ object ButtonReliefInstaller {
 
         val toggle = Switch(activity).apply {
             tag = TAG_SOLAR_SWITCH
-            text = "Éclairage solaire dynamique"
+            text = "Éclairage soleil / lune dynamique"
             textSize = 14f
             isChecked = isSolarEnabled(activity)
             setPadding(0, dp(activity, 8), 0, dp(activity, 8))
@@ -251,10 +270,16 @@ object ButtonReliefInstaller {
         if (button is LightReactiveJewelButton) {
             button.setJewelAccent(theme.accent, theme.accentLight)
             button.setLightAngle(currentLightAngle)
+            button.setNightLight(currentNight)
             button.setTag(TAG_KEY, "jewel_${theme.id}")
         } else if (!protected && !alreadyStyled) {
             button.backgroundTintList = null
-            val drawable = DynamicDiamondDrawable(dark = dark, density = button.resources.displayMetrics.density, accent = theme.accent, accentLight = theme.accentLight).apply { setLightAngle(currentLightAngle) }
+            val drawable = DynamicDiamondDrawable(
+                dark = dark,
+                density = button.resources.displayMetrics.density,
+                accent = theme.accent,
+                accentLight = theme.accentLight
+            ).apply { setLightAngle(currentLightAngle) }
             button.background = drawable
             dynamicDrawables[button] = drawable
             button.setTag(TAG_KEY, styleKey)
