@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.text.SimpleDateFormat
@@ -32,20 +33,21 @@ class ManualPauseButton @JvmOverloads constructor(
         fun dp(v: Int) = (v * d).toInt()
         val selectedDate = Calendar.getInstance(Locale.FRANCE)
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+        val schedule = PauseScheduleManager.load(context)
 
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(12))
         }
         body.addView(TextView(context).apply {
-            text = "⏸  SAISIE MANUELLE D'UNE PAUSE"
+            text = "⏸  PAUSES"
             gravity = Gravity.CENTER
             textSize = 19f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#F3A64A"))
         })
         body.addView(TextView(context).apply {
-            text = "Choisis la date, l'heure de début et l'heure de fin. La pause sera rattachée à la session de travail correspondante et déduite du temps travaillé."
+            text = "Choisis le début et la fin de pause. Tu peux l'ajouter à une journée précise et/ou demander à HP Travail de l'activer automatiquement tous les jours pendant une entrée en cours."
             textSize = 14f
             setPadding(0, dp(10), 0, dp(12))
         })
@@ -70,15 +72,33 @@ class ManualPauseButton @JvmOverloads constructor(
             isSingleLine = true
             inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME
         }
-        val start = timeInput("Début de pause — ex. 10:00")
-        val end = timeInput("Fin de pause — ex. 10:15")
+        val start = timeInput("Début de pause — ex. 10:00").apply {
+            setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
+        }
+        val end = timeInput("Fin de pause — ex. 10:15").apply {
+            setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
+        }
+        val automatic = Switch(context).apply {
+            text = "Activer automatiquement tous les jours à ces heures"
+            isChecked = schedule.enabled
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        val autoInfo = TextView(context).apply {
+            text = "Si une entrée est en cours, la pause démarrera seule à l'heure choisie et le travail reprendra seul à l'heure de fin."
+            textSize = 13f
+            setTextColor(Color.GRAY)
+            setPadding(0, 0, 0, dp(10))
+        }
+
         body.addView(dateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
         body.addView(start)
         body.addView(end)
+        body.addView(automatic)
+        body.addView(autoInfo)
 
         val scroll = ScrollView(context).apply { addView(body) }
         val cancel = Button(context).apply { text = "Annuler"; isAllCaps = false }
-        val add = Button(context).apply { text = "Ajouter la pause"; isAllCaps = false }
+        val add = Button(context).apply { text = "Enregistrer"; isAllCaps = false }
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(dp(20), dp(8), dp(20), dp(16))
@@ -102,14 +122,34 @@ class ManualPauseButton @JvmOverloads constructor(
             if (startMs == null) { start.error = "Format attendu : HH:mm"; return@setOnClickListener }
             if (endMs == null) { end.error = "Format attendu : HH:mm"; return@setOnClickListener }
             if (endMs <= startMs) { end.error = "La fin doit être après le début"; return@setOnClickListener }
-            if (!PointageStore.addManualPause(context, startMs, endMs)) {
-                Toast.makeText(context, "Aucune session de travail ne contient cette pause", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
+
+            val startCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = startMs }
+            val endCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = endMs }
+
+            if (automatic.isChecked) {
+                PauseScheduleManager.save(
+                    context,
+                    startCal.get(Calendar.HOUR_OF_DAY), startCal.get(Calendar.MINUTE),
+                    endCal.get(Calendar.HOUR_OF_DAY), endCal.get(Calendar.MINUTE),
+                    enabled = true
+                )
+            } else if (schedule.enabled) {
+                PauseScheduleManager.setEnabled(context, false)
             }
-            val minutes = (endMs - startMs) / 60000L
-            Toast.makeText(context, "Pause ajoutée : ${minutes} min", Toast.LENGTH_LONG).show()
-            dialog.dismiss()
-            (context as? Activity)?.recreate()
+
+            val manualAdded = PointageStore.addManualPause(context, startMs, endMs)
+            val message = when {
+                automatic.isChecked && manualAdded -> "Pause ajoutée et programmation automatique activée"
+                automatic.isChecked -> "Pause automatique programmée chaque jour"
+                manualAdded -> "Pause ajoutée à la journée sélectionnée"
+                else -> "Aucune session ne contient cette pause. Active le mode automatique ou choisis une journée travaillée."
+            }
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+
+            if (automatic.isChecked || manualAdded) {
+                dialog.dismiss()
+                (context as? Activity)?.recreate()
+            }
         }
         dialog.show()
     }
