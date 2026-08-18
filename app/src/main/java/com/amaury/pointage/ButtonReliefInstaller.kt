@@ -4,6 +4,7 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.animation.StateListAnimator
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -19,17 +20,13 @@ import android.widget.Switch
 import android.widget.TextView
 import java.util.WeakHashMap
 
-/**
- * Style global des boutons et garde-fou de lisibilité HP Travail.
- *
- * L'effet diamant reste toujours actif. Le déplacement solaire/orientation
- * est facultatif et désactivé par défaut.
- */
+/** Style global, thèmes, effet diamant et garde-fou de lisibilité HP Travail. */
 object ButtonReliefInstaller {
     private const val TAG_KEY = 0x4850524C
     private const val PREFS = "appearance_settings"
     private const val PREF_SOLAR = "solar_lighting_enabled"
     private const val TAG_SOLAR_SWITCH = "solar_lighting_switch"
+    private const val TAG_THEME_BUTTON = "visual_theme_button"
     private const val FIXED_LIGHT_ANGLE = -55f
 
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
@@ -43,6 +40,7 @@ object ButtonReliefInstaller {
         decor.viewTreeObserver.addOnGlobalLayoutListener {
             if (!activity.isFinishing && !activity.isDestroyed) {
                 refresh(activity, decor)
+                installThemeSelectorIfPossible(activity)
                 installSolarToggleIfPossible(activity)
             }
         }
@@ -72,11 +70,7 @@ object ButtonReliefInstaller {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
 
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
-        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(PREF_SOLAR, enabled)
-            .apply()
-
+        activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
         val decor = activity.window.decorView
         if (enabled) {
             LightDirectionController.attach(activity) { angle ->
@@ -91,6 +85,47 @@ object ButtonReliefInstaller {
         }
     }
 
+    private fun installThemeSelectorIfPossible(activity: Activity) {
+        if (activity !is MainActivity) return
+        val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
+        if (section.findViewWithTag<View>(TAG_THEME_BUTTON) != null) return
+
+        val current = AppThemeCatalog.current(activity)
+        val button = Button(activity).apply {
+            tag = TAG_THEME_BUTTON
+            text = "THÈME : ${current.label.uppercase()}"
+            isAllCaps = false
+            textSize = 13f
+            minHeight = 0
+            minimumHeight = 0
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
+            setOnClickListener {
+                val themes = AppThemeCatalog.themes
+                val selected = themes.indexOfFirst { it.id == AppThemeCatalog.current(activity).id }.coerceAtLeast(0)
+                AlertDialog.Builder(activity)
+                    .setTitle("Choisir le thème")
+                    .setSingleChoiceItems(themes.map { it.label }.toTypedArray(), selected) { dialog, which ->
+                        AppThemeCatalog.set(activity, themes[which])
+                        dialog.dismiss()
+                        activity.window.decorView.post { activity.recreate() }
+                    }
+                    .setNegativeButton("Annuler", null)
+                    .show()
+            }
+        }
+
+        val insertAt = if (section.childCount >= 2) 2 else section.childCount
+        section.addView(
+            button,
+            insertAt,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+                topMargin = dp(activity, 4)
+                bottomMargin = dp(activity, 4)
+            }
+        )
+    }
+
     private fun installSolarToggleIfPossible(activity: Activity) {
         if (activity !is MainActivity) return
         val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
@@ -102,27 +137,24 @@ object ButtonReliefInstaller {
             textSize = 15f
             isChecked = isSolarEnabled(activity)
             setPadding(0, dp(activity, 8), 0, dp(activity, 8))
-            setOnCheckedChangeListener { _, checked ->
-                setSolarEnabled(activity, checked)
-            }
+            setOnCheckedChangeListener { _, checked -> setSolarEnabled(activity, checked) }
         }
 
-        // Juste après le bouton de mode lorsque c'est possible.
-        val insertAt = if (section.childCount >= 2) 2 else section.childCount
+        val themeIndex = (0 until section.childCount).firstOrNull { section.getChildAt(it).tag == TAG_THEME_BUTTON }
+        val insertAt = if (themeIndex != null) themeIndex + 1 else if (section.childCount >= 2) 2 else section.childCount
         section.addView(
             toggle,
             insertAt,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
     }
 
     private fun refresh(activity: Activity, decor: View) {
         val dark = isDarkMode(activity)
-        applyThemeSafety(decor, dark)
-        applyToTree(decor, dark)
+        val theme = AppThemeCatalog.current(activity)
+        applyThemeSafety(activity, decor, dark, theme)
+        applyToTree(decor, dark, theme)
+        installThemeSelectorIfPossible(activity)
         installSolarToggleIfPossible(activity)
     }
 
@@ -133,13 +165,22 @@ object ButtonReliefInstaller {
         return when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
     }
 
-    private fun applyThemeSafety(root: View, dark: Boolean) {
-        val bg = Color.parseColor(if (dark) "#050505" else "#F3F0E8")
-        val panel = Color.parseColor(if (dark) "#181818" else "#FFFDF9")
-        val bgText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
-        val panelText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
-        val hint = Color.parseColor(if (dark) "#C9C1B4" else "#55514B")
-        sanitizeView(root, bg, panel, bgText, panelText, hint, false, true, dark)
+    private fun applyThemeSafety(activity: Activity, root: View, dark: Boolean, theme: HpTheme) {
+        val bg = if (dark) theme.darkBackground else theme.lightBackground
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        val bgText = if (dark) theme.darkText else theme.lightText
+        val panelText = bgText
+        val hint = if (dark) theme.darkHint else theme.lightHint
+
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val hasCustomBg = prefs.getBoolean("custom_bg", false) || prefs.getBoolean("custom_image_bg", false)
+        if (!hasCustomBg) {
+            activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)?.setBackgroundColor(bg)
+            activity.window.statusBarColor = bg
+            activity.window.navigationBarColor = bg
+        }
+
+        sanitizeView(root, bg, panel, bgText, panelText, hint, false, true, dark, theme)
     }
 
     private fun sanitizeView(
@@ -151,13 +192,13 @@ object ButtonReliefInstaller {
         hint: Int,
         inheritedPanel: Boolean,
         isRoot: Boolean = false,
-        dark: Boolean
+        dark: Boolean,
+        theme: HpTheme
     ) {
         val id = resourceName(view)
         val namedPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" ||
             id == "gpsSettingsPanel" || id == "analyticsPdfPanel" ||
             id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)
-
         val anonymousSurface = !isRoot && view is ViewGroup && view !is ScrollView &&
             view.background != null && !isProtectedContainer(id)
         val ownPanel = namedPanel || anonymousSurface
@@ -170,7 +211,7 @@ object ButtonReliefInstaller {
 
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark)
+                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark, theme)
             }
         }
 
@@ -195,7 +236,9 @@ object ButtonReliefInstaller {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
                 if (!tab) {
                     val current = view.currentTextColor
-                    if (!isGold(current) || contrastRatio(current, if (onPanel) panel else bg) < 4.5) {
+                    if (isKnownAccent(current)) {
+                        view.setTextColor(if (dark) theme.accentLight else theme.accent)
+                    } else if (contrastRatio(current, if (onPanel) panel else bg) < 4.5) {
                         view.setTextColor(textColor)
                     }
                 }
@@ -203,22 +246,25 @@ object ButtonReliefInstaller {
         }
     }
 
-    private fun applyToTree(view: View, dark: Boolean) {
-        if (view is Button) applyToButton(view, dark)
-        if (view is ViewGroup) for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark)
+    private fun applyToTree(view: View, dark: Boolean, theme: HpTheme) {
+        if (view is Button) applyToButton(view, dark, theme)
+        if (view is ViewGroup) for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark, theme)
     }
 
-    private fun applyToButton(button: Button, dark: Boolean) {
+    private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = if (dark) "diamond_dynamic_dark_v3" else "diamond_dynamic_light_v3"
+        val styleKey = "diamond_${theme.id}_${if (dark) "dark" else "light"}_v4"
         val alreadyStyled = button.getTag(TAG_KEY) == styleKey
 
         if (!protected && !alreadyStyled) {
             button.backgroundTintList = null
-            val drawable = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density).apply {
-                setLightAngle(currentLightAngle)
-            }
+            val drawable = DynamicDiamondDrawable(
+                dark = dark,
+                density = button.resources.displayMetrics.density,
+                accent = theme.accent,
+                accentLight = theme.accentLight
+            ).apply { setLightAngle(currentLightAngle) }
             button.background = drawable
             dynamicDrawables[button] = drawable
             button.setTag(TAG_KEY, styleKey)
@@ -270,8 +316,9 @@ object ButtonReliefInstaller {
     private fun resourceName(view: View): String =
         runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
 
-    private fun isGold(color: Int): Boolean =
-        color == Color.parseColor("#D6A84B") || color == Color.parseColor("#F3D58A") || color == Color.parseColor("#795600")
+    private fun isKnownAccent(color: Int): Boolean =
+        AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } ||
+            color == Color.parseColor("#795600")
 
     private fun contrastRatio(foreground: Int, background: Int): Double {
         fun lum(color: Int): Double {
