@@ -22,6 +22,12 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 object LightDirectionController {
+    data class LightingState(
+        val lightAngle: Float,
+        val celestialAngle: Float?,
+        val night: Boolean
+    )
+
     private data class Registration(
         val manager: SensorManager,
         val listener: SensorEventListener,
@@ -33,7 +39,7 @@ object LightDirectionController {
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    fun attach(activity: Activity, onLightingChanged: (Float, Boolean) -> Unit) {
+    fun attach(activity: Activity, onLightingChanged: (LightingState) -> Unit) {
         val key = System.identityHashCode(activity)
         if (registrations.containsKey(key)) return
 
@@ -41,22 +47,22 @@ object LightDirectionController {
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return
         val location = lastKnownLocation(activity)
 
-        var targetAngle = Float.NaN
-        var displayedAngle = Float.NaN
-        var currentNight = computeNightMode(activity, location)
+        var targetLightAngle = Float.NaN
+        var displayedLightAngle = Float.NaN
+        var celestialAngle: Float? = null
+        var currentNight = computeNightMode(location)
         var animationRunning = false
 
         lateinit var animator: Runnable
         animator = object : Runnable {
             override fun run() {
-                if (targetAngle.isNaN()) {
+                if (targetLightAngle.isNaN()) {
                     animationRunning = false
                     return
                 }
 
-                if (displayedAngle.isNaN()) displayedAngle = targetAngle
-
-                val delta = shortestDelta(displayedAngle, targetAngle)
+                if (displayedLightAngle.isNaN()) displayedLightAngle = targetLightAngle
+                val delta = shortestDelta(displayedLightAngle, targetLightAngle)
                 val absDelta = kotlin.math.abs(delta)
                 val factor = when {
                     absDelta > 90f -> 0.18f
@@ -69,14 +75,13 @@ object LightDirectionController {
                     absDelta > 45f -> 6f
                     else -> 3.8f
                 }
-                val step = (delta * factor).coerceIn(-maxStep, maxStep)
 
-                displayedAngle = normalize(displayedAngle + step)
-                onLightingChanged(displayedAngle, currentNight)
+                displayedLightAngle = normalize(displayedLightAngle + (delta * factor).coerceIn(-maxStep, maxStep))
+                onLightingChanged(LightingState(displayedLightAngle, celestialAngle, currentNight))
 
                 if (absDelta < 0.35f) {
-                    displayedAngle = targetAngle
-                    onLightingChanged(displayedAngle, currentNight)
+                    displayedLightAngle = targetLightAngle
+                    onLightingChanged(LightingState(displayedLightAngle, celestialAngle, currentNight))
                     animationRunning = false
                 } else {
                     mainHandler.postDelayed(this, 16L)
@@ -91,27 +96,34 @@ object LightDirectionController {
             override fun onSensorChanged(event: SensorEvent) {
                 SensorManager.getRotationMatrixFromVector(rotation, event.values)
                 SensorManager.getOrientation(rotation, orientation)
-                val deviceAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                val deviceAzimuth = normalize(Math.toDegrees(orientation[0].toDouble()).toFloat())
                 val pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                 val roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
 
                 val solar = location?.let { solarPosition(it.latitude, it.longitude, System.currentTimeMillis()) }
-                val base = if (solar != null) solar.azimuth.toFloat() - deviceAzimuth else -deviceAzimuth
-                val newNight = solar?.altitude?.let { it < -0.833 } ?: fallbackNightByClock()
-                val tiltInfluence = (roll * 0.45f) + (pitch * 0.20f)
-                val newTarget = normalize(base + tiltInfluence - 90f)
+                currentNight = solar?.altitude?.let { it < -0.833 } ?: fallbackNightByClock()
 
-                if (newNight != currentNight) {
-                    currentNight = newNight
-                    if (!displayedAngle.isNaN()) onLightingChanged(displayedAngle, currentNight)
+                if (solar != null) {
+                    // Position de l'astre dans le repère de l'écran :
+                    // devant = haut, est = droite, ouest = gauche, derrière = bas.
+                    val relativeBearing = shortestDelta(deviceAzimuth, solar.azimuth.toFloat())
+                    val sunScreenAngle = normalize(relativeBearing - 90f)
+                    celestialAngle = if (currentNight) normalize(sunScreenAngle + 180f) else sunScreenAngle
+
+                    // Les reflets gardent une petite influence de l'inclinaison du téléphone,
+                    // mais la position affichée du soleil/lune, elle, n'en dépend pas.
+                    val tiltInfluence = (roll * 0.30f) + (pitch * 0.12f)
+                    targetLightAngle = normalize(sunScreenAngle + tiltInfluence)
+                } else {
+                    // Pas de position fiable : on anime seulement les reflets et on ne prétend
+                    // pas connaître la position réelle du soleil.
+                    celestialAngle = null
+                    targetLightAngle = normalize(-deviceAzimuth - 90f)
                 }
 
-                if (targetAngle.isNaN() || kotlin.math.abs(shortestDelta(targetAngle, newTarget)) >= 0.6f) {
-                    targetAngle = newTarget
-                    if (!animationRunning) {
-                        animationRunning = true
-                        mainHandler.post(animator)
-                    }
+                if (!animationRunning) {
+                    animationRunning = true
+                    mainHandler.post(animator)
                 }
             }
 
@@ -129,9 +141,9 @@ object LightDirectionController {
         mainHandler.removeCallbacks(registration.animator)
     }
 
-    fun isNight(context: Context): Boolean = computeNightMode(context, lastKnownLocation(context))
+    fun isNight(context: Context): Boolean = computeNightMode(lastKnownLocation(context))
 
-    private fun computeNightMode(context: Context, location: Location?): Boolean {
+    private fun computeNightMode(location: Location?): Boolean {
         val altitude = location?.let { solarPosition(it.latitude, it.longitude, System.currentTimeMillis()).altitude }
         return altitude?.let { it < -0.833 } ?: fallbackNightByClock()
     }
@@ -149,6 +161,7 @@ object LightDirectionController {
         return runCatching {
             lm.getProviders(true)
                 .mapNotNull { provider -> runCatching { lm.getLastKnownLocation(provider) }.getOrNull() }
+                .filter { System.currentTimeMillis() - it.time < 12L * 60L * 60L * 1000L }
                 .maxByOrNull { it.time }
         }.getOrNull()
     }
@@ -195,9 +208,7 @@ object LightDirectionController {
         val lat = Math.toRadians(latitude)
 
         val az = atan2(sin(ha), cos(ha) * sin(lat) - tan(decl) * cos(lat))
-        val altitude = asin(
-            (sin(lat) * sin(decl) + cos(lat) * cos(decl) * cos(ha)).coerceIn(-1.0, 1.0)
-        )
+        val altitude = asin((sin(lat) * sin(decl) + cos(lat) * cos(decl) * cos(ha)).coerceIn(-1.0, 1.0))
 
         return SolarPosition(
             azimuth = normalizeDouble(Math.toDegrees(az) + 180.0),
