@@ -67,17 +67,36 @@ class DynamicDiamondDrawable(
         val rad = Math.toRadians(lightAngle.toDouble())
         val dx = (cos(rad)*diagonal).toFloat(); val dy = (sin(rad)*diagonal).toFloat()
 
+        // Base volontairement jamais totalement noire/blanche : elle joue le rôle
+        // d'une lumière ambiante permanente sur la pierre.
         val colors = if (dark) {
-            if (pressed) intArrayOf(Color.parseColor("#030303"),Color.parseColor("#463815"),Color.parseColor("#17130C"),Color.BLACK)
-            else intArrayOf(Color.parseColor("#020202"),Color.parseColor("#725B22"),Color.parseColor("#20190D"),Color.BLACK)
+            if (pressed) intArrayOf(
+                Color.parseColor("#11100D"),
+                Color.parseColor("#4A3D1E"),
+                Color.parseColor("#211B10"),
+                Color.parseColor("#0B0B0A")
+            ) else intArrayOf(
+                Color.parseColor("#14130F"),
+                Color.parseColor("#735D2A"),
+                Color.parseColor("#2A2112"),
+                Color.parseColor("#0D0D0C")
+            )
         } else {
-            if (pressed) intArrayOf(Color.parseColor("#9D8969"),Color.WHITE,Color.parseColor("#EEE2CF"),Color.parseColor("#897454"))
-            else intArrayOf(Color.parseColor("#8D7652"),Color.WHITE,Color.parseColor("#FFF9EE"),Color.parseColor("#7C6645"))
+            if (pressed) intArrayOf(
+                Color.parseColor("#B6A58B"),
+                Color.WHITE,
+                Color.parseColor("#F0E5D3"),
+                Color.parseColor("#A69272")
+            ) else intArrayOf(
+                Color.parseColor("#A99370"),
+                Color.WHITE,
+                Color.parseColor("#FFF8EA"),
+                Color.parseColor("#947A57")
+            )
         }
         fillPaint.shader = LinearGradient(cx-dx,cy-dy,cx+dx,cy+dy,colors,floatArrayOf(0f,.28f,.62f,1f),Shader.TileMode.CLAMP)
         canvas.drawRoundRect(rect,radius,radius,fillPaint)
 
-        // Points de taille differents pour chaque bouton : les facettes ne se repetent plus.
         val leftMidX = rect.left + rect.width() * variant(4, .18f, .38f)
         val rightMidX = rect.right - rect.width() * variant(5, .16f, .36f)
         val topX = rect.left + rect.width() * variant(6, .35f, .65f)
@@ -93,7 +112,6 @@ class DynamicDiamondDrawable(
         )
         facets.forEachIndexed { i,(path,normal) -> drawFacet(canvas,path,normal,i==4) }
 
-        // Une ou deux petites facettes supplementaires selon la variante.
         if (seed % 2 == 0) {
             val extra = Path().apply { moveTo(rect.left,rect.top); lineTo(leftMidX,splitY); lineTo(rect.left,rect.bottom); close() }
             drawFacet(canvas,extra,variant(14,150f,220f))
@@ -105,7 +123,7 @@ class DynamicDiamondDrawable(
 
         val beamWidth = rect.width()*variant(16,.10f,.18f)
         val perpX=(-sin(rad)*beamWidth).toFloat(); val perpY=(cos(rad)*beamWidth).toFloat()
-        val beamAlpha=if(pressed)130 else if(dark)205 else 225
+        val beamAlpha=if(pressed)120 else if(dark)180 else 205
         val beamColor=if(dark) Color.argb(beamAlpha,255,224,125) else Color.argb(beamAlpha,255,255,255)
         shinePaint.shader=LinearGradient(cx-perpX,cy-perpY,cx+perpX,cy+perpY,intArrayOf(Color.TRANSPARENT,beamColor,Color.TRANSPARENT),floatArrayOf(0f,.5f,1f),Shader.TileMode.CLAMP)
         canvas.drawRoundRect(rect,radius,radius,shinePaint); shinePaint.shader=null
@@ -116,13 +134,54 @@ class DynamicDiamondDrawable(
         val half=strokePaint.strokeWidth/2f; rect.inset(half,half); canvas.drawRoundRect(rect,radius,radius,strokePaint); rect.inset(-half,-half)
     }
 
-    private fun drawFacet(canvas:Canvas,path:Path,normalAngle:Float,centreFacet:Boolean=false){
-        val light=illumination(normalAngle); val magnitude=kotlin.math.abs(light); facetPaint.style=Paint.Style.FILL
-        if(light>=0f){ val alpha=((if(centreFacet)55 else 75)+(if(pressed)105 else 165)*magnitude).toInt().coerceIn(0,235); facetPaint.color=if(dark)Color.argb(alpha,255,218,115)else Color.argb(alpha,255,255,255) }
-        else { val alpha=((if(centreFacet)55 else 70)+(if(pressed)85 else 145)*magnitude).toInt().coerceIn(0,225); facetPaint.color=if(dark)Color.argb(alpha,0,0,0)else Color.argb(alpha,55,36,15) }
-        canvas.drawPath(path,facetPaint)
+    /**
+     * Eclairage plus physique :
+     * - un minimum d'ambiante reste toujours présent ;
+     * - la lumière directe dépend de l'angle de la facette ;
+     * - les faces opposées reçoivent un petit rebond au lieu de devenir mortes ;
+     * - la réponse est adoucie pour éviter les bascules clair/sombre trop franches.
+     */
+    private fun drawFacet(canvas: Canvas, path: Path, normalAngle: Float, centreFacet: Boolean = false) {
+        val direct = illumination(normalAngle)
+        val facing = ((direct + 1f) * 0.5f).coerceIn(0f, 1f)
+        val smoothFacing = facing * facing * (3f - 2f * facing)
+
+        val oppositeNormal = normalize(normalAngle + 180f)
+        val bounceFacing = ((illumination(oppositeNormal) + 1f) * 0.5f).coerceIn(0f, 1f)
+        val bounce = bounceFacing * 0.18f
+
+        val ambient = if (dark) 0.20f else 0.28f
+        val directContribution = smoothFacing * if (pressed) 0.58f else 0.72f
+        val totalLight = (ambient + directContribution + bounce).coerceIn(0f, 1f)
+
+        facetPaint.style = Paint.Style.FILL
+        if (dark) {
+            // Même la facette dos à la source garde un léger bronze chaud.
+            val r = (18 + 237 * totalLight).toInt().coerceIn(0, 255)
+            val g = (17 + 195 * totalLight).toInt().coerceIn(0, 255)
+            val b = (13 + 92 * totalLight).toInt().coerceIn(0, 255)
+            val alphaBase = if (centreFacet) 72 else 92
+            val alpha = (alphaBase + 120 * totalLight).toInt().coerceIn(70, 215)
+            facetPaint.color = Color.argb(alpha, r, g, b)
+        } else {
+            // En clair, l'ombre reste beige/brun chaud plutôt que noire.
+            val shadowR = 118
+            val shadowG = 94
+            val shadowB = 63
+            val r = (shadowR + (255 - shadowR) * totalLight).toInt().coerceIn(0, 255)
+            val g = (shadowG + (255 - shadowG) * totalLight).toInt().coerceIn(0, 255)
+            val b = (shadowB + (255 - shadowB) * totalLight).toInt().coerceIn(0, 255)
+            val alphaBase = if (centreFacet) 58 else 78
+            val alpha = (alphaBase + 112 * totalLight).toInt().coerceIn(55, 200)
+            facetPaint.color = Color.argb(alpha, r, g, b)
+        }
+        canvas.drawPath(path, facetPaint)
     }
-    private fun illumination(normalAngle:Float):Float=cos(Math.toRadians(shortestDelta(normalAngle,lightAngle).toDouble())).toFloat().coerceIn(-1f,1f)
+
+    private fun illumination(normalAngle:Float):Float =
+        cos(Math.toRadians(shortestDelta(normalAngle,lightAngle).toDouble())).toFloat().coerceIn(-1f,1f)
+
+    private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
     private fun shortestDelta(a:Float,b:Float):Float=((b-a+540f)%360f)-180f
     override fun setAlpha(alpha:Int){fillPaint.alpha=alpha;strokePaint.alpha=alpha;facetPaint.alpha=alpha;shinePaint.alpha=alpha;invalidateSelf()}
     override fun setColorFilter(colorFilter:android.graphics.ColorFilter?){fillPaint.colorFilter=colorFilter;strokePaint.colorFilter=colorFilter;facetPaint.colorFilter=colorFilter;shinePaint.colorFilter=colorFilter;invalidateSelf()}
