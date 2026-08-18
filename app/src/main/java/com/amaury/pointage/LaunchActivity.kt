@@ -34,12 +34,16 @@ class LaunchActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         if (CrashRecoveryManager.shouldOpenRecovery(this)) {
-            startActivity(Intent(this, RecoveryActivity::class.java))
-            finish()
+            openActivity(RecoveryActivity::class.java)
             return
         }
 
         if (shouldShowWelcomeForCurrentVersion()) showWelcome() else openMain()
+    }
+
+    private fun openActivity(target: Class<out Activity>) {
+        startActivity(Intent(this, target))
+        finish()
     }
 
     private fun shouldShowWelcomeForCurrentVersion(): Boolean {
@@ -178,8 +182,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun openMain() {
-        startActivity(Intent(this, MainActivity::class.java))
-        finish()
+        openActivity(MainActivity::class.java)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
