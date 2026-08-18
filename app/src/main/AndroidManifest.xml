@@ -73,6 +73,14 @@
             </intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/pointage_widget_info" />
         </receiver>
+
+        <receiver android:name=".QuickActionsWidgetProvider" android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" />
+        </receiver>
+
         <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
         <receiver android:name=".PauseScheduleReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
