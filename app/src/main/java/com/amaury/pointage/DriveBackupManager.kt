@@ -21,52 +21,107 @@ object DriveBackupManager {
         !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TREE_URI, null).isNullOrBlank()
 
     fun savedTreeUri(context: Context): Uri? =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_TREE_URI, null)?.let(Uri::parse)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TREE_URI, null)?.let(Uri::parse)
 
     fun saveTreeUri(context: Context, uri: Uri) {
         context.contentResolver.takePersistableUriPermission(
             uri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_TREE_URI, uri.toString()).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_TREE_URI, uri.toString()).apply()
+        DriveBackupScheduler.schedule(context)
     }
 
     fun clear(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        DriveBackupScheduler.cancel(context)
     }
 
     fun syncCurrentMonthAsync(context: Context) {
         if (!isConfigured(context)) return
         val app = context.applicationContext
-        Thread {
-            runCatching {
-                val now = Calendar.getInstance(Locale.FRANCE)
-                syncMonth(app, now.get(Calendar.YEAR), now.get(Calendar.MONTH))
-            }
-        }.start()
+        Thread { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }.start()
+    }
+
+    fun syncAutomaticAsync(context: Context) {
+        if (!isConfigured(context)) return
+        val app = context.applicationContext
+        Thread { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }.start()
     }
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
         Thread {
             val result = runCatching {
-                val data = PointageStore.load(app)
-                val months = linkedSetOf<Pair<Int, Int>>()
-                val cal = Calendar.getInstance(Locale.FRANCE)
-                for (i in 0 until data.length()) {
-                    val item = data.optJSONObject(i) ?: continue
-                    val entry = item.optLong("entry", -1L)
-                    if (entry <= 0L) continue
-                    cal.timeInMillis = entry
-                    months += cal.get(Calendar.YEAR) to cal.get(Calendar.MONTH)
-                }
-                months.forEach { (year, month) -> syncMonth(app, year, month) }
-                "${months.size} mois sauvegardé(s)"
+                syncCompletedDays(app)
+                syncClosedMonths(app)
+                "sauvegarde quotidienne et mensuelle à jour"
             }
             onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
         }.start()
+    }
+
+    private fun syncCompletedDays(context: Context) {
+        val all = PointageStore.load(context)
+        if (all.length() == 0) return
+        val today = startOfDay(System.currentTimeMillis())
+        val days = linkedSetOf<Long>()
+        for (i in 0 until all.length()) {
+            val item = all.optJSONObject(i) ?: continue
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L || item.isNull("exit")) continue
+            val day = startOfDay(entry)
+            if (day < today) days += day
+        }
+        days.forEach { writeDailyReports(context, all, it) }
+    }
+
+    private fun writeDailyReports(context: Context, all: JSONArray, dayStart: Long) {
+        val dayEnd = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = dayStart; add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+        val groups = linkedMapOf<String, JSONArray>()
+        for (i in 0 until all.length()) {
+            val item = all.optJSONObject(i) ?: continue
+            val entry = item.optLong("entry", -1L)
+            if (entry !in dayStart until dayEnd || item.isNull("exit")) continue
+            val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() } ?: "Pointage manuel"
+            groups.getOrPut(place) { JSONArray() }.put(item)
+        }
+        if (groups.isEmpty()) return
+
+        val treeUri = savedTreeUri(context) ?: return
+        val root = ensureDirectory(context, treeRootDocumentUri(treeUri), ROOT_FOLDER)
+        val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = dayStart }
+        val year = cal.get(Calendar.YEAR)
+        val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(cal.time).replaceFirstChar { it.uppercase() }
+        val dateName = SimpleDateFormat("yyyy-MM-dd", Locale.FRANCE).format(cal.time)
+
+        groups.forEach { (place, data) ->
+            val placeFolder = ensureDirectory(context, root, safeName(folderNameForPlace(place)))
+            val yearFolder = ensureDirectory(context, placeFolder, year.toString())
+            val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
+            val dailyFolder = ensureDirectory(context, monthFolder, "Journées")
+            val file = ensureFile(context, dailyFolder, "Pointage_$dateName.pdf", "application/pdf")
+            context.contentResolver.openOutputStream(file, "w")?.use { DailyPdfReport.write(context, data, dayStart, dayEnd, it) }
+                ?: error("Impossible d'écrire le PDF quotidien")
+        }
+    }
+
+    private fun syncClosedMonths(context: Context) {
+        val all = PointageStore.load(context)
+        if (all.length() == 0) return
+        val current = Calendar.getInstance(Locale.FRANCE)
+        val currentKey = current.get(Calendar.YEAR) * 12 + current.get(Calendar.MONTH)
+        val months = linkedSetOf<Pair<Int, Int>>()
+        val cal = Calendar.getInstance(Locale.FRANCE)
+        for (i in 0 until all.length()) {
+            val item = all.optJSONObject(i) ?: continue
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L) continue
+            cal.timeInMillis = entry
+            val y = cal.get(Calendar.YEAR); val m = cal.get(Calendar.MONTH)
+            if (y * 12 + m < currentKey) months += y to m
+        }
+        months.forEach { (y, m) -> syncMonth(context, y, m) }
     }
 
     fun syncMonth(context: Context, year: Int, month: Int) {
@@ -74,77 +129,57 @@ object DriveBackupManager {
         val all = PointageStore.load(context)
         val groups = linkedMapOf<String, JSONArray>()
         val cal = Calendar.getInstance(Locale.FRANCE)
-
         for (i in 0 until all.length()) {
             val item = all.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L) continue
             cal.timeInMillis = entry
             if (cal.get(Calendar.YEAR) != year || cal.get(Calendar.MONTH) != month) continue
-            val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() }
-                ?: "Pointage manuel"
+            val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() } ?: "Pointage manuel"
             groups.getOrPut(place) { JSONArray() }.put(item)
         }
-
         if (groups.isEmpty()) return
 
         val root = ensureDirectory(context, treeRootDocumentUri(treeUri), ROOT_FOLDER)
         val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(
-            Calendar.getInstance(Locale.FRANCE).apply {
-                set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, 1)
-            }.time
+            Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
         ).replaceFirstChar { it.uppercase() }
 
         groups.forEach { (place, data) ->
             val placeFolder = ensureDirectory(context, root, safeName(folderNameForPlace(place)))
             val yearFolder = ensureDirectory(context, placeFolder, year.toString())
             val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
-            val fileName = "Pointage_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
+            val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
             val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
-            context.contentResolver.openOutputStream(pdfUri, "w")?.use { output ->
-                MonthlyPdfReport.write(context, data, year, month, output)
-            } ?: error("Impossible d'écrire $fileName")
+            context.contentResolver.openOutputStream(pdfUri, "w")?.use { MonthlyPdfReport.write(context, data, year, month, it) }
+                ?: error("Impossible d'écrire $fileName")
         }
     }
 
-    private fun folderNameForPlace(place: String): String {
-        val marker = " — "
-        return if (place.contains(marker)) place.substringBefore(marker).trim() else place.trim()
-    }
+    private fun startOfDay(time: Long): Long = Calendar.getInstance(Locale.FRANCE).apply {
+        timeInMillis = time
+        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
 
-    private fun safeName(value: String): String = value
-        .replace(Regex("[\\/:*?\"<>|]"), "-")
-        .trim()
-        .take(80)
-        .ifBlank { "Lieu sans nom" }
-
-    private fun treeRootDocumentUri(treeUri: Uri): Uri =
-        DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
+    private fun folderNameForPlace(place: String): String = if (place.contains(" — ")) place.substringBefore(" — ").trim() else place.trim()
+    private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "-").trim().take(80).ifBlank { "Lieu sans nom" }
+    private fun treeRootDocumentUri(treeUri: Uri): Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
 
     private fun ensureDirectory(context: Context, parent: Uri, name: String): Uri {
         findChild(context, parent, name, DocumentsContract.Document.MIME_TYPE_DIR)?.let { return it }
-        return DocumentsContract.createDocument(
-            context.contentResolver,
-            parent,
-            DocumentsContract.Document.MIME_TYPE_DIR,
-            name
-        ) ?: error("Impossible de créer le dossier $name")
+        return DocumentsContract.createDocument(context.contentResolver, parent, DocumentsContract.Document.MIME_TYPE_DIR, name)
+            ?: error("Impossible de créer le dossier $name")
     }
 
     private fun ensureFile(context: Context, parent: Uri, name: String, mime: String): Uri {
         findChild(context, parent, name, mime)?.let { return it }
-        return DocumentsContract.createDocument(context.contentResolver, parent, mime, name)
-            ?: error("Impossible de créer $name")
+        return DocumentsContract.createDocument(context.contentResolver, parent, mime, name) ?: error("Impossible de créer $name")
     }
 
     private fun findChild(context: Context, parent: Uri, name: String, mime: String): Uri? {
         val parentId = DocumentsContract.getDocumentId(parent)
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(parent, parentId)
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        )
+        val projection = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
         context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -161,37 +196,22 @@ object DriveBackupManager {
 
 class DriveFolderPickerActivity : Activity() {
     companion object { private const val REQUEST_FOLDER = 7301 }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
-                    Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-            )
-        }
-        startActivityForResult(intent, REQUEST_FOLDER)
+        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+        }, REQUEST_FOLDER)
     }
-
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == REQUEST_FOLDER && resultCode == RESULT_OK) {
-            val uri = data?.data
-            if (uri != null) {
+            data?.data?.let { uri ->
                 runCatching { DriveBackupManager.saveTreeUri(this, uri) }
                     .onSuccess {
-                        Toast.makeText(this, "Dossier Drive mémorisé. Synchronisation de l'historique…", Toast.LENGTH_LONG).show()
-                        DriveBackupManager.syncAllAsync(this) { ok, message ->
-                            runOnUiThread {
-                                Toast.makeText(this, if (ok) "Drive : $message" else "Drive : $message", Toast.LENGTH_LONG).show()
-                            }
-                        }
+                        Toast.makeText(this, "Dossier Drive mémorisé. Sauvegarde automatique activée.", Toast.LENGTH_LONG).show()
+                        DriveBackupManager.syncAllAsync(this) { ok, message -> runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() } }
                     }
-                    .onFailure {
-                        Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show()
-                    }
+                    .onFailure { Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show() }
             }
         }
         finish()
