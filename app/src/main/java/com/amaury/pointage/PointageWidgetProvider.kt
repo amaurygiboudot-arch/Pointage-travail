@@ -38,8 +38,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return if (cleaned.length <= max) cleaned else cleaned.take(max - 1) + "…"
         }
 
-        private fun parseColor(value: String?, fallback: Int): Int =
-            runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
+        private fun parseColor(value: String?, fallback: Int): Int = runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
@@ -74,7 +73,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val defaultBg = Color.parseColor(if (dark) "#080808" else "#F3F0E8")
             val defaultPanel = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
             val defaultAccent = Color.parseColor(if (dark) "#F3D58A" else "#8A6200")
-            val defaultText = Color.parseColor(if (dark) "#F4EFE3" else "#171717")
             val defaultSecondary = Color.parseColor(if (dark) "#CFC7B8" else "#4E4A44")
 
             val bg = if (widgetStyle.contains("widget_bg")) parseColor(widgetStyle.getString("widget_bg", null), defaultBg) else defaultBg
@@ -88,12 +86,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             views.setInt(R.id.widget_root, "setBackgroundColor", bg)
             views.setInt(R.id.widget_status_area, "setBackgroundColor", panel)
-            listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_exit_label, R.id.widget_now, R.id.widget_duration, R.id.widget_pause_label, R.id.widget_location).forEach {
-                views.setTextColor(it, accent)
-            }
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause).forEach {
-                views.setTextColor(it, secondary)
-            }
+            listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_exit_label, R.id.widget_now, R.id.widget_duration, R.id.widget_pause_label, R.id.widget_location).forEach { views.setTextColor(it, accent) }
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause).forEach { views.setTextColor(it, secondary) }
 
             var entryText = "--:--"
             var exitText = "--:--"
@@ -159,6 +153,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 updateAll(context)
             }
+            Intent.ACTION_CONFIGURATION_CHANGED -> updateAll(context)
         }
     }
 }
