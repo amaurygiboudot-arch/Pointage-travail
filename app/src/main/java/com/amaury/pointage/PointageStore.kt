@@ -30,6 +30,16 @@ object PointageStore {
         return false
     }
 
+    fun isPausedAutomatically(context: Context): Boolean {
+        val open = findOpenSession(load(context)) ?: return false
+        val pauses = open.optJSONArray("pauses") ?: return false
+        for (i in pauses.length() - 1 downTo 0) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            if (pause.isNull("end")) return pause.optBoolean("automatic", false)
+        }
+        return false
+    }
+
     fun entry(context: Context, zoneId: String? = null, zoneAddress: String? = null): Boolean {
         val data = load(context)
         if (findOpenSession(data) != null) return false
@@ -50,10 +60,11 @@ object PointageStore {
         data.put(item)
         save(context, data)
         IconSwitcher.setWorking(context, true)
+        PauseScheduleManager.applyCurrentWindow(context)
         return true
     }
 
-    fun startPause(context: Context): Boolean {
+    fun startPause(context: Context, automatic: Boolean = false): Boolean {
         val data = load(context)
         val item = findOpenSession(data) ?: return false
         val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
@@ -61,19 +72,24 @@ object PointageStore {
             val pause = pauses.optJSONObject(i) ?: continue
             if (pause.isNull("end")) return false
         }
-        pauses.put(JSONObject().put("start", System.currentTimeMillis()).put("end", JSONObject.NULL))
+        val pause = JSONObject()
+            .put("start", System.currentTimeMillis())
+            .put("end", JSONObject.NULL)
+        if (automatic) pause.put("automatic", true)
+        pauses.put(pause)
         save(context, data)
         PointageWidgetProvider.updateAll(context)
         return true
     }
 
-    fun resumePause(context: Context): Boolean {
+    fun resumePause(context: Context, automaticOnly: Boolean = false): Boolean {
         val data = load(context)
         val item = findOpenSession(data) ?: return false
         val pauses = item.optJSONArray("pauses") ?: return false
         for (i in pauses.length() - 1 downTo 0) {
             val pause = pauses.optJSONObject(i) ?: continue
             if (pause.isNull("end")) {
+                if (automaticOnly && !pause.optBoolean("automatic", false)) return false
                 pause.put("end", System.currentTimeMillis())
                 save(context, data)
                 PointageWidgetProvider.updateAll(context)
