@@ -10,12 +10,14 @@ import io.sentry.android.core.SentryAndroid
 /**
  * Centralise les rapports techniques et les idées utilisateurs.
  *
- * Règles de confidentialité :
+ * Règles de confidentialité et de gouvernance :
  * - aucun historique de pointage n'est lu ni envoyé ;
  * - aucune adresse, donnée de salaire ou donnée GPS n'est ajoutée ;
  * - les rapports automatiques de crash sont bloqués tant que l'utilisateur
  *   n'a pas donné son accord dans les paramètres ;
- * - une idée est envoyée uniquement après action explicite sur le bouton.
+ * - une idée est envoyée uniquement après action explicite sur le bouton ;
+ * - aucun feedback ne constitue une autorisation de modifier le code ;
+ * - toute modification de HP Travail nécessite l'approbation explicite du propriétaire.
  */
 object TelemetryManager {
     private const val PREFS = "telemetry_settings"
@@ -59,6 +61,7 @@ object TelemetryManager {
     /**
      * Envoie une suggestion volontaire. Sentry met les événements en cache si le
      * réseau n'est pas disponible et les transmettra plus tard.
+     * Le retour est explicitement marqué comme information à examiner uniquement.
      */
     fun sendIdea(context: Context, idea: String): Boolean {
         if (BuildConfig.SENTRY_DSN.isBlank()) return false
@@ -70,10 +73,14 @@ object TelemetryManager {
 
         Sentry.withScope { scope ->
             scope.setTag("hp_type", "feedback")
+            scope.setTag("hp_action", "review_only")
+            scope.setTag("owner_approval_required", "true")
+            scope.setTag("auto_code_change_allowed", "false")
             scope.setTag("app_version", version.take(80))
             scope.setTag("android_version", Build.VERSION.RELEASE.orEmpty().take(80))
             scope.setTag("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(120))
             scope.setExtra("idea", idea.take(4000))
+            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de HP Travail.")
             Sentry.captureMessage("Suggestion utilisateur HP Travail", SentryLevel.INFO)
         }
         return true
