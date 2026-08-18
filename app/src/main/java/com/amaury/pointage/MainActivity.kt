@@ -32,6 +32,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
+        private const val REQUEST_FINE_LOCATION = 3001
+        private const val REQUEST_BACKGROUND_LOCATION = 3002
     }
 
     private lateinit var statusCard: TextView
@@ -54,6 +56,8 @@ class MainActivity : Activity() {
     private lateinit var tabSettings: TextView
 
     private var activeTab = "today"
+    private var updatingGpsSwitch = false
+
     private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
         set(Calendar.DAY_OF_MONTH, 1)
         set(Calendar.HOUR_OF_DAY, 0)
@@ -104,6 +108,25 @@ class MainActivity : Activity() {
 
         loadGpsSettings()
         updateSelectedReportMonthText()
+
+        autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
+            if (updatingGpsSwitch) return@setOnCheckedChangeListener
+
+            gpsPrefs.edit().putBoolean("enabled", checked).apply()
+            if (!checked) {
+                GeofenceManager.unregisterAll(this)
+                updateGpsStatus()
+                Toast.makeText(this, "Pointage automatique GPS désactivé", Toast.LENGTH_SHORT).show()
+            } else {
+                updateGpsStatus()
+                if (!GeofenceManager.hasRequiredPermissions(this)) {
+                    Toast.makeText(this, "Autorise la localisation pour activer le pointage automatique", Toast.LENGTH_LONG).show()
+                    requestLocationAccess()
+                } else {
+                    saveGpsSettings()
+                }
+            }
+        }
 
         settingsButton.setOnClickListener {
             animateClick(settingsButton)
@@ -187,6 +210,31 @@ class MainActivity : Activity() {
             "analytics" -> showAnalyticsTab()
             "settings" -> showSettingsTab()
             else -> showTodayTab()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        when (requestCode) {
+            REQUEST_FINE_LOCATION -> {
+                val granted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (granted) {
+                    requestLocationAccess()
+                } else {
+                    disableAutomaticGps("La localisation précise est nécessaire pour le pointage automatique")
+                }
+            }
+            REQUEST_BACKGROUND_LOCATION -> {
+                val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+                    checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (granted) {
+                    updateGpsStatus()
+                    tryRestoreGeofence()
+                } else {
+                    disableAutomaticGps("Autorise la localisation tout le temps pour le pointage automatique")
+                }
+            }
         }
     }
 
@@ -361,7 +409,9 @@ class MainActivity : Activity() {
         workplaceAddress.setText(gpsPrefs.getString("address", "") ?: "")
         workplaceAddress.hint = "Une adresse par ligne — 10 adresses maximum"
         geofenceRadius.setText(gpsPrefs.getInt("radius", 150).toString())
+        updatingGpsSwitch = true
         autoGpsSwitch.isChecked = gpsPrefs.getBoolean("enabled", false)
+        updatingGpsSwitch = false
     }
 
     private fun loadSavedZoneObjects(): JSONArray {
@@ -429,10 +479,15 @@ class MainActivity : Activity() {
 
         if (autoGpsSwitch.isChecked && workZones.isNotEmpty()) {
             if (GeofenceManager.hasRequiredPermissions(this)) {
-                GeofenceManager.registerAll(this, workZones)
-                Toast.makeText(this, "Lieux GPS enregistrés", Toast.LENGTH_SHORT).show()
+                GeofenceManager.registerAll(this, workZones) { success, message ->
+                    runOnUiThread {
+                        gpsStatusText.text = if (success) "GPS automatique actif" else message
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    }
+                }
             } else {
                 Toast.makeText(this, "Autorise d'abord la localisation", Toast.LENGTH_LONG).show()
+                requestLocationAccess()
             }
         } else {
             GeofenceManager.unregisterAll(this)
@@ -442,14 +497,47 @@ class MainActivity : Activity() {
     }
 
     private fun requestLocationAccess() {
-        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) permissions += Manifest.permission.ACCESS_BACKGROUND_LOCATION
-        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (missing.isEmpty()) {
-            Toast.makeText(this, "Localisation déjà autorisée", Toast.LENGTH_SHORT).show()
-        } else {
-            requestPermissions(missing.toTypedArray(), 3001)
+        val fineGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fineGranted) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_FINE_LOCATION)
+            return
         }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                AlertDialog.Builder(this)
+                    .setTitle("Autoriser le pointage automatique")
+                    .setMessage("Pour détecter automatiquement l'arrivée et le départ même quand HP Travail est fermé, choisis Localisation puis “Toujours autoriser” dans les réglages de l'application.")
+                    .setPositiveButton("OUVRIR LES RÉGLAGES") { _, _ ->
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$packageName")
+                        })
+                    }
+                    .setNegativeButton("Annuler") { _, _ ->
+                        disableAutomaticGps("Localisation en arrière-plan non autorisée")
+                    }
+                    .show()
+            } else {
+                requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_BACKGROUND_LOCATION)
+            }
+            return
+        }
+
+        Toast.makeText(this, "Localisation autorisée", Toast.LENGTH_SHORT).show()
+        updateGpsStatus()
+        if (autoGpsSwitch.isChecked) tryRestoreGeofence()
+    }
+
+    private fun disableAutomaticGps(message: String) {
+        updatingGpsSwitch = true
+        autoGpsSwitch.isChecked = false
+        updatingGpsSwitch = false
+        gpsPrefs.edit().putBoolean("enabled", false).apply()
+        GeofenceManager.unregisterAll(this)
+        gpsStatusText.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun tryRestoreGeofence() {
@@ -467,13 +555,20 @@ class MainActivity : Activity() {
                 item.optDouble("radius", 150.0).toFloat()
             )
         }
-        if (zones.isNotEmpty()) GeofenceManager.registerAll(this, zones)
+        if (zones.isNotEmpty()) {
+            GeofenceManager.registerAll(this, zones) { success, message ->
+                runOnUiThread {
+                    gpsStatusText.text = if (success) "GPS automatique actif" else message
+                }
+            }
+        }
     }
 
     private fun updateGpsStatus() {
         gpsStatusText.text = when {
             !autoGpsSwitch.isChecked -> "GPS automatique désactivé"
-            !GeofenceManager.hasRequiredPermissions(this) -> "Localisation à autoriser"
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Localisation précise à autoriser"
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Autorise la localisation tout le temps"
             else -> "GPS automatique actif"
         }
     }
