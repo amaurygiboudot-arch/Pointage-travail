@@ -50,6 +50,7 @@ jobs:
           POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
           POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
           POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: gradle assembleRelease bundleRelease
 
       - name: Verifier la signature APK
