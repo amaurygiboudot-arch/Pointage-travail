@@ -56,18 +56,23 @@
         </receiver>
         <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
-            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
         </receiver>
 
-        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" android:targetActivity=".LaunchActivity">
-            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-        </activity-alias>
-        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HP Travail" android:targetActivity=".LaunchActivity">
-            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
-        </activity-alias>
-
-        <activity-alias android:name=".RecoveryIcon" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail Secours" android:targetActivity=".RecoveryActivity">
-            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        <activity-alias
+            android:name=".IconRed"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/hp_icon_red"
+            android:label="HP Travail"
+            android:targetActivity=".LaunchActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
         </activity-alias>
     </application>
 </manifest>
