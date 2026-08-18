@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
@@ -29,6 +30,7 @@ class SalaryTabTextView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         WidgetThemeSync.install(context)
+        (context as? Activity)?.let { ButtonReliefInstaller.install(it) }
         post { applyTabTypography(); installAddressUi(); installSalaryAutoHide() }
     }
 
