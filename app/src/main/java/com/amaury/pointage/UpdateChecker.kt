@@ -29,8 +29,22 @@ import java.util.Locale
 object UpdateChecker {
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases/latest"
     private const val PREFS = "update_checker"
+    private const val KEY_AUTO_CHOICE_MADE = "auto_update_choice_made"
+    private const val KEY_AUTO_ENABLED = "auto_update_enabled"
+    private const val KEY_AUTO_STARTED_TAG = "auto_update_started_tag"
 
     fun check(activity: Activity, silent: Boolean = true) {
+        val prefs = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+
+        if (!prefs.getBoolean(KEY_AUTO_CHOICE_MADE, false)) {
+            activity.runOnUiThread {
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    showAutoUpdateConsent(activity)
+                }
+            }
+            return
+        }
+
         Thread {
             try {
                 val connection = URL(LATEST_RELEASE_API).openConnection() as HttpURLConnection
@@ -56,7 +70,10 @@ object UpdateChecker {
                     .versionName
                     .orEmpty()
 
-                if (compareVersions(versionName, currentVersion) <= 0) return@Thread
+                if (compareVersions(versionName, currentVersion) <= 0) {
+                    prefs.edit().remove(KEY_AUTO_STARTED_TAG).apply()
+                    return@Thread
+                }
 
                 val assets = release.optJSONArray("assets")
                 var apkUrl: String? = null
@@ -74,22 +91,163 @@ object UpdateChecker {
                         }
                     }
                 }
+
                 val destination = apkUrl ?: return@Thread
                 val notes = release.optString("body").trim()
-
-                val prefs = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
-                val lastShown = prefs.getString("last_shown_tag", null)
-                if (silent && lastShown == tag) return@Thread
+                val autoEnabled = prefs.getBoolean(KEY_AUTO_ENABLED, false)
 
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
-                    showUpdateDialog(activity, versionName, notes, destination, apkName, apkSize)
-                    prefs.edit().putString("last_shown_tag", tag).apply()
+
+                    if (autoEnabled) {
+                        if (prefs.getString(KEY_AUTO_STARTED_TAG, null) == tag) return@runOnUiThread
+                        prefs.edit().putString(KEY_AUTO_STARTED_TAG, tag).apply()
+                        Toast.makeText(activity, "Nouvelle version $versionName détectée — téléchargement automatique…", Toast.LENGTH_SHORT).show()
+                        startDownload(
+                            activity = activity,
+                            previousDialog = null,
+                            versionName = versionName,
+                            apkUrl = destination,
+                            apkName = apkName,
+                            autoTag = tag
+                        )
+                    } else {
+                        val lastShown = prefs.getString("last_shown_tag", null)
+                        if (silent && lastShown == tag) return@runOnUiThread
+                        showUpdateDialog(activity, versionName, notes, destination, apkName, apkSize)
+                        prefs.edit().putString("last_shown_tag", tag).apply()
+                    }
                 }
             } catch (_: Exception) {
                 // Une absence de réseau ne doit jamais empêcher l'application de démarrer.
             }
         }.start()
+    }
+
+    private data class Theme(
+        val background: Int,
+        val panel: Int,
+        val text: Int,
+        val secondary: Int,
+        val gold: Int,
+        val goldLight: Int
+    )
+
+    private fun theme(activity: Activity): Theme {
+        val appearance = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+        val mode = appearance.getString("mode", "auto") ?: "auto"
+        val night = (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val dark = mode == "dark" || (mode == "auto" && night)
+        return Theme(
+            background = if (dark) Color.parseColor("#0B0B0B") else Color.parseColor("#F7F3EA"),
+            panel = if (dark) Color.parseColor("#181818") else Color.WHITE,
+            text = if (dark) Color.WHITE else Color.parseColor("#151515"),
+            secondary = if (dark) Color.parseColor("#CFC8BA") else Color.parseColor("#57514A"),
+            gold = Color.parseColor("#D6A84B"),
+            goldLight = Color.parseColor("#F3D58A")
+        )
+    }
+
+    private fun rounded(activity: Activity, color: Int, radius: Int = 18, strokeColor: Int? = null): GradientDrawable {
+        fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+            if (strokeColor != null) setStroke(dp(1), strokeColor)
+        }
+    }
+
+    private fun showAutoUpdateConsent(activity: Activity) {
+        val prefs = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_AUTO_CHOICE_MADE, false)) return
+
+        val t = theme(activity)
+        fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
+
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(20), dp(22), dp(18))
+            background = rounded(activity, t.background, 24, t.gold)
+        }
+
+        box.addView(TextView(activity).apply {
+            text = "♛"
+            gravity = Gravity.CENTER
+            textSize = 32f
+            setTextColor(t.gold)
+        })
+        box.addView(TextView(activity).apply {
+            text = "MISES À JOUR AUTOMATIQUES"
+            gravity = Gravity.CENTER
+            textSize = 18f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(t.goldLight)
+            letterSpacing = 0.06f
+            setPadding(0, dp(5), 0, dp(12))
+        })
+
+        val info = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(15), dp(14), dp(15), dp(14))
+            background = rounded(activity, t.panel, 16)
+        }
+        info.addView(TextView(activity).apply {
+            text = "Souhaites-tu autoriser HP Travail à télécharger automatiquement les nouvelles versions lorsqu'elles sont disponibles ?"
+            textSize = 14f
+            setTextColor(t.text)
+        })
+        info.addView(TextView(activity).apply {
+            text = "• Oui : téléchargement automatique et ouverture de l'installation.\n• Non : l'application te demandera avant chaque mise à jour.\n\nAndroid demandera toujours ta confirmation finale avant d'installer l'APK."
+            textSize = 13f
+            setTextColor(t.secondary)
+            setPadding(0, dp(10), 0, 0)
+        })
+        box.addView(info)
+
+        val yesButton = Button(activity).apply {
+            text = "OUI, ACTIVER"
+            isAllCaps = false
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#15100A"))
+            background = rounded(activity, t.goldLight, 14)
+        }
+        val noButton = Button(activity).apply {
+            text = "Non, me demander"
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(t.secondary)
+            background = rounded(activity, t.panel, 14)
+        }
+        box.addView(yesButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(18) })
+        box.addView(noButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
+
+        val dialog = AlertDialog.Builder(activity).setView(box).create()
+        dialog.setCancelable(false)
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            dialog.window?.setLayout((activity.resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        yesButton.setOnClickListener {
+            prefs.edit()
+                .putBoolean(KEY_AUTO_CHOICE_MADE, true)
+                .putBoolean(KEY_AUTO_ENABLED, true)
+                .apply()
+            dialog.dismiss()
+            Toast.makeText(activity, "Mises à jour automatiques activées", Toast.LENGTH_SHORT).show()
+            check(activity, silent = true)
+        }
+        noButton.setOnClickListener {
+            prefs.edit()
+                .putBoolean(KEY_AUTO_CHOICE_MADE, true)
+                .putBoolean(KEY_AUTO_ENABLED, false)
+                .apply()
+            dialog.dismiss()
+            Toast.makeText(activity, "Les mises à jour resteront manuelles", Toast.LENGTH_SHORT).show()
+            check(activity, silent = true)
+        }
+        dialog.show()
     }
 
     private fun showUpdateDialog(
@@ -100,98 +258,76 @@ object UpdateChecker {
         apkName: String,
         apkSize: Long
     ) {
-        val appearance = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
-        val mode = appearance.getString("mode", "auto") ?: "auto"
-        val night = (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-        val dark = mode == "dark" || (mode == "auto" && night)
-
-        val background = if (dark) Color.parseColor("#0B0B0B") else Color.parseColor("#F7F3EA")
-        val panel = if (dark) Color.parseColor("#181818") else Color.WHITE
-        val text = if (dark) Color.WHITE else Color.parseColor("#151515")
-        val secondary = if (dark) Color.parseColor("#CFC8BA") else Color.parseColor("#57514A")
-        val gold = Color.parseColor("#D6A84B")
-        val goldLight = Color.parseColor("#F3D58A")
-
+        val t = theme(activity)
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
-        fun rounded(color: Int, radius: Int = 18, strokeColor: Int? = null): GradientDrawable = GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(radius).toFloat()
-            if (strokeColor != null) setStroke(dp(1), strokeColor)
-        }
 
         val container = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(20), dp(22), dp(18))
-            background = rounded(background, 24, gold)
+            background = rounded(activity, t.background, 24, t.gold)
         }
 
         val crown = TextView(activity).apply {
-            this.text = "♛"
+            text = "♛"
             textSize = 31f
             gravity = Gravity.CENTER
-            setTextColor(gold)
+            setTextColor(t.gold)
         }
         val title = TextView(activity).apply {
-            this.text = "MISE À JOUR DISPONIBLE"
+            text = "MISE À JOUR DISPONIBLE"
             textSize = 19f
             gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(goldLight)
+            setTextColor(t.goldLight)
             letterSpacing = 0.08f
             setPadding(0, dp(4), 0, dp(3))
         }
         val version = TextView(activity).apply {
-            this.text = "HP Travail  •  Version $versionName"
+            text = "HP Travail  •  Version $versionName"
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(text)
+            setTextColor(t.text)
             setPadding(0, 0, 0, dp(14))
         }
 
         val infoPanel = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(15), dp(13), dp(15), dp(13))
-            background = rounded(panel, 16)
+            background = rounded(activity, t.panel, 16)
         }
         infoPanel.addView(TextView(activity).apply {
-            this.text = "Une nouvelle version de l'application est prête. La mise à jour se télécharge directement ici, sans passer par GitHub."
+            text = "Une nouvelle version de l'application est prête. La mise à jour se télécharge directement ici, sans passer par GitHub."
             textSize = 14f
-            setTextColor(text)
+            setTextColor(t.text)
         })
         if (apkSize > 0L) {
             infoPanel.addView(TextView(activity).apply {
-                this.text = "Taille : ${formatBytes(apkSize)}"
+                text = "Taille : ${formatBytes(apkSize)}"
                 textSize = 12f
-                setTextColor(secondary)
+                setTextColor(t.secondary)
                 setPadding(0, dp(7), 0, 0)
             })
         }
 
+        container.addView(crown)
+        container.addView(title)
+        container.addView(version)
+        container.addView(infoPanel)
+
         if (notes.isNotBlank()) {
-            val notesTitle = TextView(activity).apply {
-                this.text = "NOUVEAUTÉS"
+            container.addView(TextView(activity).apply {
+                text = "NOUVEAUTÉS"
                 textSize = 13f
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(gold)
+                setTextColor(t.gold)
                 setPadding(0, dp(16), 0, dp(6))
-            }
-            val notesText = TextView(activity).apply {
-                this.text = cleanReleaseNotes(notes)
+            })
+            container.addView(TextView(activity).apply {
+                text = cleanReleaseNotes(notes)
                 textSize = 13f
-                setTextColor(secondary)
+                setTextColor(t.secondary)
                 maxLines = 6
-            }
-            container.addView(crown)
-            container.addView(title)
-            container.addView(version)
-            container.addView(infoPanel)
-            container.addView(notesTitle)
-            container.addView(notesText)
-        } else {
-            container.addView(crown)
-            container.addView(title)
-            container.addView(version)
-            container.addView(infoPanel)
+            })
         }
 
         val updateButton = Button(activity).apply {
@@ -199,14 +335,14 @@ object UpdateChecker {
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#15100A"))
-            background = rounded(goldLight, 14)
+            background = rounded(activity, t.goldLight, 14)
             isAllCaps = false
         }
         val laterButton = Button(activity).apply {
             text = "Plus tard"
             textSize = 14f
-            setTextColor(secondary)
-            background = rounded(panel, 14)
+            setTextColor(t.secondary)
+            background = rounded(activity, t.panel, 14)
             isAllCaps = false
         }
         container.addView(updateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(18) })
@@ -217,39 +353,30 @@ object UpdateChecker {
             addView(container)
         }
 
-        val dialog = AlertDialog.Builder(activity)
-            .setView(scroll)
-            .create()
-
+        val dialog = AlertDialog.Builder(activity).setView(scroll).create()
         dialog.setOnShowListener {
             dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-            val width = (activity.resources.displayMetrics.widthPixels * 0.92f).toInt()
-            dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+            dialog.window?.setLayout((activity.resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
         laterButton.setOnClickListener { dialog.dismiss() }
         updateButton.setOnClickListener {
             updateButton.isEnabled = false
             updateButton.text = "PRÉPARATION…"
-            startDownload(activity, dialog, versionName, apkUrl, apkName, background, panel, text, secondary, gold, goldLight)
+            startDownload(activity, dialog, versionName, apkUrl, apkName, autoTag = null)
         }
-
         dialog.show()
     }
 
     private fun startDownload(
         activity: Activity,
-        previousDialog: AlertDialog,
+        previousDialog: AlertDialog?,
         versionName: String,
         apkUrl: String,
         apkName: String,
-        background: Int,
-        panel: Int,
-        text: Int,
-        secondary: Int,
-        gold: Int,
-        goldLight: Int
+        autoTag: String?
     ) {
+        val t = theme(activity)
         try {
             val downloadManager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val safeName = apkName.ifBlank { "HP-Travail-$versionName.apk" }
@@ -263,9 +390,12 @@ object UpdateChecker {
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, safeName)
             }
             val downloadId = downloadManager.enqueue(request)
-            previousDialog.dismiss()
-            showDownloadProgress(activity, downloadManager, downloadId, versionName, background, panel, text, secondary, gold, goldLight)
+            previousDialog?.dismiss()
+            showDownloadProgress(activity, downloadManager, downloadId, versionName, autoTag, t)
         } catch (e: Exception) {
+            if (autoTag != null) {
+                activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE).edit().remove(KEY_AUTO_STARTED_TAG).apply()
+            }
             Toast.makeText(activity, "Impossible de démarrer la mise à jour : ${e.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
         }
     }
@@ -275,65 +405,56 @@ object UpdateChecker {
         manager: DownloadManager,
         downloadId: Long,
         versionName: String,
-        background: Int,
-        panel: Int,
-        text: Int,
-        secondary: Int,
-        gold: Int,
-        goldLight: Int
+        autoTag: String?,
+        t: Theme
     ) {
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
-        fun rounded(color: Int, radius: Int = 18, strokeColor: Int? = null): GradientDrawable = GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = dp(radius).toFloat()
-            if (strokeColor != null) setStroke(dp(1), strokeColor)
-        }
 
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(22), dp(22), dp(20))
-            background = rounded(background, 24, gold)
+            background = rounded(activity, t.background, 24, t.gold)
         }
         box.addView(TextView(activity).apply {
-            this.text = "♛  HP TRAVAIL"
+            text = "♛  HP TRAVAIL"
             gravity = Gravity.CENTER
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(goldLight)
+            setTextColor(t.goldLight)
         })
         box.addView(TextView(activity).apply {
-            this.text = "Mise à jour vers la version $versionName"
+            text = "Mise à jour vers la version $versionName"
             gravity = Gravity.CENTER
             textSize = 14f
-            setTextColor(text)
+            setTextColor(t.text)
             setPadding(0, dp(7), 0, dp(16))
         })
 
         val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
-            progressTintList = ColorStateList.valueOf(gold)
-            progressBackgroundTintList = ColorStateList.valueOf(panel)
+            progressTintList = ColorStateList.valueOf(t.gold)
+            progressBackgroundTintList = ColorStateList.valueOf(t.panel)
         }
         val percent = TextView(activity).apply {
-            this.text = "0 %"
+            text = "0 %"
             gravity = Gravity.CENTER
             textSize = 22f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(goldLight)
+            setTextColor(t.goldLight)
             setPadding(0, dp(10), 0, dp(2))
         }
         val status = TextView(activity).apply {
-            this.text = "Téléchargement en cours…"
+            text = if (autoTag != null) "Mise à jour automatique en cours…" else "Téléchargement en cours…"
             gravity = Gravity.CENTER
             textSize = 13f
-            setTextColor(secondary)
+            setTextColor(t.secondary)
         }
         val cancel = Button(activity).apply {
-            this.text = "Annuler"
+            text = "Annuler"
             isAllCaps = false
-            setTextColor(secondary)
-            background = rounded(panel, 14)
+            setTextColor(t.secondary)
+            background = rounded(activity, t.panel, 14)
         }
 
         box.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)))
@@ -349,6 +470,9 @@ object UpdateChecker {
         }
         cancel.setOnClickListener {
             manager.remove(downloadId)
+            if (autoTag != null) {
+                activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE).edit().remove(KEY_AUTO_STARTED_TAG).apply()
+            }
             dialog.dismiss()
             Toast.makeText(activity, "Mise à jour annulée", Toast.LENGTH_SHORT).show()
         }
@@ -357,8 +481,7 @@ object UpdateChecker {
         Thread {
             var finished = false
             while (!finished && !activity.isFinishing && !activity.isDestroyed) {
-                val query = DownloadManager.Query().setFilterById(downloadId)
-                val cursor = runCatching { manager.query(query) }.getOrNull()
+                val cursor = runCatching { manager.query(DownloadManager.Query().setFilterById(downloadId)) }.getOrNull()
                 if (cursor == null) break
                 cursor.use {
                     if (!it.moveToFirst()) {
@@ -397,6 +520,9 @@ object UpdateChecker {
                         }
                         DownloadManager.STATUS_FAILED -> {
                             finished = true
+                            if (autoTag != null) {
+                                activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE).edit().remove(KEY_AUTO_STARTED_TAG).apply()
+                            }
                             val reason = if (reasonIndex >= 0) it.getInt(reasonIndex) else -1
                             activity.runOnUiThread {
                                 if (dialog.isShowing) dialog.dismiss()
@@ -419,7 +545,7 @@ object UpdateChecker {
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-                Toast.makeText(activity, "Autorise HP Travail à installer cette mise à jour, puis relance l'installation.", Toast.LENGTH_LONG).show()
+                Toast.makeText(activity, "Autorise HP Travail à installer cette mise à jour. Android te demandera ensuite confirmation.", Toast.LENGTH_LONG).show()
                 val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
                 activity.startActivity(settingsIntent)
                 return
