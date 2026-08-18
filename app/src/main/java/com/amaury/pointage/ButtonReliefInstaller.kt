@@ -64,7 +64,7 @@ object ButtonReliefInstaller {
         val bgText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
         val panelText = Color.parseColor(if (dark) "#F7F3EC" else "#111111")
         val hint = Color.parseColor(if (dark) "#C9C1B4" else "#55514B")
-        sanitizeView(root, bg, panel, bgText, panelText, hint, false, true)
+        sanitizeView(root, bg, panel, bgText, panelText, hint, false, true, dark)
     }
 
     private fun sanitizeView(
@@ -75,7 +75,8 @@ object ButtonReliefInstaller {
         panelText: Int,
         hint: Int,
         inheritedPanel: Boolean,
-        isRoot: Boolean = false
+        isRoot: Boolean = false,
+        dark: Boolean
     ) {
         val id = resourceName(view)
         val namedPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" ||
@@ -97,7 +98,7 @@ object ButtonReliefInstaller {
 
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false)
+                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark)
             }
         }
 
