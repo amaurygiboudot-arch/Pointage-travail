@@ -1,4 +1,4 @@
-name: Compiler PointageTravail Release
+name: Compiler HP Travail APK
 
 on:
   workflow_dispatch:
@@ -12,20 +12,18 @@ on:
       - ".github/workflows/build-apk.yml"
 
 concurrency:
-  group: pointage-travail-v2-release
+  group: hp-travail-apk
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Recuperer le projet
         uses: actions/checkout@v4
 
-      - name: Installer Java
+      - name: Installer Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -36,63 +34,16 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Verifier la configuration de signature
-        env:
-          KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_B64" || (echo "Secret POINTAGE_KEYSTORE_B64 manquant" && exit 1)
-          test -n "$KEYSTORE_PASSWORD" || (echo "Secret POINTAGE_KEYSTORE_PASSWORD manquant" && exit 1)
-          test -n "$KEY_ALIAS" || (echo "Secret POINTAGE_KEY_ALIAS manquant" && exit 1)
-          test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
+      - name: Compiler HP Travail
+        run: gradle :app:assembleDebug --stacktrace
 
-      - name: Incrementer automatiquement la version V2
-        run: |
-          sed -i "s/versionCode = [0-9][0-9]*/versionCode = ${{ github.run_number }}/" app/build.gradle.kts
-          sed -i "s/versionName = \"[^\"]*\"/versionName = \"2.${{ github.run_number }}\"/" app/build.gradle.kts
+      - name: Renommer APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk HP-Travail.apk
 
-      - name: Compiler uniquement HP Travail V2
-        env:
-          POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
-          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
-          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
-          POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-        run: gradle :app:assembleRelease :app:bundleRelease --stacktrace
-
-      - name: Verifier la signature APK
-        run: |
-          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-          "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-
-      - name: Calculer empreintes SHA-256
-        run: |
-          sha256sum app/build/outputs/apk/release/app-release.apk > app/build/outputs/apk/release/SHA256.txt
-          sha256sum app/build/outputs/bundle/release/app-release.aab > app/build/outputs/bundle/release/SHA256.txt
-
-      - name: Publier artefacts release
+      - name: Publier APK
         uses: actions/upload-artifact@v4
         with:
-          name: PointageTravail-Release-v2.${{ github.run_number }}
-          path: |
-            app/build/outputs/apk/release/app-release.apk
-            app/build/outputs/apk/release/SHA256.txt
-            app/build/outputs/bundle/release/app-release.aab
-            app/build/outputs/bundle/release/SHA256.txt
+          name: HP-Travail-APK
+          path: HP-Travail.apk
           if-no-files-found: error
           retention-days: 30
-
-      - name: Publier la mise a jour GitHub
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="v2.${{ github.run_number }}"
-          gh release create "$TAG" \
-            app/build/outputs/apk/release/app-release.apk#PointageTravail.apk \
-            app/build/outputs/apk/release/SHA256.txt \
-            --title "Pointage Travail 2.${{ github.run_number }}" \
-            --notes "Mise à jour HP Travail V2" \
-            --latest
