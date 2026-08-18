@@ -37,16 +37,23 @@
         <LinearLayout android:id="@+id/pointageButtons" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="vertical" android:gravity="center_horizontal" android:background="@android:color/transparent" android:paddingTop="10dp" android:paddingBottom="8dp">
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                    <com.amaury.pointage.LightReactiveJewelButton android:id="@+id/entryButton" android:layout_width="145dp" android:layout_height="145dp" android:text="" android:contentDescription="Entrée"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="E N T R É E" android:textColor="@color/hp_gold_light" android:textSize="15sp" android:fontFamily="serif"/>
+                    <com.amaury.pointage.LightReactiveJewelButton android:id="@+id/entryButton" android:layout_width="108dp" android:layout_height="108dp" android:text="" android:contentDescription="Entrée"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="ENTRÉE" android:textColor="@color/hp_gold_light" android:textSize="13sp" android:fontFamily="serif"/>
                 </LinearLayout>
-                <TextView android:layout_width="30dp" android:layout_height="match_parent" android:gravity="center" android:text="♛" android:textColor="@color/hp_gold" android:textSize="22sp"/>
+
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                    <com.amaury.pointage.LightReactiveJewelButton android:id="@+id/exitButton" android:layout_width="145dp" android:layout_height="145dp" android:text="" android:contentDescription="Sortie"/>
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="S O R T I E" android:textColor="@color/hp_gold_light" android:textSize="15sp" android:fontFamily="serif"/>
+                    <com.amaury.pointage.PauseJewelButton android:id="@+id/pauseButton" android:layout_width="108dp" android:layout_height="108dp" android:text="" android:contentDescription="Pause"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="PAUSE" android:textColor="#F3A64A" android:textSize="13sp" android:fontFamily="serif"/>
+                </LinearLayout>
+
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                    <com.amaury.pointage.LightReactiveJewelButton android:id="@+id/exitButton" android:layout_width="108dp" android:layout_height="108dp" android:text="" android:contentDescription="Sortie"/>
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="SORTIE" android:textColor="@color/hp_gold_light" android:textSize="13sp" android:fontFamily="serif"/>
                 </LinearLayout>
             </LinearLayout>
+
             <com.amaury.pointage.ManualHoursButton android:id="@+id/manualHoursButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_marginEnd="10dp" android:layout_marginTop="10dp" android:background="@drawable/hp_panel" android:text="✎  SAISIE MANUELLE DES HEURES" android:textColor="@color/hp_gold_light" android:textSize="14sp" />
+            <com.amaury.pointage.ManualPauseButton android:id="@+id/manualPauseButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:layout_marginEnd="10dp" android:layout_marginTop="8dp" android:background="@drawable/hp_panel" android:text="⏸  SAISIE MANUELLE D'UNE PAUSE" android:textColor="#F3A64A" android:textSize="14sp" />
         </LinearLayout>
 
         <LinearLayout android:id="@+id/contentPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="vertical" android:background="@android:color/transparent" android:padding="14dp">
