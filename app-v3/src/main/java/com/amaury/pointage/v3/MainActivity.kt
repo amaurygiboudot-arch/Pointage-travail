@@ -11,6 +11,8 @@ import java.util.Locale
 class MainActivity : Activity() {
     private lateinit var statusText: TextView
     private lateinit var historyText: TextView
+    private lateinit var entryButton: V3JewelButton
+    private lateinit var exitButton: V3JewelButton
     private var entryAt: Long? = null
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
 
@@ -20,9 +22,10 @@ class MainActivity : Activity() {
 
         statusText = findViewById(R.id.statusText)
         historyText = findViewById(R.id.historyText)
+        entryButton = findViewById(R.id.entryButton)
+        exitButton = findViewById(R.id.exitButton)
+        exitButton.isEntry = false
 
-        val entryButton = findViewById<Button>(R.id.entryButton)
-        val exitButton = findViewById<Button>(R.id.exitButton)
         val manualButton = findViewById<Button>(R.id.manualButton)
 
         entryButton.setOnClickListener {
@@ -45,6 +48,19 @@ class MainActivity : Activity() {
         }
 
         refresh()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        V3LightController.attach(this) { angle ->
+            entryButton.lightAngle = angle
+            exitButton.lightAngle = angle
+        }
+    }
+
+    override fun onPause() {
+        V3LightController.detach()
+        super.onPause()
     }
 
     private fun refresh() {
