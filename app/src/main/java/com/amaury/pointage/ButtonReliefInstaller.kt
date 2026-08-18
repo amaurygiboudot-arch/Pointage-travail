@@ -64,6 +64,14 @@ object ButtonReliefInstaller {
         dynamicDrawables.entries.toList().forEach { (button, drawable) ->
             if (button.rootView === decor) drawable.setLightAngle(angle)
         }
+        updateJewelLights(decor, angle)
+    }
+
+    private fun updateJewelLights(view: View, angle: Float) {
+        if (view is LightReactiveJewelButton) view.setLightAngle(angle)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle)
+        }
     }
 
     private fun isSolarEnabled(context: Context): Boolean =
@@ -116,14 +124,10 @@ object ButtonReliefInstaller {
         }
 
         val insertAt = if (section.childCount >= 2) 2 else section.childCount
-        section.addView(
-            button,
-            insertAt,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
-                topMargin = dp(activity, 4)
-                bottomMargin = dp(activity, 4)
-            }
-        )
+        section.addView(button, insertAt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+            topMargin = dp(activity, 4)
+            bottomMargin = dp(activity, 4)
+        })
     }
 
     private fun installSolarToggleIfPossible(activity: Activity) {
@@ -142,11 +146,7 @@ object ButtonReliefInstaller {
 
         val themeIndex = (0 until section.childCount).firstOrNull { section.getChildAt(it).tag == TAG_THEME_BUTTON }
         val insertAt = if (themeIndex != null) themeIndex + 1 else if (section.childCount >= 2) 2 else section.childCount
-        section.addView(
-            toggle,
-            insertAt,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        )
+        section.addView(toggle, insertAt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     private fun refresh(activity: Activity, decor: View) {
@@ -183,36 +183,20 @@ object ButtonReliefInstaller {
         sanitizeView(root, bg, panel, bgText, panelText, hint, false, true, dark, theme)
     }
 
-    private fun sanitizeView(
-        view: View,
-        bg: Int,
-        panel: Int,
-        bgText: Int,
-        panelText: Int,
-        hint: Int,
-        inheritedPanel: Boolean,
-        isRoot: Boolean = false,
-        dark: Boolean,
-        theme: HpTheme
-    ) {
+    private fun sanitizeView(view: View, bg: Int, panel: Int, bgText: Int, panelText: Int, hint: Int, inheritedPanel: Boolean, isRoot: Boolean = false, dark: Boolean, theme: HpTheme) {
         val id = resourceName(view)
-        val namedPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" ||
-            id == "gpsSettingsPanel" || id == "analyticsPdfPanel" ||
-            id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)
-        val anonymousSurface = !isRoot && view is ViewGroup && view !is ScrollView &&
-            view.background != null && !isProtectedContainer(id)
+        val namedPanel = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel" || id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)
+        val anonymousSurface = !isRoot && view is ViewGroup && view !is ScrollView && view.background != null && !isProtectedContainer(id)
         val ownPanel = namedPanel || anonymousSurface
         val onPanel = inheritedPanel || ownPanel
 
-        if (ownPanel && view.background != null) {
+        if (ownPanel && view.background != null && view.background.alpha > 0) {
             view.backgroundTintList = ColorStateList.valueOf(panel)
             view.background.mutate().alpha = if (dark) 232 else 244
         }
 
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark, theme)
-            }
+            for (i in 0 until view.childCount) sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark, theme)
         }
 
         val textColor = if (onPanel) panelText else bgText
@@ -225,6 +209,7 @@ object ButtonReliefInstaller {
                     view.background.mutate().alpha = if (dark) 240 else 250
                 }
             }
+            is LightReactiveJewelButton -> view.setJewelAccent(theme.accent, theme.accentLight)
             is Button -> {
                 if (!isProtectedButton(id)) {
                     view.backgroundTintList = null
@@ -236,11 +221,8 @@ object ButtonReliefInstaller {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
                 if (!tab) {
                     val current = view.currentTextColor
-                    if (isKnownAccent(current)) {
-                        view.setTextColor(if (dark) theme.accentLight else theme.accent)
-                    } else if (contrastRatio(current, if (onPanel) panel else bg) < 4.5) {
-                        view.setTextColor(textColor)
-                    }
+                    if (isKnownAccent(current)) view.setTextColor(if (dark) theme.accentLight else theme.accent)
+                    else if (contrastRatio(current, if (onPanel) panel else bg) < 4.5) view.setTextColor(textColor)
                 }
             }
         }
@@ -254,17 +236,16 @@ object ButtonReliefInstaller {
     private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = "diamond_${theme.id}_${if (dark) "dark" else "light"}_v4"
+        val styleKey = "diamond_${theme.id}_${if (dark) "dark" else "light"}_v5"
         val alreadyStyled = button.getTag(TAG_KEY) == styleKey
 
-        if (!protected && !alreadyStyled) {
+        if (button is LightReactiveJewelButton) {
+            button.setJewelAccent(theme.accent, theme.accentLight)
+            button.setLightAngle(currentLightAngle)
+            button.setTag(TAG_KEY, "jewel_${theme.id}")
+        } else if (!protected && !alreadyStyled) {
             button.backgroundTintList = null
-            val drawable = DynamicDiamondDrawable(
-                dark = dark,
-                density = button.resources.displayMetrics.density,
-                accent = theme.accent,
-                accentLight = theme.accentLight
-            ).apply { setLightAngle(currentLightAngle) }
+            val drawable = DynamicDiamondDrawable(dark = dark, density = button.resources.displayMetrics.density, accent = theme.accent, accentLight = theme.accentLight).apply { setLightAngle(currentLightAngle) }
             button.background = drawable
             dynamicDrawables[button] = drawable
             button.setTag(TAG_KEY, styleKey)
@@ -288,9 +269,9 @@ object ButtonReliefInstaller {
                 playTogether(
                     ObjectAnimator.ofFloat(button, "elevation", pressedElevation),
                     ObjectAnimator.ofFloat(button, "translationZ", 0f),
-                    ObjectAnimator.ofFloat(button, "scaleX", 0.97f),
-                    ObjectAnimator.ofFloat(button, "scaleY", 0.97f),
-                    ObjectAnimator.ofFloat(button, "alpha", 0.94f)
+                    ObjectAnimator.ofFloat(button, "scaleX", 0.965f),
+                    ObjectAnimator.ofFloat(button, "scaleY", 0.965f),
+                    ObjectAnimator.ofFloat(button, "alpha", 0.95f)
                 )
                 duration = 70L
             })
@@ -307,32 +288,19 @@ object ButtonReliefInstaller {
         }
     }
 
-    private fun isProtectedButton(id: String): Boolean =
-        id == "entryButton" || id == "exitButton" || id == "settingsButton"
-
-    private fun isProtectedContainer(id: String): Boolean =
-        id == "heroPanel" || id == "heroClock" || id == "headerImage"
-
-    private fun resourceName(view: View): String =
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-
-    private fun isKnownAccent(color: Int): Boolean =
-        AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } ||
-            color == Color.parseColor("#795600")
+    private fun isProtectedButton(id: String): Boolean = id == "entryButton" || id == "exitButton" || id == "settingsButton"
+    private fun isProtectedContainer(id: String): Boolean = id == "heroPanel" || id == "heroClock" || id == "headerImage"
+    private fun resourceName(view: View): String = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+    private fun isKnownAccent(color: Int): Boolean = AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } || color == Color.parseColor("#795600")
 
     private fun contrastRatio(foreground: Int, background: Int): Double {
         fun lum(color: Int): Double {
-            fun c(v: Int): Double {
-                val s = v / 255.0
-                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
-            }
+            fun c(v: Int): Double { val s = v / 255.0; return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4) }
             return 0.2126 * c(Color.red(color)) + 0.7152 * c(Color.green(color)) + 0.0722 * c(Color.blue(color))
         }
-        val a = lum(foreground)
-        val b = lum(background)
+        val a = lum(foreground); val b = lum(background)
         return (maxOf(a, b) + 0.05) / (minOf(a, b) + 0.05)
     }
 
-    private fun dp(context: Context, value: Int): Int =
-        (value * context.resources.displayMetrics.density).toInt()
+    private fun dp(context: Context, value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 }
