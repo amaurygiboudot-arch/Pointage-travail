@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Color
 
 /**
@@ -66,9 +67,25 @@ object AppThemeCatalog {
     }
 
     fun set(context: Context, theme: HpTheme) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "auto") ?: "auto"
+        val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val dark = when (mode) {
+            "light" -> false
+            "dark" -> true
+            else -> systemDark
+        }
+        val activeBackground = if (dark) theme.darkBackground else theme.lightBackground
+        val hex = String.format("#%06X", 0xFFFFFF and activeBackground)
+
+        // L'ancien AppearanceManager relit app_bg à chaque retour dans l'activité.
+        // On synchronise donc ici sa couleur avec le thème choisi pour éviter
+        // qu'il ne rétablisse l'ancien fond après la fermeture du sélecteur.
+        prefs.edit()
             .putString(KEY_THEME, theme.id)
-            .apply()
+            .putString("app_bg", hex)
+            .putBoolean("custom_bg", true)
+            .putBoolean("custom_image_bg", false)
+            .commit()
     }
 }
