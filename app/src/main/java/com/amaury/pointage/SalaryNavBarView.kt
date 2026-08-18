@@ -40,7 +40,7 @@ class SalaryNavBarView @JvmOverloads constructor(
         val tab = TextView(context).apply {
             text = label
             gravity = Gravity.CENTER
-            textSize = 11f
+            textSize = 12f
             typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
             maxLines = 2
             includeFontPadding = false
