@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>HP Travail</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+</dict>
+</plist>
