@@ -55,11 +55,38 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }
 
-            views.setOnClickPendingIntent(R.id.widget_root, PendingIntent.getActivity(context, 20, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.widget_location, PendingIntent.getActivity(context, 30, openSettingsIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.widget_entry, PendingIntent.getBroadcast(context, 1, entryIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.widget_exit, PendingIntent.getBroadcast(context, 2, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.widget_status_area, PendingIntent.getActivity(context, 20, openAppIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            val openAppPending = PendingIntent.getActivity(
+                context,
+                20,
+                openAppIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val openSettingsPending = PendingIntent.getActivity(
+                context,
+                30,
+                openSettingsIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val entryPending = PendingIntent.getBroadcast(
+                context,
+                1,
+                entryIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val exitPending = PendingIntent.getBroadcast(
+                context,
+                2,
+                exitIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            views.setOnClickPendingIntent(R.id.widget_root, openAppPending)
+            views.setOnClickPendingIntent(R.id.widget_location, openSettingsPending)
+            views.setOnClickPendingIntent(R.id.widget_entry, entryPending)
+            views.setOnClickPendingIntent(R.id.widget_entry_area, entryPending)
+            views.setOnClickPendingIntent(R.id.widget_exit, exitPending)
+            views.setOnClickPendingIntent(R.id.widget_exit_area, exitPending)
+            views.setOnClickPendingIntent(R.id.widget_status_area, openAppPending)
 
             val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
             val widgetStyle = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
@@ -77,9 +104,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 parseColor(widgetStyle.getString("widget_accent", null), defaultAccent)
             } else defaultAccent
 
-            // Les fonds premium sont déjà définis dans widget_pointage.xml.
-            // On ne les remplace jamais depuis RemoteViews afin de conserver
-            // les coins arrondis, le dégradé et les bordures dorées.
             listOf(
                 R.id.widget_crown,
                 R.id.widget_hp,
