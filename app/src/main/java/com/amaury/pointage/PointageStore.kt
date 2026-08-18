@@ -18,17 +18,21 @@ object PointageStore {
             .edit().putString(KEY, data.toString()).apply()
     }
 
-    fun hasOpen(context: Context): Boolean {
-        val data = load(context)
-        for (i in 0 until data.length()) {
-            if (data.getJSONObject(i).isNull("exit")) return true
+    fun hasOpen(context: Context): Boolean = findOpenSession(load(context)) != null
+
+    fun isPaused(context: Context): Boolean {
+        val open = findOpenSession(load(context)) ?: return false
+        val pauses = open.optJSONArray("pauses") ?: return false
+        for (i in pauses.length() - 1 downTo 0) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            if (pause.isNull("end")) return true
         }
         return false
     }
 
     fun entry(context: Context, zoneId: String? = null, zoneAddress: String? = null): Boolean {
         val data = load(context)
-        if (hasOpen(context)) return false
+        if (findOpenSession(data) != null) return false
 
         val detectedZone = if (zoneId.isNullOrBlank() && zoneAddress.isNullOrBlank()) currentActiveZone(context) else null
         val finalZoneId = zoneId ?: detectedZone?.first
@@ -38,6 +42,7 @@ object PointageStore {
         val item = JSONObject()
             .put("entry", System.currentTimeMillis())
             .put("exit", JSONObject.NULL)
+            .put("pauses", JSONArray())
 
         if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
         if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
@@ -48,18 +53,97 @@ object PointageStore {
         return true
     }
 
+    fun startPause(context: Context): Boolean {
+        val data = load(context)
+        val item = findOpenSession(data) ?: return false
+        val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
+        for (i in 0 until pauses.length()) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            if (pause.isNull("end")) return false
+        }
+        pauses.put(JSONObject().put("start", System.currentTimeMillis()).put("end", JSONObject.NULL))
+        save(context, data)
+        PointageWidgetProvider.updateAll(context)
+        return true
+    }
+
+    fun resumePause(context: Context): Boolean {
+        val data = load(context)
+        val item = findOpenSession(data) ?: return false
+        val pauses = item.optJSONArray("pauses") ?: return false
+        for (i in pauses.length() - 1 downTo 0) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            if (pause.isNull("end")) {
+                pause.put("end", System.currentTimeMillis())
+                save(context, data)
+                PointageWidgetProvider.updateAll(context)
+                return true
+            }
+        }
+        return false
+    }
+
+    fun addManualPause(context: Context, pauseStart: Long, pauseEnd: Long): Boolean {
+        if (pauseEnd <= pauseStart) return false
+        val data = load(context)
+        var target: JSONObject? = null
+        for (i in data.length() - 1 downTo 0) {
+            val item = data.optJSONObject(i) ?: continue
+            val entry = item.optLong("entry", -1L)
+            val exit = if (item.isNull("exit")) System.currentTimeMillis() else item.optLong("exit", -1L)
+            if (entry > 0 && pauseStart >= entry && pauseEnd <= exit) {
+                target = item
+                break
+            }
+        }
+        val item = target ?: return false
+        val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
+        pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
+        save(context, data)
+        PointageWidgetProvider.updateAll(context)
+        DriveBackupManager.syncCurrentMonthAsync(context)
+        return true
+    }
+
+    fun pauseDuration(item: JSONObject, until: Long = System.currentTimeMillis()): Long {
+        val pauses = item.optJSONArray("pauses") ?: return 0L
+        var total = 0L
+        for (i in 0 until pauses.length()) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            val start = pause.optLong("start", -1L)
+            val end = if (pause.isNull("end")) until else pause.optLong("end", -1L)
+            if (start > 0 && end > start) total += end - start
+        }
+        return total.coerceAtLeast(0L)
+    }
+
+    fun workedDuration(item: JSONObject, until: Long = System.currentTimeMillis()): Long {
+        val entry = item.optLong("entry", -1L)
+        if (entry <= 0L) return 0L
+        val end = if (item.isNull("exit")) until else item.optLong("exit", until)
+        return ((end - entry) - pauseDuration(item, end)).coerceAtLeast(0L)
+    }
+
     fun exit(context: Context): Boolean {
         val data = load(context)
         for (i in data.length() - 1 downTo 0) {
             val item = data.getJSONObject(i)
             if (item.isNull("exit")) {
+                val now = System.currentTimeMillis()
+                val pauses = item.optJSONArray("pauses")
+                if (pauses != null) {
+                    for (j in pauses.length() - 1 downTo 0) {
+                        val pause = pauses.optJSONObject(j) ?: continue
+                        if (pause.isNull("end")) { pause.put("end", now); break }
+                    }
+                }
                 if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
                     currentActiveZone(context)?.let { (zoneId, rawAddress) ->
                         if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
                         if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
                     }
                 }
-                item.put("exit", System.currentTimeMillis())
+                item.put("exit", now)
                 save(context, data)
                 IconSwitcher.setWorking(context, false)
                 DriveBackupManager.syncCurrentMonthAsync(context)
@@ -67,6 +151,14 @@ object PointageStore {
             }
         }
         return false
+    }
+
+    private fun findOpenSession(data: JSONArray): JSONObject? {
+        for (i in data.length() - 1 downTo 0) {
+            val item = data.optJSONObject(i) ?: continue
+            if (item.isNull("exit")) return item
+        }
+        return null
     }
 
     private fun currentActiveZone(context: Context): Pair<String, String>? {
