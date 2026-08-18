@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.ViewGroup
 import android.widget.EditText
@@ -37,11 +38,25 @@ class SalaryTabTextView @JvmOverloads constructor(
 
     private fun applyTabTypography() {
         val root = rootView ?: return
-        root.findViewById<TextView>(R.id.tabToday)?.textSize = 14f
-        root.findViewById<TextView>(R.id.tabHistory)?.textSize = 14f
-        root.findViewById<TextView>(R.id.tabAnalytics)?.textSize = 14f
-        root.findViewById<TextView>(R.id.tabSalary)?.textSize = 14f
-        root.findViewById<TextView>(R.id.tabSettings)?.textSize = 13f
+        val ids = listOf(
+            R.id.tabToday,
+            R.id.tabHistory,
+            R.id.tabAnalytics,
+            R.id.tabSalary,
+            R.id.tabSettings
+        )
+        ids.forEach { id ->
+            root.findViewById<TextView>(id)?.apply {
+                textSize = 11f
+                typeface = Typeface.create("sans-serif-condensed", Typeface.NORMAL)
+                maxLines = 2
+                includeFontPadding = false
+                gravity = android.view.Gravity.CENTER
+                setPadding(dp(1), dp(2), dp(1), dp(2))
+                minimumWidth = 0
+                minWidth = 0
+            }
+        }
     }
 
     private fun installAddressUi() {
