@@ -13,8 +13,6 @@ import android.location.LocationManager
 import androidx.core.content.ContextCompat
 import java.util.Calendar
 import java.util.TimeZone
-import kotlin.math.PI
-import kotlin.math.acos
 import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -123,12 +121,11 @@ object LightDirectionController {
         )
 
         val minutesUtc = hour * 60.0
-        val trueSolarMinutes = normalizeDouble(minutesUtc + eqTime + 4.0 * longitude) % 1440.0
-        val hourAngleDeg = if (trueSolarMinutes / 4.0 < 0) trueSolarMinutes / 4.0 + 180.0 else trueSolarMinutes / 4.0 - 180.0
+        val trueSolarMinutes = ((minutesUtc + eqTime + 4.0 * longitude) % 1440.0 + 1440.0) % 1440.0
+        val hourAngleDeg = trueSolarMinutes / 4.0 - 180.0
         val ha = Math.toRadians(hourAngleDeg)
         val lat = Math.toRadians(latitude)
 
-        val elevation = asin(sin(lat) * sin(decl) + cos(lat) * cos(decl) * cos(ha))
         val az = atan2(sin(ha), cos(ha) * sin(lat) - tan(decl) * cos(lat))
         return normalizeDouble(Math.toDegrees(az) + 180.0)
     }
