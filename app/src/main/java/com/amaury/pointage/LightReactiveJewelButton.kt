@@ -30,9 +30,9 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     private val dst = RectF()
 
     private var bitmap: Bitmap? = null
-    protected var lightAngle = -55f
-    protected var accent = Color.parseColor("#D6A84B")
-    protected var accentLight = Color.parseColor("#F3D58A")
+    protected var jewelLightAngle = -55f
+    protected var jewelAccent = Color.parseColor("#D6A84B")
+    protected var jewelAccentLight = Color.parseColor("#F3D58A")
 
     init {
         background = null
@@ -43,14 +43,14 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
 
     open fun setLightAngle(angle: Float) {
         val normalized = ((angle % 360f) + 360f) % 360f
-        if (kotlin.math.abs(shortestDelta(lightAngle, normalized)) < 0.6f) return
-        lightAngle = normalized
+        if (kotlin.math.abs(shortestDelta(jewelLightAngle, normalized)) < 0.6f) return
+        jewelLightAngle = normalized
         invalidate()
     }
 
     open fun setJewelAccent(color: Int, lightColor: Int) {
-        accent = color
-        accentLight = lightColor
+        jewelAccent = color
+        jewelAccentLight = lightColor
         invalidate()
     }
 
@@ -84,7 +84,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.clipPath(clipPath)
         canvas.drawBitmap(source, null, dst, imagePaint)
 
-        val rad = Math.toRadians(lightAngle.toDouble())
+        val rad = Math.toRadians(jewelLightAngle.toDouble())
         val lx = cx + (cos(rad) * radius * 0.42).toFloat()
         val ly = cy + (sin(rad) * radius * 0.42).toFloat()
 
@@ -119,10 +119,10 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.restoreToCount(save)
 
         ringPaint.strokeWidth = 2.4f * density
-        ringPaint.color = accent
+        ringPaint.color = jewelAccent
         canvas.drawCircle(cx, cy, radius - 1.2f * density, ringPaint)
         ringPaint.strokeWidth = 0.9f * density
-        ringPaint.color = accentLight
+        ringPaint.color = jewelAccentLight
         canvas.drawCircle(cx, cy, radius - 4.2f * density, ringPaint)
 
         super.onDraw(canvas)
