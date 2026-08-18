@@ -10,6 +10,8 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationManager
+import android.os.Handler
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import java.util.Calendar
 import java.util.TimeZone
@@ -20,19 +22,22 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 /**
- * Calcule un angle de lumière écran-local.
+ * Calcule et lisse un angle de lumière écran-local.
  * - orientation du téléphone via TYPE_ROTATION_VECTOR ;
  * - azimut solaire calculé localement si une dernière position connue existe ;
  * - aucun suivi GPS continu, aucune donnée envoyée ;
+ * - interpolation inertielle pour éviter les sauts brusques, notamment à 0°/360° ;
  * - le capteur peut être complètement détaché lorsque l'utilisateur désactive l'effet.
  */
 object LightDirectionController {
     private data class Registration(
         val manager: SensorManager,
-        val listener: SensorEventListener
+        val listener: SensorEventListener,
+        val animator: Runnable
     )
 
     private val registrations = mutableMapOf<Int, Registration>()
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun attach(activity: Activity, onAngleChanged: (Float) -> Unit) {
         val key = System.identityHashCode(activity)
@@ -42,10 +47,54 @@ object LightDirectionController {
         val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return
         val location = lastKnownLocation(activity)
 
+        var targetAngle = Float.NaN
+        var displayedAngle = Float.NaN
+        var animationRunning = false
+
+        lateinit var animator: Runnable
+        animator = object : Runnable {
+            override fun run() {
+                if (targetAngle.isNaN()) {
+                    animationRunning = false
+                    return
+                }
+
+                if (displayedAngle.isNaN()) displayedAngle = targetAngle
+
+                val delta = shortestDelta(displayedAngle, targetAngle)
+                val absDelta = kotlin.math.abs(delta)
+
+                // Inertie adaptative : très douce sur les petits mouvements,
+                // un peu plus vive si le téléphone tourne franchement.
+                val factor = when {
+                    absDelta > 90f -> 0.18f
+                    absDelta > 45f -> 0.15f
+                    absDelta > 15f -> 0.12f
+                    else -> 0.09f
+                }
+                val maxStep = when {
+                    absDelta > 90f -> 9f
+                    absDelta > 45f -> 6f
+                    else -> 3.8f
+                }
+                val step = (delta * factor).coerceIn(-maxStep, maxStep)
+
+                displayedAngle = normalize(displayedAngle + step)
+                onAngleChanged(displayedAngle)
+
+                if (absDelta < 0.35f) {
+                    displayedAngle = targetAngle
+                    onAngleChanged(displayedAngle)
+                    animationRunning = false
+                } else {
+                    mainHandler.postDelayed(this, 16L)
+                }
+            }
+        }
+
         val listener = object : SensorEventListener {
             private val rotation = FloatArray(9)
             private val orientation = FloatArray(3)
-            private var lastAngle = Float.NaN
 
             override fun onSensorChanged(event: SensorEvent) {
                 SensorManager.getRotationMatrixFromVector(rotation, event.values)
@@ -57,25 +106,29 @@ object LightDirectionController {
                 val sunAzimuth = location?.let { solarAzimuth(it.latitude, it.longitude, System.currentTimeMillis()) }
                 val base = if (sunAzimuth != null) sunAzimuth.toFloat() - deviceAzimuth else -deviceAzimuth
                 val tiltInfluence = (roll * 0.45f) + (pitch * 0.20f)
-                val angle = normalize(base + tiltInfluence - 90f)
+                val newTarget = normalize(base + tiltInfluence - 90f)
 
-                if (lastAngle.isNaN() || kotlin.math.abs(shortestDelta(lastAngle, angle)) >= 1.2f) {
-                    lastAngle = angle
-                    activity.runOnUiThread { onAngleChanged(angle) }
+                if (targetAngle.isNaN() || kotlin.math.abs(shortestDelta(targetAngle, newTarget)) >= 0.6f) {
+                    targetAngle = newTarget
+                    if (!animationRunning) {
+                        animationRunning = true
+                        mainHandler.post(animator)
+                    }
                 }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
 
-        sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_UI)
-        registrations[key] = Registration(sensorManager, listener)
+        sensorManager.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        registrations[key] = Registration(sensorManager, listener, animator)
     }
 
     fun detach(activity: Activity) {
         val key = System.identityHashCode(activity)
         val registration = registrations.remove(key) ?: return
         registration.manager.unregisterListener(registration.listener)
+        mainHandler.removeCallbacks(registration.animator)
     }
 
     private fun lastKnownLocation(context: Context): Location? {
