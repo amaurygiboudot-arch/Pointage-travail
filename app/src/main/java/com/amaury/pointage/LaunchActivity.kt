@@ -102,7 +102,7 @@ class LaunchActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(22), dp(24), dp(22), dp(22))
-            this.background = rounded(panel, 24, gold)
+            setBackgroundDrawable(rounded(panel, 24, gold))
             elevation = dp(8).toFloat()
         }
         content.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -151,7 +151,7 @@ class LaunchActivity : Activity() {
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#17110A"))
-            this.background = rounded(goldLight, 14)
+            setBackgroundDrawable(rounded(goldLight, 14))
             minHeight = 0
             minimumHeight = 0
             setPadding(dp(16), 0, dp(16), 0)
