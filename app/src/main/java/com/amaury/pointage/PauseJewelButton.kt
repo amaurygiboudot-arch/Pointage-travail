@@ -11,7 +11,6 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
-import android.widget.Button
 import android.widget.Toast
 import kotlin.math.cos
 import kotlin.math.min
@@ -21,26 +20,22 @@ class PauseJewelButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = android.R.attr.buttonStyle
-) : Button(context, attrs, defStyleAttr) {
+) : LightReactiveJewelButton(context, attrs, defStyleAttr) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val facetPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var lightAngle = -55f
-    private var accent = Color.parseColor("#D6A84B")
-    private var accentLight = Color.parseColor("#F3D58A")
 
     init {
-        background = null
-        stateListAnimator = null
-        setPadding(0, 0, 0, 0)
-        isAllCaps = false
         contentDescription = "Pause"
         setOnClickListener {
+            if (!PointageStore.hasOpen(context)) {
+                Toast.makeText(context, "Commence d'abord une entrée", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             val paused = PointageStore.isPaused(context)
             val ok = if (paused) PointageStore.resumePause(context) else PointageStore.startPause(context)
             val message = when {
-                !PointageStore.hasOpen(context) -> "Commence d'abord une entrée"
                 ok && paused -> "Pause terminée — travail repris"
                 ok -> "Pause démarrée"
                 else -> "Impossible de modifier la pause"
@@ -48,17 +43,6 @@ class PauseJewelButton @JvmOverloads constructor(
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             (context as? Activity)?.recreate()
         }
-    }
-
-    fun setLightAngle(angle: Float) {
-        lightAngle = ((angle % 360f) + 360f) % 360f
-        invalidate()
-    }
-
-    fun setJewelAccent(color: Int, lightColor: Int) {
-        accent = color
-        accentLight = lightColor
-        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -79,7 +63,6 @@ class PauseJewelButton @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, r - 7f * d, paint)
         paint.shader = null
 
-        // Facettes orange générées en code.
         val pts = arrayOf(
             floatArrayOf(cx, cy - r * .72f), floatArrayOf(cx + r * .62f, cy - r * .20f),
             floatArrayOf(cx + r * .48f, cy + r * .56f), floatArrayOf(cx - r * .48f, cy + r * .56f),
@@ -92,7 +75,6 @@ class PauseJewelButton @JvmOverloads constructor(
             canvas.drawPath(path, facetPaint)
         }
 
-        // Reflet de la pierre : blanc/orange, net au centre puis diffus.
         paint.shader = RadialGradient(
             lx, ly, r * .68f,
             intArrayOf(Color.argb(if (isPressed) 115 else 205, 255, 250, 225), Color.argb(92, 255, 185, 80), Color.TRANSPARENT),
@@ -101,7 +83,6 @@ class PauseJewelButton @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, r - 7f * d, paint)
         paint.shader = null
 
-        // Couronne diamant : petits éclats blancs indépendants de l'or.
         val diamondRadius = r - 3.7f * d
         for (i in 0 until 18) {
             val a = Math.toRadians((i * 20.0) + lightAngle)
@@ -112,7 +93,6 @@ class PauseJewelButton @JvmOverloads constructor(
             canvas.drawCircle(x, y, (1.4f + 1.2f * facing) * d, paint)
         }
 
-        // Anneau or : reflet plus chaud et plus doux que les diamants.
         ringPaint.strokeWidth = 3.2f * d
         ringPaint.color = accent
         canvas.drawCircle(cx, cy, r - 1.5f * d, ringPaint)
@@ -120,12 +100,9 @@ class PauseJewelButton @JvmOverloads constructor(
         ringPaint.color = accentLight
         canvas.drawCircle(cx, cy, r - 7.0f * d, ringPaint)
 
-        // Symbole pause au centre.
         paint.color = Color.argb(230, 35, 20, 8)
         val barW = r * .13f; val barH = r * .40f
         canvas.drawRoundRect(RectF(cx - barW * 1.8f, cy - barH, cx - barW * .55f, cy + barH), 3f*d, 3f*d, paint)
         canvas.drawRoundRect(RectF(cx + barW * .55f, cy - barH, cx + barW * 1.8f, cy + barH), 3f*d, 3f*d, paint)
-
-        super.onDraw(canvas)
     }
 }
