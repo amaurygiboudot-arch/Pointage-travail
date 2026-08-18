@@ -1,54 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/v3_black"
-    android:fillViewport="true">
+    android:background="@color/v3_black">
 
-    <LinearLayout
+    <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
-
-        <com.amaury.pointage.v3.V3HeaderView
-            android:id="@+id/headerView"
-            android:layout_width="match_parent"
-            android:layout_height="220dp" />
+        android:layout_height="match_parent"
+        android:fillViewport="true">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:background="@drawable/v3_panel"
-            android:padding="8dp">
-            <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="◷\nAUJOURD'HUI" android:textColor="@color/v3_gold_light" android:textSize="11sp" />
-            <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="▥\nHISTORIQUE" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
-            <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="◔\nANALYSES" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
-            <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="€\nSALAIRE" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
-            <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="⚙\nPARAMÈTRES" android:textColor="@color/v3_text_muted" android:textSize="10sp" />
-        </LinearLayout>
+            android:orientation="vertical"
+            android:padding="16dp">
 
-        <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:gravity="center" android:text="STATUT ACTUEL\n● AUCUNE ENTRÉE EN COURS" android:textColor="@color/v3_text" android:textSize="20sp" android:lineSpacingExtra="3dp" />
+            <com.amaury.pointage.v3.V3HeaderView
+                android:id="@+id/headerView"
+                android:layout_width="match_parent"
+                android:layout_height="220dp" />
 
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:orientation="horizontal" android:gravity="center">
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                <com.amaury.pointage.v3.V3JewelButton android:id="@+id/entryButton" android:layout_width="150dp" android:layout_height="150dp" android:contentDescription="Entrée" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="E N T R É E" android:textColor="@color/v3_gold_light" android:textSize="15sp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:background="@drawable/v3_panel"
+                android:padding="8dp">
+                <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="◷\nAUJOURD'HUI" android:textColor="@color/v3_gold_light" android:textSize="11sp" />
+                <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="▥\nHISTORIQUE" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
+                <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="◔\nANALYSES" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
+                <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="€\nSALAIRE" android:textColor="@color/v3_text_muted" android:textSize="11sp" />
+                <TextView android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:gravity="center" android:text="⚙\nPARAMÈTRES" android:textColor="@color/v3_text_muted" android:textSize="10sp" />
             </LinearLayout>
-            <TextView android:layout_width="32dp" android:layout_height="match_parent" android:gravity="center" android:text="♛" android:textColor="@color/v3_gold" android:textSize="24sp" />
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                <com.amaury.pointage.v3.V3JewelButton android:id="@+id/exitButton" android:layout_width="150dp" android:layout_height="150dp" android:contentDescription="Sortie" />
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="S O R T I E" android:textColor="@color/v3_gold_light" android:textSize="15sp" />
+
+            <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:gravity="center" android:text="STATUT ACTUEL\n● AUCUNE ENTRÉE EN COURS" android:textColor="@color/v3_text" android:textSize="20sp" android:lineSpacingExtra="3dp" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:orientation="horizontal" android:gravity="center">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                    <com.amaury.pointage.v3.V3JewelButton android:id="@+id/entryButton" android:layout_width="150dp" android:layout_height="150dp" android:contentDescription="Entrée" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="E N T R É E" android:textColor="@color/v3_gold_light" android:textSize="15sp" />
+                </LinearLayout>
+                <TextView android:layout_width="32dp" android:layout_height="match_parent" android:gravity="center" android:text="♛" android:textColor="@color/v3_gold" android:textSize="24sp" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
+                    <com.amaury.pointage.v3.V3JewelButton android:id="@+id/exitButton" android:layout_width="150dp" android:layout_height="150dp" android:contentDescription="Sortie" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="S O R T I E" android:textColor="@color/v3_gold_light" android:textSize="15sp" />
+                </LinearLayout>
             </LinearLayout>
+
+            <Button android:id="@+id/manualButton" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="18dp" android:background="@drawable/v3_panel" android:text="✎  SAISIE MANUELLE DES HEURES" android:textColor="@color/v3_gold_light" android:textSize="14sp" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="26dp" android:gravity="center" android:text="HISTORIQUE DU JOUR" android:textColor="@color/v3_text" android:textSize="18sp" android:textStyle="bold" />
+            <TextView android:id="@+id/historyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:background="@drawable/v3_panel" android:padding="16dp" android:text="Aucun pointage pour le moment." android:textColor="@color/v3_text" android:textSize="15sp" />
+
         </LinearLayout>
+    </ScrollView>
 
-        <Button android:id="@+id/manualButton" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="18dp" android:background="@drawable/v3_panel" android:text="✎  SAISIE MANUELLE DES HEURES" android:textColor="@color/v3_gold_light" android:textSize="14sp" />
+    <com.amaury.pointage.v3.V3SunIndicatorView
+        android:id="@+id/sunIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="false"
+        android:focusable="false"
+        android:importantForAccessibility="no" />
 
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="26dp" android:gravity="center" android:text="HISTORIQUE DU JOUR" android:textColor="@color/v3_text" android:textSize="18sp" android:textStyle="bold" />
-        <TextView android:id="@+id/historyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:background="@drawable/v3_panel" android:padding="16dp" android:text="Aucun pointage pour le moment." android:textColor="@color/v3_text" android:textSize="15sp" />
-
-    </LinearLayout>
-</ScrollView>
+</FrameLayout>
