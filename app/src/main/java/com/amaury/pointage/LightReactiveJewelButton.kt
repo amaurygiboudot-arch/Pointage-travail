@@ -33,6 +33,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     protected var jewelLightAngle = -55f
     protected var jewelAccent = Color.parseColor("#D6A84B")
     protected var jewelAccentLight = Color.parseColor("#F3D58A")
+    private var nightLight = false
 
     init {
         background = null
@@ -51,6 +52,12 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     open fun setJewelAccent(color: Int, lightColor: Int) {
         jewelAccent = color
         jewelAccentLight = lightColor
+        invalidate()
+    }
+
+    open fun setNightLight(enabled: Boolean) {
+        if (nightLight == enabled) return
+        nightLight = enabled
         invalidate()
     }
 
@@ -89,13 +96,23 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val lx = cx + (cos(rad) * radius * 0.42).toFloat()
         val ly = cy + (sin(rad) * radius * 0.42).toFloat()
 
-        lightPaint.shader = RadialGradient(
-            lx, ly, radius * 0.72f,
+        val lightColors = if (nightLight) {
+            intArrayOf(
+                Color.argb(if (isPressed) 95 else 170, 238, 246, 255),
+                Color.argb(if (isPressed) 42 else 88, 165, 195, 235),
+                Color.TRANSPARENT
+            )
+        } else {
             intArrayOf(
                 Color.argb(if (isPressed) 105 else 190, 255, 255, 245),
                 Color.argb(if (isPressed) 48 else 92, 255, 231, 165),
                 Color.TRANSPARENT
-            ),
+            )
+        }
+
+        lightPaint.shader = RadialGradient(
+            lx, ly, radius * 0.72f,
+            lightColors,
             floatArrayOf(0f, 0.32f, 1f),
             Shader.TileMode.CLAMP
         )
@@ -107,8 +124,8 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         shadePaint.shader = RadialGradient(
             sx, sy, radius * 0.95f,
             intArrayOf(
-                Color.argb(if (isPressed) 92 else 74, 0, 0, 0),
-                Color.argb(28, 0, 0, 0),
+                Color.argb(if (isPressed) 92 else if (nightLight) 92 else 74, 0, 0, 0),
+                Color.argb(if (nightLight) 38 else 28, 0, 0, 0),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.55f, 1f),
@@ -120,10 +137,10 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.restoreToCount(save)
 
         ringPaint.strokeWidth = 2.4f * density
-        ringPaint.color = jewelAccent
+        ringPaint.color = if (nightLight) Color.parseColor("#AFC7E8") else jewelAccent
         canvas.drawCircle(cx, cy, radius - 1.2f * density, ringPaint)
         ringPaint.strokeWidth = 0.9f * density
-        ringPaint.color = jewelAccentLight
+        ringPaint.color = if (nightLight) Color.parseColor("#EAF2FF") else jewelAccentLight
         canvas.drawCircle(cx, cy, radius - 4.2f * density, ringPaint)
 
         super.onDraw(canvas)
