@@ -25,6 +25,14 @@
         android:usesCleartextTraffic="false"
         android:networkSecurityConfig="@xml/network_security_config">
 
+        <!-- Sentry ne doit jamais s'initialiser automatiquement avant notre code.
+             Sans DSN, son provider natif peut faire crasher l'application au démarrage.
+             TelemetryInitProvider initialise Sentry explicitement seulement si la
+             configuration est valide. -->
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <provider
             android:name=".TelemetryInitProvider"
             android:authorities="${applicationId}.telemetry-init"
