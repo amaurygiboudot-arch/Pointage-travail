@@ -47,7 +47,10 @@ object ButtonReliefInstaller {
     }
 
     private fun configureSolarLighting(activity: Activity, decor: View) {
+        val sun = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
         if (isSolarEnabled(activity)) {
+            sun?.setSunVisible(true)
+            sun?.updateLightAngle(currentLightAngle)
             LightDirectionController.attach(activity) { angle ->
                 if (!isSolarEnabled(activity)) return@attach
                 currentLightAngle = angle
@@ -55,6 +58,7 @@ object ButtonReliefInstaller {
             }
         } else {
             LightDirectionController.detach(activity)
+            sun?.setSunVisible(false)
             currentLightAngle = FIXED_LIGHT_ANGLE
             updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
         }
@@ -65,6 +69,7 @@ object ButtonReliefInstaller {
             if (button.rootView === decor) drawable.setLightAngle(angle)
         }
         updateJewelLights(decor, angle)
+        decor.findViewById<SunIndicatorView>(R.id.sunIndicator)?.updateLightAngle(angle)
     }
 
     private fun updateJewelLights(view: View, angle: Float) {
@@ -80,7 +85,10 @@ object ButtonReliefInstaller {
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
         activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
         val decor = activity.window.decorView
+        val sun = activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
         if (enabled) {
+            sun?.setSunVisible(true)
+            sun?.updateLightAngle(currentLightAngle)
             LightDirectionController.attach(activity) { angle ->
                 if (!isSolarEnabled(activity)) return@attach
                 currentLightAngle = angle
@@ -88,6 +96,7 @@ object ButtonReliefInstaller {
             }
         } else {
             LightDirectionController.detach(activity)
+            sun?.setSunVisible(false)
             currentLightAngle = FIXED_LIGHT_ANGLE
             updateDynamicLight(decor, FIXED_LIGHT_ANGLE)
         }
@@ -138,7 +147,7 @@ object ButtonReliefInstaller {
         val toggle = Switch(activity).apply {
             tag = TAG_SOLAR_SWITCH
             text = "Éclairage solaire dynamique"
-            textSize = 15f
+            textSize = 14f
             isChecked = isSolarEnabled(activity)
             setPadding(0, dp(activity, 8), 0, dp(activity, 8))
             setOnCheckedChangeListener { _, checked -> setSolarEnabled(activity, checked) }
@@ -288,7 +297,7 @@ object ButtonReliefInstaller {
         }
     }
 
-    private fun isProtectedButton(id: String): Boolean = id == "entryButton" || id == "exitButton" || id == "settingsButton"
+    private fun isProtectedButton(id: String): Boolean = id == "entryButton" || id == "pauseButton" || id == "exitButton" || id == "settingsButton"
     private fun isProtectedContainer(id: String): Boolean = id == "heroPanel" || id == "heroClock" || id == "headerImage"
     private fun resourceName(view: View): String = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
     private fun isKnownAccent(color: Int): Boolean = AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } || color == Color.parseColor("#795600")
