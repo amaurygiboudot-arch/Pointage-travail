@@ -11,6 +11,11 @@ class BootReceiver : BroadcastReceiver() {
             intent.action != Intent.ACTION_MY_PACKAGE_REPLACED
         ) return
 
+        // Les pauses automatiques doivent survivre à un redémarrage ou à une mise à jour,
+        // indépendamment de l'activation du pointage GPS.
+        PauseScheduleManager.schedule(context)
+        PauseScheduleManager.applyCurrentWindow(context)
+
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) return
         if (!GeofenceManager.hasRequiredPermissions(context)) return
