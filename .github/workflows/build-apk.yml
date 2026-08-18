@@ -4,6 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main" ]
+    paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/build-apk.yml"
+
+concurrency:
+  group: pointage-travail-v2-release
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -51,7 +61,7 @@ jobs:
           POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
           POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-        run: gradle :app:assembleRelease :app:bundleRelease
+        run: gradle :app:assembleRelease :app:bundleRelease --stacktrace
 
       - name: Verifier la signature APK
         run: |
@@ -84,5 +94,5 @@ jobs:
             app/build/outputs/apk/release/app-release.apk#PointageTravail.apk \
             app/build/outputs/apk/release/SHA256.txt \
             --title "Pointage Travail 2.${{ github.run_number }}" \
-            --notes "Mise à jour HP Travail V2 : correction du pointage GPS automatique sur Samsung/Android récent, permissions de localisation guidées et une seule icône dans le lanceur." \
+            --notes "Mise à jour HP Travail V2" \
             --latest
