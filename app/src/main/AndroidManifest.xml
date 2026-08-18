@@ -19,6 +19,8 @@
         android:name=".PointageApplication"
         android:theme="@style/Theme.PointageTravail"
         android:label="@string/app_name"
+        android:icon="@drawable/hp_icon_red"
+        android:roundIcon="@drawable/hp_icon_red"
         android:resizeableActivity="true"
         android:supportsRtl="true"
         android:allowBackup="false"
