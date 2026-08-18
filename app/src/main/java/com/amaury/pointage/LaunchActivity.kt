@@ -73,15 +73,15 @@ class LaunchActivity : Activity() {
 
     private fun showWelcome() {
         val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val background = Color.parseColor(if (night) "#080808" else "#F4F0E7")
+        val screenBackground = Color.parseColor(if (night) "#080808" else "#F4F0E7")
         val panel = Color.parseColor(if (night) "#151515" else "#FFFDF8")
         val textColor = Color.parseColor(if (night) "#F7F2E8" else "#17130E")
         val secondary = Color.parseColor(if (night) "#CFC6B4" else "#5D5549")
         val gold = Color.parseColor("#D6A84B")
         val goldLight = Color.parseColor("#F3D58A")
 
-        window.statusBarColor = background
-        window.navigationBarColor = background
+        window.statusBarColor = screenBackground
+        window.navigationBarColor = screenBackground
 
         fun rounded(color: Int, radiusDp: Int, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
             setColor(color)
@@ -93,7 +93,7 @@ class LaunchActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(20), dp(24), dp(20), dp(24))
-            setBackgroundColor(background)
+            setBackgroundColor(screenBackground)
         }
 
         content.addView(Space(this), LinearLayout.LayoutParams(1, dp(12)))
@@ -102,7 +102,7 @@ class LaunchActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(22), dp(24), dp(22), dp(22))
-            background = rounded(panel, 24, gold)
+            this.background = rounded(panel, 24, gold)
             elevation = dp(8).toFloat()
         }
         content.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -151,7 +151,7 @@ class LaunchActivity : Activity() {
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.parseColor("#17110A"))
-            background = rounded(goldLight, 14)
+            this.background = rounded(goldLight, 14)
             minHeight = 0
             minimumHeight = 0
             setPadding(dp(16), 0, dp(16), 0)
