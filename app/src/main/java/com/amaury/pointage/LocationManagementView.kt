@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.ViewGroup
@@ -61,17 +63,13 @@ class LocationManagementView @JvmOverloads constructor(
                 setPadding(0, dp(10), 0, dp(12))
             })
         } else {
-            addresses.forEach { address ->
-                addView(createPlaceCard(address))
-            }
+            addresses.forEach { address -> addView(createPlaceCard(address)) }
         }
     }
 
     private fun createPlaceCard(address: String): LinearLayout {
         val name = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: "Lieu sans nom"
-        val contacts = runCatching {
-            JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
-        }.getOrElse { JSONObject() }
+        val contacts = runCatching { JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}") }.getOrElse { JSONObject() }
         val contact = contacts.optJSONObject(address)
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
         val radius = prefs.getInt("radius", 150)
@@ -92,14 +90,12 @@ class LocationManagementView @JvmOverloads constructor(
                 textSize = 17f
                 setTextColor(accentText())
             })
-
             addView(TextView(context).apply {
                 text = address
                 textSize = 14f
                 setTextColor(primaryText())
                 setPadding(0, dp(5), 0, 0)
             })
-
             if (contactName != null) {
                 addView(TextView(context).apply {
                     text = "Contact : $contactName"
@@ -108,7 +104,6 @@ class LocationManagementView @JvmOverloads constructor(
                     setPadding(0, dp(7), 0, 0)
                 })
             }
-
             addView(TextView(context).apply {
                 text = "Rayon GPS : $radius m   •   Temps : ${formatDuration(total)}"
                 textSize = 13f
@@ -116,12 +111,7 @@ class LocationManagementView @JvmOverloads constructor(
                 setPadding(0, dp(5), 0, 0)
             })
         }.also { card ->
-            card.layoutParams = LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
+            card.layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
         }
     }
 
@@ -133,19 +123,19 @@ class LocationManagementView @JvmOverloads constructor(
         val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"
         val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"
         val radius = prefs.getInt("radius", 150)
-        val total = totalWorkedAt(address)
 
         val content = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(20), dp(6), dp(20), 0)
         }
-        fun line(label: String, value: String) {
-            content.addView(TextView(context).apply {
+        fun line(label: String, value: String): TextView {
+            return TextView(context).apply {
                 text = "$label\n$value"
                 textSize = 15f
                 setTextColor(primaryText())
                 setPadding(0, dp(7), 0, dp(7))
-            })
+                content.addView(this)
+            }
         }
         line("Nom", name)
         line("Adresse", address)
@@ -153,15 +143,27 @@ class LocationManagementView @JvmOverloads constructor(
         line("Téléphone", phone)
         line("Prévenir à l'arrivée", notify)
         line("Rayon GPS", "$radius m")
-        line("Temps total enregistré", formatDuration(total))
+        val totalText = line("Temps total enregistré", formatDuration(totalWorkedAt(address)))
 
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle(name)
             .setView(content)
             .setPositiveButton("Fermer", null)
             .setNeutralButton("Modifier") { _, _ -> showEdit(address) }
             .setNegativeButton("Supprimer") { _, _ -> confirmDelete(address, name) }
-            .show()
+            .create()
+
+        val handler = Handler(Looper.getMainLooper())
+        val updater = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing) return
+                totalText.text = "Temps total enregistré\n${formatDuration(totalWorkedAt(address))}"
+                handler.postDelayed(this, 10_000L)
+            }
+        }
+        dialog.setOnShowListener { handler.post(updater) }
+        dialog.setOnDismissListener { handler.removeCallbacks(updater); refresh() }
+        dialog.show()
     }
 
     private fun showEdit(oldAddress: String) {
@@ -170,16 +172,11 @@ class LocationManagementView @JvmOverloads constructor(
         val nameInput = dialogInput("Nom du lieu", PlaceNames.get(context, oldAddress).orEmpty())
         val addressInput = dialogInput("Adresse", oldAddress)
         val contactInput = dialogInput("Nom du contact", contact?.optString("contactName").orEmpty())
-        val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply {
-            inputType = android.text.InputType.TYPE_CLASS_PHONE
-        }
+        val phoneInput = dialogInput("Téléphone", contact?.optString("phone").orEmpty()).apply { inputType = android.text.InputType.TYPE_CLASS_PHONE }
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(20), dp(6), dp(20), 0)
-            addView(nameInput)
-            addView(addressInput)
-            addView(contactInput)
-            addView(phoneInput)
+            addView(nameInput); addView(addressInput); addView(contactInput); addView(phoneInput)
         }
 
         AlertDialog.Builder(context)
@@ -189,31 +186,16 @@ class LocationManagementView @JvmOverloads constructor(
                 val newAddress = addressInput.text.toString().trim()
                 val newName = nameInput.text.toString().trim()
                 if (newAddress.isBlank()) return@setPositiveButton
-
-                val addresses = savedAddresses()
-                    .map { if (it.equals(oldAddress, true)) newAddress else it }
-                    .distinctBy { it.lowercase() }
-                    .take(10)
-
+                val addresses = savedAddresses().map { if (it.equals(oldAddress, true)) newAddress else it }.distinctBy { it.lowercase() }.take(10)
                 prefs.edit().putString("address", addresses.joinToString("\n")).apply()
                 rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n"))
-
                 val names = runCatching { JSONObject(prefs.getString("address_names", "{}") ?: "{}") }.getOrElse { JSONObject() }
-                names.remove(oldAddress)
-                names.put(newAddress, newName)
+                names.remove(oldAddress); names.put(newAddress, newName)
                 prefs.edit().putString("address_names", names.toString()).apply()
-
                 val enabled = contact?.optBoolean("enabled", false) ?: false
                 contacts.remove(oldAddress)
-                contacts.put(
-                    newAddress,
-                    JSONObject()
-                        .put("contactName", contactInput.text.toString().trim())
-                        .put("phone", phoneInput.text.toString().trim())
-                        .put("enabled", enabled)
-                )
+                contacts.put(newAddress, JSONObject().put("contactName", contactInput.text.toString().trim()).put("phone", phoneInput.text.toString().trim()).put("enabled", enabled))
                 prefs.edit().putString("arrival_contacts", contacts.toString()).apply()
-
                 refresh()
                 Toast.makeText(context, "Lieu modifié", Toast.LENGTH_SHORT).show()
             }
@@ -222,10 +204,7 @@ class LocationManagementView @JvmOverloads constructor(
     }
 
     private fun dialogInput(hintText: String, value: String): EditText = EditText(context).apply {
-        hint = hintText
-        setText(value)
-        setTextColor(primaryText())
-        setHintTextColor(secondaryText())
+        hint = hintText; setText(value); setTextColor(primaryText()); setHintTextColor(secondaryText())
     }
 
     private fun confirmDelete(address: String, name: String) {
@@ -241,48 +220,35 @@ class LocationManagementView @JvmOverloads constructor(
         val addresses = savedAddresses().filterNot { it.equals(address, true) }
         prefs.edit().putString("address", addresses.joinToString("\n")).apply()
         rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n"))
-
         val names = runCatching { JSONObject(prefs.getString("address_names", "{}") ?: "{}") }.getOrElse { JSONObject() }
         names.remove(address)
         val contacts = runCatching { JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}") }.getOrElse { JSONObject() }
         contacts.remove(address)
-
         val oldZones = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
         val newZones = JSONArray()
         for (i in 0 until oldZones.length()) {
             val zone = oldZones.optJSONObject(i) ?: continue
             if (!zone.optString("address").equals(address, true)) newZones.put(zone)
         }
-
-        prefs.edit()
-            .putString("address_names", names.toString())
-            .putString("arrival_contacts", contacts.toString())
-            .putString("zones", newZones.toString())
-            .remove("active_zones")
-            .apply()
-
+        prefs.edit().putString("address_names", names.toString()).putString("arrival_contacts", contacts.toString()).putString("zones", newZones.toString()).remove("active_zones").apply()
         GeofenceManager.remove(context)
-        refresh()
-        PointageWidgetProvider.updateAll(context)
+        refresh(); PointageWidgetProvider.updateAll(context)
         Toast.makeText(context, "Lieu supprimé. Historique conservé.", Toast.LENGTH_LONG).show()
     }
 
-    private fun savedAddresses(): List<String> = prefs
-        .getString("address", "")
-        .orEmpty()
-        .lines()
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-        .distinctBy { it.lowercase() }
+    private fun savedAddresses(): List<String> = prefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
 
     private fun totalWorkedAt(address: String): Long {
         val data = PointageStore.load(context)
+        val now = System.currentTimeMillis()
         var total = 0L
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             if (!item.optString("zoneAddress").trim().equals(address.trim(), true)) continue
-            if (item.isNull("exit")) continue
-            total += (item.optLong("exit") - item.optLong("entry")).coerceAtLeast(0L)
+            val entry = item.optLong("entry", 0L)
+            if (entry <= 0L) continue
+            val end = if (item.isNull("exit")) now else item.optLong("exit", entry)
+            total += (end - entry).coerceAtLeast(0L)
         }
         return total
     }
