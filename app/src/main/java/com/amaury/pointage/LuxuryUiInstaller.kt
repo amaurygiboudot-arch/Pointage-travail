@@ -6,6 +6,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -37,6 +38,7 @@ object LuxuryUiInstaller {
             syncTodayVisibility()
             syncTabs(activity)
             syncTodayLuxuryText(activity)
+            normalizeTypography(activity.window.decorView)
             applyTransparency(activity)
         }
         digital.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -48,24 +50,26 @@ object LuxuryUiInstaller {
             gravity = Gravity.CENTER
             setTextColor(Color.parseColor("#D6A84B"))
             typeface = Typeface.create("serif", Typeface.BOLD)
-            textSize = 20f
+            textSize = 16f
             letterSpacing = 0.08f
         }
 
         activity.findViewById<TextView>(R.id.statusCard)?.apply {
             typeface = Typeface.create("serif", Typeface.NORMAL)
-            textSize = 17f
+            textSize = 16f
             letterSpacing = 0.04f
         }
 
         activity.findViewById<TextView>(R.id.contentTitle)?.apply {
             setTextColor(Color.parseColor("#D6A84B"))
             typeface = Typeface.create("serif", Typeface.BOLD)
+            textSize = 16f
             letterSpacing = 0.08f
         }
 
         activity.findViewById<TextView>(R.id.historyText)?.apply {
             typeface = Typeface.create("serif", Typeface.NORMAL)
+            textSize = 14f
             letterSpacing = 0.03f
         }
 
@@ -76,6 +80,7 @@ object LuxuryUiInstaller {
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
         syncTabs(activity)
         syncTodayLuxuryText(activity)
+        normalizeTypography(activity.window.decorView)
         applyTransparency(activity)
 
         val decor = activity.window.decorView
@@ -84,6 +89,7 @@ object LuxuryUiInstaller {
                 decor.post {
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
+                    normalizeTypography(decor)
                     applyTransparency(activity)
                 }
             }
@@ -93,6 +99,7 @@ object LuxuryUiInstaller {
             AppearanceManager.apply(activity)
             syncTabs(activity)
             syncTodayLuxuryText(activity)
+            normalizeTypography(decor)
             applyTransparency(activity)
         }
     }
@@ -154,6 +161,36 @@ object LuxuryUiInstaller {
         settingsSection.addView(wrapper, insertIndex)
     }
 
+    private fun normalizeTypography(view: View) {
+        if (view is TextView && view !is TextClock) {
+            val targetSp = when (view.id) {
+                R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings -> 12f
+                R.id.statusCard, R.id.contentTitle -> 16f
+                R.id.historyText -> 14f
+                else -> {
+                    if (view is Button) {
+                        14f
+                    } else {
+                        val currentSp = view.textSize / view.resources.displayMetrics.scaledDensity
+                        when {
+                            currentSp <= 12.5f -> 12f
+                            currentSp <= 15.5f -> 14f
+                            else -> 16f
+                        }
+                    }
+                }
+            }
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, targetSp)
+            view.setIncludeFontPadding(false)
+        }
+
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                normalizeTypography(view.getChildAt(i))
+            }
+        }
+    }
+
     private fun applyTransparency(activity: MainActivity) {
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val transparency = prefs.getInt(PREF_TRANSPARENCY, 0).coerceIn(0, 100)
@@ -164,7 +201,10 @@ object LuxuryUiInstaller {
 
     private fun applyTransparencyToView(view: View, alpha: Int) {
         val idName = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-        val isProtectedImageButton = idName == "entryButton" || idName == "exitButton" || idName == "settingsButton"
+        val isProtectedImageButton = idName == "entryButton" ||
+            idName == "pauseButton" ||
+            idName == "exitButton" ||
+            idName == "settingsButton"
         val isPanel = idName == "statusCard" ||
             idName == "pointageButtons" ||
             idName == "contentPanel" ||
@@ -202,6 +242,7 @@ object LuxuryUiInstaller {
                     activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
+                    normalizeTypography(activity.window.decorView)
                     applyTransparency(activity)
                 }
             }
@@ -211,9 +252,6 @@ object LuxuryUiInstaller {
     }
 
     private fun syncTodayLuxuryText(activity: MainActivity) {
-        // These two surfaces are intentionally always black/gold, independently from
-        // the global Light/Dark theme. AppearanceManager therefore must not leave dark
-        // text on them when the app itself is in Light mode.
         activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(Color.parseColor("#F4EFE3"))
 
         val pointagePanel = activity.findViewById<ViewGroup>(R.id.pointageButtons) ?: return
