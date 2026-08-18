@@ -82,10 +82,11 @@ class ManualHoursButton @JvmOverloads constructor(
         val company1Exists = salaryPrefs.getString("company_siret", "").orEmpty().isNotBlank() || salaryPrefs.getString("company_name", "").orEmpty().isNotBlank()
         val company2Exists = salaryPrefs.getString("company2_siret", "").orEmpty().isNotBlank() || salaryPrefs.getString("company2_name", "").orEmpty().isNotBlank()
 
+        // Le formulaire seul défile. Les boutons d'action restent fixes en bas,
+        // même avec le zoom d'affichage ou une grosse taille de police Android.
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(18))
-            background = rounded(context, colors.background, 24, colors.gold)
+            setPadding(dp(20), dp(18), dp(20), dp(12))
         }
 
         body.addView(TextView(context).apply {
@@ -157,7 +158,9 @@ class ManualHoursButton @JvmOverloads constructor(
         val company1 = companyRadio(company1Name, company1Exists)
         val company2 = companyRadio(company2Name, company2Exists)
         val noCompany = companyRadio("Sans entreprise / autre")
-        companyGroup.addView(company1); companyGroup.addView(company2); companyGroup.addView(noCompany)
+        companyGroup.addView(company1)
+        companyGroup.addView(company2)
+        companyGroup.addView(noCompany)
         if (company1Exists) company1.isChecked = true else if (company2Exists) company2.isChecked = true else noCompany.isChecked = true
 
         val savedAddresses = gpsPrefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -166,28 +169,54 @@ class ManualHoursButton @JvmOverloads constructor(
         }
 
         body.addView(dateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)))
-        body.addView(startInput); body.addView(endInput); body.addView(companyLabel); body.addView(companyGroup); body.addView(placeInput)
+        body.addView(startInput)
+        body.addView(endInput)
+        body.addView(companyLabel)
+        body.addView(companyGroup)
+        body.addView(placeInput)
 
-        val buttons = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.END
-            setPadding(0, dp(14), 0, 0)
-        }
         val cancel = Button(context).apply {
-            text = "Annuler"; isAllCaps = false; setTextColor(colors.secondary); background = rounded(context, colors.panel, 14)
+            text = "Annuler"
+            isAllCaps = false
+            setTextColor(colors.secondary)
+            background = rounded(context, colors.panel, 14)
         }
         val add = Button(context).apply {
-            text = "Ajouter"; isAllCaps = false; setTypeface(typeface, Typeface.BOLD); setTextColor(Color.parseColor("#15100A")); background = rounded(context, colors.goldLight, 14)
+            text = "Ajouter"
+            isAllCaps = false
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.parseColor("#15100A"))
+            background = rounded(context, colors.goldLight, 14)
         }
-        buttons.addView(cancel, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) })
-        buttons.addView(add, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
-        body.addView(buttons)
+        val buttons = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(20), dp(8), dp(20), dp(16))
+            background = colors.background.let { rounded(context, it, 20) }
+            addView(cancel, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(6) })
+            addView(add, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(6) })
+        }
 
-        val scroll = ScrollView(context).apply { addView(body) }
-        val dialog = AlertDialog.Builder(context).setView(scroll).create()
+        val scroll = ScrollView(context).apply {
+            isFillViewport = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            addView(body, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
+        val dialogRoot = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(context, colors.background, 24, colors.gold)
+            clipToPadding = false
+            addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
+        val dialog = AlertDialog.Builder(context).setView(dialogRoot).create()
         dialog.setOnShowListener {
+            val metrics = resources.displayMetrics
+            val maxHeight = (metrics.heightPixels * 0.86f).toInt()
             dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-            dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.92f).toInt(), ViewGroup.LayoutParams.WRAP_CONTENT)
+            dialog.window?.setLayout((metrics.widthPixels * 0.92f).toInt(), maxHeight)
         }
         cancel.setOnClickListener { dialog.dismiss() }
         add.setOnClickListener {
@@ -197,8 +226,16 @@ class ManualHoursButton @JvmOverloads constructor(
             if (end == null) { endInput.error = "Format attendu : HH:mm"; return@setOnClickListener }
             if (end <= start) { endInput.error = "L'heure de fin doit être après le début"; return@setOnClickListener }
 
-            val companySlot = when (companyGroup.checkedRadioButtonId) { company1.id -> 1; company2.id -> 2; else -> 0 }
-            val companyName = when (companySlot) { 1 -> company1Name; 2 -> company2Name; else -> "" }
+            val companySlot = when (companyGroup.checkedRadioButtonId) {
+                company1.id -> 1
+                company2.id -> 2
+                else -> 0
+            }
+            val companyName = when (companySlot) {
+                1 -> company1Name
+                2 -> company2Name
+                else -> ""
+            }
             val place = placeInput.text.toString().trim()
             val label = when {
                 place.isNotBlank() && companyName.isNotBlank() -> "$place — $companyName"
@@ -225,7 +262,12 @@ class ManualHoursButton @JvmOverloads constructor(
         val hour = match.groupValues[1].toIntOrNull() ?: return null
         val minute = match.groupValues[2].toIntOrNull() ?: return null
         if (hour !in 0..23 || minute !in 0..59) return null
-        return (day.clone() as Calendar).apply { set(Calendar.HOUR_OF_DAY, hour); set(Calendar.MINUTE, minute); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+        return (day.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 
     private fun formatDuration(ms: Long): String {
@@ -265,14 +307,31 @@ class CompanyControlsView @JvmOverloads constructor(
             setPadding(dp(20), dp(18), dp(20), dp(16))
             background = rounded(context, colors.background, 22, colors.gold)
         }
-        box.addView(TextView(context).apply { text = "Supprimer $name ?"; textSize = 19f; setTypeface(typeface, Typeface.BOLD); setTextColor(colors.goldLight) })
+        box.addView(TextView(context).apply {
+            text = "Supprimer $name ?"
+            textSize = 19f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(colors.goldLight)
+        })
         box.addView(TextView(context).apply {
             text = "Les informations de cette entreprise seront supprimées. Les lieux et l'historique resteront conservés."
-            textSize = 14f; setTextColor(colors.secondary); setPadding(0, dp(10), 0, dp(14))
+            textSize = 14f
+            setTextColor(colors.secondary)
+            setPadding(0, dp(10), 0, dp(14))
         })
         val buttons = LinearLayout(context).apply { orientation = HORIZONTAL }
-        val cancel = Button(context).apply { text = "Annuler"; isAllCaps = false; setTextColor(colors.secondary); background = rounded(context, colors.panel, 14) }
-        val delete = Button(context).apply { text = "Supprimer"; isAllCaps = false; setTextColor(Color.parseColor("#15100A")); background = rounded(context, colors.goldLight, 14) }
+        val cancel = Button(context).apply {
+            text = "Annuler"
+            isAllCaps = false
+            setTextColor(colors.secondary)
+            background = rounded(context, colors.panel, 14)
+        }
+        val delete = Button(context).apply {
+            text = "Supprimer"
+            isAllCaps = false
+            setTextColor(Color.parseColor("#15100A"))
+            background = rounded(context, colors.goldLight, 14)
+        }
         buttons.addView(cancel, LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) })
         buttons.addView(delete, LayoutParams(0, dp(48), 1f).apply { marginStart = dp(6) })
         box.addView(buttons)
@@ -294,7 +353,10 @@ class CompanyControlsView @JvmOverloads constructor(
         val companyMap = runCatching { JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}") }.getOrElse { JSONObject() }
         val cleaned = JSONObject()
         val keys = companyMap.keys()
-        while (keys.hasNext()) { val key = keys.next(); if (companyMap.optInt(key, 0) != slot) cleaned.put(key, companyMap.opt(key)) }
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (companyMap.optInt(key, 0) != slot) cleaned.put(key, companyMap.opt(key))
+        }
         gpsPrefs.edit().putString("address_company_slots", cleaned.toString()).apply()
         Toast.makeText(context, "Entreprise $slot supprimée", Toast.LENGTH_LONG).show()
         (context as? Activity)?.recreate()
