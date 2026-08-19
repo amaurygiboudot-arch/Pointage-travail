@@ -11,7 +11,6 @@ import android.widget.RemoteViews
 import android.widget.Toast
 
 class QuickActionsWidgetProvider : AppWidgetProvider() {
-
     companion object {
         const val ACTION_ENTRY = "com.amaury.pointage.QUICK_ACTION_ENTRY"
         const val ACTION_PAUSE = "com.amaury.pointage.QUICK_ACTION_PAUSE"
@@ -23,16 +22,23 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
         }
 
-        private fun parseColor(value: String?, fallback: Int): Int =
-            runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
+        private fun parseColor(value: String?, fallback: Int): Int = runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
+        private fun themeBackground(themeId: String, dark: Boolean): Int = when (themeId) {
+            "steel_blue" -> if (dark) R.drawable.widget_bg_steel_dark else R.drawable.widget_bg_steel_light
+            "brushed_aluminum" -> if (dark) R.drawable.widget_bg_alu_dark else R.drawable.widget_bg_alu_light
+            "carbon" -> if (dark) R.drawable.widget_bg_carbon_dark else R.drawable.widget_bg_carbon_light
+            else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
+        }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
             val style = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
             val theme = AppThemeCatalog.current(context)
-            val bg = parseColor(style.getString("widget_bg", null), theme.darkBackground)
-            val accent = parseColor(style.getString("widget_accent", null), theme.accentLight)
-            views.setInt(R.id.quick_root, "setBackgroundColor", bg)
+            val dark = ThemeDayNight.isDark(context)
+            val fallbackBg = if (dark) theme.darkBackground else theme.lightBackground
+            val accent = parseColor(style.getString("widget_accent", null), if (dark) theme.accentLight else theme.accent)
+            if (style.contains("widget_bg")) views.setInt(R.id.quick_root, "setBackgroundColor", parseColor(style.getString("widget_bg", null), fallbackBg))
+            else views.setInt(R.id.quick_root, "setBackgroundResource", themeBackground(theme.id, dark))
             views.setTextColor(R.id.quick_entry_label, accent)
             views.setTextColor(R.id.quick_pause_label, Color.parseColor("#F3A64A"))
             views.setTextColor(R.id.quick_exit_label, accent)
@@ -40,7 +46,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val entryIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_ENTRY }
             val pauseIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_PAUSE }
             val exitIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_EXIT }
-
             views.setOnClickPendingIntent(R.id.quick_entry, PendingIntent.getBroadcast(context, 101, entryIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             views.setOnClickPendingIntent(R.id.quick_pause, PendingIntent.getBroadcast(context, 102, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             views.setOnClickPendingIntent(R.id.quick_exit, PendingIntent.getBroadcast(context, 103, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
@@ -56,39 +61,20 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { updateWidget(context, manager, it) }
-    }
-
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) { ids.forEach { updateWidget(context, manager, it) } }
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ACTION_ENTRY -> {
-                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+            ACTION_ENTRY -> if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+            ACTION_PAUSE -> when {
+                !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
             }
-            ACTION_PAUSE -> {
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> {
-                        PointageStore.resumePause(context)
-                        Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
-                    }
-                    else -> {
-                        PointageStore.startPause(context)
-                        Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            ACTION_EXIT -> {
-                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-            }
+            ACTION_EXIT -> if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
         }
         if (intent.action == ACTION_ENTRY || intent.action == ACTION_PAUSE || intent.action == ACTION_EXIT) {
-            IconSwitcher.sync(context)
-            PointageWidgetProvider.updateAll(context)
-            updateAll(context)
+            IconSwitcher.sync(context); PointageWidgetProvider.updateAll(context); updateAll(context)
         }
     }
 }
