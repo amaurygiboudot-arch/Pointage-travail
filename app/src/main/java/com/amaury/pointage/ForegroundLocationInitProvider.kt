@@ -12,10 +12,10 @@ import android.net.Uri
 import android.os.Bundle
 
 /**
- * Demande une seule fois la localisation précise au premier lancement de HP Travail.
- * Cette permission sert notamment à positionner correctement le soleil/la lune.
- * La localisation en arrière-plan reste volontairement séparée et n'est demandée
- * que lorsque l'utilisateur active le pointage GPS automatique.
+ * Demande une seule fois la localisation au premier lancement de HP Travail.
+ * Android 12+ attend que les permissions approximative et précise soient demandées
+ * ensemble pour laisser l'utilisateur choisir correctement son niveau d'accès.
+ * La localisation en arrière-plan reste volontairement séparée.
  */
 class ForegroundLocationInitProvider : ContentProvider() {
 
@@ -34,8 +34,9 @@ class ForegroundLocationInitProvider : ContentProvider() {
 
             val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val fineGranted = activity.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarseGranted = activity.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-            if (fineGranted) {
+            if (fineGranted || coarseGranted) {
                 if (prefs.getBoolean(KEY_REFRESH_AFTER_GRANT, false) && !refreshPosted) {
                     refreshPosted = true
                     prefs.edit().putBoolean(KEY_REFRESH_AFTER_GRANT, false).apply()
@@ -57,7 +58,10 @@ class ForegroundLocationInitProvider : ContentProvider() {
             activity.window.decorView.post {
                 if (!activity.isFinishing && !activity.isDestroyed) {
                     activity.requestPermissions(
-                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
+                        arrayOf(
+                            Manifest.permission.ACCESS_COARSE_LOCATION,
+                            Manifest.permission.ACCESS_FINE_LOCATION
+                        ),
                         REQUEST_FOREGROUND_LOCATION
                     )
                 }
