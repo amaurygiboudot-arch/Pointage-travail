@@ -46,8 +46,8 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
             views.setTextViewText(R.id.quick_pause_icon, if (paused) "▶" else "Ⅱ")
-            views.setAlpha(R.id.quick_entry, if (hasOpen) 0.45f else 1f)
-            views.setAlpha(R.id.quick_exit, if (hasOpen) 1f else 0.45f)
+            views.setFloat(R.id.quick_entry, "setAlpha", if (hasOpen) 0.45f else 1f)
+            views.setFloat(R.id.quick_exit, "setAlpha", if (hasOpen) 1f else 0.45f)
 
             manager.updateAppWidget(widgetId, views)
         }
