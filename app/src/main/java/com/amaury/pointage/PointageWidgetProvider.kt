@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.graphics.Color
 import android.view.View
 import android.widget.RemoteViews
@@ -72,11 +71,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_exit_area, broadcast(ACTION_EXIT, 3))
             views.setOnClickPendingIntent(R.id.widget_status_area, openAppPending)
 
-            val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
             val widgetStyle = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
-            val mode = appearance.getString("mode", "auto") ?: "auto"
-            val systemDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-            val dark = mode == "dark" || (mode == "auto" && systemDark)
+            val dark = AppThemeCatalog.useDarkPalette(context)
             val theme = AppThemeCatalog.current(context)
             val defaultAccent = if (dark) theme.accentLight else theme.accent
             val defaultSecondary = if (dark) theme.darkHint else theme.lightHint
