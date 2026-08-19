@@ -18,324 +18,135 @@ object MonthlyPdfReport {
     private const val PAGE_HEIGHT = 842
     private const val MARGIN = 32f
 
-    private data class PlaceInfo(val name: String?, val address: String) {
-        val key: String get() = if (name.isNullOrBlank()) address else "$name — $address"
-    }
-
-    private data class Row(
-        val entry: Long,
-        val exit: Long?,
-        val place: PlaceInfo,
-        val workedMs: Long,
-        val pauseMs: Long
+    private data class PlaceTotal(
+        val name: String?,
+        val address: String,
+        var duration: Long = 0L,
+        var sessions: Int = 0
     )
 
-    fun write(
-        context: Context,
-        data: JSONArray,
-        year: Int,
-        month: Int,
-        output: OutputStream
-    ) {
-        val rows = mutableListOf<Row>()
+    fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
+        val totals = LinkedHashMap<String, PlaceTotal>()
         val cal = Calendar.getInstance(Locale.FRANCE)
-        val now = System.currentTimeMillis()
+        var grandTotal = 0L
+        var completedSessions = 0
 
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
+            if (entry <= 0L || item.isNull("exit")) continue
             cal.timeInMillis = entry
             if (cal.get(Calendar.YEAR) != year || cal.get(Calendar.MONTH) != month) continue
 
-            val rawPlace = item.optString("zoneAddress").trim()
-            val place = resolvePlace(context, rawPlace)
-            val exit = if (item.isNull("exit")) null else item.optLong("exit").takeIf { it > 0L }
-            val effectiveEnd = exit ?: now
-            rows += Row(
-                entry = entry,
-                exit = exit,
-                place = place,
-                workedMs = PointageStore.workedDuration(item, effectiveEnd),
-                pauseMs = PointageStore.pauseDuration(item, effectiveEnd)
-            )
-        }
-
-        rows.sortBy { it.entry }
-
-        val totals = LinkedHashMap<String, Pair<PlaceInfo, Long>>()
-        var grandTotal = 0L
-        var completed = 0
-        rows.forEach { row ->
-            // Un mois clôturé ne doit jamais compter une session encore ouverte.
-            val counted = if (row.exit != null) row.workedMs else 0L
-            val previous = totals[row.place.key]?.second ?: 0L
-            totals[row.place.key] = row.place to (previous + counted)
-            if (row.exit != null) {
-                grandTotal += row.workedMs
-                completed++
+            val exit = item.optLong("exit", -1L)
+            if (exit <= entry) continue
+            val raw = item.optString("zoneAddress").trim()
+            val (name, address) = resolvePlace(context, raw)
+            val key = normalizeAddress(address)
+            val duration = PointageStore.workedDuration(item, exit)
+            val place = totals.getOrPut(key) { PlaceTotal(name, address) }
+            if (place.name.isNullOrBlank() && !name.isNullOrBlank()) {
+                totals[key] = place.copy(name = name)
             }
+            totals[key]!!.duration += duration
+            totals[key]!!.sessions += 1
+            grandTotal += duration
+            completedSessions++
         }
 
         val pdf = PdfDocument()
-        val writer = PageWriter(pdf, year, month)
-        writer.startPage()
-        writer.drawReportHeader(grandTotal, completed, totals.size)
-        writer.drawPlaceTotals(totals)
-        writer.drawDetailHeader()
+        val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
+        val page = pdf.startPage(pageInfo)
+        val canvas = page.canvas
 
-        if (rows.isEmpty()) {
-            writer.drawMuted("Aucun pointage enregistré pour ce mois.")
-        } else {
-            rows.forEach { writer.drawRow(it) }
-        }
-
-        writer.finish()
-        pdf.writeTo(output)
-        pdf.close()
-    }
-
-    private fun resolvePlace(context: Context, raw: String): PlaceInfo {
-        if (raw.isBlank()) return PlaceInfo(null, "Pointage manuel / ancien pointage")
-
-        val marker = " — "
-        if (raw.contains(marker)) {
-            val name = raw.substringBefore(marker).trim().takeIf { it.isNotBlank() }
-            val address = raw.substringAfter(marker).trim().ifBlank { raw }
-            return PlaceInfo(name, address)
-        }
-
-        val savedName = PlaceNames.get(context, raw)?.trim()?.takeIf { it.isNotBlank() }
-        return PlaceInfo(savedName, raw)
-    }
-
-    private class PageWriter(
-        private val pdf: PdfDocument,
-        private val year: Int,
-        private val month: Int
-    ) {
-        private var pageNumber = 0
-        private var page: PdfDocument.Page? = null
-        private var y = MARGIN
-
-        private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(38, 38, 38)
             textSize = 21f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val sectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val section = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(133, 94, 20)
             textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val normalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(45, 45, 45)
-            textSize = 9.5f
-        }
-        private val boldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val normal = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45, 45, 45); textSize = 9.5f }
+        val bold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(35, 35, 35)
             textSize = 9.5f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val mutedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(105, 105, 105)
-            textSize = 9f
-        }
-        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(205, 205, 205)
-            strokeWidth = 0.8f
-        }
-        private val headerFill = Paint().apply { color = Color.rgb(243, 239, 230) }
+        val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(105, 105, 105); textSize = 9f }
+        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 205); strokeWidth = 0.8f }
+        val fill = Paint().apply { color = Color.rgb(243, 239, 230) }
 
-        private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-        private val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
-        private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
-        private val generatedFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
+        val monthDate = Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
+        val monthLabel = SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(monthDate).replaceFirstChar { it.uppercase() }
+        val generated = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())
+        var y = MARGIN
 
-        fun startPage() {
-            pageNumber++
-            page = pdf.startPage(PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNumber).create())
-            y = MARGIN
-        }
+        canvas.drawText("RAPPORT MENSUEL DE POINTAGE", MARGIN, y + 18f, title)
+        y += 30f
+        canvas.drawText(monthLabel, MARGIN, y + 14f, section)
+        canvas.drawText("Généré le $generated", PAGE_WIDTH - 185f, y + 14f, muted)
+        y += 28f
 
-        private fun canvas() = requireNotNull(page).canvas
+        canvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 48f, fill)
+        canvas.drawText("Temps travaillé", MARGIN + 12f, y + 17f, muted)
+        canvas.drawText(formatDuration(grandTotal), MARGIN + 12f, y + 38f, title)
+        canvas.drawText("Sessions", 255f, y + 17f, muted)
+        canvas.drawText(completedSessions.toString(), 255f, y + 38f, bold)
+        canvas.drawText("Adresses", 400f, y + 17f, muted)
+        canvas.drawText(totals.size.toString(), 400f, y + 38f, bold)
+        y += 68f
 
-        private fun endPage() {
-            val current = page ?: return
-            canvas().drawLine(MARGIN, PAGE_HEIGHT - 28f, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 28f, linePaint)
-            canvas().drawText("Rapport HP Travail — page $pageNumber", MARGIN, PAGE_HEIGHT - 14f, mutedPaint)
-            pdf.finishPage(current)
-            page = null
-        }
+        canvas.drawText("RÉCAPITULATIF PAR ADRESSE", MARGIN, y + 12f, section)
+        y += 22f
+        canvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 25f, fill)
+        canvas.drawText("Lieu / adresse", MARGIN + 6f, y + 16f, bold)
+        canvas.drawText("Sessions", 420f, y + 16f, bold)
+        canvas.drawText("Temps", 492f, y + 16f, bold)
+        y += 31f
 
-        fun finish() = endPage()
-
-        private fun ensureSpace(height: Float, repeatDetailHeader: Boolean = false) {
-            if (y + height <= PAGE_HEIGHT - 48f) return
-            endPage()
-            startPage()
-            drawContinuationHeader()
-            if (repeatDetailHeader) drawDetailHeader()
-        }
-
-        private fun drawContinuationHeader() {
-            val c = Calendar.getInstance(Locale.FRANCE).apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, 1)
+        if (totals.isEmpty()) {
+            canvas.drawText("Aucun pointage terminé pour ce mois.", MARGIN, y + 14f, muted)
+        } else {
+            totals.values.sortedBy { it.address.lowercase(Locale.FRANCE) }.forEach { place ->
+                if (y > PAGE_HEIGHT - 60f) return@forEach
+                val label = if (place.name.isNullOrBlank()) place.address else "${place.name} — ${place.address}"
+                val shown = if (label.length <= 62) label else label.take(59) + "…"
+                canvas.drawText(shown, MARGIN + 6f, y + 14f, normal)
+                canvas.drawText(place.sessions.toString(), 435f, y + 14f, normal)
+                canvas.drawText(formatDuration(place.duration), 492f, y + 14f, bold)
+                y += 24f
+                canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, line)
             }
-            canvas().drawText(
-                "Rapport mensuel — ${monthFormat.format(c.time).replaceFirstChar { it.uppercase() }}",
-                MARGIN,
-                y + 14f,
-                boldPaint
-            )
-            y += 25f
-            canvas().drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint)
-            y += 10f
         }
 
-        fun drawReportHeader(grandTotal: Long, completed: Int, placeCount: Int) {
-            val c = Calendar.getInstance(Locale.FRANCE).apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, 1)
-            }
-            val monthLabel = monthFormat.format(c.time).replaceFirstChar { it.uppercase() }
-            canvas().drawText("RAPPORT MENSUEL DE POINTAGE", MARGIN, y + 18f, titlePaint)
-            y += 30f
-            canvas().drawText(monthLabel, MARGIN, y + 14f, sectionPaint)
-            canvas().drawText("Généré le ${generatedFormat.format(Date())}", PAGE_WIDTH - 185f, y + 14f, mutedPaint)
-            y += 28f
-            canvas().drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 48f, headerFill)
-            canvas().drawText("Temps travaillé", MARGIN + 12f, y + 17f, mutedPaint)
-            canvas().drawText(formatDuration(grandTotal), MARGIN + 12f, y + 38f, titlePaint)
-            canvas().drawText("Sessions terminées", 238f, y + 17f, mutedPaint)
-            canvas().drawText(completed.toString(), 238f, y + 38f, boldPaint)
-            canvas().drawText("Lieux", 390f, y + 17f, mutedPaint)
-            canvas().drawText(placeCount.toString(), 390f, y + 38f, boldPaint)
-            y += 64f
+        canvas.drawLine(MARGIN, PAGE_HEIGHT - 28f, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 28f, line)
+        canvas.drawText("HP Travail — récapitulatif mensuel", MARGIN, PAGE_HEIGHT - 14f, muted)
+        pdf.finishPage(page)
+        pdf.writeTo(output)
+        pdf.close()
+    }
+
+    private fun resolvePlace(context: Context, raw: String): Pair<String?, String> {
+        if (raw.isBlank()) return null to "Pointage manuel / ancien pointage"
+        val marker = " — "
+        if (raw.contains(marker)) {
+            val name = raw.substringBefore(marker).trim().takeIf { it.isNotBlank() }
+            val address = raw.substringAfterLast(marker).trim().ifBlank { raw }
+            return name to address
         }
+        return PlaceNames.get(context, raw)?.trim()?.takeIf { it.isNotBlank() } to raw
+    }
 
-        fun drawPlaceTotals(totals: LinkedHashMap<String, Pair<PlaceInfo, Long>>) {
-            ensureSpace(40f)
-            canvas().drawText("RÉCAPITULATIF PAR LIEU", MARGIN, y + 12f, sectionPaint)
-            y += 22f
-            if (totals.isEmpty()) {
-                drawMuted("Aucun lieu comptabilisé pour ce mois.")
-                return
-            }
+    private fun normalizeAddress(address: String): String = address
+        .trim()
+        .lowercase(Locale.FRANCE)
+        .replace(Regex("\\s+"), " ")
 
-            totals.values.forEach { (place, total) ->
-                val addressLines = wrapText(place.address, 390f, normalPaint)
-                val blockHeight = 22f + addressLines.size * 12f
-                ensureSpace(blockHeight)
-                if (!place.name.isNullOrBlank()) {
-                    canvas().drawText(place.name, MARGIN, y + 12f, boldPaint)
-                    y += 14f
-                }
-                addressLines.forEach { line ->
-                    canvas().drawText(line, MARGIN, y + 11f, normalPaint)
-                    y += 12f
-                }
-                canvas().drawText(formatDuration(total), PAGE_WIDTH - MARGIN - 70f, y - 2f, boldPaint)
-                y += 5f
-                canvas().drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint)
-                y += 7f
-            }
-            y += 4f
-        }
-
-        fun drawDetailHeader() {
-            ensureSpace(42f)
-            canvas().drawText("DÉTAIL DES POINTAGES", MARGIN, y + 12f, sectionPaint)
-            y += 20f
-            canvas().drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 25f, headerFill)
-            canvas().drawText("Date", MARGIN + 5f, y + 16f, boldPaint)
-            canvas().drawText("Lieu / adresse", 98f, y + 16f, boldPaint)
-            canvas().drawText("Entrée", 382f, y + 16f, boldPaint)
-            canvas().drawText("Sortie", 438f, y + 16f, boldPaint)
-            canvas().drawText("Travail", 495f, y + 16f, boldPaint)
-            y += 30f
-        }
-
-        fun drawRow(row: Row) {
-            val addressLines = wrapText(row.place.address, 270f, normalPaint)
-            val nameLines = if (row.place.name.isNullOrBlank()) emptyList() else wrapText(row.place.name, 270f, boldPaint)
-            val pauseLineCount = if (row.pauseMs > 0L) 1 else 0
-            val lineCount = (nameLines.size + addressLines.size + pauseLineCount).coerceAtLeast(1)
-            val height = maxOf(30f, 10f + lineCount * 12f)
-            ensureSpace(height, repeatDetailHeader = true)
-
-            val date = dateFormat.format(Date(row.entry))
-            val entry = timeFormat.format(Date(row.entry))
-            val exit = row.exit?.let { timeFormat.format(Date(it)) } ?: "-"
-            val duration = if (row.exit != null) formatDuration(row.workedMs) else "En cours"
-            val baseline = y + 13f
-            canvas().drawText(date, MARGIN + 5f, baseline, normalPaint)
-            canvas().drawText(entry, 382f, baseline, normalPaint)
-            canvas().drawText(exit, 438f, baseline, normalPaint)
-            canvas().drawText(duration, 495f, baseline, normalPaint)
-
-            var placeY = baseline
-            nameLines.forEach { line ->
-                canvas().drawText(line, 98f, placeY, boldPaint)
-                placeY += 12f
-            }
-            addressLines.forEach { line ->
-                canvas().drawText(line, 98f, placeY, normalPaint)
-                placeY += 12f
-            }
-            if (row.pauseMs > 0L) {
-                canvas().drawText("Pauses : ${formatDuration(row.pauseMs)}", 98f, placeY, mutedPaint)
-            }
-
-            y += height
-            canvas().drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint)
-            y += 5f
-        }
-
-        fun drawMuted(text: String) {
-            ensureSpace(24f)
-            canvas().drawText(text, MARGIN, y + 12f, mutedPaint)
-            y += 20f
-        }
-
-        private fun wrapText(text: String, maxWidth: Float, paint: Paint): List<String> {
-            if (text.isBlank()) return listOf("")
-            val words = text.split(Regex("\\s+")).filter { it.isNotBlank() }
-            val lines = mutableListOf<String>()
-            var current = ""
-            for (word in words) {
-                val candidate = if (current.isBlank()) word else "$current $word"
-                if (paint.measureText(candidate) <= maxWidth) {
-                    current = candidate
-                } else {
-                    if (current.isNotBlank()) lines += current
-                    if (paint.measureText(word) <= maxWidth) {
-                        current = word
-                    } else {
-                        var chunk = ""
-                        word.forEach { ch ->
-                            val test = chunk + ch
-                            if (paint.measureText(test) > maxWidth && chunk.isNotEmpty()) {
-                                lines += chunk
-                                chunk = ch.toString()
-                            } else {
-                                chunk = test
-                            }
-                        }
-                        current = chunk
-                    }
-                }
-            }
-            if (current.isNotBlank()) lines += current
-            return lines.ifEmpty { listOf(text) }
-        }
-
-        private fun formatDuration(ms: Long): String {
-            val totalMinutes = ms.coerceAtLeast(0L) / 60000L
-            return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
-        }
+    private fun formatDuration(ms: Long): String {
+        val totalMinutes = ms.coerceAtLeast(0L) / 60000L
+        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
     }
 }
