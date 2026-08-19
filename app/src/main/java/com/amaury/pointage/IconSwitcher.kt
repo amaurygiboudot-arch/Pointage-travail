@@ -23,18 +23,33 @@ object IconSwitcher {
 
     private fun setOnly(context: Context, enabledClass: String) {
         val pm = context.packageManager
-        listOf(RED, GREEN, ORANGE).forEach { className ->
-            val component = ComponentName(context.packageName, className)
-            val desired = if (className == enabledClass) {
-                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-            } else {
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-            }
-            runCatching {
-                if (pm.getComponentEnabledSetting(component) != desired) {
-                    pm.setComponentEnabledSetting(component, desired, PackageManager.DONT_KILL_APP)
-                }
+        val target = ComponentName(context.packageName, enabledClass)
+
+        // Toujours activer la nouvelle icône AVANT de désactiver l'ancienne :
+        // le tiroir Android ne se retrouve ainsi jamais sans composant launcher.
+        runCatching {
+            if (pm.getComponentEnabledSetting(target) != PackageManager.COMPONENT_ENABLED_STATE_ENABLED) {
+                pm.setComponentEnabledSetting(
+                    target,
+                    PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    PackageManager.DONT_KILL_APP
+                )
             }
         }
+
+        listOf(RED, GREEN, ORANGE)
+            .filter { it != enabledClass }
+            .forEach { className ->
+                val component = ComponentName(context.packageName, className)
+                runCatching {
+                    if (pm.getComponentEnabledSetting(component) != PackageManager.COMPONENT_ENABLED_STATE_DISABLED) {
+                        pm.setComponentEnabledSetting(
+                            component,
+                            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                            PackageManager.DONT_KILL_APP
+                        )
+                    }
+                }
+            }
     }
 }
