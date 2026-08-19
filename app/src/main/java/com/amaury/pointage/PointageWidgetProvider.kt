@@ -56,27 +56,19 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
 
             val openAppPending = PendingIntent.getActivity(
-                context,
-                20,
-                openAppIntent,
+                context, 20, openAppIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val openSettingsPending = PendingIntent.getActivity(
-                context,
-                30,
-                openSettingsIntent,
+                context, 30, openSettingsIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val entryPending = PendingIntent.getBroadcast(
-                context,
-                1,
-                entryIntent,
+                context, 1, entryIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val exitPending = PendingIntent.getBroadcast(
-                context,
-                2,
-                exitIntent,
+                context, 2, exitIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
@@ -98,8 +90,9 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 else -> systemDark
             }
 
-            val defaultAccent = Color.parseColor(if (dark) "#F3D58A" else "#8A6200")
-            val defaultSecondary = Color.parseColor(if (dark) "#D8D1C3" else "#4E4A44")
+            val theme = AppThemeCatalog.current(context)
+            val defaultAccent = if (dark) theme.accentLight else theme.accent
+            val defaultSecondary = if (dark) theme.darkHint else theme.lightHint
             val accent = if (widgetStyle.contains("widget_accent")) {
                 parseColor(widgetStyle.getString("widget_accent", null), defaultAccent)
             } else defaultAccent
@@ -125,6 +118,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var entryText = "--:--"
             var exitText = "--:--"
             var durationText = "00h 00m"
+            var pauseText = "00h 00m"
             var stateText = "PRÊT"
             var stateColor = accent
             var locationText = "📍 Aucune zone"
@@ -133,26 +127,33 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             val data = PointageStore.load(context)
             if (data.length() > 0) {
-                val last = data.getJSONObject(data.length() - 1)
-                val entry = last.getLong("entry")
-                val zoneAddress = last.optString("zoneAddress").trim()
-                entryText = formatTime(entry)
+                val last = data.optJSONObject(data.length() - 1)
+                if (last != null) {
+                    val entry = last.optLong("entry", -1L)
+                    if (entry > 0L) {
+                        val zoneAddress = last.optString("zoneAddress").trim()
+                        entryText = formatTime(entry)
 
-                val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
-                entryLocation = place
-                locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 40)}"
+                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
+                        entryLocation = place
+                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 40)}"
 
-                if (last.isNull("exit")) {
-                    durationText = formatDuration(System.currentTimeMillis() - entry)
-                    stateText = "EN COURS"
-                    stateColor = accent
-                } else {
-                    val exit = last.getLong("exit")
-                    exitText = formatTime(exit)
-                    exitLocation = place
-                    durationText = formatDuration(exit - entry)
-                    stateText = "TERMINÉ"
-                    stateColor = defaultSecondary
+                        val effectiveEnd: Long
+                        if (last.isNull("exit")) {
+                            effectiveEnd = System.currentTimeMillis()
+                            stateText = if (PointageStore.isPaused(context)) "EN PAUSE" else "EN COURS"
+                            stateColor = accent
+                        } else {
+                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
+                            exitText = formatTime(effectiveEnd)
+                            exitLocation = place
+                            stateText = "TERMINÉ"
+                            stateColor = defaultSecondary
+                        }
+
+                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
+                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
+                    }
                 }
             }
 
@@ -163,7 +164,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_duration, durationText)
             views.setTextViewText(R.id.widget_state, stateText)
             views.setTextColor(R.id.widget_state, stateColor)
-            views.setTextViewText(R.id.widget_pause, "00h 00m")
+            views.setTextViewText(R.id.widget_pause, pauseText)
             views.setTextViewText(R.id.widget_location, locationText)
             views.setViewVisibility(
                 R.id.widget_location,
@@ -185,13 +186,18 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
                 updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
             }
             ACTION_EXIT -> {
                 if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
             }
-            Intent.ACTION_CONFIGURATION_CHANGED -> updateAll(context)
+            Intent.ACTION_CONFIGURATION_CHANGED -> {
+                updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
+            }
         }
     }
 }
