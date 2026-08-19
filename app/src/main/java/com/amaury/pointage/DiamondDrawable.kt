@@ -4,129 +4,105 @@ import android.graphics.*
 import android.graphics.drawable.Drawable
 import kotlin.math.*
 
-/**
- * Bouton cristal taillé : centre optiquement calme, couronne facettée épaisse,
- * réfraction et éclats ponctuels pilotés par la direction lumineuse.
- * Aucun symbole/croix de lumière n'est dessiné.
- */
+/** Realistic cut-crystal button: thick crown, calm transparent table and moving refraction. */
 class DiamondDrawable(
     private val dark: Boolean,
     private val density: Float,
     private val tint: Int = Color.parseColor("#DDF6FF")
 ) : Drawable() {
-    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val r = RectF()
     private var lightAngle = -55f
     private var pressed = false
 
-    fun setLightAngle(angle: Float) {
-        val n=((angle%360f)+360f)%360f
-        if(abs(delta(lightAngle,n))<.45f)return
-        lightAngle=n; invalidateSelf()
-    }
-    override fun isStateful()=true
-    override fun onStateChange(state:IntArray):Boolean{
-        val n=state.any{it==android.R.attr.state_pressed||it==android.R.attr.state_focused}
-        if(n==pressed)return false; pressed=n; invalidateSelf(); return true
+    fun setLightAngle(angle: Float) { lightAngle = ((angle % 360f) + 360f) % 360f; invalidateSelf() }
+    override fun isStateful() = true
+    override fun onStateChange(state: IntArray): Boolean {
+        val n = state.any { it == android.R.attr.state_pressed || it == android.R.attr.state_focused }
+        if (n == pressed) return false
+        pressed = n; invalidateSelf(); return true
     }
 
-    override fun draw(c:Canvas){
-        if(bounds.isEmpty)return
-        r.set(bounds.left.toFloat(),bounds.top.toFloat(),bounds.right.toFloat(),bounds.bottom.toFloat())
-        val cut=min(r.height()*.24f,16f*density)
-        val outer=cutPath(r,cut)
-        val save=c.save(); c.clipPath(outer)
-        drawGlassBody(c)
-        drawCutRim(c,cut)
-        drawRefraction(c)
-        drawHotSpots(c,cut)
-        c.restoreToCount(save)
-        drawEdges(c,outer,cut)
-    }
+    override fun draw(c: Canvas) {
+        if (bounds.isEmpty) return
+        r.set(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat())
+        val h = r.height(); val cut = min(h * .30f, 18f * density)
+        val outer = cutPath(r, cut)
+        c.save(); c.clipPath(outer)
 
-    private fun drawGlassBody(c:Canvas){
-        // Le centre reste sombre/translucide comme le bouton de référence.
-        val top=if(dark) Color.argb(126,20,38,60) else Color.argb(105,185,218,238)
-        val mid=if(dark) Color.argb(155,8,20,37) else Color.argb(94,220,240,250)
-        val bottom=if(dark) Color.argb(180,4,14,29) else Color.argb(118,151,193,220)
-        p.shader=LinearGradient(r.left,r.top,r.left,r.bottom,intArrayOf(top,mid,bottom),floatArrayOf(0f,.47f,1f),Shader.TileMode.CLAMP)
-        c.drawRect(r,p);p.shader=null
-        // reflet doux de surface, pas de réseau de lignes au centre
-        p.shader=LinearGradient(r.left,r.top,r.right,r.bottom,intArrayOf(Color.argb(35,255,255,255),Color.TRANSPARENT,Color.argb(18,120,196,242)),floatArrayOf(0f,.43f,1f),Shader.TileMode.CLAMP)
-        c.drawRect(r,p);p.shader=null
-    }
+        // Transparent blue-grey crystal mass, intentionally not opaque navy.
+        fill.shader = LinearGradient(r.left, r.top, r.left, r.bottom,
+            intArrayOf(Color.argb(185, 44, 65, 91), Color.argb(145, 18, 34, 55), Color.argb(185, 8, 22, 42)),
+            floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(r, fill); fill.shader = null
 
-    private fun drawCutRim(c:Canvas,cut:Float){
-        val l=r.left;val t=r.top;val rr=r.right;val b=r.bottom;val w=r.width();val h=r.height()
-        val ix=l+cut*1.15f; val ir=rr-cut*1.15f; val it=t+cut*.72f; val ib=b-cut*.72f
-        val facets=arrayOf(
-            poly(l+cut,t, l+w*.18f,t, ix,it, l,t+cut) to 208f,
-            poly(l+w*.18f,t,l+w*.38f,t, l+w*.34f,it,ix,it) to 250f,
-            poly(l+w*.38f,t,l+w*.62f,t,l+w*.66f,it,l+w*.34f,it) to 285f,
-            poly(l+w*.62f,t,rr-cut,t,ir,it,l+w*.66f,it) to 320f,
-            poly(rr-cut,t,rr,t+cut,rr,b-cut,ir,ib,ir,it) to 350f,
-            poly(rr,b-cut,rr-cut,b,l+w*.82f,b,ir,ib) to 25f,
-            poly(l+w*.82f,b,l+w*.61f,b,l+w*.66f,ib,ir,ib) to 62f,
-            poly(l+w*.61f,b,l+w*.39f,b,l+w*.34f,ib,l+w*.66f,ib) to 92f,
-            poly(l+w*.39f,b,l+w*.18f,b,ix,ib,l+w*.34f,ib) to 126f,
-            poly(l+w*.18f,b,l+cut,b,l,b-cut,l,t+cut,ix,it,ix,ib) to 160f
+        val ix = r.left + cut * 1.35f; val ir = r.right - cut * 1.35f
+        val it = r.top + h * .25f; val ib = r.bottom - h * .25f
+        val w = r.width()
+        val facets = arrayOf(
+            facet(r.left+cut,r.top, r.left+w*.19f,r.top, ix,it, r.left,r.top+cut) to 215f,
+            facet(r.left+w*.19f,r.top, r.left+w*.39f,r.top, r.left+w*.34f,it,ix,it) to 250f,
+            facet(r.left+w*.39f,r.top, r.left+w*.61f,r.top, r.left+w*.66f,it,r.left+w*.34f,it) to 285f,
+            facet(r.left+w*.61f,r.top, r.right-cut,r.top,ir,it,r.left+w*.66f,it) to 320f,
+            facet(r.right-cut,r.top,r.right,r.top+cut,r.right,r.bottom-cut,ir,ib,ir,it) to 355f,
+            facet(r.right,r.bottom-cut,r.right-cut,r.bottom,r.left+w*.81f,r.bottom,ir,ib) to 28f,
+            facet(r.left+w*.81f,r.bottom,r.left+w*.61f,r.bottom,r.left+w*.66f,ib,ir,ib) to 63f,
+            facet(r.left+w*.61f,r.bottom,r.left+w*.39f,r.bottom,r.left+w*.34f,ib,r.left+w*.66f,ib) to 95f,
+            facet(r.left+w*.39f,r.bottom,r.left+w*.19f,r.bottom,ix,ib,r.left+w*.34f,ib) to 128f,
+            facet(r.left+w*.19f,r.bottom,r.left+cut,r.bottom,r.left,r.bottom-cut,r.left,r.top+cut,ix,it,ix,ib) to 165f
         )
-        facets.forEachIndexed{idx,(path,norm)->
-            val facing=((cos(Math.toRadians(delta(norm,lightAngle).toDouble()))+1.0)*.5).toFloat()
-            val cool=if(idx%3==0)Color.rgb(174,220,255) else if(idx%4==0)Color.rgb(221,231,255) else Color.WHITE
-            val a=((if(dark)38 else 28)+facing*(if(pressed)75 else 165)).toInt().coerceIn(25,205)
-            p.shader=LinearGradient(l,t,rr,b,Color.argb(a,cool.red(),cool.green(),cool.blue()),Color.argb((a*.18f).toInt(),75,142,200),Shader.TileMode.CLAMP)
-            c.drawPath(path,p);p.shader=null
+        facets.forEachIndexed { i, (path, normal) ->
+            val f = facing(normal)
+            val base = when(i % 4) { 0 -> intArrayOf(205,235,255); 1 -> intArrayOf(255,255,255); 2 -> intArrayOf(154,203,242); else -> intArrayOf(220,230,255) }
+            val alpha = (30 + 175*f).toInt().coerceIn(25,210)
+            fill.shader = LinearGradient(r.left,r.top,r.right,r.bottom,
+                Color.argb(alpha,base[0],base[1],base[2]), Color.argb((alpha*.12f).toInt(),65,112,166), Shader.TileMode.CLAMP)
+            c.drawPath(path,fill); fill.shader=null
         }
-        // centre intérieur : aucune facette traversante
-        p.color=if(dark)Color.argb(28,0,9,20) else Color.argb(18,235,250,255)
-        c.drawRoundRect(RectF(ix,it,ir,ib),h*.14f,h*.14f,p)
-    }
 
-    private fun drawRefraction(c:Canvas){
-        val rad=Math.toRadians(lightAngle.toDouble()); val cx=r.centerX();val cy=r.centerY()
-        val dx=(cos(rad)*r.width()*.55).toFloat();val dy=(sin(rad)*r.height()*2.2).toFloat()
-        p.shader=LinearGradient(cx-dx,cy-dy,cx+dx,cy+dy,intArrayOf(Color.TRANSPARENT,Color.argb(if(pressed)18 else 48,174,221,255),Color.argb(if(pressed)25 else 72,255,255,255),Color.TRANSPARENT),floatArrayOf(0f,.43f,.52f,1f),Shader.TileMode.CLAMP)
-        c.drawRect(r,p);p.shader=null
-    }
+        // Large clean central table like a real emerald-cut diamond.
+        val table = RectF(ix,it,ir,ib)
+        fill.shader = LinearGradient(table.left,table.top,table.right,table.bottom,
+            intArrayOf(Color.argb(48,225,244,255),Color.argb(18,96,143,190),Color.argb(42,214,239,255)),
+            floatArrayOf(0f,.55f,1f),Shader.TileMode.CLAMP)
+        c.drawRoundRect(table,h*.10f,h*.10f,fill); fill.shader=null
 
-    private fun drawHotSpots(c:Canvas,cut:Float){
-        // Reflets indépendants placés surtout sur la couronne taillée.
-        val pts=arrayOf(floatArrayOf(.08f,.22f,18f),floatArrayOf(.25f,.08f,92f),floatArrayOf(.52f,.06f,151f),floatArrayOf(.78f,.10f,214f),floatArrayOf(.94f,.30f,278f),floatArrayOf(.87f,.86f,326f),floatArrayOf(.58f,.93f,43f),floatArrayOf(.18f,.88f,128f),floatArrayOf(.04f,.63f,184f))
-        pts.forEach{q->
-            val facing=((cos(Math.toRadians(delta(q[2],lightAngle).toDouble()))+1.0)*.5).toFloat()
-            if(facing<.43f)return@forEach
-            val x=r.left+r.width()*q[0];val y=r.top+r.height()*q[1]
-            val radius=(2.0f+5.2f*facing)*density
-            val a=((facing-.43f)/.57f*(if(pressed)125 else 235)).toInt().coerceIn(0,235)
-            p.shader=RadialGradient(x,y,radius,intArrayOf(Color.argb(a,255,255,255),Color.argb((a*.28f).toInt(),151,215,255),Color.TRANSPARENT),floatArrayOf(0f,.22f,1f),Shader.TileMode.CLAMP)
-            c.drawCircle(x,y,radius,p);p.shader=null
-            // petite diffraction, sans forme de +
-            if(facing>.78f){
-                stroke.strokeWidth=.55f*density;stroke.color=Color.argb((a*.65f).toInt(),225,245,255)
-                val len=(3f+4f*facing)*density
-                val aRad=Math.toRadians((lightAngle+q[2]*.17f).toDouble())
-                val vx=(cos(aRad)*len).toFloat();val vy=(sin(aRad)*len).toFloat()
-                c.drawLine(x-vx,y-vy,x+vx,y+vy,stroke)
-            }
+        // One broad moving refraction band. No cross, no fixed fake scratches.
+        val rad=Math.toRadians(lightAngle.toDouble()); val cx=r.centerX(); val cy=r.centerY()
+        val dx=(cos(rad)*w*.62).toFloat(); val dy=(sin(rad)*h*3.2).toFloat()
+        fill.shader=LinearGradient(cx-dx,cy-dy,cx+dx,cy+dy,
+            intArrayOf(Color.TRANSPARENT,Color.argb(if(pressed)35 else 78,160,218,255),Color.argb(if(pressed)50 else 120,255,255,255),Color.TRANSPARENT),
+            floatArrayOf(0f,.43f,.51f,1f),Shader.TileMode.CLAMP)
+        c.drawRect(r,fill); fill.shader=null
+        c.restore()
+
+        // Multi-edge bevel gives thickness and diamond-like dispersion.
+        line.strokeWidth=1.25f*density
+        line.shader=LinearGradient(r.left,r.top,r.right,r.bottom,
+            intArrayOf(Color.rgb(151,211,255),Color.WHITE,Color.rgb(113,170,224),Color.WHITE,Color.rgb(166,220,255)),null,Shader.TileMode.CLAMP)
+        line.alpha=if(pressed)180 else 245; c.drawPath(outer,line); line.shader=null
+        val inset=2.4f*density; val inner=RectF(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset)
+        line.strokeWidth=.65f*density; line.color=Color.argb(190,225,246,255); line.alpha=255
+        c.drawPath(cutPath(inner,(cut-inset).coerceAtLeast(3f*density)),line)
+
+        // Independent small glints that travel with the real light direction.
+        val glints=arrayOf(floatArrayOf(.08f,.20f,210f),floatArrayOf(.25f,.07f,255f),floatArrayOf(.55f,.06f,292f),floatArrayOf(.82f,.08f,325f),floatArrayOf(.96f,.34f,0f),floatArrayOf(.88f,.88f,42f),floatArrayOf(.54f,.94f,90f),floatArrayOf(.15f,.88f,145f))
+        glints.forEach { g ->
+            val f=facing(g[2]); if(f<.72f)return@forEach
+            val x=r.left+w*g[0]; val y=r.top+h*g[1]; val rr=(1.8f+4.5f*f)*density; val a=(235*f).toInt()
+            fill.shader=RadialGradient(x,y,rr,Color.argb(a,255,255,255),Color.TRANSPARENT,Shader.TileMode.CLAMP)
+            c.drawCircle(x,y,rr,fill); fill.shader=null
         }
     }
 
-    private fun drawEdges(c:Canvas,outer:Path,cut:Float){
-        stroke.strokeWidth=1.15f*density
-        stroke.shader=LinearGradient(r.left,r.top,r.right,r.bottom,intArrayOf(Color.rgb(174,222,255),Color.WHITE,Color.rgb(108,172,225),Color.WHITE),null,Shader.TileMode.CLAMP)
-        stroke.alpha=if(pressed)165 else 230;c.drawPath(outer,stroke);stroke.shader=null
-        val inset=2.2f*density;val inner=RectF(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset)
-        stroke.strokeWidth=.55f*density;stroke.color=Color.argb(if(pressed)90 else 155,225,247,255);stroke.alpha=255
-        c.drawPath(cutPath(inner,(cut-inset).coerceAtLeast(3f*density)),stroke)
+    private fun facing(normal:Float):Float {
+        val d=((lightAngle-normal+540f)%360f)-180f
+        return ((cos(Math.toRadians(d.toDouble()))+1.0)*.5).toFloat()
     }
-
     private fun cutPath(x:RectF,cut:Float)=Path().apply{moveTo(x.left+cut,x.top);lineTo(x.right-cut,x.top);lineTo(x.right,x.top+cut);lineTo(x.right,x.bottom-cut);lineTo(x.right-cut,x.bottom);lineTo(x.left+cut,x.bottom);lineTo(x.left,x.bottom-cut);lineTo(x.left,x.top+cut);close()}
-    private fun poly(vararg v:Float)=Path().apply{moveTo(v[0],v[1]);var i=2;while(i<v.size){lineTo(v[i],v[i+1]);i+=2};close()}
-    private fun Int.red()=Color.red(this);private fun Int.green()=Color.green(this);private fun Int.blue()=Color.blue(this)
-    private fun delta(a:Float,b:Float)=((b-a+540f)%360f)-180f
-    override fun setAlpha(alpha:Int){p.alpha=alpha;stroke.alpha=alpha;invalidateSelf()}
-    override fun setColorFilter(cf:ColorFilter?){p.colorFilter=cf;stroke.colorFilter=cf;invalidateSelf()}
+    private fun facet(vararg v:Float)=Path().apply{moveTo(v[0],v[1]);var i=2;while(i<v.size){lineTo(v[i],v[i+1]);i+=2};close()}
+    override fun setAlpha(alpha:Int){fill.alpha=alpha;line.alpha=alpha;invalidateSelf()}
+    override fun setColorFilter(cf:ColorFilter?){fill.colorFilter=cf;line.colorFilter=cf;invalidateSelf()}
     @Deprecated("Deprecated in Java") override fun getOpacity()=PixelFormat.TRANSLUCENT
 }
