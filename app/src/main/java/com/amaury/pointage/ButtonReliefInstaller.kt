@@ -31,7 +31,6 @@ object ButtonReliefInstaller {
     private const val TAG_DIAMOND_LAB = "diamond_lab_button"
     private const val FIXED_LIGHT_ANGLE = -55f
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
-    private val crystalDrawables = WeakHashMap<Button, DiamondDrawable>()
     private var currentLightAngle = FIXED_LIGHT_ANGLE
     private var currentNight = false
 
@@ -76,7 +75,7 @@ object ButtonReliefInstaller {
 
     private fun updateDynamicLight(decor: View, angle: Float, night: Boolean) {
         dynamicDrawables.entries.toList().forEach { (b, d) -> if (b.rootView === decor) d.setLightAngle(angle) }
-        crystalDrawables.entries.toList().forEach { (b, d) -> if (b.rootView === decor) d.setLightAngle(angle) }
+        True3DButtonInstaller.updateLight(decor, angle)
         updateJewelLights(decor, angle, night)
     }
 
@@ -112,15 +111,21 @@ object ButtonReliefInstaller {
             setOnClickListener {
                 val themes = AppThemeCatalog.themes
                 val selected = themes.indexOfFirst { it.id == AppThemeCatalog.current(activity).id }.coerceAtLeast(0)
-                AlertDialog.Builder(activity)
+                val dialog = AlertDialog.Builder(activity)
                     .setTitle("Choisir le thème")
-                    .setSingleChoiceItems(themes.map { it.label }.toTypedArray(), selected) { dialog, which ->
+                    .setSingleChoiceItems(themes.map { it.label }.toTypedArray(), selected) { d, which ->
                         AppThemeCatalog.set(activity, themes[which])
-                        dialog.dismiss()
+                        d.dismiss()
                         activity.window.decorView.post { activity.recreate() }
                     }
                     .setNegativeButton("Annuler", null)
-                    .show()
+                    .create()
+                dialog.setOnShowListener {
+                    if (AppThemeCatalog.current(activity).id == "diamond_crystal") {
+                        True3DButtonInstaller.install(dialog.window?.decorView ?: return@setOnShowListener, currentLightAngle)
+                    }
+                }
+                dialog.show()
             }
         }
         section.addView(button, if (section.childCount >= 2) 2 else section.childCount,
@@ -188,6 +193,9 @@ object ButtonReliefInstaller {
         installThemeSelectorIfPossible(activity)
         installDiamondLabIfPossible(activity)
         installSolarToggleIfPossible(activity)
+        if (theme.id == "diamond_crystal") {
+            True3DButtonInstaller.install(decor, currentLightAngle)
+        }
     }
 
     private fun isDarkMode(activity: Activity): Boolean {
@@ -245,34 +253,42 @@ object ButtonReliefInstaller {
 
     private fun applyToTree(view: View, dark: Boolean, theme: HpTheme) {
         if (view is Button) applyToButton(view, dark, theme)
-        if (view is ViewGroup) for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark, theme)
+        if (view is ViewGroup && view !is True3DButtonHost) for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark, theme)
     }
 
     private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v7"
+        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v8"
+
+        if (theme.id == "diamond_crystal") {
+            button.backgroundTintList = null
+            button.background = null
+            button.setTextColor(Color.parseColor("#F7FCFF"))
+            dynamicDrawables.remove(button)
+            if (button is LightReactiveJewelButton) {
+                button.alpha = 0f
+            }
+            button.setTag(TAG_KEY, styleKey)
+            return
+        }
+
         if (button is LightReactiveJewelButton) {
+            button.alpha = 1f
             button.setJewelAccent(theme.accent, theme.accentLight)
             button.setLightAngle(currentLightAngle)
             button.setNightLight(currentNight)
             button.setTag(TAG_KEY, "jewel_${theme.id}")
         } else if (!protected && button.getTag(TAG_KEY) != styleKey) {
+            button.alpha = 1f
             button.backgroundTintList = null
-            if (theme.id == "diamond_crystal") {
-                val d = DiamondDrawable(true, button.resources.displayMetrics.density, DiamondTuningStore.load(button.context)).apply { setLightAngle(currentLightAngle) }
-                button.background = d
-                crystalDrawables[button] = d
-                dynamicDrawables.remove(button)
-                button.setTextColor(Color.parseColor("#F7FCFF"))
-            } else {
-                val d = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density, theme.accent, theme.accentLight).apply { setLightAngle(currentLightAngle) }
-                button.background = d
-                dynamicDrawables[button] = d
-                crystalDrawables.remove(button)
-            }
+            val d = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density, theme.accent, theme.accentLight).apply { setLightAngle(currentLightAngle) }
+            button.background = d
+            dynamicDrawables[button] = d
             button.setTag(TAG_KEY, styleKey)
-        } else if (protected && button.getTag(TAG_KEY) == null) button.setTag(TAG_KEY, "protected")
+        } else if (protected && button.getTag(TAG_KEY) == null) {
+            button.setTag(TAG_KEY, "protected")
+        }
         installPressAnimator(button)
     }
 
