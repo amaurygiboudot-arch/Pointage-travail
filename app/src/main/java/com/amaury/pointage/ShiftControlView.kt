@@ -43,9 +43,10 @@ class ShiftControlView @JvmOverloads constructor(
             isAllCaps = false
             textSize = 14f
             setBackgroundResource(R.drawable.hp_panel)
+            gravity = Gravity.CENTER
             setOnClickListener { chooseMode() }
         }
-        addView(modeButton, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
+        addView(modeButton, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
 
         stateText.apply {
             textSize = 14f
@@ -58,10 +59,11 @@ class ShiftControlView @JvmOverloads constructor(
             text = "PAUSES ET PANIERS PAR POSTE"
             isAllCaps = false
             textSize = 14f
+            gravity = Gravity.CENTER
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { showProfilesDialog() }
         }
-        addView(configure, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(7) })
+        addView(configure, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(7) })
         refresh()
     }
 
@@ -107,7 +109,7 @@ class ShiftControlView @JvmOverloads constructor(
     private fun showProfilesDialog() {
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(18), dp(10), dp(18), dp(10))
+            setPadding(dp(20), dp(12), dp(20), dp(12))
         }
         val pauseInputs = linkedMapOf<ShiftType, EditText>()
         val mealSwitches = linkedMapOf<ShiftType, Switch>()
@@ -117,25 +119,35 @@ class ShiftControlView @JvmOverloads constructor(
                 text = shift.label.uppercase(Locale.FRANCE)
                 textSize = 15f
                 setTextColor(Color.parseColor("#D6A84B"))
-                setPadding(0, dp(10), 0, dp(3))
+                setPadding(0, dp(12), 0, dp(5))
             })
+
             val pause = EditText(context).apply {
                 hint = "Pause à déduire (minutes)"
                 inputType = InputType.TYPE_CLASS_NUMBER
                 isSingleLine = true
                 setText(ShiftProfileManager.pauseMinutes(context, shift).toString())
+                setTextColor(Color.WHITE)
+                setHintTextColor(Color.parseColor("#A9A9A9"))
+                textSize = 16f
+                gravity = Gravity.CENTER_VERTICAL
                 setBackgroundResource(R.drawable.hp_panel)
-                setPadding(dp(12), dp(8), dp(12), dp(8))
+                setPadding(dp(18), 0, dp(18), 0)
+                selectAllOnFocus = true
             }
             pauseInputs[shift] = pause
-            box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)))
+            box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(58)))
+
             val meal = Switch(context).apply {
                 text = "Panier pour ce poste"
                 textSize = 14f
+                gravity = Gravity.CENTER_VERTICAL
+                minHeight = dp(52)
+                setPadding(0, dp(2), 0, dp(2))
                 isChecked = ShiftProfileManager.mealEnabled(context, shift)
             }
             mealSwitches[shift] = meal
-            box.addView(meal)
+            box.addView(meal, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
         }
 
         AlertDialog.Builder(context)
