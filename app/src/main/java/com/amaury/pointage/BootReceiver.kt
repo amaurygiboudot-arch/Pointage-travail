@@ -12,9 +12,10 @@ class BootReceiver : BroadcastReceiver() {
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
 
+        // Au redémarrage / après mise à jour, on réarme la sauvegarde. Le vrai travail
+        // Drive est exécuté par DriveBackupReceiver avec goAsync(), pas ici.
         if (DriveBackupManager.isConfigured(context)) {
             DriveBackupScheduler.schedule(context)
-            DriveBackupManager.syncAutomaticAsync(context)
         }
 
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
@@ -22,11 +23,17 @@ class BootReceiver : BroadcastReceiver() {
         if (!GeofenceManager.hasRequiredPermissions(context)) return
 
         prefs.edit().remove("active_zones").apply()
-        val array = JSONArray(prefs.getString("zones", "[]") ?: "[]")
+        val array = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }
+            .getOrElse { JSONArray() }
         val zones = mutableListOf<WorkZone>()
         for (i in 0 until array.length()) {
-            val item = array.getJSONObject(i)
-            zones.add(WorkZone(item.getString("id"), item.getDouble("latitude"), item.getDouble("longitude"), item.getDouble("radius").toFloat()))
+            val item = array.optJSONObject(i) ?: continue
+            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+            val latitude = item.optDouble("latitude", Double.NaN)
+            val longitude = item.optDouble("longitude", Double.NaN)
+            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
+            if (!latitude.isFinite() || !longitude.isFinite()) continue
+            zones += WorkZone(id, latitude, longitude, radius)
         }
         if (zones.isNotEmpty()) GeofenceManager.registerAll(context, zones)
     }
