@@ -147,7 +147,7 @@ class ShiftControlView @JvmOverloads constructor(
                 gravity = Gravity.CENTER_VERTICAL
                 background = fieldBackground
                 setPadding(dp(18), 0, dp(18), 0)
-                selectAllOnFocus = true
+                setSelectAllOnFocus(true)
                 includeFontPadding = false
             }
             pauseInputs[shift] = pause
