@@ -35,19 +35,20 @@ class SuggestionBoxView @JvmOverloads constructor(
 
         addView(TextView(context).apply {
             text = "Une idée pour améliorer HP Travail ? Écris-la ici. Seul ce texte et des informations techniques de version/appareil seront envoyés."
-            textSize = 13f
+            textSize = 14f
             setPadding(0, 0, 0, dp(8))
         })
 
         addView(TextView(context).apply {
             text = "Les idées sont uniquement des propositions. Elles sont examinées par le propriétaire de l'application et ne peuvent jamais modifier automatiquement HP Travail."
-            textSize = 12f
+            textSize = 14f
             setTextColor(Color.parseColor("#D6A84B"))
             setPadding(0, 0, 0, dp(10))
         })
 
         ideaInput = EditText(context).apply {
             hint = "Ex. : ce serait bien d'avoir…"
+            textSize = 14f
             minLines = 4
             maxLines = 8
             gravity = Gravity.TOP or Gravity.START
@@ -61,7 +62,7 @@ class SuggestionBoxView @JvmOverloads constructor(
         val send = Button(context).apply {
             text = "💡  ENVOYER L'IDÉE"
             isAllCaps = false
-            textSize = 13f
+            textSize = 14f
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { sendIdea() }
         }
@@ -71,19 +72,20 @@ class SuggestionBoxView @JvmOverloads constructor(
 
         addView(TextView(context).apply {
             text = "RAPPORTS D'ERREUR"
-            textSize = 15f
+            textSize = 16f
             setTextColor(Color.parseColor("#D6A84B"))
             setPadding(0, dp(18), 0, dp(6))
         })
 
         addView(TextView(context).apply {
             text = "Les rapports automatiques servent à corriger les crashs. Ils n'incluent pas l'historique, les adresses, les salaires ni les données GPS enregistrées. Un rapport ne déclenche jamais de modification automatique du code."
-            textSize = 12f
+            textSize = 14f
             setPadding(0, 0, 0, dp(6))
         })
 
         addView(Switch(context).apply {
             text = "Envoyer automatiquement les rapports d'erreur anonymisés"
+            textSize = 14f
             isChecked = TelemetryManager.crashReportsEnabled(context)
             setOnCheckedChangeListener { _, enabled ->
                 TelemetryManager.setCrashReportsEnabled(context, enabled)
