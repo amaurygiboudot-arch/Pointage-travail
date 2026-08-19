@@ -1,19 +1,24 @@
 package com.amaury.pointage
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import android.location.Location
+import android.location.LocationManager
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
-import kotlin.math.cos
+import androidx.core.content.ContextCompat
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.sin
 
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
@@ -23,9 +28,18 @@ class SunIndicatorView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val moonPath = Path()
     private val moonCutout = Path()
-    private var angle = -55f
+    private val handler = Handler(Looper.getMainLooper())
     private var visibleCelestial = false
     private var nightMode = false
+    private var sunPosition: CelestialEphemeris.Position? = null
+    private var moonPosition: CelestialEphemeris.Position? = null
+
+    private val refreshTask = object : Runnable {
+        override fun run() {
+            refreshAstronomy()
+            if (isAttachedToWindow && visibleCelestial) handler.postDelayed(this, 30_000L)
+        }
+    }
 
     init {
         isClickable = false
@@ -33,14 +47,18 @@ class SunIndicatorView @JvmOverloads constructor(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    fun updateLightAngle(newAngle: Float) {
-        angle = newAngle
-        invalidate()
-    }
+    // Conservée pour compatibilité avec l'ancien contrôleur de lumière.
+    // La position céleste ne dépend plus de l'orientation du téléphone.
+    fun updateLightAngle(newAngle: Float) = Unit
 
     fun setSunVisible(visible: Boolean) {
         visibleCelestial = visible
         visibility = if (visible) VISIBLE else GONE
+        handler.removeCallbacks(refreshTask)
+        if (visible) {
+            refreshAstronomy()
+            handler.postDelayed(refreshTask, 30_000L)
+        }
         invalidate()
     }
 
@@ -48,7 +66,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (nightMode == night) return
         nightMode = night
         AppThemeCatalog.setCelestialNight(context, night)
-        contentDescription = if (night) "Lune" else "Soleil"
+        contentDescription = "Soleil et lune"
         (context as? Activity)?.let { activity ->
             AppearanceManager.apply(activity)
             PointageWidgetProvider.updateAll(activity)
@@ -57,19 +75,71 @@ class SunIndicatorView @JvmOverloads constructor(
         invalidate()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (visibleCelestial) {
+            handler.removeCallbacks(refreshTask)
+            refreshAstronomy()
+            handler.postDelayed(refreshTask, 30_000L)
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        handler.removeCallbacks(refreshTask)
+        super.onDetachedFromWindow()
+    }
+
+    private fun refreshAstronomy() {
+        val location = lastKnownLocation() ?: return
+        val now = System.currentTimeMillis()
+        sunPosition = CelestialEphemeris.sun(location.latitude, location.longitude, now)
+        moonPosition = CelestialEphemeris.moon(location.latitude, location.longitude, now)
+        invalidate()
+    }
+
+    private fun lastKnownLocation(): Location? {
+        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) return null
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return runCatching {
+            lm.getProviders(true)
+                .mapNotNull { provider -> runCatching { lm.getLastKnownLocation(provider) }.getOrNull() }
+                .maxByOrNull { it.time }
+        }.getOrNull()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (!visibleCelestial || width <= 0 || height <= 0) return
 
-        val rads = Math.toRadians(angle.toDouble())
-        val cx = width * 0.5f + cos(rads).toFloat() * width * 0.34f
-        val cy = height * 0.5f + sin(rads).toFloat() * height * 0.32f
         val base = min(width, height).toFloat()
-        val glowRadius = max(base * 0.10f, 30f)
-        val coreRadius = glowRadius * 0.28f
+        val glowRadius = max(base * 0.085f, 24f)
+        val coreRadius = glowRadius * 0.29f
 
-        if (nightMode) drawMoon(canvas, cx, cy, glowRadius, coreRadius)
-        else drawSun(canvas, cx, cy, glowRadius, coreRadius)
+        sunPosition?.takeIf { it.altitude > -0.833 }?.let { pos ->
+            val (x, y) = mapSkyPosition(pos)
+            drawSun(canvas, x, y, glowRadius, coreRadius)
+        }
+
+        moonPosition?.takeIf { it.altitude > -0.5 }?.let { pos ->
+            val (x, y) = mapSkyPosition(pos)
+            drawMoon(canvas, x, y, glowRadius * 0.90f, coreRadius * 0.92f)
+        }
+    }
+
+    private fun mapSkyPosition(position: CelestialEphemeris.Position): Pair<Float, Float> {
+        // Carte céleste stable : N=0/360°, E=90°, S=180°, O=270°.
+        // La hauteur réelle au-dessus de l'horizon contrôle la verticale.
+        val xMargin = width * 0.08f
+        val usableWidth = width * 0.84f
+        val x = xMargin + (position.azimuth / 360.0).toFloat() * usableWidth
+
+        val horizonY = height * 0.82f
+        val zenithY = height * 0.13f
+        val altitude = position.altitude.coerceIn(0.0, 90.0)
+        val y = horizonY - (altitude / 90.0).toFloat() * (horizonY - zenithY)
+        return x to y
     }
 
     private fun drawSun(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float) {
