@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -11,7 +12,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.Gravity
-import android.view.ViewGroup
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -53,14 +54,29 @@ class SalaryPanelView @JvmOverloads constructor(
     private val conventionRuleStatusText = TextView(context)
     private val salaryMonthText = TextView(context)
     private val mealAmountInput = EditText(context)
-    private val mealCutoffInput = EditText(context)
     private val salaryResultContainer = LinearLayout(context)
+    private lateinit var enterpriseLookup: EnterpriseLookupView
+
+    private val companyListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key?.startsWith("company") == true || key == "convention_idcc") {
+            post {
+                updateCompany2Visibility()
+                refresh()
+            }
+        }
+    }
 
     init {
         orientation = VERTICAL
         setPadding(0, dp(4), 0, dp(4))
         buildUi()
+        prefs.registerOnSharedPreferenceChangeListener(companyListener)
         refresh()
+    }
+
+    override fun onDetachedFromWindow() {
+        prefs.unregisterOnSharedPreferenceChangeListener(companyListener)
+        super.onDetachedFromWindow()
     }
 
     fun refresh() {
@@ -72,8 +88,7 @@ class SalaryPanelView @JvmOverloads constructor(
         if (hourlyRateInput.text.toString() != savedRate) hourlyRateInput.setText(savedRate)
         val mealAmount = prefs.getString("meal_amount", "").orEmpty()
         if (mealAmountInput.text.toString() != mealAmount) mealAmountInput.setText(mealAmount)
-        val cutoff = prefs.getString("meal_cutoff", "06:00") ?: "06:00"
-        if (mealCutoffInput.text.toString() != cutoff) mealCutoffInput.setText(cutoff)
+        updateCompany2Visibility()
         updateStartDateLabel()
         updateConventionDisplay()
         updateMonthLabel()
@@ -85,6 +100,11 @@ class SalaryPanelView @JvmOverloads constructor(
         val name = prefs.getString("company_name", "").orEmpty().trim()
         val siret = prefs.getString("company_siret", "").orEmpty().trim()
         return name.isNotBlank() || siret.isNotBlank()
+    }
+
+    private fun updateCompany2Visibility() {
+        if (!::enterpriseLookup.isInitialized || enterpriseLookup.childCount < 4) return
+        enterpriseLookup.getChildAt(3).visibility = if (companyIsIdentified()) View.VISIBLE else View.GONE
     }
 
     private fun buildUi() {
@@ -99,7 +119,8 @@ class SalaryPanelView @JvmOverloads constructor(
         val startDateButton = hpButton("CHOISIR LA DATE D'ENTRÉE")
         addView(startDateButton)
 
-        addView(EnterpriseLookupView(context), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+        enterpriseLookup = EnterpriseLookupView(context)
+        addView(enterpriseLookup, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         addView(CompanyControlsView(context), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
 
         addView(label("CONVENTION COLLECTIVE").apply { setPadding(0, dp(14), 0, 0) })
@@ -120,22 +141,12 @@ class SalaryPanelView @JvmOverloads constructor(
 
         addView(sectionTitle("PANIER").apply { setPadding(0, dp(18), 0, dp(5)) })
         addView(TextView(context).apply {
-            text = "Un panier est compté au maximum une fois par journée lorsque la première prise de poste commence avant ou à l'heure limite choisie."
+            text = "Le montant est défini ici. Les postes donnant droit au panier (matin, journée, après-midi, nuit) se choisissent dans Aujourd'hui > Pauses et paniers par poste."
             textSize = 14f
         })
-
         addView(label("MONTANT D'UN PANIER (€)").apply { setPadding(0, dp(12), 0, dp(4)) })
         configureInput(mealAmountInput, "Ex. 5,38", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         addView(mealAmountInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
-
-        addView(label("HEURE LIMITE DE PRISE DE POSTE").apply { setPadding(0, dp(12), 0, dp(4)) })
-        configureInput(mealCutoffInput, "Ex. 06:00", InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME)
-        addView(mealCutoffInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
-        addView(TextView(context).apply {
-            text = "Exemple : avec 06:00, une prise de poste à 05:30 ou 06:00 compte un panier ; à 06:01, non."
-            textSize = 13f
-            setPadding(0, dp(5), 0, 0)
-        })
 
         salaryMonthText.textSize = 16f
         addView(salaryMonthText, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) })
@@ -150,7 +161,6 @@ class SalaryPanelView @JvmOverloads constructor(
 
         hourlyRateInput.addTextChangedListener(watcher("hourly_rate"))
         mealAmountInput.addTextChangedListener(watcher("meal_amount"))
-        mealCutoffInput.addTextChangedListener(watcher("meal_cutoff", normalizeNumber = false))
 
         startDateButton.setOnClickListener { showStartDatePicker() }
         searchButton.setOnClickListener {
@@ -180,10 +190,10 @@ class SalaryPanelView @JvmOverloads constructor(
         cornerRadius = dp(18).toFloat()
     }
 
-    private fun watcher(key: String, normalizeNumber: Boolean = true) = object : TextWatcher {
+    private fun watcher(key: String) = object : TextWatcher {
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-            val value = s?.toString().orEmpty().trim().let { if (normalizeNumber) it.replace(',', '.') else it }
+            val value = s?.toString().orEmpty().trim().replace(',', '.')
             prefs.edit().putString(key, value).apply()
             calculateSalary(false)
         }
@@ -196,7 +206,14 @@ class SalaryPanelView @JvmOverloads constructor(
             conventionRuleStatusText.text = "Régime légal provisoire tant que l'entreprise n'est pas renseignée."
         } else {
             selectedConventionText.text = selectedConvention.displayName
-            conventionRuleStatusText.text = if (selectedConvention.idcc.isBlank()) "Régime légal / convention à choisir" else "Convention utilisée pour les heures supplémentaires intégrées"
+            val night = ConventionNightRules.forIdcc(selectedConvention.idcc)
+            conventionRuleStatusText.text = if (selectedConvention.idcc.isBlank()) {
+                "Régime légal / convention à choisir"
+            } else if (night != null) {
+                "Convention utilisée pour les heures supplémentaires et la plage de nuit connue."
+            } else {
+                "Convention utilisée pour les règles intégrées disponibles."
+            }
         }
     }
 
@@ -291,6 +308,7 @@ class SalaryPanelView @JvmOverloads constructor(
         addResultSection("HEURES DU MOIS")
         addCard("Heures normales", formatDuration(result.regularMs))
         result.overtimeTiers.forEach { addCard(it.label, formatDuration(it.durationMs)) }
+        if (result.nightMs > 0L) addCard("Heures de nuit conventionnelles", formatDuration(result.nightMs))
         addCard("Total travaillé", formatDuration(result.totalWorkedMs))
 
         addResultSection("PANIER")
@@ -301,14 +319,15 @@ class SalaryPanelView @JvmOverloads constructor(
         addResultSection("ESTIMATION BRUTE")
         addCard("Taux horaire", euro.format(hourlyRate))
         addCard("Heures supplémentaires", euro.format(result.overtimeGross))
+        if (result.nightPremiumGross > 0.0) addCard("Majoration nuit", euro.format(result.nightPremiumGross))
         addCard("Salaire estimé hors paniers", euro.format(result.monthlyEstimatedGross), true)
+        ConventionNightRules.forIdcc(effectiveConvention.idcc)?.let { addCard("Règle nuit", it.note) }
     }
 
     private fun calculateMeals(): Pair<Int, Double> {
         val amount = mealAmountInput.text.toString().trim().replace(',', '.').toDoubleOrNull()?.coerceAtLeast(0.0) ?: 0.0
-        val cutoff = parseClock(mealCutoffInput.text.toString()) ?: return 0 to 0.0
         val data = PointageStore.load(context)
-        val firstEntryByDay = linkedMapOf<String, Long>()
+        val firstItemByDay = linkedMapOf<String, org.json.JSONObject>()
         val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.FRANCE)
         val cal = Calendar.getInstance(Locale.FRANCE)
         for (i in 0 until data.length()) {
@@ -318,22 +337,16 @@ class SalaryPanelView @JvmOverloads constructor(
             cal.timeInMillis = entry
             if (cal.get(Calendar.YEAR) != selectedMonth.get(Calendar.YEAR) || cal.get(Calendar.MONTH) != selectedMonth.get(Calendar.MONTH)) continue
             val key = dayFormat.format(cal.time)
-            val current = firstEntryByDay[key]
-            if (current == null || entry < current) firstEntryByDay[key] = entry
+            val current = firstItemByDay[key]
+            if (current == null || entry < current.optLong("entry", Long.MAX_VALUE)) firstItemByDay[key] = item
         }
-        val count = firstEntryByDay.values.count { entry ->
-            cal.timeInMillis = entry
-            cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE) <= cutoff
+        val count = firstItemByDay.values.count { item ->
+            val entry = item.optLong("entry", -1L)
+            val stored = item.optString("shiftType").trim()
+            val shift = ShiftType.values().firstOrNull { it.id == stored } ?: ShiftProfileManager.detect(entry)
+            ShiftProfileManager.mealEnabled(context, shift)
         }
         return count to count * amount
-    }
-
-    private fun parseClock(value: String): Int? {
-        val match = Regex("^\\s*(\\d{1,2})[:hH](\\d{2})\\s*$").matchEntire(value) ?: return null
-        val h = match.groupValues[1].toIntOrNull() ?: return null
-        val m = match.groupValues[2].toIntOrNull() ?: return null
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
     }
 
     private fun formatSeniority(startMs: Long): String {
