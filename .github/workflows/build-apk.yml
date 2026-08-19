@@ -5,8 +5,6 @@ on:
   push:
     branches: [ "main" ]
 
-# Ne jamais annuler une compilation simplement parce qu'un autre commit arrive.
-# Chaque version valide peut ainsi aller jusqu'a la publication de sa release.
 concurrency:
   group: hp-travail-apk
   cancel-in-progress: false
@@ -55,13 +53,36 @@ jobs:
           echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_ENV"
 
       - name: Compiler APK release signe
+        id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
           POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
           POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
           POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-        run: gradle :app:assembleRelease --stacktrace
+        run: |
+          set +e
+          gradle :app:assembleRelease --stacktrace 2>&1 | tee build-error.log
+          STATUS=${PIPESTATUS[0]}
+          echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Enregistrer le diagnostic de compilation
+        if: steps.gradle_build.outputs.exit_code != '0'
+        run: |
+          {
+            echo "Run: ${{ github.run_number }}"
+            echo "Commit: ${{ github.sha }}"
+            echo "Date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo
+            cat build-error.log
+          } > build-error-current.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add build-error-current.log
+          git commit -m "Diagnostic compilation ${{ github.run_number }} [skip ci]" || true
+          git push || true
+          exit 1
 
       - name: Verifier la signature APK
         run: |
@@ -73,7 +94,6 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk HP-Travail.apk
           sha256sum HP-Travail.apk > HP-Travail-SHA256.txt
-          # Compatibilite avec le mode Recuperation des versions deja installees.
           cp HP-Travail-SHA256.txt SHA256.txt
           printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
           test -s HP-Travail.apk
@@ -97,8 +117,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${VERSION_NAME}"
-          # Rend aussi un re-run du meme workflow fiable : une ancienne release
-          # du meme numero ne doit jamais bloquer la nouvelle publication.
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" \
             HP-Travail.apk \
