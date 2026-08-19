@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.Gravity
@@ -10,6 +11,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -109,8 +111,13 @@ class ShiftControlView @JvmOverloads constructor(
     private fun showProfilesDialog() {
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
-            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setPadding(dp(18), dp(8), dp(18), dp(14))
         }
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true
+            addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
         val pauseInputs = linkedMapOf<ShiftType, EditText>()
         val mealSwitches = linkedMapOf<ShiftType, Switch>()
 
@@ -119,8 +126,15 @@ class ShiftControlView @JvmOverloads constructor(
                 text = shift.label.uppercase(Locale.FRANCE)
                 textSize = 15f
                 setTextColor(Color.parseColor("#D6A84B"))
-                setPadding(0, dp(12), 0, dp(5))
+                setPadding(0, dp(14), 0, dp(6))
             })
+
+            val fieldBackground = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(24).toFloat()
+                setColor(Color.parseColor("#0B0B0B"))
+                setStroke(dp(2), Color.parseColor("#D6A84B"))
+            }
 
             val pause = EditText(context).apply {
                 hint = "Pause à déduire (minutes)"
@@ -128,31 +142,33 @@ class ShiftControlView @JvmOverloads constructor(
                 isSingleLine = true
                 setText(ShiftProfileManager.pauseMinutes(context, shift).toString())
                 setTextColor(Color.WHITE)
-                setHintTextColor(Color.parseColor("#A9A9A9"))
+                setHintTextColor(Color.parseColor("#B0B0B0"))
                 textSize = 16f
                 gravity = Gravity.CENTER_VERTICAL
-                setBackgroundResource(R.drawable.hp_panel)
+                background = fieldBackground
                 setPadding(dp(18), 0, dp(18), 0)
                 selectAllOnFocus = true
+                includeFontPadding = false
             }
             pauseInputs[shift] = pause
-            box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(58)))
+            box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
             val meal = Switch(context).apply {
                 text = "Panier pour ce poste"
                 textSize = 14f
+                setTextColor(Color.parseColor("#111111"))
                 gravity = Gravity.CENTER_VERTICAL
-                minHeight = dp(52)
-                setPadding(0, dp(2), 0, dp(2))
+                minHeight = dp(54)
+                setPadding(0, dp(4), 0, dp(4))
                 isChecked = ShiftProfileManager.mealEnabled(context, shift)
             }
             mealSwitches[shift] = meal
-            box.addView(meal, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
+            box.addView(meal, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
         }
 
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Pauses et paniers")
-            .setView(box)
+            .setView(scroll)
             .setPositiveButton("Enregistrer") { _, _ ->
                 pauseInputs.forEach { (shift, input) ->
                     val minutes = input.text.toString().trim().toIntOrNull()?.coerceIn(0, 240) ?: 0
@@ -163,7 +179,15 @@ class ShiftControlView @JvmOverloads constructor(
                 refresh()
             }
             .setNegativeButton("Annuler", null)
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(Color.parseColor("#D6A84B"))
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(Color.parseColor("#D6A84B"))
+            val maxHeight = (resources.displayMetrics.heightPixels * 0.68f).toInt()
+            scroll.layoutParams = scroll.layoutParams.apply { height = maxHeight }
+        }
+        dialog.show()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
