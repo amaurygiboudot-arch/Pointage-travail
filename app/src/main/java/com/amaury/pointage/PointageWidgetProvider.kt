@@ -36,33 +36,27 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return if (cleaned.length <= max) cleaned else cleaned.take(max - 1) + "…"
         }
         private fun parseColor(value: String?, fallback: Int): Int = runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
+        private fun themeBackground(themeId: String, dark: Boolean): Int = when (themeId) {
+            "steel_blue" -> if (dark) R.drawable.widget_bg_steel_dark else R.drawable.widget_bg_steel_light
+            "brushed_aluminum" -> if (dark) R.drawable.widget_bg_alu_dark else R.drawable.widget_bg_alu_light
+            "carbon" -> if (dark) R.drawable.widget_bg_carbon_dark else R.drawable.widget_bg_carbon_light
+            else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
+        }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
-
             fun broadcast(action: String, request: Int) = PendingIntent.getBroadcast(
-                context,
-                request,
-                Intent(context, PointageWidgetProvider::class.java).apply { this.action = action },
+                context, request, Intent(context, PointageWidgetProvider::class.java).apply { this.action = action },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-
-            val openAppPending = PendingIntent.getActivity(
-                context, 20,
-                Intent(context, MainActivity::class.java).apply {
-                    putExtra("open_tab", "today")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val openSettingsPending = PendingIntent.getActivity(
-                context, 30,
-                Intent(context, MainActivity::class.java).apply {
-                    putExtra("open_tab", "settings")
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+            val openAppPending = PendingIntent.getActivity(context, 20, Intent(context, MainActivity::class.java).apply {
+                putExtra("open_tab", "today")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val openSettingsPending = PendingIntent.getActivity(context, 30, Intent(context, MainActivity::class.java).apply {
+                putExtra("open_tab", "settings")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
             views.setOnClickPendingIntent(R.id.widget_root, openAppPending)
             views.setOnClickPendingIntent(R.id.widget_location, openSettingsPending)
@@ -72,33 +66,23 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_status_area, openAppPending)
 
             val widgetStyle = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
-            val dark = AppThemeCatalog.useDarkPalette(context)
+            val dark = ThemeDayNight.isDark(context)
             val theme = AppThemeCatalog.current(context)
             val defaultAccent = if (dark) theme.accentLight else theme.accent
             val defaultSecondary = if (dark) theme.darkHint else theme.lightHint
             val defaultBg = if (dark) theme.darkBackground else theme.lightBackground
             val accent = parseColor(widgetStyle.getString("widget_accent", null), defaultAccent)
-            val widgetBg = parseColor(widgetStyle.getString("widget_bg", null), defaultBg)
+            if (widgetStyle.contains("widget_bg")) {
+                views.setInt(R.id.widget_root, "setBackgroundColor", parseColor(widgetStyle.getString("widget_bg", null), defaultBg))
+            } else {
+                views.setInt(R.id.widget_root, "setBackgroundResource", themeBackground(theme.id, dark))
+            }
+            listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label, R.id.widget_now, R.id.widget_now_clock, R.id.widget_duration, R.id.widget_location)
+                .forEach { views.setTextColor(it, accent) }
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time).forEach { views.setTextColor(it, defaultSecondary) }
 
-            views.setInt(R.id.widget_root, "setBackgroundColor", widgetBg)
-            listOf(
-                R.id.widget_crown, R.id.widget_hp, R.id.widget_work,
-                R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label,
-                R.id.widget_now, R.id.widget_duration, R.id.widget_location
-            ).forEach { views.setTextColor(it, accent) }
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time)
-                .forEach { views.setTextColor(it, defaultSecondary) }
-
-            var entryText = "--:--"
-            var exitText = "--:--"
-            var durationText = "00h 00m"
-            var pauseText = "00h 00m"
-            var stateText = "PRÊT"
-            var stateColor = accent
-            var locationText = "📍 Aucune zone"
-            var entryLocation = ""
-            var exitLocation = ""
-
+            var entryText = "--:--"; var exitText = "--:--"; var durationText = "00h 00m"; var pauseText = "00h 00m"
+            var stateText = "PRÊT"; var stateColor = accent; var locationText = "📍 Aucune zone"; var entryLocation = ""; var exitLocation = ""
             val hasOpen = PointageStore.hasOpen(context)
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
@@ -118,7 +102,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                         val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
                         entryLocation = place
                         locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 40)}"
-
                         val effectiveEnd: Long
                         if (last.isNull("exit")) {
                             effectiveEnd = System.currentTimeMillis()
@@ -126,66 +109,31 @@ class PointageWidgetProvider : AppWidgetProvider() {
                             stateColor = if (paused) Color.parseColor("#F3A64A") else Color.parseColor("#59DB60")
                         } else {
                             effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
-                            exitText = formatTime(effectiveEnd)
-                            exitLocation = place
-                            stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#FF5B52")
+                            exitText = formatTime(effectiveEnd); exitLocation = place; stateText = "TERMINÉ"; stateColor = Color.parseColor("#FF5B52")
                         }
                         pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
                         durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
                     }
                 }
             }
-
-            views.setTextViewText(R.id.widget_entry_time, entryText)
-            views.setTextViewText(R.id.widget_exit_time, exitText)
-            views.setTextViewText(R.id.widget_entry_location, entryLocation)
-            views.setTextViewText(R.id.widget_exit_location, exitLocation)
-            views.setTextViewText(R.id.widget_duration, durationText)
-            views.setTextViewText(R.id.widget_state, stateText)
-            views.setTextColor(R.id.widget_state, stateColor)
-            views.setTextViewText(R.id.widget_pause_time, pauseText)
-            views.setTextViewText(R.id.widget_location, locationText)
+            views.setTextViewText(R.id.widget_entry_time, entryText); views.setTextViewText(R.id.widget_exit_time, exitText)
+            views.setTextViewText(R.id.widget_entry_location, entryLocation); views.setTextViewText(R.id.widget_exit_location, exitLocation)
+            views.setTextViewText(R.id.widget_duration, durationText); views.setTextViewText(R.id.widget_state, stateText); views.setTextColor(R.id.widget_state, stateColor)
+            views.setTextViewText(R.id.widget_pause_time, pauseText); views.setTextViewText(R.id.widget_location, locationText)
             views.setViewVisibility(R.id.widget_location, if (widgetStyle.getBoolean("show_position", true)) View.VISIBLE else View.GONE)
-
             manager.updateAppWidget(widgetId, views)
         }
     }
 
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { updateWidget(context, manager, it) }
-    }
-
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) { ids.forEach { updateWidget(context, manager, it) } }
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ACTION_ENTRY -> {
-                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
-                IconSwitcher.sync(context)
-            }
-            ACTION_PAUSE -> {
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> {
-                        PointageStore.resumePause(context)
-                        Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
-                    }
-                    else -> {
-                        PointageStore.startPause(context)
-                        Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                IconSwitcher.sync(context)
-            }
-            ACTION_EXIT -> {
-                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                IconSwitcher.sync(context)
-            }
+            ACTION_ENTRY -> { if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show(); IconSwitcher.sync(context) }
+            ACTION_PAUSE -> { when { !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show(); PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }; else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() } }; IconSwitcher.sync(context) }
+            ACTION_EXIT -> { if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show(); IconSwitcher.sync(context) }
             Intent.ACTION_CONFIGURATION_CHANGED -> Unit
         }
-        updateAll(context)
-        QuickActionsWidgetProvider.updateAll(context)
+        updateAll(context); QuickActionsWidgetProvider.updateAll(context)
     }
 }
