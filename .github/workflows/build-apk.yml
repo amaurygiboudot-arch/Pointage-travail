@@ -5,7 +5,7 @@ on:
   push:
     branches: [ "main" ]
 
-# Ne plus annuler une compilation simplement parce qu'un autre commit arrive.
+# Ne jamais annuler une compilation simplement parce qu'un autre commit arrive.
 # Chaque version valide peut ainsi aller jusqu'a la publication de sa release.
 concurrency:
   group: hp-travail-apk
@@ -73,8 +73,12 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk HP-Travail.apk
           sha256sum HP-Travail.apk > HP-Travail-SHA256.txt
+          # Compatibilite avec le mode Recuperation des versions deja installees.
+          cp HP-Travail-SHA256.txt SHA256.txt
           printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
           test -s HP-Travail.apk
+          test -s HP-Travail-SHA256.txt
+          test -s SHA256.txt
 
       - name: Publier artefact APK
         uses: actions/upload-artifact@v4
@@ -83,6 +87,7 @@ jobs:
           path: |
             HP-Travail.apk
             HP-Travail-SHA256.txt
+            SHA256.txt
             HP-Travail-version.txt
           if-no-files-found: error
           retention-days: 30
@@ -98,6 +103,7 @@ jobs:
           gh release create "$TAG" \
             HP-Travail.apk \
             HP-Travail-SHA256.txt \
+            SHA256.txt \
             HP-Travail-version.txt \
             --target "${GITHUB_SHA}" \
             --title "HP Travail ${VERSION_NAME}" \
@@ -111,4 +117,6 @@ jobs:
           TAG="v${VERSION_NAME}"
           gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets,url
           gh release download "$TAG" -p "HP-Travail.apk" -D "$RUNNER_TEMP/release-check"
+          gh release download "$TAG" -p "SHA256.txt" -D "$RUNNER_TEMP/release-check"
           test -s "$RUNNER_TEMP/release-check/HP-Travail.apk"
+          test -s "$RUNNER_TEMP/release-check/SHA256.txt"
