@@ -81,6 +81,7 @@
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />
         <activity android:name=".PdfPreviewActivity" android:exported="false" />
         <activity android:name=".DiamondLabActivity" android:exported="false" />
+        <activity android:name=".SecurityInfoActivity" android:exported="false" />
 
         <receiver android:name=".PointageWidgetProvider" android:exported="false">
             <intent-filter>
