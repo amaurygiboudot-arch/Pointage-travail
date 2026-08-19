@@ -34,12 +34,47 @@
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
         <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />
 
-        <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail">
+        <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" />
+
+        <activity-alias
+            android:name=".IconRed"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/hp_icon_red"
+            android:label="HP Travail"
+            android:targetActivity=".LaunchActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconGreen"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/hp_icon_green"
+            android:label="HP Travail"
+            android:targetActivity=".LaunchActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".IconOrange"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@drawable/hp_icon_orange"
+            android:label="HP Travail"
+            android:targetActivity=".LaunchActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".SalaryActivity" android:exported="false" />
