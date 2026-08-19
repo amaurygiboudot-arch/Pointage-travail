@@ -44,10 +44,14 @@ object PointageStore {
         val finalZoneId = zoneId ?: detectedZone?.first
         val rawAddress = zoneAddress ?: detectedZone?.second
         val finalZoneAddress = rawAddress?.trim()?.takeIf { it.isNotBlank() }?.let { PlaceNames.display(context, it) }
+        val now = System.currentTimeMillis()
+        val shift = ShiftProfileManager.resolve(context, now)
         val item = JSONObject()
-            .put("entry", System.currentTimeMillis())
+            .put("entry", now)
             .put("exit", JSONObject.NULL)
             .put("pauses", JSONArray())
+            .put("shiftType", shift.id)
+            .put("autoPauseMinutes", ShiftProfileManager.pauseMinutes(context, shift))
         if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
         if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
         data.put(item)
@@ -118,33 +122,42 @@ object PointageStore {
         if (entry <= 0L) return 0L
         val sessionEnd = if (item.isNull("exit")) until else item.optLong("exit", until)
         if (sessionEnd <= entry) return 0L
-        val pauses = item.optJSONArray("pauses") ?: return 0L
+        val rawDuration = sessionEnd - entry
+        val pauses = item.optJSONArray("pauses")
         val intervals = mutableListOf<Pair<Long, Long>>()
-        for (i in 0 until pauses.length()) {
-            val pause = pauses.optJSONObject(i) ?: continue
-            val rawStart = pause.optLong("start", -1L)
-            val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
-            if (rawStart <= 0L || rawEnd <= rawStart) continue
-            val start = rawStart.coerceAtLeast(entry)
-            val end = rawEnd.coerceAtMost(sessionEnd)
-            if (end > start) intervals += start to end
-        }
-        if (intervals.isEmpty()) return 0L
-        intervals.sortBy { it.first }
-        var total = 0L
-        var currentStart = intervals.first().first
-        var currentEnd = intervals.first().second
-        for (i in 1 until intervals.size) {
-            val (start, end) = intervals[i]
-            if (start <= currentEnd) currentEnd = maxOf(currentEnd, end)
-            else {
-                total += currentEnd - currentStart
-                currentStart = start
-                currentEnd = end
+        if (pauses != null) {
+            for (i in 0 until pauses.length()) {
+                val pause = pauses.optJSONObject(i) ?: continue
+                val rawStart = pause.optLong("start", -1L)
+                val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
+                if (rawStart <= 0L || rawEnd <= rawStart) continue
+                val start = rawStart.coerceAtLeast(entry)
+                val end = rawEnd.coerceAtMost(sessionEnd)
+                if (end > start) intervals += start to end
             }
         }
-        total += currentEnd - currentStart
-        return total.coerceAtLeast(0L)
+
+        var recorded = 0L
+        if (intervals.isNotEmpty()) {
+            intervals.sortBy { it.first }
+            var currentStart = intervals.first().first
+            var currentEnd = intervals.first().second
+            for (i in 1 until intervals.size) {
+                val (start, end) = intervals[i]
+                if (start <= currentEnd) currentEnd = maxOf(currentEnd, end)
+                else {
+                    recorded += currentEnd - currentStart
+                    currentStart = start
+                    currentEnd = end
+                }
+            }
+            recorded += currentEnd - currentStart
+        }
+
+        // Une pause réellement pointée remplace la déduction forfaitaire si elle est
+        // plus longue. On ne cumule jamais les deux, afin d'éviter une double déduction.
+        val automatic = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240) * 60_000L
+        return maxOf(recorded, automatic).coerceIn(0L, rawDuration)
     }
 
     fun workedDuration(item: JSONObject, until: Long = System.currentTimeMillis()): Long {
