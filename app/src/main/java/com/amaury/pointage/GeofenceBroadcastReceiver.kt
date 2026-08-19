@@ -27,6 +27,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val activeZones = prefs.getStringSet("active_zones", emptySet())?.toMutableSet()
             ?: mutableSetOf()
         val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
+        if (triggeredIds.isEmpty()) return
 
         when (event.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
@@ -39,7 +40,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
 
                     if (PointageStore.entry(context, zoneId, zoneAddress)) {
-                        PointageWidgetProvider.updateAll(context)
+                        updateWidgets(context)
                         if (!zoneAddress.isNullOrBlank()) {
                             showArrivalContactNotification(context, zoneAddress)
                         }
@@ -52,10 +53,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
                 if (activeZones.isEmpty() && PointageStore.exit(context)) {
-                    PointageWidgetProvider.updateAll(context)
+                    updateWidgets(context)
                 }
             }
         }
+    }
+
+    private fun updateWidgets(context: Context) {
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
     }
 
     private fun findZoneAddress(zonesJson: String?, zoneId: String?): String? {
@@ -64,7 +70,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         return try {
             val zones = JSONArray(zonesJson ?: "[]")
             for (i in 0 until zones.length()) {
-                val zone = zones.getJSONObject(i)
+                val zone = zones.optJSONObject(i) ?: continue
                 if (zone.optString("id") == zoneId) {
                     return zone.optString("address").takeIf { it.isNotBlank() }
                 }
@@ -122,7 +128,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Arrivé à $placeName")
             .setContentText("Prévenir $contactName")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Tu viens d'arriver à $placeName. Appuie ici pour prévenir $contactName par SMS."))
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "Tu viens d'arriver à $placeName. Appuie ici pour prévenir $contactName par SMS."
+                )
+            )
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
