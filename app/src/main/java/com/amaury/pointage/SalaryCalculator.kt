@@ -19,6 +19,8 @@ object SalaryCalculator {
         val workedGross: Double,
         val monthlyBaseGross: Double,
         val overtimeGross: Double,
+        val nightMs: Long,
+        val nightPremiumGross: Double,
         val monthlyEstimatedGross: Double,
         val completedSessions: Int
     )
@@ -88,6 +90,14 @@ object SalaryCalculator {
             TierResult("Heures sup. +$percent %", overtimeByTier[index], tier.multiplier)
         }
 
+        val nightRule = ConventionNightRules.forIdcc(convention.idcc)
+        val nightMs = if (nightRule == null) 0L else sessions.sumOf { session ->
+            val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
+            if (cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month) {
+                nightOverlap(session.entry, session.exit, nightRule.startMinute, nightRule.endMinute)
+            } else 0L
+        }
+
         val regularHours = regularMs / hourMs.toDouble()
         val overtimeGross = tierResults.sumOf {
             (it.durationMs / hourMs.toDouble()) * hourlyRate * it.multiplier
@@ -95,7 +105,9 @@ object SalaryCalculator {
         val totalOvertimeMs = tierResults.sumOf { it.durationMs }
         val workedGross = regularHours * hourlyRate + overtimeGross
         val monthlyBaseGross = hourlyRate * 151.67
-        val monthlyEstimatedGross = monthlyBaseGross + overtimeGross
+        val nightPremiumGross = if (nightRule == null) 0.0 else
+            (nightMs / hourMs.toDouble()) * hourlyRate * (nightRule.premiumMultiplier - 1.0)
+        val monthlyEstimatedGross = monthlyBaseGross + overtimeGross + nightPremiumGross
 
         return Result(
             regularMs = regularMs,
@@ -104,9 +116,46 @@ object SalaryCalculator {
             workedGross = workedGross,
             monthlyBaseGross = monthlyBaseGross,
             overtimeGross = overtimeGross,
+            nightMs = nightMs,
+            nightPremiumGross = nightPremiumGross,
             monthlyEstimatedGross = monthlyEstimatedGross,
             completedSessions = completedSessions
         )
+    }
+
+    private fun nightOverlap(entry: Long, exit: Long, startMinute: Int, endMinute: Int): Long {
+        if (exit <= entry) return 0L
+        var total = 0L
+        val day = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = entry
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, -1)
+        }
+        val last = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = exit
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+        while (day.timeInMillis <= last.timeInMillis) {
+            val start = (day.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, startMinute / 60)
+                set(Calendar.MINUTE, startMinute % 60)
+            }
+            val end = (day.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, endMinute / 60)
+                set(Calendar.MINUTE, endMinute % 60)
+                if (endMinute <= startMinute) add(Calendar.DAY_OF_YEAR, 1)
+            }
+            total += overlap(entry, exit, start.timeInMillis, end.timeInMillis)
+            day.add(Calendar.DAY_OF_YEAR, 1)
+        }
+        return total
     }
 
     private fun overlap(start: Long, end: Long, rangeStart: Long, rangeEnd: Long): Long {
