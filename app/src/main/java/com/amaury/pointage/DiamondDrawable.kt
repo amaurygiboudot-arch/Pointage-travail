@@ -1,258 +1,132 @@
 package com.amaury.pointage
 
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.RadialGradient
-import android.graphics.RectF
-import android.graphics.Shader
+import android.graphics.*
 import android.graphics.drawable.Drawable
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
+import kotlin.math.*
 
 /**
- * Cristal diamant réaliste et très transparent.
- * Aucun grand aplat de facette : le relief est suggéré par les arêtes,
- * les caustiques et les éclats qui réagissent indépendamment à la lumière.
+ * Bouton cristal taillé : centre optiquement calme, couronne facettée épaisse,
+ * réfraction et éclats ponctuels pilotés par la direction lumineuse.
+ * Aucun symbole/croix de lumière n'est dessiné.
  */
 class DiamondDrawable(
     private val dark: Boolean,
     private val density: Float,
     private val tint: Int = Color.parseColor("#DDF6FF")
 ) : Drawable() {
-
-    private val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val lightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val rect = RectF()
+    private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val r = RectF()
     private var lightAngle = -55f
     private var pressed = false
 
     fun setLightAngle(angle: Float) {
-        val normalized = ((angle % 360f) + 360f) % 360f
-        if (kotlin.math.abs(shortestDelta(lightAngle, normalized)) < 0.4f) return
-        lightAngle = normalized
-        invalidateSelf()
+        val n=((angle%360f)+360f)%360f
+        if(abs(delta(lightAngle,n))<.45f)return
+        lightAngle=n; invalidateSelf()
+    }
+    override fun isStateful()=true
+    override fun onStateChange(state:IntArray):Boolean{
+        val n=state.any{it==android.R.attr.state_pressed||it==android.R.attr.state_focused}
+        if(n==pressed)return false; pressed=n; invalidateSelf(); return true
     }
 
-    override fun isStateful(): Boolean = true
-
-    override fun onStateChange(state: IntArray): Boolean {
-        val next = state.any { it == android.R.attr.state_pressed || it == android.R.attr.state_focused }
-        if (next == pressed) return false
-        pressed = next
-        invalidateSelf()
-        return true
+    override fun draw(c:Canvas){
+        if(bounds.isEmpty)return
+        r.set(bounds.left.toFloat(),bounds.top.toFloat(),bounds.right.toFloat(),bounds.bottom.toFloat())
+        val cut=min(r.height()*.24f,16f*density)
+        val outer=cutPath(r,cut)
+        val save=c.save(); c.clipPath(outer)
+        drawGlassBody(c)
+        drawCutRim(c,cut)
+        drawRefraction(c)
+        drawHotSpots(c,cut)
+        c.restoreToCount(save)
+        drawEdges(c,outer,cut)
     }
 
-    override fun draw(canvas: Canvas) {
-        if (bounds.isEmpty) return
-        rect.set(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat())
-
-        val radius = 19f * density
-        val clip = Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
-        val save = canvas.save()
-        canvas.clipPath(clip)
-
-        drawCrystalVolume(canvas)
-        drawFacetEdges(canvas)
-        drawCaustics(canvas)
-        drawPrismaticFlashes(canvas)
-        drawMovingSparkles(canvas)
-
-        canvas.restoreToCount(save)
-        drawPolishedEdge(canvas, clip, radius)
+    private fun drawGlassBody(c:Canvas){
+        // Le centre reste sombre/translucide comme le bouton de référence.
+        val top=if(dark) Color.argb(126,20,38,60) else Color.argb(105,185,218,238)
+        val mid=if(dark) Color.argb(155,8,20,37) else Color.argb(94,220,240,250)
+        val bottom=if(dark) Color.argb(180,4,14,29) else Color.argb(118,151,193,220)
+        p.shader=LinearGradient(r.left,r.top,r.left,r.bottom,intArrayOf(top,mid,bottom),floatArrayOf(0f,.47f,1f),Shader.TileMode.CLAMP)
+        c.drawRect(r,p);p.shader=null
+        // reflet doux de surface, pas de réseau de lignes au centre
+        p.shader=LinearGradient(r.left,r.top,r.right,r.bottom,intArrayOf(Color.argb(35,255,255,255),Color.TRANSPARENT,Color.argb(18,120,196,242)),floatArrayOf(0f,.43f,1f),Shader.TileMode.CLAMP)
+        c.drawRect(r,p);p.shader=null
     }
 
-    /** Très peu de matière : le fond de l'application reste réellement visible. */
-    private fun drawCrystalVolume(canvas: Canvas) {
-        val ice = if (dark) Color.argb(26, 126, 193, 225) else Color.argb(17, 205, 239, 252)
-        val white = if (dark) Color.argb(14, 255, 255, 255) else Color.argb(10, 255, 255, 255)
-        val shadow = if (dark) Color.argb(30, 8, 22, 35) else Color.argb(10, 87, 145, 175)
-        bodyPaint.shader = LinearGradient(
-            rect.left, rect.top, rect.right, rect.bottom,
-            intArrayOf(white, ice, Color.TRANSPARENT, white, shadow, ice),
-            floatArrayOf(0f, .18f, .36f, .55f, .78f, 1f),
-            Shader.TileMode.CLAMP
+    private fun drawCutRim(c:Canvas,cut:Float){
+        val l=r.left;val t=r.top;val rr=r.right;val b=r.bottom;val w=r.width();val h=r.height()
+        val ix=l+cut*1.15f; val ir=rr-cut*1.15f; val it=t+cut*.72f; val ib=b-cut*.72f
+        val facets=arrayOf(
+            poly(l+cut,t, l+w*.18f,t, ix,it, l,t+cut) to 208f,
+            poly(l+w*.18f,t,l+w*.38f,t, l+w*.34f,it,ix,it) to 250f,
+            poly(l+w*.38f,t,l+w*.62f,t,l+w*.66f,it,l+w*.34f,it) to 285f,
+            poly(l+w*.62f,t,rr-cut,t,ir,it,l+w*.66f,it) to 320f,
+            poly(rr-cut,t,rr,t+cut,rr,b-cut,ir,ib,ir,it) to 350f,
+            poly(rr,b-cut,rr-cut,b,l+w*.82f,b,ir,ib) to 25f,
+            poly(l+w*.82f,b,l+w*.61f,b,l+w*.66f,ib,ir,ib) to 62f,
+            poly(l+w*.61f,b,l+w*.39f,b,l+w*.34f,ib,l+w*.66f,ib) to 92f,
+            poly(l+w*.39f,b,l+w*.18f,b,ix,ib,l+w*.34f,ib) to 126f,
+            poly(l+w*.18f,b,l+cut,b,l,b-cut,l,t+cut,ix,it,ix,ib) to 160f
         )
-        canvas.drawRect(rect, bodyPaint)
-        bodyPaint.shader = null
-    }
-
-    /**
-     * Les facettes sont seulement suggérées par de fines arêtes translucides.
-     * Cela évite l'effet vitrail / triangles opaques.
-     */
-    private fun drawFacetEdges(canvas: Canvas) {
-        val l = rect.left; val r = rect.right; val t = rect.top; val b = rect.bottom
-        val w = rect.width(); val h = rect.height(); val cx = rect.centerX(); val cy = rect.centerY()
-
-        val nodes = arrayOf(
-            floatArrayOf(l + w*.08f, t + h*.18f),
-            floatArrayOf(l + w*.23f, t + h*.08f),
-            floatArrayOf(l + w*.39f, t + h*.22f),
-            floatArrayOf(l + w*.56f, t + h*.10f),
-            floatArrayOf(l + w*.74f, t + h*.20f),
-            floatArrayOf(l + w*.91f, t + h*.13f),
-            floatArrayOf(l + w*.15f, cy),
-            floatArrayOf(l + w*.31f, cy - h*.05f),
-            floatArrayOf(cx, cy + h*.04f),
-            floatArrayOf(l + w*.68f, cy - h*.04f),
-            floatArrayOf(l + w*.86f, cy + h*.03f),
-            floatArrayOf(l + w*.11f, b - h*.16f),
-            floatArrayOf(l + w*.28f, b - h*.08f),
-            floatArrayOf(l + w*.46f, b - h*.20f),
-            floatArrayOf(l + w*.64f, b - h*.08f),
-            floatArrayOf(l + w*.82f, b - h*.17f)
-        )
-
-        val links = arrayOf(
-            0 to 1, 1 to 2, 2 to 3, 3 to 4, 4 to 5,
-            0 to 6, 1 to 7, 2 to 7, 2 to 8, 3 to 8, 4 to 9, 5 to 10,
-            6 to 7, 7 to 8, 8 to 9, 9 to 10,
-            6 to 11, 7 to 12, 8 to 13, 9 to 14, 10 to 15,
-            11 to 12, 12 to 13, 13 to 14, 14 to 15,
-            1 to 6, 3 to 9, 5 to 9, 7 to 13, 9 to 13
-        )
-
-        links.forEachIndexed { index, pair ->
-            val a = nodes[pair.first]; val c = nodes[pair.second]
-            val pseudoNormal = (index * 37f + 11f) % 360f
-            val facing = ((cos(Math.toRadians(shortestDelta(pseudoNormal, lightAngle).toDouble())) + 1.0) * .5).toFloat()
-            val alpha = ((if (dark) 16 else 12) + facing * (if (pressed) 28 else 52)).toInt()
-            linePaint.color = Color.argb(alpha.coerceIn(8, 72), 240, 251, 255)
-            linePaint.strokeWidth = (if (facing > .72f) .82f else .48f) * density
-            canvas.drawLine(a[0], a[1], c[0], c[1], linePaint)
+        facets.forEachIndexed{idx,(path,norm)->
+            val facing=((cos(Math.toRadians(delta(norm,lightAngle).toDouble()))+1.0)*.5).toFloat()
+            val cool=if(idx%3==0)Color.rgb(174,220,255) else if(idx%4==0)Color.rgb(221,231,255) else Color.WHITE
+            val a=((if(dark)38 else 28)+facing*(if(pressed)75 else 165)).toInt().coerceIn(25,205)
+            p.shader=LinearGradient(l,t,rr,b,Color.argb(a,cool.red(),cool.green(),cool.blue()),Color.argb((a*.18f).toInt(),75,142,200),Shader.TileMode.CLAMP)
+            c.drawPath(path,p);p.shader=null
         }
+        // centre intérieur : aucune facette traversante
+        p.color=if(dark)Color.argb(28,0,9,20) else Color.argb(18,235,250,255)
+        c.drawRoundRect(RectF(ix,it,ir,ib),h*.14f,h*.14f,p)
     }
 
-    /** Une bande de lumière réfractée traverse le cristal en suivant la source. */
-    private fun drawCaustics(canvas: Canvas) {
-        val diagonal = sqrt(rect.width()*rect.width() + rect.height()*rect.height())
-        val rad = Math.toRadians(lightAngle.toDouble())
-        val dx = (cos(rad) * diagonal).toFloat()
-        val dy = (sin(rad) * diagonal).toFloat()
-        val cx = rect.centerX(); val cy = rect.centerY()
-
-        lightPaint.shader = LinearGradient(
-            cx - dx, cy - dy, cx + dx, cy + dy,
-            intArrayOf(
-                Color.TRANSPARENT,
-                Color.argb(if (pressed) 12 else 24, 168, 222, 255),
-                Color.argb(if (pressed) 28 else 58, 255, 255, 255),
-                Color.argb(if (pressed) 8 else 20, 201, 179, 255),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, .39f, .50f, .58f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(rect, lightPaint)
-        lightPaint.shader = null
+    private fun drawRefraction(c:Canvas){
+        val rad=Math.toRadians(lightAngle.toDouble()); val cx=r.centerX();val cy=r.centerY()
+        val dx=(cos(rad)*r.width()*.55).toFloat();val dy=(sin(rad)*r.height()*2.2).toFloat()
+        p.shader=LinearGradient(cx-dx,cy-dy,cx+dx,cy+dy,intArrayOf(Color.TRANSPARENT,Color.argb(if(pressed)18 else 48,174,221,255),Color.argb(if(pressed)25 else 72,255,255,255),Color.TRANSPARENT),floatArrayOf(0f,.43f,.52f,1f),Shader.TileMode.CLAMP)
+        c.drawRect(r,p);p.shader=null
     }
 
-    /** Très légère dispersion spectrale, uniquement aux endroits les plus brillants. */
-    private fun drawPrismaticFlashes(canvas: Canvas) {
-        val w = rect.width(); val h = rect.height()
-        val rad = Math.toRadians(lightAngle.toDouble())
-        val baseX = rect.centerX() + (cos(rad) * w * .24f).toFloat()
-        val baseY = rect.centerY() + (sin(rad) * h * .20f).toFloat()
-
-        val colors = intArrayOf(
-            Color.argb(if (pressed) 12 else 26, 120, 205, 255),
-            Color.argb(if (pressed) 10 else 22, 192, 151, 255),
-            Color.argb(if (pressed) 8 else 18, 255, 203, 167)
-        )
-        val offsets = floatArrayOf(-2.1f, 0f, 2.1f)
-        for (i in offsets.indices) {
-            lightPaint.shader = RadialGradient(
-                baseX + offsets[i] * density,
-                baseY + offsets[(i + 1) % offsets.size] * density * .45f,
-                h * .38f,
-                intArrayOf(colors[i], Color.TRANSPARENT),
-                floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(rect, lightPaint)
-            lightPaint.shader = null
-        }
-    }
-
-    /** Plusieurs éclats se déplacent indépendamment : aucun reflet n'est figé dans l'image. */
-    private fun drawMovingSparkles(canvas: Canvas) {
-        val w = rect.width(); val h = rect.height()
-        val specs = arrayOf(
-            floatArrayOf(.17f,.24f,.036f, 12f,1.00f),
-            floatArrayOf(.35f,.70f,.025f, 79f,1.13f),
-            floatArrayOf(.53f,.22f,.030f,151f,0.91f),
-            floatArrayOf(.69f,.62f,.040f,224f,1.22f),
-            floatArrayOf(.84f,.31f,.022f,302f,0.83f)
-        )
-
-        specs.forEachIndexed { index, s ->
-            val phase = Math.toRadians((lightAngle * s[4] + s[3]).toDouble())
-            val x = rect.left + w*s[0] + (cos(phase)*w*.026f).toFloat()
-            val y = rect.top + h*s[1] + (sin(phase)*h*.045f).toFloat()
-            val radius = h * s[2] * 2.7f
-            val facing = ((cos(Math.toRadians((lightAngle - s[3]).toDouble())) + 1.0)*.5).toFloat()
-            val alpha = ((if (pressed) 65 else 115) + facing*(if (pressed) 65 else 125)).toInt().coerceIn(40,240)
-
-            lightPaint.shader = RadialGradient(
-                x, y, radius,
-                intArrayOf(
-                    Color.argb(alpha,255,255,255),
-                    Color.argb((alpha*.25f).toInt(),185,230,255),
-                    Color.TRANSPARENT
-                ),
-                floatArrayOf(0f,.16f,1f), Shader.TileMode.CLAMP
-            )
-            canvas.drawCircle(x,y,radius,lightPaint)
-            lightPaint.shader = null
-
-            if (facing > .70f) {
-                linePaint.color = Color.argb((alpha*.88f).toInt(),255,255,255)
-                linePaint.strokeWidth = .68f*density
-                val longRay = (4.5f + facing*4f)*density
-                val shortRay = longRay*.48f
-                canvas.drawLine(x-longRay,y,x+longRay,y,linePaint)
-                canvas.drawLine(x,y-shortRay,x,y+shortRay,linePaint)
-                if (index % 2 == 0) {
-                    canvas.save()
-                    canvas.rotate(45f,x,y)
-                    canvas.drawLine(x-shortRay,y,x+shortRay,y,linePaint)
-                    canvas.restore()
-                }
+    private fun drawHotSpots(c:Canvas,cut:Float){
+        // Reflets indépendants placés surtout sur la couronne taillée.
+        val pts=arrayOf(floatArrayOf(.08f,.22f,18f),floatArrayOf(.25f,.08f,92f),floatArrayOf(.52f,.06f,151f),floatArrayOf(.78f,.10f,214f),floatArrayOf(.94f,.30f,278f),floatArrayOf(.87f,.86f,326f),floatArrayOf(.58f,.93f,43f),floatArrayOf(.18f,.88f,128f),floatArrayOf(.04f,.63f,184f))
+        pts.forEach{q->
+            val facing=((cos(Math.toRadians(delta(q[2],lightAngle).toDouble()))+1.0)*.5).toFloat()
+            if(facing<.43f)return@forEach
+            val x=r.left+r.width()*q[0];val y=r.top+r.height()*q[1]
+            val radius=(2.0f+5.2f*facing)*density
+            val a=((facing-.43f)/.57f*(if(pressed)125 else 235)).toInt().coerceIn(0,235)
+            p.shader=RadialGradient(x,y,radius,intArrayOf(Color.argb(a,255,255,255),Color.argb((a*.28f).toInt(),151,215,255),Color.TRANSPARENT),floatArrayOf(0f,.22f,1f),Shader.TileMode.CLAMP)
+            c.drawCircle(x,y,radius,p);p.shader=null
+            // petite diffraction, sans forme de +
+            if(facing>.78f){
+                stroke.strokeWidth=.55f*density;stroke.color=Color.argb((a*.65f).toInt(),225,245,255)
+                val len=(3f+4f*facing)*density
+                val aRad=Math.toRadians((lightAngle+q[2]*.17f).toDouble())
+                val vx=(cos(aRad)*len).toFloat();val vy=(sin(aRad)*len).toFloat()
+                c.drawLine(x-vx,y-vy,x+vx,y+vy,stroke)
             }
         }
     }
 
-    private fun drawPolishedEdge(canvas: Canvas, outline: Path, radius: Float) {
-        edgePaint.strokeWidth = .82f*density
-        edgePaint.color = Color.argb(if (dark) 96 else 82, 220, 246, 255)
-        canvas.drawPath(outline,edgePaint)
-
-        val inset = 2.0f*density
-        val inner = RectF(rect.left+inset,rect.top+inset,rect.right-inset,rect.bottom-inset)
-        edgePaint.strokeWidth = .42f*density
-        edgePaint.color = Color.argb(if (pressed) 54 else 96,255,255,255)
-        canvas.drawRoundRect(inner,(radius-inset).coerceAtLeast(2f),(radius-inset).coerceAtLeast(2f),edgePaint)
+    private fun drawEdges(c:Canvas,outer:Path,cut:Float){
+        stroke.strokeWidth=1.15f*density
+        stroke.shader=LinearGradient(r.left,r.top,r.right,r.bottom,intArrayOf(Color.rgb(174,222,255),Color.WHITE,Color.rgb(108,172,225),Color.WHITE),null,Shader.TileMode.CLAMP)
+        stroke.alpha=if(pressed)165 else 230;c.drawPath(outer,stroke);stroke.shader=null
+        val inset=2.2f*density;val inner=RectF(r.left+inset,r.top+inset,r.right-inset,r.bottom-inset)
+        stroke.strokeWidth=.55f*density;stroke.color=Color.argb(if(pressed)90 else 155,225,247,255);stroke.alpha=255
+        c.drawPath(cutPath(inner,(cut-inset).coerceAtLeast(3f*density)),stroke)
     }
 
-    private fun shortestDelta(a: Float,b: Float): Float = ((b-a+540f)%360f)-180f
-
-    override fun setAlpha(alpha: Int) {
-        bodyPaint.alpha=alpha; linePaint.alpha=alpha; lightPaint.alpha=alpha; edgePaint.alpha=alpha
-        invalidateSelf()
-    }
-
-    override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
-        bodyPaint.colorFilter=colorFilter; linePaint.colorFilter=colorFilter
-        lightPaint.colorFilter=colorFilter; edgePaint.colorFilter=colorFilter
-        invalidateSelf()
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    private fun cutPath(x:RectF,cut:Float)=Path().apply{moveTo(x.left+cut,x.top);lineTo(x.right-cut,x.top);lineTo(x.right,x.top+cut);lineTo(x.right,x.bottom-cut);lineTo(x.right-cut,x.bottom);lineTo(x.left+cut,x.bottom);lineTo(x.left,x.bottom-cut);lineTo(x.left,x.top+cut);close()}
+    private fun poly(vararg v:Float)=Path().apply{moveTo(v[0],v[1]);var i=2;while(i<v.size){lineTo(v[i],v[i+1]);i+=2};close()}
+    private fun Int.red()=Color.red(this);private fun Int.green()=Color.green(this);private fun Int.blue()=Color.blue(this)
+    private fun delta(a:Float,b:Float)=((b-a+540f)%360f)-180f
+    override fun setAlpha(alpha:Int){p.alpha=alpha;stroke.alpha=alpha;invalidateSelf()}
+    override fun setColorFilter(cf:ColorFilter?){p.colorFilter=cf;stroke.colorFilter=cf;invalidateSelf()}
+    @Deprecated("Deprecated in Java") override fun getOpacity()=PixelFormat.TRANSLUCENT
 }
