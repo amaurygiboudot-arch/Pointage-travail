@@ -1,7 +1,6 @@
 package com.amaury.pointage
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -63,14 +62,11 @@ object UpdateChecker {
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     if (silent) {
+                        // Au démarrage : aucune fenêtre intrusive. Une notification discrète suffit.
                         Toast.makeText(activity, "Mise à jour HP Travail $versionName disponible", Toast.LENGTH_SHORT).show()
                     } else {
-                        AlertDialog.Builder(activity)
-                            .setTitle("Mise à jour disponible")
-                            .setMessage("HP Travail $versionName est disponible. Le téléchargement va s'ouvrir dans le navigateur afin que la vérification de sécurité Android, Play Protect ou MI Protect reste entièrement active.")
-                            .setPositiveButton("TÉLÉCHARGER") { _, _ -> openOfficialDownload(activity, destination) }
-                            .setNegativeButton("Plus tard", null)
-                            .show()
+                        // Vérification demandée manuellement : pas de boîte de dialogue intermédiaire.
+                        openOfficialDownload(activity, destination)
                     }
                 }
             } catch (_: Exception) {
