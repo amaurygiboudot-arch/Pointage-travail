@@ -41,13 +41,13 @@ class ManualPauseButton @JvmOverloads constructor(
         val dark = mode == "dark" || (mode == "auto" && systemDark)
         val background = if (dark) theme.darkBackground else theme.lightBackground
         val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val hint = if (dark) theme.darkHint else theme.lightHint
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val hintColor = if (dark) theme.darkHint else theme.lightHint
         val accent = if (dark) theme.accentLight else theme.accent
         val orange = Color.parseColor("#F3A64A")
 
         fun styledButton(label: String, accentColor: Int = accent) = Button(context).apply {
-            this.text = label
+            text = label
             isAllCaps = false
             textSize = 14f
             setTextColor(accentColor)
@@ -60,8 +60,8 @@ class ManualPauseButton @JvmOverloads constructor(
         fun styledInput(hintText: String) = EditText(context).apply {
             hint = hintText
             textSize = 14f
-            setTextColor(text)
-            setHintTextColor(hint)
+            setTextColor(textColor)
+            setHintTextColor(hintColor)
             setBackgroundResource(R.drawable.hp_panel)
             backgroundTintList = ColorStateList.valueOf(panel)
             setPadding(dp(12), dp(9), dp(12), dp(9))
@@ -75,7 +75,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setBackgroundColor(background)
         }
         body.addView(TextView(context).apply {
-            this.text = "⏸  SAISIE MANUELLE D'UNE PAUSE"
+            text = "⏸  SAISIE MANUELLE D'UNE PAUSE"
             gravity = Gravity.CENTER
             textSize = 17f
             setTypeface(typeface, Typeface.BOLD)
@@ -83,9 +83,9 @@ class ManualPauseButton @JvmOverloads constructor(
             setPadding(0, dp(4), 0, dp(8))
         })
         body.addView(TextView(context).apply {
-            this.text = "Ajoute une pause oubliée à une journée déjà pointée, ou programme une pause automatique quotidienne."
+            text = "Ajoute une pause oubliée à une journée déjà pointée, ou programme une pause automatique quotidienne."
             textSize = 14f
-            setTextColor(text)
+            setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
         })
 
@@ -109,7 +109,7 @@ class ManualPauseButton @JvmOverloads constructor(
         }
 
         body.addView(TextView(context).apply {
-            this.text = "JOURNÉE"
+            text = "JOURNÉE"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(accent)
@@ -117,7 +117,7 @@ class ManualPauseButton @JvmOverloads constructor(
         })
         body.addView(dateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         body.addView(TextView(context).apply {
-            this.text = "HEURES DE PAUSE"
+            text = "HEURES DE PAUSE"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(accent)
@@ -127,17 +127,17 @@ class ManualPauseButton @JvmOverloads constructor(
         body.addView(end, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
 
         val automatic = Switch(context).apply {
-            this.text = "Programmer automatiquement tous les jours"
+            text = "Programmer automatiquement tous les jours"
             textSize = 14f
-            setTextColor(text)
+            setTextColor(textColor)
             isChecked = schedule.enabled
             setPadding(0, dp(12), 0, dp(4))
         }
         body.addView(automatic)
         body.addView(TextView(context).apply {
-            this.text = "La pause automatique ne se déclenche que lorsqu'une entrée est en cours. À l'heure de fin, HP Travail reprend automatiquement le temps de travail."
+            text = "La pause automatique ne se déclenche que lorsqu'une entrée est en cours. À l'heure de fin, HP Travail reprend automatiquement le temps de travail."
             textSize = 14f
-            setTextColor(hint)
+            setTextColor(hintColor)
             setPadding(0, 0, 0, dp(10))
         })
 
@@ -145,7 +145,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setBackgroundColor(background)
             addView(body)
         }
-        val cancel = styledButton("ANNULER", hint)
+        val cancel = styledButton("ANNULER", hintColor)
         val save = styledButton("ENREGISTRER LA PAUSE", orange)
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
