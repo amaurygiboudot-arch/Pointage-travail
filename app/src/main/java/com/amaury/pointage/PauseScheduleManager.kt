@@ -52,8 +52,23 @@ object PauseScheduleManager {
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
-        if (enabled) schedule(context) else cancel(context)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_ENABLED, enabled)
+            .apply()
+
+        if (enabled) {
+            schedule(context)
+            applyCurrentWindow(context)
+        } else {
+            cancel(context)
+            // Une pause créée automatiquement ne doit jamais rester ouverte
+            // simplement parce que l'utilisateur désactive la programmation.
+            if (PointageStore.isPausedAutomatically(context)) {
+                PointageStore.resumePause(context, automaticOnly = true)
+            }
+            updateWidgets(context)
+        }
     }
 
     fun schedule(context: Context) {
@@ -75,16 +90,21 @@ object PauseScheduleManager {
     fun applyCurrentWindow(context: Context) {
         val s = load(context)
         if (!s.enabled || !PointageStore.hasOpen(context)) return
+
         val now = Calendar.getInstance(Locale.FRANCE)
         val minuteNow = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val start = s.startHour * 60 + s.startMinute
         val end = s.endHour * 60 + s.endMinute
         val inside = if (end > start) minuteNow in start until end else minuteNow >= start || minuteNow < end
-        if (inside && !PointageStore.isPaused(context)) {
-            PointageStore.startPause(context, automatic = true)
-        } else if (!inside && PointageStore.isPausedAutomatically(context)) {
-            PointageStore.resumePause(context, automaticOnly = true)
+
+        val changed = when {
+            inside && !PointageStore.isPaused(context) ->
+                PointageStore.startPause(context, automatic = true)
+            !inside && PointageStore.isPausedAutomatically(context) ->
+                PointageStore.resumePause(context, automaticOnly = true)
+            else -> false
         }
+        if (changed) updateWidgets(context)
     }
 
     private fun scheduleOne(context: Context, action: String, requestCode: Int, hour: Int, minute: Int) {
@@ -113,6 +133,11 @@ object PauseScheduleManager {
             Intent(context, PauseScheduleReceiver::class.java).setAction(action),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+    private fun updateWidgets(context: Context) {
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
+    }
 }
 
 class PauseScheduleReceiver : BroadcastReceiver() {
@@ -130,6 +155,7 @@ class PauseScheduleReceiver : BroadcastReceiver() {
             }
         }
         PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
         PauseScheduleManager.schedule(context)
     }
 }
