@@ -9,3 +9,5 @@ Projet Android prêt à être compilé automatiquement par GitHub Actions.
 4. Appuyer sur "Run workflow".
 5. Une fois terminé, télécharger l'artifact "PointageTravail-APK".
 6. Décompresser le ZIP téléchargé : il contient PointageTravail.apk.
+
+Build relancé après restauration de MainActivity.
