@@ -6,7 +6,6 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.content.res.Configuration
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
@@ -44,11 +43,10 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
     }
 
     override fun onActivityResumed(activity: Activity) {
-        // Important : réapplique aussi l'apparence à MainActivity lorsqu'on revient
-        // du sélecteur d'image ou d'un autre écran de réglages.
         AppearanceManager.apply(activity)
         if (activity is MainActivity) {
             activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
+            activity.findViewById<ShiftControlView>(R.id.shiftControlView)?.refresh()
             PointageWidgetProvider.updateAll(activity)
             QuickActionsWidgetProvider.updateAll(activity)
         }
@@ -67,14 +65,7 @@ object AppearanceManager {
 
     fun apply(activity: Activity) {
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val mode = prefs.getString("mode", "auto") ?: "auto"
-        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = when (mode) {
-            "light" -> false
-            "dark" -> true
-            else -> systemDark
-        }
-
+        val dark = AppThemeCatalog.useDarkPalette(activity)
         val theme = AppThemeCatalog.current(activity)
         val defaultBg = if (dark) theme.darkBackground else theme.lightBackground
         val defaultPanel = if (dark) theme.darkPanel else theme.lightPanel
@@ -235,16 +226,18 @@ object SettingsUiInstaller {
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
             val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
-            modeButton.text = "MODE : " + when (mode) { "light" -> "CLAIR"; "dark" -> "SOMBRE"; else -> "AUTOMATIQUE" }
+            modeButton.text = "MODE : " + when (mode) { "light" -> "CLAIR"; "dark" -> "SOMBRE"; else -> "AUTOMATIQUE JOUR / NUIT" }
         }
         updateModeLabel()
         modeButton.setOnClickListener {
-            val values = arrayOf("Automatique", "Clair", "Sombre")
+            val values = arrayOf("Automatique jour / nuit", "Clair", "Sombre")
             AlertDialog.Builder(activity).setTitle("Mode d'affichage").setItems(values) { _, which ->
                 val mode = arrayOf("auto", "light", "dark")[which]
                 activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
                 updateModeLabel()
                 AppearanceManager.apply(activity)
+                PointageWidgetProvider.updateAll(activity)
+                QuickActionsWidgetProvider.updateAll(activity)
             }.show()
         }
         section.addView(modeButton)
