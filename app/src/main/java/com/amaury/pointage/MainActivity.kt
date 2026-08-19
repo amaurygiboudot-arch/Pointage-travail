@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
@@ -69,6 +70,7 @@ class MainActivity : Activity() {
     private var pendingPdfMonth = selectedReportMonth.get(Calendar.MONTH)
 
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
+    private val fullDateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy {
@@ -114,6 +116,7 @@ class MainActivity : Activity() {
 
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
+                gpsPrefs.edit().remove("active_zones").apply()
                 GeofenceManager.unregisterAll(this)
                 updateGpsStatus()
                 Toast.makeText(this, "Pointage automatique GPS désactivé", Toast.LENGTH_SHORT).show()
@@ -137,7 +140,7 @@ class MainActivity : Activity() {
             animateClick(entryButton)
             if (PointageStore.entry(this)) {
                 Toast.makeText(this, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                PointageWidgetProvider.updateAll(this)
+                updateWidgets()
                 refreshScreen()
             } else {
                 Toast.makeText(this, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
@@ -148,7 +151,7 @@ class MainActivity : Activity() {
             animateClick(exitButton)
             if (PointageStore.exit(this)) {
                 Toast.makeText(this, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                PointageWidgetProvider.updateAll(this)
+                updateWidgets()
                 refreshScreen()
             } else {
                 Toast.makeText(this, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
@@ -213,13 +216,17 @@ class MainActivity : Activity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         when (requestCode) {
             REQUEST_FINE_LOCATION -> {
-                val granted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                if (granted) {
+                val fineGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (fineGranted) {
                     requestLocationAccess()
                 } else {
                     disableAutomaticGps("La localisation précise est nécessaire pour le pointage automatique")
@@ -335,12 +342,18 @@ class MainActivity : Activity() {
     }
 
     private fun setActiveTab(active: TextView) {
-        val gold = getColor(R.color.hp_gold)
-        val grey = getColor(R.color.hp_grey)
-        tabToday.setTextColor(if (active == tabToday) gold else grey)
-        tabHistory.setTextColor(if (active == tabHistory) gold else grey)
-        tabAnalytics.setTextColor(if (active == tabAnalytics) gold else grey)
-        tabSettings.setTextColor(if (active == tabSettings) gold else grey)
+        val appearance = getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val mode = appearance.getString("mode", "auto") ?: "auto"
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val dark = mode == "dark" || (mode == "auto" && systemDark)
+        val theme = AppThemeCatalog.current(this)
+        val activeColor = if (dark) theme.accentLight else theme.accent
+        val inactiveColor = if (dark) theme.darkHint else theme.lightHint
+
+        tabToday.setTextColor(if (active == tabToday) activeColor else inactiveColor)
+        tabHistory.setTextColor(if (active == tabHistory) activeColor else inactiveColor)
+        tabAnalytics.setTextColor(if (active == tabAnalytics) activeColor else inactiveColor)
+        tabSettings.setTextColor(if (active == tabSettings) activeColor else inactiveColor)
     }
 
     private fun updateSelectedReportMonthText() {
@@ -414,13 +427,9 @@ class MainActivity : Activity() {
         updatingGpsSwitch = false
     }
 
-    private fun loadSavedZoneObjects(): JSONArray {
-        return try {
-            JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
-        } catch (_: Exception) {
-            JSONArray()
-        }
-    }
+    private fun loadSavedZoneObjects(): JSONArray =
+        runCatching { JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]") }
+            .getOrElse { JSONArray() }
 
     private fun existingZoneIdForAddress(address: String, existingZones: JSONArray): String? {
         for (i in 0 until existingZones.length()) {
@@ -437,7 +446,7 @@ class MainActivity : Activity() {
             .lines()
             .map { it.trim() }
             .filter { it.isNotEmpty() }
-            .distinct()
+            .distinctBy { it.lowercase(Locale.FRANCE) }
 
         if (rawLines.isEmpty()) {
             Toast.makeText(this, "Entre au moins une adresse", Toast.LENGTH_LONG).show()
@@ -450,23 +459,30 @@ class MainActivity : Activity() {
         }
 
         val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
+        geofenceRadius.setText(radius.toString())
         val existingZones = loadSavedZoneObjects()
         val zones = JSONArray()
         val workZones = mutableListOf<WorkZone>()
+        val failedAddresses = mutableListOf<String>()
         val geocoder = Geocoder(this, Locale.FRANCE)
 
         addresses.forEach { address ->
-            val result = runCatching { geocoder.getFromLocationName(address, 1) }.getOrNull()?.firstOrNull()
+            val result = runCatching { geocoder.getFromLocationName(address, 1) }
+                .getOrNull()
+                ?.firstOrNull()
             if (result != null) {
                 val id = existingZoneIdForAddress(address, existingZones) ?: UUID.randomUUID().toString()
-                val item = JSONObject()
-                    .put("id", id)
-                    .put("address", address)
-                    .put("latitude", result.latitude)
-                    .put("longitude", result.longitude)
-                    .put("radius", radius)
-                zones.put(item)
+                zones.put(
+                    JSONObject()
+                        .put("id", id)
+                        .put("address", address)
+                        .put("latitude", result.latitude)
+                        .put("longitude", result.longitude)
+                        .put("radius", radius)
+                )
                 workZones += WorkZone(id, result.latitude, result.longitude, radius.toFloat())
+            } else {
+                failedAddresses += address
             }
         }
 
@@ -475,10 +491,21 @@ class MainActivity : Activity() {
             .putInt("radius", radius)
             .putBoolean("enabled", autoGpsSwitch.isChecked)
             .putString("zones", zones.toString())
+            .remove("active_zones")
             .apply()
 
-        if (autoGpsSwitch.isChecked && workZones.isNotEmpty()) {
-            if (GeofenceManager.hasRequiredPermissions(this)) {
+        if (failedAddresses.isNotEmpty()) {
+            Toast.makeText(
+                this,
+                "${failedAddresses.size} adresse(s) n'ont pas pu être localisées. Vérifie leur écriture avant d'utiliser le GPS automatique.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
+        if (autoGpsSwitch.isChecked) {
+            if (workZones.isEmpty()) {
+                disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
+            } else if (GeofenceManager.hasRequiredPermissions(this)) {
                 GeofenceManager.registerAll(this, workZones) { success, message ->
                     runOnUiThread {
                         gpsStatusText.text = if (success) "GPS automatique actif" else message
@@ -498,8 +525,12 @@ class MainActivity : Activity() {
 
     private fun requestLocationAccess() {
         val fineGranted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fineGranted) {
-            requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION), REQUEST_FINE_LOCATION)
+            requestPermissions(
+                arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION),
+                REQUEST_FINE_LOCATION
+            )
             return
         }
 
@@ -509,7 +540,7 @@ class MainActivity : Activity() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 AlertDialog.Builder(this)
                     .setTitle("Autoriser le pointage automatique")
-                    .setMessage("Pour détecter automatiquement l'arrivée et le départ même quand HP Travail est fermé, choisis Localisation puis “Toujours autoriser” dans les réglages de l'application.")
+                    .setMessage("Pour détecter automatiquement l'arrivée et le départ même quand HP Travail est fermé, ouvre les autorisations de l'application, choisis Localisation puis « Toujours autoriser ». La localisation normale suffit pour le soleil et la lune.")
                     .setPositiveButton("OUVRIR LES RÉGLAGES") { _, _ ->
                         startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                             data = Uri.parse("package:$packageName")
@@ -520,12 +551,16 @@ class MainActivity : Activity() {
                     }
                     .show()
             } else {
-                requestPermissions(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), REQUEST_BACKGROUND_LOCATION)
+                requestPermissions(
+                    arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                    REQUEST_BACKGROUND_LOCATION
+                )
             }
             return
         }
 
-        Toast.makeText(this, "Localisation autorisée", Toast.LENGTH_SHORT).show()
+        val foregroundMessage = if (coarseGranted && !fineGranted) "Localisation approximative autorisée" else "Localisation autorisée"
+        Toast.makeText(this, foregroundMessage, Toast.LENGTH_SHORT).show()
         updateGpsStatus()
         if (autoGpsSwitch.isChecked) tryRestoreGeofence()
     }
@@ -534,7 +569,10 @@ class MainActivity : Activity() {
         updatingGpsSwitch = true
         autoGpsSwitch.isChecked = false
         updatingGpsSwitch = false
-        gpsPrefs.edit().putBoolean("enabled", false).apply()
+        gpsPrefs.edit()
+            .putBoolean("enabled", false)
+            .remove("active_zones")
+            .apply()
         GeofenceManager.unregisterAll(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -543,23 +581,27 @@ class MainActivity : Activity() {
     private fun tryRestoreGeofence() {
         if (!gpsPrefs.getBoolean("enabled", false)) return
         if (!GeofenceManager.hasRequiredPermissions(this)) return
-        val zonesJson = gpsPrefs.getString("zones", "[]") ?: "[]"
-        val array = runCatching { JSONArray(zonesJson) }.getOrElse { JSONArray() }
+
+        val array = loadSavedZoneObjects()
         val zones = mutableListOf<WorkZone>()
         for (i in 0 until array.length()) {
             val item = array.optJSONObject(i) ?: continue
-            zones += WorkZone(
-                item.optString("id"),
-                item.optDouble("latitude"),
-                item.optDouble("longitude"),
-                item.optDouble("radius", 150.0).toFloat()
-            )
+            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+            val latitude = item.optDouble("latitude", Double.NaN)
+            val longitude = item.optDouble("longitude", Double.NaN)
+            if (!latitude.isFinite() || !longitude.isFinite()) continue
+            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
+            zones += WorkZone(id, latitude, longitude, radius)
         }
-        if (zones.isNotEmpty()) {
-            GeofenceManager.registerAll(this, zones) { success, message ->
-                runOnUiThread {
-                    gpsStatusText.text = if (success) "GPS automatique actif" else message
-                }
+
+        if (zones.isEmpty()) {
+            disableAutomaticGps("Aucune zone GPS valide enregistrée")
+            return
+        }
+
+        GeofenceManager.registerAll(this, zones) { success, message ->
+            runOnUiThread {
+                gpsStatusText.text = if (success) "GPS automatique actif" else message
             }
         }
     }
@@ -568,24 +610,29 @@ class MainActivity : Activity() {
         gpsStatusText.text = when {
             !autoGpsSwitch.isChecked -> "GPS automatique désactivé"
             checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Localisation précise à autoriser"
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Autorise la localisation tout le temps"
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED ->
+                "Autorise la localisation tout le temps"
             else -> "GPS automatique actif"
         }
     }
 
     private fun refreshScreen() {
         val data = PointageStore.load(this)
-        var openEntry: Long? = null
+        var openItem: JSONObject? = null
         for (i in data.length() - 1 downTo 0) {
             val item = data.optJSONObject(i) ?: continue
-            if (item.isNull("exit")) {
-                openEntry = item.optLong("entry").takeIf { it > 0L }
+            val entry = item.optLong("entry", -1L)
+            if (entry > 0L && item.isNull("exit")) {
+                openItem = item
                 break
             }
         }
 
-        statusCard.text = if (openEntry != null) {
-            "STATUT ACTUEL\n● ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(openEntry))}"
+        statusCard.text = if (openItem != null) {
+            val entry = openItem.optLong("entry")
+            val state = if (PointageStore.isPaused(this)) "⏸ PAUSE EN COURS" else "● ENTRÉE EN COURS"
+            "STATUT ACTUEL\n$state\nDepuis ${dateFormat.format(Date(entry))}"
         } else {
             "STATUT ACTUEL\n○ Aucune entrée en cours"
         }
@@ -595,42 +642,75 @@ class MainActivity : Activity() {
     private fun buildTodayHistoryText(): String {
         val data = PointageStore.load(this)
         val today = Calendar.getInstance(Locale.FRANCE)
+        val now = System.currentTimeMillis()
         val builder = StringBuilder()
+
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L) continue
             val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entry }
-            if (cal.get(Calendar.YEAR) != today.get(Calendar.YEAR) || cal.get(Calendar.DAY_OF_YEAR) != today.get(Calendar.DAY_OF_YEAR)) continue
+            if (cal.get(Calendar.YEAR) != today.get(Calendar.YEAR) ||
+                cal.get(Calendar.DAY_OF_YEAR) != today.get(Calendar.DAY_OF_YEAR)
+            ) continue
+
             val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
-            builder.append("📍 ").append(place).append("\n")
+            builder.append("📍 ").append(place).append('\n')
             builder.append("🟢 ").append(dateFormat.format(Date(entry))).append("  ENTRÉE\n")
+
+            val end = if (item.isNull("exit")) now else item.optLong("exit", entry)
+            val pauses = PointageStore.pauseDuration(item, end)
+            if (pauses > 0L) {
+                builder.append("⏸ Pauses : ").append(formatDuration(pauses)).append('\n')
+            }
+
             if (!item.isNull("exit")) {
-                val exit = item.optLong("exit")
-                builder.append("🔴 ").append(dateFormat.format(Date(exit))).append("  SORTIE  ").append(formatDuration(exit - entry)).append("\n")
-            } else builder.append("🟢 EN COURS\n")
-            builder.append("\n")
+                builder.append("🔴 ")
+                    .append(dateFormat.format(Date(end)))
+                    .append("  SORTIE  ")
+                    .append(formatDuration(PointageStore.workedDuration(item, end)))
+                    .append(" travaillées\n")
+            } else {
+                builder.append("🟢 EN COURS  ")
+                    .append(formatDuration(PointageStore.workedDuration(item, now)))
+                    .append(" travaillées\n")
+            }
+            builder.append('\n')
         }
         return builder.toString().ifBlank { "Aucun pointage aujourd'hui." }
     }
 
     private fun buildHistoryText(): String {
         val data = PointageStore.load(this)
+        val now = System.currentTimeMillis()
         val builder = StringBuilder()
+
         for (i in data.length() - 1 downTo 0) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L) continue
             val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
-            val date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date(entry))
-            builder.append("📍 ").append(place).append("\n")
-            builder.append("🟢 ").append(date).append("  ENTRÉE\n")
+            builder.append("📍 ").append(place).append('\n')
+            builder.append("🟢 ").append(fullDateFormat.format(Date(entry))).append("  ENTRÉE\n")
+
+            val end = if (item.isNull("exit")) now else item.optLong("exit", entry)
+            val pauses = PointageStore.pauseDuration(item, end)
+            if (pauses > 0L) {
+                builder.append("⏸ Pauses : ").append(formatDuration(pauses)).append('\n')
+            }
+
             if (!item.isNull("exit")) {
-                val exit = item.optLong("exit")
-                builder.append("🔴 ").append(SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date(exit)))
-                    .append("  SORTIE  ").append(formatDuration(exit - entry)).append("\n")
-            } else builder.append("🟢 EN COURS\n")
-            builder.append("\n")
+                builder.append("🔴 ")
+                    .append(fullDateFormat.format(Date(end)))
+                    .append("  SORTIE  ")
+                    .append(formatDuration(PointageStore.workedDuration(item, end)))
+                    .append(" travaillées\n")
+            } else {
+                builder.append("🟢 EN COURS  ")
+                    .append(formatDuration(PointageStore.workedDuration(item, now)))
+                    .append(" travaillées\n")
+            }
+            builder.append('\n')
         }
         return builder.toString().ifBlank { "Aucun historique." }
     }
@@ -640,31 +720,43 @@ class MainActivity : Activity() {
         val totals = LinkedHashMap<String, Long>()
         var total = 0L
         var sessions = 0
+
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             val exit = if (item.isNull("exit")) null else item.optLong("exit").takeIf { it > 0L }
+            if (entry <= 0L || exit == null || exit < entry) continue
+
             val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
-            if (entry > 0L && exit != null) {
-                val duration = (exit - entry).coerceAtLeast(0L)
-                totals[place] = (totals[place] ?: 0L) + duration
-                total += duration
-                sessions++
+            val worked = PointageStore.workedDuration(item, exit)
+            totals[place] = (totals[place] ?: 0L) + worked
+            total += worked
+            sessions++
+        }
+
+        return buildString {
+            append("⏱ TOTAL TRAVAILLÉ : ").append(formatDuration(total)).append('\n')
+            append("✅ Sessions terminées : ").append(sessions).append("\n\n")
+            append("HEURES PAR ADRESSE\n\n")
+            if (totals.isEmpty()) {
+                append("Aucune donnée.")
+            } else {
+                totals.forEach { (place, duration) ->
+                    append("📍 ").append(place).append("\n⏱ ")
+                        .append(formatDuration(duration)).append("\n\n")
+                }
             }
         }
-        val b = StringBuilder()
-        b.append("⏱ TOTAL : ").append(formatDuration(total)).append("\n")
-        b.append("✅ Sessions terminées : ").append(sessions).append("\n\n")
-        b.append("HEURES PAR ADRESSE\n\n")
-        if (totals.isEmpty()) b.append("Aucune donnée.") else totals.forEach { (place, duration) ->
-            b.append("📍 ").append(place).append("\n⏱ ").append(formatDuration(duration)).append("\n\n")
-        }
-        return b.toString()
     }
 
     private fun formatDuration(ms: Long): String {
-        val totalMinutes = ms.coerceAtLeast(0L) / 60000
-        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60, totalMinutes % 60)
+        val totalMinutes = ms.coerceAtLeast(0L) / 60000L
+        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
+    }
+
+    private fun updateWidgets() {
+        PointageWidgetProvider.updateAll(this)
+        QuickActionsWidgetProvider.updateAll(this)
     }
 
     private fun showSettingsDialog() {
