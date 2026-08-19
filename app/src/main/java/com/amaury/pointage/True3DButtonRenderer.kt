@@ -28,10 +28,9 @@ import kotlin.math.sqrt
 
 /**
  * Boutons Diamant en vraie 3D OpenGL.
- *
- * Géométrie réelle : table supérieure, couronne facettée, biseau, ceinture et pavillon.
- * Le mesh est dimensionné selon le ratio exact de chaque bouton afin de remplir sa surface.
- * Aucun Canvas/GradientDrawable n'est utilisé pour le corps du bouton.
+ * Géométrie : table, couronne, biseau, ceinture et pavillon.
+ * Les côtés utilisent un matériau plus réfléchissant afin de retrouver
+ * les arêtes blanches très brillantes d'un diamant taillé.
  */
 class True3DButtonTextureView @JvmOverloads constructor(
     context: Context,
@@ -170,9 +169,9 @@ class True3DButtonTextureView @JvmOverloads constructor(
         var tuning = DiamondTuning()
 
         private var program = 0
-        private var shadowProgram = 0
         private var positionLoc = 0
         private var normalLoc = 0
+        private var regionLoc = 0
         private var mvpLoc = 0
         private var modelLoc = 0
         private var lightLoc = 0
@@ -200,13 +199,12 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val vp = FloatArray(16)
             val mvp = FloatArray(16)
 
-            // Perspective réelle, mais cadrage serré : le cristal occupe presque tout le bouton.
-            Matrix.perspectiveM(projection, 0, 26f, aspect, 0.1f, 20f)
-            Matrix.setLookAtM(view, 0, 0f, -2.55f, 4.15f, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.perspectiveM(projection, 0, 24f, aspect, 0.1f, 20f)
+            Matrix.setLookAtM(view, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
             Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, 0f, pressed.then(.035f, 0f), pressed.then(-.18f, .16f))
-            Matrix.rotateM(model, 0, -8.5f, 1f, 0f, 0f)
-            Matrix.rotateM(model, 0, 2.8f, 0f, 1f, 0f)
+            Matrix.translateM(model, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
+            Matrix.rotateM(model, 0, -8.2f, 1f, 0f, 0f)
+            Matrix.rotateM(model, 0, 2.4f, 0f, 1f, 0f)
             Matrix.multiplyMM(vp, 0, projection, 0, view, 0)
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
 
@@ -217,27 +215,33 @@ class True3DButtonTextureView @JvmOverloads constructor(
             GLES20.glUseProgram(program)
             GLES20.glUniformMatrix4fv(mvpLoc, 1, false, mvp, 0)
             GLES20.glUniformMatrix4fv(modelLoc, 1, false, model, 0)
-            GLES20.glUniform3f(lightLoc, lx * 1.2f, -ly * 1.2f, 1.7f)
+            GLES20.glUniform3f(lightLoc, lx * 1.35f, -ly * 1.35f, 1.9f)
 
             val blue = tuning.iceBlue.coerceIn(0f, 1f)
             GLES20.glUniform3f(
                 baseColorLoc,
-                .28f - blue * .10f,
-                .52f + blue * .18f,
-                .74f + blue * .22f
+                .20f - blue * .05f,
+                .44f + blue * .18f,
+                .68f + blue * .25f
             )
-            GLES20.glUniform1f(alphaLoc, (.94f - tuning.transparency * .18f).coerceIn(.72f, .97f))
+            GLES20.glUniform1f(alphaLoc, (.91f - tuning.transparency * .17f).coerceIn(.72f, .96f))
 
             val buffer = vertices ?: return
+            val stride = 7 * 4
             buffer.position(0)
             GLES20.glEnableVertexAttribArray(positionLoc)
-            GLES20.glVertexAttribPointer(positionLoc, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+            GLES20.glVertexAttribPointer(positionLoc, 3, GLES20.GL_FLOAT, false, stride, buffer)
             buffer.position(3)
             GLES20.glEnableVertexAttribArray(normalLoc)
-            GLES20.glVertexAttribPointer(normalLoc, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+            GLES20.glVertexAttribPointer(normalLoc, 3, GLES20.GL_FLOAT, false, stride, buffer)
+            buffer.position(6)
+            GLES20.glEnableVertexAttribArray(regionLoc)
+            GLES20.glVertexAttribPointer(regionLoc, 1, GLES20.GL_FLOAT, false, stride, buffer)
+
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
             GLES20.glDisableVertexAttribArray(positionLoc)
             GLES20.glDisableVertexAttribArray(normalLoc)
+            GLES20.glDisableVertexAttribArray(regionLoc)
         }
 
         private fun createProgram() {
@@ -246,14 +250,17 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 uniform mat4 uModel;
                 attribute vec3 aPosition;
                 attribute vec3 aNormal;
+                attribute float aRegion;
                 varying vec3 vNormal;
                 varying vec3 vWorld;
                 varying vec3 vObject;
+                varying float vRegion;
                 void main() {
                     vec4 world = uModel * vec4(aPosition, 1.0);
                     vWorld = world.xyz;
                     vObject = aPosition;
                     vNormal = normalize(mat3(uModel) * aNormal);
+                    vRegion = aRegion;
                     gl_Position = uMvp * vec4(aPosition, 1.0);
                 }
             """.trimIndent())
@@ -266,43 +273,76 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 varying vec3 vNormal;
                 varying vec3 vWorld;
                 varying vec3 vObject;
+                varying float vRegion;
 
                 void main() {
                     vec3 N = normalize(vNormal);
-                    vec3 L = normalize(uLight);
-                    vec3 V = normalize(vec3(0.0, -2.55, 4.15) - vWorld);
-                    vec3 H = normalize(L + V);
+                    vec3 L1 = normalize(uLight);
+                    vec3 L2 = normalize(vec3(-uLight.x * .78, uLight.y * .35, 1.15));
+                    vec3 V = normalize(vec3(0.0, -2.72, 4.30) - vWorld);
+                    vec3 H1 = normalize(L1 + V);
+                    vec3 H2 = normalize(L2 + V);
 
-                    float ndl = max(dot(N, L), 0.0);
+                    float ndl1 = max(dot(N, L1), 0.0);
+                    float ndl2 = max(dot(N, L2), 0.0);
                     float ndv = max(dot(N, V), 0.0);
-                    float specSharp = pow(max(dot(N, H), 0.0), 96.0);
-                    float specWide = pow(max(dot(N, H), 0.0), 18.0);
-                    float fresnel = pow(1.0 - ndv, 3.5);
-                    float back = pow(max(dot(-N, L), 0.0), 2.0);
+                    float fresnel = pow(1.0 - ndv, 4.1);
 
-                    // Absorption interne : centre plus profond, arêtes plus lumineuses.
-                    float depth = clamp(1.0 - abs(vObject.z) * .72, 0.0, 1.0);
-                    vec3 body = uBaseColor * (0.20 + ndl * 0.50 + depth * 0.16);
+                    float specNeedle1 = pow(max(dot(N, H1), 0.0), 170.0);
+                    float specNeedle2 = pow(max(dot(N, H2), 0.0), 130.0);
+                    float specWide1 = pow(max(dot(N, H1), 0.0), 24.0);
+                    float specWide2 = pow(max(dot(N, H2), 0.0), 16.0);
 
-                    // Réflexions blanches et bleutées de type diamant.
-                    vec3 reflection = vec3(1.0) * specSharp * 1.75
-                                    + vec3(.62,.83,1.0) * specWide * .34
-                                    + vec3(.32,.66,1.0) * fresnel * .95;
+                    // vRegion : 0 table, 1 couronne, 2 biseau/ceinture, 3 pavillon.
+                    float side = smoothstep(1.35, 2.55, vRegion);
+                    float crown = 1.0 - abs(vRegion - 1.0);
+                    crown = clamp(crown, 0.0, 1.0);
 
-                    // Dispersion chromatique légère sur les arêtes (feu du diamant).
-                    float edge = pow(fresnel, 1.5);
-                    float phase = vObject.x * 5.1 + vObject.y * 7.7;
-                    vec3 fire = vec3(
+                    // Corps sombre/translucide pour laisser les reflets dominer, comme sur un diamant poli.
+                    float depthTone = clamp(.66 + vObject.z * .30, .38, .92);
+                    vec3 body = uBaseColor * (.16 + ndl1 * .30 + ndl2 * .15) * depthTone;
+
+                    // Reflets très blancs et très durs sur les côtés et le biseau.
+                    float sideFlash = side * (
+                        specNeedle1 * 4.2 +
+                        specNeedle2 * 3.1 +
+                        specWide1 * 1.25 +
+                        fresnel * 1.45
+                    );
+                    vec3 whiteFlash = vec3(1.0, .995, .98) * sideFlash;
+
+                    // Couronne : éclats moins continus, mais plus nombreux.
+                    vec3 crownFlash = vec3(.83,.94,1.0) * crown *
+                        (specNeedle1 * 2.3 + specNeedle2 * 1.6 + specWide2 * .48);
+
+                    // Réflexion froide générale.
+                    vec3 rim = vec3(.34,.72,1.0) * fresnel * (1.0 + side * .9);
+
+                    // Deux bandes spéculaires qui donnent le côté "miroir" des faces polies.
+                    float bandA = pow(max(0.0, 1.0 - abs(dot(N, normalize(vec3(.78,-.18,.60))))), 18.0);
+                    float bandB = pow(max(0.0, 1.0 - abs(dot(N, normalize(vec3(-.62,.30,.72))))), 22.0);
+                    vec3 polishedBands = vec3(1.0) * side * (bandA * .78 + bandB * .62);
+
+                    // Feu du diamant : dispersion légère localisée sur les zones déjà lumineuses.
+                    float phase = vObject.x * 8.2 + vObject.y * 11.7 + vObject.z * 4.0;
+                    vec3 spectral = vec3(
                         .95 + .05 * sin(phase),
-                        .80 + .20 * sin(phase + 2.094),
-                        .92 + .08 * sin(phase + 4.188)
-                    ) * edge * .28;
+                        .72 + .28 * sin(phase + 2.094),
+                        .90 + .10 * sin(phase + 4.188)
+                    );
+                    float fireMask = clamp((specWide1 + specWide2 + fresnel) * (side * .75 + crown * .28), 0.0, 1.0);
+                    vec3 fire = spectral * fireMask * .34;
 
-                    vec3 internalLight = vec3(.44,.70,1.0) * back * .28;
-                    vec3 color = body + reflection + fire + internalLight;
-                    color = color / (color + vec3(.92));
+                    float back = pow(max(dot(-N, L1), 0.0), 2.0);
+                    vec3 internalLight = vec3(.20,.48,.92) * back * .23;
 
-                    float alpha = clamp(uAlpha + fresnel * .06 + specSharp * .03, .70, .98);
+                    vec3 color = body + whiteFlash + crownFlash + rim + polishedBands + fire + internalLight;
+                    // Tone mapping doux : conserve les blancs brillants sans transformer tout le bouton en bleu plat.
+                    color = color / (color + vec3(.72));
+                    color += vec3(1.0) * clamp(sideFlash * .16, 0.0, .22);
+                    color = clamp(color, 0.0, 1.0);
+
+                    float alpha = clamp(uAlpha + fresnel * .08 + side * .045, .72, .985);
                     gl_FragColor = vec4(color, alpha);
                 }
             """.trimIndent())
@@ -317,6 +357,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
             positionLoc = GLES20.glGetAttribLocation(program, "aPosition")
             normalLoc = GLES20.glGetAttribLocation(program, "aNormal")
+            regionLoc = GLES20.glGetAttribLocation(program, "aRegion")
             mvpLoc = GLES20.glGetUniformLocation(program, "uMvp")
             modelLoc = GLES20.glGetUniformLocation(program, "uModel")
             lightLoc = GLES20.glGetUniformLocation(program, "uLight")
@@ -336,88 +377,84 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
         private fun buildMesh(width: Int, height: Int) {
             val aspect = width.toFloat() / height.coerceAtLeast(1).toFloat()
-
-            // IMPORTANT : largeur proportionnelle à l'aspect du vrai bouton.
-            // C'était la cause principale des petits losanges visibles au centre auparavant.
             val halfH = .92f
             val halfW = (halfH * aspect).coerceIn(.92f, 7.2f)
-            val cornerX = (halfH * .58f).coerceAtMost(halfW * .24f)
-            val cornerY = halfH * .34f
+            val cornerX = (halfH * .54f).coerceAtMost(halfW * .22f)
+            val cornerY = halfH * .32f
 
             val facet = tuning.facetDepth.coerceIn(0f, 1f)
             val bevel = tuning.bevel.coerceIn(0f, 1f)
-
-            val girdleZ = -.02f
-            val topZ = .24f + bevel * .13f
-            val tableZ = topZ + .13f + facet * .08f
-            val bottomZ = -.26f - facet * .17f
+            val girdleZ = -.015f
+            val crownZ = .20f + bevel * .10f
+            val tableZ = crownZ + .16f + facet * .075f
+            val lowerZ = -.31f - facet * .16f
 
             val outer = octagon(halfW, halfH, cornerX, cornerY, girdleZ)
             val crown = octagon(
-                halfW - halfH * (.16f + bevel * .06f),
-                halfH * (.70f - bevel * .04f),
-                cornerX * .78f,
+                halfW - halfH * (.14f + bevel * .05f),
+                halfH * (.72f - bevel * .035f),
+                cornerX * .80f,
                 cornerY * .78f,
-                topZ
+                crownZ
             )
             val table = octagon(
-                halfW - halfH * (.38f + facet * .04f),
-                halfH * (.47f - facet * .03f),
-                cornerX * .56f,
+                halfW - halfH * (.36f + facet * .035f),
+                halfH * (.49f - facet * .025f),
+                cornerX * .55f,
                 cornerY * .52f,
                 tableZ
             )
-            val lower = Array(8) { i -> floatArrayOf(outer[i][0] * .92f, outer[i][1] * .90f, bottomZ) }
+            val lower = Array(8) { i ->
+                floatArrayOf(outer[i][0] * .915f, outer[i][1] * .89f, lowerZ)
+            }
 
-            val data = ArrayList<Float>(8 * 6 * 6 * 4)
+            val data = ArrayList<Float>(8 * 6 * 7 * 4)
 
-            fun addTri(a: FloatArray, b: FloatArray, c: FloatArray) {
+            fun addTri(a: FloatArray, b: FloatArray, c: FloatArray, region: Float) {
                 val ux = b[0] - a[0]; val uy = b[1] - a[1]; val uz = b[2] - a[2]
                 val vx = c[0] - a[0]; val vy = c[1] - a[1]; val vz = c[2] - a[2]
                 var nx = uy * vz - uz * vy
                 var ny = uz * vx - ux * vz
                 var nz = ux * vy - uy * vx
-                val l = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(.00001f)
-                nx /= l; ny /= l; nz /= l
+                val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(.00001f)
+                nx /= len; ny /= len; nz /= len
                 arrayOf(a, b, c).forEach { v ->
                     data.add(v[0]); data.add(v[1]); data.add(v[2])
                     data.add(nx); data.add(ny); data.add(nz)
+                    data.add(region)
                 }
             }
 
-            fun connectRings(a: Array<FloatArray>, b: Array<FloatArray>, flip: Boolean = false) {
+            fun connectRings(a: Array<FloatArray>, b: Array<FloatArray>, region: Float) {
                 for (i in 0 until 8) {
                     val n = (i + 1) % 8
-                    if (!flip) {
-                        addTri(a[i], a[n], b[n])
-                        addTri(a[i], b[n], b[i])
-                    } else {
-                        addTri(a[i], b[n], a[n])
-                        addTri(a[i], b[i], b[n])
-                    }
+                    addTri(a[i], a[n], b[n], region)
+                    addTri(a[i], b[n], b[i], region)
                 }
             }
 
-            // Face/table plane, entourée d'une couronne réellement inclinée.
+            // Table parfaitement plane.
             val tableCenter = floatArrayOf(0f, 0f, tableZ)
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
-                addTri(table[i], table[n], tableCenter)
+                addTri(table[i], table[n], tableCenter, 0f)
             }
 
-            // Couronne + biseau + parois externes.
-            connectRings(table, crown)
-            connectRings(crown, outer)
+            // Couronne inclinée.
+            connectRings(table, crown, 1f)
 
-            // Pavillon inférieur : volume complet, visible sur l'inclinaison perspective.
-            connectRings(outer, lower)
-            val bottomCenter = floatArrayOf(0f, 0f, bottomZ - .05f)
+            // Biseau/ceinture : zone volontairement très réfléchissante.
+            connectRings(crown, outer, 2f)
+
+            // Pavillon inférieur.
+            connectRings(outer, lower, 3f)
+            val bottomCenter = floatArrayOf(0f, 0f, lowerZ - .055f)
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
-                addTri(lower[n], lower[i], bottomCenter)
+                addTri(lower[n], lower[i], bottomCenter, 3f)
             }
 
-            vertexCount = data.size / 6
+            vertexCount = data.size / 7
             vertices = ByteBuffer.allocateDirect(data.size * 4)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
@@ -443,15 +480,9 @@ class True3DButtonTextureView @JvmOverloads constructor(
             floatArrayOf(-halfW, -halfH + cutY, z),
             floatArrayOf(-halfW,  halfH - cutY, z)
         )
-
-        private fun Boolean.then(yes: Float, no: Float) = if (this) yes else no
     }
 }
 
-/**
- * Conteneur : le mesh 3D est derrière, le vrai Button Android reste devant pour le texte,
- * l'accessibilité et le clic. Le texte n'est jamais rasterisé dans le moteur 3D.
- */
 class True3DButtonHost(context: Context) : FrameLayout(context) {
     private val surface = True3DButtonTextureView(context)
     lateinit var button: Button
@@ -473,7 +504,6 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
         value.stateListAnimator = null
         value.elevation = 0f
         value.translationZ = 0f
-        value.setPadding(value.paddingLeft, value.paddingTop, value.paddingRight, value.paddingBottom)
     }
 
     fun setLightAngle(angle: Float) = surface.setLightAngle(angle)
@@ -488,7 +518,7 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
 }
 
 object True3DButtonInstaller {
-    private const val WRAPPED_TAG = "hp_true_3d_wrapped_v2"
+    private const val WRAPPED_TAG = "hp_true_3d_wrapped_v3"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
 
     fun install(root: View, lightAngle: Float) {
