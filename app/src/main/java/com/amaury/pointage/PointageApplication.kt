@@ -37,9 +37,6 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
         }
     }
     override fun onActivityResumed(activity: Activity) {
-        // MainActivity already applies its appearance through LuxuryUiInstaller.
-        // Recoloring it again here happened after MainActivity.onResume() and replaced
-        // the navigation-tab colors until the user clicked a tab.
         if (activity !is MainActivity) AppearanceManager.apply(activity)
     }
     override fun onActivityStarted(activity: Activity) = Unit
@@ -217,7 +214,7 @@ object SettingsUiInstaller {
         section.addView(title(activity,"PERSONNALISER LE WIDGET"))
         val widgetBg=styledButton(activity,"COULEUR DU FOND DU WIDGET");widgetBg.setOnClickListener{chooseWidgetColor(activity,"widget_bg","Fond du widget")};section.addView(widgetBg)
         val widgetAccent=styledButton(activity,"COULEUR D'ACCENT DU WIDGET");widgetAccent.setOnClickListener{chooseWidgetColor(activity,"widget_accent","Accent du widget")};section.addView(widgetAccent)
-        val showPosition=Switch(activity).apply{text="Afficher la position dans le widget";isChecked=activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).getBoolean("show_position",true);setOnCheckedChangeListener{_,checked->activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).edit().putBoolean("show_position",checked).apply();PointageWidgetProvider.updateAll(activity)}};section.addView(showPosition)
+        val showPosition=Switch(activity).apply{text="Afficher la position dans le widget";textSize=14f;isChecked=activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).getBoolean("show_position",true);setOnCheckedChangeListener{_,checked->activity.getSharedPreferences("widget_style",Context.MODE_PRIVATE).edit().putBoolean("show_position",checked).apply();PointageWidgetProvider.updateAll(activity)}};section.addView(showPosition)
         section.addView(title(activity,"SAUVEGARDE GOOGLE DRIVE"))
         val driveStatus=TextView(activity).apply{textSize=14f;text=if(DriveBackupManager.isConfigured(activity))"● Sauvegarde Drive active — PDF classés par lieu / année / mois" else "Drive non configuré"};section.addView(driveStatus)
         val chooseDrive=styledButton(activity,if(DriveBackupManager.isConfigured(activity))"CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE");chooseDrive.setOnClickListener{activity.startActivity(Intent(activity,DriveFolderPickerActivity::class.java))};section.addView(chooseDrive)
@@ -231,7 +228,7 @@ object SettingsUiInstaller {
         text = label
         setBackgroundResource(R.drawable.hp_panel)
         isAllCaps = false
-        textSize = 13f
+        textSize = 14f
         minHeight = 0
         minimumHeight = 0
         minWidth = 0
