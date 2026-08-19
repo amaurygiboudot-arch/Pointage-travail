@@ -32,6 +32,7 @@
         <provider android:name=".RecoveryInitProvider" android:authorities="${applicationId}.recovery-init" android:exported="false" android:initOrder="200" />
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
         <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />
+        <provider android:name=".SecurityUiInitProvider" android:authorities="${applicationId}.security-ui-init" android:exported="false" android:initOrder="80" />
 
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" />
 
