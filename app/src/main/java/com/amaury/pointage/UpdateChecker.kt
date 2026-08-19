@@ -1,8 +1,10 @@
 package com.amaury.pointage
 
 import android.app.Activity
-import android.content.Intent
+import android.app.DownloadManager
+import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.widget.Toast
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -62,11 +64,9 @@ object UpdateChecker {
                 activity.runOnUiThread {
                     if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     if (silent) {
-                        // Au démarrage : aucune fenêtre intrusive. Une notification discrète suffit.
                         Toast.makeText(activity, "Mise à jour HP Travail $versionName disponible", Toast.LENGTH_SHORT).show()
                     } else {
-                        // Vérification demandée manuellement : pas de boîte de dialogue intermédiaire.
-                        openOfficialDownload(activity, destination)
+                        downloadWithAndroid(activity, destination, versionName)
                     }
                 }
             } catch (_: Exception) {
@@ -77,13 +77,22 @@ object UpdateChecker {
         }.start()
     }
 
-    private fun openOfficialDownload(activity: Activity, apkUrl: String) {
+    private fun downloadWithAndroid(activity: Activity, apkUrl: String, versionName: String) {
         try {
-            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl)).apply {
-                addCategory(Intent.CATEGORY_BROWSABLE)
-            })
+            val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+            val request = DownloadManager.Request(Uri.parse(apkUrl))
+                .setTitle("HP Travail $versionName")
+                .setDescription("Téléchargement de la mise à jour")
+                .setMimeType("application/vnd.android.package-archive")
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(false)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "HP-Travail-$versionName.apk")
+
+            manager.enqueue(request)
+            Toast.makeText(activity, "Téléchargement lancé en arrière-plan", Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {
-            Toast.makeText(activity, "Impossible d'ouvrir le téléchargement", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "Impossible de lancer le téléchargement", Toast.LENGTH_LONG).show()
         }
     }
 
