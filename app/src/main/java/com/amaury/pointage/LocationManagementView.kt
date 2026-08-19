@@ -47,7 +47,6 @@ class LocationManagementView @JvmOverloads constructor(
 
     fun refresh() {
         removeAllViews()
-
         addView(TextView(context).apply {
             text = "MES LIEUX DE TRAVAIL"
             textSize = 16f
@@ -131,14 +130,12 @@ class LocationManagementView @JvmOverloads constructor(
             orientation = VERTICAL
             setPadding(dp(20), dp(6), dp(20), 0)
         }
-        fun line(label: String, value: String): TextView {
-            return TextView(context).apply {
-                text = "$label\n$value"
-                textSize = 14f
-                setTextColor(primaryText())
-                setPadding(0, dp(7), 0, dp(7))
-                content.addView(this)
-            }
+        fun line(label: String, value: String): TextView = TextView(context).apply {
+            text = "$label\n$value"
+            textSize = 14f
+            setTextColor(primaryText())
+            setPadding(0, dp(7), 0, dp(7))
+            content.addView(this)
         }
         line("Nom", name)
         line("Adresse", address)
@@ -231,9 +228,7 @@ class LocationManagementView @JvmOverloads constructor(
                     .putString("address_company_slots", companyMap.toString())
                     .apply()
 
-                // Le bouton de sauvegarde officiel regéocode l'adresse et réenregistre
-                // les geofences : on évite ainsi de garder les anciennes coordonnées.
-                rootView.findViewById<Button>(R.id.saveGpsButton)?.performClick()
+                rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
                 refresh()
                 Toast.makeText(context, "Lieu modifié et réglages GPS actualisés", Toast.LENGTH_SHORT).show()
             }
@@ -284,8 +279,7 @@ class LocationManagementView @JvmOverloads constructor(
         if (addresses.isEmpty()) {
             GeofenceManager.remove(context)
         } else {
-            // Reconstruit les zones restantes avec les réglages actuels.
-            rootView.findViewById<Button>(R.id.saveGpsButton)?.performClick()
+            rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
         }
 
         refresh()
