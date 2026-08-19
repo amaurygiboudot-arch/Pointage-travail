@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
@@ -46,7 +47,13 @@ class SunIndicatorView @JvmOverloads constructor(
     fun setNightMode(night: Boolean) {
         if (nightMode == night) return
         nightMode = night
+        AppThemeCatalog.setCelestialNight(context, night)
         contentDescription = if (night) "Lune" else "Soleil"
+        (context as? Activity)?.let { activity ->
+            AppearanceManager.apply(activity)
+            PointageWidgetProvider.updateAll(activity)
+            QuickActionsWidgetProvider.updateAll(activity)
+        }
         invalidate()
     }
 
@@ -67,9 +74,7 @@ class SunIndicatorView @JvmOverloads constructor(
 
     private fun drawSun(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float) {
         paint.shader = RadialGradient(
-            cx,
-            cy,
-            glowRadius,
+            cx, cy, glowRadius,
             intArrayOf(
                 Color.argb(215, 255, 244, 188),
                 Color.argb(145, 255, 196, 75),
@@ -81,16 +86,13 @@ class SunIndicatorView @JvmOverloads constructor(
         )
         canvas.drawCircle(cx, cy, glowRadius, paint)
         paint.shader = null
-
         paint.color = Color.argb(235, 255, 225, 125)
         canvas.drawCircle(cx, cy, coreRadius, paint)
     }
 
     private fun drawMoon(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float) {
         paint.shader = RadialGradient(
-            cx,
-            cy,
-            glowRadius,
+            cx, cy, glowRadius,
             intArrayOf(
                 Color.argb(175, 235, 244, 255),
                 Color.argb(105, 165, 195, 235),
@@ -111,7 +113,6 @@ class SunIndicatorView @JvmOverloads constructor(
 
         paint.color = Color.argb(245, 225, 235, 255)
         canvas.drawPath(moonPath, paint)
-
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(1.2f, coreRadius * 0.08f)
         paint.color = Color.argb(180, 255, 255, 255)
