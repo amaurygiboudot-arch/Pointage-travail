@@ -12,13 +12,21 @@ object WidgetThemeSync {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val l = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "mode" || key == "app_bg" || key == "custom_bg" || key == "custom_image_bg") {
+            if (
+                key == "mode" ||
+                key == "app_bg" ||
+                key == "custom_bg" ||
+                key == "custom_image_bg" ||
+                key == AppThemeCatalog.KEY_THEME
+            ) {
                 PointageWidgetProvider.updateAll(appContext)
+                QuickActionsWidgetProvider.updateAll(appContext)
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(l)
         listener = l
         installed = true
         PointageWidgetProvider.updateAll(appContext)
+        QuickActionsWidgetProvider.updateAll(appContext)
     }
 }
