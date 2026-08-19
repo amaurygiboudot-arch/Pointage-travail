@@ -1,6 +1,6 @@
-Run: 443
-Commit: e7e1ade3febe4a87d4dcf09d7bf030ae12bd8e59
-Date: 2026-08-19T08:12:23Z
+Run: 473
+Commit: 852c60267ae187ccecaaa274e1b79579e6987179
+Date: 2026-08-19T08:43:42Z
 
 Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:preBuild UP-TO-DATE
@@ -8,15 +8,15 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:mergeReleaseJniLibFolders
 > Task :app:mergeReleaseNativeLibs
 > Task :app:buildKotlinToolingMetadata
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
 
 > Task :app:stripReleaseDebugSymbols
 Unable to strip the following libraries, packaging them as they are: libsentry-android.so, libsentry.so. Run with --info option to learn more.
 
-> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
-> Task :app:extractReleaseNativeSymbolTables
 > Task :app:generateReleaseBuildConfig
-> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
 > Task :app:checkReleaseDuplicateClasses
+> Task :app:extractReleaseNativeSymbolTables
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
 > Task :app:checkReleaseAarMetadata
 > Task :app:processReleaseNavigationResources
 > Task :app:generateReleaseResValues
@@ -24,10 +24,10 @@ Unable to strip the following libraries, packaging them as they are: libsentry-a
 > Task :app:mapReleaseSourceSetPaths
 > Task :app:generateReleaseResources
 > Task :app:packageReleaseResources
-> Task :app:mergeReleaseResources
 > Task :app:createReleaseCompatibleScreenManifests
 > Task :app:extractDeepLinksRelease
 > Task :app:parseReleaseLocalResources
+> Task :app:mergeReleaseResources
 > Task :app:processReleaseMainManifest
 > Task :app:processReleaseManifest
 > Task :app:processReleaseManifestForPackage
@@ -49,13 +49,12 @@ Unable to strip the following libraries, packaging them as they are: libsentry-a
 > Task :app:processReleaseResources
 
 > Task :app:compileReleaseKotlin
-e: The daemon has terminated unexpectedly on startup attempt #1 with error code: 0. The daemon process output:
-    1. Kotlin compile daemon is ready
-e: file:///home/runner/work/Pointage-travail/Pointage-travail/app/src/main/java/com/amaury/pointage/ManualPauseButton.kt:61:13 'val' cannot be reassigned.
-e: file:///home/runner/work/Pointage-travail/Pointage-travail/app/src/main/java/com/amaury/pointage/ManualPauseButton.kt:61:20 Assignment type mismatch: actual type is 'kotlin.String', but 'kotlin.Int' was expected.
+e: file:///home/runner/work/Pointage-travail/Pointage-travail/app/src/main/java/com/amaury/pointage/PointageWidgetProvider.kt:69:24 Unresolved reference 'ThemeDayNight'.
+e: file:///home/runner/work/Pointage-travail/Pointage-travail/app/src/main/java/com/amaury/pointage/QuickActionsWidgetProvider.kt:37:24 Unresolved reference 'ThemeDayNight'.
+e: file:///home/runner/work/Pointage-travail/Pointage-travail/app/src/main/java/com/amaury/pointage/ThemedBackgroundScrollView.kt:42:20 Unresolved reference 'ThemeDayNight'.
 
 > Task :app:compileReleaseKotlin FAILED
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/gradle_build-1787127095502.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/gradle_build-1787128982960.json
 
 FAILURE: Build failed with an exception.
 
@@ -261,5 +260,5 @@ Caused by: org.jetbrains.kotlin.gradle.tasks.CompilationErrorException: Compilat
 	... 2 more
 
 
-BUILD FAILED in 51s
+BUILD FAILED in 43s
 36 actionable tasks: 36 executed
