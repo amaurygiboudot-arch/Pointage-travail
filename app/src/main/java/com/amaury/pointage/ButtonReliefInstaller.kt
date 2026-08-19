@@ -11,6 +11,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -106,7 +107,7 @@ object ButtonReliefInstaller {
             textSize = 13f
             minHeight = 0
             minimumHeight = 0
-            gravity = android.view.Gravity.CENTER
+            gravity = Gravity.CENTER
             setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
             setOnClickListener {
                 val themes = AppThemeCatalog.themes
@@ -140,7 +141,7 @@ object ButtonReliefInstaller {
             textSize = 13f
             minHeight = 0
             minimumHeight = 0
-            gravity = android.view.Gravity.CENTER
+            gravity = Gravity.CENTER
             setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
             setOnClickListener { activity.startActivity(Intent(activity, DiamondLabActivity::class.java)) }
         }
@@ -160,13 +161,23 @@ object ButtonReliefInstaller {
             text = "Éclairage soleil / lune dynamique"
             textSize = 14f
             isChecked = isSolarEnabled(activity)
-            setPadding(0, dp(activity, 8), 0, dp(activity, 8))
             setOnCheckedChangeListener { _, checked -> setSolarEnabled(activity, checked) }
         }
+        styleSwitch(activity, toggle)
         val labIndex = (0 until section.childCount).firstOrNull { section.getChildAt(it).tag == TAG_DIAMOND_LAB }
         val themeIndex = (0 until section.childCount).firstOrNull { section.getChildAt(it).tag == TAG_THEME_BUTTON }
         val insertAt = labIndex?.plus(1) ?: themeIndex?.plus(1) ?: if (section.childCount >= 2) 2 else section.childCount
         section.addView(toggle, insertAt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun styleSwitch(context: Context, view: Switch) {
+        view.gravity = Gravity.CENTER_VERTICAL
+        view.textAlignment = View.TEXT_ALIGNMENT_CENTER
+        view.minHeight = dp(context, 64)
+        view.minimumHeight = dp(context, 64)
+        view.isSingleLine = false
+        view.maxLines = 2
+        view.setPadding(dp(context, 18), dp(context, 8), dp(context, 8), dp(context, 8))
     }
 
     private fun refresh(activity: Activity, decor: View) {
@@ -217,7 +228,10 @@ object ButtonReliefInstaller {
             is EditText -> { view.setTextColor(tc); view.setHintTextColor(hint) }
             is LightReactiveJewelButton -> view.setJewelAccent(theme.accent, theme.accentLight)
             is Button -> if (!isProtectedButton(id)) { view.backgroundTintList = null; view.setTextColor(panelText) }
-            is Switch -> view.setTextColor(tc)
+            is Switch -> {
+                view.setTextColor(tc)
+                styleSwitch(view.context, view)
+            }
             is TextView -> {
                 val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
                 if (!tab) {
