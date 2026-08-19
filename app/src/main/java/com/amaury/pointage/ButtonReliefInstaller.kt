@@ -218,7 +218,7 @@ object ButtonReliefInstaller {
         val anonymous = !isRoot && view is ViewGroup && view !is ScrollView && view.background != null && !isProtectedContainer(id)
         val own = named || anonymous
         val onPanel = inheritedPanel || own
-        if (own && view.background != null && view.background.alpha > 0) {
+        if (own && view.background != null && view.background.alpha > 0 && !isProtectedContainer(id)) {
             view.backgroundTintList = ColorStateList.valueOf(panel)
             view.background.mutate().alpha = if (theme.id == "diamond_crystal") 205 else if (dark) 232 else 244
         }
@@ -291,7 +291,7 @@ object ButtonReliefInstaller {
     }
 
     private fun isProtectedButton(id: String) = id == "entryButton" || id == "pauseButton" || id == "exitButton" || id == "settingsButton"
-    private fun isProtectedContainer(id: String) = id == "heroPanel" || id == "heroClock" || id == "headerImage"
+    private fun isProtectedContainer(id: String) = id == "heroPanel" || id == "heroClock" || id == "headerImage" || id == "navigationTabs"
     private fun resourceName(view: View) = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
     private fun isKnownAccent(color: Int) = AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } || color == Color.parseColor("#795600")
     private fun contrastRatio(f: Int, b: Int): Double {
