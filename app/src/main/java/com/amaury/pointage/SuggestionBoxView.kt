@@ -26,6 +26,17 @@ class SuggestionBoxView @JvmOverloads constructor(
         orientation = VERTICAL
         setPadding(0, dp(18), 0, dp(8))
 
+        val guide = Button(context).apply {
+            text = "📖  NOTICE D'UTILISATION"
+            isAllCaps = false
+            textSize = 14f
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { UserGuideDialog.show(context) }
+        }
+        addView(guide, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
+            bottomMargin = dp(14)
+        })
+
         addView(TextView(context).apply {
             text = "IDÉES & AMÉLIORATIONS"
             textSize = 16f
