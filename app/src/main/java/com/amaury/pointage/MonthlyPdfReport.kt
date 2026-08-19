@@ -25,7 +25,9 @@ object MonthlyPdfReport {
     private data class Row(
         val entry: Long,
         val exit: Long?,
-        val place: PlaceInfo
+        val place: PlaceInfo,
+        val workedMs: Long,
+        val pauseMs: Long
     )
 
     fun write(
@@ -37,6 +39,7 @@ object MonthlyPdfReport {
     ) {
         val rows = mutableListOf<Row>()
         val cal = Calendar.getInstance(Locale.FRANCE)
+        val now = System.currentTimeMillis()
 
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
@@ -48,7 +51,14 @@ object MonthlyPdfReport {
             val rawPlace = item.optString("zoneAddress").trim()
             val place = resolvePlace(context, rawPlace)
             val exit = if (item.isNull("exit")) null else item.optLong("exit").takeIf { it > 0L }
-            rows += Row(entry, exit, place)
+            val effectiveEnd = exit ?: now
+            rows += Row(
+                entry = entry,
+                exit = exit,
+                place = place,
+                workedMs = PointageStore.workedDuration(item, effectiveEnd),
+                pauseMs = PointageStore.pauseDuration(item, effectiveEnd)
+            )
         }
 
         rows.sortBy { it.entry }
@@ -57,11 +67,12 @@ object MonthlyPdfReport {
         var grandTotal = 0L
         var completed = 0
         rows.forEach { row ->
-            val duration = row.exit?.let { (it - row.entry).coerceAtLeast(0L) } ?: 0L
+            // Un mois clôturé ne doit jamais compter une session encore ouverte.
+            val counted = if (row.exit != null) row.workedMs else 0L
             val previous = totals[row.place.key]?.second ?: 0L
-            totals[row.place.key] = row.place to (previous + duration)
+            totals[row.place.key] = row.place to (previous + counted)
             if (row.exit != null) {
-                grandTotal += duration
+                grandTotal += row.workedMs
                 completed++
             }
         }
@@ -74,7 +85,7 @@ object MonthlyPdfReport {
         writer.drawDetailHeader()
 
         if (rows.isEmpty()) {
-            writer.drawMuted("Aucun pointage enregistre pour ce mois.")
+            writer.drawMuted("Aucun pointage enregistré pour ce mois.")
         } else {
             rows.forEach { writer.drawRow(it) }
         }
@@ -108,20 +119,32 @@ object MonthlyPdfReport {
         private var y = MARGIN
 
         private val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(38, 38, 38); textSize = 21f
+            color = Color.rgb(38, 38, 38)
+            textSize = 21f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         private val sectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(133, 94, 20); textSize = 12f
+            color = Color.rgb(133, 94, 20)
+            textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val normalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45, 45, 45); textSize = 9.5f }
+        private val normalPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(45, 45, 45)
+            textSize = 9.5f
+        }
         private val boldPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(35, 35, 35); textSize = 9.5f
+            color = Color.rgb(35, 35, 35)
+            textSize = 9.5f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
-        private val mutedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(105, 105, 105); textSize = 9f }
-        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 205); strokeWidth = 0.8f }
+        private val mutedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(105, 105, 105)
+            textSize = 9f
+        }
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(205, 205, 205)
+            strokeWidth = 0.8f
+        }
         private val headerFill = Paint().apply { color = Color.rgb(243, 239, 230) }
 
         private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
@@ -140,24 +163,33 @@ object MonthlyPdfReport {
         private fun endPage() {
             val current = page ?: return
             canvas().drawLine(MARGIN, PAGE_HEIGHT - 28f, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 28f, linePaint)
-            canvas().drawText("Rapport Pointage Travail - page $pageNumber", MARGIN, PAGE_HEIGHT - 14f, mutedPaint)
+            canvas().drawText("Rapport HP Travail — page $pageNumber", MARGIN, PAGE_HEIGHT - 14f, mutedPaint)
             pdf.finishPage(current)
             page = null
         }
 
         fun finish() = endPage()
 
-        fun ensureSpace(height: Float, repeatDetailHeader: Boolean = false) {
+        private fun ensureSpace(height: Float, repeatDetailHeader: Boolean = false) {
             if (y + height <= PAGE_HEIGHT - 48f) return
-            endPage(); startPage(); drawContinuationHeader()
+            endPage()
+            startPage()
+            drawContinuationHeader()
             if (repeatDetailHeader) drawDetailHeader()
         }
 
         private fun drawContinuationHeader() {
             val c = Calendar.getInstance(Locale.FRANCE).apply {
-                set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, 1)
             }
-            canvas().drawText("Rapport mensuel - ${monthFormat.format(c.time).replaceFirstChar { it.uppercase() }}", MARGIN, y + 14f, boldPaint)
+            canvas().drawText(
+                "Rapport mensuel — ${monthFormat.format(c.time).replaceFirstChar { it.uppercase() }}",
+                MARGIN,
+                y + 14f,
+                boldPaint
+            )
             y += 25f
             canvas().drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, linePaint)
             y += 10f
@@ -165,18 +197,20 @@ object MonthlyPdfReport {
 
         fun drawReportHeader(grandTotal: Long, completed: Int, placeCount: Int) {
             val c = Calendar.getInstance(Locale.FRANCE).apply {
-                set(Calendar.YEAR, year); set(Calendar.MONTH, month); set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, 1)
             }
             val monthLabel = monthFormat.format(c.time).replaceFirstChar { it.uppercase() }
             canvas().drawText("RAPPORT MENSUEL DE POINTAGE", MARGIN, y + 18f, titlePaint)
             y += 30f
             canvas().drawText(monthLabel, MARGIN, y + 14f, sectionPaint)
-            canvas().drawText("Genere le ${generatedFormat.format(Date())}", PAGE_WIDTH - 185f, y + 14f, mutedPaint)
+            canvas().drawText("Généré le ${generatedFormat.format(Date())}", PAGE_WIDTH - 185f, y + 14f, mutedPaint)
             y += 28f
             canvas().drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 48f, headerFill)
-            canvas().drawText("Temps total", MARGIN + 12f, y + 17f, mutedPaint)
+            canvas().drawText("Temps travaillé", MARGIN + 12f, y + 17f, mutedPaint)
             canvas().drawText(formatDuration(grandTotal), MARGIN + 12f, y + 38f, titlePaint)
-            canvas().drawText("Sessions terminees", 238f, y + 17f, mutedPaint)
+            canvas().drawText("Sessions terminées", 238f, y + 17f, mutedPaint)
             canvas().drawText(completed.toString(), 238f, y + 38f, boldPaint)
             canvas().drawText("Lieux", 390f, y + 17f, mutedPaint)
             canvas().drawText(placeCount.toString(), 390f, y + 38f, boldPaint)
@@ -185,10 +219,11 @@ object MonthlyPdfReport {
 
         fun drawPlaceTotals(totals: LinkedHashMap<String, Pair<PlaceInfo, Long>>) {
             ensureSpace(40f)
-            canvas().drawText("RECAPITULATIF PAR LIEU", MARGIN, y + 12f, sectionPaint)
+            canvas().drawText("RÉCAPITULATIF PAR LIEU", MARGIN, y + 12f, sectionPaint)
             y += 22f
             if (totals.isEmpty()) {
-                drawMuted("Aucun lieu comptabilise pour ce mois."); return
+                drawMuted("Aucun lieu comptabilisé pour ce mois.")
+                return
             }
 
             totals.values.forEach { (place, total) ->
@@ -213,28 +248,29 @@ object MonthlyPdfReport {
 
         fun drawDetailHeader() {
             ensureSpace(42f)
-            canvas().drawText("DETAIL DES POINTAGES", MARGIN, y + 12f, sectionPaint)
+            canvas().drawText("DÉTAIL DES POINTAGES", MARGIN, y + 12f, sectionPaint)
             y += 20f
             canvas().drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 25f, headerFill)
             canvas().drawText("Date", MARGIN + 5f, y + 16f, boldPaint)
             canvas().drawText("Lieu / adresse", 98f, y + 16f, boldPaint)
-            canvas().drawText("Entree", 382f, y + 16f, boldPaint)
+            canvas().drawText("Entrée", 382f, y + 16f, boldPaint)
             canvas().drawText("Sortie", 438f, y + 16f, boldPaint)
-            canvas().drawText("Duree", 495f, y + 16f, boldPaint)
+            canvas().drawText("Travail", 495f, y + 16f, boldPaint)
             y += 30f
         }
 
         fun drawRow(row: Row) {
             val addressLines = wrapText(row.place.address, 270f, normalPaint)
             val nameLines = if (row.place.name.isNullOrBlank()) emptyList() else wrapText(row.place.name, 270f, boldPaint)
-            val lineCount = (nameLines.size + addressLines.size).coerceAtLeast(1)
+            val pauseLineCount = if (row.pauseMs > 0L) 1 else 0
+            val lineCount = (nameLines.size + addressLines.size + pauseLineCount).coerceAtLeast(1)
             val height = maxOf(30f, 10f + lineCount * 12f)
             ensureSpace(height, repeatDetailHeader = true)
 
             val date = dateFormat.format(Date(row.entry))
             val entry = timeFormat.format(Date(row.entry))
             val exit = row.exit?.let { timeFormat.format(Date(it)) } ?: "-"
-            val duration = row.exit?.let { formatDuration((it - row.entry).coerceAtLeast(0L)) } ?: "En cours"
+            val duration = if (row.exit != null) formatDuration(row.workedMs) else "En cours"
             val baseline = y + 13f
             canvas().drawText(date, MARGIN + 5f, baseline, normalPaint)
             canvas().drawText(entry, 382f, baseline, normalPaint)
@@ -243,10 +279,15 @@ object MonthlyPdfReport {
 
             var placeY = baseline
             nameLines.forEach { line ->
-                canvas().drawText(line, 98f, placeY, boldPaint); placeY += 12f
+                canvas().drawText(line, 98f, placeY, boldPaint)
+                placeY += 12f
             }
             addressLines.forEach { line ->
-                canvas().drawText(line, 98f, placeY, normalPaint); placeY += 12f
+                canvas().drawText(line, 98f, placeY, normalPaint)
+                placeY += 12f
+            }
+            if (row.pauseMs > 0L) {
+                canvas().drawText("Pauses : ${formatDuration(row.pauseMs)}", 98f, placeY, mutedPaint)
             }
 
             y += height
@@ -278,8 +319,11 @@ object MonthlyPdfReport {
                         word.forEach { ch ->
                             val test = chunk + ch
                             if (paint.measureText(test) > maxWidth && chunk.isNotEmpty()) {
-                                lines += chunk; chunk = ch.toString()
-                            } else chunk = test
+                                lines += chunk
+                                chunk = ch.toString()
+                            } else {
+                                chunk = test
+                            }
                         }
                         current = chunk
                     }
@@ -290,8 +334,8 @@ object MonthlyPdfReport {
         }
 
         private fun formatDuration(ms: Long): String {
-            val totalMinutes = ms.coerceAtLeast(0L) / 60000
-            return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60, totalMinutes % 60)
+            val totalMinutes = ms.coerceAtLeast(0L) / 60000L
+            return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
         }
     }
 }
