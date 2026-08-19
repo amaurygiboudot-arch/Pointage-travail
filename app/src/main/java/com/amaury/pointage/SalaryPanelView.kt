@@ -5,6 +5,7 @@ import android.app.DatePickerDialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -107,7 +108,7 @@ class SalaryPanelView @JvmOverloads constructor(
             textSize = 14f
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, dp(8), 0)
-            setBackgroundResource(R.drawable.hp_panel)
+            background = outlinedFieldBackground()
             isClickable = true
         }
         val searchButton = hpButton("🔎").apply { textSize = 18f }
@@ -122,10 +123,19 @@ class SalaryPanelView @JvmOverloads constructor(
             text = "Un panier est compté au maximum une fois par journée lorsque la première prise de poste commence avant ou à l'heure limite choisie."
             textSize = 14f
         })
-        configureInput(mealAmountInput, "Montant d'un panier — ex. 5,38", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
-        addView(mealAmountInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
-        configureInput(mealCutoffInput, "Heure limite — ex. 06:00", InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME)
-        addView(mealCutoffInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
+
+        addView(label("MONTANT D'UN PANIER (€)").apply { setPadding(0, dp(12), 0, dp(4)) })
+        configureInput(mealAmountInput, "Ex. 5,38", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        addView(mealAmountInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
+
+        addView(label("HEURE LIMITE DE PRISE DE POSTE").apply { setPadding(0, dp(12), 0, dp(4)) })
+        configureInput(mealCutoffInput, "Ex. 06:00", InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME)
+        addView(mealCutoffInput, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
+        addView(TextView(context).apply {
+            text = "Exemple : avec 06:00, une prise de poste à 05:30 ou 06:00 compte un panier ; à 06:01, non."
+            textSize = 13f
+            setPadding(0, dp(5), 0, 0)
+        })
 
         salaryMonthText.textSize = 16f
         addView(salaryMonthText, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) })
@@ -158,9 +168,16 @@ class SalaryPanelView @JvmOverloads constructor(
             inputType = type
             isSingleLine = true
             textSize = 14f
-            setBackgroundResource(R.drawable.hp_panel)
-            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = outlinedFieldBackground()
+            setPadding(dp(14), dp(8), dp(14), dp(8))
         }
+    }
+
+    private fun outlinedFieldBackground() = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(Color.TRANSPARENT)
+        setStroke(dp(2), Color.parseColor("#D6A84B"))
+        cornerRadius = dp(18).toFloat()
     }
 
     private fun watcher(key: String, normalizeNumber: Boolean = true) = object : TextWatcher {
