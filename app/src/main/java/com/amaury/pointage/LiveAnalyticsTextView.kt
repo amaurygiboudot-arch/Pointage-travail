@@ -4,13 +4,13 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.widget.TextView
-import org.json.JSONObject
 import java.util.LinkedHashMap
 import java.util.Locale
 
 /**
- * TextView compatible avec MainActivity qui garde l'onglet Analyses à jour
- * pendant qu'une session est encore ouverte.
+ * Garde l'onglet Analyses à jour pendant qu'une session est encore ouverte.
+ * Tous les totaux utilisent le temps réellement travaillé, pauses déduites,
+ * comme le salaire et les rapports PDF.
  */
 class LiveAnalyticsTextView @JvmOverloads constructor(
     context: Context,
@@ -43,7 +43,8 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val root = rootView ?: return false
         val analyticsPanel = root.findViewById<View>(R.id.analyticsPdfPanel)
         val title = root.findViewById<TextView>(R.id.contentTitle)?.text?.toString().orEmpty()
-        return analyticsPanel?.visibility == View.VISIBLE && title.contains("HEURES PAR LIEU", ignoreCase = true)
+        return analyticsPanel?.visibility == View.VISIBLE &&
+            title.contains("HEURES PAR LIEU", ignoreCase = true)
     }
 
     private fun buildLiveAnalyticsText(): String {
@@ -64,17 +65,20 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             if (effectiveEnd < entry) continue
 
             val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
-            val duration = (effectiveEnd - entry).coerceAtLeast(0L)
-            totals[place] = (totals[place] ?: 0L) + duration
-            total += duration
+            val worked = PointageStore.workedDuration(item, effectiveEnd)
+            totals[place] = (totals[place] ?: 0L) + worked
+            total += worked
 
             if (exit == null) openSessions++ else completedSessions++
         }
 
         return buildString {
-            append("⏱ TOTAL : ").append(formatDuration(total)).append('\n')
+            append("⏱ TOTAL TRAVAILLÉ : ").append(formatDuration(total)).append('\n')
             append("✅ Sessions terminées : ").append(completedSessions).append('\n')
-            if (openSessions > 0) append("🟢 En cours : ").append(openSessions).append(" — temps actualisé automatiquement\n")
+            if (openSessions > 0) {
+                append("🟢 En cours : ").append(openSessions)
+                    .append(" — pauses déduites, temps actualisé automatiquement\n")
+            }
             append("\nHEURES PAR ADRESSE\n\n")
 
             if (totals.isEmpty()) {
