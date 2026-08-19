@@ -33,6 +33,13 @@
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
         <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />
         <provider android:name=".SecurityUiInitProvider" android:authorities="${applicationId}.security-ui-init" android:exported="false" android:initOrder="80" />
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update-files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />
+        </provider>
 
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" />
 
