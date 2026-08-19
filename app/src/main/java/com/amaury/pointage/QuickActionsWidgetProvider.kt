@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.widget.RemoteViews
 import android.widget.Toast
 
@@ -22,33 +23,35 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
         }
 
+        private fun parseColor(value: String?, fallback: Int): Int =
+            runCatching { Color.parseColor(value ?: "") }.getOrDefault(fallback)
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
+            val style = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
+            val theme = AppThemeCatalog.current(context)
+            val bg = parseColor(style.getString("widget_bg", null), theme.darkBackground)
+            val accent = parseColor(style.getString("widget_accent", null), theme.accentLight)
+            views.setInt(R.id.quick_root, "setBackgroundColor", bg)
+            views.setTextColor(R.id.quick_entry_label, accent)
+            views.setTextColor(R.id.quick_pause_label, Color.parseColor("#F3A64A"))
+            views.setTextColor(R.id.quick_exit_label, accent)
 
             val entryIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_ENTRY }
             val pauseIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_PAUSE }
             val exitIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_EXIT }
 
-            views.setOnClickPendingIntent(
-                R.id.quick_entry,
-                PendingIntent.getBroadcast(context, 101, entryIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            )
-            views.setOnClickPendingIntent(
-                R.id.quick_pause,
-                PendingIntent.getBroadcast(context, 102, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            )
-            views.setOnClickPendingIntent(
-                R.id.quick_exit,
-                PendingIntent.getBroadcast(context, 103, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            )
+            views.setOnClickPendingIntent(R.id.quick_entry, PendingIntent.getBroadcast(context, 101, entryIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            views.setOnClickPendingIntent(R.id.quick_pause, PendingIntent.getBroadcast(context, 102, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            views.setOnClickPendingIntent(R.id.quick_exit, PendingIntent.getBroadcast(context, 103, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
 
             val hasOpen = PointageStore.hasOpen(context)
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
             views.setTextViewText(R.id.quick_pause_icon, if (paused) "▶" else "Ⅱ")
             views.setFloat(R.id.quick_entry, "setAlpha", if (hasOpen) 0.45f else 1f)
+            views.setFloat(R.id.quick_pause, "setAlpha", if (hasOpen) 1f else 0.45f)
             views.setFloat(R.id.quick_exit, "setAlpha", if (hasOpen) 1f else 0.45f)
-
             manager.updateAppWidget(widgetId, views)
         }
     }
@@ -59,43 +62,31 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-
         when (intent.action) {
             ACTION_ENTRY -> {
-                if (PointageStore.entry(context)) {
-                    Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
-                }
+                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
-
             ACTION_PAUSE -> {
                 when {
-                    !PointageStore.hasOpen(context) ->
-                        Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-
+                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     PointageStore.isPaused(context) -> {
                         PointageStore.resumePause(context)
                         Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
                     }
-
                     else -> {
                         PointageStore.startPause(context)
                         Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
-
             ACTION_EXIT -> {
-                if (PointageStore.exit(context)) {
-                    Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                }
+                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             }
         }
-
         if (intent.action == ACTION_ENTRY || intent.action == ACTION_PAUSE || intent.action == ACTION_EXIT) {
+            IconSwitcher.sync(context)
             PointageWidgetProvider.updateAll(context)
             updateAll(context)
         }
