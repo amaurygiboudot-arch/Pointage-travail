@@ -83,6 +83,20 @@ object AppThemeCatalog {
             lightText = Color.parseColor("#171919"),
             darkHint = Color.parseColor("#A9AFB2"),
             lightHint = Color.parseColor("#565C5F")
+        ),
+        HpTheme(
+            id = "diamond_crystal",
+            label = "Diamant",
+            darkBackground = Color.parseColor("#07111D"),
+            darkPanel = Color.parseColor("#102033"),
+            lightBackground = Color.parseColor("#EAF6FC"),
+            lightPanel = Color.parseColor("#F8FCFF"),
+            accent = Color.parseColor("#8DC9E8"),
+            accentLight = Color.parseColor("#E8F8FF"),
+            darkText = Color.parseColor("#F4FBFF"),
+            lightText = Color.parseColor("#102431"),
+            darkHint = Color.parseColor("#B7D7E8"),
+            lightHint = Color.parseColor("#567487")
         )
     )
 
