@@ -1,8 +1,11 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.ProgressDialog
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.core.content.FileProvider
 import org.json.JSONObject
@@ -15,24 +18,27 @@ object UpdateChecker {
     @Volatile private var updateInProgress = false
 
     fun check(activity: Activity, silent: Boolean = true) {
-        if (updateInProgress) return
+        if (updateInProgress) {
+            if (!silent) Toast.makeText(activity, "Une mise à jour est déjà en cours", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                connection = URL(LATEST_RELEASE_API).openConnection() as HttpURLConnection
-                connection.connectTimeout = 7000
-                connection.readTimeout = 7000
-                connection.setRequestProperty("Accept", "application/vnd.github+json")
-                connection.setRequestProperty("User-Agent", "HP-Travail-Android")
-
-                if (connection.responseCode !in 200..299) {
-                    showStatus(activity, silent, "Vérification impossible pour le moment")
+                connection = openConnection(LATEST_RELEASE_API, 10_000, 20_000)
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    showStatus(activity, silent, "Vérification impossible (HTTP $code)")
                     return@Thread
                 }
 
                 val release = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
                 val versionName = release.optString("tag_name").trim().removePrefix("v")
-                if (versionName.isBlank()) return@Thread
+                if (versionName.isBlank()) {
+                    showStatus(activity, silent, "Version de mise à jour introuvable")
+                    return@Thread
+                }
 
                 val currentVersion = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
                 if (compareVersions(versionName, currentVersion) <= 0) {
@@ -52,12 +58,17 @@ object UpdateChecker {
                         }
                     }
                 }
-                val destination = apkUrl ?: return@Thread
+
+                if (apkUrl == null) {
+                    showStatus(activity, silent, "APK introuvable dans la dernière version")
+                    return@Thread
+                }
+
                 updateInProgress = true
-                downloadAndOpenInstaller(activity, destination, versionName, silent)
-            } catch (_: Exception) {
+                downloadAndOpenInstaller(activity, apkUrl, versionName, silent)
+            } catch (e: Exception) {
                 updateInProgress = false
-                showStatus(activity, silent, "Vérification impossible pour le moment")
+                showStatus(activity, silent, "Vérification impossible : ${shortError(e)}")
             } finally {
                 connection?.disconnect()
             }
@@ -65,59 +76,152 @@ object UpdateChecker {
     }
 
     private fun downloadAndOpenInstaller(activity: Activity, apkUrl: String, versionName: String, silent: Boolean) {
+        val progress = arrayOfNulls<ProgressDialog>(1)
+        activity.runOnUiThread {
+            if (!activity.isFinishing && !activity.isDestroyed) {
+                progress[0] = ProgressDialog(activity).apply {
+                    setTitle("Mise à jour HP Travail")
+                    setMessage("Connexion au serveur…")
+                    setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
+                    max = 100
+                    isIndeterminate = true
+                    setCancelable(false)
+                    show()
+                }
+            }
+        }
+
         Thread {
             var connection: HttpURLConnection? = null
             try {
-                activity.runOnUiThread {
-                    if (!silent) Toast.makeText(activity, "Téléchargement de la mise à jour…", Toast.LENGTH_SHORT).show()
-                }
-
                 val dir = File(activity.getExternalFilesDir("Download"), "updates").apply { mkdirs() }
                 dir.listFiles()?.forEach { if (it.name.endsWith(".apk", true)) it.delete() }
                 val apk = File(dir, "HP-Travail-$versionName.apk")
 
-                connection = URL(apkUrl).openConnection() as HttpURLConnection
-                connection.instanceFollowRedirects = true
-                connection.connectTimeout = 10000
-                connection.readTimeout = 30000
-                connection.setRequestProperty("User-Agent", "HP-Travail-Android")
-                connection.connect()
-                if (connection.responseCode !in 200..299) throw IllegalStateException("HTTP ${connection.responseCode}")
-                connection.inputStream.use { input -> apk.outputStream().use { output -> input.copyTo(output) } }
-                if (!apk.exists() || apk.length() < 1024L) throw IllegalStateException("APK invalide")
+                connection = openConnection(apkUrl, 15_000, 120_000)
+                val code = connection.responseCode
+                if (code !in 200..299) throw IllegalStateException("serveur HTTP $code")
+
+                val total = connection.contentLengthLong
+                activity.runOnUiThread {
+                    progress[0]?.apply {
+                        isIndeterminate = total <= 0L
+                        setMessage(if (total > 0L) "Téléchargement… 0 %" else "Téléchargement en cours…")
+                    }
+                }
+
+                var received = 0L
+                var lastPercent = -1
+                connection.inputStream.buffered(64 * 1024).use { input ->
+                    apk.outputStream().buffered(64 * 1024).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            output.write(buffer, 0, read)
+                            received += read
+
+                            if (total > 0L) {
+                                val percent = ((received * 100L) / total).toInt().coerceIn(0, 100)
+                                if (percent != lastPercent) {
+                                    lastPercent = percent
+                                    activity.runOnUiThread {
+                                        progress[0]?.apply {
+                                            isIndeterminate = false
+                                            this.progress = percent
+                                            setMessage("Téléchargement… $percent %")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        output.flush()
+                    }
+                }
 
                 activity.runOnUiThread {
+                    progress[0]?.apply {
+                        isIndeterminate = true
+                        setMessage("Vérification de l'APK…")
+                    }
+                }
+
+                validateApk(activity, apk)
+
+                activity.runOnUiThread {
+                    progress[0]?.dismiss()
+                    progress[0] = null
                     if (activity.isFinishing || activity.isDestroyed) {
                         updateInProgress = false
                         return@runOnUiThread
                     }
-                    try {
-                        val uri: Uri = FileProvider.getUriForFile(activity, "${activity.packageName}.update-files", apk)
-                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        activity.startActivity(intent)
-                    } catch (_: Exception) {
-                        Toast.makeText(activity, "Impossible d'ouvrir l'installation", Toast.LENGTH_LONG).show()
-                    } finally {
-                        updateInProgress = false
-                    }
+                    openInstaller(activity, apk)
+                    updateInProgress = false
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 updateInProgress = false
-                showStatus(activity, silent, "Téléchargement de la mise à jour impossible")
+                activity.runOnUiThread {
+                    progress[0]?.dismiss()
+                    progress[0] = null
+                }
+                showStatus(activity, false, "Mise à jour impossible : ${shortError(e)}")
             } finally {
                 connection?.disconnect()
             }
         }.start()
     }
 
+    private fun openInstaller(activity: Activity, apk: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(activity, "Autorise HP Travail à installer la mise à jour, puis relance Vérifier les mises à jour.", Toast.LENGTH_LONG).show()
+            val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))
+            activity.startActivity(settingsIntent)
+            return
+        }
+
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.update-files", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        activity.startActivity(intent)
+    }
+
+    private fun validateApk(activity: Activity, apk: File) {
+        if (!apk.exists()) throw IllegalStateException("fichier APK absent")
+        if (apk.length() < 100_000L) throw IllegalStateException("fichier APK incomplet (${apk.length()} octets)")
+
+        val magic = apk.inputStream().use { input -> ByteArray(2).also { if (input.read(it) != 2) throw IllegalStateException("APK illisible") } }
+        if (magic[0] != 0x50.toByte() || magic[1] != 0x4B.toByte()) throw IllegalStateException("fichier reçu invalide")
+
+        val archive = activity.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+            ?: throw IllegalStateException("Android ne reconnaît pas l'APK")
+        if (archive.packageName != activity.packageName) throw IllegalStateException("APK d'une autre application")
+    }
+
+    private fun openConnection(url: String, connectTimeout: Int, readTimeout: Int): HttpURLConnection {
+        return (URL(url).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            this.connectTimeout = connectTimeout
+            this.readTimeout = readTimeout
+            setRequestProperty("Accept", "application/vnd.github+json, application/octet-stream;q=0.9, */*;q=0.8")
+            setRequestProperty("User-Agent", "HP-Travail-Android")
+            setRequestProperty("Cache-Control", "no-cache")
+            connect()
+        }
+    }
+
     private fun showStatus(activity: Activity, silent: Boolean, message: String) {
         if (silent) return
         activity.runOnUiThread {
-            if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+            if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun shortError(e: Exception): String {
+        val text = e.message?.trim().orEmpty()
+        return if (text.isNotBlank()) text.take(120) else e.javaClass.simpleName
     }
 
     private fun compareVersions(a: String, b: String): Int {
