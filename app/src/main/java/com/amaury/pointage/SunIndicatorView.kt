@@ -168,6 +168,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (!visibleCelestial || width <= 0 || height <= 0) return
 
         val base = min(width, height).toFloat()
+        // IMPORTANT : mêmes coordonnées que la Terre dans HpAnalogClockView.
         val earthX = width * 0.50f
         val earthY = height * 0.55f
         val orbitRadius = base * 0.43f
@@ -268,14 +269,16 @@ class SunIndicatorView @JvmOverloads constructor(
         return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.05f, 1f)
     }
 
+    /**
+     * Orbite visuelle strictement centrée sur la Terre. L'altitude astronomique
+     * continue de servir au calcul de lumière, mais ne décale plus le centre de
+     * la trajectoire à l'écran.
+     */
     private fun mapToWatchOrbit(position: CelestialEphemeris.Position, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
-        val relativeAz = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuth.toFloat()).toDouble())
-        val altitude = Math.toRadians(position.altitude.coerceIn(-90.0, 90.0))
-        val pitch = Math.toRadians(devicePitch.toDouble())
-        val perspective = (0.86 + 0.14 * cos(altitude - pitch)).toFloat()
-        val x = cx + sin(relativeAz).toFloat() * radius * perspective
-        val y = cy - cos(relativeAz).toFloat() * radius * 0.88f - sin(altitude - pitch).toFloat() * radius * 0.12f
-        return x.coerceIn(width * 0.08f, width * 0.92f) to y.coerceIn(height * 0.10f, height * 0.90f)
+        val angle = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuth.toFloat()).toDouble())
+        val x = cx + sin(angle).toFloat() * radius
+        val y = cy - cos(angle).toFloat() * radius
+        return x to y
     }
 
     private fun orbitFallback(night: Boolean, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
@@ -283,9 +286,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY) + calendar.get(java.util.Calendar.MINUTE) / 60f
         val angle = if (night) hour / 24f * 360f + 180f else hour / 24f * 360f
         val a = Math.toRadians((angle - deviceAzimuth).toDouble())
-        val x = cx + sin(a).toFloat() * radius
-        val y = cy - cos(a).toFloat() * radius * 0.88f
-        return x.coerceIn(width * 0.08f, width * 0.92f) to y.coerceIn(height * 0.10f, height * 0.90f)
+        return cx + sin(a).toFloat() * radius to cy - cos(a).toFloat() * radius
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
