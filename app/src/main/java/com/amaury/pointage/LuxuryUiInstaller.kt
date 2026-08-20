@@ -4,8 +4,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
-import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.Gravity
@@ -50,10 +48,13 @@ object LuxuryUiInstaller {
             if (digital.visibility == View.VISIBLE) digital.visibility = View.GONE
         }
 
+        val theme = AppThemeCatalog.current(activity)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+
         activity.findViewById<TextView>(R.id.logoText)?.apply {
             text = "♛\nH  P\nT R A V A I L"
             gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#D6A84B"))
+            setTextColor(if (dark) theme.accentLight else theme.accent)
             typeface = Typeface.create("serif", Typeface.BOLD)
             textSize = 16f
             letterSpacing = 0.08f
@@ -66,7 +67,7 @@ object LuxuryUiInstaller {
         }
 
         activity.findViewById<TextView>(R.id.contentTitle)?.apply {
-            setTextColor(Color.parseColor("#D6A84B"))
+            setTextColor(if (dark) theme.accentLight else theme.accent)
             typeface = Typeface.create("serif", Typeface.BOLD)
             textSize = 16f
             letterSpacing = 0.08f
@@ -94,6 +95,7 @@ object LuxuryUiInstaller {
         decor.viewTreeObserver.addOnWindowFocusChangeListener { hasFocus ->
             if (hasFocus && !activity.isFinishing && !activity.isDestroyed) {
                 decor.post {
+                    applyThemeColors(activity)
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
                     normalizeTypography(decor, activity)
@@ -106,6 +108,7 @@ object LuxuryUiInstaller {
 
         decor.post {
             AppearanceManager.apply(activity)
+            applyThemeColors(activity)
             syncTabs(activity)
             syncTodayLuxuryText(activity)
             normalizeTypography(decor, activity)
@@ -113,6 +116,17 @@ object LuxuryUiInstaller {
             installFontSizeControl(activity)
             tidySettingsSection(activity)
         }
+    }
+
+    private fun applyThemeColors(activity: MainActivity) {
+        val theme = AppThemeCatalog.current(activity)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+        val accent = if (dark) theme.accentLight else theme.accent
+        val text = if (dark) theme.darkText else theme.lightText
+        activity.findViewById<TextView>(R.id.logoText)?.setTextColor(accent)
+        activity.findViewById<TextView>(R.id.contentTitle)?.setTextColor(accent)
+        activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(text)
+        activity.findViewById<TextView>(R.id.historyText)?.setTextColor(text)
     }
 
     private fun installTransparencyControl(activity: MainActivity) {
@@ -151,7 +165,6 @@ object LuxuryUiInstaller {
 
         wrapper.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         wrapper.addView(seekBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
         settingsSection.addView(wrapper, findWidgetSectionIndex(settingsSection))
     }
 
@@ -187,9 +200,7 @@ object LuxuryUiInstaller {
             val value = prefs.getFloat(PREF_FONT_SCALE, 1.0f)
             return scales.indices.minByOrNull { kotlin.math.abs(scales[it] - value) } ?: 1
         }
-        fun updateButton() {
-            button.text = "TAILLE DE POLICE : ${labels[currentIndex()].uppercase()}"
-        }
+        fun updateButton() { button.text = "TAILLE DE POLICE : ${labels[currentIndex()].uppercase()}" }
         updateButton()
 
         button.setOnClickListener {
@@ -211,11 +222,9 @@ object LuxuryUiInstaller {
             topMargin = dp(activity, 2)
             bottomMargin = dp(activity, 2)
         })
-
         settingsSection.addView(wrapper, findWidgetSectionIndex(settingsSection))
     }
 
-    /** Rend la page Paramètres plus régulière sans modifier la fonction des commandes. */
     private fun tidySettingsSection(activity: MainActivity) {
         val gpsPanel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         val section = gpsPanel.findViewWithTag<View>("settings_personalization_installed") as? LinearLayout ?: return
@@ -227,9 +236,7 @@ object LuxuryUiInstaller {
                     child.minimumHeight = 0
                     child.gravity = Gravity.CENTER
                     child.setPadding(dp(activity, 14), 0, dp(activity, 14), 0)
-                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)
-                    )).apply {
+                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46))).apply {
                         width = ViewGroup.LayoutParams.MATCH_PARENT
                         height = dp(activity, 46)
                         topMargin = dp(activity, 4)
@@ -268,14 +275,12 @@ object LuxuryUiInstaller {
                 R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings -> 12f
                 R.id.statusCard, R.id.contentTitle -> 16f
                 R.id.historyText -> 14f
-                else -> {
-                    if (view is Button) 14f else {
-                        val currentSp = view.textSize / view.resources.displayMetrics.scaledDensity / fontScale
-                        when {
-                            currentSp <= 12.5f -> 12f
-                            currentSp <= 15.5f -> 14f
-                            else -> 16f
-                        }
+                else -> if (view is Button) 14f else {
+                    val currentSp = view.textSize / view.resources.displayMetrics.scaledDensity / fontScale
+                    when {
+                        currentSp <= 12.5f -> 12f
+                        currentSp <= 15.5f -> 14f
+                        else -> 16f
                     }
                 }
             }
@@ -299,7 +304,6 @@ object LuxuryUiInstaller {
         val isPanel = idName == "statusCard" || idName == "pointageButtons" || idName == "contentPanel" || idName == "gpsSettingsPanel" || idName == "analyticsPdfPanel" || idName.contains("Panel", ignoreCase = true) || idName.contains("Card", ignoreCase = true)
         val isStandardButton = view is Button && !isProtectedImageButton
         val isNavigationBar = view is LinearLayout && (0 until view.childCount).any { view.getChildAt(it).id == R.id.tabToday }
-
         if ((isPanel || isStandardButton || isNavigationBar) && view.background != null) view.background.mutate().alpha = alpha
         if (view is ViewGroup) for (i in 0 until view.childCount) applyTransparencyToView(view.getChildAt(i), alpha)
     }
@@ -308,11 +312,19 @@ object LuxuryUiInstaller {
         if (appearanceListeners.containsKey(activity)) return
         val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "mode") {
-                activity.window.decorView.post { if (!activity.isFinishing && !activity.isDestroyed) activity.recreate() }
+            if (key == "mode" || key == AppThemeCatalog.KEY_THEME) {
+                activity.window.decorView.post {
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        AppearanceManager.apply(activity)
+                        applyThemeColors(activity)
+                        syncTabs(activity)
+                        syncTodayLuxuryText(activity)
+                    }
+                }
             } else if (key == "app_bg" || key == "custom_bg" || key == "custom_image_bg") {
                 activity.window.decorView.post {
                     AppearanceManager.apply(activity)
+                    applyThemeColors(activity)
                     activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                     syncTabs(activity)
                     syncTodayLuxuryText(activity)
@@ -329,25 +341,26 @@ object LuxuryUiInstaller {
     }
 
     private fun syncTodayLuxuryText(activity: MainActivity) {
-        activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(Color.parseColor("#F4EFE3"))
+        val theme = AppThemeCatalog.current(activity)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+        val mainText = if (dark) theme.darkText else theme.lightText
+        val accentText = if (dark) theme.accentLight else theme.accent
+        activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(mainText)
         val pointagePanel = activity.findViewById<ViewGroup>(R.id.pointageButtons) ?: return
-        recolorTextChildren(pointagePanel, Color.parseColor("#F3D58A"))
+        recolorTextChildren(pointagePanel, accentText)
     }
 
     private fun recolorTextChildren(view: View, color: Int) {
-        if (view is TextView) view.setTextColor(color)
+        if (view is TextView && view !is LightReactiveJewelButton) view.setTextColor(color)
         if (view is ViewGroup) for (i in 0 until view.childCount) recolorTextChildren(view.getChildAt(i), color)
     }
 
     private fun syncTabs(activity: MainActivity) {
-        val prefs = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
-        val mode = prefs.getString("mode", "auto") ?: "auto"
-        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
-
-        val activeColor = Color.parseColor(if (dark) "#F3D58A" else "#795600")
-        val inactiveColor = Color.parseColor(if (dark) "#CFC7B8" else "#555555")
-        val navColor = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
+        val theme = AppThemeCatalog.current(activity)
+        val dark = AppThemeCatalog.useDarkPalette(activity)
+        val activeColor = if (dark) theme.accentLight else theme.accent
+        val inactiveColor = if (dark) theme.darkHint else theme.lightHint
+        val navColor = if (dark) theme.darkPanel else theme.lightPanel
 
         val today = activity.findViewById<TextView>(R.id.tabToday)
         val history = activity.findViewById<TextView>(R.id.tabHistory)
