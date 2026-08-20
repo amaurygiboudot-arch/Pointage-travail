@@ -15,12 +15,8 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Bouton rectangulaire HP Travail calé sur les deux assets approuvés :
- * - cadre céleste bleu/or fin, centre dégagé ;
- * - fond galaxie bleu nuit sous le cadre.
- *
- * Important : aucun réseau d'étoiles/croix n'est inventé. Les quelques reflets
- * présents correspondent uniquement aux points lumineux structurants du cadre de référence.
+ * Bouton rectangulaire HP Travail : cadre bleu/or net et centre translucide.
+ * Le fond de l'application reste volontairement visible à travers le bouton.
  */
 class DynamicDiamondDrawable(
     private val dark: Boolean,
@@ -65,7 +61,7 @@ class DynamicDiamondDrawable(
         val h = rect.height()
         val radius = min(h * 0.49f, 30f * density)
 
-        // Fond seul mobile à l'appui : le cadre ne bouge jamais.
+        // Seul le fond intérieur bouge à l'appui. Le cadre reste fixe.
         val inner = RectF(rect).apply {
             inset(maxOf(5.4f * density, h * 0.10f), maxOf(4.3f * density, h * 0.085f))
         }
@@ -77,19 +73,29 @@ class DynamicDiamondDrawable(
         drawReferenceFrame(canvas, rect, radius)
     }
 
-    /** Fond galaxie propre : profondeur bleue, légère nébuleuse, sans motifs ajoutés. */
+    /**
+     * Centre vitré TRANSLUCIDE : on garde la profondeur bleu nuit mais on laisse
+     * clairement apparaître le fond de l'application en dessous.
+     */
     private fun drawReferenceFill(canvas: Canvas, r: RectF, radius: Float) {
         val clip = Path().apply { addRoundRect(r, radius, radius, Path.Direction.CW) }
         val save = canvas.save()
         canvas.clipPath(clip)
 
+        val alphaFactor = globalAlpha / 255f
+        fun a(value: Int): Int = (value * alphaFactor).toInt().coerceIn(0, 255)
+
+        // En clair le verre est plus transparent ; en sombre il garde un peu plus de profondeur.
+        val baseA = if (dark) 118 else 78
+        val deepA = if (dark) 132 else 88
+
         fillPaint.shader = LinearGradient(
             r.left, r.top, r.right, r.bottom,
             intArrayOf(
-                argb(245, 2, 8, 27),
-                argb(242, 3, 24, 66),
-                argb(246, 1, 12, 38),
-                argb(240, 6, 29, 76)
+                argb(a(baseA), 2, 8, 27),
+                argb(a(deepA), 3, 24, 66),
+                argb(a(baseA + 6), 1, 12, 38),
+                argb(a(deepA - 8), 6, 29, 76)
             ),
             floatArrayOf(0f, .34f, .67f, 1f),
             Shader.TileMode.CLAMP
@@ -97,15 +103,15 @@ class DynamicDiamondDrawable(
         canvas.drawRoundRect(r, radius, radius, fillPaint)
         fillPaint.shader = null
 
-        // Nébuleuse bleue très douce comme sur le fond approuvé.
+        // Nébuleuse légère, elle aussi transparente.
         fillPaint.shader = LinearGradient(
             r.left + r.width() * .12f, r.bottom,
             r.right - r.width() * .10f, r.top,
             intArrayOf(
                 Color.TRANSPARENT,
-                argb(30, 30, 86, 160),
-                argb(42, 53, 119, 205),
-                argb(18, 130, 179, 255),
+                argb(a(if (dark) 24 else 15), 30, 86, 160),
+                argb(a(if (dark) 34 else 20), 53, 119, 205),
+                argb(a(if (dark) 16 else 10), 130, 179, 255),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, .30f, .52f, .68f, 1f),
@@ -114,15 +120,15 @@ class DynamicDiamondDrawable(
         canvas.drawRect(r, fillPaint)
         fillPaint.shader = null
 
-        // Éclairage dynamique : une zone de reflet seulement, pas une constellation.
+        // Reflet lié à la direction du soleil/lune, sans rendre le centre opaque.
         val rad = Math.toRadians(lightAngle.toDouble())
         val lx = r.centerX() + (cos(rad) * r.width() * .32f).toFloat()
         val ly = r.centerY() + (sin(rad) * r.height() * .32f).toFloat()
         fillPaint.shader = RadialGradient(
             lx, ly, r.width() * .24f,
             intArrayOf(
-                argb(if (pressed) 45 else 78, 88, 162, 255),
-                argb(if (pressed) 18 else 34, 22, 72, 170),
+                argb(a(if (pressed) 24 else if (dark) 48 else 34), 88, 162, 255),
+                argb(a(if (pressed) 10 else if (dark) 22 else 14), 22, 72, 170),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, .34f, 1f),
@@ -131,10 +137,14 @@ class DynamicDiamondDrawable(
         canvas.drawRect(r, fillPaint)
         fillPaint.shader = null
 
-        // Reflet de verre supérieur continu, identique à l'esprit du visuel source.
+        // Film de verre très fin sur la partie haute.
         fillPaint.shader = LinearGradient(
             r.left, r.top, r.left, r.top + r.height() * .54f,
-            intArrayOf(argb(if (pressed) 32 else 58, 235, 248, 255), argb(14, 92, 158, 240), Color.TRANSPARENT),
+            intArrayOf(
+                argb(a(if (pressed) 18 else if (dark) 34 else 26), 235, 248, 255),
+                argb(a(if (dark) 10 else 7), 92, 158, 240),
+                Color.TRANSPARENT
+            ),
             floatArrayOf(0f, .28f, 1f),
             Shader.TileMode.CLAMP
         )
@@ -144,18 +154,13 @@ class DynamicDiamondDrawable(
         canvas.restoreToCount(save)
     }
 
-    /**
-     * Cadre calé sur l'asset approuvé : large bande bleu nuit vitrée,
-     * filet or intérieur très net et deux fins filets bleus. Pas de décor répétitif.
-     */
+    /** Cadre bleu/or conservé net et plus opaque que le centre. */
     private fun drawReferenceFrame(canvas: Canvas, r: RectF, radius: Float) {
-        // Halo externe très discret.
         val halo = RectF(r).apply { inset(1.1f * density, 1.1f * density) }
         strokePaint.strokeWidth = maxOf(1.15f * density, r.height() * .022f)
         strokePaint.color = argb((globalAlpha * .62f).toInt(), 35, 111, 220)
         canvas.drawRoundRect(halo, radius, radius, strokePaint)
 
-        // Bande principale bleu nuit / bleu électrique.
         val blue = RectF(r).apply { inset(2.6f * density, 2.6f * density) }
         strokePaint.strokeWidth = maxOf(5.2f * density, r.height() * .103f)
         strokePaint.shader = LinearGradient(
@@ -172,13 +177,11 @@ class DynamicDiamondDrawable(
         canvas.drawRoundRect(blue, radius * .94f, radius * .94f, strokePaint)
         strokePaint.shader = null
 
-        // Filet bleu clair externe fin.
         val cyan = RectF(r).apply { inset(2.0f * density, 2.0f * density) }
         strokePaint.strokeWidth = .78f * density
         strokePaint.color = argb((globalAlpha * .88f).toInt(), 95, 180, 255)
         canvas.drawRoundRect(cyan, radius * .97f, radius * .97f, strokePaint)
 
-        // Filet or principal : plus fin et plus propre que la version précédente.
         val gold = RectF(r).apply {
             inset(maxOf(5.7f * density, r.height() * .108f), maxOf(4.7f * density, r.height() * .090f))
         }
@@ -198,13 +201,12 @@ class DynamicDiamondDrawable(
         canvas.drawRoundRect(gold, radius * .79f, radius * .79f, strokePaint)
         strokePaint.shader = null
 
-        // Petit reflet blanc/bleu uniquement sur l'arc haut-gauche.
         val gloss = RectF(r).apply { inset(3.7f * density, 3.7f * density) }
         glowPaint.shader = RadialGradient(
             gloss.left + gloss.width() * .16f,
             gloss.top + gloss.height() * .10f,
             gloss.width() * .18f,
-            intArrayOf(argb(86, 224, 246, 255), argb(24, 112, 190, 255), Color.TRANSPARENT),
+            intArrayOf(argb((86 * globalAlpha / 255f).toInt(), 224, 246, 255), argb((24 * globalAlpha / 255f).toInt(), 112, 190, 255), Color.TRANSPARENT),
             floatArrayOf(0f, .30f, 1f),
             Shader.TileMode.CLAMP
         )
@@ -214,7 +216,6 @@ class DynamicDiamondDrawable(
         glowPaint.shader = null
         glowPaint.style = Paint.Style.FILL
 
-        // Deux éclats seulement, aux endroits caractéristiques du cadre source.
         drawFlare(canvas, r.left + r.width() * .73f, r.top + 3.4f * density, 2.7f * density, 255, 207, 92)
         drawFlare(canvas, r.right - 4.4f * density, r.top + r.height() * .30f, 3.1f * density, 255, 221, 127)
     }
@@ -226,7 +227,6 @@ class DynamicDiamondDrawable(
         strokePaint.color = argb((globalAlpha * .78f).toInt(), red, green, blue)
         canvas.drawLine(x - size, y, x + size, y, strokePaint)
         canvas.drawLine(x, y - size, x, y + size, strokePaint)
-        strokePaint.strokeCap = Paint.Cap.ROUND
     }
 
     private fun argb(alpha: Int, red: Int, green: Int, blue: Int): Int =
