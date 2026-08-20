@@ -10,6 +10,10 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationManager
 import android.os.Handler
@@ -24,12 +28,17 @@ import kotlin.math.min
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
-) : View(context, attrs) {
+) : View(context, attrs), SensorEventListener {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val moonPath = Path()
     private val moonCutout = Path()
     private val handler = Handler(Looper.getMainLooper())
+    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+    private val rotationMatrix = FloatArray(9)
+    private val orientation = FloatArray(3)
+
     private var visibleCelestial = false
     private var nightMode = false
     private var sunPosition: CelestialEphemeris.Position? = null
@@ -64,6 +73,7 @@ class SunIndicatorView @JvmOverloads constructor(
         visibleCelestial = visible || dynamicEnabled
         visibility = if (visibleCelestial) VISIBLE else GONE
         handler.removeCallbacks(refreshTask)
+        updateSensorRegistration()
         if (visibleCelestial) {
             refreshAstronomy()
             handler.postDelayed(refreshTask, 30_000L)
@@ -86,6 +96,7 @@ class SunIndicatorView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        updateSensorRegistration()
         if (visibleCelestial) {
             handler.removeCallbacks(refreshTask)
             refreshAstronomy()
@@ -94,9 +105,28 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        sensorManager.unregisterListener(this)
         handler.removeCallbacks(refreshTask)
         super.onDetachedFromWindow()
     }
+
+    private fun updateSensorRegistration() {
+        sensorManager.unregisterListener(this)
+        if (isAttachedToWindow && visibleCelestial && rotationSensor != null) {
+            sensorManager.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
+        }
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        SensorManager.getOrientation(rotationMatrix, orientation)
+        deviceAzimuth = normalize(Math.toDegrees(orientation[0].toDouble()).toFloat())
+        devicePitch = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
+        invalidate()
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     private fun refreshAstronomy() {
         val location = lastKnownLocation()
@@ -175,7 +205,7 @@ class SunIndicatorView @JvmOverloads constructor(
 
     private fun mapSkyPosition(position: CelestialEphemeris.Position): Pair<Float, Float> {
         val relative = shortestDelta(deviceAzimuth, position.azimuth.toFloat())
-        val x = width * (0.50f + (relative / 220f)).coerceIn(0.06f, 0.94f)
+        val x = width * (0.50f + relative / 220f).coerceIn(0.06f, 0.94f)
 
         val altitude = position.altitude.toFloat().coerceIn(-35f, 90f)
         val apparentAltitude = altitude + devicePitch * 0.70f
