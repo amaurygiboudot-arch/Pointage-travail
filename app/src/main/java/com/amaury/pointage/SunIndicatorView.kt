@@ -24,7 +24,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Couche astronomique HP : Soleil, Terre et Lune sont des PNG indépendants. */
+/** Couche astronomique HP : Soleil et Lune autour de l'horloge. */
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
@@ -33,7 +33,6 @@ class SunIndicatorView @JvmOverloads constructor(
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val sunBitmap: Bitmap by lazy { HpDesignAssets.sun }
     private val moonBitmap: Bitmap by lazy { HpDesignAssets.moon }
-    private val earthBitmap: Bitmap by lazy { EarthDesignAsset.bitmap }
 
     private val handler = Handler(Looper.getMainLooper())
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -87,7 +86,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (nightMode == night) return
         nightMode = night
         AppThemeCatalog.setCelestialNight(context, night)
-        contentDescription = "Soleil, Terre et Lune"
+        contentDescription = "Soleil et Lune"
         (context as? Activity)?.let { activity ->
             AppearanceManager.apply(activity)
             PointageWidgetProvider.updateAll(activity)
@@ -162,10 +161,12 @@ class SunIndicatorView @JvmOverloads constructor(
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
         val earthY = height * 0.55f
-        val orbitRadius = base * 0.31f
-        val activeRadius = max(base * 0.085f, 24f)
+
+        // L'horloge utilise un rayon de 0.40. 0.47 place les astres juste autour,
+        // avec un petit espace visuel au lieu de les coller au cadran.
+        val orbitRadius = base * 0.47f
+        val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.62f
-        val earthRadius = max(base * 0.050f, 13f)
         val sun = sunPosition
         val moon = moonPosition
         val sunScreen = sun?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
@@ -173,25 +174,47 @@ class SunIndicatorView @JvmOverloads constructor(
 
         if (sun != null && sunScreen != null) {
             val active = !nightMode
-            drawCelestialPng(canvas, sunBitmap, sunScreen.first, sunScreen.second,
-                (if (active) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(), active)
-        }
-        if (moon != null && moonScreen != null) {
-            val active = nightMode
-            drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second,
-                (if (active) activeRadius * 0.90f else inactiveRadius * 0.86f) * moon.apparentScale.toFloat(), active)
+            drawCelestialPng(
+                canvas,
+                sunBitmap,
+                sunScreen.first,
+                sunScreen.second,
+                (if (active) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
+                active
+            )
         }
 
-        // Nouvelle Terre PNG : l'ancien dessin Canvas a été entièrement supprimé.
-        drawCelestialPng(canvas, earthBitmap, earthX, earthY, earthRadius, true)
+        if (moon != null && moonScreen != null) {
+            val active = nightMode
+            drawCelestialPng(
+                canvas,
+                moonBitmap,
+                moonScreen.first,
+                moonScreen.second,
+                (if (active) activeRadius * 0.90f else inactiveRadius * 0.86f) * moon.apparentScale.toFloat(),
+                active
+            )
+        }
 
         if (sun == null && moon == null) {
             val sunFallback = orbitFallback(false, earthX, earthY, orbitRadius)
             val moonFallback = orbitFallback(true, earthX, earthY, orbitRadius)
-            drawCelestialPng(canvas, sunBitmap, sunFallback.first, sunFallback.second,
-                if (!nightMode) activeRadius else inactiveRadius, !nightMode)
-            drawCelestialPng(canvas, moonBitmap, moonFallback.first, moonFallback.second,
-                if (nightMode) activeRadius * 0.90f else inactiveRadius * 0.86f, nightMode)
+            drawCelestialPng(
+                canvas,
+                sunBitmap,
+                sunFallback.first,
+                sunFallback.second,
+                if (!nightMode) activeRadius else inactiveRadius,
+                !nightMode
+            )
+            drawCelestialPng(
+                canvas,
+                moonBitmap,
+                moonFallback.first,
+                moonFallback.second,
+                if (nightMode) activeRadius * 0.90f else inactiveRadius * 0.86f,
+                nightMode
+            )
         }
     }
 
@@ -218,10 +241,10 @@ class SunIndicatorView @JvmOverloads constructor(
         val relativeAz = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuth.toFloat()).toDouble())
         val altitude = Math.toRadians(position.altitude.coerceIn(-90.0, 90.0))
         val pitch = Math.toRadians(devicePitch.toDouble())
-        val perspective = (0.72 + 0.28 * cos(altitude - pitch)).toFloat()
+        val perspective = (0.86 + 0.14 * cos(altitude - pitch)).toFloat()
         val x = cx + sin(relativeAz).toFloat() * radius * perspective
-        val y = cy - cos(relativeAz).toFloat() * radius * 0.72f - sin(altitude - pitch).toFloat() * radius * 0.24f
-        return x.coerceIn(width * 0.18f, width * 0.82f) to y.coerceIn(height * 0.18f, height * 0.88f)
+        val y = cy - cos(relativeAz).toFloat() * radius * 0.88f - sin(altitude - pitch).toFloat() * radius * 0.12f
+        return x.coerceIn(width * 0.10f, width * 0.90f) to y.coerceIn(height * 0.08f, height * 0.94f)
     }
 
     private fun orbitFallback(night: Boolean, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
@@ -229,7 +252,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY) + calendar.get(java.util.Calendar.MINUTE) / 60f
         val angle = if (night) hour / 24f * 360f + 180f else hour / 24f * 360f
         val a = Math.toRadians((angle - deviceAzimuth).toDouble())
-        return cx + sin(a).toFloat() * radius to cy - cos(a).toFloat() * radius * 0.72f
+        return cx + sin(a).toFloat() * radius to cy - cos(a).toFloat() * radius * 0.88f
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
