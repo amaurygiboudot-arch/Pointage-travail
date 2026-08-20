@@ -11,7 +11,12 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 object CelestialEphemeris {
-    data class Position(val azimuth: Double, val altitude: Double)
+    data class Position(
+        val azimuth: Double,
+        val altitude: Double,
+        /** Relative apparent-size factor. 1.0 = mean apparent diameter. */
+        val apparentScale: Double = 1.0
+    )
 
     fun sun(latitude: Double, longitude: Double, timeMs: Long = System.currentTimeMillis()): Position {
         val jd = julianDay(timeMs)
@@ -24,6 +29,10 @@ object CelestialEphemeris {
         val e = 0.016708634 - t * (0.000042037 + 0.0000001267 * t)
         val c = sind(m) * (1.914602 - t * (0.004817 + 0.000014 * t)) +
             sind(2 * m) * (0.019993 - 0.000101 * t) + sind(3 * m) * 0.000289
+        val trueAnomaly = m + c
+        val radiusAu = (1.000001018 * (1.0 - e * e)) / (1.0 + e * cos(Math.toRadians(trueAnomaly)))
+        val apparentScale = (1.0 / radiusAu).coerceIn(0.97, 1.04)
+
         val omega = 125.04 - 1934.136 * t
         val lambda = l0 + c - 0.00569 - 0.00478 * sind(omega)
         val epsilon0 = 23.0 + (26.0 + (21.448 - t * (46.815 + t * (0.00059 - t * 0.001813))) / 60.0) / 60.0
@@ -40,7 +49,7 @@ object CelestialEphemeris {
         val lat = Math.toRadians(latitude)
         val az = atan2(sin(ha), cos(ha) * sin(lat) - tan(decl) * cos(lat))
         val alt = asin((sin(lat) * sin(decl) + cos(lat) * cos(decl) * cos(ha)).coerceIn(-1.0, 1.0))
-        return Position(norm(Math.toDegrees(az) + 180.0), Math.toDegrees(alt))
+        return Position(norm(Math.toDegrees(az) + 180.0), Math.toDegrees(alt), apparentScale)
     }
 
     fun moon(latitude: Double, longitude: Double, timeMs: Long = System.currentTimeMillis()): Position {
@@ -56,6 +65,9 @@ object CelestialEphemeris {
         val yv = a * sqrt(1.0 - e * e) * sind(eccentric)
         val v = Math.toDegrees(atan2(yv, xv))
         val r = sqrt(xv * xv + yv * yv)
+        // Mean lunar distance in Earth radii is about 60.27. Apparent diameter varies inversely with distance.
+        val apparentScale = (60.2666 / r).coerceIn(0.88, 1.14)
+
         var lon = norm(v + w)
         var latMoon = 0.0
         val sunM = norm(356.0470 + 0.9856002585 * d)
@@ -89,7 +101,7 @@ object CelestialEphemeris {
         val obsLat = Math.toRadians(latitude)
         val alt = asin((sin(obsLat) * sin(decR) + cos(obsLat) * cos(decR) * cos(ha)).coerceIn(-1.0, 1.0))
         val az = atan2(sin(ha), cos(ha) * sin(obsLat) - tan(decR) * cos(obsLat))
-        return Position(norm(Math.toDegrees(az) + 180.0), Math.toDegrees(alt))
+        return Position(norm(Math.toDegrees(az) + 180.0), Math.toDegrees(alt), apparentScale)
     }
 
     private fun julianDay(timeMs: Long): Double {
