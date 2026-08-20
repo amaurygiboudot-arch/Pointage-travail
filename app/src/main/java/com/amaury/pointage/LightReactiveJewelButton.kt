@@ -15,6 +15,7 @@ import android.graphics.Shader
 import android.graphics.SweepGradient
 import android.util.AttributeSet
 import android.util.Base64
+import android.view.MotionEvent
 import android.widget.Button
 import kotlin.math.min
 
@@ -32,6 +33,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     private val facetPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = false; style = Paint.Style.STROKE; strokeJoin = Paint.Join.MITER; strokeCap = Paint.Cap.SQUARE }
     private var backgroundLayer: Bitmap? = null
     private var loadedForId: Int = ViewIdNone
+    private var innerPressScale = 1f
 
     protected var jewelLightAngle = -55f
     protected var jewelAccent = Color.parseColor("#D6A84B")
@@ -43,17 +45,41 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         stateListAnimator = null
         setPadding(0, 0, 0, 0)
         isAllCaps = false
-        // Ne pas forcer le rendu logiciel ici : pendant l'animation d'appui cela pouvait
-        // provoquer un crash graphique sur certains appareils. Le rendu reste accéléré matériellement.
     }
 
     override fun drawableStateChanged() {
-        // Les boutons Entrée/Pause/Sortie ont déjà leur animation de clic dans MainActivity.
-        // On neutralise un éventuel StateListAnimator ajouté par le thème pour éviter deux
-        // animations concurrentes sur la même View au moment exact de l'appui.
         stateListAnimator = null
         super.drawableStateChanged()
         invalidate()
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                innerPressScale = 0.93f
+                invalidate()
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                innerPressScale = 1f
+                invalidate()
+            }
+        }
+        return super.onTouchEvent(event)
+    }
+
+    /**
+     * MainActivity applique encore une animation générique de scale au clic.
+     * On l'annule ici après l'exécution du listener afin que le cadre extérieur
+     * reste parfaitement fixe : seul le cristal intérieur réagit au toucher.
+     */
+    override fun performClick(): Boolean {
+        val result = super.performClick()
+        animate().cancel()
+        scaleX = 1f
+        scaleY = 1f
+        innerPressScale = 1f
+        invalidate()
+        return result
     }
 
     open fun setLightAngle(angle: Float) { val n=((angle%360f)+360f)%360f; if(kotlin.math.abs(shortestDelta(jewelLightAngle,n))<0.6f)return; jewelLightAngle=n; invalidate() }
@@ -66,7 +92,13 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     override fun onDraw(canvas:Canvas){
         ensureLayers(); val w=width.toFloat(); val h=height.toFloat(); if(w<=0f||h<=0f)return
         val save=canvas.save(); canvas.scale(0.5f,0.5f); val rw=w*2f; val rh=h*2f; val radius=min(rw,rh)*0.50f; val cx=rw*.5f; val cy=rh*.5f
+
+        // Le cadre reste toujours fixe.
         drawCelestialFrame(canvas,cx,cy,radius)
+
+        // Seul le contenu intérieur (gemme + facettes + pictogramme) s'enfonce.
+        val innerSave = canvas.save()
+        canvas.scale(innerPressScale, innerPressScale, cx, cy)
         val jewelRadius=radius*.885f; val dst=RectF(cx-jewelRadius,cy-jewelRadius,cx+jewelRadius,cy+jewelRadius)
         backgroundLayer?.let{bitmap->
             val contrast=1.38f; val offset=-128f*contrast+128f+3f
@@ -75,7 +107,9 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         }
         drawCrispFacetEdges(canvas,cx,cy,jewelRadius)
         when(id){R.id.entryButton->drawCelestialIcon(canvas,cx,cy,jewelRadius,false);R.id.exitButton->drawCelestialIcon(canvas,cx,cy,jewelRadius,true);R.id.pauseButton->drawPauseGlyph(canvas,cx,cy,jewelRadius)}
-        canvas.restoreToCount(save); super.onDraw(canvas)
+        canvas.restoreToCount(innerSave)
+        canvas.restoreToCount(save)
+        super.onDraw(canvas)
     }
 
     private fun drawCrispFacetEdges(canvas:Canvas,cx:Float,cy:Float,r:Float){
