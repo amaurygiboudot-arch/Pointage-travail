@@ -43,28 +43,40 @@ class SalaryTabTextView @JvmOverloads constructor(
         val gpsPanel = root.findViewById<View>(R.id.gpsSettingsPanel)
         val statusCard = root.findViewById<View>(R.id.statusCard)
         val pointageButtons = root.findViewById<View>(R.id.pointageButtons)
+        val shiftControl = root.findViewById<ShiftControlView>(R.id.shiftControlView)
         var salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
         if (salaryPanel == null) {
             salaryPanel = SalaryPanelView(context).apply { tag = SALARY_PANEL_TAG; visibility = View.GONE }
             contentPanel.addView(salaryPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         }
-        statusCard?.visibility = View.GONE; pointageButtons?.visibility = View.GONE; historyText?.visibility = View.GONE
-        analyticsPanel?.visibility = View.GONE; gpsPanel?.visibility = View.GONE
-        contentTitle?.visibility = View.VISIBLE; contentTitle?.text = "S A L A I R E"
-        salaryPanel.visibility = View.VISIBLE; salaryPanel.refresh(); setSalaryTabActive(root)
+        statusCard?.visibility = View.GONE
+        pointageButtons?.visibility = View.GONE
+        historyText?.visibility = View.GONE
+        analyticsPanel?.visibility = View.GONE
+        gpsPanel?.visibility = View.GONE
+        shiftControl?.visibility = View.VISIBLE
+        shiftControl?.refresh()
+        contentTitle?.visibility = View.VISIBLE
+        contentTitle?.text = "S A L A I R E"
+        salaryPanel.visibility = View.VISIBLE
+        salaryPanel.refresh()
+        setSalaryTabActive(root)
     }
 
     private fun installSalaryAutoHide() {
         val root = rootView ?: return
         val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
         fun hideSalaryIfAnotherTabIsVisible() {
-            val salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG) ?: return
-            if (salaryPanel.visibility != View.VISIBLE) return
+            val salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
+            val shiftControl = root.findViewById<View>(R.id.shiftControlView)
             val pointageVisible = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE
             val historyVisible = root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE
             val analyticsVisible = root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE
             val settingsVisible = root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
-            if (pointageVisible || historyVisible || analyticsVisible || settingsVisible) salaryPanel.visibility = View.GONE
+            if (pointageVisible || historyVisible || analyticsVisible || settingsVisible) {
+                salaryPanel?.visibility = View.GONE
+                shiftControl?.visibility = View.GONE
+            }
         }
         listOf(root.findViewById<View>(R.id.pointageButtons), root.findViewById<View>(R.id.historyText), root.findViewById<View>(R.id.analyticsPdfPanel), root.findViewById<View>(R.id.gpsSettingsPanel)).forEach { view ->
             view?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> hideSalaryIfAnotherTabIsVisible() }
