@@ -11,6 +11,7 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
 import android.hardware.Sensor
@@ -169,9 +170,6 @@ class SunIndicatorView @JvmOverloads constructor(
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
         val earthY = height * 0.55f
-
-        // Le cadran reste au centre, mais l'orbite dispose maintenant d'une marge
-        // suffisante pour que Soleil et Lune fassent le tour complet sans être rognés.
         val orbitRadius = base * 0.43f
         val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.82f
@@ -181,28 +179,16 @@ class SunIndicatorView @JvmOverloads constructor(
         val moonScreen = moon?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
 
         if (sun != null && sunScreen != null) {
-            drawCelestialPng(
-                canvas, sunBitmap, sunScreen.first, sunScreen.second,
-                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
-                !nightMode, false
-            )
+            drawCelestialPng(canvas, sunBitmap, sunScreen.first, sunScreen.second,
+                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(), !nightMode, false)
         }
 
         if (moon != null && moonScreen != null) {
             val moonRadius = (if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f) * moon.apparentScale.toFloat()
             drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode, true)
-
             if (sun != null && sunScreen != null) {
-                val illumination = lunarIllumination(sun, moon)
-                drawMoonSunlight(
-                    canvas,
-                    moonScreen.first,
-                    moonScreen.second,
-                    moonRadius,
-                    sunScreen.first,
-                    sunScreen.second,
-                    illumination
-                )
+                drawMoonSunlight(canvas, moonScreen.first, moonScreen.second, moonRadius,
+                    sunScreen.first, sunScreen.second, lunarIllumination(sun, moon))
             }
         }
 
@@ -214,27 +200,12 @@ class SunIndicatorView @JvmOverloads constructor(
             val fallbackMoonRadius = if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
             drawCelestialPng(canvas, moonBitmap, moonFallback.first, moonFallback.second,
                 fallbackMoonRadius, nightMode, true)
-            drawMoonSunlight(
-                canvas,
-                moonFallback.first,
-                moonFallback.second,
-                fallbackMoonRadius,
-                sunFallback.first,
-                sunFallback.second,
-                0.62f
-            )
+            drawMoonSunlight(canvas, moonFallback.first, moonFallback.second, fallbackMoonRadius,
+                sunFallback.first, sunFallback.second, 0.62f)
         }
     }
 
-    private fun drawCelestialPng(
-        canvas: Canvas,
-        bitmap: Bitmap,
-        cx: Float,
-        cy: Float,
-        radius: Float,
-        active: Boolean,
-        brightenMoon: Boolean
-    ) {
+    private fun drawCelestialPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float, active: Boolean, brightenMoon: Boolean) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
         val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -247,7 +218,6 @@ class SunIndicatorView @JvmOverloads constructor(
             dstHeight = diameter
             dstWidth = diameter * aspect
         }
-
         bitmapPaint.alpha = if (active) 255 else 215
         bitmapPaint.colorFilter = if (brightenMoon) {
             ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
@@ -257,74 +227,43 @@ class SunIndicatorView @JvmOverloads constructor(
                 0f, 0f, 0f, 1f, 0f
             )))
         } else null
-
         val dst = RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f)
         canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
         bitmapPaint.alpha = 255
         bitmapPaint.colorFilter = null
     }
 
-    private fun drawMoonSunlight(
-        canvas: Canvas,
-        moonX: Float,
-        moonY: Float,
-        moonRadius: Float,
-        sunX: Float,
-        sunY: Float,
-        illumination: Float
-    ) {
+    private fun drawMoonSunlight(canvas: Canvas, moonX: Float, moonY: Float, moonRadius: Float, sunX: Float, sunY: Float, illumination: Float) {
         val dx = sunX - moonX
         val dy = sunY - moonY
         val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
         val ux = dx / length
         val uy = dy / length
-
         val startX = moonX + ux * moonRadius
         val startY = moonY + uy * moonRadius
         val endX = moonX - ux * moonRadius
         val endY = moonY - uy * moonRadius
-
         val darkness = (215f * (1f - illumination).coerceIn(0f, 1f) + 45f).toInt().coerceIn(45, 235)
         moonShadePaint.shader = LinearGradient(
-            startX,
-            startY,
-            endX,
-            endY,
-            intArrayOf(
-                Color.argb(0, 0, 0, 0),
-                Color.argb((darkness * 0.35f).toInt(), 0, 0, 0),
-                Color.argb(darkness, 0, 0, 0)
-            ),
-            floatArrayOf(0f, 0.52f, 1f),
-            Shader.TileMode.CLAMP
+            startX, startY, endX, endY,
+            intArrayOf(Color.argb(0, 0, 0, 0), Color.argb((darkness * 0.35f).toInt(), 0, 0, 0), Color.argb(darkness, 0, 0, 0)),
+            floatArrayOf(0f, 0.52f, 1f), Shader.TileMode.CLAMP
         )
-
-        val oval = RectF(
-            moonX - moonRadius,
-            moonY - moonRadius,
-            moonX + moonRadius,
-            moonY + moonRadius
-        )
+        val oval = RectF(moonX - moonRadius, moonY - moonRadius, moonX + moonRadius, moonY + moonRadius)
+        val moonClip = Path().apply { addOval(oval, Path.Direction.CW) }
         canvas.save()
-        canvas.clipOval(oval)
+        canvas.clipPath(moonClip)
         canvas.drawRect(oval, moonShadePaint)
         canvas.restore()
         moonShadePaint.shader = null
     }
 
-    private fun lunarIllumination(
-        sun: CelestialEphemeris.Position,
-        moon: CelestialEphemeris.Position
-    ): Float {
+    private fun lunarIllumination(sun: CelestialEphemeris.Position, moon: CelestialEphemeris.Position): Float {
         val sunAz = Math.toRadians(sun.azimuth)
         val sunAlt = Math.toRadians(sun.altitude)
         val moonAz = Math.toRadians(moon.azimuth)
         val moonAlt = Math.toRadians(moon.altitude)
-
-        val cosSeparation = (
-            sin(sunAlt) * sin(moonAlt) +
-                cos(sunAlt) * cos(moonAlt) * cos(sunAz - moonAz)
-            ).coerceIn(-1.0, 1.0)
+        val cosSeparation = (sin(sunAlt) * sin(moonAlt) + cos(sunAlt) * cos(moonAlt) * cos(sunAz - moonAz)).coerceIn(-1.0, 1.0)
         val separation = acos(cosSeparation)
         return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.05f, 1f)
     }
@@ -336,11 +275,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val perspective = (0.86 + 0.14 * cos(altitude - pitch)).toFloat()
         val x = cx + sin(relativeAz).toFloat() * radius * perspective
         val y = cy - cos(relativeAz).toFloat() * radius * 0.88f - sin(altitude - pitch).toFloat() * radius * 0.12f
-
-        // Le point central de l'astre reste toujours assez loin du bord pour que le PNG
-        // entier soit visible. Cela évite les disparitions en haut/bas de l'orbite.
-        return x.coerceIn(width * 0.08f, width * 0.92f) to
-            y.coerceIn(height * 0.10f, height * 0.90f)
+        return x.coerceIn(width * 0.08f, width * 0.92f) to y.coerceIn(height * 0.10f, height * 0.90f)
     }
 
     private fun orbitFallback(night: Boolean, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
@@ -350,8 +285,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val a = Math.toRadians((angle - deviceAzimuth).toDouble())
         val x = cx + sin(a).toFloat() * radius
         val y = cy - cos(a).toFloat() * radius * 0.88f
-        return x.coerceIn(width * 0.08f, width * 0.92f) to
-            y.coerceIn(height * 0.10f, height * 0.90f)
+        return x.coerceIn(width * 0.08f, width * 0.92f) to y.coerceIn(height * 0.10f, height * 0.90f)
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
