@@ -17,8 +17,7 @@ object AppThemeCatalog {
     const val PREFS = "appearance_settings"
     const val KEY_THEME = "visual_theme"
     const val DEFAULT_THEME = "signature_gold"
-    private const val KEY_CELESTIAL_NIGHT = "celestial_night"
-    private const val KEY_SOLAR = "solar_lighting_enabled"
+    const val KEY_CELESTIAL_NIGHT = "celestial_night"
 
     val themes = listOf(
         HpTheme("signature_gold", "Signature Or", Color.parseColor("#050505"), Color.parseColor("#181818"), Color.parseColor("#F3F0E8"), Color.parseColor("#FFFDF9"), Color.parseColor("#D6A84B"), Color.parseColor("#F3D58A"), Color.parseColor("#F7F3EC"), Color.parseColor("#17130D"), Color.parseColor("#C9C1B4"), Color.parseColor("#625B50")),
@@ -38,13 +37,22 @@ object AppThemeCatalog {
         return when (prefs.getString("mode", "auto") ?: "auto") {
             "light" -> false
             "dark" -> true
-            else -> if (prefs.getBoolean(KEY_SOLAR, false) && prefs.contains(KEY_CELESTIAL_NIGHT)) prefs.getBoolean(KEY_CELESTIAL_NIGHT, false)
-            else (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            else -> {
+                // En mode automatique, la vraie alternance jour/nuit pilotée par
+                // le Soleil est prioritaire. On ne dépend plus du thème système du téléphone.
+                if (prefs.contains(KEY_CELESTIAL_NIGHT)) {
+                    prefs.getBoolean(KEY_CELESTIAL_NIGHT, false)
+                } else {
+                    (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                }
+            }
         }
     }
 
     fun setCelestialNight(context: Context, night: Boolean) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_CELESTIAL_NIGHT, !night) == night && prefs.contains(KEY_CELESTIAL_NIGHT)) return
+        prefs.edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
     }
 
     fun set(context: Context, theme: HpTheme) {
@@ -56,9 +64,6 @@ object AppThemeCatalog {
             .putBoolean("custom_image_bg", false)
             .commit()
 
-        // Un changement de thème doit aussi reprendre la main sur l'apparence des widgets.
-        // On conserve les options fonctionnelles du widget (ex. affichage de la position),
-        // mais on enlève seulement les anciennes couleurs personnalisées qui masquaient le thème.
         context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
             .edit()
             .remove("widget_bg")
