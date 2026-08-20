@@ -24,9 +24,13 @@ class HpAnalogClockView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        isFilterBitmap = true
+        isDither = true
+    }
     private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-        isDither = false
+        isFilterBitmap = true
+        isDither = true
     }
     private val earthShadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val earthGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -70,10 +74,10 @@ class HpAnalogClockView @JvmOverloads constructor(
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
 
-        // Renforce légèrement le micro-contraste du PNG existant pour que les chiffres,
-        // graduations et contours dorés paraissent plus nets, sans changer l'image source.
-        val contrast = 1.16f
-        val translate = (-128f * contrast + 128f) + 3f
+        // Micro-contraste un peu plus marqué pour mieux détacher chiffres, graduations
+        // et contours sans changer le cadran d'origine ni sa géométrie.
+        val contrast = 1.20f
+        val translate = (-128f * contrast + 128f) + 4f
         facePaint.colorFilter = ColorMatrixColorFilter(
             ColorMatrix(
                 floatArrayOf(
