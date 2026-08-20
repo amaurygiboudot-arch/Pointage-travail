@@ -3,7 +3,6 @@ package com.amaury.pointage
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -20,8 +19,8 @@ import android.widget.TextView
 /**
  * Lanceur minimal, indépendant de l'interface principale.
  *
- * Mode test actuel : l'écran de bienvenue s'affiche une fois par version
- * installée afin de vérifier son rendu après chaque mise à jour.
+ * L'écran de bienvenue s'affiche une fois par version installée.
+ * Il utilise exactement la même palette jour/nuit que le reste de HP Travail.
  */
 class LaunchActivity : Activity() {
 
@@ -72,13 +71,15 @@ class LaunchActivity : Activity() {
     }
 
     private fun showWelcome() {
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val screenBackground = Color.parseColor(if (night) "#080808" else "#F4F0E7")
-        val panel = Color.parseColor(if (night) "#151515" else "#FFFDF8")
-        val textColor = Color.parseColor(if (night) "#F7F2E8" else "#17130E")
-        val secondary = Color.parseColor(if (night) "#CFC6B4" else "#5D5549")
-        val gold = Color.parseColor("#D6A84B")
-        val goldLight = Color.parseColor("#F3D58A")
+        val theme = AppThemeCatalog.current(this)
+        val night = AppThemeCatalog.useDarkPalette(this)
+        val screenBackground = if (night) theme.darkBackground else theme.lightBackground
+        val panel = if (night) theme.darkPanel else theme.lightPanel
+        val textColor = if (night) theme.darkText else theme.lightText
+        val secondary = if (night) theme.darkHint else theme.lightHint
+        val gold = theme.accent
+        val goldLight = theme.accentLight
+        val accentDisplay = if (night) goldLight else gold
 
         window.statusBarColor = screenBackground
         window.navigationBarColor = screenBackground
@@ -102,7 +103,7 @@ class LaunchActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(22), dp(24), dp(22), dp(22))
-            setBackgroundDrawable(rounded(panel, 24, gold))
+            background = rounded(panel, 24, accentDisplay)
             elevation = dp(8).toFloat()
         }
         content.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -112,7 +113,7 @@ class LaunchActivity : Activity() {
             gravity = Gravity.CENTER
             textSize = 38f
             includeFontPadding = true
-            setTextColor(gold)
+            setTextColor(accentDisplay)
         })
 
         card.addView(TextView(this).apply {
@@ -121,7 +122,7 @@ class LaunchActivity : Activity() {
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(goldLight)
+            setTextColor(accentDisplay)
             maxLines = 3
             setPadding(0, dp(8), 0, dp(14))
         })
@@ -150,8 +151,8 @@ class LaunchActivity : Activity() {
             isAllCaps = false
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.parseColor("#17110A"))
-            setBackgroundDrawable(rounded(goldLight, 14))
+            setTextColor(if (night) theme.lightText else Color.WHITE)
+            background = rounded(if (night) gold else gold, 14)
             minHeight = 0
             minimumHeight = 0
             setPadding(dp(16), 0, dp(16), 0)
