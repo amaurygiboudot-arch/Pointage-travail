@@ -3,21 +3,19 @@ package com.amaury.pointage
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
+import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
 import java.util.Calendar
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Horloge HP modulaire.
- *
- * Le cadran et les aiguilles sont des PNG indépendants. Le code ne dessine
- * plus leur apparence : il ne gère que leur position, leur échelle et leur rotation.
- * La Terre est dessinée en dernier pour rester au centre et passer devant les aiguilles.
- */
+/** Horloge HP modulaire : cadran, aiguilles et Terre indépendants. */
 class HpAnalogClockView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -25,6 +23,8 @@ class HpAnalogClockView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val earthShadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val earthGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val faceBitmap: Bitmap by lazy { HpDesignAssets.clockFace }
     private val handBitmap: Bitmap by lazy { HpDesignAssets.hand }
@@ -53,13 +53,12 @@ class HpAnalogClockView @JvmOverloads constructor(
         val minutes = now.get(Calendar.MINUTE) + seconds / 60f
         val hours = (now.get(Calendar.HOUR) % 12) + minutes / 60f
 
-        // Le PNG pointe naturellement vers 12 h : 0° = midi.
         drawHandPng(canvas, handBitmap, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
         drawHandPng(canvas, handBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
         drawHandPng(canvas, secondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
 
-        // Terre centrée, au-dessus de toutes les aiguilles.
-        drawCenteredPng(canvas, earthBitmap, cx, cy, max(faceRadius * 0.16f, 13f))
+        // Terre au-dessus des aiguilles + lumière réellement orientée par le Soleil.
+        drawEarthPng(canvas, earthBitmap, cx, cy, max(faceRadius * 0.16f, 13f))
 
         postInvalidateDelayed(50L)
     }
@@ -70,7 +69,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         canvas.drawBitmap(faceBitmap, null, rect, bitmapPaint)
     }
 
-    private fun drawCenteredPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float) {
+    private fun drawEarthPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
         val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -83,19 +82,51 @@ class HpAnalogClockView @JvmOverloads constructor(
             dstHeight = diameter
             dstWidth = diameter * aspect
         }
+
+        val rect = RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f)
         bitmapPaint.alpha = 255
-        canvas.drawBitmap(
-            bitmap,
-            null,
-            RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f),
-            bitmapPaint
+        canvas.drawBitmap(bitmap, null, rect, bitmapPaint)
+
+        val dirX = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirX else 0f
+        val dirY = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirY else -1f
+        val visualRadius = max(dstWidth, dstHeight) * 0.5f
+
+        val sunSideX = cx + dirX * visualRadius
+        val sunSideY = cy + dirY * visualRadius
+        val nightSideX = cx - dirX * visualRadius
+        val nightSideY = cy - dirY * visualRadius
+
+        val earthClip = Path().apply { addOval(rect, Path.Direction.CW) }
+        canvas.save()
+        canvas.clipPath(earthClip)
+
+        // Ombre : faible côté Soleil, forte sur la face opposée.
+        earthShadePaint.shader = LinearGradient(
+            sunSideX, sunSideY, nightSideX, nightSideY,
+            intArrayOf(
+                Color.argb(0, 0, 0, 0),
+                Color.argb(35, 0, 0, 0),
+                Color.argb(185, 0, 0, 0)
+            ),
+            floatArrayOf(0f, 0.52f, 1f),
+            Shader.TileMode.CLAMP
         )
+        canvas.drawRect(rect, earthShadePaint)
+
+        // Petit gain lumineux du côté exposé au Soleil pour rendre la direction évidente.
+        earthGlowPaint.shader = LinearGradient(
+            sunSideX, sunSideY, cx, cy,
+            intArrayOf(Color.argb(80, 255, 238, 188), Color.argb(0, 255, 238, 188)),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(rect, earthGlowPaint)
+
+        canvas.restore()
+        earthShadePaint.shader = null
+        earthGlowPaint.shader = null
     }
 
-    /**
-     * pivotYRatio indique où se trouve l'axe dans le PNG source.
-     * Les PNG restent remplaçables sans toucher à la logique de l'horloge.
-     */
     private fun drawHandPng(
         canvas: Canvas,
         bitmap: Bitmap,
