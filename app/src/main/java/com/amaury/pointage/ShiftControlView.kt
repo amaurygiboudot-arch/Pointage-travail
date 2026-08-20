@@ -27,58 +27,64 @@ class ShiftControlView @JvmOverloads constructor(
 
     init {
         orientation = VERTICAL
-        setPadding(dp(10), dp(8), dp(10), dp(8))
-        setBackgroundResource(R.drawable.hp_panel)
+        setPadding(dp(6), dp(4), dp(6), dp(4))
+        background = null
 
         addView(TextView(context).apply {
-            text = "POSTE DU JOUR"
-            textSize = 16f
-            setTextColor(Color.parseColor("#D6A84B"))
-        })
-        addView(TextView(context).apply {
-            text = "HP Travail peut reconnaître le poste avec l'heure d'entrée. Tu peux aussi le forcer manuellement. Les pauses automatiques configurées ci-dessous seront déduites sans devoir appuyer sur Pause."
-            textSize = 14f
-            setPadding(0, dp(5), 0, dp(6))
+            text = "Poste du jour"
+            textSize = 12f
+            setTextColor(Color.parseColor("#B8B0A2"))
+            gravity = Gravity.CENTER_HORIZONTAL
+            alpha = 0.88f
         })
 
         modeButton.apply {
             isAllCaps = false
-            textSize = 14f
+            textSize = 12f
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(dp(8), 0, dp(8), 0)
             setBackgroundResource(R.drawable.hp_panel)
             gravity = Gravity.CENTER
+            alpha = 0.90f
             setOnClickListener { chooseMode() }
         }
-        addView(modeButton, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
+        addView(modeButton, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)).apply { topMargin = dp(3) })
 
         stateText.apply {
-            textSize = 14f
+            textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(6), 0, 0)
+            setTextColor(Color.parseColor("#A9A39A"))
+            setPadding(0, dp(3), 0, 0)
+            alpha = 0.88f
         }
         addView(stateText)
 
         val configure = Button(context).apply {
-            text = "PAUSES ET PANIERS PAR POSTE"
+            text = "Pauses et paniers"
             isAllCaps = false
-            textSize = 14f
+            textSize = 11f
+            minHeight = 0
+            minimumHeight = 0
             gravity = Gravity.CENTER
             setBackgroundResource(R.drawable.hp_panel)
+            alpha = 0.86f
             setOnClickListener { showProfilesDialog() }
         }
-        addView(configure, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(7) })
+        addView(configure, LayoutParams(LayoutParams.MATCH_PARENT, dp(38)).apply { topMargin = dp(4) })
         refresh()
     }
 
     fun refresh() {
         val mode = ShiftProfileManager.selectedMode(context)
         val modeLabel = when (mode) {
-            ShiftType.MORNING.id -> "MATIN"
-            ShiftType.DAY.id -> "JOURNÉE"
-            ShiftType.AFTERNOON.id -> "APRÈS-MIDI"
-            ShiftType.NIGHT.id -> "NUIT"
-            else -> "AUTOMATIQUE"
+            ShiftType.MORNING.id -> "Matin"
+            ShiftType.DAY.id -> "Journée"
+            ShiftType.AFTERNOON.id -> "Après-midi"
+            ShiftType.NIGHT.id -> "Nuit"
+            else -> "Automatique"
         }
-        modeButton.text = "POSTE : $modeLabel"
+        modeButton.text = "Poste : $modeLabel"
         val data = PointageStore.load(context)
         var entry = System.currentTimeMillis()
         for (i in data.length() - 1 downTo 0) {
@@ -90,7 +96,7 @@ class ShiftControlView @JvmOverloads constructor(
         }
         val detected = ShiftProfileManager.resolve(context, entry)
         val pause = ShiftProfileManager.pauseMinutes(context, detected)
-        stateText.text = "Détecté : ${detected.label} • pause automatique : ${pause} min"
+        stateText.text = "${detected.label} • pause auto ${pause} min"
     }
 
     private fun chooseMode() {
