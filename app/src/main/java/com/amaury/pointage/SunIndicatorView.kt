@@ -24,6 +24,7 @@ import android.view.View
 import androidx.core.content.ContextCompat
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -180,15 +181,14 @@ class SunIndicatorView @JvmOverloads constructor(
 
         val sun = sunPosition
         val moon = moonPosition
+        val sunScreen = sun?.let { mapSkyPosition(it) }
 
-        // Terre centrée exactement sur l'axe de l'horloge. Les aiguilles sont dessinées au-dessus.
         drawEarth(canvas, width * 0.5f, height * 0.5f, max(base * 0.043f, 12f), sun)
 
-        if (sun != null) {
-            val p = mapSkyPosition(sun)
+        if (sun != null && sunScreen != null) {
             val active = !nightMode
             val size = sun.apparentScale.toFloat()
-            drawSun(canvas, p.first, p.second,
+            drawSun(canvas, sunScreen.first, sunScreen.second,
                 (if (active) activeGlow else inactiveGlow) * size,
                 (if (active) activeCore else inactiveCore) * size,
                 active)
@@ -201,14 +201,15 @@ class SunIndicatorView @JvmOverloads constructor(
             drawMoon(canvas, p.first, p.second,
                 (if (active) activeGlow * 0.95f else inactiveGlow * 0.92f) * size,
                 (if (active) activeCore else inactiveCore) * size,
-                active)
+                active,
+                sunScreen)
         }
 
         if (sun == null && moon == null) {
             val sunFallback = fallbackPosition(false)
             val moonFallback = fallbackPosition(true)
             drawSun(canvas, sunFallback.first, sunFallback.second, if (!nightMode) activeGlow else inactiveGlow, if (!nightMode) activeCore else inactiveCore, !nightMode)
-            drawMoon(canvas, moonFallback.first, moonFallback.second, if (nightMode) activeGlow * 0.95f else inactiveGlow * 0.92f, if (nightMode) activeCore else inactiveCore, nightMode)
+            drawMoon(canvas, moonFallback.first, moonFallback.second, if (nightMode) activeGlow * 0.95f else inactiveGlow * 0.92f, if (nightMode) activeCore else inactiveCore, nightMode, sunFallback)
         }
     }
 
@@ -329,7 +330,15 @@ class SunIndicatorView @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, coreRadius, paint)
     }
 
-    private fun drawMoon(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float, active: Boolean) {
+    private fun drawMoon(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        glowRadius: Float,
+        coreRadius: Float,
+        active: Boolean,
+        sunScreen: Pair<Float, Float>?
+    ) {
         val boost = if (active) 1f else 0.46f
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
@@ -345,28 +354,43 @@ class SunIndicatorView @JvmOverloads constructor(
 
         val phaseAngle = lunarPhase * 2.0 * PI
         val illuminatedFraction = (1.0 - cos(phaseAngle)) * 0.5
-        val waxing = lunarPhase < 0.5
-        val terminatorScale = cos(phaseAngle).toFloat()
-        val disc = RectF(cx - r, cy - r, cx + r, cy + r)
+        val terminator = cos(phaseAngle).toFloat().coerceIn(-1f, 1f)
+
+        // Le côté +X du repère local pointe toujours vers le Soleil réel affiché.
+        val lightAngleDeg = if (sunScreen != null) {
+            Math.toDegrees(atan2((sunScreen.second - cy).toDouble(), (sunScreen.first - cx).toDouble())).toFloat()
+        } else 0f
+
         moonLitPath.reset()
-        moonLitPath.addArc(disc, -90f, 180f)
-        val ellipseHalfWidth = abs(terminatorScale) * r
-        val termRect = RectF(cx - ellipseHalfWidth, cy - r, cx + ellipseHalfWidth, cy + r)
-        if (waxing) {
-            if (terminatorScale >= 0f) moonLitPath.arcTo(termRect, 90f, -180f) else moonLitPath.arcTo(termRect, 90f, 180f)
-        } else {
-            if (terminatorScale >= 0f) moonLitPath.arcTo(termRect, 90f, 180f) else moonLitPath.arcTo(termRect, 90f, -180f)
+        val steps = 48
+        for (i in 0..steps) {
+            val yNorm = -1f + 2f * i / steps.toFloat()
+            val limb = sqrt((1f - yNorm * yNorm).coerceAtLeast(0f))
+            val x = r * limb
+            val y = r * yNorm
+            if (i == 0) moonLitPath.moveTo(cx + x, cy + y) else moonLitPath.lineTo(cx + x, cy + y)
+        }
+        for (i in steps downTo 0) {
+            val yNorm = -1f + 2f * i / steps.toFloat()
+            val limb = sqrt((1f - yNorm * yNorm).coerceAtLeast(0f))
+            val x = r * terminator * limb
+            val y = r * yNorm
+            moonLitPath.lineTo(cx + x, cy + y)
         }
         moonLitPath.close()
 
         canvas.save()
         canvas.clipPath(Path().apply { addCircle(cx, cy, r, Path.Direction.CW) })
-        val alpha = (40 + illuminatedFraction * (if (active) 215 else 120)).toInt().coerceIn(35, 255)
-        paint.color = Color.argb(alpha, 225, 235, 255)
+        canvas.rotate(lightAngleDeg, cx, cy)
+
+        val alpha = (45 + illuminatedFraction * (if (active) 210 else 120)).toInt().coerceIn(35, 255)
+        paint.color = Color.argb(alpha, 232, 240, 255)
         canvas.drawPath(moonLitPath, paint)
+
+        // Le reflet principal est lui aussi déplacé vers le Soleil.
         paint.shader = RadialGradient(
-            cx - r * 0.22f, cy - r * 0.18f, r * 1.2f,
-            intArrayOf(Color.argb(if (active) 65 else 30, 255, 255, 255), Color.TRANSPARENT),
+            cx + r * 0.34f, cy - r * 0.10f, r * 1.15f,
+            intArrayOf(Color.argb(if (active) 78 else 34, 255, 255, 255), Color.TRANSPARENT),
             floatArrayOf(0f, 1f), Shader.TileMode.CLAMP
         )
         canvas.drawCircle(cx, cy, r, paint)
