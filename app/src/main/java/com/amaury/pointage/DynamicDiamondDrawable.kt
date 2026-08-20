@@ -15,8 +15,12 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Bouton rectangulaire HP Travail : fond céleste + cadre bleu/or.
- * Le cadre reste fixe ; à l'appui, seul le fond intérieur s'enfonce légèrement.
+ * Bouton rectangulaire HP Travail calé sur les deux assets approuvés :
+ * - cadre céleste bleu/or fin, centre dégagé ;
+ * - fond galaxie bleu nuit sous le cadre.
+ *
+ * Important : aucun réseau d'étoiles/croix n'est inventé. Les quelques reflets
+ * présents correspondent uniquement aux points lumineux structurants du cadre de référence.
  */
 class DynamicDiamondDrawable(
     private val dark: Boolean,
@@ -26,13 +30,13 @@ class DynamicDiamondDrawable(
 ) : Drawable() {
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = true }
-    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
         isDither = true
     }
-    private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
+    private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = true }
     private val rect = RectF()
     private var pressed = false
     private var lightAngle = -55f
@@ -48,9 +52,9 @@ class DynamicDiamondDrawable(
     override fun isStateful(): Boolean = true
 
     override fun onStateChange(state: IntArray): Boolean {
-        val nowPressed = state.any { it == android.R.attr.state_pressed }
-        if (nowPressed == pressed) return false
-        pressed = nowPressed
+        val value = state.any { it == android.R.attr.state_pressed }
+        if (value == pressed) return false
+        pressed = value
         invalidateSelf()
         return true
     }
@@ -59,179 +63,189 @@ class DynamicDiamondDrawable(
         if (bounds.isEmpty) return
         rect.set(bounds.left.toFloat(), bounds.top.toFloat(), bounds.right.toFloat(), bounds.bottom.toFloat())
         val h = rect.height()
-        val radius = min(h * 0.48f, 28f * density)
+        val radius = min(h * 0.49f, 30f * density)
 
-        // 1) FOND : la partie qui réagit au toucher.
+        // Fond seul mobile à l'appui : le cadre ne bouge jamais.
         val inner = RectF(rect).apply {
-            inset(maxOf(5.2f * density, h * 0.09f), maxOf(4.0f * density, h * 0.075f))
+            inset(maxOf(5.4f * density, h * 0.10f), maxOf(4.3f * density, h * 0.085f))
         }
-        val innerSave = canvas.save()
-        if (pressed) canvas.scale(0.965f, 0.88f, inner.centerX(), inner.centerY())
-        drawCelestialFill(canvas, inner, (radius * 0.78f).coerceAtLeast(8f * density))
-        canvas.restoreToCount(innerSave)
+        val save = canvas.save()
+        if (pressed) canvas.scale(0.973f, 0.91f, inner.centerX(), inner.centerY())
+        drawReferenceFill(canvas, inner, radius * 0.79f)
+        canvas.restoreToCount(save)
 
-        // 2) CADRE : toujours fixe, au-dessus du fond.
-        drawCelestialFrame(canvas, rect, radius)
+        drawReferenceFrame(canvas, rect, radius)
     }
 
-    private fun drawCelestialFill(canvas: Canvas, r: RectF, radius: Float) {
+    /** Fond galaxie propre : profondeur bleue, légère nébuleuse, sans motifs ajoutés. */
+    private fun drawReferenceFill(canvas: Canvas, r: RectF, radius: Float) {
         val clip = Path().apply { addRoundRect(r, radius, radius, Path.Direction.CW) }
         val save = canvas.save()
         canvas.clipPath(clip)
 
-        // Fond nuit profond, proche du fond généré ensemble.
         fillPaint.shader = LinearGradient(
             r.left, r.top, r.right, r.bottom,
             intArrayOf(
-                withAlpha(Color.rgb(2, 10, 31), 245),
-                withAlpha(Color.rgb(3, 28, 72), 238),
-                withAlpha(Color.rgb(4, 18, 52), 242),
-                withAlpha(Color.rgb(8, 32, 83), 235)
+                argb(245, 2, 8, 27),
+                argb(242, 3, 24, 66),
+                argb(246, 1, 12, 38),
+                argb(240, 6, 29, 76)
             ),
-            floatArrayOf(0f, .34f, .70f, 1f),
+            floatArrayOf(0f, .34f, .67f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(r, radius, radius, fillPaint)
         fillPaint.shader = null
 
-        // Lueur bleue mobile, très douce, issue de l'éclairage dynamique.
-        val rad = Math.toRadians(lightAngle.toDouble())
-        val lx = r.centerX() + (cos(rad) * r.width() * .30).toFloat()
-        val ly = r.centerY() + (sin(rad) * r.height() * .34).toFloat()
-        fillPaint.shader = RadialGradient(
-            lx, ly, r.width() * .30f,
+        // Nébuleuse bleue très douce comme sur le fond approuvé.
+        fillPaint.shader = LinearGradient(
+            r.left + r.width() * .12f, r.bottom,
+            r.right - r.width() * .10f, r.top,
             intArrayOf(
-                withAlpha(Color.rgb(72, 154, 255), if (pressed) 65 else 105),
-                withAlpha(Color.rgb(22, 74, 164), if (pressed) 35 else 58),
+                Color.TRANSPARENT,
+                argb(30, 30, 86, 160),
+                argb(42, 53, 119, 205),
+                argb(18, 130, 179, 255),
                 Color.TRANSPARENT
             ),
-            floatArrayOf(0f, .35f, 1f),
+            floatArrayOf(0f, .30f, .52f, .68f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRect(r, fillPaint)
         fillPaint.shader = null
 
-        // Voie lactée discrète en diagonale.
-        fillPaint.shader = LinearGradient(
-            r.left + r.width() * .18f, r.bottom,
-            r.right - r.width() * .12f, r.top,
-            intArrayOf(Color.TRANSPARENT, withAlpha(Color.rgb(65, 130, 220), 34), withAlpha(Color.WHITE, 28), Color.TRANSPARENT),
-            floatArrayOf(0f, .34f, .58f, 1f),
+        // Éclairage dynamique : une zone de reflet seulement, pas une constellation.
+        val rad = Math.toRadians(lightAngle.toDouble())
+        val lx = r.centerX() + (cos(rad) * r.width() * .32f).toFloat()
+        val ly = r.centerY() + (sin(rad) * r.height() * .32f).toFloat()
+        fillPaint.shader = RadialGradient(
+            lx, ly, r.width() * .24f,
+            intArrayOf(
+                argb(if (pressed) 45 else 78, 88, 162, 255),
+                argb(if (pressed) 18 else 34, 22, 72, 170),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .34f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRect(r, fillPaint)
         fillPaint.shader = null
 
-        drawStars(canvas, r)
-
-        // Reflet verre supérieur, très fin.
+        // Reflet de verre supérieur continu, identique à l'esprit du visuel source.
         fillPaint.shader = LinearGradient(
-            r.left, r.top, r.left, r.top + r.height() * .55f,
-            intArrayOf(withAlpha(Color.WHITE, pressedAlpha(50)), withAlpha(Color.rgb(120, 190, 255), pressedAlpha(18)), Color.TRANSPARENT),
-            floatArrayOf(0f, .25f, 1f),
+            r.left, r.top, r.left, r.top + r.height() * .54f,
+            intArrayOf(argb(if (pressed) 32 else 58, 235, 248, 255), argb(14, 92, 158, 240), Color.TRANSPARENT),
+            floatArrayOf(0f, .28f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRoundRect(r, radius, radius, fillPaint)
         fillPaint.shader = null
+
         canvas.restoreToCount(save)
     }
 
-    private fun drawStars(canvas: Canvas, r: RectF) {
-        val points = arrayOf(
-            .09f to .34f, .17f to .67f, .25f to .29f, .34f to .55f,
-            .43f to .24f, .52f to .66f, .61f to .38f, .70f to .20f,
-            .79f to .61f, .87f to .31f, .93f to .70f, .57f to .18f,
-            .74f to .47f, .29f to .77f, .47f to .43f, .83f to .80f
-        )
-        points.forEachIndexed { index, p ->
-            val x = r.left + r.width() * p.first
-            val y = r.top + r.height() * p.second
-            val bright = index % 5 == 0
-            starPaint.color = withAlpha(if (index % 3 == 0) Color.rgb(255, 211, 105) else Color.rgb(190, 225, 255), if (bright) pressedAlpha(210) else pressedAlpha(120))
-            starPaint.strokeWidth = if (bright) 1.15f * density else .65f * density
-            if (bright) {
-                val s = min(4.1f * density, r.height() * .085f)
-                canvas.drawLine(x - s, y, x + s, y, starPaint)
-                canvas.drawLine(x, y - s, x, y + s, starPaint)
-            } else {
-                canvas.drawCircle(x, y, .75f * density, starPaint)
-            }
-        }
-    }
+    /**
+     * Cadre calé sur l'asset approuvé : large bande bleu nuit vitrée,
+     * filet or intérieur très net et deux fins filets bleus. Pas de décor répétitif.
+     */
+    private fun drawReferenceFrame(canvas: Canvas, r: RectF, radius: Float) {
+        // Halo externe très discret.
+        val halo = RectF(r).apply { inset(1.1f * density, 1.1f * density) }
+        strokePaint.strokeWidth = maxOf(1.15f * density, r.height() * .022f)
+        strokePaint.color = argb((globalAlpha * .62f).toInt(), 35, 111, 220)
+        canvas.drawRoundRect(halo, radius, radius, strokePaint)
 
-    private fun drawCelestialFrame(canvas: Canvas, r: RectF, radius: Float) {
-        // Trait bleu extérieur.
-        val outer = RectF(r).apply { inset(1.0f * density, 1.0f * density) }
-        framePaint.strokeWidth = maxOf(2.2f * density, r.height() * .055f)
-        framePaint.shader = LinearGradient(
-            outer.left, outer.top, outer.right, outer.bottom,
-            intArrayOf(
-                withAlpha(Color.rgb(3, 31, 89), globalAlpha),
-                withAlpha(Color.rgb(22, 121, 255), globalAlpha),
-                withAlpha(Color.rgb(1, 22, 67), globalAlpha),
-                withAlpha(Color.rgb(15, 103, 224), globalAlpha)
-            ), null, Shader.TileMode.CLAMP
-        )
-        canvas.drawRoundRect(outer, radius, radius, framePaint)
-        framePaint.shader = null
-
-        // Couronne bleue vitrée plus épaisse.
-        val blue = RectF(r).apply { inset(3.2f * density, 3.2f * density) }
-        framePaint.strokeWidth = maxOf(4.0f * density, r.height() * .085f)
-        framePaint.shader = LinearGradient(
+        // Bande principale bleu nuit / bleu électrique.
+        val blue = RectF(r).apply { inset(2.6f * density, 2.6f * density) }
+        strokePaint.strokeWidth = maxOf(5.2f * density, r.height() * .103f)
+        strokePaint.shader = LinearGradient(
             blue.left, blue.top, blue.right, blue.bottom,
             intArrayOf(
-                withAlpha(Color.rgb(5, 55, 145), globalAlpha),
-                withAlpha(Color.rgb(25, 139, 255), globalAlpha),
-                withAlpha(Color.rgb(2, 29, 85), globalAlpha),
-                withAlpha(Color.rgb(5, 86, 201), globalAlpha)
-            ), floatArrayOf(0f, .24f, .66f, 1f), Shader.TileMode.CLAMP
+                argb(globalAlpha, 2, 21, 64),
+                argb(globalAlpha, 7, 63, 145),
+                argb(globalAlpha, 2, 17, 55),
+                argb(globalAlpha, 8, 51, 127)
+            ),
+            floatArrayOf(0f, .28f, .64f, 1f),
+            Shader.TileMode.CLAMP
         )
-        canvas.drawRoundRect(blue, radius * .92f, radius * .92f, framePaint)
-        framePaint.shader = null
+        canvas.drawRoundRect(blue, radius * .94f, radius * .94f, strokePaint)
+        strokePaint.shader = null
 
-        // Liseré or intérieur, comme le cadre PNG retrouvé.
-        val gold = RectF(r).apply { inset(maxOf(5.1f * density, r.height() * .10f), maxOf(4.1f * density, r.height() * .082f)) }
-        framePaint.strokeWidth = maxOf(1.45f * density, r.height() * .032f)
-        framePaint.shader = LinearGradient(
+        // Filet bleu clair externe fin.
+        val cyan = RectF(r).apply { inset(2.0f * density, 2.0f * density) }
+        strokePaint.strokeWidth = .78f * density
+        strokePaint.color = argb((globalAlpha * .88f).toInt(), 95, 180, 255)
+        canvas.drawRoundRect(cyan, radius * .97f, radius * .97f, strokePaint)
+
+        // Filet or principal : plus fin et plus propre que la version précédente.
+        val gold = RectF(r).apply {
+            inset(maxOf(5.7f * density, r.height() * .108f), maxOf(4.7f * density, r.height() * .090f))
+        }
+        strokePaint.strokeWidth = maxOf(1.35f * density, r.height() * .027f)
+        strokePaint.shader = LinearGradient(
             gold.left, gold.top, gold.right, gold.bottom,
             intArrayOf(
-                withAlpha(Color.rgb(126, 69, 4), globalAlpha),
-                withAlpha(Color.rgb(255, 222, 109), globalAlpha),
-                withAlpha(Color.rgb(181, 106, 9), globalAlpha),
-                withAlpha(Color.rgb(255, 239, 157), globalAlpha),
-                withAlpha(Color.rgb(134, 72, 4), globalAlpha)
-            ), null, Shader.TileMode.CLAMP
+                argb(globalAlpha, 126, 70, 8),
+                argb(globalAlpha, 255, 226, 127),
+                argb(globalAlpha, 182, 108, 12),
+                argb(globalAlpha, 255, 240, 166),
+                argb(globalAlpha, 132, 72, 7)
+            ),
+            floatArrayOf(0f, .22f, .54f, .78f, 1f),
+            Shader.TileMode.CLAMP
         )
-        canvas.drawRoundRect(gold, radius * .80f, radius * .80f, framePaint)
-        framePaint.shader = null
+        canvas.drawRoundRect(gold, radius * .79f, radius * .79f, strokePaint)
+        strokePaint.shader = null
 
-        // Fins reflets bleu-blanc sur les bords.
-        val highlight = RectF(r).apply { inset(2.0f * density, 2.0f * density) }
-        framePaint.strokeWidth = .75f * density
-        framePaint.color = withAlpha(Color.rgb(167, 219, 255), (globalAlpha * .78f).toInt())
-        canvas.drawRoundRect(highlight, radius * .96f, radius * .96f, framePaint)
+        // Petit reflet blanc/bleu uniquement sur l'arc haut-gauche.
+        val gloss = RectF(r).apply { inset(3.7f * density, 3.7f * density) }
+        glowPaint.shader = RadialGradient(
+            gloss.left + gloss.width() * .16f,
+            gloss.top + gloss.height() * .10f,
+            gloss.width() * .18f,
+            intArrayOf(argb(86, 224, 246, 255), argb(24, 112, 190, 255), Color.TRANSPARENT),
+            floatArrayOf(0f, .30f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        glowPaint.style = Paint.Style.STROKE
+        glowPaint.strokeWidth = 1.1f * density
+        canvas.drawRoundRect(gloss, radius * .91f, radius * .91f, glowPaint)
+        glowPaint.shader = null
+        glowPaint.style = Paint.Style.FILL
 
-        // Quatre éclats localisés, fixes avec le cadre.
-        starPaint.strokeWidth = 1.0f * density
-        starPaint.color = withAlpha(Color.rgb(255, 226, 139), globalAlpha)
-        sparkle(canvas, r.left + r.width() * .24f, r.top + 4.3f * density, 3.7f * density)
-        sparkle(canvas, r.right - 5.0f * density, r.top + r.height() * .31f, 4.2f * density)
-        sparkle(canvas, r.left + r.width() * .70f, r.bottom - 4.0f * density, 3.5f * density)
-        starPaint.color = withAlpha(Color.rgb(166, 222, 255), globalAlpha)
-        sparkle(canvas, r.left + 5.0f * density, r.bottom - r.height() * .28f, 3.4f * density)
+        // Deux éclats seulement, aux endroits caractéristiques du cadre source.
+        drawFlare(canvas, r.left + r.width() * .73f, r.top + 3.4f * density, 2.7f * density, 255, 207, 92)
+        drawFlare(canvas, r.right - 4.4f * density, r.top + r.height() * .30f, 3.1f * density, 255, 221, 127)
     }
 
-    private fun sparkle(canvas: Canvas, x: Float, y: Float, s: Float) {
-        canvas.drawLine(x - s, y, x + s, y, starPaint)
-        canvas.drawLine(x, y - s, x, y + s, starPaint)
+    private fun drawFlare(canvas: Canvas, x: Float, y: Float, size: Float, red: Int, green: Int, blue: Int) {
+        strokePaint.shader = null
+        strokePaint.strokeCap = Paint.Cap.ROUND
+        strokePaint.strokeWidth = .72f * density
+        strokePaint.color = argb((globalAlpha * .78f).toInt(), red, green, blue)
+        canvas.drawLine(x - size, y, x + size, y, strokePaint)
+        canvas.drawLine(x, y - size, x, y + size, strokePaint)
+        strokePaint.strokeCap = Paint.Cap.ROUND
     }
 
-    private fun pressedAlpha(value: Int): Int = ((if (pressed) value * .72f else value.toFloat()) * globalAlpha / 255f).toInt().coerceIn(0, 255)
-    private fun withAlpha(color: Int, alpha: Int) = Color.argb(alpha.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
+    private fun argb(alpha: Int, red: Int, green: Int, blue: Int): Int =
+        Color.argb(alpha.coerceIn(0, 255), red, green, blue)
+
     private fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
 
-    override fun setAlpha(alpha: Int) { globalAlpha = alpha.coerceIn(0, 255); invalidateSelf() }
-    override fun setColorFilter(colorFilter: ColorFilter?) { fillPaint.colorFilter = colorFilter; framePaint.colorFilter = colorFilter; starPaint.colorFilter = colorFilter; invalidateSelf() }
-    @Deprecated("Deprecated in Java") override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    override fun setAlpha(alpha: Int) {
+        globalAlpha = alpha.coerceIn(0, 255)
+        invalidateSelf()
+    }
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        fillPaint.colorFilter = colorFilter
+        strokePaint.colorFilter = colorFilter
+        glowPaint.colorFilter = colorFilter
+        invalidateSelf()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
 }
