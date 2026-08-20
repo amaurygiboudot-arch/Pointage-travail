@@ -47,7 +47,6 @@ class SunIndicatorView @JvmOverloads constructor(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    // Conservée pour compatibilité avec le contrôleur d'éclairage.
     fun updateLightAngle(newAngle: Float) = Unit
 
     fun setSunVisible(visible: Boolean) {
@@ -67,7 +66,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (nightMode == night) return
         nightMode = night
         AppThemeCatalog.setCelestialNight(context, night)
-        contentDescription = if (night) "Lune" else "Soleil"
+        contentDescription = if (night) "Soleil et Lune — éclairage par la Lune" else "Soleil et Lune — éclairage par le Soleil"
         (context as? Activity)?.let { activity ->
             AppearanceManager.apply(activity)
             PointageWidgetProvider.updateAll(activity)
@@ -123,27 +122,30 @@ class SunIndicatorView @JvmOverloads constructor(
         val glowRadius = max(base * 0.10f, 26f)
         val coreRadius = glowRadius * 0.30f
 
+        val sunPoint = sunPosition?.let { mapSkyPosition(it) } ?: fallbackPosition(night = false)
+        val moonPoint = moonPosition?.let { mapSkyPosition(it) } ?: fallbackPosition(night = true)
+
         if (nightMode) {
-            val pos = moonPosition
-            val point = if (pos != null) mapSkyPosition(pos) else fallbackPosition(night = true)
-            drawMoon(canvas, point.first, point.second, glowRadius * 0.95f, coreRadius)
+            // La nuit : les deux restent visibles, mais seule la Lune est la source lumineuse active.
+            drawSun(canvas, sunPoint.first, sunPoint.second, glowRadius * 0.72f, coreRadius * 0.72f, active = false)
+            drawMoon(canvas, moonPoint.first, moonPoint.second, glowRadius, coreRadius, active = true)
         } else {
-            val pos = sunPosition
-            val point = if (pos != null) mapSkyPosition(pos) else fallbackPosition(night = false)
-            drawSun(canvas, point.first, point.second, glowRadius, coreRadius)
+            // Le jour : les deux restent visibles, mais seul le Soleil pilote l'éclairage.
+            drawMoon(canvas, moonPoint.first, moonPoint.second, glowRadius * 0.72f, coreRadius * 0.72f, active = false)
+            drawSun(canvas, sunPoint.first, sunPoint.second, glowRadius, coreRadius, active = true)
         }
     }
 
     private fun fallbackPosition(night: Boolean): Pair<Float, Float> {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val progress = if (night) {
-            if (hour >= 20) ((hour - 20) / 11f).coerceIn(0f, 1f) else ((hour + 4) / 11f).coerceIn(0f, 1f)
+            if (hour >= 18) ((hour - 18) / 12f).coerceIn(0f, 1f) else ((hour + 6) / 12f).coerceIn(0f, 1f)
         } else {
-            ((hour - 7) / 13f).coerceIn(0f, 1f)
+            ((hour - 6) / 12f).coerceIn(0f, 1f)
         }
         val x = width * (0.10f + progress * 0.80f)
         val arc = 1f - kotlin.math.abs(progress * 2f - 1f)
-        val y = height * (0.78f - arc * 0.52f)
+        val y = height * (0.80f - arc * 0.55f)
         return x to y
     }
 
@@ -152,20 +154,25 @@ class SunIndicatorView @JvmOverloads constructor(
         val usableWidth = width * 0.84f
         val x = xMargin + (position.azimuth / 360.0).toFloat() * usableWidth
 
-        val horizonY = height * 0.82f
-        val zenithY = height * 0.13f
-        val altitude = position.altitude.coerceIn(0.0, 90.0)
-        val y = horizonY - (altitude / 90.0).toFloat() * (horizonY - zenithY)
+        // On conserve les deux astres visibles même lorsqu'ils sont sous l'horizon.
+        // +90° = haut de la zone, 0° = milieu, -90° = bas de la zone.
+        val topY = height * 0.10f
+        val bottomY = height * 0.90f
+        val normalizedAltitude = ((position.altitude.coerceIn(-90.0, 90.0) + 90.0) / 180.0).toFloat()
+        val y = bottomY - normalizedAltitude * (bottomY - topY)
         return x to y
     }
 
-    private fun drawSun(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float) {
+    private fun drawSun(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float, active: Boolean) {
+        val glowAlpha = if (active) 235 else 90
+        val middleAlpha = if (active) 175 else 55
+        val outerAlpha = if (active) 75 else 20
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(235, 255, 246, 190),
-                Color.argb(175, 255, 205, 85),
-                Color.argb(75, 255, 155, 30),
+                Color.argb(glowAlpha, 255, 246, 190),
+                Color.argb(middleAlpha, 255, 205, 85),
+                Color.argb(outerAlpha, 255, 155, 30),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.28f, 0.64f, 1f),
@@ -173,17 +180,20 @@ class SunIndicatorView @JvmOverloads constructor(
         )
         canvas.drawCircle(cx, cy, glowRadius, paint)
         paint.shader = null
-        paint.color = Color.argb(250, 255, 226, 120)
+        paint.color = Color.argb(if (active) 250 else 150, 255, 226, 120)
         canvas.drawCircle(cx, cy, coreRadius, paint)
     }
 
-    private fun drawMoon(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float) {
+    private fun drawMoon(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float, active: Boolean) {
+        val glowAlpha = if (active) 205 else 85
+        val middleAlpha = if (active) 125 else 50
+        val outerAlpha = if (active) 45 else 18
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(205, 235, 244, 255),
-                Color.argb(125, 165, 195, 235),
-                Color.argb(45, 100, 130, 190),
+                Color.argb(glowAlpha, 235, 244, 255),
+                Color.argb(middleAlpha, 165, 195, 235),
+                Color.argb(outerAlpha, 100, 130, 190),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.30f, 0.64f, 1f),
@@ -198,11 +208,11 @@ class SunIndicatorView @JvmOverloads constructor(
         moonCutout.addCircle(cx + coreRadius * 0.48f, cy - coreRadius * 0.12f, coreRadius * 0.98f, Path.Direction.CW)
         moonPath.op(moonCutout, Path.Op.DIFFERENCE)
 
-        paint.color = Color.argb(250, 225, 235, 255)
+        paint.color = Color.argb(if (active) 250 else 155, 225, 235, 255)
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(1.2f, coreRadius * 0.08f)
-        paint.color = Color.argb(190, 255, 255, 255)
+        paint.color = Color.argb(if (active) 190 else 90, 255, 255, 255)
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.FILL
     }
