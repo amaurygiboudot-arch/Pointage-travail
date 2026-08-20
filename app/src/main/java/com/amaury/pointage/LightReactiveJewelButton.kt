@@ -38,7 +38,23 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     protected var jewelAccentLight = Color.parseColor("#F3D58A")
     private var nightLight = false
 
-    init { background = null; stateListAnimator = null; setPadding(0,0,0,0); isAllCaps = false; setLayerType(LAYER_TYPE_SOFTWARE, null) }
+    init {
+        background = null
+        stateListAnimator = null
+        setPadding(0, 0, 0, 0)
+        isAllCaps = false
+        // Ne pas forcer le rendu logiciel ici : pendant l'animation d'appui cela pouvait
+        // provoquer un crash graphique sur certains appareils. Le rendu reste accéléré matériellement.
+    }
+
+    override fun drawableStateChanged() {
+        // Les boutons Entrée/Pause/Sortie ont déjà leur animation de clic dans MainActivity.
+        // On neutralise un éventuel StateListAnimator ajouté par le thème pour éviter deux
+        // animations concurrentes sur la même View au moment exact de l'appui.
+        stateListAnimator = null
+        super.drawableStateChanged()
+        invalidate()
+    }
 
     open fun setLightAngle(angle: Float) { val n=((angle%360f)+360f)%360f; if(kotlin.math.abs(shortestDelta(jewelLightAngle,n))<0.6f)return; jewelLightAngle=n; invalidate() }
     open fun setJewelAccent(color:Int, lightColor:Int){ jewelAccent=color; jewelAccentLight=lightColor; invalidate() }
@@ -55,48 +71,40 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         backgroundLayer?.let{bitmap->
             val contrast=1.38f; val offset=-128f*contrast+128f+3f
             bitmapPaint.colorFilter=ColorMatrixColorFilter(ColorMatrix(floatArrayOf(contrast,0f,0f,0f,offset, 0f,contrast,0f,0f,offset, 0f,0f,contrast,0f,offset, 0f,0f,0f,1f,0f)))
-            bitmapPaint.alpha=if(isPressed)220 else 255; canvas.drawBitmap(bitmap,null,dst,bitmapPaint); bitmapPaint.alpha=255; bitmapPaint.colorFilter=null
+            bitmapPaint.alpha=255; canvas.drawBitmap(bitmap,null,dst,bitmapPaint); bitmapPaint.colorFilter=null
         }
         drawCrispFacetEdges(canvas,cx,cy,jewelRadius)
         when(id){R.id.entryButton->drawCelestialIcon(canvas,cx,cy,jewelRadius,false);R.id.exitButton->drawCelestialIcon(canvas,cx,cy,jewelRadius,true);R.id.pauseButton->drawPauseGlyph(canvas,cx,cy,jewelRadius)}
         canvas.restoreToCount(save); super.onDraw(canvas)
     }
 
-    /** Renforce uniquement les arêtes visuelles : lignes polygonales très fines et franches, sans flou. */
     private fun drawCrispFacetEdges(canvas:Canvas,cx:Float,cy:Float,r:Float){
         val clip=canvas.save(); val p=Path().apply{addCircle(cx,cy,r*.965f,Path.Direction.CW)}; canvas.clipPath(p)
         facetPaint.strokeWidth=r*.008f; facetPaint.color=Color.argb(if(nightLight)105 else 145,255,255,255)
-        val rings=floatArrayOf(.34f,.56f,.76f,.91f)
-        val pts=12
-        for(ri in rings.indices){
-            val rr=r*rings[ri]; val offset=if(ri%2==0)0.0 else Math.PI/12.0
-            val path=Path()
-            for(i in 0..pts){ val a=(Math.PI*2.0*(i%pts)/pts)+offset; val x=cx+(kotlin.math.cos(a)*rr).toFloat(); val y=cy+(kotlin.math.sin(a)*rr).toFloat(); if(i==0)path.moveTo(x,y) else path.lineTo(x,y) }
-            path.close(); canvas.drawPath(path,facetPaint)
-        }
+        val rings=floatArrayOf(.34f,.56f,.76f,.91f); val pts=12
+        for(ri in rings.indices){ val rr=r*rings[ri]; val off=if(ri%2==0)0.0 else Math.PI/12.0; val path=Path(); for(i in 0..pts){ val a=(Math.PI*2.0*(i%pts)/pts)+off; val x=cx+(kotlin.math.cos(a)*rr).toFloat(); val y=cy+(kotlin.math.sin(a)*rr).toFloat(); if(i==0)path.moveTo(x,y) else path.lineTo(x,y)}; path.close(); canvas.drawPath(path,facetPaint) }
         facetPaint.strokeWidth=r*.006f; facetPaint.color=Color.argb(if(nightLight)75 else 110,255,244,205)
-        for(i in 0 until pts){ val a=Math.PI*2.0*i/pts; val a2=a+Math.PI/12.0; val x1=cx+(kotlin.math.cos(a)*r*.34).toFloat(); val y1=cy+(kotlin.math.sin(a)*r*.34).toFloat(); val x2=cx+(kotlin.math.cos(a2)*r*.91).toFloat(); val y2=cy+(kotlin.math.sin(a2)*r*.91).toFloat(); canvas.drawLine(x1,y1,x2,y2,facetPaint) }
-        // Bord du cristal volontairement très franc.
+        for(i in 0 until pts){ val a=Math.PI*2.0*i/pts; val a2=a+Math.PI/12.0; canvas.drawLine(cx+(kotlin.math.cos(a)*r*.34).toFloat(),cy+(kotlin.math.sin(a)*r*.34).toFloat(),cx+(kotlin.math.cos(a2)*r*.91).toFloat(),cy+(kotlin.math.sin(a2)*r*.91).toFloat(),facetPaint) }
         facetPaint.strokeWidth=r*.018f; facetPaint.color=Color.argb(210,255,238,178); canvas.drawCircle(cx,cy,r*.955f,facetPaint)
         facetPaint.strokeWidth=r*.006f; facetPaint.color=Color.argb(235,255,255,230); canvas.drawCircle(cx,cy,r*.935f,facetPaint)
         canvas.restoreToCount(clip)
     }
 
     private fun drawCelestialFrame(canvas:Canvas,cx:Float,cy:Float,radius:Float){
-        val alpha=if(isPressed)225 else 255; framePaint.style=Paint.Style.STROKE; framePaint.strokeCap=Paint.Cap.SQUARE
+        val alpha=255; framePaint.style=Paint.Style.STROKE; framePaint.strokeCap=Paint.Cap.SQUARE
         framePaint.strokeWidth=radius*.09f; framePaint.shader=SweepGradient(cx,cy,intArrayOf(Color.argb(alpha,82,42,2),Color.argb(alpha,255,226,116),Color.argb(alpha,160,88,6),Color.argb(alpha,255,247,184),Color.argb(alpha,91,47,3),Color.argb(alpha,255,218,85),Color.argb(alpha,82,42,2)),null); canvas.drawCircle(cx,cy,radius*.95f,framePaint); framePaint.shader=null
         framePaint.strokeWidth=radius*.082f; framePaint.shader=SweepGradient(cx,cy,intArrayOf(Color.argb(alpha,0,8,35),Color.argb(alpha,5,91,220),Color.argb(alpha,0,15,62),Color.argb(alpha,24,126,255),Color.argb(alpha,0,13,51),Color.argb(alpha,4,80,202),Color.argb(alpha,0,8,35)),null); canvas.drawCircle(cx,cy,radius*.915f,framePaint); framePaint.shader=null
         framePaint.strokeWidth=radius*.027f; framePaint.color=Color.argb(alpha,255,202,62); canvas.drawCircle(cx,cy,radius*.878f,framePaint); framePaint.strokeWidth=radius*.009f; framePaint.color=Color.argb(alpha,255,248,190); canvas.drawCircle(cx,cy,radius*.893f,framePaint)
     }
 
     private fun drawCelestialIcon(canvas:Canvas,cx:Float,cy:Float,radius:Float,mirror:Boolean){
-        val ir=radius*.285f; val alpha=if(isPressed)220 else 255; iconPaint.style=Paint.Style.FILL; iconPaint.shader=RadialGradient(cx-ir*.22f,cy-ir*.25f,ir*1.3f,intArrayOf(Color.argb(alpha,24,112,214),Color.argb(alpha,2,35,104),Color.argb(alpha,0,7,28)),floatArrayOf(0f,.58f,1f),Shader.TileMode.CLAMP); canvas.drawCircle(cx,cy,ir,iconPaint); iconPaint.shader=null
+        val ir=radius*.285f; val alpha=255; iconPaint.style=Paint.Style.FILL; iconPaint.shader=RadialGradient(cx-ir*.22f,cy-ir*.25f,ir*1.3f,intArrayOf(Color.argb(alpha,24,112,214),Color.argb(alpha,2,35,104),Color.argb(alpha,0,7,28)),floatArrayOf(0f,.58f,1f),Shader.TileMode.CLAMP); canvas.drawCircle(cx,cy,ir,iconPaint); iconPaint.shader=null
         detailPaint.style=Paint.Style.STROKE; detailPaint.strokeCap=Paint.Cap.SQUARE; detailPaint.color=Color.argb(alpha,255,205,70); detailPaint.strokeWidth=radius*.032f; canvas.drawCircle(cx,cy,ir*.96f,detailPaint); detailPaint.color=Color.argb(alpha,255,242,168); detailPaint.strokeWidth=radius*.01f; canvas.drawCircle(cx,cy,ir*.78f,detailPaint)
         canvas.save(); if(mirror)canvas.scale(-1f,1f,cx,cy); val arrow=Path().apply{val x0=cx-ir*.5f;val x1=cx+ir*.18f;val tip=cx+ir*.58f;val half=ir*.18f;val head=ir*.33f;moveTo(x0,cy-half);lineTo(x1,cy-half);lineTo(x1,cy-head);lineTo(tip,cy);lineTo(x1,cy+head);lineTo(x1,cy+half);lineTo(x0,cy+half);close()}; iconPaint.style=Paint.Style.FILL;iconPaint.color=Color.argb(alpha,244,180,43);canvas.drawPath(arrow,iconPaint);detailPaint.style=Paint.Style.STROKE;detailPaint.strokeJoin=Paint.Join.MITER;detailPaint.strokeWidth=radius*.018f;detailPaint.color=Color.argb(alpha,255,244,174);canvas.drawPath(arrow,detailPaint);canvas.restore()
     }
 
     private fun drawPauseGlyph(canvas:Canvas,cx:Float,cy:Float,radius:Float){
-        val alpha=if(isPressed)215 else 255;val bw=radius*.145f;val bh=radius*.54f;val gap=radius*.105f;val top=cy-bh*.5f;val bottom=cy+bh*.5f;val corner=bw*.16f
+        val alpha=255;val bw=radius*.145f;val bh=radius*.54f;val gap=radius*.105f;val top=cy-bh*.5f;val bottom=cy+bh*.5f;val corner=bw*.16f
         detailPaint.style=Paint.Style.STROKE;detailPaint.strokeWidth=radius*.024f;detailPaint.color=Color.argb(alpha,88,45,4);canvas.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,detailPaint);canvas.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,detailPaint)
         pauseGlyphPaint.style=Paint.Style.FILL;pauseGlyphPaint.color=Color.argb(alpha,248,183,48);canvas.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,pauseGlyphPaint);canvas.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,pauseGlyphPaint)
         detailPaint.style=Paint.Style.STROKE;detailPaint.strokeWidth=radius*.009f;detailPaint.color=Color.argb(alpha,255,244,176);canvas.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,detailPaint);canvas.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,detailPaint)
