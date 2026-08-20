@@ -25,8 +25,6 @@ object AppThemeCatalog {
         HpTheme("steel_blue", "Acier Bleu", Color.parseColor("#071018"), Color.parseColor("#12202C"), Color.parseColor("#DDEAF2"), Color.parseColor("#F3F9FC"), Color.parseColor("#397FAE"), Color.parseColor("#8FD2FF"), Color.parseColor("#EFF8FF"), Color.parseColor("#10202C"), Color.parseColor("#AFC6D6"), Color.parseColor("#506674")),
         HpTheme("brushed_aluminum", "Alu Brossé", Color.parseColor("#202326"), Color.parseColor("#30353A"), Color.parseColor("#D8DBDE"), Color.parseColor("#F0F2F3"), Color.parseColor("#7C858C"), Color.parseColor("#E3E7EA"), Color.parseColor("#F5F6F7"), Color.parseColor("#202428"), Color.parseColor("#BFC5C9"), Color.parseColor("#5C646A")),
         HpTheme("natural_carbon", "Carbone", Color.parseColor("#070808"), Color.parseColor("#161819"), Color.parseColor("#C7C9C9"), Color.parseColor("#E4E6E6"), Color.parseColor("#596166"), Color.parseColor("#CDD2D4"), Color.parseColor("#F1F2F2"), Color.parseColor("#171919"), Color.parseColor("#A9AFB2"), Color.parseColor("#565C5F")),
-        // Le diamant garde volontairement un écrin noir/bleu nuit, même en palette claire :
-        // le contraste sombre est indispensable pour rendre visibles transparence, réfraction et éclats.
         HpTheme("diamond_crystal", "Diamant", Color.parseColor("#030810"), Color.parseColor("#09131F"), Color.parseColor("#07111D"), Color.parseColor("#0D1A28"), Color.parseColor("#8DC9E8"), Color.parseColor("#F4FBFF"), Color.parseColor("#F7FCFF"), Color.parseColor("#F7FCFF"), Color.parseColor("#AFC8D8"), Color.parseColor("#AFC8D8"))
     )
 
@@ -50,6 +48,24 @@ object AppThemeCatalog {
     }
 
     fun set(context: Context, theme: HpTheme) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_THEME, theme.id).remove("app_bg").putBoolean("custom_bg", false).putBoolean("custom_image_bg", false).commit()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_THEME, theme.id)
+            .remove("app_bg")
+            .putBoolean("custom_bg", false)
+            .putBoolean("custom_image_bg", false)
+            .commit()
+
+        // Un changement de thème doit aussi reprendre la main sur l'apparence des widgets.
+        // On conserve les options fonctionnelles du widget (ex. affichage de la position),
+        // mais on enlève seulement les anciennes couleurs personnalisées qui masquaient le thème.
+        context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
+            .edit()
+            .remove("widget_bg")
+            .remove("widget_accent")
+            .apply()
+
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
     }
 }
