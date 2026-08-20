@@ -1,18 +1,21 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.drawable.Drawable
+import android.graphics.RectF
 import android.util.AttributeSet
+import android.util.Base64
 import android.widget.Button
 import kotlin.math.min
 
 /**
- * Boutons d'action HP composés de ressources Android natives.
- * Les anciens PNG séparés ont été remplacés par des drawables XML afin
- * d'éviter les erreurs de compilation AAPT2 tout en gardant les 3 couleurs.
+ * Boutons d'action HP utilisant les visuels générés d'origine.
+ * Les PNG sont stockés encodés dans res/raw puis décodés à l'exécution afin
+ * qu'AAPT2 ne tente pas de compiler directement les fichiers image.
  */
 open class LightReactiveJewelButton @JvmOverloads constructor(
     context: Context,
@@ -20,9 +23,10 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     defStyleAttr: Int = android.R.attr.buttonStyle
 ) : Button(context, attrs, defStyleAttr) {
 
+    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val pauseGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var backgroundLayer: Drawable? = null
-    private var iconLayer: Drawable? = null
+    private var backgroundLayer: Bitmap? = null
+    private var iconLayer: Bitmap? = null
     private var loadedForId: Int = ViewIdNone
 
     protected var jewelLightAngle = -55f
@@ -56,22 +60,23 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         invalidate()
     }
 
-    @Suppress("DEPRECATION")
-    private fun drawable(resId: Int): Drawable? =
-        if (android.os.Build.VERSION.SDK_INT >= 21) resources.getDrawable(resId, context.theme)
-        else resources.getDrawable(resId)
+    private fun decodeRawBitmap(resId: Int): Bitmap? = runCatching {
+        val encoded = resources.openRawResource(resId).bufferedReader().use { it.readText() }
+        val bytes = Base64.decode(encoded.trim(), Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
 
     private fun ensureLayers() {
         if (loadedForId == id && backgroundLayer != null) return
         loadedForId = id
         backgroundLayer = when (id) {
-            R.id.entryButton -> drawable(R.drawable.hp_button_bg_green)
-            R.id.pauseButton -> drawable(R.drawable.hp_button_bg_orange)
-            R.id.exitButton -> drawable(R.drawable.hp_button_bg_red)
+            R.id.entryButton -> decodeRawBitmap(R.raw.hp_button_bg_green_b64)
+            R.id.pauseButton -> decodeRawBitmap(R.raw.hp_button_bg_orange_b64)
+            R.id.exitButton -> decodeRawBitmap(R.raw.hp_button_bg_red_b64)
             else -> null
         }
         iconLayer = if (id == R.id.entryButton || id == R.id.exitButton) {
-            drawable(R.drawable.hp_button_icon_entry)
+            decodeRawBitmap(R.raw.hp_button_icon_entry_b64)
         } else null
     }
 
@@ -84,15 +89,12 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val radius = min(w, h) * 0.50f
         val cx = w * 0.50f
         val cy = h * 0.50f
-        val left = (cx - radius).toInt()
-        val top = (cy - radius).toInt()
-        val right = (cx + radius).toInt()
-        val bottom = (cy + radius).toInt()
+        val dst = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
 
-        backgroundLayer?.let {
-            it.alpha = if (isPressed) 220 else 255
-            it.setBounds(left, top, right, bottom)
-            it.draw(canvas)
+        backgroundLayer?.let { bitmap ->
+            bitmapPaint.alpha = if (isPressed) 220 else 255
+            canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
+            bitmapPaint.alpha = 255
         }
 
         when (id) {
@@ -106,12 +108,13 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
     private fun drawCelestialIcon(canvas: Canvas, cx: Float, cy: Float, radius: Float, mirror: Boolean) {
         val icon = iconLayer ?: return
         val r = radius * 0.55f
-        icon.alpha = if (isPressed) 205 else 245
-        icon.setBounds((cx-r).toInt(), (cy-r).toInt(), (cx+r).toInt(), (cy+r).toInt())
+        val dst = RectF(cx - r, cy - r, cx + r, cy + r)
+        bitmapPaint.alpha = if (isPressed) 205 else 245
         canvas.save()
         if (mirror) canvas.scale(-1f, 1f, cx, cy)
-        icon.draw(canvas)
+        canvas.drawBitmap(icon, null, dst, bitmapPaint)
         canvas.restore()
+        bitmapPaint.alpha = 255
     }
 
     private fun drawPauseGlyph(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
@@ -123,8 +126,8 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val top = cy - barH * 0.50f
         val bottom = cy + barH * 0.50f
         val corner = barW * 0.28f
-        canvas.drawRoundRect(cx-gap-barW, top, cx-gap, bottom, corner, corner, pauseGlyphPaint)
-        canvas.drawRoundRect(cx+gap, top, cx+gap+barW, bottom, corner, corner, pauseGlyphPaint)
+        canvas.drawRoundRect(cx - gap - barW, top, cx - gap, bottom, corner, corner, pauseGlyphPaint)
+        canvas.drawRoundRect(cx + gap, top, cx + gap + barW, bottom, corner, corner, pauseGlyphPaint)
     }
 
     protected fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
