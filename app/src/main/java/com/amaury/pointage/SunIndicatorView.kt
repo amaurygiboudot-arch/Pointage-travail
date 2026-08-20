@@ -23,7 +23,6 @@ import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -163,10 +162,9 @@ class SunIndicatorView @JvmOverloads constructor(context: Context, attrs: Attrib
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (!visibleCelestial || width <= 0 || height <= 0) return
-
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
-        val earthY = height * 0.55f // même axe exact que HpAnalogClockView
+        val earthY = height * 0.55f
         val orbitRadius = base * 0.31f
         val activeGlow = max(base * 0.085f, 24f)
         val inactiveGlow = activeGlow * 0.62f
@@ -174,26 +172,20 @@ class SunIndicatorView @JvmOverloads constructor(context: Context, attrs: Attrib
         val inactiveCore = activeCore * 0.78f
         val sun = sunPosition
         val moon = moonPosition
-
         val sunScreen = sun?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
         val moonScreen = moon?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
-
         if (sun != null && sunScreen != null) {
             val active = !nightMode
             val size = sun.apparentScale.toFloat()
             drawSun(canvas, sunScreen.first, sunScreen.second, (if (active) activeGlow else inactiveGlow) * size, (if (active) activeCore else inactiveCore) * size, active)
         }
-
         if (moon != null && moonScreen != null) {
             val active = nightMode
             val size = moon.apparentScale.toFloat()
-            val eclipse = isLunarEclipseGeometry(sun, moon)
+            val eclipse = sun?.let { isLunarEclipseGeometry(it, moon) } ?: false
             drawMoon(canvas, moonScreen.first, moonScreen.second, (if (active) activeGlow * 0.90f else inactiveGlow * 0.86f) * size, (if (active) activeCore else inactiveCore) * size, active, sunScreen, eclipse)
         }
-
-        // Terre au-dessus des orbites mais sous les aiguilles : centre commun garanti.
         drawEarth(canvas, earthX, earthY, max(base * 0.050f, 13f), sun)
-
         if (sun == null && moon == null) {
             val sunFallback = orbitFallback(false, earthX, earthY, orbitRadius)
             val moonFallback = orbitFallback(true, earthX, earthY, orbitRadius)
@@ -203,7 +195,6 @@ class SunIndicatorView @JvmOverloads constructor(context: Context, attrs: Attrib
         }
     }
 
-    /** Projection façon planétarium dans le cadran : l'azimut réel tourne autour de la Terre et le téléphone devient la direction de référence. */
     private fun mapToWatchOrbit(position: CelestialEphemeris.Position, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
         val relativeAz = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuth.toFloat()).toDouble())
         val altitude = Math.toRadians(position.altitude.coerceIn(-90.0, 90.0))
@@ -228,7 +219,6 @@ class SunIndicatorView @JvmOverloads constructor(context: Context, attrs: Attrib
         val alt2 = Math.toRadians(moon.altitude)
         val dot = (sin(alt1) * sin(alt2) + cos(alt1) * cos(alt2) * cos(az1 - az2)).coerceIn(-1.0, 1.0)
         val separation = Math.toDegrees(acos(dot))
-        // Très strict pour ne pas fabriquer de fausses éclipses : Soleil et Lune doivent être presque opposés.
         return separation > 178.7 && lunarPhase in 0.485..0.515
     }
 
@@ -273,7 +263,6 @@ class SunIndicatorView @JvmOverloads constructor(context: Context, attrs: Attrib
             paint.color=Color.argb((55+illuminatedFraction*(if(active)200 else 125)).toInt().coerceIn(40,255),232,240,255); canvas.drawPath(moonLitPath,paint)
             paint.shader=RadialGradient(cx+r*.34f,cy,r*1.15f,intArrayOf(Color.argb(if(active)78 else 34,255,255,255),Color.TRANSPARENT),floatArrayOf(0f,1f),Shader.TileMode.CLAMP); canvas.drawCircle(cx,cy,r,paint); paint.shader=null; canvas.restore()
         } else {
-            // Ombre de la Terre : lors d'une vraie géométrie d'éclipse lunaire, la Lune s'assombrit fortement.
             paint.shader=RadialGradient(cx-r*.18f,cy-r*.12f,r*1.15f,intArrayOf(Color.argb(150,85,28,18),Color.argb(235,8,8,12)),floatArrayOf(0f,1f),Shader.TileMode.CLAMP); canvas.drawCircle(cx,cy,r,paint); paint.shader=null
         }
         paint.style=Paint.Style.STROKE; paint.strokeWidth=max(1.2f,coreRadius*.08f); paint.color=Color.argb(if(eclipse)80 else if(active)190 else 110,255,255,255); canvas.drawCircle(cx,cy,r,paint); paint.style=Paint.Style.FILL
