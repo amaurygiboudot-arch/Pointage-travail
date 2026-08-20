@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.RectF
 import android.graphics.Shader
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -21,9 +22,12 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
@@ -31,8 +35,7 @@ class SunIndicatorView @JvmOverloads constructor(
 ) : View(context, attrs), SensorEventListener {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val moonPath = Path()
-    private val moonCutout = Path()
+    private val moonLitPath = Path()
     private val handler = Handler(Looper.getMainLooper())
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
@@ -45,11 +48,12 @@ class SunIndicatorView @JvmOverloads constructor(
     private var moonPosition: CelestialEphemeris.Position? = null
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
+    private var lunarPhase = 0.0 // 0=new, .25=premier quartier, .5=pleine, .75=dernier quartier
 
     private val refreshTask = object : Runnable {
         override fun run() {
             refreshAstronomy()
-            if (isAttachedToWindow && visibleCelestial) handler.postDelayed(this, 30_000L)
+            if (isAttachedToWindow && visibleCelestial) handler.postDelayed(this, 60_000L)
         }
     }
 
@@ -76,7 +80,7 @@ class SunIndicatorView @JvmOverloads constructor(
         updateSensorRegistration()
         if (visibleCelestial) {
             refreshAstronomy()
-            handler.postDelayed(refreshTask, 30_000L)
+            handler.postDelayed(refreshTask, 60_000L)
         }
         invalidate()
     }
@@ -100,7 +104,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (visibleCelestial) {
             handler.removeCallbacks(refreshTask)
             refreshAstronomy()
-            handler.postDelayed(refreshTask, 30_000L)
+            handler.postDelayed(refreshTask, 60_000L)
         }
     }
 
@@ -130,8 +134,9 @@ class SunIndicatorView @JvmOverloads constructor(
 
     private fun refreshAstronomy() {
         val location = lastKnownLocation()
+        val now = System.currentTimeMillis()
+        lunarPhase = computeLunarPhase(now)
         if (location != null) {
-            val now = System.currentTimeMillis()
             sunPosition = CelestialEphemeris.sun(location.latitude, location.longitude, now)
             moonPosition = CelestialEphemeris.moon(location.latitude, location.longitude, now)
         } else {
@@ -139,6 +144,15 @@ class SunIndicatorView @JvmOverloads constructor(
             moonPosition = null
         }
         invalidate()
+    }
+
+    private fun computeLunarPhase(timeMs: Long): Double {
+        // Cycle synodique moyen, suffisamment fin pour un rendu visuel qui évolue réellement d'heure en heure.
+        val synodicMonth = 29.530588853
+        val knownNewMoonJd = 2451550.1 // 2000-01-06 ~ nouvelle Lune
+        val jd = 2440587.5 + timeMs / 86400000.0
+        val age = ((jd - knownNewMoonJd) % synodicMonth + synodicMonth) % synodicMonth
+        return age / synodicMonth
     }
 
     private fun lastKnownLocation(): Location? {
@@ -249,18 +263,56 @@ class SunIndicatorView @JvmOverloads constructor(
         canvas.drawCircle(cx, cy, glowRadius, paint)
         paint.shader = null
 
-        moonPath.reset()
-        moonCutout.reset()
-        moonPath.addCircle(cx, cy, coreRadius * 1.12f, Path.Direction.CW)
-        moonCutout.addCircle(cx + coreRadius * 0.48f, cy - coreRadius * 0.12f, coreRadius * 0.98f, Path.Direction.CW)
-        moonPath.op(moonCutout, Path.Op.DIFFERENCE)
+        val r = coreRadius * 1.12f
+        paint.color = Color.argb(if (active) 92 else 48, 68, 80, 102)
+        canvas.drawCircle(cx, cy, r, paint)
 
-        paint.color = Color.argb(if (active) 250 else 155, 225, 235, 255)
-        canvas.drawPath(moonPath, paint)
+        // Phase continue : le terminateur est calculé à partir de l'angle de phase,
+        // donc la forme évolue en continu et pas seulement par 8 icônes fixes.
+        val phaseAngle = lunarPhase * 2.0 * PI
+        val illuminatedFraction = (1.0 - cos(phaseAngle)) * 0.5
+        val waxing = lunarPhase < 0.5
+        val terminatorScale = cos(phaseAngle).toFloat()
+
+        val disc = RectF(cx - r, cy - r, cx + r, cy + r)
+        moonLitPath.reset()
+        moonLitPath.addArc(disc, -90f, 180f)
+
+        val ellipseHalfWidth = abs(terminatorScale) * r
+        val termRect = RectF(cx - ellipseHalfWidth, cy - r, cx + ellipseHalfWidth, cy + r)
+        if (waxing) {
+            if (terminatorScale >= 0f) moonLitPath.arcTo(termRect, 90f, -180f)
+            else moonLitPath.arcTo(termRect, 90f, 180f)
+        } else {
+            if (terminatorScale >= 0f) moonLitPath.arcTo(termRect, 90f, 180f)
+            else moonLitPath.arcTo(termRect, 90f, -180f)
+        }
+        moonLitPath.close()
+
+        paint.color = Color.argb(if (active) 250 else 160, 225, 235, 255)
+        canvas.save()
+        canvas.clipPath(Path().apply { addCircle(cx, cy, r, Path.Direction.CW) })
+
+        // À nouvelle Lune, on conserve un très léger liseré de lumière cendrée.
+        val alpha = (40 + illuminatedFraction * (if (active) 215 else 120)).toInt().coerceIn(35, 255)
+        paint.color = Color.argb(alpha, 225, 235, 255)
+        canvas.drawPath(moonLitPath, paint)
+
+        // Léger relief central pour éviter un disque totalement plat.
+        paint.shader = RadialGradient(
+            cx - r * 0.22f, cy - r * 0.18f, r * 1.2f,
+            intArrayOf(Color.argb(if (active) 65 else 30, 255, 255, 255), Color.TRANSPARENT),
+            floatArrayOf(0f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, cy, r, paint)
+        paint.shader = null
+        canvas.restore()
+
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(1.2f, coreRadius * 0.08f)
         paint.color = Color.argb(if (active) 190 else 110, 255, 255, 255)
-        canvas.drawPath(moonPath, paint)
+        canvas.drawCircle(cx, cy, r, paint)
         paint.style = Paint.Style.FILL
     }
 
