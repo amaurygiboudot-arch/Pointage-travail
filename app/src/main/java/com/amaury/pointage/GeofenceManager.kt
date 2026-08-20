@@ -10,6 +10,8 @@ import android.os.Build
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class WorkZone(
     val id: String,
@@ -19,6 +21,8 @@ data class WorkZone(
 )
 
 object GeofenceManager {
+    private const val GPS_PREFS = "gps_settings"
+    private const val LAST_GOOD_ZONES = "zones_last_good"
 
     private fun pendingIntent(context: Context): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -106,6 +110,7 @@ object GeofenceManager {
                 try {
                     client.addGeofences(request, pendingIntent(context))
                         .addOnSuccessListener {
+                            rememberLastGoodZones(context)
                             onResult(true, "${geofences.size} zone(s) GPS activée(s)")
                         }
                         .addOnFailureListener {
@@ -129,10 +134,83 @@ object GeofenceManager {
         }
     }
 
+    private fun rememberLastGoodZones(context: Context) {
+        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val raw = prefs.getString("zones", "[]") ?: "[]"
+        val hasZones = runCatching { JSONArray(raw).length() > 0 }.getOrDefault(false)
+        if (hasZones) {
+            prefs.edit().putString(LAST_GOOD_ZONES, raw).apply()
+        }
+    }
+
+    /**
+     * Si seul le rayon a été modifié et qu'un géocodage temporaire a vidé la liste
+     * des zones, restaure les dernières coordonnées connues puis applique le nouveau
+     * rayon. La restauration n'est autorisée que si la liste des adresses est
+     * strictement identique, afin de ne jamais réutiliser un ancien lieu par erreur.
+     */
+    private fun recoverRadiusOnlyUpdate(context: Context): List<WorkZone> {
+        val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+        val currentZones = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }
+            .getOrElse { JSONArray() }
+        if (currentZones.length() > 0) return emptyList()
+
+        val currentAddresses = prefs.getString("address", "")
+            .orEmpty()
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .map { it.lowercase() }
+            .toSet()
+        if (currentAddresses.isEmpty()) return emptyList()
+
+        val backup = runCatching { JSONArray(prefs.getString(LAST_GOOD_ZONES, "[]") ?: "[]") }
+            .getOrElse { JSONArray() }
+        if (backup.length() == 0) return emptyList()
+
+        val backupAddresses = buildSet {
+            for (i in 0 until backup.length()) {
+                val address = backup.optJSONObject(i)?.optString("address")?.trim().orEmpty()
+                if (address.isNotBlank()) add(address.lowercase())
+            }
+        }
+        if (backupAddresses != currentAddresses) return emptyList()
+
+        val radius = prefs.getInt("radius", 150).coerceIn(50, 1000)
+        val restoredJson = JSONArray()
+        val restoredZones = mutableListOf<WorkZone>()
+
+        for (i in 0 until backup.length()) {
+            val old = backup.optJSONObject(i) ?: continue
+            val id = old.optString("id").takeIf { it.isNotBlank() } ?: continue
+            val latitude = old.optDouble("latitude", Double.NaN)
+            val longitude = old.optDouble("longitude", Double.NaN)
+            if (!latitude.isFinite() || !longitude.isFinite()) continue
+
+            restoredJson.put(JSONObject(old.toString()).put("radius", radius))
+            restoredZones += WorkZone(id, latitude, longitude, radius.toFloat())
+        }
+
+        if (restoredZones.isEmpty()) return emptyList()
+
+        prefs.edit()
+            .putString("zones", restoredJson.toString())
+            .putBoolean("enabled", true)
+            .remove("active_zones")
+            .apply()
+
+        return restoredZones
+    }
+
     fun remove(context: Context) {
         try {
-            LocationServices.getGeofencingClient(context)
-                .removeGeofences(pendingIntent(context))
+            val client = LocationServices.getGeofencingClient(context)
+            val recoveredZones = recoverRadiusOnlyUpdate(context)
+            client.removeGeofences(pendingIntent(context)).addOnCompleteListener {
+                if (recoveredZones.isNotEmpty() && hasRequiredPermissions(context)) {
+                    registerAll(context, recoveredZones)
+                }
+            }
         } catch (_: Exception) {
             // Ne bloque jamais l'application si les services de localisation du constructeur sont absents.
         }
