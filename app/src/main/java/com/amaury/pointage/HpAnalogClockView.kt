@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -23,6 +25,9 @@ class HpAnalogClockView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        isDither = false
+    }
     private val earthShadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val earthGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -57,7 +62,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         drawHandPng(canvas, handBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
         drawHandPng(canvas, secondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
 
-        // Terre au-dessus des aiguilles + lumière réellement orientée par le Soleil.
         drawEarthPng(canvas, earthBitmap, cx, cy, max(faceRadius * 0.16f, 13f))
 
         postInvalidateDelayed(50L)
@@ -65,8 +69,24 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-        bitmapPaint.alpha = 255
-        canvas.drawBitmap(faceBitmap, null, rect, bitmapPaint)
+
+        // Renforce légèrement le micro-contraste du PNG existant pour que les chiffres,
+        // graduations et contours dorés paraissent plus nets, sans changer l'image source.
+        val contrast = 1.16f
+        val translate = (-128f * contrast + 128f) + 3f
+        facePaint.colorFilter = ColorMatrixColorFilter(
+            ColorMatrix(
+                floatArrayOf(
+                    contrast, 0f, 0f, 0f, translate,
+                    0f, contrast, 0f, 0f, translate,
+                    0f, 0f, contrast, 0f, translate,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+        )
+        facePaint.alpha = 255
+        canvas.drawBitmap(faceBitmap, null, rect, facePaint)
+        facePaint.colorFilter = null
     }
 
     private fun drawEarthPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float) {
@@ -100,7 +120,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         canvas.save()
         canvas.clipPath(earthClip)
 
-        // Ombre : faible côté Soleil, forte sur la face opposée.
         earthShadePaint.shader = LinearGradient(
             sunSideX, sunSideY, nightSideX, nightSideY,
             intArrayOf(
@@ -113,7 +132,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         )
         canvas.drawRect(rect, earthShadePaint)
 
-        // Petit gain lumineux du côté exposé au Soleil pour rendre la direction évidente.
         earthGlowPaint.shader = LinearGradient(
             sunSideX, sunSideY, cx, cy,
             intArrayOf(Color.argb(80, 255, 238, 188), Color.argb(0, 255, 238, 188)),
