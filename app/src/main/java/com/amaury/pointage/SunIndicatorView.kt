@@ -7,8 +7,6 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
@@ -41,6 +39,7 @@ class SunIndicatorView @JvmOverloads constructor(
 ) : View(context, attrs), SensorEventListener {
 
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val moonLightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val moonShadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val earthShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sunBitmap: Bitmap by lazy { HpDesignAssets.sun }
@@ -183,39 +182,20 @@ class SunIndicatorView @JvmOverloads constructor(
 
         if (sun != null && sunScreen != null) {
             CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
-            drawCelestialPng(
-                canvas, sunBitmap, sunScreen.first, sunScreen.second,
-                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
-                !nightMode, false
-            )
+            drawCelestialPng(canvas, sunBitmap, sunScreen.first, sunScreen.second,
+                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(), !nightMode)
         }
 
         if (moon != null && moonScreen != null) {
             val moonRadius = (if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f) * moon.apparentScale.toFloat()
-            drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode, true)
+            drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
             if (sun != null && sunScreen != null) {
                 val illumination = lunarIllumination(sun, moon)
-                drawMoonSunlight(
-                    canvas,
-                    moonScreen.first,
-                    moonScreen.second,
-                    moonRadius,
-                    sunScreen.first,
-                    sunScreen.second,
-                    illumination
-                )
-                drawEarthShadowOnMoon(
-                    canvas,
-                    earthX,
-                    earthY,
-                    sunScreen.first,
-                    sunScreen.second,
-                    moonScreen.first,
-                    moonScreen.second,
-                    moonRadius,
-                    eclipseStrength(sun, moon)
-                )
+                drawMoonSunlight(canvas, moonScreen.first, moonScreen.second, moonRadius,
+                    sunScreen.first, sunScreen.second, illumination)
+                drawEarthShadowOnMoon(canvas, earthX, earthY, sunScreen.first, sunScreen.second,
+                    moonScreen.first, moonScreen.second, moonRadius, eclipseStrength(sun, moon))
             }
         }
 
@@ -224,16 +204,15 @@ class SunIndicatorView @JvmOverloads constructor(
             val moonFallback = orbitFallback(true, earthX, earthY, orbitRadius)
             CelestialLightingState.updateSunDirection(sunFallback.first - earthX, sunFallback.second - earthY)
             drawCelestialPng(canvas, sunBitmap, sunFallback.first, sunFallback.second,
-                if (!nightMode) activeRadius else inactiveRadius, !nightMode, false)
+                if (!nightMode) activeRadius else inactiveRadius, !nightMode)
             val fallbackMoonRadius = if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
-            drawCelestialPng(canvas, moonBitmap, moonFallback.first, moonFallback.second,
-                fallbackMoonRadius, nightMode, true)
+            drawCelestialPng(canvas, moonBitmap, moonFallback.first, moonFallback.second, fallbackMoonRadius, nightMode)
             drawMoonSunlight(canvas, moonFallback.first, moonFallback.second, fallbackMoonRadius,
                 sunFallback.first, sunFallback.second, 0.62f)
         }
     }
 
-    private fun drawCelestialPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float, active: Boolean, brightenMoon: Boolean) {
+    private fun drawCelestialPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float, active: Boolean) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
         val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -247,51 +226,76 @@ class SunIndicatorView @JvmOverloads constructor(
             dstWidth = diameter * aspect
         }
         bitmapPaint.alpha = if (active) 255 else 215
-        bitmapPaint.colorFilter = if (brightenMoon) {
-            ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-                1.20f, 0f, 0f, 0f, 14f,
-                0f, 1.20f, 0f, 0f, 14f,
-                0f, 0f, 1.20f, 0f, 14f,
-                0f, 0f, 0f, 1f, 0f
-            )))
-        } else null
+        bitmapPaint.colorFilter = null
         val dst = RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f)
         canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
         bitmapPaint.alpha = 255
-        bitmapPaint.colorFilter = null
     }
 
-    /** Éclairage direct de la Lune par le Soleil. */
-    private fun drawMoonSunlight(canvas: Canvas, moonX: Float, moonY: Float, moonRadius: Float, sunX: Float, sunY: Float, illumination: Float) {
+    /**
+     * Éclairage de la Lune : seule la face tournée vers le Soleil reçoit la lumière.
+     * La moitié opposée reste dans l'ombre, sans éclaircissement global du PNG.
+     */
+    private fun drawMoonSunlight(
+        canvas: Canvas,
+        moonX: Float,
+        moonY: Float,
+        moonRadius: Float,
+        sunX: Float,
+        sunY: Float,
+        illumination: Float
+    ) {
         val dx = sunX - moonX
         val dy = sunY - moonY
         val length = sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
         val ux = dx / length
         val uy = dy / length
-        val startX = moonX + ux * moonRadius
-        val startY = moonY + uy * moonRadius
-        val endX = moonX - ux * moonRadius
-        val endY = moonY - uy * moonRadius
-        val darkness = (215f * (1f - illumination).coerceIn(0f, 1f) + 45f).toInt().coerceIn(45, 235)
-        moonShadePaint.shader = LinearGradient(
-            startX, startY, endX, endY,
-            intArrayOf(Color.argb(0, 0, 0, 0), Color.argb((darkness * 0.35f).toInt(), 0, 0, 0), Color.argb(darkness, 0, 0, 0)),
-            floatArrayOf(0f, 0.52f, 1f), Shader.TileMode.CLAMP
+
+        val frontX = moonX + ux * moonRadius
+        val frontY = moonY + uy * moonRadius
+        val backX = moonX - ux * moonRadius
+        val backY = moonY - uy * moonRadius
+        val lit = illumination.coerceIn(0.05f, 1f)
+
+        // Lumière uniquement côté Soleil : elle disparaît au niveau du terminateur.
+        val lightAlpha = (95f * lit).toInt().coerceIn(8, 95)
+        moonLightPaint.shader = LinearGradient(
+            frontX, frontY, backX, backY,
+            intArrayOf(
+                Color.argb(lightAlpha, 255, 248, 220),
+                Color.argb((lightAlpha * 0.35f).toInt(), 255, 248, 225),
+                Color.argb(0, 255, 255, 255),
+                Color.argb(0, 255, 255, 255)
+            ),
+            floatArrayOf(0f, 0.34f, 0.50f, 1f),
+            Shader.TileMode.CLAMP
         )
+
+        // Ombre uniquement derrière : pas d'assombrissement de la face avant.
+        val darkness = (205f * (1f - lit) + 55f).toInt().coerceIn(55, 230)
+        moonShadePaint.shader = LinearGradient(
+            frontX, frontY, backX, backY,
+            intArrayOf(
+                Color.argb(0, 0, 0, 0),
+                Color.argb(0, 0, 0, 0),
+                Color.argb((darkness * 0.35f).toInt(), 0, 0, 0),
+                Color.argb(darkness, 0, 0, 0)
+            ),
+            floatArrayOf(0f, 0.48f, 0.62f, 1f),
+            Shader.TileMode.CLAMP
+        )
+
         val oval = RectF(moonX - moonRadius, moonY - moonRadius, moonX + moonRadius, moonY + moonRadius)
         val moonClip = Path().apply { addOval(oval, Path.Direction.CW) }
         canvas.save()
         canvas.clipPath(moonClip)
+        canvas.drawRect(oval, moonLightPaint)
         canvas.drawRect(oval, moonShadePaint)
         canvas.restore()
+        moonLightPaint.shader = null
         moonShadePaint.shader = null
     }
 
-    /**
-     * Ombre de la Terre sur la Lune. Elle apparaît quand la Lune passe près de
-     * l'axe opposé au Soleil (configuration d'éclipse) et glisse sur le disque
-     * lunaire selon le défaut d'alignement.
-     */
     private fun drawEarthShadowOnMoon(
         canvas: Canvas,
         earthX: Float,
@@ -317,8 +321,6 @@ class SunIndicatorView @JvmOverloads constructor(
         val moonDirX = mx / ml
         val moonDirY = my / ml
 
-        // Erreur signée perpendiculaire à l'axe de l'ombre : elle déplace la tache
-        // sur la Lune au lieu de la garder figée au centre.
         val cross = antiX * moonDirY - antiY * moonDirX
         val tangentX = -antiY
         val tangentY = antiX
@@ -329,9 +331,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val shadowRadius = moonRadius * (0.88f + 0.28f * strength)
         val alpha = (225f * strength).toInt().coerceIn(0, 225)
         earthShadowPaint.shader = RadialGradient(
-            shadowX,
-            shadowY,
-            shadowRadius,
+            shadowX, shadowY, shadowRadius,
             intArrayOf(
                 Color.argb(alpha, 8, 8, 12),
                 Color.argb((alpha * 0.72f).toInt(), 18, 10, 12),
@@ -355,7 +355,6 @@ class SunIndicatorView @JvmOverloads constructor(
         return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.05f, 1f)
     }
 
-    /** Intensité d'ombre terrestre près de l'opposition Soleil-Lune. */
     private fun eclipseStrength(sun: CelestialEphemeris.Position, moon: CelestialEphemeris.Position): Float {
         val separation = angularSeparation(sun, moon)
         val start = Math.toRadians(158.0)
@@ -374,7 +373,6 @@ class SunIndicatorView @JvmOverloads constructor(
         return acos(cosSeparation)
     }
 
-    /** Orbite visuelle strictement centrée sur la Terre. */
     private fun mapToWatchOrbit(position: CelestialEphemeris.Position, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
         val angle = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuth.toFloat()).toDouble())
         val x = cx + sin(angle).toFloat() * radius
