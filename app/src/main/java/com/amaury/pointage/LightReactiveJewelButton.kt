@@ -12,6 +12,7 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.SweepGradient
 import android.util.AttributeSet
 import android.util.Base64
 import android.widget.Button
@@ -19,8 +20,8 @@ import kotlin.math.min
 
 /**
  * Boutons d'action HP utilisant les visuels générés d'origine.
- * Le fond gemme reste celui sauvegardé, tandis que les pictogrammes sont
- * tracés en vectoriel à la résolution de l'écran pour rester parfaitement nets.
+ * Le fond gemme reste celui sauvegardé. Le cerclage céleste est rendu sous
+ * le cristal pour conserver la profondeur et la transparence du bouton.
  */
 open class LightReactiveJewelButton @JvmOverloads constructor(
     context: Context,
@@ -32,6 +33,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         isFilterBitmap = true
         isDither = true
     }
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pauseGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -95,8 +97,18 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val radius = min(w, h) * 0.50f
         val cx = w * 0.50f
         val cy = h * 0.50f
-        val inset = radius * 0.018f
-        val dst = RectF(cx - radius + inset, cy - radius + inset, cx + radius - inset, cy + radius - inset)
+
+        // 1) Cerclage céleste EN DESSOUS du cristal.
+        drawCelestialFrame(canvas, cx, cy, radius)
+
+        // 2) Le cristal coloré vient légèrement par-dessus le cerclage.
+        val jewelRadius = radius * 0.885f
+        val dst = RectF(
+            cx - jewelRadius,
+            cy - jewelRadius,
+            cx + jewelRadius,
+            cy + jewelRadius
+        )
 
         backgroundLayer?.let { bitmap ->
             val contrast = 1.10f
@@ -117,12 +129,84 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
             bitmapPaint.colorFilter = null
         }
 
+        // 3) Pictogramme au premier plan.
         when (id) {
-            R.id.entryButton -> drawCelestialIcon(canvas, cx, cy, radius, false)
-            R.id.exitButton -> drawCelestialIcon(canvas, cx, cy, radius, true)
-            R.id.pauseButton -> drawPauseGlyph(canvas, cx, cy, radius)
+            R.id.entryButton -> drawCelestialIcon(canvas, cx, cy, jewelRadius, false)
+            R.id.exitButton -> drawCelestialIcon(canvas, cx, cy, jewelRadius, true)
+            R.id.pauseButton -> drawPauseGlyph(canvas, cx, cy, jewelRadius)
         }
         super.onDraw(canvas)
+    }
+
+    /** Cerclage rond bleu/or transparent au centre, placé derrière la gemme. */
+    private fun drawCelestialFrame(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        val alpha = if (isPressed) 220 else 255
+
+        // Bord extérieur doré, avec plusieurs reflets pour rappeler le cerclage généré.
+        framePaint.style = Paint.Style.STROKE
+        framePaint.strokeCap = Paint.Cap.ROUND
+        framePaint.strokeWidth = radius * 0.090f
+        framePaint.shader = SweepGradient(
+            cx,
+            cy,
+            intArrayOf(
+                Color.argb(alpha, 118, 68, 8),
+                Color.argb(alpha, 255, 222, 116),
+                Color.argb(alpha, 188, 116, 17),
+                Color.argb(alpha, 255, 239, 155),
+                Color.argb(alpha, 123, 70, 9),
+                Color.argb(alpha, 255, 220, 105),
+                Color.argb(alpha, 118, 68, 8)
+            ),
+            null
+        )
+        canvas.drawCircle(cx, cy, radius * 0.950f, framePaint)
+        framePaint.shader = null
+
+        // Bande céleste bleu profond.
+        framePaint.strokeWidth = radius * 0.082f
+        framePaint.shader = SweepGradient(
+            cx,
+            cy,
+            intArrayOf(
+                Color.argb(alpha, 1, 18, 54),
+                Color.argb(alpha, 8, 75, 183),
+                Color.argb(alpha, 2, 27, 88),
+                Color.argb(alpha, 18, 105, 225),
+                Color.argb(alpha, 2, 25, 75),
+                Color.argb(alpha, 7, 70, 170),
+                Color.argb(alpha, 1, 18, 54)
+            ),
+            null
+        )
+        canvas.drawCircle(cx, cy, radius * 0.915f, framePaint)
+        framePaint.shader = null
+
+        // Liseré intérieur doré. Une partie passe sous la gemme pour donner de la profondeur.
+        framePaint.strokeWidth = radius * 0.025f
+        framePaint.color = Color.argb(alpha, 246, 196, 71)
+        canvas.drawCircle(cx, cy, radius * 0.878f, framePaint)
+
+        framePaint.strokeWidth = radius * 0.010f
+        framePaint.color = Color.argb(alpha, 255, 239, 168)
+        canvas.drawCircle(cx, cy, radius * 0.892f, framePaint)
+
+        // Quatre petits éclats nets sur la partie visible du cadre.
+        detailPaint.style = Paint.Style.STROKE
+        detailPaint.strokeCap = Paint.Cap.ROUND
+        detailPaint.strokeWidth = radius * 0.012f
+        detailPaint.color = Color.argb(if (nightLight) 165 else 230, 255, 238, 167)
+        val d = radius * 0.952f
+        val sparkle = radius * 0.050f
+        drawSparkle(canvas, cx, cy - d, sparkle)
+        drawSparkle(canvas, cx + d, cy, sparkle * 0.86f)
+        drawSparkle(canvas, cx, cy + d, sparkle * 0.82f)
+        drawSparkle(canvas, cx - d, cy, sparkle * 0.86f)
+    }
+
+    private fun drawSparkle(canvas: Canvas, x: Float, y: Float, size: Float) {
+        canvas.drawLine(x - size, y, x + size, y, detailPaint)
+        canvas.drawLine(x, y - size, x, y + size, detailPaint)
     }
 
     /** Icône nette dessinée à la résolution réelle de l'écran. */
@@ -186,7 +270,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.drawPath(arrow, detailPaint)
         canvas.restore()
 
-        // Petit éclat discret, fixe et propre plutôt qu'un halo flou.
         detailPaint.style = Paint.Style.STROKE
         detailPaint.strokeWidth = radius * 0.010f
         detailPaint.color = Color.argb(if (nightLight) 150 else 205, 255, 239, 181)
@@ -205,7 +288,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val bottom = cy + barH * 0.50f
         val corner = barW * 0.30f
 
-        // Liseré sombre très fin pour que le symbole reste lisible sur toutes les facettes.
         detailPaint.style = Paint.Style.STROKE
         detailPaint.strokeWidth = radius * 0.026f
         detailPaint.color = Color.argb(alpha, 112, 67, 12)
