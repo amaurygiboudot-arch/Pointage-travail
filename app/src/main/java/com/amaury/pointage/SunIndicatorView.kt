@@ -17,6 +17,7 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -33,6 +34,8 @@ class SunIndicatorView @JvmOverloads constructor(
     private var nightMode = false
     private var sunPosition: CelestialEphemeris.Position? = null
     private var moonPosition: CelestialEphemeris.Position? = null
+    private var deviceAzimuth = 0f
+    private var devicePitch = 0f
 
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -48,6 +51,12 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     fun updateLightAngle(newAngle: Float) = Unit
+
+    fun setDeviceOrientation(azimuth: Float, pitch: Float) {
+        deviceAzimuth = normalize(azimuth)
+        devicePitch = pitch.coerceIn(-90f, 90f)
+        invalidate()
+    }
 
     fun setSunVisible(visible: Boolean) {
         val dynamicEnabled = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
@@ -66,7 +75,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (nightMode == night) return
         nightMode = night
         AppThemeCatalog.setCelestialNight(context, night)
-        contentDescription = if (night) "Soleil et Lune — éclairage par la Lune" else "Soleil et Lune — éclairage par le Soleil"
+        contentDescription = "Soleil et Lune"
         (context as? Activity)?.let { activity ->
             AppearanceManager.apply(activity)
             PointageWidgetProvider.updateAll(activity)
@@ -119,60 +128,70 @@ class SunIndicatorView @JvmOverloads constructor(
         if (!visibleCelestial || width <= 0 || height <= 0) return
 
         val base = min(width, height).toFloat()
-        val glowRadius = max(base * 0.10f, 26f)
-        val coreRadius = glowRadius * 0.30f
+        val activeGlow = max(base * 0.10f, 26f)
+        val inactiveGlow = activeGlow * 0.68f
+        val activeCore = activeGlow * 0.30f
+        val inactiveCore = activeCore * 0.78f
 
-        val sunPoint = sunPosition?.let { mapSkyPosition(it) } ?: fallbackPosition(night = false)
-        val moonPoint = moonPosition?.let { mapSkyPosition(it) } ?: fallbackPosition(night = true)
+        val sun = sunPosition
+        val moon = moonPosition
 
-        if (nightMode) {
-            // La nuit : les deux restent visibles, mais seule la Lune est la source lumineuse active.
-            drawSun(canvas, sunPoint.first, sunPoint.second, glowRadius * 0.72f, coreRadius * 0.72f, active = false)
-            drawMoon(canvas, moonPoint.first, moonPoint.second, glowRadius, coreRadius, active = true)
-        } else {
-            // Le jour : les deux restent visibles, mais seul le Soleil pilote l'éclairage.
-            drawMoon(canvas, moonPoint.first, moonPoint.second, glowRadius * 0.72f, coreRadius * 0.72f, active = false)
-            drawSun(canvas, sunPoint.first, sunPoint.second, glowRadius, coreRadius, active = true)
+        if (sun != null) {
+            val point = mapSkyPosition(sun)
+            val active = !nightMode
+            drawSun(canvas, point.first, point.second, if (active) activeGlow else inactiveGlow, if (active) activeCore else inactiveCore, active)
+        }
+
+        if (moon != null) {
+            val point = mapSkyPosition(moon)
+            val active = nightMode
+            drawMoon(canvas, point.first, point.second, if (active) activeGlow * 0.95f else inactiveGlow * 0.92f, if (active) activeCore else inactiveCore, active)
+        }
+
+        if (sun == null && moon == null) {
+            val sunFallback = fallbackPosition(false)
+            val moonFallback = fallbackPosition(true)
+            drawSun(canvas, sunFallback.first, sunFallback.second, if (!nightMode) activeGlow else inactiveGlow, if (!nightMode) activeCore else inactiveCore, !nightMode)
+            drawMoon(canvas, moonFallback.first, moonFallback.second, if (nightMode) activeGlow * 0.95f else inactiveGlow * 0.92f, if (nightMode) activeCore else inactiveCore, nightMode)
         }
     }
 
     private fun fallbackPosition(night: Boolean): Pair<Float, Float> {
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
         val progress = if (night) {
-            if (hour >= 18) ((hour - 18) / 12f).coerceIn(0f, 1f) else ((hour + 6) / 12f).coerceIn(0f, 1f)
+            if (hour >= 20) ((hour - 20) / 11f).coerceIn(0f, 1f) else ((hour + 4) / 11f).coerceIn(0f, 1f)
         } else {
-            ((hour - 6) / 12f).coerceIn(0f, 1f)
+            ((hour - 7) / 13f).coerceIn(0f, 1f)
         }
-        val x = width * (0.10f + progress * 0.80f)
-        val arc = 1f - kotlin.math.abs(progress * 2f - 1f)
-        val y = height * (0.80f - arc * 0.55f)
+        val baseX = width * (0.10f + progress * 0.80f)
+        val rotatedX = ((baseX / width) - deviceAzimuth / 360f)
+        val wrapped = ((rotatedX % 1f) + 1f) % 1f
+        val x = width * (0.08f + wrapped * 0.84f)
+        val arc = 1f - abs(progress * 2f - 1f)
+        val pitchShift = (devicePitch / 90f) * height * 0.22f
+        val y = (height * (0.78f - arc * 0.52f) + pitchShift).coerceIn(height * 0.08f, height * 0.92f)
         return x to y
     }
 
     private fun mapSkyPosition(position: CelestialEphemeris.Position): Pair<Float, Float> {
-        val xMargin = width * 0.08f
-        val usableWidth = width * 0.84f
-        val x = xMargin + (position.azimuth / 360.0).toFloat() * usableWidth
+        val relative = shortestDelta(deviceAzimuth, position.azimuth.toFloat())
+        val x = width * (0.50f + (relative / 220f)).coerceIn(0.06f, 0.94f)
 
-        // On conserve les deux astres visibles même lorsqu'ils sont sous l'horizon.
-        // +90° = haut de la zone, 0° = milieu, -90° = bas de la zone.
-        val topY = height * 0.10f
-        val bottomY = height * 0.90f
-        val normalizedAltitude = ((position.altitude.coerceIn(-90.0, 90.0) + 90.0) / 180.0).toFloat()
-        val y = bottomY - normalizedAltitude * (bottomY - topY)
+        val altitude = position.altitude.toFloat().coerceIn(-35f, 90f)
+        val apparentAltitude = altitude + devicePitch * 0.70f
+        val normalizedAltitude = ((apparentAltitude + 35f) / 125f).coerceIn(0f, 1f)
+        val y = height * (0.90f - normalizedAltitude * 0.78f)
         return x to y
     }
 
     private fun drawSun(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float, active: Boolean) {
-        val glowAlpha = if (active) 235 else 90
-        val middleAlpha = if (active) 175 else 55
-        val outerAlpha = if (active) 75 else 20
+        val boost = if (active) 1f else 0.48f
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(glowAlpha, 255, 246, 190),
-                Color.argb(middleAlpha, 255, 205, 85),
-                Color.argb(outerAlpha, 255, 155, 30),
+                Color.argb((235 * boost).toInt(), 255, 246, 190),
+                Color.argb((175 * boost).toInt(), 255, 205, 85),
+                Color.argb((75 * boost).toInt(), 255, 155, 30),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.28f, 0.64f, 1f),
@@ -185,15 +204,13 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun drawMoon(canvas: Canvas, cx: Float, cy: Float, glowRadius: Float, coreRadius: Float, active: Boolean) {
-        val glowAlpha = if (active) 205 else 85
-        val middleAlpha = if (active) 125 else 50
-        val outerAlpha = if (active) 45 else 18
+        val boost = if (active) 1f else 0.46f
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(glowAlpha, 235, 244, 255),
-                Color.argb(middleAlpha, 165, 195, 235),
-                Color.argb(outerAlpha, 100, 130, 190),
+                Color.argb((205 * boost).toInt(), 235, 244, 255),
+                Color.argb((125 * boost).toInt(), 165, 195, 235),
+                Color.argb((45 * boost).toInt(), 100, 130, 190),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.30f, 0.64f, 1f),
@@ -212,8 +229,11 @@ class SunIndicatorView @JvmOverloads constructor(
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(1.2f, coreRadius * 0.08f)
-        paint.color = Color.argb(if (active) 190 else 90, 255, 255, 255)
+        paint.color = Color.argb(if (active) 190 else 110, 255, 255, 255)
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.FILL
     }
+
+    private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
+    private fun shortestDelta(from: Float, to: Float): Float = ((to - from + 540f) % 360f) - 180f
 }
