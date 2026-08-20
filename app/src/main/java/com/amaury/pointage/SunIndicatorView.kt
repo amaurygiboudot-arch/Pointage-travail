@@ -47,15 +47,16 @@ class SunIndicatorView @JvmOverloads constructor(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    // Conservée pour compatibilité avec l'ancien contrôleur de lumière.
-    // La position céleste ne dépend plus de l'orientation du téléphone.
+    // Conservée pour compatibilité avec le contrôleur d'éclairage.
     fun updateLightAngle(newAngle: Float) = Unit
 
     fun setSunVisible(visible: Boolean) {
-        visibleCelestial = visible
-        visibility = if (visible) VISIBLE else GONE
+        val dynamicEnabled = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+            .getBoolean("solar_lighting_enabled", false)
+        visibleCelestial = visible || dynamicEnabled
+        visibility = if (visibleCelestial) VISIBLE else GONE
         handler.removeCallbacks(refreshTask)
-        if (visible) {
+        if (visibleCelestial) {
             refreshAstronomy()
             handler.postDelayed(refreshTask, 30_000L)
         }
@@ -66,7 +67,7 @@ class SunIndicatorView @JvmOverloads constructor(
         if (nightMode == night) return
         nightMode = night
         AppThemeCatalog.setCelestialNight(context, night)
-        contentDescription = "Soleil et lune"
+        contentDescription = if (night) "Lune" else "Soleil"
         (context as? Activity)?.let { activity ->
             AppearanceManager.apply(activity)
             PointageWidgetProvider.updateAll(activity)
@@ -90,10 +91,15 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun refreshAstronomy() {
-        val location = lastKnownLocation() ?: return
-        val now = System.currentTimeMillis()
-        sunPosition = CelestialEphemeris.sun(location.latitude, location.longitude, now)
-        moonPosition = CelestialEphemeris.moon(location.latitude, location.longitude, now)
+        val location = lastKnownLocation()
+        if (location != null) {
+            val now = System.currentTimeMillis()
+            sunPosition = CelestialEphemeris.sun(location.latitude, location.longitude, now)
+            moonPosition = CelestialEphemeris.moon(location.latitude, location.longitude, now)
+        } else {
+            sunPosition = null
+            moonPosition = null
+        }
         invalidate()
     }
 
@@ -101,10 +107,10 @@ class SunIndicatorView @JvmOverloads constructor(
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return null
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return runCatching {
-            lm.getProviders(true)
-                .mapNotNull { provider -> runCatching { lm.getLastKnownLocation(provider) }.getOrNull() }
+            manager.getProviders(true)
+                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
                 .maxByOrNull { it.time }
         }.getOrNull()
     }
@@ -114,23 +120,34 @@ class SunIndicatorView @JvmOverloads constructor(
         if (!visibleCelestial || width <= 0 || height <= 0) return
 
         val base = min(width, height).toFloat()
-        val glowRadius = max(base * 0.085f, 24f)
-        val coreRadius = glowRadius * 0.29f
+        val glowRadius = max(base * 0.10f, 26f)
+        val coreRadius = glowRadius * 0.30f
 
-        sunPosition?.takeIf { it.altitude > -0.833 }?.let { pos ->
-            val (x, y) = mapSkyPosition(pos)
-            drawSun(canvas, x, y, glowRadius, coreRadius)
-        }
-
-        moonPosition?.takeIf { it.altitude > -0.5 }?.let { pos ->
-            val (x, y) = mapSkyPosition(pos)
-            drawMoon(canvas, x, y, glowRadius * 0.90f, coreRadius * 0.92f)
+        if (nightMode) {
+            val pos = moonPosition
+            val point = if (pos != null) mapSkyPosition(pos) else fallbackPosition(night = true)
+            drawMoon(canvas, point.first, point.second, glowRadius * 0.95f, coreRadius)
+        } else {
+            val pos = sunPosition
+            val point = if (pos != null) mapSkyPosition(pos) else fallbackPosition(night = false)
+            drawSun(canvas, point.first, point.second, glowRadius, coreRadius)
         }
     }
 
+    private fun fallbackPosition(night: Boolean): Pair<Float, Float> {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val progress = if (night) {
+            if (hour >= 20) ((hour - 20) / 11f).coerceIn(0f, 1f) else ((hour + 4) / 11f).coerceIn(0f, 1f)
+        } else {
+            ((hour - 7) / 13f).coerceIn(0f, 1f)
+        }
+        val x = width * (0.10f + progress * 0.80f)
+        val arc = 1f - kotlin.math.abs(progress * 2f - 1f)
+        val y = height * (0.78f - arc * 0.52f)
+        return x to y
+    }
+
     private fun mapSkyPosition(position: CelestialEphemeris.Position): Pair<Float, Float> {
-        // Carte céleste stable : N=0/360°, E=90°, S=180°, O=270°.
-        // La hauteur réelle au-dessus de l'horizon contrôle la verticale.
         val xMargin = width * 0.08f
         val usableWidth = width * 0.84f
         val x = xMargin + (position.azimuth / 360.0).toFloat() * usableWidth
@@ -146,17 +163,17 @@ class SunIndicatorView @JvmOverloads constructor(
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(215, 255, 244, 188),
-                Color.argb(145, 255, 196, 75),
-                Color.argb(55, 255, 155, 30),
+                Color.argb(235, 255, 246, 190),
+                Color.argb(175, 255, 205, 85),
+                Color.argb(75, 255, 155, 30),
                 Color.TRANSPARENT
             ),
-            floatArrayOf(0f, 0.28f, 0.62f, 1f),
+            floatArrayOf(0f, 0.28f, 0.64f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawCircle(cx, cy, glowRadius, paint)
         paint.shader = null
-        paint.color = Color.argb(235, 255, 225, 125)
+        paint.color = Color.argb(250, 255, 226, 120)
         canvas.drawCircle(cx, cy, coreRadius, paint)
     }
 
@@ -164,9 +181,9 @@ class SunIndicatorView @JvmOverloads constructor(
         paint.shader = RadialGradient(
             cx, cy, glowRadius,
             intArrayOf(
-                Color.argb(175, 235, 244, 255),
-                Color.argb(105, 165, 195, 235),
-                Color.argb(35, 100, 130, 190),
+                Color.argb(205, 235, 244, 255),
+                Color.argb(125, 165, 195, 235),
+                Color.argb(45, 100, 130, 190),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, 0.30f, 0.64f, 1f),
@@ -181,11 +198,11 @@ class SunIndicatorView @JvmOverloads constructor(
         moonCutout.addCircle(cx + coreRadius * 0.48f, cy - coreRadius * 0.12f, coreRadius * 0.98f, Path.Direction.CW)
         moonPath.op(moonCutout, Path.Op.DIFFERENCE)
 
-        paint.color = Color.argb(245, 225, 235, 255)
+        paint.color = Color.argb(250, 225, 235, 255)
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(1.2f, coreRadius * 0.08f)
-        paint.color = Color.argb(180, 255, 255, 255)
+        paint.color = Color.argb(190, 255, 255, 255)
         canvas.drawPath(moonPath, paint)
         paint.style = Paint.Style.FILL
     }
