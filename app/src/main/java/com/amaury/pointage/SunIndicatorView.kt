@@ -188,8 +188,12 @@ class SunIndicatorView @JvmOverloads constructor(
 
         if (moon != null && moonScreen != null) {
             val moonRadius = (if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f) * moon.apparentScale.toFloat()
+
+            // 1) PNG de la Lune.
             drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
+            // 2) Les effets sont volontairement dessinés APRES le PNG : ils sont donc
+            // réellement au-dessus de la Lune, jamais derrière elle.
             if (sun != null && sunScreen != null) {
                 val illumination = lunarIllumination(sun, moon)
                 drawMoonSunlight(canvas, moonScreen.first, moonScreen.second, moonRadius,
@@ -233,8 +237,8 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     /**
-     * Éclairage de la Lune : seule la face tournée vers le Soleil reçoit la lumière.
-     * La moitié opposée reste dans l'ombre, sans éclaircissement global du PNG.
+     * Éclairage visible de la Lune. Le PNG est d'abord affiché, puis cette couche
+     * est peinte au-dessus. La face Soleil est claire et la face arrière est sombre.
      */
     private fun drawMoonSunlight(
         canvas: Canvas,
@@ -255,33 +259,38 @@ class SunIndicatorView @JvmOverloads constructor(
         val frontY = moonY + uy * moonRadius
         val backX = moonX - ux * moonRadius
         val backY = moonY - uy * moonRadius
-        val lit = illumination.coerceIn(0.05f, 1f)
+        val lit = illumination.coerceIn(0.02f, 1f)
 
-        // Lumière uniquement côté Soleil : elle disparaît au niveau du terminateur.
-        val lightAlpha = (95f * lit).toInt().coerceIn(8, 95)
+        // Plus la Lune est éclairée, plus le terminateur recule vers le bord sombre.
+        // Il reste toutefois franchement visible aux phases intermédiaires.
+        val terminator = (0.22f + 0.68f * lit).coerceIn(0.22f, 0.90f)
+        val softEnd = (terminator + 0.08f).coerceAtMost(0.98f)
+
+        val lightAlpha = (125f * lit).toInt().coerceIn(10, 125)
         moonLightPaint.shader = LinearGradient(
             frontX, frontY, backX, backY,
             intArrayOf(
-                Color.argb(lightAlpha, 255, 248, 220),
-                Color.argb((lightAlpha * 0.35f).toInt(), 255, 248, 225),
+                Color.argb(lightAlpha, 255, 248, 215),
+                Color.argb((lightAlpha * 0.55f).toInt(), 255, 246, 220),
                 Color.argb(0, 255, 255, 255),
                 Color.argb(0, 255, 255, 255)
             ),
-            floatArrayOf(0f, 0.34f, 0.50f, 1f),
+            floatArrayOf(0f, (terminator * 0.72f).coerceAtMost(0.70f), terminator, 1f),
             Shader.TileMode.CLAMP
         )
 
-        // Ombre uniquement derrière : pas d'assombrissement de la face avant.
-        val darkness = (205f * (1f - lit) + 55f).toInt().coerceIn(55, 230)
+        // Ombre très lisible, toujours AU-DESSUS du PNG. À phase intermédiaire,
+        // l'arrière devient réellement noir/gris au lieu de rester presque blanc.
+        val backAlpha = (245f - 35f * lit).toInt().coerceIn(205, 245)
         moonShadePaint.shader = LinearGradient(
             frontX, frontY, backX, backY,
             intArrayOf(
                 Color.argb(0, 0, 0, 0),
                 Color.argb(0, 0, 0, 0),
-                Color.argb((darkness * 0.35f).toInt(), 0, 0, 0),
-                Color.argb(darkness, 0, 0, 0)
+                Color.argb((backAlpha * 0.72f).toInt(), 0, 0, 0),
+                Color.argb(backAlpha, 0, 0, 0)
             ),
-            floatArrayOf(0f, 0.48f, 0.62f, 1f),
+            floatArrayOf(0f, terminator, softEnd, 1f),
             Shader.TileMode.CLAMP
         )
 
@@ -329,15 +338,15 @@ class SunIndicatorView @JvmOverloads constructor(
         val shadowY = moonY + tangentY * offset
 
         val shadowRadius = moonRadius * (0.88f + 0.28f * strength)
-        val alpha = (225f * strength).toInt().coerceIn(0, 225)
+        val alpha = (235f * strength).toInt().coerceIn(0, 235)
         earthShadowPaint.shader = RadialGradient(
             shadowX, shadowY, shadowRadius,
             intArrayOf(
-                Color.argb(alpha, 8, 8, 12),
-                Color.argb((alpha * 0.72f).toInt(), 18, 10, 12),
+                Color.argb(alpha, 5, 5, 8),
+                Color.argb((alpha * 0.78f).toInt(), 18, 8, 10),
                 Color.argb(0, 0, 0, 0)
             ),
-            floatArrayOf(0f, 0.68f, 1f),
+            floatArrayOf(0f, 0.70f, 1f),
             Shader.TileMode.CLAMP
         )
 
@@ -352,7 +361,7 @@ class SunIndicatorView @JvmOverloads constructor(
 
     private fun lunarIllumination(sun: CelestialEphemeris.Position, moon: CelestialEphemeris.Position): Float {
         val separation = angularSeparation(sun, moon)
-        return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.05f, 1f)
+        return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.02f, 1f)
     }
 
     private fun eclipseStrength(sun: CelestialEphemeris.Position, moon: CelestialEphemeris.Position): Float {
