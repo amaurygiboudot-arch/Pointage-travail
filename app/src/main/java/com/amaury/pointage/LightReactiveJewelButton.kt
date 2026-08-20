@@ -21,7 +21,8 @@ import kotlin.math.min
 /**
  * Boutons d'action HP utilisant les visuels générés d'origine.
  * Le fond gemme reste celui sauvegardé. Le cerclage céleste est rendu sous
- * le cristal pour conserver la profondeur et la transparence du bouton.
+ * le cristal. Les couches sont pré-rendues en haute définition puis réduites
+ * proprement pour maximiser la netteté à l'écran.
  */
 open class LightReactiveJewelButton @JvmOverloads constructor(
     context: Context,
@@ -31,12 +32,12 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
 
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
         isFilterBitmap = true
-        isDither = true
+        isDither = false
     }
-    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val pauseGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = false }
+    private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = false }
+    private val detailPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = false }
+    private val pauseGlyphPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = false }
     private var backgroundLayer: Bitmap? = null
     private var loadedForId: Int = ViewIdNone
 
@@ -50,6 +51,7 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         stateListAnimator = null
         setPadding(0, 0, 0, 0)
         isAllCaps = false
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
 
     open fun setLightAngle(angle: Float) {
@@ -94,25 +96,25 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
 
-        val radius = min(w, h) * 0.50f
-        val cx = w * 0.50f
-        val cy = h * 0.50f
+        // Sur-échantillonnage x2 : contours, cerclage et pictogrammes sont calculés
+        // sur deux fois plus de pixels puis réduits par Android.
+        val save = canvas.save()
+        canvas.scale(0.5f, 0.5f)
+        val rw = w * 2f
+        val rh = h * 2f
+        val radius = min(rw, rh) * 0.50f
+        val cx = rw * 0.50f
+        val cy = rh * 0.50f
 
-        // 1) Cerclage céleste EN DESSOUS du cristal.
         drawCelestialFrame(canvas, cx, cy, radius)
 
-        // 2) Le cristal coloré vient légèrement par-dessus le cerclage.
         val jewelRadius = radius * 0.885f
-        val dst = RectF(
-            cx - jewelRadius,
-            cy - jewelRadius,
-            cx + jewelRadius,
-            cy + jewelRadius
-        )
+        val dst = RectF(cx - jewelRadius, cy - jewelRadius, cx + jewelRadius, cy + jewelRadius)
 
         backgroundLayer?.let { bitmap ->
-            val contrast = 1.10f
-            val offset = -128f * contrast + 128f + 2f
+            // Contraste et micro-accentuation plus francs pour faire ressortir les facettes.
+            val contrast = 1.24f
+            val offset = -128f * contrast + 128f + 4f
             bitmapPaint.colorFilter = ColorMatrixColorFilter(
                 ColorMatrix(
                     floatArrayOf(
@@ -123,85 +125,69 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
                     )
                 )
             )
-            bitmapPaint.alpha = if (isPressed) 215 else 255
+            bitmapPaint.alpha = if (isPressed) 220 else 255
             canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
             bitmapPaint.alpha = 255
             bitmapPaint.colorFilter = null
         }
 
-        // 3) Pictogramme au premier plan.
         when (id) {
             R.id.entryButton -> drawCelestialIcon(canvas, cx, cy, jewelRadius, false)
             R.id.exitButton -> drawCelestialIcon(canvas, cx, cy, jewelRadius, true)
             R.id.pauseButton -> drawPauseGlyph(canvas, cx, cy, jewelRadius)
         }
+        canvas.restoreToCount(save)
         super.onDraw(canvas)
     }
 
-    /** Cerclage rond bleu/or transparent au centre, placé derrière la gemme. */
     private fun drawCelestialFrame(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        val alpha = if (isPressed) 220 else 255
+        val alpha = if (isPressed) 225 else 255
 
-        // Bord extérieur doré, avec plusieurs reflets pour rappeler le cerclage généré.
         framePaint.style = Paint.Style.STROKE
         framePaint.strokeCap = Paint.Cap.ROUND
         framePaint.strokeWidth = radius * 0.090f
         framePaint.shader = SweepGradient(
-            cx,
-            cy,
+            cx, cy,
             intArrayOf(
-                Color.argb(alpha, 118, 68, 8),
-                Color.argb(alpha, 255, 222, 116),
-                Color.argb(alpha, 188, 116, 17),
-                Color.argb(alpha, 255, 239, 155),
-                Color.argb(alpha, 123, 70, 9),
-                Color.argb(alpha, 255, 220, 105),
-                Color.argb(alpha, 118, 68, 8)
-            ),
-            null
+                Color.argb(alpha, 82, 42, 2), Color.argb(alpha, 255, 226, 116),
+                Color.argb(alpha, 160, 88, 6), Color.argb(alpha, 255, 247, 184),
+                Color.argb(alpha, 91, 47, 3), Color.argb(alpha, 255, 218, 85),
+                Color.argb(alpha, 82, 42, 2)
+            ), null
         )
         canvas.drawCircle(cx, cy, radius * 0.950f, framePaint)
         framePaint.shader = null
 
-        // Bande céleste bleu profond.
         framePaint.strokeWidth = radius * 0.082f
         framePaint.shader = SweepGradient(
-            cx,
-            cy,
+            cx, cy,
             intArrayOf(
-                Color.argb(alpha, 1, 18, 54),
-                Color.argb(alpha, 8, 75, 183),
-                Color.argb(alpha, 2, 27, 88),
-                Color.argb(alpha, 18, 105, 225),
-                Color.argb(alpha, 2, 25, 75),
-                Color.argb(alpha, 7, 70, 170),
-                Color.argb(alpha, 1, 18, 54)
-            ),
-            null
+                Color.argb(alpha, 0, 8, 35), Color.argb(alpha, 5, 91, 220),
+                Color.argb(alpha, 0, 15, 62), Color.argb(alpha, 24, 126, 255),
+                Color.argb(alpha, 0, 13, 51), Color.argb(alpha, 4, 80, 202),
+                Color.argb(alpha, 0, 8, 35)
+            ), null
         )
         canvas.drawCircle(cx, cy, radius * 0.915f, framePaint)
         framePaint.shader = null
 
-        // Liseré intérieur doré. Une partie passe sous la gemme pour donner de la profondeur.
-        framePaint.strokeWidth = radius * 0.025f
-        framePaint.color = Color.argb(alpha, 246, 196, 71)
+        framePaint.strokeWidth = radius * 0.027f
+        framePaint.color = Color.argb(alpha, 255, 202, 62)
         canvas.drawCircle(cx, cy, radius * 0.878f, framePaint)
+        framePaint.strokeWidth = radius * 0.009f
+        framePaint.color = Color.argb(alpha, 255, 248, 190)
+        canvas.drawCircle(cx, cy, radius * 0.893f, framePaint)
 
-        framePaint.strokeWidth = radius * 0.010f
-        framePaint.color = Color.argb(alpha, 255, 239, 168)
-        canvas.drawCircle(cx, cy, radius * 0.892f, framePaint)
-
-        // Quatre petits éclats nets sur la partie visible du cadre.
         detailPaint.style = Paint.Style.STROKE
-        detailPaint.strokeCap = Paint.Cap.ROUND
-        detailPaint.strokeWidth = radius * 0.012f
-        detailPaint.color = Color.argb(if (nightLight) 165 else 230, 255, 238, 167)
+        detailPaint.strokeCap = Paint.Cap.SQUARE
+        detailPaint.strokeWidth = radius * 0.010f
+        detailPaint.color = Color.argb(if (nightLight) 180 else 245, 255, 245, 184)
         val d = radius * 0.952f
-        val sparkle = radius * 0.050f
+        val sparkle = radius * 0.046f
         drawSparkle(canvas, cx, cy - d, sparkle)
-        drawSparkle(canvas, cx + d, cy, sparkle * 0.86f)
-        drawSparkle(canvas, cx, cy + d, sparkle * 0.82f)
-        drawSparkle(canvas, cx - d, cy, sparkle * 0.86f)
+        drawSparkle(canvas, cx + d, cy, sparkle * 0.84f)
+        drawSparkle(canvas, cx, cy + d, sparkle * 0.80f)
+        drawSparkle(canvas, cx - d, cy, sparkle * 0.84f)
     }
 
     private fun drawSparkle(canvas: Canvas, x: Float, y: Float, size: Float) {
@@ -209,104 +195,81 @@ open class LightReactiveJewelButton @JvmOverloads constructor(
         canvas.drawLine(x, y - size, x, y + size, detailPaint)
     }
 
-    /** Icône nette dessinée à la résolution réelle de l'écran. */
     private fun drawCelestialIcon(canvas: Canvas, cx: Float, cy: Float, radius: Float, mirror: Boolean) {
         val iconRadius = radius * 0.285f
-        val alpha = if (isPressed) 215 else 255
+        val alpha = if (isPressed) 220 else 255
 
         iconPaint.style = Paint.Style.FILL
         iconPaint.shader = RadialGradient(
-            cx - iconRadius * 0.22f,
-            cy - iconRadius * 0.25f,
-            iconRadius * 1.30f,
+            cx - iconRadius * 0.22f, cy - iconRadius * 0.25f, iconRadius * 1.30f,
             intArrayOf(
-                Color.argb(alpha, 18, 92, 172),
-                Color.argb(alpha, 4, 35, 92),
-                Color.argb(alpha, 1, 12, 35)
-            ),
-            floatArrayOf(0f, 0.58f, 1f),
-            Shader.TileMode.CLAMP
+                Color.argb(alpha, 24, 112, 214),
+                Color.argb(alpha, 2, 35, 104),
+                Color.argb(alpha, 0, 7, 28)
+            ), floatArrayOf(0f, 0.58f, 1f), Shader.TileMode.CLAMP
         )
         canvas.drawCircle(cx, cy, iconRadius, iconPaint)
         iconPaint.shader = null
 
         detailPaint.style = Paint.Style.STROKE
         detailPaint.strokeCap = Paint.Cap.ROUND
-        detailPaint.color = Color.argb(alpha, 246, 202, 91)
-        detailPaint.strokeWidth = radius * 0.030f
+        detailPaint.color = Color.argb(alpha, 255, 205, 70)
+        detailPaint.strokeWidth = radius * 0.032f
         canvas.drawCircle(cx, cy, iconRadius * 0.96f, detailPaint)
-
-        detailPaint.color = Color.argb(alpha, 255, 231, 148)
-        detailPaint.strokeWidth = radius * 0.012f
+        detailPaint.color = Color.argb(alpha, 255, 242, 168)
+        detailPaint.strokeWidth = radius * 0.010f
         canvas.drawCircle(cx, cy, iconRadius * 0.78f, detailPaint)
 
         canvas.save()
         if (mirror) canvas.scale(-1f, 1f, cx, cy)
-
         val arrow = Path().apply {
             val x0 = cx - iconRadius * 0.50f
             val x1 = cx + iconRadius * 0.18f
             val tip = cx + iconRadius * 0.58f
             val half = iconRadius * 0.18f
             val head = iconRadius * 0.33f
-            moveTo(x0, cy - half)
-            lineTo(x1, cy - half)
-            lineTo(x1, cy - head)
-            lineTo(tip, cy)
-            lineTo(x1, cy + head)
-            lineTo(x1, cy + half)
-            lineTo(x0, cy + half)
-            close()
+            moveTo(x0, cy - half); lineTo(x1, cy - half); lineTo(x1, cy - head)
+            lineTo(tip, cy); lineTo(x1, cy + head); lineTo(x1, cy + half)
+            lineTo(x0, cy + half); close()
         }
-
         iconPaint.style = Paint.Style.FILL
-        iconPaint.color = Color.argb(alpha, 232, 171, 49)
+        iconPaint.color = Color.argb(alpha, 244, 180, 43)
         canvas.drawPath(arrow, iconPaint)
-
         detailPaint.style = Paint.Style.STROKE
         detailPaint.strokeJoin = Paint.Join.ROUND
-        detailPaint.strokeWidth = radius * 0.020f
-        detailPaint.color = Color.argb(alpha, 255, 236, 159)
+        detailPaint.strokeWidth = radius * 0.018f
+        detailPaint.color = Color.argb(alpha, 255, 244, 174)
         canvas.drawPath(arrow, detailPaint)
         canvas.restore()
-
-        detailPaint.style = Paint.Style.STROKE
-        detailPaint.strokeWidth = radius * 0.010f
-        detailPaint.color = Color.argb(if (nightLight) 150 else 205, 255, 239, 181)
-        val sparkleX = cx + iconRadius * 0.63f
-        val sparkleY = cy - iconRadius * 0.61f
-        canvas.drawLine(sparkleX - radius * 0.05f, sparkleY, sparkleX + radius * 0.05f, sparkleY, detailPaint)
-        canvas.drawLine(sparkleX, sparkleY - radius * 0.05f, sparkleX, sparkleY + radius * 0.05f, detailPaint)
     }
 
     private fun drawPauseGlyph(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        val alpha = if (isPressed) 210 else 255
+        val alpha = if (isPressed) 215 else 255
         val barW = radius * 0.145f
         val barH = radius * 0.54f
         val gap = radius * 0.105f
         val top = cy - barH * 0.50f
         val bottom = cy + barH * 0.50f
-        val corner = barW * 0.30f
+        val corner = barW * 0.26f
 
         detailPaint.style = Paint.Style.STROKE
-        detailPaint.strokeWidth = radius * 0.026f
-        detailPaint.color = Color.argb(alpha, 112, 67, 12)
+        detailPaint.strokeWidth = radius * 0.024f
+        detailPaint.color = Color.argb(alpha, 88, 45, 4)
         canvas.drawRoundRect(cx - gap - barW, top, cx - gap, bottom, corner, corner, detailPaint)
         canvas.drawRoundRect(cx + gap, top, cx + gap + barW, bottom, corner, corner, detailPaint)
 
         pauseGlyphPaint.style = Paint.Style.FILL
-        pauseGlyphPaint.color = Color.argb(alpha, 239, 181, 61)
+        pauseGlyphPaint.color = Color.argb(alpha, 248, 183, 48)
         canvas.drawRoundRect(cx - gap - barW, top, cx - gap, bottom, corner, corner, pauseGlyphPaint)
         canvas.drawRoundRect(cx + gap, top, cx + gap + barW, bottom, corner, corner, pauseGlyphPaint)
 
         detailPaint.style = Paint.Style.STROKE
-        detailPaint.strokeWidth = radius * 0.010f
-        detailPaint.color = Color.argb(alpha, 255, 232, 153)
+        detailPaint.strokeWidth = radius * 0.009f
+        detailPaint.color = Color.argb(alpha, 255, 244, 176)
         canvas.drawRoundRect(cx - gap - barW, top, cx - gap, bottom, corner, corner, detailPaint)
         canvas.drawRoundRect(cx + gap, top, cx + gap + barW, bottom, corner, corner, detailPaint)
     }
 
     protected fun shortestDelta(a: Float, b: Float): Float = ((b - a + 540f) % 360f) - 180f
-
     private companion object { const val ViewIdNone = -1 }
 }
