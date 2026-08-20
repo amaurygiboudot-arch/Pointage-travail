@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.hardware.Sensor
@@ -161,64 +163,37 @@ class SunIndicatorView @JvmOverloads constructor(
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
         val earthY = height * 0.55f
-
-        // L'horloge utilise un rayon de 0.40. 0.47 place les astres juste autour,
-        // avec un petit espace visuel au lieu de les coller au cadran.
         val orbitRadius = base * 0.47f
         val activeRadius = max(base * 0.078f, 22f)
-        val inactiveRadius = activeRadius * 0.62f
+        // Les deux astres restent lisibles en permanence. Le mode jour/nuit ne doit
+        // plus rendre l'astre opposé presque invisible.
+        val inactiveRadius = activeRadius * 0.82f
         val sun = sunPosition
         val moon = moonPosition
         val sunScreen = sun?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
         val moonScreen = moon?.let { mapToWatchOrbit(it, earthX, earthY, orbitRadius) }
 
         if (sun != null && sunScreen != null) {
-            val active = !nightMode
-            drawCelestialPng(
-                canvas,
-                sunBitmap,
-                sunScreen.first,
-                sunScreen.second,
-                (if (active) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
-                active
-            )
+            drawCelestialPng(canvas, sunBitmap, sunScreen.first, sunScreen.second,
+                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(), !nightMode, false)
         }
 
         if (moon != null && moonScreen != null) {
-            val active = nightMode
-            drawCelestialPng(
-                canvas,
-                moonBitmap,
-                moonScreen.first,
-                moonScreen.second,
-                (if (active) activeRadius * 0.90f else inactiveRadius * 0.86f) * moon.apparentScale.toFloat(),
-                active
-            )
+            drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second,
+                (if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f) * moon.apparentScale.toFloat(), nightMode, true)
         }
 
         if (sun == null && moon == null) {
             val sunFallback = orbitFallback(false, earthX, earthY, orbitRadius)
             val moonFallback = orbitFallback(true, earthX, earthY, orbitRadius)
-            drawCelestialPng(
-                canvas,
-                sunBitmap,
-                sunFallback.first,
-                sunFallback.second,
-                if (!nightMode) activeRadius else inactiveRadius,
-                !nightMode
-            )
-            drawCelestialPng(
-                canvas,
-                moonBitmap,
-                moonFallback.first,
-                moonFallback.second,
-                if (nightMode) activeRadius * 0.90f else inactiveRadius * 0.86f,
-                nightMode
-            )
+            drawCelestialPng(canvas, sunBitmap, sunFallback.first, sunFallback.second,
+                if (!nightMode) activeRadius else inactiveRadius, !nightMode, false)
+            drawCelestialPng(canvas, moonBitmap, moonFallback.first, moonFallback.second,
+                if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f, nightMode, true)
         }
     }
 
-    private fun drawCelestialPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float, active: Boolean) {
+    private fun drawCelestialPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float, active: Boolean, brightenMoon: Boolean) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
         val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -231,10 +206,23 @@ class SunIndicatorView @JvmOverloads constructor(
             dstHeight = diameter
             dstWidth = diameter * aspect
         }
-        bitmapPaint.alpha = if (active) 255 else 145
+
+        // Le Soleil reste visible même la nuit, et la Lune reçoit uniquement un
+        // traitement de luminosité à l'affichage : le PNG source n'est pas modifié.
+        bitmapPaint.alpha = if (active) 255 else 215
+        bitmapPaint.colorFilter = if (brightenMoon) {
+            ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                1.32f, 0f, 0f, 0f, 24f,
+                0f, 1.32f, 0f, 0f, 24f,
+                0f, 0f, 1.32f, 0f, 24f,
+                0f, 0f, 0f, 1f, 0f
+            )))
+        } else null
+
         val dst = RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f)
         canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
         bitmapPaint.alpha = 255
+        bitmapPaint.colorFilter = null
     }
 
     private fun mapToWatchOrbit(position: CelestialEphemeris.Position, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
