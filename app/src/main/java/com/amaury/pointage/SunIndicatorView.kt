@@ -169,7 +169,10 @@ class SunIndicatorView @JvmOverloads constructor(
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
         val earthY = height * 0.55f
-        val orbitRadius = base * 0.47f
+
+        // Le cadran reste au centre, mais l'orbite dispose maintenant d'une marge
+        // suffisante pour que Soleil et Lune fassent le tour complet sans être rognés.
+        val orbitRadius = base * 0.43f
         val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.82f
         val sun = sunPosition
@@ -189,9 +192,6 @@ class SunIndicatorView @JvmOverloads constructor(
             val moonRadius = (if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f) * moon.apparentScale.toFloat()
             drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode, true)
 
-            // La lumière vient réellement de la position du Soleil affichée autour de l'horloge.
-            // L'intensité dépend aussi de l'élongation Soleil/Lune : nouvelle lune sombre,
-            // pleine lune très éclairée, quartiers intermédiaires.
             if (sun != null && sunScreen != null) {
                 val illumination = lunarIllumination(sun, moon)
                 drawMoonSunlight(
@@ -264,10 +264,6 @@ class SunIndicatorView @JvmOverloads constructor(
         bitmapPaint.colorFilter = null
     }
 
-    /**
-     * Ajoute sur le PNG de Lune une ombre directionnelle cohérente avec le Soleil.
-     * Aucun nouveau bitmap n'est généré : tout est calculé au rendu.
-     */
     private fun drawMoonSunlight(
         canvas: Canvas,
         moonX: Float,
@@ -283,7 +279,6 @@ class SunIndicatorView @JvmOverloads constructor(
         val ux = dx / length
         val uy = dy / length
 
-        // Côté Soleil : clair. Côté opposé : sombre.
         val startX = moonX + ux * moonRadius
         val startY = moonY + uy * moonRadius
         val endX = moonX - ux * moonRadius
@@ -317,7 +312,6 @@ class SunIndicatorView @JvmOverloads constructor(
         moonShadePaint.shader = null
     }
 
-    /** Approximation de la fraction éclairée à partir de la séparation angulaire Soleil/Lune. */
     private fun lunarIllumination(
         sun: CelestialEphemeris.Position,
         moon: CelestialEphemeris.Position
@@ -332,8 +326,6 @@ class SunIndicatorView @JvmOverloads constructor(
                 cos(sunAlt) * cos(moonAlt) * cos(sunAz - moonAz)
             ).coerceIn(-1.0, 1.0)
         val separation = acos(cosSeparation)
-
-        // 0° = nouvelle lune environ, 180° = pleine lune environ.
         return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0.05f, 1f)
     }
 
@@ -344,7 +336,11 @@ class SunIndicatorView @JvmOverloads constructor(
         val perspective = (0.86 + 0.14 * cos(altitude - pitch)).toFloat()
         val x = cx + sin(relativeAz).toFloat() * radius * perspective
         val y = cy - cos(relativeAz).toFloat() * radius * 0.88f - sin(altitude - pitch).toFloat() * radius * 0.12f
-        return x.coerceIn(width * 0.10f, width * 0.90f) to y.coerceIn(height * 0.08f, height * 0.94f)
+
+        // Le point central de l'astre reste toujours assez loin du bord pour que le PNG
+        // entier soit visible. Cela évite les disparitions en haut/bas de l'orbite.
+        return x.coerceIn(width * 0.08f, width * 0.92f) to
+            y.coerceIn(height * 0.10f, height * 0.90f)
     }
 
     private fun orbitFallback(night: Boolean, cx: Float, cy: Float, radius: Float): Pair<Float, Float> {
@@ -352,7 +348,10 @@ class SunIndicatorView @JvmOverloads constructor(
         val hour = calendar.get(java.util.Calendar.HOUR_OF_DAY) + calendar.get(java.util.Calendar.MINUTE) / 60f
         val angle = if (night) hour / 24f * 360f + 180f else hour / 24f * 360f
         val a = Math.toRadians((angle - deviceAzimuth).toDouble())
-        return cx + sin(a).toFloat() * radius to cy - cos(a).toFloat() * radius * 0.88f
+        val x = cx + sin(a).toFloat() * radius
+        val y = cy - cos(a).toFloat() * radius * 0.88f
+        return x.coerceIn(width * 0.08f, width * 0.92f) to
+            y.coerceIn(height * 0.10f, height * 0.90f)
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
