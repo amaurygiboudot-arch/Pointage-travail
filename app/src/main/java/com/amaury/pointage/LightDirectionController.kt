@@ -28,7 +28,9 @@ object LightDirectionController {
     data class LightingState(
         val lightAngle: Float,
         val celestialAngle: Float?,
-        val night: Boolean
+        val night: Boolean,
+        val deviceAzimuth: Float,
+        val devicePitch: Float
     )
 
     private data class Registration(
@@ -60,6 +62,14 @@ object LightDirectionController {
         var ax = 0f
         var ay = 0f
         var az = 9.81f
+
+        fun state(angle: Float) = LightingState(
+            lightAngle = angle,
+            celestialAngle = celestialAngle,
+            night = currentNight,
+            deviceAzimuth = deviceAzimuth,
+            devicePitch = pitch
+        )
 
         fun recomputeCelestial() {
             val now = System.currentTimeMillis()
@@ -106,11 +116,11 @@ object LightDirectionController {
                 }
 
                 displayedLightAngle = normalize(displayedLightAngle + (delta * factor).coerceIn(-maxStep, maxStep))
-                onLightingChanged(LightingState(displayedLightAngle, celestialAngle, currentNight))
+                onLightingChanged(state(displayedLightAngle))
 
                 if (absDelta < 0.35f) {
                     displayedLightAngle = targetLightAngle
-                    onLightingChanged(LightingState(displayedLightAngle, celestialAngle, currentNight))
+                    onLightingChanged(state(displayedLightAngle))
                     animationRunning = false
                 } else {
                     mainHandler.postDelayed(this, 16L)
@@ -170,7 +180,7 @@ object LightDirectionController {
         }
 
         recomputeCelestial()
-        onLightingChanged(LightingState(targetLightAngle, celestialAngle, currentNight))
+        onLightingChanged(state(targetLightAngle))
         mainHandler.postDelayed(ticker, 30_000L)
         registrations[key] = Registration(sensorManager, listener, animator, ticker)
     }
