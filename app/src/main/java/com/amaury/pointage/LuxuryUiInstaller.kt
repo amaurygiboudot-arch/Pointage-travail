@@ -360,7 +360,6 @@ object LuxuryUiInstaller {
         val dark = AppThemeCatalog.useDarkPalette(activity)
         val activeColor = if (dark) theme.accentLight else theme.accent
         val inactiveColor = if (dark) theme.darkHint else theme.lightHint
-        val navColor = if (dark) theme.darkPanel else theme.lightPanel
 
         val today = activity.findViewById<TextView>(R.id.tabToday)
         val history = activity.findViewById<TextView>(R.id.tabHistory)
@@ -368,7 +367,12 @@ object LuxuryUiInstaller {
         val salary = activity.findViewById<TextView>(R.id.tabSalary)
         val settings = activity.findViewById<TextView>(R.id.tabSettings)
 
-        (today?.parent as? LinearLayout)?.backgroundTintList = ColorStateList.valueOf(navColor)
+        // Le bandeau derrière les onglets doit rester totalement transparent :
+        // seuls les onglets eux-mêmes reçoivent leur fond/cadre.
+        (today?.parent as? LinearLayout)?.apply {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            backgroundTintList = null
+        }
 
         val settingsVisible = activity.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
         val analyticsVisible = activity.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE
