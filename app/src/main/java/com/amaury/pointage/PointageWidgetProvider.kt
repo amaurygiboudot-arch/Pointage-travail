@@ -7,12 +7,16 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.os.Build
+import android.os.Bundle
+import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.min
 
 class PointageWidgetProvider : AppWidgetProvider() {
     companion object {
@@ -43,6 +47,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
             else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
         }
 
+        private fun widgetSize(manager: AppWidgetManager, widgetId: Int): Pair<Int, Int> {
+            val options = manager.getAppWidgetOptions(widgetId)
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 360).coerceAtLeast(280)
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 96).coerceAtLeast(78)
+            return width to height
+        }
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
             fun broadcast(action: String, request: Int) = PendingIntent.getBroadcast(context, request, Intent(context, PointageWidgetProvider::class.java).apply { this.action = action }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -63,11 +74,40 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val secondary = if (dark) theme.darkHint else theme.lightHint
             views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
 
-            // Exactement les mêmes assets/rendus que les boutons et l'horloge de la partie haute.
-            views.setImageViewBitmap(R.id.widget_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, 180))
-            views.setImageViewBitmap(R.id.widget_pause_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, 180))
-            views.setImageViewBitmap(R.id.widget_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, 180))
-            views.setImageViewBitmap(R.id.widget_clock, WidgetVisualRenderer.clock(300))
+            val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
+            // Tout le visuel suit la taille choisie du widget. Les proportions restent identiques
+            // au haut de l'application, mais les boutons et l'horloge grandissent/rétrécissent ensemble.
+            val buttonDp = min(widgetWidth / 7.25f, widgetHeight * 0.43f).coerceIn(36f, 72f)
+            val clockDp = (buttonDp * 1.68f).coerceIn(62f, 118f)
+            val labelSp = (buttonDp * 0.14f).coerceIn(6.5f, 10.5f)
+            val timeSp = (buttonDp * 0.19f).coerceIn(8f, 13f)
+            val smallSp = (buttonDp * 0.105f).coerceIn(5.5f, 8f)
+            val buttonBitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 270)
+            val clockBitmapPx = (clockDp * 3f).toInt().coerceIn(190, 380)
+
+            views.setImageViewBitmap(R.id.widget_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, buttonBitmapPx))
+            views.setImageViewBitmap(R.id.widget_pause_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, buttonBitmapPx))
+            views.setImageViewBitmap(R.id.widget_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, buttonBitmapPx))
+            views.setImageViewBitmap(R.id.widget_clock, WidgetVisualRenderer.clock(clockBitmapPx))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf(R.id.widget_entry_button, R.id.widget_pause_button, R.id.widget_exit_button).forEach { id ->
+                    views.setViewLayoutWidth(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+                views.setViewLayoutWidth(R.id.widget_clock, clockDp, TypedValue.COMPLEX_UNIT_DIP)
+                views.setViewLayoutHeight(R.id.widget_clock, clockDp, TypedValue.COMPLEX_UNIT_DIP)
+            }
+
+            listOf(R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label).forEach { id ->
+                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, labelSp)
+            }
+            listOf(R.id.widget_entry_time, R.id.widget_exit_time, R.id.widget_duration).forEach { id ->
+                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, timeSp)
+            }
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time, R.id.widget_location).forEach { id ->
+                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, smallSp)
+            }
 
             listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label, R.id.widget_duration, R.id.widget_location).forEach { views.setTextColor(it, accent) }
             views.setTextColor(R.id.widget_state, text)
@@ -117,7 +157,15 @@ class PointageWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) { ids.forEach { updateWidget(context, manager, it) } }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        ids.forEach { updateWidget(context, manager, it) }
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        updateWidget(context, manager, appWidgetId)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
@@ -126,6 +174,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             ACTION_EXIT -> { if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show(); IconSwitcher.sync(context) }
             Intent.ACTION_CONFIGURATION_CHANGED -> Unit
         }
-        updateAll(context); QuickActionsWidgetProvider.updateAll(context)
+        updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
     }
 }
