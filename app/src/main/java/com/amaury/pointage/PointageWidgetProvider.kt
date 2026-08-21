@@ -54,18 +54,59 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return width to height
         }
 
+        private fun pendingBroadcast(context: Context, widgetId: Int, action: String, slot: Int): PendingIntent {
+            val intent = Intent(context, PointageWidgetProvider::class.java).apply {
+                this.action = action
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            }
+            // Identifiant propre à chaque bouton ET à chaque instance du widget :
+            // évite que certains launchers réutilisent un ancien PendingIntent.
+            val requestCode = widgetId * 10 + slot
+            return PendingIntent.getBroadcast(
+                context,
+                requestCode,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
-            fun broadcast(action: String, request: Int) = PendingIntent.getBroadcast(context, request, Intent(context, PointageWidgetProvider::class.java).apply { this.action = action }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val openApp = PendingIntent.getActivity(context, 20, Intent(context, MainActivity::class.java).apply { putExtra("open_tab", "today"); flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            val openSettings = PendingIntent.getActivity(context, 30, Intent(context, MainActivity::class.java).apply { putExtra("open_tab", "settings"); flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val openApp = PendingIntent.getActivity(
+                context,
+                widgetId * 10 + 7,
+                Intent(context, MainActivity::class.java).apply {
+                    putExtra("open_tab", "today")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val openSettings = PendingIntent.getActivity(
+                context,
+                widgetId * 10 + 8,
+                Intent(context, MainActivity::class.java).apply {
+                    putExtra("open_tab", "settings")
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val entryClick = pendingBroadcast(context, widgetId, ACTION_ENTRY, 1)
+            val pauseClick = pendingBroadcast(context, widgetId, ACTION_PAUSE, 2)
+            val exitClick = pendingBroadcast(context, widgetId, ACTION_EXIT, 3)
 
             views.setOnClickPendingIntent(R.id.widget_root, openApp)
             views.setOnClickPendingIntent(R.id.widget_location, openSettings)
-            views.setOnClickPendingIntent(R.id.widget_entry_area, broadcast(ACTION_ENTRY, 1))
-            views.setOnClickPendingIntent(R.id.widget_pause_area, broadcast(ACTION_PAUSE, 2))
-            views.setOnClickPendingIntent(R.id.widget_exit_area, broadcast(ACTION_EXIT, 3))
             views.setOnClickPendingIntent(R.id.widget_status_area, openApp)
+
+            // On lie le clic à la zone complète ET à l'image elle-même.
+            // C'est plus fiable selon les launchers Android/HyperOS.
+            views.setOnClickPendingIntent(R.id.widget_entry_area, entryClick)
+            views.setOnClickPendingIntent(R.id.widget_entry_button, entryClick)
+            views.setOnClickPendingIntent(R.id.widget_pause_area, pauseClick)
+            views.setOnClickPendingIntent(R.id.widget_pause_button, pauseClick)
+            views.setOnClickPendingIntent(R.id.widget_exit_area, exitClick)
+            views.setOnClickPendingIntent(R.id.widget_exit_button, exitClick)
 
             val theme = AppThemeCatalog.current(context)
             val dark = AppThemeCatalog.useDarkPalette(context)
@@ -75,17 +116,18 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
-            // Utilise franchement plus d'espace : les boutons remplissent presque leur colonne,
-            // tout en conservant une marge de sécurité pour qu'ils ne se touchent jamais.
             val widthBound = widgetWidth / 5.15f
-            val heightBound = widgetHeight * 0.57f
+            val heightBound = widgetHeight * 0.54f
             val buttonDp = min(widthBound, heightBound).coerceIn(46f, 84f)
             val clockDp = (buttonDp * 1.62f).coerceIn(82f, 136f)
-            val labelSp = (buttonDp * 0.135f).coerceIn(8f, 11f)
-            val timeSp = (buttonDp * 0.175f).coerceIn(10f, 14f)
-            val smallSp = (buttonDp * 0.105f).coerceIn(6.5f, 9f)
-            val locationSp = (buttonDp * 0.155f).coerceIn(9.5f, 12.5f)
-            val stateSp = (buttonDp * 0.14f).coerceIn(9f, 11.5f)
+
+            // Textes volontairement plus grands que précédemment.
+            val labelSp = (buttonDp * 0.15f).coerceIn(9f, 12.5f)
+            val timeSp = (buttonDp * 0.19f).coerceIn(11f, 15f)
+            val smallSp = (buttonDp * 0.12f).coerceIn(7.5f, 10f)
+            val locationSp = (buttonDp * 0.17f).coerceIn(10.5f, 14f)
+            val stateSp = (buttonDp * 0.155f).coerceIn(10f, 13f)
+            val brandSp = (buttonDp * 0.12f).coerceIn(7.5f, 10f)
             val buttonBitmapPx = (buttonDp * 3.2f).toInt().coerceIn(150, 300)
             val clockBitmapPx = (clockDp * 3.2f).toInt().coerceIn(240, 440)
 
@@ -114,6 +156,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             views.setTextViewTextSize(R.id.widget_location, TypedValue.COMPLEX_UNIT_SP, locationSp)
             views.setTextViewTextSize(R.id.widget_state, TypedValue.COMPLEX_UNIT_SP, stateSp)
+            views.setTextViewTextSize(R.id.widget_hp, TypedValue.COMPLEX_UNIT_SP, brandSp)
+            views.setTextViewTextSize(R.id.widget_work, TypedValue.COMPLEX_UNIT_SP, (brandSp - 1f).coerceAtLeast(6.5f))
 
             listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label, R.id.widget_duration, R.id.widget_location).forEach { views.setTextColor(it, accent) }
             views.setTextColor(R.id.widget_state, text)
@@ -122,8 +166,15 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setTextColor(R.id.widget_exit_time, Color.parseColor("#FF655D"))
             listOf(R.id.widget_entry_location, R.id.widget_exit_location).forEach { views.setTextColor(it, secondary) }
 
-            var entryText = "--:--"; var exitText = "--:--"; var durationText = "00h 00m"; var pauseText = "00h 00m"
-            var stateText = "PRÊT"; var stateColor = text; var locationText = "📍 Aucune zone"; var entryLocation = ""; var exitLocation = ""
+            var entryText = "--:--"
+            var exitText = "--:--"
+            var durationText = "00h 00m"
+            var pauseText = "00h 00m"
+            var stateText = "PRÊT"
+            var stateColor = text
+            var locationText = "📍 Aucune zone"
+            var entryLocation = ""
+            var exitLocation = ""
             val hasOpen = PointageStore.hasOpen(context)
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
@@ -141,22 +192,35 @@ class PointageWidgetProvider : AppWidgetProvider() {
                         entryText = formatTime(entry)
                         val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
                         entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 48)}"
+                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
                         val effectiveEnd: Long
                         if (last.isNull("exit")) {
-                            effectiveEnd = System.currentTimeMillis(); stateText = if (paused) "EN PAUSE" else "EN COURS"; stateColor = if (paused) Color.parseColor("#F3A64A") else Color.parseColor("#59DB60")
+                            effectiveEnd = System.currentTimeMillis()
+                            stateText = if (paused) "EN PAUSE" else "EN COURS"
+                            stateColor = if (paused) Color.parseColor("#F3A64A") else Color.parseColor("#59DB60")
                         } else {
-                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry); exitText = formatTime(effectiveEnd); exitLocation = place; stateText = "TERMINÉ"; stateColor = Color.parseColor("#FF5B52")
+                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
+                            exitText = formatTime(effectiveEnd)
+                            exitLocation = place
+                            stateText = "TERMINÉ"
+                            stateColor = Color.parseColor("#FF5B52")
                         }
-                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd)); durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
+                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
+                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
                     }
                 }
             }
 
-            views.setTextViewText(R.id.widget_entry_time, entryText); views.setTextViewText(R.id.widget_exit_time, exitText)
-            views.setTextViewText(R.id.widget_entry_location, entryLocation); views.setTextViewText(R.id.widget_exit_location, exitLocation)
-            views.setTextViewText(R.id.widget_pause_time, pauseText); views.setTextViewText(R.id.widget_duration, durationText)
-            views.setTextViewText(R.id.widget_state, stateText); views.setTextColor(R.id.widget_state, stateColor); views.setTextViewText(R.id.widget_location, locationText)
+            views.setTextViewText(R.id.widget_entry_time, entryText)
+            views.setTextViewText(R.id.widget_exit_time, exitText)
+            views.setTextViewText(R.id.widget_entry_location, entryLocation)
+            views.setTextViewText(R.id.widget_exit_location, exitLocation)
+            views.setTextViewText(R.id.widget_pause_time, pauseText)
+            views.setTextViewText(R.id.widget_duration, durationText)
+            views.setTextViewText(R.id.widget_state, stateText)
+            views.setTextColor(R.id.widget_state, stateColor)
+            views.setTextViewText(R.id.widget_location, locationText)
+
             val widgetPrefs = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
             views.setViewVisibility(R.id.widget_location, if (widgetPrefs.getBoolean("show_position", true)) View.VISIBLE else View.GONE)
             manager.updateAppWidget(widgetId, views)
@@ -174,13 +238,48 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+
+        var actionHandled = false
         when (intent.action) {
-            ACTION_ENTRY -> { if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show(); IconSwitcher.sync(context) }
-            ACTION_PAUSE -> { when { !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show(); PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }; else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() } }; IconSwitcher.sync(context) }
-            ACTION_EXIT -> { if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show(); IconSwitcher.sync(context) }
-            Intent.ACTION_CONFIGURATION_CHANGED -> Unit
+            ACTION_ENTRY -> {
+                actionHandled = true
+                if (PointageStore.entry(context)) {
+                    Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+                }
+                IconSwitcher.sync(context)
+            }
+            ACTION_PAUSE -> {
+                actionHandled = true
+                when {
+                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    PointageStore.isPaused(context) -> {
+                        PointageStore.resumePause(context)
+                        Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
+                    }
+                    else -> {
+                        PointageStore.startPause(context)
+                        Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                IconSwitcher.sync(context)
+            }
+            ACTION_EXIT -> {
+                actionHandled = true
+                if (PointageStore.exit(context)) {
+                    Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                }
+                IconSwitcher.sync(context)
+            }
+            Intent.ACTION_CONFIGURATION_CHANGED -> actionHandled = true
         }
-        updateAll(context)
-        QuickActionsWidgetProvider.updateAll(context)
+
+        if (actionHandled) {
+            updateAll(context)
+            QuickActionsWidgetProvider.updateAll(context)
+        }
     }
 }
