@@ -6,23 +6,32 @@ import android.util.Base64
 import java.util.Calendar
 import kotlin.math.max
 
-/**
- * Rend pour RemoteViews les mêmes éléments graphiques que la partie haute de l'application.
- * Les widgets Android ne peuvent pas héberger nos View personnalisées, donc on rend les
- * mêmes assets/couleurs dans des bitmaps puis on les injecte dans des ImageView RemoteViews.
- */
 object WidgetVisualRenderer {
     enum class Jewel { ENTRY, PAUSE, EXIT }
 
     fun jewel(context: Context, type: Jewel, sizePx: Int): Bitmap {
+        val out = jewelFrame(sizePx)
+        val c = Canvas(out)
+        c.drawBitmap(jewelInner(context, type, sizePx), 0f, 0f, null)
+        return out
+    }
+
+    fun jewelFrame(sizePx: Int): Bitmap {
+        val size = sizePx.coerceAtLeast(64)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bitmap)
+        drawFrame(c, size / 2f, size / 2f, size / 2f)
+        return bitmap
+    }
+
+    fun jewelInner(context: Context, type: Jewel, sizePx: Int): Bitmap {
         val size = sizePx.coerceAtLeast(64)
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val c = Canvas(bitmap)
         val cx = size / 2f
         val cy = size / 2f
         val r = size / 2f
-
-        drawFrame(c, cx, cy, r)
+        val jr = r * .885f
 
         val raw = when (type) {
             Jewel.ENTRY -> R.raw.hp_button_bg_green_b64
@@ -30,25 +39,21 @@ object WidgetVisualRenderer {
             Jewel.EXIT -> R.raw.hp_button_bg_red_b64
         }
         decodeRawBitmap(context, raw)?.let { src ->
-            val jr = r * .885f
             val dst = RectF(cx - jr, cy - jr, cx + jr, cy + jr)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
                 isFilterBitmap = true
                 val contrast = 1.18f
                 val o = -128f * contrast + 128f
-                colorFilter = ColorMatrixColorFilter(
-                    ColorMatrix(floatArrayOf(
-                        contrast,0f,0f,0f,o,
-                        0f,contrast,0f,0f,o,
-                        0f,0f,contrast,0f,o,
-                        0f,0f,0f,1f,0f
-                    ))
-                )
+                colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+                    contrast,0f,0f,0f,o,
+                    0f,contrast,0f,0f,o,
+                    0f,0f,contrast,0f,o,
+                    0f,0f,0f,1f,0f
+                )))
             }
             c.drawBitmap(src, null, dst, paint)
         }
 
-        val jr = r * .885f
         when (type) {
             Jewel.ENTRY -> drawArrow(c, cx, cy, jr, false)
             Jewel.EXIT -> drawArrow(c, cx, cy, jr, true)
