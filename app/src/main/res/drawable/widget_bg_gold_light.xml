@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Même surface bleu acier translucide que les boutons : le fond d'écran reste visible. -->
+    <!-- Signature Céleste : bleu nuit profond, légèrement lumineux et translucide. -->
     <gradient
-        android:angle="270"
-        android:startColor="#8A6F8FB8"
-        android:centerColor="#70617FA8"
-        android:endColor="#8A3F5F8C" />
+        android:angle="315"
+        android:startColor="#CC071B46"
+        android:centerColor="#B90B2E6B"
+        android:endColor="#CC03112C" />
     <corners android:radius="18dp" />
     <stroke android:width="1dp" android:color="#D6A84B" />
 </shape>
