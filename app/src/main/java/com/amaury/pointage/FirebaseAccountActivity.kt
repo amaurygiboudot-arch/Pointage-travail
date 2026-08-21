@@ -1,9 +1,13 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -34,61 +38,115 @@ class FirebaseAccountActivity : Activity() {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
         setContentView(buildContent())
+        styleAsCenteredPopup()
         refreshUi()
         DeviceRegistry.registerIfSignedIn(this)
     }
 
+    override fun onResume() {
+        super.onResume()
+        styleAsCenteredPopup()
+    }
+
+    private fun palette(): Triple<Int, Int, Int> {
+        val theme = AppThemeCatalog.current(this)
+        val dark = AppThemeCatalog.useDarkPalette(this)
+        val background = if (dark) theme.darkPanel else theme.lightPanel
+        val text = if (dark) theme.darkText else theme.lightText
+        val accent = if (dark) theme.accentLight else theme.accent
+        return Triple(background, text, accent)
+    }
+
+    private fun styleAsCenteredPopup() {
+        val (background, _, _) = palette()
+        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        val params = window.attributes
+        params.gravity = Gravity.CENTER
+        params.width = (resources.displayMetrics.widthPixels * 0.90f).toInt()
+        params.height = WindowManager.LayoutParams.WRAP_CONTENT
+        params.dimAmount = 0.55f
+        window.attributes = params
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+
+        val root = window.decorView.findViewById<ViewGroup>(android.R.id.content)?.getChildAt(0)
+        if (root != null) {
+            root.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 22f * resources.displayMetrics.density
+                setColor(background)
+            }
+        }
+    }
+
     private fun buildContent(): LinearLayout {
         val pad = (20 * resources.displayMetrics.density).toInt()
+        val (background, textColor, accentColor) = palette()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(pad, pad, pad, pad)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 22f * resources.displayMetrics.density
+                setColor(background)
+            }
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
+                ViewGroup.LayoutParams.WRAP_CONTENT
             )
 
             addView(TextView(this@FirebaseAccountActivity).apply {
                 text = "COMPTE GOOGLE"
                 textSize = 22f
                 gravity = Gravity.CENTER
+                setTextColor(accentColor)
                 setPadding(0, 20, 0, 24)
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
             statusText = TextView(this@FirebaseAccountActivity).apply {
                 textSize = 16f
                 gravity = Gravity.CENTER
+                setTextColor(textColor)
                 setPadding(12, 16, 12, 24)
             }
             addView(statusText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-            signInButton = Button(this@FirebaseAccountActivity).apply {
-                text = "SE CONNECTER AVEC GOOGLE"
-                setOnClickListener { startGoogleSignIn() }
+            signInButton = themedButton("SE CONNECTER AVEC GOOGLE", textColor, accentColor) {
+                startGoogleSignIn()
             }
             addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-            signOutButton = Button(this@FirebaseAccountActivity).apply {
-                text = "SE DÉCONNECTER"
-                setOnClickListener {
-                    auth.signOut()
-                    GoogleSignIn.getClient(this@FirebaseAccountActivity, googleOptions()).signOut()
-                    refreshUi()
-                }
+            signOutButton = themedButton("SE DÉCONNECTER", textColor, accentColor) {
+                auth.signOut()
+                GoogleSignIn.getClient(this@FirebaseAccountActivity, googleOptions()).signOut()
+                refreshUi()
             }
             addView(signOutButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = 12
             })
 
-            addView(Button(this@FirebaseAccountActivity).apply {
-                text = "FERMER"
-                setOnClickListener { finish() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 24
-            })
+            addView(themedButton("FERMER", textColor, accentColor) { finish() },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = 24
+                })
         }
     }
+
+    private fun themedButton(label: String, textColor: Int, accentColor: Int, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            isAllCaps = false
+            setTextColor(textColor)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 14f * resources.displayMetrics.density
+                setColor(Color.TRANSPARENT)
+                setStroke((1.2f * resources.displayMetrics.density).toInt().coerceAtLeast(1), accentColor)
+            }
+            setPadding(14, 12, 14, 12)
+            setOnClickListener { action() }
+        }
 
     private fun googleOptions(): GoogleSignInOptions =
         GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
