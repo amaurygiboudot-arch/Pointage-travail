@@ -257,7 +257,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             textSize = 13f
             setTextColor(hint)
             gravity = Gravity.CENTER
-            text = "${fmt(selectedLat)}, ${fmt(selectedLon)}"
+            this.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}"
             setPadding(0, dp(6), 0, dp(6))
         }
 
@@ -294,11 +294,11 @@ class GpsPointPickerView @JvmOverloads constructor(
             gravity = Gravity.CENTER
         }
         fun actionButton(label: String, onClick: () -> Unit): Button = Button(context).apply {
-            text = label
+            this.text = label
             isAllCaps = false
             textSize = 12f
             setTextColor(text)
-            background = rounded(panel, 12, accent)
+            this.background = rounded(panel, 12, accent)
             minHeight = 0
             minimumHeight = 0
             setOnClickListener { onClick() }
@@ -330,7 +330,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         root.addView(save, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(8) })
 
         val later = TextView(context).apply {
-            text = if (automatic) "Plus tard" else "Annuler"
+            this.text = if (automatic) "Plus tard" else "Annuler"
             textSize = 14f
             setTextColor(hint)
             gravity = Gravity.CENTER
