@@ -5,10 +5,13 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 
-/** Initialise Sentry très tôt afin que les crashs autorisés puissent être remontés. */
+/** Initialise très tôt la télémétrie et l'abonnement aux notifications de mise à jour. */
 class TelemetryInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let { TelemetryManager.initialize(it) }
+        context?.let {
+            TelemetryManager.initialize(it)
+            FirebaseUpdatePush.initialize(it.applicationContext)
+        }
         return true
     }
 
