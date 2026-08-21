@@ -22,9 +22,6 @@ import org.json.JSONObject
 class AddAddressButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // L'enregistrement est désormais automatique après validation d'un lieu.
-        // Le vieux bouton reste seulement comme point d'entrée interne pour réutiliser
-        // la logique existante de MainActivity, mais il n'est plus affiché à l'utilisateur.
         rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.visibility = View.GONE
         super.setOnClickListener { showAddressDialog() }
     }
@@ -53,9 +50,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             textSize = 14f
             setPadding(0, dp(6), 0, dp(4))
         }
-        val companyGroup = RadioGroup(context).apply {
-            orientation = RadioGroup.VERTICAL
-        }
+        val companyGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
         val company1Button = RadioButton(context).apply {
             id = View.generateViewId()
             text = "Entreprise 1 — $company1Name"
@@ -152,7 +147,6 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 addressList.setText(updated.joinToString("\n"))
 
                 val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-                gpsPrefs.edit().putString("address", updated.joinToString("\n")).apply()
                 PlaceNames.put(context, formatted, nameValue)
 
                 val contacts = runCatching {
@@ -172,8 +166,11 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 companyMap.put(formatted, companySlot)
 
                 gpsPrefs.edit()
+                    .putString("address", updated.joinToString("\n"))
                     .putString("arrival_contacts", contacts.toString())
                     .putString("address_company_slots", companyMap.toString())
+                    // Seul le lieu qui vient d'être ajouté doit ouvrir automatiquement la carte.
+                    .putString("pending_point_address", formatted)
                     .apply()
 
                 if (notifyOnArrival.isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -186,8 +183,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 val companyName = if (companySlot == 1) company1Name else company2Name
                 Toast.makeText(context, "$nameValue ajouté à $companyName", Toast.LENGTH_SHORT).show()
 
-                // Validation du formulaire = enregistrement GPS immédiat.
-                // Le sélecteur de point précis s'ouvre ensuite automatiquement sur la nouvelle zone.
+                // La validation du formulaire lance l'enregistrement GPS interne, puis la carte.
                 dialog.dismiss()
                 rootView.post {
                     rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
