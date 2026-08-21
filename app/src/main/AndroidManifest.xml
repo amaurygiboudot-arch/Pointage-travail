@@ -105,6 +105,12 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" />
         </receiver>
 
+        <receiver android:name=".UpdateDownloadReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
         <receiver android:name=".DriveBackupReceiver" android:exported="false" />
         <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
         <receiver android:name=".PauseScheduleReceiver" android:exported="false" />
