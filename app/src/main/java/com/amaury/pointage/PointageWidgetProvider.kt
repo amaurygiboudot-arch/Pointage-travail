@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.PendingIntent
+import android.app.WallpaperManager
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
@@ -47,6 +48,29 @@ class PointageWidgetProvider : AppWidgetProvider() {
             else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
         }
 
+        private fun adaptiveWidgetTextColors(context: Context, darkFallback: Boolean): Pair<Int, Int> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                runCatching {
+                    val colors = WallpaperManager.getInstance(context)
+                        .getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
+                    if (colors != null) {
+                        val primary = colors.primaryColor.toArgb()
+                        val r = Color.red(primary) / 255f
+                        val g = Color.green(primary) / 255f
+                        val b = Color.blue(primary) / 255f
+                        val luma = 0.2126f * r + 0.7152f * g + 0.0722f * b
+                        val supportsDark = (colors.colorHints and WallpaperManager.WallpaperColors.HINT_SUPPORTS_DARK_TEXT) != 0
+                        val useDarkText = supportsDark || luma >= 0.56f
+                        val main = if (useDarkText) Color.rgb(8, 8, 8) else Color.WHITE
+                        val secondary = if (useDarkText) Color.rgb(48, 48, 48) else Color.rgb(235, 235, 235)
+                        return main to secondary
+                    }
+                }
+            }
+            return if (darkFallback) Color.WHITE to Color.rgb(230, 230, 230)
+            else Color.rgb(8, 8, 8) to Color.rgb(55, 55, 55)
+        }
+
         private fun widgetSize(manager: AppWidgetManager, widgetId: Int): Pair<Int, Int> {
             val options = manager.getAppWidgetOptions(widgetId)
             val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 360).coerceAtLeast(280)
@@ -59,8 +83,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 this.action = action
                 putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             }
-            // Identifiant propre à chaque bouton ET à chaque instance du widget :
-            // évite que certains launchers réutilisent un ancien PendingIntent.
             val requestCode = widgetId * 10 + slot
             return PendingIntent.getBroadcast(
                 context,
@@ -98,9 +120,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_root, openApp)
             views.setOnClickPendingIntent(R.id.widget_location, openSettings)
             views.setOnClickPendingIntent(R.id.widget_status_area, openApp)
-
-            // On lie le clic à la zone complète ET à l'image elle-même.
-            // C'est plus fiable selon les launchers Android/HyperOS.
             views.setOnClickPendingIntent(R.id.widget_entry_area, entryClick)
             views.setOnClickPendingIntent(R.id.widget_entry_button, entryClick)
             views.setOnClickPendingIntent(R.id.widget_pause_area, pauseClick)
@@ -111,8 +130,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val theme = AppThemeCatalog.current(context)
             val dark = AppThemeCatalog.useDarkPalette(context)
             val accent = if (dark) theme.accentLight else theme.accent
-            val text = if (dark) theme.darkText else theme.lightText
-            val secondary = if (dark) theme.darkHint else theme.lightHint
+            val (adaptiveText, adaptiveSecondary) = adaptiveWidgetTextColors(context, dark)
             views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
@@ -121,7 +139,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val buttonDp = min(widthBound, heightBound).coerceIn(46f, 84f)
             val clockDp = (buttonDp * 1.62f).coerceIn(82f, 136f)
 
-            // Textes volontairement plus grands que précédemment.
             val labelSp = (buttonDp * 0.15f).coerceIn(9f, 12.5f)
             val timeSp = (buttonDp * 0.19f).coerceIn(11f, 15f)
             val smallSp = (buttonDp * 0.12f).coerceIn(7.5f, 10f)
@@ -145,33 +162,32 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 views.setViewLayoutHeight(R.id.widget_clock, clockDp, TypedValue.COMPLEX_UNIT_DIP)
             }
 
-            listOf(R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label).forEach { id ->
-                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, labelSp)
-            }
-            listOf(R.id.widget_entry_time, R.id.widget_exit_time, R.id.widget_duration).forEach { id ->
-                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, timeSp)
-            }
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time).forEach { id ->
-                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, smallSp)
-            }
+            listOf(R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label).forEach { id -> views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, labelSp) }
+            listOf(R.id.widget_entry_time, R.id.widget_exit_time, R.id.widget_duration).forEach { id -> views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, timeSp) }
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time).forEach { id -> views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, smallSp) }
             views.setTextViewTextSize(R.id.widget_location, TypedValue.COMPLEX_UNIT_SP, locationSp)
             views.setTextViewTextSize(R.id.widget_state, TypedValue.COMPLEX_UNIT_SP, stateSp)
             views.setTextViewTextSize(R.id.widget_hp, TypedValue.COMPLEX_UNIT_SP, brandSp)
             views.setTextViewTextSize(R.id.widget_work, TypedValue.COMPLEX_UNIT_SP, (brandSp - 1f).coerceAtLeast(6.5f))
 
-            listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label, R.id.widget_duration, R.id.widget_location).forEach { views.setTextColor(it, accent) }
-            views.setTextColor(R.id.widget_state, text)
-            views.setTextColor(R.id.widget_entry_time, Color.parseColor("#55D96B"))
-            views.setTextColor(R.id.widget_pause_time, secondary)
-            views.setTextColor(R.id.widget_exit_time, Color.parseColor("#FF655D"))
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location).forEach { views.setTextColor(it, secondary) }
+            // Le texte principal du widget suit maintenant le fond d'écran du téléphone,
+            // et non plus seulement le mode clair/sombre de l'application.
+            listOf(
+                R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label,
+                R.id.widget_duration, R.id.widget_location, R.id.widget_state
+            ).forEach { views.setTextColor(it, adaptiveText) }
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time).forEach { views.setTextColor(it, adaptiveSecondary) }
+            listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work).forEach { views.setTextColor(it, accent) }
+
+            views.setTextColor(R.id.widget_entry_time, Color.parseColor("#34B84A"))
+            views.setTextColor(R.id.widget_exit_time, Color.parseColor("#E8433C"))
 
             var entryText = "--:--"
             var exitText = "--:--"
             var durationText = "00h 00m"
             var pauseText = "00h 00m"
             var stateText = "PRÊT"
-            var stateColor = text
+            var stateColor = adaptiveText
             var locationText = "📍 Aucune zone"
             var entryLocation = ""
             var exitLocation = ""
@@ -197,13 +213,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
                         if (last.isNull("exit")) {
                             effectiveEnd = System.currentTimeMillis()
                             stateText = if (paused) "EN PAUSE" else "EN COURS"
-                            stateColor = if (paused) Color.parseColor("#F3A64A") else Color.parseColor("#59DB60")
+                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
                         } else {
                             effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
                             exitText = formatTime(effectiveEnd)
                             exitLocation = place
                             stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#FF5B52")
+                            stateColor = Color.parseColor("#D93630")
                         }
                         pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
                         durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
@@ -243,11 +259,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 actionHandled = true
-                if (PointageStore.entry(context)) {
-                    Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
-                }
+                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
                 IconSwitcher.sync(context)
             }
             ACTION_PAUSE -> {
@@ -267,14 +280,12 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             ACTION_EXIT -> {
                 actionHandled = true
-                if (PointageStore.exit(context)) {
-                    Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                }
+                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                 IconSwitcher.sync(context)
             }
             Intent.ACTION_CONFIGURATION_CHANGED -> actionHandled = true
+            Intent.ACTION_WALLPAPER_CHANGED -> actionHandled = true
         }
 
         if (actionHandled) {
