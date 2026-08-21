@@ -75,15 +75,19 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
-            // Tout le visuel suit la taille choisie du widget. Les proportions restent identiques
-            // au haut de l'application, mais les boutons et l'horloge grandissent/rétrécissent ensemble.
-            val buttonDp = min(widgetWidth / 7.25f, widgetHeight * 0.43f).coerceIn(36f, 72f)
-            val clockDp = (buttonDp * 1.68f).coerceIn(62f, 118f)
-            val labelSp = (buttonDp * 0.14f).coerceIn(6.5f, 10.5f)
-            val timeSp = (buttonDp * 0.19f).coerceIn(8f, 13f)
-            val smallSp = (buttonDp * 0.105f).coerceIn(5.5f, 8f)
-            val buttonBitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 270)
-            val clockBitmapPx = (clockDp * 3f).toInt().coerceIn(190, 380)
+            // Utilise franchement plus d'espace : les boutons remplissent presque leur colonne,
+            // tout en conservant une marge de sécurité pour qu'ils ne se touchent jamais.
+            val widthBound = widgetWidth / 5.15f
+            val heightBound = widgetHeight * 0.57f
+            val buttonDp = min(widthBound, heightBound).coerceIn(46f, 84f)
+            val clockDp = (buttonDp * 1.62f).coerceIn(82f, 136f)
+            val labelSp = (buttonDp * 0.135f).coerceIn(8f, 11f)
+            val timeSp = (buttonDp * 0.175f).coerceIn(10f, 14f)
+            val smallSp = (buttonDp * 0.105f).coerceIn(6.5f, 9f)
+            val locationSp = (buttonDp * 0.155f).coerceIn(9.5f, 12.5f)
+            val stateSp = (buttonDp * 0.14f).coerceIn(9f, 11.5f)
+            val buttonBitmapPx = (buttonDp * 3.2f).toInt().coerceIn(150, 300)
+            val clockBitmapPx = (clockDp * 3.2f).toInt().coerceIn(240, 440)
 
             views.setImageViewBitmap(R.id.widget_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, buttonBitmapPx))
             views.setImageViewBitmap(R.id.widget_pause_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, buttonBitmapPx))
@@ -105,9 +109,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
             listOf(R.id.widget_entry_time, R.id.widget_exit_time, R.id.widget_duration).forEach { id ->
                 views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, timeSp)
             }
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time, R.id.widget_location).forEach { id ->
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location, R.id.widget_pause_time).forEach { id ->
                 views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, smallSp)
             }
+            views.setTextViewTextSize(R.id.widget_location, TypedValue.COMPLEX_UNIT_SP, locationSp)
+            views.setTextViewTextSize(R.id.widget_state, TypedValue.COMPLEX_UNIT_SP, stateSp)
 
             listOf(R.id.widget_crown, R.id.widget_hp, R.id.widget_work, R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label, R.id.widget_duration, R.id.widget_location).forEach { views.setTextColor(it, accent) }
             views.setTextColor(R.id.widget_state, text)
@@ -135,7 +141,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
                         entryText = formatTime(entry)
                         val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
                         entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 42)}"
+                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 48)}"
                         val effectiveEnd: Long
                         if (last.isNull("exit")) {
                             effectiveEnd = System.currentTimeMillis(); stateText = if (paused) "EN PAUSE" else "EN COURS"; stateColor = if (paused) Color.parseColor("#F3A64A") else Color.parseColor("#59DB60")
