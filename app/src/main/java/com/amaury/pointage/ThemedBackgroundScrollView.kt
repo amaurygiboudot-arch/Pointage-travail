@@ -12,8 +12,10 @@ import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import java.io.File
 import kotlin.math.max
@@ -33,7 +35,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedImage: Bitmap? = null
-    private var cachedPath: String? = null
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
@@ -43,9 +44,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
-
-        // Une seule couleur est calculée à partir de la moyenne de TOUT le fond d'écran.
-        // Elle s'applique ensuite à tous les textes de l'application, sans changement pendant le scroll.
         applyGlobalAdaptiveTextColor()
         super.dispatchDraw(canvas)
     }
@@ -83,7 +81,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         if (cachedImageToken != token || cachedImage == null) {
             cachedImage?.recycle()
             cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-            cachedPath = file.absolutePath
             cachedImageToken = token
             cachedTextColor = null
             cachedShadowColor = null
@@ -95,14 +92,18 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && file.exists()
 
+        if (hasImage) {
+            // Avec une photo, on retire les grands panneaux opaques/translucides qui la masquent.
+            // Les vrais boutons, champs de saisie et interrupteurs gardent leur propre fond.
+            clearPhotoPanels(this, insideEnterprise = false)
+            ensureImage(file)
+        }
+
         val textColor: Int
         val shadowColor: Int
-
         if (hasImage) {
-            ensureImage(file)
             if (cachedTextColor == null || cachedShadowColor == null) {
-                val bitmap = cachedImage
-                if (bitmap != null) {
+                cachedImage?.let { bitmap ->
                     val stats = globalBackgroundStats(bitmap)
                     val useDarkText = chooseDarkText(stats)
                     cachedTextColor = if (useDarkText) Color.rgb(8, 8, 8) else Color.WHITE
@@ -118,32 +119,38 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             textColor = if (useDarkText) Color.rgb(8, 8, 8) else Color.WHITE
             shadowColor = if (useDarkText) Color.argb(210, 255, 255, 255) else Color.argb(220, 0, 0, 0)
         }
-
         applyTextColorRecursively(this, textColor, shadowColor)
     }
 
+    private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
+        val nowInsideEnterprise = insideEnterprise || view is EnterpriseLookupView
+        if (nowInsideEnterprise && view is ViewGroup && view !is Button && view !is EditText && view !is Switch) {
+            view.background = null
+            view.setBackgroundColor(Color.TRANSPARENT)
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                clearPhotoPanels(view.getChildAt(i), nowInsideEnterprise)
+            }
+        }
+    }
+
     private fun chooseDarkText(stats: GlobalBackgroundStats): Boolean {
-        // On combine la luminosité moyenne réelle avec la proportion de zones claires/sombres.
-        // Le résultat représente la clarté générale du fond complet, pas une zone locale.
         val clarity = (
             stats.averageLuma * 0.70f +
             stats.brightRatio * 0.22f +
             (1f - stats.darkRatio) * 0.08f
         ).coerceIn(0f, 1f)
-
         return clarity >= 0.53f
     }
 
     private fun globalBackgroundStats(bitmap: Bitmap): GlobalBackgroundStats {
-        // Échantillonnage régulier de toute l'image : rapide et représentatif.
         val stepX = (bitmap.width / 48).coerceAtLeast(1)
         val stepY = (bitmap.height / 72).coerceAtLeast(1)
-
         var sumLuma = 0f
         var bright = 0
         var dark = 0
         var count = 0
-
         var y = 0
         while (y < bitmap.height) {
             var x = 0
@@ -158,18 +165,12 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             }
             y += stepY
         }
-
         if (count == 0) return GlobalBackgroundStats(0f, 0f, 1f)
-        return GlobalBackgroundStats(
-            averageLuma = sumLuma / count,
-            brightRatio = bright.toFloat() / count,
-            darkRatio = dark.toFloat() / count
-        )
+        return GlobalBackgroundStats(sumLuma / count, bright.toFloat() / count, dark.toFloat() / count)
     }
 
     private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
         if (view is TextView) {
-            // Les boutons bijoux Entrée/Pause/Sortie n'ont pas de texte système à recolorer.
             view.setTextColor(color)
             view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
             if (view is EditText) {
@@ -191,7 +192,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         paint.shader = LinearGradient(0f, 0f, width.toFloat(), 0f, intArrayOf(top, mid, top, bottom), floatArrayOf(0f, .38f, .7f, 1f), Shader.TileMode.CLAMP)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         paint.shader = null
-
         var y = 0
         while (y < height) {
             val phase = (y * 37) % 11
