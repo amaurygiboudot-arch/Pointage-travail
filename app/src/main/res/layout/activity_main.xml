@@ -22,14 +22,12 @@
             android:clipChildren="false"
             android:clipToPadding="false">
 
-            <!-- Horloge réellement affichée : elle reste présente quel que soit l'onglet ou le thème. -->
             <com.amaury.pointage.HpAnalogClockView
                 android:id="@+id/heroClockPermanent"
                 android:layout_width="match_parent"
                 android:layout_height="210dp"
                 android:layout_gravity="center" />
 
-            <!-- Compatibilité avec l'ancien contrôleur de visibilité : ce témoin invisible peut être masqué sans toucher à l'horloge réelle. -->
             <com.amaury.pointage.HpAnalogClockView
                 android:id="@+id/heroClockHands"
                 android:layout_width="1dp"
@@ -98,6 +96,7 @@
                 <Button android:id="@+id/saveGpsSettingsButton" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" android:alpha="0" android:text="" />
                 <com.amaury.pointage.GpsPointPickerView android:id="@+id/gpsPointPickerView" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"/>
                 <Button android:id="@+id/locationPermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="AUTORISER LA LOCALISATION" android:textColor="@color/hp_gold_light" android:textSize="14sp" android:background="@drawable/hp_panel"/>
+                <com.amaury.pointage.WidgetSettingsCleanerView android:layout_width="1dp" android:layout_height="1dp" android:visibility="invisible" />
                 <com.amaury.pointage.SuggestionBoxView android:layout_width="match_parent" android:layout_height="wrap_content" />
             </LinearLayout>
         </LinearLayout>
