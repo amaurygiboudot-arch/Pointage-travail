@@ -6,8 +6,12 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.util.TypedValue
 import android.widget.RemoteViews
 import android.widget.Toast
+import kotlin.math.min
 
 class QuickActionsWidgetProvider : AppWidgetProvider() {
     companion object {
@@ -29,19 +33,41 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
         }
 
+        private fun widgetSize(manager: AppWidgetManager, widgetId: Int): Pair<Int, Int> {
+            val options = manager.getAppWidgetOptions(widgetId)
+            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 220).coerceAtLeast(160)
+            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 82).coerceAtLeast(60)
+            return width to height
+        }
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
             val theme = AppThemeCatalog.current(context)
             val dark = AppThemeCatalog.useDarkPalette(context)
             val accent = if (dark) theme.accentLight else theme.accent
 
+            val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
+            // Les boutons prennent la taille disponible : petits dans un widget compact,
+            // grands quand l'utilisateur agrandit le widget, sans jamais se chevaucher.
+            val buttonDp = min(widgetWidth / 3.65f, widgetHeight * 0.68f).coerceIn(38f, 88f)
+            val labelSp = (buttonDp * 0.15f).coerceIn(7.5f, 12f)
+            val bitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 300)
+
             views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
-            views.setImageViewBitmap(R.id.quick_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, 200))
-            views.setImageViewBitmap(R.id.quick_pause_icon, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, 200))
-            views.setImageViewBitmap(R.id.quick_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, 200))
-            views.setTextColor(R.id.quick_entry_label, accent)
-            views.setTextColor(R.id.quick_pause_label, accent)
-            views.setTextColor(R.id.quick_exit_label, accent)
+            views.setImageViewBitmap(R.id.quick_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_pause_icon, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, bitmapPx))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf(R.id.quick_entry_button, R.id.quick_pause_icon, R.id.quick_exit_button).forEach { id ->
+                    views.setViewLayoutWidth(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+            }
+            listOf(R.id.quick_entry_label, R.id.quick_pause_label, R.id.quick_exit_label).forEach { id ->
+                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, labelSp)
+                views.setTextColor(id, accent)
+            }
 
             val entryIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_ENTRY }
             val pauseIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_PAUSE }
@@ -60,7 +86,15 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) { ids.forEach { updateWidget(context, manager, it) } }
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        ids.forEach { updateWidget(context, manager, it) }
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        updateWidget(context, manager, appWidgetId)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
@@ -74,7 +108,9 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_CONFIGURATION_CHANGED -> Unit
         }
         if (intent.action == ACTION_ENTRY || intent.action == ACTION_PAUSE || intent.action == ACTION_EXIT || intent.action == Intent.ACTION_CONFIGURATION_CHANGED) {
-            IconSwitcher.sync(context); PointageWidgetProvider.updateAll(context); updateAll(context)
+            IconSwitcher.sync(context)
+            PointageWidgetProvider.updateAll(context)
+            updateAll(context)
         }
     }
 }
