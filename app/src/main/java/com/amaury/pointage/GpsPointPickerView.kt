@@ -1,18 +1,22 @@
 package com.amaury.pointage
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.location.Address
-import android.location.Geocoder
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.location.LocationManager
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -23,8 +27,8 @@ import org.json.JSONObject
 import java.util.Locale
 
 /**
- * Permet de dissocier l'adresse postale du point GPS réellement utilisé par le geofencing.
- * Le choix est conservé dans zone_point_overrides et réappliqué si l'adresse est ré-enregistrée.
+ * Sélection du centre GPS réel d'un lieu.
+ * L'adresse postale reste inchangée ; le point choisi sur la carte devient le centre du geofence.
  */
 class GpsPointPickerView @JvmOverloads constructor(
     context: Context,
@@ -39,27 +43,41 @@ class GpsPointPickerView @JvmOverloads constructor(
     init {
         orientation = VERTICAL
         setPadding(0, dp(6), 0, dp(6))
+        rebuildHeader()
+    }
+
+    private fun rebuildHeader() {
+        removeAllViews()
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context)
+        val text = if (dark) theme.darkText else theme.lightText
+        val hint = if (dark) theme.darkHint else theme.lightHint
+        val accent = if (dark) theme.accentLight else theme.accent
 
         addView(TextView(context).apply {
-            text = "POINT GPS PRÉCIS"
+            this.text = "POINT GPS PRÉCIS"
             textSize = 14f
+            setTextColor(accent)
             setPadding(0, dp(12), 0, dp(5))
         })
 
         addView(Button(context).apply {
-            text = "📍 AJUSTER LE POINT GPS D'UN LIEU"
+            this.text = "📍 AJUSTER LE POINT GPS D'UN LIEU"
             isAllCaps = false
             textSize = 14f
             gravity = Gravity.CENTER
+            setTextColor(text)
             setBackgroundResource(R.drawable.hp_panel)
+            backgroundTintList = ColorStateList.valueOf(if (dark) theme.darkPanel else theme.lightPanel)
             minHeight = 0
             minimumHeight = 0
             setOnClickListener { choosePlaceManually() }
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
 
         addView(TextView(context).apply {
-            text = "L'adresse reste affichée normalement, mais le point choisi ici devient le centre réel du rayon GPS. Utile pour les grands sites où l'adresse tombe sur la route ou au portail."
+            this.text = "L'adresse reste affichée normalement. Le point choisi sur la carte devient le centre réel du rayon GPS."
             textSize = 12f
+            setTextColor(hint)
             setPadding(0, dp(6), 0, dp(6))
         })
     }
@@ -67,7 +85,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         prefs.registerOnSharedPreferenceChangeListener(this)
-        post { reapplyStoredOverrides(); maybePromptForUnconfirmedPoint() }
+        post { reapplyStoredOverrides(); maybePromptForPendingPoint() }
     }
 
     override fun onDetachedFromWindow() {
@@ -79,7 +97,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (key != "zones" || applyingOverride) return
         post {
             reapplyStoredOverrides()
-            maybePromptForUnconfirmedPoint()
+            maybePromptForPendingPoint()
         }
     }
 
@@ -95,7 +113,6 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONObject(prefs.getString("zone_point_confirmed", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
 
-    /** Réinjecte le point choisi par l'utilisateur si MainActivity a re-géocodé l'adresse. */
     private fun reapplyStoredOverrides() {
         val source = zones()
         if (source.length() == 0) return
@@ -126,16 +143,19 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
     }
 
-    /** Après le premier enregistrement d'une adresse, propose une fois de vérifier son point. */
-    private fun maybePromptForUnconfirmedPoint() {
+    /**
+     * N'ouvre automatiquement que le lieu qui vient réellement d'être ajouté.
+     * Les anciens lieux non confirmés ne parasitent plus le parcours.
+     */
+    private fun maybePromptForPendingPoint() {
         if (promptScheduled || !isShown) return
+        val pending = prefs.getString("pending_point_address", "").orEmpty().trim()
+        if (pending.isBlank()) return
         val list = zones()
-        val done = confirmed()
         var target: JSONObject? = null
         for (i in 0 until list.length()) {
             val zone = list.optJSONObject(i) ?: continue
-            val address = zone.optString("address").trim()
-            if (address.isNotBlank() && !done.optBoolean(address, false)) {
+            if (zone.optString("address").trim().equals(pending, ignoreCase = true)) {
                 target = zone
                 break
             }
@@ -144,14 +164,14 @@ class GpsPointPickerView @JvmOverloads constructor(
         promptScheduled = true
         postDelayed({
             promptScheduled = false
-            if (isAttachedToWindow && isShown) showPointChoice(zone, automatic = true)
-        }, 350L)
+            if (isAttachedToWindow && isShown) showMapPicker(zone, automatic = true)
+        }, 300L)
     }
 
     private fun choosePlaceManually() {
         val list = zones()
         if (list.length() == 0) {
-            Toast.makeText(context, "Enregistre d'abord une adresse", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Ajoute d'abord un lieu", Toast.LENGTH_SHORT).show()
             return
         }
         val labels = ArrayList<String>()
@@ -163,89 +183,210 @@ class GpsPointPickerView @JvmOverloads constructor(
             labels += (PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
             items += zone
         }
-        AlertDialog.Builder(context)
+
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context)
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        val text = if (dark) theme.darkText else theme.lightText
+        val accent = if (dark) theme.accentLight else theme.accent
+
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Quel lieu veux-tu ajuster ?")
-            .setItems(labels.toTypedArray()) { _, which -> showPointChoice(items[which], automatic = false) }
+            .setItems(labels.toTypedArray()) { _, which -> showMapPicker(items[which], automatic = false) }
             .setNegativeButton("Annuler", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(rounded(panel, 20, accent))
+            dialog.listView?.setBackgroundColor(panel)
+            for (i in 0 until dialog.listView.childCount) {
+                (dialog.listView.getChildAt(i) as? TextView)?.setTextColor(text)
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accent)
+        }
+        dialog.show()
     }
 
-    private fun showPointChoice(zone: JSONObject, automatic: Boolean) {
+    private fun showMapPicker(zone: JSONObject, automatic: Boolean) {
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
-        val candidates = geocodeCandidates(address)
-        val current = currentLocation()
 
-        val labels = ArrayList<String>()
-        val points = ArrayList<Pair<Double, Double>>()
-        val sources = ArrayList<String>()
-
-        // Le point déjà enregistré reste toujours proposé en premier.
         val savedLat = zone.optDouble("latitude", Double.NaN)
         val savedLon = zone.optDouble("longitude", Double.NaN)
-        if (savedLat.isFinite() && savedLon.isFinite()) {
-            labels += "✓ Point actuellement enregistré\n${fmt(savedLat)}, ${fmt(savedLon)}"
-            points += savedLat to savedLon
-            sources += zone.optString("pointSource", "address")
+        val current = currentLocation()
+        var selectedLat = when {
+            savedLat.isFinite() -> savedLat
+            current != null -> current.latitude
+            else -> 46.603354
+        }
+        var selectedLon = when {
+            savedLon.isFinite() -> savedLon
+            current != null -> current.longitude
+            else -> 1.888334
         }
 
-        candidates.forEachIndexed { index, item ->
-            if (points.any { closeTo(it.first, it.second, item.latitude, item.longitude) }) return@forEachIndexed
-            val label = item.getAddressLine(0)?.takeIf { it.isNotBlank() } ?: "Résultat ${index + 1}"
-            labels += "📌 $label\n${fmt(item.latitude)}, ${fmt(item.longitude)}"
-            points += item.latitude to item.longitude
-            sources += "address_candidate"
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context)
+        val background = if (dark) theme.darkBackground else theme.lightBackground
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        val text = if (dark) theme.darkText else theme.lightText
+        val hint = if (dark) theme.darkHint else theme.lightHint
+        val accent = if (dark) theme.accentLight else theme.accent
+
+        val root = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setBackgroundColor(background)
         }
 
-        if (current != null && points.none { closeTo(it.first, it.second, current.latitude, current.longitude) }) {
-            labels += "📱 MA POSITION ACTUELLE\n${fmt(current.latitude)}, ${fmt(current.longitude)}  (±${current.accuracy.toInt()} m)"
-            points += current.latitude to current.longitude
-            sources += "current_location"
+        root.addView(TextView(context).apply {
+            this.text = "📍 ${PlaceNames.get(context, address) ?: address}"
+            textSize = 19f
+            setTextColor(accent)
+            setPadding(0, 0, 0, dp(5))
+        })
+        root.addView(TextView(context).apply {
+            this.text = if (automatic)
+                "Place le repère au centre réel de ta zone de travail. Tu peux déplacer la carte, zoomer et déplacer le repère."
+            else "Déplace le repère sur le centre réel de la zone GPS. L'adresse postale ne changera pas."
+            textSize = 14f
+            setTextColor(text)
+            setPadding(0, 0, 0, dp(10))
+        })
+
+        val coordinateLabel = TextView(context).apply {
+            textSize = 13f
+            setTextColor(hint)
+            gravity = Gravity.CENTER
+            text = "${fmt(selectedLat)}, ${fmt(selectedLon)}"
+            setPadding(0, dp(6), 0, dp(6))
         }
 
-        labels += "✏️ ENTRER DES COORDONNÉES PRÉCISES"
-
-        val message = if (automatic) {
-            "L'adresse a été trouvée. Vérifie maintenant le centre réel de la zone de travail. Pour une grande entreprise, choisis plutôt un point au milieu du site qu'un point sur la route."
-        } else {
-            "Choisis le centre réel de la zone GPS. L'adresse postale ne sera pas modifiée."
+        val webView = WebView(context).apply {
+            setBackgroundColor(Color.WHITE)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.setSupportZoom(true)
+            settings.builtInZoomControls = false
+            webViewClient = WebViewClient()
         }
 
-        AlertDialog.Builder(context)
-            .setTitle("Point GPS — ${PlaceNames.get(context, address) ?: address}")
-            .setMessage(message)
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which == labels.lastIndex) {
-                    showCoordinateEntry(zone)
-                } else {
-                    savePoint(zone, points[which].first, points[which].second, sources[which])
-                }
+        val bridge = object {
+            @JavascriptInterface
+            fun onPoint(latitude: Double, longitude: Double) {
+                selectedLat = latitude
+                selectedLon = longitude
+                post { coordinateLabel.text = "${fmt(latitude)}, ${fmt(longitude)}" }
             }
-            .setNegativeButton(if (automatic) "Garder le point proposé" else "Annuler") { _, _ ->
-                if (automatic) markConfirmed(address)
+        }
+        webView.addJavascriptInterface(bridge, "Android")
+        webView.loadDataWithBaseURL(
+            "https://www.openstreetmap.org/",
+            leafletHtml(selectedLat, selectedLon),
+            "text/html",
+            "UTF-8",
+            null
+        )
+        root.addView(webView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(330)))
+        root.addView(coordinateLabel)
+
+        val quick = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        fun actionButton(label: String, onClick: () -> Unit): Button = Button(context).apply {
+            text = label
+            isAllCaps = false
+            textSize = 12f
+            setTextColor(text)
+            background = rounded(panel, 12, accent)
+            minHeight = 0
+            minimumHeight = 0
+            setOnClickListener { onClick() }
+        }
+        val addressButton = actionButton("POINT ADRESSE") {
+            if (savedLat.isFinite() && savedLon.isFinite()) {
+                selectedLat = savedLat; selectedLon = savedLon
+                coordinateLabel.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}"
+                webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
-            .show()
+        }
+        val positionButton = actionButton("MA POSITION") {
+            val now = currentLocation()
+            if (now == null) {
+                Toast.makeText(context, "Position actuelle indisponible pour le moment", Toast.LENGTH_SHORT).show()
+            } else {
+                selectedLat = now.latitude; selectedLon = now.longitude
+                coordinateLabel.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}  ±${now.accuracy.toInt()} m"
+                webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
+            }
+        }
+        quick.addView(addressButton, LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(5) })
+        quick.addView(positionButton, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(5) })
+        root.addView(quick)
+
+        val save = actionButton("✓ VALIDER CE POINT") { }
+        save.textSize = 14f
+        save.setTextColor(accent)
+        root.addView(save, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(8) })
+
+        val later = TextView(context).apply {
+            text = if (automatic) "Plus tard" else "Annuler"
+            textSize = 14f
+            setTextColor(hint)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, dp(2))
+            isClickable = true
+        }
+        root.addView(later)
+
+        val dialog = AlertDialog.Builder(context).setView(root).create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(rounded(background, 22, accent))
+            val width = (resources.displayMetrics.widthPixels * .95f).toInt()
+            dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        dialog.setOnDismissListener { webView.destroy() }
+
+        save.setOnClickListener {
+            savePoint(zone, selectedLat, selectedLon, "map")
+            prefs.edit().remove("pending_point_address").apply()
+            dialog.dismiss()
+        }
+        later.setOnClickListener {
+            if (automatic) prefs.edit().remove("pending_point_address").apply()
+            dialog.dismiss()
+        }
+        dialog.show()
     }
 
     private fun showCoordinateEntry(zone: JSONObject) {
-        val address = zone.optString("address").trim()
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context)
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        val text = if (dark) theme.darkText else theme.lightText
+        val hint = if (dark) theme.darkHint else theme.lightHint
+        val accent = if (dark) theme.accentLight else theme.accent
+
         val latInput = EditText(context).apply {
             hint = "Latitude"
             setText(zone.optDouble("latitude", 0.0).toString())
+            setTextColor(text); setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
         }
         val lonInput = EditText(context).apply {
             hint = "Longitude"
             setText(zone.optDouble("longitude", 0.0).toString())
+            setTextColor(text); setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
         }
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
+            setBackgroundColor(panel)
             addView(latInput)
             addView(lonInput)
         }
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Coordonnées précises")
             .setView(box)
             .setPositiveButton("Enregistrer") { _, _ ->
@@ -253,12 +394,16 @@ class GpsPointPickerView @JvmOverloads constructor(
                 val lon = lonInput.text.toString().replace(',', '.').toDoubleOrNull()
                 if (lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) {
                     Toast.makeText(context, "Coordonnées invalides", Toast.LENGTH_LONG).show()
-                } else {
-                    savePoint(zone, lat, lon, "manual_coordinates")
-                }
+                } else savePoint(zone, lat, lon, "manual_coordinates")
             }
             .setNegativeButton("Annuler", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(rounded(panel, 18, accent))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accent)
+        }
+        dialog.show()
     }
 
     private fun savePoint(zone: JSONObject, latitude: Double, longitude: Double, source: String) {
@@ -266,10 +411,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (address.isBlank()) return
 
         val custom = overrides().apply {
-            put(address, JSONObject()
-                .put("latitude", latitude)
-                .put("longitude", longitude)
-                .put("source", source))
+            put(address, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
         }
         val list = zones()
         for (i in 0 until list.length()) {
@@ -288,13 +430,12 @@ class GpsPointPickerView @JvmOverloads constructor(
         applyingOverride = false
         markConfirmed(address)
         registerCurrentZones()
-        Toast.makeText(context, "Point GPS précis enregistré pour ${PlaceNames.get(context, address) ?: address}", Toast.LENGTH_LONG).show()
+        Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, address) ?: address}", Toast.LENGTH_LONG).show()
     }
 
     private fun markConfirmed(address: String) {
         val done = confirmed().apply { put(address, true) }
         prefs.edit().putString("zone_point_confirmed", done.toString()).apply()
-        post { maybePromptForUnconfirmedPoint() }
     }
 
     private fun registerCurrentZones() {
@@ -314,24 +455,37 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (workZones.isNotEmpty()) GeofenceManager.registerAll(context, workZones) { _, _ -> }
     }
 
-    @Suppress("DEPRECATION")
-    private fun geocodeCandidates(address: String): List<Address> = runCatching {
-        Geocoder(context, Locale.FRANCE).getFromLocationName(address, 5)?.filter {
-            it.latitude.isFinite() && it.longitude.isFinite()
-        } ?: emptyList()
-    }.getOrDefault(emptyList())
-
     private fun currentLocation(): Location? {
         if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
-        return providers.mapNotNull { provider ->
-            runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
-        }.minByOrNull { it.accuracy }
+        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+            .minByOrNull { it.accuracy }
     }
 
-    private fun closeTo(aLat: Double, aLon: Double, bLat: Double, bLon: Double): Boolean =
-        kotlin.math.abs(aLat - bLat) < 0.00001 && kotlin.math.abs(aLon - bLon) < 0.00001
+    private fun leafletHtml(latitude: Double, longitude: Double): String = """
+        <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+        <style>html,body,#map{height:100%;margin:0;padding:0;background:#e8e8e8}.leaflet-control-attribution{font-size:9px}</style>
+        </head><body><div id="map"></div>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script>
+        var map=L.map('map',{zoomControl:true}).setView([$latitude,$longitude],17);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:20,attribution:'© OpenStreetMap'}).addTo(map);
+        var marker=L.marker([$latitude,$longitude],{draggable:true}).addTo(map);
+        function report(p){ if(window.Android){Android.onPoint(p.lat,p.lng);} }
+        marker.on('dragend',function(e){report(e.target.getLatLng());});
+        map.on('click',function(e){marker.setLatLng(e.latlng);report(e.latlng);});
+        function setPoint(lat,lon,recenter){var p=L.latLng(lat,lon);marker.setLatLng(p);if(recenter){map.setView(p,18);}report(p);}
+        setTimeout(function(){map.invalidateSize();},350);
+        </script></body></html>
+    """.trimIndent()
+
+    private fun rounded(color: Int, radiusDp: Int, stroke: Int): GradientDrawable = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radiusDp).toFloat()
+        setStroke(dp(1), stroke)
+    }
 
     private fun fmt(value: Double) = String.format(Locale.FRANCE, "%.6f", value)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
