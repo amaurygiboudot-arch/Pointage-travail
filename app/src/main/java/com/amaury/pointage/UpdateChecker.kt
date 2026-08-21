@@ -21,8 +21,21 @@ object UpdateChecker {
     internal const val KEY_DOWNLOAD_ID = "download_id"
     internal const val KEY_VERSION = "version"
     internal const val KEY_FILE_NAME = "file_name"
+    private const val KEY_LAST_AUTO_CHECK = "last_auto_check"
+    private const val AUTO_CHECK_INTERVAL_MS = 15L * 60L * 1000L
 
     @Volatile private var updateInProgress = false
+
+    /** Vérification automatique silencieuse. Appelable à chaque retour dans HP Travail. */
+    fun checkAutomatically(activity: Activity) {
+        if (hasActiveDownload(activity)) return
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong(KEY_LAST_AUTO_CHECK, 0L)
+        if (now - last < AUTO_CHECK_INTERVAL_MS) return
+        prefs.edit().putLong(KEY_LAST_AUTO_CHECK, now).apply()
+        check(activity, silent = true)
+    }
 
     fun check(activity: Activity, silent: Boolean = true) {
         if (hasActiveDownload(activity)) {
@@ -77,7 +90,7 @@ object UpdateChecker {
                 }
 
                 activity.runOnUiThread {
-                    enqueueBackgroundDownload(activity, apkUrl, versionName)
+                    enqueueBackgroundDownload(activity, apkUrl, versionName, silent)
                 }
             } catch (e: Exception) {
                 showStatus(activity, silent, "Vérification impossible : ${shortError(e)}")
@@ -88,7 +101,7 @@ object UpdateChecker {
         }.start()
     }
 
-    private fun enqueueBackgroundDownload(activity: Activity, apkUrl: String, versionName: String) {
+    private fun enqueueBackgroundDownload(activity: Activity, apkUrl: String, versionName: String, silent: Boolean) {
         try {
             val fileName = "HP-Travail-$versionName.apk"
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
@@ -96,7 +109,7 @@ object UpdateChecker {
 
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
                 setTitle("Mise à jour HP Travail")
-                setDescription("Téléchargement de la version $versionName")
+                setDescription("Téléchargement automatique de la version $versionName")
                 setMimeType("application/vnd.android.package-archive")
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(false)
@@ -112,13 +125,11 @@ object UpdateChecker {
                 .putString(KEY_FILE_NAME, fileName)
                 .apply()
 
-            Toast.makeText(
-                activity,
-                "Téléchargement lancé. Tu peux quitter HP Travail : la mise à jour continue en arrière-plan.",
-                Toast.LENGTH_LONG
-            ).show()
+            if (!silent) {
+                Toast.makeText(activity, "Mise à jour trouvée : téléchargement automatique lancé en arrière-plan.", Toast.LENGTH_LONG).show()
+            }
         } catch (e: Exception) {
-            Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show()
+            if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -130,11 +141,16 @@ object UpdateChecker {
             val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             manager.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
                 if (!cursor.moveToFirst()) {
-                    prefs.edit().clear().apply()
+                    clearDownloadState(context)
                     false
                 } else {
                     val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                    status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PAUSED
+                    when (status) {
+                        DownloadManager.STATUS_PENDING,
+                        DownloadManager.STATUS_RUNNING,
+                        DownloadManager.STATUS_PAUSED -> true
+                        else -> false
+                    }
                 }
             }
         } catch (_: Exception) {
@@ -150,7 +166,12 @@ object UpdateChecker {
     }
 
     internal fun clearDownloadState(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+        // Ne supprime pas la date de dernière vérification automatique.
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_DOWNLOAD_ID)
+            .remove(KEY_VERSION)
+            .remove(KEY_FILE_NAME)
+            .apply()
     }
 
     internal fun validateApk(context: Context, apk: File) {
