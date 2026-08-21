@@ -54,9 +54,14 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val accent = if (dark) theme.accentLight else theme.accent
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
-            val buttonDp = min(widgetWidth / 3.65f, widgetHeight * 0.68f).coerceIn(38f, 88f)
+            // On réserve toujours la même place à chacun des trois boutons. La taille est calculée
+            // à partir de la largeur disponible ET de la hauteur afin qu'aucun rond ne soit étiré.
+            val cellWidth = widgetWidth / 3f
+            val availableHeight = (widgetHeight - 22f).coerceAtLeast(42f)
+            val buttonDp = min(cellWidth * .78f, availableHeight * .82f).coerceIn(38f, 86f)
+            // Le fond coloré utilise exactement le même ratio que LightReactiveJewelButton (0,885).
             val innerDp = buttonDp * .885f
-            val labelSp = (buttonDp * 0.15f).coerceIn(7.5f, 12f)
+            val labelSp = (buttonDp * .15f).coerceIn(7.5f, 12f)
             val bitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 300)
 
             views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
@@ -73,6 +78,10 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                     views.setViewLayoutWidth(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
                     views.setViewLayoutHeight(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
                 }
+                listOf(R.id.quick_entry_button, R.id.quick_pause_icon, R.id.quick_exit_button).forEach {
+                    views.setViewLayoutWidth(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
                 listOf(R.id.quick_entry_inner, R.id.quick_pause_inner, R.id.quick_exit_inner).forEach {
                     views.setViewLayoutWidth(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
                     views.setViewLayoutHeight(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
@@ -84,7 +93,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                 views.setTextColor(it, accent)
             }
 
-            // Seul le fond rond intérieur reçoit la pression. Les cadres et le widget restent fixes.
             views.setOnClickPendingIntent(R.id.quick_entry_inner, pending(context, widgetId, ACTION_ENTRY, 1))
             views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
             views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
@@ -129,8 +137,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             Intent.ACTION_CONFIGURATION_CHANGED -> handled = true
         }
         if (handled) {
-            // Pas de changement d'alias launcher pendant un clic widget : cela évite
-            // le bref flash où l'icône et les widgets disparaissaient sur certains launchers.
             PointageWidgetProvider.updateAll(context)
             updateAll(context)
         }
