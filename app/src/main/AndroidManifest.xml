@@ -85,6 +85,7 @@
 
         <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
         <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".FirebaseAccountActivity" android:exported="false" />
         <activity android:name=".SalaryActivity" android:exported="false" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />
