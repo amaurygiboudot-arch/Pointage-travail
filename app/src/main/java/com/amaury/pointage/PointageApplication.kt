@@ -37,7 +37,7 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
             if (activity is MainActivity) {
                 SettingsUiInstaller.install(activity)
                 LuxuryUiInstaller.install(activity)
-                UpdateChecker.check(activity, silent = true)
+                UpdateChecker.checkAutomatically(activity)
             }
         }
     }
@@ -45,6 +45,9 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
     override fun onActivityResumed(activity: Activity) {
         AppearanceManager.apply(activity)
         if (activity is MainActivity) {
+            // Si le téléchargement s'est terminé pendant que HP Travail était en arrière-plan,
+            // ouvre immédiatement l'installateur au retour dans l'application.
+            UpdateChecker.checkAutomatically(activity)
             activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
             activity.findViewById<ShiftControlView>(R.id.shiftControlView)?.refresh()
             PointageWidgetProvider.updateAll(activity)
