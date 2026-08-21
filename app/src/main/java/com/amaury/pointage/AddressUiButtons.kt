@@ -22,6 +22,10 @@ import org.json.JSONObject
 class AddAddressButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        // L'enregistrement est désormais automatique après validation d'un lieu.
+        // Le vieux bouton reste seulement comme point d'entrée interne pour réutiliser
+        // la logique existante de MainActivity, mais il n'est plus affiché à l'utilisateur.
+        rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.visibility = View.GONE
         super.setOnClickListener { showAddressDialog() }
     }
 
@@ -182,9 +186,8 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 val companyName = if (companySlot == 1) company1Name else company2Name
                 Toast.makeText(context, "$nameValue ajouté à $companyName", Toast.LENGTH_SHORT).show()
 
-                // Le bouton manuel « Enregistrer les lieux » n'est plus nécessaire :
-                // dès que le formulaire est validé, on géocode et on enregistre la zone.
-                // GpsPointPickerView détecte ensuite la nouvelle zone et ouvre le choix du point précis.
+                // Validation du formulaire = enregistrement GPS immédiat.
+                // Le sélecteur de point précis s'ouvre ensuite automatiquement sur la nouvelle zone.
                 dialog.dismiss()
                 rootView.post {
                     rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
