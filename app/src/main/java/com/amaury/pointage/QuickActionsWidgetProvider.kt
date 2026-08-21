@@ -11,7 +11,6 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
 import android.widget.Toast
-import kotlin.math.min
 
 class QuickActionsWidgetProvider : AppWidgetProvider() {
     companion object {
@@ -53,16 +52,15 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val dark = AppThemeCatalog.useDarkPalette(context)
             val accent = if (dark) theme.accentLight else theme.accent
 
-            val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
-            // On réserve toujours la même place à chacun des trois boutons. La taille est calculée
-            // à partir de la largeur disponible ET de la hauteur afin qu'aucun rond ne soit étiré.
+            val (widgetWidth, _) = widgetSize(manager, widgetId)
+            // Certains launchers (dont Xiaomi) renvoient une hauteur minimale trop petite.
+            // On dimensionne donc le rond surtout à partir de la largeur réelle du widget,
+            // avec 3 cellules égales. Cela évite les minuscules boutons vus à l'écran.
             val cellWidth = widgetWidth / 3f
-            val availableHeight = (widgetHeight - 22f).coerceAtLeast(42f)
-            val buttonDp = min(cellWidth * .78f, availableHeight * .82f).coerceIn(38f, 86f)
-            // Le fond coloré utilise exactement le même ratio que LightReactiveJewelButton (0,885).
+            val buttonDp = (cellWidth * .66f).coerceIn(52f, 78f)
             val innerDp = buttonDp * .885f
-            val labelSp = (buttonDp * .15f).coerceIn(7.5f, 12f)
-            val bitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 300)
+            val labelSp = (buttonDp * .15f).coerceIn(8f, 12f)
+            val bitmapPx = (buttonDp * 3f).toInt().coerceIn(156, 300)
 
             views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
             val frame = WidgetVisualRenderer.jewelFrame(bitmapPx)
