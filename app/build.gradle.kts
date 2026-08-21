@@ -26,10 +26,15 @@ android {
         versionCode = 9
         versionName = "1.9"
 
-        val sentryDsn = (System.getenv("SENTRY_DSN") ?: "")
+        fun envString(name: String): String = (System.getenv(name) ?: "")
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
-        buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
+
+        buildConfigField("String", "SENTRY_DSN", "\"${envString("SENTRY_DSN")}\"")
+        buildConfigField("String", "FIREBASE_API_KEY", "\"${envString("FIREBASE_API_KEY")}\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"${envString("FIREBASE_APP_ID")}\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${envString("FIREBASE_PROJECT_ID")}\"")
+        buildConfigField("String", "FIREBASE_SENDER_ID", "\"${envString("FIREBASE_SENDER_ID")}\"")
     }
 
     buildFeatures {
@@ -55,6 +60,7 @@ android {
 
 dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.2")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("io.sentry:sentry-android:8.43.0")
