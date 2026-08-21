@@ -51,8 +51,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
         private fun adaptiveWidgetTextColors(context: Context, darkFallback: Boolean): Pair<Int, Int> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 runCatching {
-                    val colors = WallpaperManager.getInstance(context)
-                        .getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
+                    val colors = WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)
                     if (colors != null) {
                         val primary = colors.primaryColor.toArgb()
                         val r = Color.red(primary) / 255f
@@ -107,7 +106,9 @@ class PointageWidgetProvider : AppWidgetProvider() {
             listOf(R.id.widget_entry_label,R.id.widget_pause_label,R.id.widget_exit_label,R.id.widget_duration,R.id.widget_location,R.id.widget_state).forEach{views.setTextColor(it,adaptiveText)}; listOf(R.id.widget_entry_location,R.id.widget_exit_location,R.id.widget_pause_time).forEach{views.setTextColor(it,adaptiveSecondary)}; listOf(R.id.widget_crown,R.id.widget_hp,R.id.widget_work).forEach{views.setTextColor(it,accent)}
             views.setTextColor(R.id.widget_entry_time,Color.parseColor("#34B84A"));views.setTextColor(R.id.widget_exit_time,Color.parseColor("#E8433C"))
             var entryText="--:--";var exitText="--:--";var durationText="00h 00m";var pauseText="00h 00m";var stateText="PRÊT";var stateColor=adaptiveText;var locationText="📍 Aucune zone";var entryLocation="";var exitLocation=""
-            val hasOpen=PointageStore.hasOpen(context);val paused=PointageStore.isPaused(context);views.setTextViewText(R.id.widget_pause_label,if(paused)"REPRENDRE" else "PAUSE");views.setFloat(R.id.widget_entry_area,"setAlpha",if(hasOpen)0.52f else 1f);views.setFloat(R.id.widget_exit_area,"setAlpha",if(hasOpen)1f else 0.52f);views.setFloat(R.id.widget_pause_area,"setAlpha",if(hasOpen)1f else 0.52f)
+            val paused=PointageStore.isPaused(context);views.setTextViewText(R.id.widget_pause_label,if(paused)"REPRENDRE" else "PAUSE")
+            // Les trois boutons restent à luminosité pleine en permanence.
+            views.setFloat(R.id.widget_entry_area,"setAlpha",1f);views.setFloat(R.id.widget_pause_area,"setAlpha",1f);views.setFloat(R.id.widget_exit_area,"setAlpha",1f)
             val data=PointageStore.load(context);if(data.length()>0){val last=data.optJSONObject(data.length()-1);if(last!=null){val entry=last.optLong("entry",-1L);if(entry>0L){val zoneAddress=last.optString("zoneAddress").trim();entryText=formatTime(entry);val place=if(zoneAddress.isNotEmpty())shortLocation(zoneAddress,30) else "Pointage manuel";entryLocation=place;locationText="📍 ${shortLocation(if(zoneAddress.isNotEmpty())zoneAddress else place,54)}";val effectiveEnd:Long;if(last.isNull("exit")){effectiveEnd=System.currentTimeMillis();stateText=if(paused)"EN PAUSE" else "EN COURS";stateColor=if(paused)Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")}else{effectiveEnd=last.optLong("exit",entry).coerceAtLeast(entry);exitText=formatTime(effectiveEnd);exitLocation=place;stateText="TERMINÉ";stateColor=Color.parseColor("#D93630")};pauseText=formatDuration(PointageStore.pauseDuration(last,effectiveEnd));durationText=formatDuration(PointageStore.workedDuration(last,effectiveEnd))}}}
             views.setTextViewText(R.id.widget_entry_time,entryText);views.setTextViewText(R.id.widget_exit_time,exitText);views.setTextViewText(R.id.widget_entry_location,entryLocation);views.setTextViewText(R.id.widget_exit_location,exitLocation);views.setTextViewText(R.id.widget_pause_time,pauseText);views.setTextViewText(R.id.widget_duration,durationText);views.setTextViewText(R.id.widget_state,stateText);views.setTextColor(R.id.widget_state,stateColor);views.setTextViewText(R.id.widget_location,locationText)
             val widgetPrefs=context.getSharedPreferences("widget_style",Context.MODE_PRIVATE);views.setViewVisibility(R.id.widget_location,if(widgetPrefs.getBoolean("show_position",true))View.VISIBLE else View.GONE);manager.updateAppWidget(widgetId,views)
