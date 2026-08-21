@@ -189,6 +189,7 @@ class LocationManagementView @JvmOverloads constructor(
                 val newAddress = addressInput.text.toString().trim()
                 val newName = nameInput.text.toString().trim()
                 if (newAddress.isBlank()) return@setPositiveButton
+                val addressChanged = !newAddress.equals(oldAddress, ignoreCase = true)
 
                 val addresses = savedAddresses()
                     .map { if (it.equals(oldAddress, true)) newAddress else it }
@@ -212,17 +213,49 @@ class LocationManagementView @JvmOverloads constructor(
                 companyMap.remove(oldAddress)
                 if (oldCompanySlot > 0) companyMap.put(newAddress, oldCompanySlot)
 
-                prefs.edit()
+                val overrides = jsonObjectPreference("zone_point_overrides")
+                val confirmed = jsonObjectPreference("zone_point_confirmed")
+                if (addressChanged) {
+                    val oldPoint = overrides.optJSONObject(oldAddress)
+                    overrides.remove(oldAddress)
+                    if (oldPoint != null) overrides.put(newAddress, JSONObject(oldPoint.toString()))
+                    confirmed.remove(oldAddress)
+                    confirmed.remove(newAddress)
+                }
+
+                val oldZones = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+                if (addressChanged) {
+                    for (i in 0 until oldZones.length()) {
+                        val zone = oldZones.optJSONObject(i) ?: continue
+                        if (zone.optString("address").trim().equals(oldAddress, ignoreCase = true)) {
+                            zone.put("address", newAddress)
+                            break
+                        }
+                    }
+                }
+
+                val editor = prefs.edit()
                     .putString("address", addresses.joinToString("\n"))
                     .putString("address_names", names.toString())
                     .putString("arrival_contacts", contacts.toString())
                     .putString("address_company_slots", companyMap.toString())
-                    .putString("pending_point_address", newAddress)
-                    .apply()
+                    .putString("zone_point_overrides", overrides.toString())
+                    .putString("zone_point_confirmed", confirmed.toString())
+                    .putString("zones", oldZones.toString())
+                    .remove("active_zones")
 
-                rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
-                refresh()
-                Toast.makeText(context, "Lieu modifié et GPS actualisé", Toast.LENGTH_SHORT).show()
+                if (addressChanged) editor.putString("pending_point_address", newAddress)
+                editor.apply()
+
+                if (addressChanged) {
+                    rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
+                    Toast.makeText(context, "Adresse modifiée. Vérifie maintenant le point GPS précis.", Toast.LENGTH_LONG).show()
+                } else {
+                    refresh()
+                    PointageWidgetProvider.updateAll(context)
+                    QuickActionsWidgetProvider.updateAll(context)
+                    Toast.makeText(context, "Lieu mis à jour", Toast.LENGTH_SHORT).show()
+                }
             }
             .setNegativeButton("Annuler", null)
             .create()
@@ -265,7 +298,8 @@ class LocationManagementView @JvmOverloads constructor(
             if (!zone.optString("address").equals(address, true)) newZones.put(zone)
         }
 
-        prefs.edit()
+        val pending = prefs.getString("pending_point_address", "").orEmpty()
+        val editor = prefs.edit()
             .putString("address", addresses.joinToString("\n"))
             .putString("address_names", names.toString())
             .putString("arrival_contacts", contacts.toString())
@@ -274,7 +308,8 @@ class LocationManagementView @JvmOverloads constructor(
             .putString("zone_point_confirmed", confirmed.toString())
             .putString("zones", newZones.toString())
             .remove("active_zones")
-            .apply()
+        if (pending.equals(address, ignoreCase = true)) editor.remove("pending_point_address")
+        editor.apply()
 
         if (addresses.isEmpty()) GeofenceManager.remove(context)
         else rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
