@@ -35,9 +35,16 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
         private fun widgetSize(manager: AppWidgetManager, widgetId: Int): Pair<Int, Int> {
             val options = manager.getAppWidgetOptions(widgetId)
-            val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 220).coerceAtLeast(160)
-            val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 82).coerceAtLeast(60)
-            return width to height
+            return options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 220).coerceAtLeast(160) to
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 82).coerceAtLeast(60)
+        }
+
+        private fun pending(context: Context, widgetId: Int, action: String, slot: Int): PendingIntent {
+            val intent = Intent(context, QuickActionsWidgetProvider::class.java).apply {
+                this.action = action
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            }
+            return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
@@ -48,41 +55,42 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
             val buttonDp = min(widgetWidth / 3.65f, widgetHeight * 0.68f).coerceIn(38f, 88f)
+            val innerDp = buttonDp * .885f
             val labelSp = (buttonDp * 0.15f).coerceIn(7.5f, 12f)
             val bitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 300)
 
             views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
-            views.setImageViewBitmap(R.id.quick_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, bitmapPx))
-            views.setImageViewBitmap(R.id.quick_pause_icon, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, bitmapPx))
-            views.setImageViewBitmap(R.id.quick_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, bitmapPx))
+            val frame = WidgetVisualRenderer.jewelFrame(bitmapPx)
+            views.setImageViewBitmap(R.id.quick_entry_button, frame)
+            views.setImageViewBitmap(R.id.quick_pause_icon, frame)
+            views.setImageViewBitmap(R.id.quick_exit_button, frame)
+            views.setImageViewBitmap(R.id.quick_entry_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.ENTRY, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_pause_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.PAUSE, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_exit_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.EXIT, bitmapPx))
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                listOf(R.id.quick_entry_button, R.id.quick_pause_icon, R.id.quick_exit_button).forEach { id ->
-                    views.setViewLayoutWidth(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
-                    views.setViewLayoutHeight(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                listOf(R.id.quick_entry_stack, R.id.quick_pause_stack, R.id.quick_exit_stack).forEach {
+                    views.setViewLayoutWidth(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+                listOf(R.id.quick_entry_inner, R.id.quick_pause_inner, R.id.quick_exit_inner).forEach {
+                    views.setViewLayoutWidth(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
                 }
             }
-            listOf(R.id.quick_entry_label, R.id.quick_pause_label, R.id.quick_exit_label).forEach { id ->
-                views.setTextViewTextSize(id, TypedValue.COMPLEX_UNIT_SP, labelSp)
-                views.setTextColor(id, accent)
+
+            listOf(R.id.quick_entry_label, R.id.quick_pause_label, R.id.quick_exit_label).forEach {
+                views.setTextViewTextSize(it, TypedValue.COMPLEX_UNIT_SP, labelSp)
+                views.setTextColor(it, accent)
             }
 
-            val entryIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_ENTRY }
-            val pauseIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_PAUSE }
-            val exitIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_EXIT }
-            views.setOnClickPendingIntent(R.id.quick_entry, PendingIntent.getBroadcast(context, 101, entryIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.quick_pause, PendingIntent.getBroadcast(context, 102, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            views.setOnClickPendingIntent(R.id.quick_exit, PendingIntent.getBroadcast(context, 103, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            // Seul le fond rond intérieur reçoit la pression. Les cadres et le widget restent fixes.
+            views.setOnClickPendingIntent(R.id.quick_entry_inner, pending(context, widgetId, ACTION_ENTRY, 1))
+            views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
+            views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
 
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
-
-            // Les trois boutons restent visuellement au même niveau de luminosité.
-            // L'état actif/inactif est indiqué par le texte et les actions, pas en assombrissant un bouton.
-            views.setFloat(R.id.quick_entry, "setAlpha", 1f)
-            views.setFloat(R.id.quick_pause, "setAlpha", 1f)
-            views.setFloat(R.id.quick_exit, "setAlpha", 1f)
-
             manager.updateAppWidget(widgetId, views)
         }
     }
@@ -98,18 +106,31 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        var handled = false
         when (intent.action) {
-            ACTION_ENTRY -> if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
-            ACTION_PAUSE -> when {
-                !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+            ACTION_ENTRY -> {
+                handled = true
+                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
-            ACTION_EXIT -> if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-            Intent.ACTION_CONFIGURATION_CHANGED -> Unit
+            ACTION_PAUSE -> {
+                handled = true
+                when {
+                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                }
+            }
+            ACTION_EXIT -> {
+                handled = true
+                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+            }
+            Intent.ACTION_CONFIGURATION_CHANGED -> handled = true
         }
-        if (intent.action == ACTION_ENTRY || intent.action == ACTION_PAUSE || intent.action == ACTION_EXIT || intent.action == Intent.ACTION_CONFIGURATION_CHANGED) {
-            IconSwitcher.sync(context)
+        if (handled) {
+            // Pas de changement d'alias launcher pendant un clic widget : cela évite
+            // le bref flash où l'icône et les widgets disparaissaient sur certains launchers.
             PointageWidgetProvider.updateAll(context)
             updateAll(context)
         }
