@@ -50,7 +50,7 @@ class FirebaseAccountActivity : Activity() {
             )
 
             addView(TextView(this@FirebaseAccountActivity).apply {
-                text = "COMPTE FIREBASE"
+                text = "COMPTE GOOGLE"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setPadding(0, 20, 0, 24)
