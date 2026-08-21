@@ -9,7 +9,6 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -247,13 +246,12 @@ class LocationManagementView @JvmOverloads constructor(
                 if (addressChanged) editor.putString("pending_point_address", newAddress)
                 editor.apply()
 
+                refresh()
+                PointageWidgetProvider.updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
                 if (addressChanged) {
-                    rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
-                    Toast.makeText(context, "Adresse modifiée. Vérifie maintenant le point GPS précis.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Adresse modifiée — vérifie maintenant le point GPS précis", Toast.LENGTH_LONG).show()
                 } else {
-                    refresh()
-                    PointageWidgetProvider.updateAll(context)
-                    QuickActionsWidgetProvider.updateAll(context)
                     Toast.makeText(context, "Lieu mis à jour", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -311,13 +309,34 @@ class LocationManagementView @JvmOverloads constructor(
         if (pending.equals(address, ignoreCase = true)) editor.remove("pending_point_address")
         editor.apply()
 
-        if (addresses.isEmpty()) GeofenceManager.remove(context)
-        else rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
+        if (addresses.isEmpty()) {
+            GeofenceManager.remove(context)
+        } else {
+            registerZones(newZones)
+        }
 
         refresh()
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
         Toast.makeText(context, "Lieu supprimé. Historique conservé.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun registerZones(list: JSONArray) {
+        if (!prefs.getBoolean("enabled", false)) return
+        if (!GeofenceManager.hasRequiredPermissions(context)) return
+        val workZones = mutableListOf<WorkZone>()
+        for (i in 0 until list.length()) {
+            val item = list.optJSONObject(i) ?: continue
+            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
+            val lat = item.optDouble("latitude", Double.NaN)
+            val lon = item.optDouble("longitude", Double.NaN)
+            if (!lat.isFinite() || !lon.isFinite()) continue
+            val radius = item.optDouble("radius", prefs.getInt("radius", 150).toDouble())
+                .toFloat().coerceIn(50f, 1000f)
+            workZones += WorkZone(id, lat, lon, radius)
+        }
+        if (workZones.isEmpty()) GeofenceManager.unregisterAll(context)
+        else GeofenceManager.registerAll(context, workZones) { _, _ -> }
     }
 
     private fun jsonObjectPreference(key: String): JSONObject =
