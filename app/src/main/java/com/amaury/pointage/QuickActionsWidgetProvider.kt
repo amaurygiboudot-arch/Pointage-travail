@@ -47,8 +47,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val accent = if (dark) theme.accentLight else theme.accent
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
-            // Les boutons prennent la taille disponible : petits dans un widget compact,
-            // grands quand l'utilisateur agrandit le widget, sans jamais se chevaucher.
             val buttonDp = min(widgetWidth / 3.65f, widgetHeight * 0.68f).coerceIn(38f, 88f)
             val labelSp = (buttonDp * 0.15f).coerceIn(7.5f, 12f)
             val bitmapPx = (buttonDp * 3f).toInt().coerceIn(120, 300)
@@ -76,12 +74,15 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.quick_pause, PendingIntent.getBroadcast(context, 102, pauseIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             views.setOnClickPendingIntent(R.id.quick_exit, PendingIntent.getBroadcast(context, 103, exitIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
 
-            val hasOpen = PointageStore.hasOpen(context)
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
-            views.setFloat(R.id.quick_entry, "setAlpha", if (hasOpen) 0.45f else 1f)
-            views.setFloat(R.id.quick_pause, "setAlpha", if (hasOpen) 1f else 0.45f)
-            views.setFloat(R.id.quick_exit, "setAlpha", if (hasOpen) 1f else 0.45f)
+
+            // Les trois boutons restent visuellement au même niveau de luminosité.
+            // L'état actif/inactif est indiqué par le texte et les actions, pas en assombrissant un bouton.
+            views.setFloat(R.id.quick_entry, "setAlpha", 1f)
+            views.setFloat(R.id.quick_pause, "setAlpha", 1f)
+            views.setFloat(R.id.quick_exit, "setAlpha", 1f)
+
             manager.updateAppWidget(widgetId, views)
         }
     }
