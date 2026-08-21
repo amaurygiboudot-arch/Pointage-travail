@@ -10,13 +10,13 @@ import android.os.Build
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import java.util.Locale
 import java.util.UUID
 
 object DeviceRegistry {
     private const val PREFS = "firebase_device_registry"
     private const val KEY_INSTALL_ID = "install_id"
     private const val KEY_LAST_SYNC = "last_sync_ms"
+    private const val KEY_LAST_ERROR = "last_error"
     private const val MIN_SYNC_INTERVAL_MS = 6L * 60L * 60L * 1000L
 
     fun installId(context: Context): String {
@@ -28,6 +28,9 @@ object DeviceRegistry {
         prefs.edit().putString(KEY_INSTALL_ID, created).apply()
         return created
     }
+
+    fun lastError(context: Context): String? =
+        prefs(context).getString(KEY_LAST_ERROR, null)?.takeIf { it.isNotBlank() }
 
     fun registerIfSignedIn(context: Context, force: Boolean = false) {
         val user = FirebaseAuth.getInstance().currentUser ?: return
@@ -56,13 +59,13 @@ object DeviceRegistry {
             .trim()
             .ifBlank { "Android" }
 
-        val document = FirebaseFirestore.getInstance()
-            .collection("users")
+        val db = FirebaseFirestore.getInstance()
+        val document = db.collection("users")
             .document(user.uid)
             .collection("devices")
             .document(id)
 
-        FirebaseFirestore.getInstance().runTransaction { transaction ->
+        db.runTransaction { transaction ->
             val snapshot = transaction.get(document)
             val data = hashMapOf<String, Any>(
                 "installationId" to id,
@@ -85,7 +88,14 @@ object DeviceRegistry {
             }
             transaction.set(document, data, com.google.firebase.firestore.SetOptions.merge())
         }.addOnSuccessListener {
-            prefs.edit().putLong(KEY_LAST_SYNC, System.currentTimeMillis()).apply()
+            prefs.edit()
+                .putLong(KEY_LAST_SYNC, System.currentTimeMillis())
+                .remove(KEY_LAST_ERROR)
+                .apply()
+        }.addOnFailureListener { error ->
+            prefs.edit()
+                .putString(KEY_LAST_ERROR, error.localizedMessage ?: error.javaClass.simpleName)
+                .apply()
         }
     }
 
@@ -95,7 +105,19 @@ object DeviceRegistry {
 
 class DeviceRegistryInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let { DeviceRegistry.registerIfSignedIn(it) }
+        val appContext = context?.applicationContext ?: return true
+        val auth = FirebaseAuth.getInstance()
+
+        // Firebase Auth may restore the saved session a little after process startup.
+        // Listening for auth-state changes guarantees registration once that restore finishes.
+        auth.addAuthStateListener { firebaseAuth ->
+            if (firebaseAuth.currentUser != null) {
+                DeviceRegistry.registerIfSignedIn(appContext)
+            }
+        }
+
+        // Also try immediately for sessions that are already available.
+        DeviceRegistry.registerIfSignedIn(appContext)
         return true
     }
 
