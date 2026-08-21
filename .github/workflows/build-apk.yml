@@ -60,6 +60,10 @@ jobs:
           POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
           POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
           gradle :app:assembleRelease --stacktrace 2>&1 | tee build-error.log
@@ -136,3 +140,57 @@ jobs:
           gh release download "$TAG" -p "SHA256.txt" -D "$RUNNER_TEMP/release-check"
           test -s "$RUNNER_TEMP/release-check/HP-Travail.apk"
           test -s "$RUNNER_TEMP/release-check/SHA256.txt"
+
+      - name: Notifier tous les telephones HP Travail
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ] || [ -z "$FIREBASE_PROJECT_ID" ]; then
+            echo "Firebase push non configure : APK publie normalement, notification distante ignoree."
+            exit 0
+          fi
+          python -m pip install --quiet google-auth requests
+          python <<'PY'
+          import json, os, requests
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+
+          info = json.loads(os.environ["FIREBASE_SERVICE_ACCOUNT_JSON"])
+          project = os.environ["FIREBASE_PROJECT_ID"]
+          version = os.environ["VERSION_NAME"]
+          credentials = service_account.Credentials.from_service_account_info(
+              info,
+              scopes=["https://www.googleapis.com/auth/firebase.messaging"],
+          )
+          credentials.refresh(Request())
+          payload = {
+              "message": {
+                  "topic": "hp_travail_updates",
+                  "notification": {
+                      "title": "Mise à jour HP Travail",
+                      "body": f"La version {version} est disponible. Ouvre HP Travail pour l'installer."
+                  },
+                  "data": {
+                      "kind": "update",
+                      "version": version,
+                      "title": "Mise à jour HP Travail",
+                      "body": f"La version {version} est disponible. Ouvre HP Travail pour l'installer."
+                  },
+                  "android": {
+                      "priority": "high",
+                      "notification": {
+                          "channel_id": "hp_travail_updates"
+                      }
+                  }
+              }
+          }
+          response = requests.post(
+              f"https://fcm.googleapis.com/v1/projects/{project}/messages:send",
+              headers={"Authorization": f"Bearer {credentials.token}", "Content-Type": "application/json"},
+              json=payload,
+              timeout=30,
+          )
+          response.raise_for_status()
+          print("Notification de mise a jour envoyee au topic hp_travail_updates")
+          PY
