@@ -529,12 +529,29 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (workZones.isNotEmpty()) GeofenceManager.registerAll(context, workZones) { _, _ -> }
     }
 
+    /**
+     * Pour le bouton « Ma position », on évite désormais de choisir un ancien point GPS
+     * uniquement parce qu'il avait une meilleure précision. On privilégie d'abord les
+     * positions récentes, puis la meilleure précision parmi elles.
+     */
     private fun currentLocation(): Location? {
         if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-        return listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+        val now = System.currentTimeMillis()
+        val fixes = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
             .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-            .minByOrNull { it.accuracy }
+            .filter { it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
+        if (fixes.isEmpty()) return null
+
+        val recent = fixes.filter { fix ->
+            val age = now - fix.time
+            age in 0L..300_000L
+        }
+        val candidates = if (recent.isNotEmpty()) recent else fixes
+        return candidates.minWithOrNull(
+            compareBy<Location> { if (it.hasAccuracy() && it.accuracy > 0f) it.accuracy else Float.MAX_VALUE }
+                .thenByDescending { it.time }
+        )
     }
 
     private fun leafletHtml(latitude: Double, longitude: Double): String = """
