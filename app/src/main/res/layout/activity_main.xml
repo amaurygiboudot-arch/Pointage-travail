@@ -96,6 +96,7 @@
                 <Button android:id="@+id/saveGpsSettingsButton" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" android:alpha="0" android:text="" />
                 <com.amaury.pointage.GpsPointPickerView android:id="@+id/gpsPointPickerView" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"/>
                 <Button android:id="@+id/locationPermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="AUTORISER LA LOCALISATION" android:textColor="@color/hp_gold_light" android:textSize="14sp" android:background="@drawable/hp_panel"/>
+                <com.amaury.pointage.FirebaseAccountButtonView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="COMPTE GOOGLE &amp; SYNCHRONISATION FIREBASE" android:textColor="@color/hp_gold_light" android:textSize="14sp" android:background="@drawable/hp_panel" />
                 <com.amaury.pointage.WidgetSettingsCleanerView android:layout_width="1dp" android:layout_height="1dp" android:visibility="invisible" />
                 <com.amaury.pointage.SuggestionBoxView android:layout_width="match_parent" android:layout_height="wrap_content" />
             </LinearLayout>
