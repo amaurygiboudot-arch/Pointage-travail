@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
@@ -23,28 +24,18 @@ object UpdateChecker {
     internal const val KEY_FILE_NAME = "file_name"
     internal const val KEY_READY_FILE = "ready_file"
     internal const val KEY_READY_VERSION = "ready_version"
-    private const val KEY_LAST_AUTO_CHECK = "last_auto_check"
-    private const val AUTO_CHECK_INTERVAL_MS = 15L * 60L * 1000L
 
     @Volatile private var updateInProgress = false
     @Volatile private var installerOpening = false
+    @Volatile private var promptShowing = false
 
+    /** Vérifie au lancement. Si une mise à jour existe, demande d'abord l'accord de l'utilisateur. */
     fun checkAutomatically(activity: Activity) {
         if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) return
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val last = prefs.getLong(KEY_LAST_AUTO_CHECK, 0L)
-        if (now - last < AUTO_CHECK_INTERVAL_MS) return
-        prefs.edit().putLong(KEY_LAST_AUTO_CHECK, now).apply()
-        check(activity, silent = true)
+        check(activity, silent = true, askBeforeDownload = true)
     }
 
-    /**
-     * Si un APK a déjà fini de se télécharger, ouvre automatiquement l'installateur
-     * dès que HP Travail revient au premier plan. C'est le chemin fiable sur les Android
-     * qui interdisent au BroadcastReceiver d'ouvrir un écran depuis l'arrière-plan.
-     */
     fun tryInstallReady(activity: Activity): Boolean {
         if (installerOpening || activity.isFinishing || activity.isDestroyed) return false
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -88,14 +79,14 @@ object UpdateChecker {
         }
     }
 
-    fun check(activity: Activity, silent: Boolean = true) {
+    fun check(activity: Activity, silent: Boolean = true, askBeforeDownload: Boolean = false) {
         if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) {
             if (!silent) Toast.makeText(activity, "La mise à jour continue en arrière-plan", Toast.LENGTH_LONG).show()
             return
         }
-        if (updateInProgress) {
-            if (!silent) Toast.makeText(activity, "Une mise à jour est déjà en cours", Toast.LENGTH_SHORT).show()
+        if (updateInProgress || promptShowing) {
+            if (!silent && updateInProgress) Toast.makeText(activity, "Vérification déjà en cours", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -141,7 +132,14 @@ object UpdateChecker {
                     return@Thread
                 }
 
-                activity.runOnUiThread { enqueueBackgroundDownload(activity, apkUrl, versionName, silent) }
+                val finalUrl = apkUrl
+                activity.runOnUiThread {
+                    if (askBeforeDownload) {
+                        showUpdatePrompt(activity, versionName, finalUrl)
+                    } else {
+                        enqueueBackgroundDownload(activity, finalUrl, versionName, silent)
+                    }
+                }
             } catch (e: Exception) {
                 showStatus(activity, silent, "Vérification impossible : ${shortError(e)}")
             } finally {
@@ -149,6 +147,21 @@ object UpdateChecker {
                 connection?.disconnect()
             }
         }.start()
+    }
+
+    private fun showUpdatePrompt(activity: Activity, versionName: String, apkUrl: String) {
+        if (promptShowing || activity.isFinishing || activity.isDestroyed) return
+        promptShowing = true
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("Mise à jour disponible")
+            .setMessage("HP Travail $versionName est disponible.\n\nVoulez-vous mettre l'application à jour maintenant ?")
+            .setPositiveButton("METTRE À JOUR") { _, _ ->
+                enqueueBackgroundDownload(activity, apkUrl, versionName, silent = false)
+            }
+            .setNegativeButton("PLUS TARD", null)
+            .create()
+        dialog.setOnDismissListener { promptShowing = false }
+        dialog.show()
     }
 
     private fun enqueueBackgroundDownload(activity: Activity, apkUrl: String, versionName: String, silent: Boolean) {
@@ -159,7 +172,7 @@ object UpdateChecker {
 
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
                 setTitle("Mise à jour HP Travail")
-                setDescription("Téléchargement automatique de la version $versionName")
+                setDescription("Téléchargement de la version $versionName")
                 setMimeType("application/vnd.android.package-archive")
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(false)
@@ -177,7 +190,7 @@ object UpdateChecker {
                 .remove(KEY_READY_VERSION)
                 .apply()
 
-            if (!silent) Toast.makeText(activity, "Mise à jour trouvée : téléchargement automatique lancé.", Toast.LENGTH_LONG).show()
+            Toast.makeText(activity, "Téléchargement de la mise à jour lancé", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show()
         }
