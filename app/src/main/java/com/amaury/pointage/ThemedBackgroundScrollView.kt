@@ -12,8 +12,10 @@ import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.EditText
 import android.widget.ScrollView
+import android.widget.Switch
 import android.widget.TextView
 import java.io.File
 import kotlin.math.max
@@ -28,15 +30,26 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedImage: Bitmap? = null
     private var cachedPath: String? = null
-    private var lastContrastToken: String? = null
+    private var lastThemeToken: String? = null
+    private var lastContrastScrollY = Int.MIN_VALUE
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
-        applyAdaptiveTextContrastIfNeeded()
+        applyAdaptiveTextContrast(force = false)
         super.dispatchDraw(canvas)
+    }
+
+    override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+        super.onScrollChanged(l, t, oldl, oldt)
+        // Le fond ne bouge pas, mais le texte se déplace dessus : on recalcule donc
+        // localement la meilleure couleur au fur et à mesure du défilement.
+        if (kotlin.math.abs(t - lastContrastScrollY) >= 12) {
+            applyAdaptiveTextContrast(force = true)
+            lastContrastScrollY = t
+        }
     }
 
     private fun drawHpBackground(canvas: Canvas) {
@@ -72,73 +85,120 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             cachedImage?.recycle()
             cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
             cachedPath = file.absolutePath
-            lastContrastToken = null
+            lastThemeToken = null
+            lastContrastScrollY = Int.MIN_VALUE
         }
     }
 
-    private fun applyAdaptiveTextContrastIfNeeded() {
+    private fun applyAdaptiveTextContrast(force: Boolean) {
         val prefs = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
         val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)
         val hasImage = prefs.getBoolean("custom_image_bg", false) && file.exists()
-        val token = if (hasImage) "img:${file.lastModified()}:${file.length()}" else "theme:${AppThemeCatalog.current(context).id}:${ThemeDayNight.isDark(context)}"
-        if (token == lastContrastToken) return
-        lastContrastToken = token
 
-        val background = if (hasImage) {
+        if (hasImage) {
             ensureImage(file)
-            cachedImage?.let { averageColor(it) }
-                ?: if (ThemeDayNight.isDark(context)) Color.BLACK else Color.WHITE
-        } else {
-            val theme = AppThemeCatalog.current(context)
-            if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
+            val bmp = cachedImage ?: return
+            // Une photo peut être claire à un endroit et sombre 50 px plus loin.
+            // On choisit donc la couleur POUR CHAQUE TEXTE selon la zone située juste derrière lui.
+            applyLocalContrastRecursively(this, bmp)
+            return
         }
 
+        val theme = AppThemeCatalog.current(context)
+        val token = "theme:${theme.id}:${ThemeDayNight.isDark(context)}"
+        if (!force && token == lastThemeToken) return
+        lastThemeToken = token
+        val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
         val foreground = if (isDark(background)) Color.WHITE else Color.rgb(20, 20, 20)
-        val shadow = if (foreground == Color.WHITE) Color.argb(210, 0, 0, 0) else Color.argb(190, 255, 255, 255)
-        applyTextStyleRecursively(this, foreground, shadow)
+        val shadow = if (foreground == Color.WHITE) Color.argb(220, 0, 0, 0) else Color.argb(210, 255, 255, 255)
+        applyUniformTextStyleRecursively(this, foreground, shadow)
     }
 
-    private fun averageColor(bitmap: Bitmap): Int {
-        val stepX = (bitmap.width / 24).coerceAtLeast(1)
-        val stepY = (bitmap.height / 24).coerceAtLeast(1)
+    private fun applyLocalContrastRecursively(view: View, bitmap: Bitmap) {
+        when (view) {
+            is EditText -> styleTextForLocalBackground(view, bitmap, true)
+            is TextView -> {
+                // Les boutons ont déjà leur propre fond/contraste ; on ne les recolore pas.
+                if (view !is Button && view !is Switch) styleTextForLocalBackground(view, bitmap, false)
+            }
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) applyLocalContrastRecursively(view.getChildAt(i), bitmap)
+        }
+    }
+
+    private fun styleTextForLocalBackground(view: TextView, bitmap: Bitmap, isInput: Boolean) {
+        if (view.visibility != View.VISIBLE || view.width <= 0 || view.height <= 0 || width <= 0 || height <= 0) return
+
+        val scrollLocation = IntArray(2)
+        val viewLocation = IntArray(2)
+        getLocationOnScreen(scrollLocation)
+        view.getLocationOnScreen(viewLocation)
+
+        val centerX = (viewLocation[0] - scrollLocation[0] + view.width / 2f).coerceIn(0f, width.toFloat())
+        val centerY = (viewLocation[1] - scrollLocation[1] + view.height / 2f).coerceIn(0f, height.toFloat())
+        val local = localBackgroundColor(bitmap, centerX, centerY)
+
+        val foreground = if (isDark(local)) Color.WHITE else Color.rgb(12, 12, 12)
+        val shadow = if (foreground == Color.WHITE) Color.argb(235, 0, 0, 0) else Color.argb(225, 255, 255, 255)
+
+        view.setTextColor(foreground)
+        // Ombre assez franche pour rester lisible sur herbe, feuillage, visages, ciel, etc.
+        view.setShadowLayer(4.2f, 0f, 1.2f, shadow)
+        if (isInput && view is EditText) {
+            view.setHintTextColor(if (foreground == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
+        }
+    }
+
+    private fun localBackgroundColor(bitmap: Bitmap, viewportX: Float, viewportY: Float): Int {
+        val scale = max(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
+        val drawnW = bitmap.width * scale
+        val drawnH = bitmap.height * scale
+        val left = (width - drawnW) / 2f
+        val top = (height - drawnH) / 2f
+
+        val srcX = ((viewportX - left) / scale).toInt().coerceIn(0, bitmap.width - 1)
+        val srcY = ((viewportY - top) / scale).toInt().coerceIn(0, bitmap.height - 1)
+        val radiusX = (bitmap.width / 80).coerceIn(3, 24)
+        val radiusY = (bitmap.height / 120).coerceIn(3, 24)
+
         var r = 0L; var g = 0L; var b = 0L; var count = 0L
-        var y = 0
-        while (y < bitmap.height) {
-            var x = 0
-            while (x < bitmap.width) {
+        var y = (srcY - radiusY).coerceAtLeast(0)
+        val yEnd = (srcY + radiusY).coerceAtMost(bitmap.height - 1)
+        while (y <= yEnd) {
+            var x = (srcX - radiusX).coerceAtLeast(0)
+            val xEnd = (srcX + radiusX).coerceAtMost(bitmap.width - 1)
+            val step = 3
+            while (x <= xEnd) {
                 val c = bitmap.getPixel(x, y)
                 r += Color.red(c); g += Color.green(c); b += Color.blue(c); count++
-                x += stepX
+                x += step
             }
-            y += stepY
+            y += step
         }
         if (count == 0L) return Color.BLACK
         return Color.rgb((r / count).toInt(), (g / count).toInt(), (b / count).toInt())
     }
 
-    private fun applyTextStyleRecursively(view: View, color: Int, shadow: Int) {
+    private fun applyUniformTextStyleRecursively(view: View, color: Int, shadow: Int) {
         when (view) {
             is EditText -> {
                 view.setTextColor(color)
                 view.setHintTextColor(if (color == Color.WHITE) Color.LTGRAY else Color.DKGRAY)
                 view.setShadowLayer(3f, 0f, 1f, shadow)
             }
-            is TextView -> {
-                val idName = runCatching { resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-                val protected = idName == "settingsButton" || idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
-                if (!protected) {
-                    view.setTextColor(color)
-                    view.setShadowLayer(3f, 0f, 1f, shadow)
-                }
+            is TextView -> if (view !is Button && view !is Switch) {
+                view.setTextColor(color)
+                view.setShadowLayer(3f, 0f, 1f, shadow)
             }
         }
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) applyTextStyleRecursively(view.getChildAt(i), color, shadow)
+            for (i in 0 until view.childCount) applyUniformTextStyleRecursively(view.getChildAt(i), color, shadow)
         }
     }
 
     private fun isDark(color: Int): Boolean =
-        ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 150
+        ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 155
 
     private fun drawBrushedAluminum(canvas: Canvas, dark: Boolean) {
         val top = if (dark) Color.rgb(48, 52, 55) else Color.rgb(238, 241, 242)
