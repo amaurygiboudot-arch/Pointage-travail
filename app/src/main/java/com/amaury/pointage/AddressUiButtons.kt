@@ -143,6 +143,11 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
 
                 val locality = listOf(postalValue, cityValue).filter { it.isNotBlank() }.joinToString(" ")
                 val formatted = listOf(streetValue, locality).filter { it.isNotBlank() }.joinToString(", ")
+                val duplicate = existing.any { it.equals(formatted, ignoreCase = true) }
+                if (duplicate) {
+                    Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
                 val updated = (existing + formatted).distinctBy { it.lowercase() }.take(10)
                 addressList.setText(updated.joinToString("\n"))
 
@@ -169,7 +174,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                     .putString("address", updated.joinToString("\n"))
                     .putString("arrival_contacts", contacts.toString())
                     .putString("address_company_slots", companyMap.toString())
-                    // Seul le lieu qui vient d'être ajouté doit ouvrir automatiquement la carte.
+                    // Le sélecteur GPS écoute directement cette clé : aucun second bouton Enregistrer n'est nécessaire.
                     .putString("pending_point_address", formatted)
                     .apply()
 
@@ -181,13 +186,8 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
 
                 rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                 val companyName = if (companySlot == 1) company1Name else company2Name
-                Toast.makeText(context, "$nameValue ajouté à $companyName", Toast.LENGTH_SHORT).show()
-
-                // La validation du formulaire lance l'enregistrement GPS interne, puis la carte.
+                Toast.makeText(context, "$nameValue ajouté à $companyName — choisis maintenant le point GPS", Toast.LENGTH_LONG).show()
                 dialog.dismiss()
-                rootView.post {
-                    rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
-                }
             }
         }
         dialog.show()
