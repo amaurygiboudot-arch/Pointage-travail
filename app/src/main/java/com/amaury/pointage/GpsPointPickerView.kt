@@ -368,13 +368,13 @@ class GpsPointPickerView @JvmOverloads constructor(
         val accent = if (dark) theme.accentLight else theme.accent
 
         val latInput = EditText(context).apply {
-            hint = "Latitude"
+            this.hint = "Latitude"
             setText(zone.optDouble("latitude", 0.0).toString())
             setTextColor(text); setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
         }
         val lonInput = EditText(context).apply {
-            hint = "Longitude"
+            this.hint = "Longitude"
             setText(zone.optDouble("longitude", 0.0).toString())
             setTextColor(text); setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
