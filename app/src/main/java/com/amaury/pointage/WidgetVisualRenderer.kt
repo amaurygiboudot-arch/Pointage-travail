@@ -31,7 +31,11 @@ object WidgetVisualRenderer {
         val cx = size / 2f
         val cy = size / 2f
         val r = size / 2f
-        val jr = r * .885f
+
+        // IMPORTANT : cette image est déjà affichée dans une ImageView réduite à 88,5 %
+        // du cadre. Le contenu doit donc remplir CE bitmap, sinon le facteur 0,885 était
+        // appliqué deux fois et le fond coloré devenait trop petit / semblait décentré.
+        val jr = r
 
         val raw = when (type) {
             Jewel.ENTRY -> R.raw.hp_button_bg_green_b64
