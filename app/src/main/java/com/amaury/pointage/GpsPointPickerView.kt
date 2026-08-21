@@ -25,6 +25,7 @@ import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import java.util.UUID
 
 /**
  * Sélection du centre GPS réel d'un lieu.
@@ -94,7 +95,8 @@ class GpsPointPickerView @JvmOverloads constructor(
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
-        if (key != "zones" || applyingOverride) return
+        if (applyingOverride) return
+        if (key != "zones" && key != "pending_point_address" && key != "address") return
         post {
             reapplyStoredOverrides()
             maybePromptForPendingPoint()
@@ -105,6 +107,10 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONArray(prefs.getString("zones", "[]") ?: "[]")
     }.getOrElse { JSONArray() }
 
+    private fun savedAddresses(): List<String> = prefs.getString("address", "")
+        .orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }
+        .distinctBy { it.lowercase(Locale.FRANCE) }.take(10)
+
     private fun overrides(): JSONObject = runCatching {
         JSONObject(prefs.getString("zone_point_overrides", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
@@ -113,10 +119,41 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONObject(prefs.getString("zone_point_confirmed", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
 
+    private fun findZone(address: String, list: JSONArray = zones()): JSONObject? {
+        for (i in 0 until list.length()) {
+            val zone = list.optJSONObject(i) ?: continue
+            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return zone
+        }
+        return null
+    }
+
+    private fun provisionalZone(address: String): JSONObject {
+        val custom = overrides().optJSONObject(address)
+        val current = currentLocation()
+        val lat = custom?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
+            ?: current?.latitude
+            ?: 46.603354
+        val lon = custom?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
+            ?: current?.longitude
+            ?: 1.888334
+        return JSONObject()
+            .put("id", UUID.randomUUID().toString())
+            .put("address", address)
+            .put("latitude", lat)
+            .put("longitude", lon)
+            .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+            .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
+    }
+
+    /**
+     * Réapplique les points choisis par l'utilisateur après tout regéocodage.
+     * Si Android n'arrive plus à géocoder une adresse, on recrée quand même la zone
+     * à partir du point manuel enregistré au lieu de la perdre silencieusement.
+     */
     private fun reapplyStoredOverrides() {
         val source = zones()
-        if (source.length() == 0) return
         val custom = overrides()
+        val addresses = savedAddresses()
         var changed = false
 
         for (i in 0 until source.length()) {
@@ -135,32 +172,46 @@ class GpsPointPickerView @JvmOverloads constructor(
             }
         }
 
+        addresses.forEach { address ->
+            if (findZone(address, source) != null) return@forEach
+            val point = custom.optJSONObject(address) ?: return@forEach
+            val lat = point.optDouble("latitude", Double.NaN)
+            val lon = point.optDouble("longitude", Double.NaN)
+            if (!lat.isFinite() || !lon.isFinite()) return@forEach
+            source.put(
+                JSONObject()
+                    .put("id", UUID.randomUUID().toString())
+                    .put("address", address)
+                    .put("latitude", lat)
+                    .put("longitude", lon)
+                    .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+                    .put("pointSource", point.optString("source", "manual"))
+            )
+            changed = true
+        }
+
         if (changed) {
             applyingOverride = true
-            prefs.edit().putString("zones", source.toString()).apply()
+            prefs.edit().putString("zones", source.toString()).remove("active_zones").apply()
             applyingOverride = false
             registerCurrentZones()
         }
     }
 
     /**
-     * N'ouvre automatiquement que le lieu qui vient réellement d'être ajouté.
-     * Les anciens lieux non confirmés ne parasitent plus le parcours.
+     * N'ouvre automatiquement que le lieu qui vient réellement d'être ajouté ou modifié.
+     * Même si le géocodeur n'a rien trouvé, la carte s'ouvre avec une position provisoire
+     * afin que l'utilisateur puisse poser lui-même le point exact.
      */
     private fun maybePromptForPendingPoint() {
         if (promptScheduled || !isShown) return
         val pending = prefs.getString("pending_point_address", "").orEmpty().trim()
         if (pending.isBlank()) return
-        val list = zones()
-        var target: JSONObject? = null
-        for (i in 0 until list.length()) {
-            val zone = list.optJSONObject(i) ?: continue
-            if (zone.optString("address").trim().equals(pending, ignoreCase = true)) {
-                target = zone
-                break
-            }
+        if (savedAddresses().none { it.equals(pending, ignoreCase = true) }) {
+            prefs.edit().remove("pending_point_address").apply()
+            return
         }
-        val zone = target ?: return
+        val zone = findZone(pending) ?: provisionalZone(pending)
         promptScheduled = true
         postDelayed({
             promptScheduled = false
@@ -169,19 +220,17 @@ class GpsPointPickerView @JvmOverloads constructor(
     }
 
     private fun choosePlaceManually() {
-        val list = zones()
-        if (list.length() == 0) {
+        val addresses = savedAddresses()
+        if (addresses.isEmpty()) {
             Toast.makeText(context, "Ajoute d'abord un lieu", Toast.LENGTH_SHORT).show()
             return
         }
+        val list = zones()
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
-        for (i in 0 until list.length()) {
-            val zone = list.optJSONObject(i) ?: continue
-            val address = zone.optString("address").trim()
-            if (address.isBlank()) continue
+        addresses.forEach { address ->
             labels += (PlaceNames.get(context, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
-            items += zone
+            items += (findZone(address, list) ?: provisionalZone(address))
         }
 
         val dark = AppThemeCatalog.useDarkPalette(context)
@@ -210,8 +259,11 @@ class GpsPointPickerView @JvmOverloads constructor(
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
 
-        val savedLat = zone.optDouble("latitude", Double.NaN)
-        val savedLon = zone.optDouble("longitude", Double.NaN)
+        val customPoint = overrides().optJSONObject(address)
+        val savedLat = customPoint?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
+            ?: zone.optDouble("latitude", Double.NaN)
+        val savedLon = customPoint?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
+            ?: zone.optDouble("longitude", Double.NaN)
         val current = currentLocation()
         var selectedLat = when {
             savedLat.isFinite() -> savedLat
@@ -305,7 +357,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         val addressButton = actionButton("POINT ADRESSE") {
             if (savedLat.isFinite() && savedLon.isFinite()) {
-                selectedLat = savedLat; selectedLon = savedLon
+                selectedLat = savedLat
+                selectedLon = savedLon
                 coordinateLabel.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}"
                 webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
@@ -315,7 +368,8 @@ class GpsPointPickerView @JvmOverloads constructor(
             if (now == null) {
                 Toast.makeText(context, "Position actuelle indisponible pour le moment", Toast.LENGTH_SHORT).show()
             } else {
-                selectedLat = now.latitude; selectedLon = now.longitude
+                selectedLat = now.latitude
+                selectedLon = now.longitude
                 coordinateLabel.text = "${fmt(selectedLat)}, ${fmt(selectedLon)}  ±${now.accuracy.toInt()} m"
                 webView.evaluateJavascript("setPoint($selectedLat,$selectedLon,true);", null)
             }
@@ -370,13 +424,15 @@ class GpsPointPickerView @JvmOverloads constructor(
         val latInput = EditText(context).apply {
             this.hint = "Latitude"
             setText(zone.optDouble("latitude", 0.0).toString())
-            setTextColor(text); setHintTextColor(hint)
+            setTextColor(text)
+            setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
         }
         val lonInput = EditText(context).apply {
             this.hint = "Longitude"
             setText(zone.optDouble("longitude", 0.0).toString())
-            setTextColor(text); setHintTextColor(hint)
+            setTextColor(text)
+            setHintTextColor(hint)
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
         }
         val box = LinearLayout(context).apply {
@@ -414,18 +470,36 @@ class GpsPointPickerView @JvmOverloads constructor(
             put(address, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
         }
         val list = zones()
+        var found = false
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue
             if (item.optString("address").trim().equals(address, ignoreCase = true)) {
                 item.put("latitude", latitude)
                 item.put("longitude", longitude)
+                item.put("radius", prefs.getInt("radius", item.optInt("radius", 150)).coerceIn(50, 1000))
                 item.put("pointSource", source)
+                if (item.optString("id").isBlank()) item.put("id", UUID.randomUUID().toString())
+                found = true
+                break
             }
         }
+        if (!found) {
+            list.put(
+                JSONObject()
+                    .put("id", zone.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString())
+                    .put("address", address)
+                    .put("latitude", latitude)
+                    .put("longitude", longitude)
+                    .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+                    .put("pointSource", source)
+            )
+        }
+
         applyingOverride = true
         prefs.edit()
             .putString("zone_point_overrides", custom.toString())
             .putString("zones", list.toString())
+            .remove("active_zones")
             .apply()
         applyingOverride = false
         markConfirmed(address)
