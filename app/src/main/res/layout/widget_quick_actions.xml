@@ -15,17 +15,26 @@
         android:padding="5dp">
 
         <LinearLayout android:id="@+id/quick_entry" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
-            <ImageView android:id="@+id/quick_entry_button" android:layout_width="62dp" android:layout_height="62dp" android:contentDescription="Entrée" android:scaleType="fitCenter" />
+            <FrameLayout android:layout_width="62dp" android:layout_height="62dp">
+                <ImageView android:id="@+id/quick_entry_button" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre entrée" android:scaleType="fitCenter" />
+                <ImageView android:id="@+id/quick_entry_inner" android:layout_width="55dp" android:layout_height="55dp" android:layout_gravity="center" android:contentDescription="Entrée" android:scaleType="fitCenter" />
+            </FrameLayout>
             <TextView android:id="@+id/quick_entry_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="ENTRÉE" android:textSize="9sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout android:id="@+id/quick_pause" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
-            <ImageView android:id="@+id/quick_pause_icon" android:layout_width="62dp" android:layout_height="62dp" android:contentDescription="Pause" android:scaleType="fitCenter" />
+            <FrameLayout android:layout_width="62dp" android:layout_height="62dp">
+                <ImageView android:id="@+id/quick_pause_icon" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre pause" android:scaleType="fitCenter" />
+                <ImageView android:id="@+id/quick_pause_inner" android:layout_width="55dp" android:layout_height="55dp" android:layout_gravity="center" android:contentDescription="Pause" android:scaleType="fitCenter" />
+            </FrameLayout>
             <TextView android:id="@+id/quick_pause_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="PAUSE" android:textSize="9sp" android:textStyle="bold" />
         </LinearLayout>
 
         <LinearLayout android:id="@+id/quick_exit" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
-            <ImageView android:id="@+id/quick_exit_button" android:layout_width="62dp" android:layout_height="62dp" android:contentDescription="Sortie" android:scaleType="fitCenter" />
+            <FrameLayout android:layout_width="62dp" android:layout_height="62dp">
+                <ImageView android:id="@+id/quick_exit_button" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre sortie" android:scaleType="fitCenter" />
+                <ImageView android:id="@+id/quick_exit_inner" android:layout_width="55dp" android:layout_height="55dp" android:layout_gravity="center" android:contentDescription="Sortie" android:scaleType="fitCenter" />
+            </FrameLayout>
             <TextView android:id="@+id/quick_exit_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="SORTIE" android:textSize="9sp" android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>
