@@ -21,16 +21,22 @@
             android:orientation="horizontal">
 
             <LinearLayout android:id="@+id/widget_entry_area" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical" android:paddingStart="2dp" android:paddingEnd="2dp">
-                <ImageView android:id="@+id/widget_entry_button" android:layout_width="72dp" android:layout_height="72dp" android:contentDescription="Entrée" android:scaleType="fitCenter" />
+                <FrameLayout android:layout_width="72dp" android:layout_height="72dp">
+                    <ImageView android:id="@+id/widget_entry_button" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre entrée" android:scaleType="fitCenter" />
+                    <ImageView android:id="@+id/widget_entry_inner" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="Entrée" android:scaleType="fitCenter" />
+                </FrameLayout>
                 <TextView android:id="@+id/widget_entry_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ENTRÉE" android:textSize="10sp" android:textStyle="bold" />
                 <TextView android:id="@+id/widget_entry_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--:--" android:textSize="13sp" android:textStyle="bold" />
-                <TextView android:id="@+id/widget_entry_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:textSize="8sp" />
+                <TextView android:id="@+id/widget_entry_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:textSize="8sp" android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout android:id="@+id/widget_pause_area" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical" android:paddingStart="2dp" android:paddingEnd="2dp">
-                <ImageView android:id="@+id/widget_pause_button" android:layout_width="72dp" android:layout_height="72dp" android:contentDescription="Pause" android:scaleType="fitCenter" />
+                <FrameLayout android:layout_width="72dp" android:layout_height="72dp">
+                    <ImageView android:id="@+id/widget_pause_button" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre pause" android:scaleType="fitCenter" />
+                    <ImageView android:id="@+id/widget_pause_inner" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="Pause" android:scaleType="fitCenter" />
+                </FrameLayout>
                 <TextView android:id="@+id/widget_pause_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PAUSE" android:textSize="10sp" android:textStyle="bold" />
-                <TextView android:id="@+id/widget_pause_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="00h 00m" android:textSize="9sp" />
+                <TextView android:id="@+id/widget_pause_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="00h 00m" android:textSize="9sp" android:textStyle="bold" />
             </LinearLayout>
 
             <FrameLayout android:id="@+id/widget_clock_frame" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1.5">
@@ -38,10 +44,13 @@
             </FrameLayout>
 
             <LinearLayout android:id="@+id/widget_exit_area" android:layout_width="0dp" android:layout_height="match_parent" android:layout_weight="1" android:gravity="center" android:orientation="vertical" android:paddingStart="2dp" android:paddingEnd="2dp">
-                <ImageView android:id="@+id/widget_exit_button" android:layout_width="72dp" android:layout_height="72dp" android:contentDescription="Sortie" android:scaleType="fitCenter" />
+                <FrameLayout android:layout_width="72dp" android:layout_height="72dp">
+                    <ImageView android:id="@+id/widget_exit_button" android:layout_width="match_parent" android:layout_height="match_parent" android:contentDescription="Cadre sortie" android:scaleType="fitCenter" />
+                    <ImageView android:id="@+id/widget_exit_inner" android:layout_width="64dp" android:layout_height="64dp" android:layout_gravity="center" android:contentDescription="Sortie" android:scaleType="fitCenter" />
+                </FrameLayout>
                 <TextView android:id="@+id/widget_exit_label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SORTIE" android:textSize="10sp" android:textStyle="bold" />
                 <TextView android:id="@+id/widget_exit_time" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="--:--" android:textSize="13sp" android:textStyle="bold" />
-                <TextView android:id="@+id/widget_exit_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:textSize="8sp" />
+                <TextView android:id="@+id/widget_exit_location" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:gravity="center" android:maxLines="1" android:textSize="8sp" android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
@@ -63,7 +72,7 @@
                 android:gravity="center"
                 android:maxLines="1"
                 android:text="📍 Aucune zone"
-                android:textSize="11sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
 
             <LinearLayout
@@ -73,7 +82,7 @@
                 android:gravity="center"
                 android:orientation="horizontal">
 
-                <TextView android:id="@+id/widget_crown" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="♛" android:textSize="12sp" />
+                <TextView android:id="@+id/widget_crown" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="♛" android:textSize="12sp" android:textStyle="bold" />
                 <TextView android:id="@+id/widget_hp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="2dp" android:text="HP" android:textSize="9sp" android:textStyle="bold" />
                 <TextView android:id="@+id/widget_work" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="2dp" android:text="TRAVAIL" android:textSize="7sp" android:textStyle="bold" />
                 <TextView android:id="@+id/widget_state" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:text="PRÊT" android:textSize="11sp" android:textStyle="bold" />
