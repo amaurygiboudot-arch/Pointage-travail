@@ -10,7 +10,11 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.Shader
 import android.util.AttributeSet
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.ScrollView
+import android.widget.TextView
 import java.io.File
 import kotlin.math.max
 
@@ -24,12 +28,14 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedImage: Bitmap? = null
     private var cachedPath: String? = null
+    private var lastContrastToken: String? = null
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
+        applyAdaptiveTextContrastIfNeeded()
         super.dispatchDraw(canvas)
     }
 
@@ -51,11 +57,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     }
 
     private fun drawSelectedImage(canvas: Canvas, file: File) {
-        if (cachedPath != file.absolutePath || cachedImage == null) {
-            cachedImage?.recycle()
-            cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-            cachedPath = file.absolutePath
-        }
+        ensureImage(file)
         val bmp = cachedImage ?: return
         val scale = max(width.toFloat() / bmp.width, height.toFloat() / bmp.height)
         val dw = (bmp.width * scale).toInt()
@@ -64,6 +66,79 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         val top = (height - dh) / 2
         canvas.drawBitmap(bmp, null, Rect(left, top, left + dw, top + dh), paint)
     }
+
+    private fun ensureImage(file: File) {
+        if (cachedPath != file.absolutePath || cachedImage == null) {
+            cachedImage?.recycle()
+            cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+            cachedPath = file.absolutePath
+            lastContrastToken = null
+        }
+    }
+
+    private fun applyAdaptiveTextContrastIfNeeded() {
+        val prefs = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
+        val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)
+        val hasImage = prefs.getBoolean("custom_image_bg", false) && file.exists()
+        val token = if (hasImage) "img:${file.lastModified()}:${file.length()}" else "theme:${AppThemeCatalog.current(context).id}:${ThemeDayNight.isDark(context)}"
+        if (token == lastContrastToken) return
+        lastContrastToken = token
+
+        val background = if (hasImage) {
+            ensureImage(file)
+            cachedImage?.let { averageColor(it) }
+                ?: if (ThemeDayNight.isDark(context)) Color.BLACK else Color.WHITE
+        } else {
+            val theme = AppThemeCatalog.current(context)
+            if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
+        }
+
+        val foreground = if (isDark(background)) Color.WHITE else Color.rgb(20, 20, 20)
+        val shadow = if (foreground == Color.WHITE) Color.argb(210, 0, 0, 0) else Color.argb(190, 255, 255, 255)
+        applyTextStyleRecursively(this, foreground, shadow)
+    }
+
+    private fun averageColor(bitmap: Bitmap): Int {
+        val stepX = (bitmap.width / 24).coerceAtLeast(1)
+        val stepY = (bitmap.height / 24).coerceAtLeast(1)
+        var r = 0L; var g = 0L; var b = 0L; var count = 0L
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val c = bitmap.getPixel(x, y)
+                r += Color.red(c); g += Color.green(c); b += Color.blue(c); count++
+                x += stepX
+            }
+            y += stepY
+        }
+        if (count == 0L) return Color.BLACK
+        return Color.rgb((r / count).toInt(), (g / count).toInt(), (b / count).toInt())
+    }
+
+    private fun applyTextStyleRecursively(view: View, color: Int, shadow: Int) {
+        when (view) {
+            is EditText -> {
+                view.setTextColor(color)
+                view.setHintTextColor(if (color == Color.WHITE) Color.LTGRAY else Color.DKGRAY)
+                view.setShadowLayer(3f, 0f, 1f, shadow)
+            }
+            is TextView -> {
+                val idName = runCatching { resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+                val protected = idName == "settingsButton" || idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
+                if (!protected) {
+                    view.setTextColor(color)
+                    view.setShadowLayer(3f, 0f, 1f, shadow)
+                }
+            }
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) applyTextStyleRecursively(view.getChildAt(i), color, shadow)
+        }
+    }
+
+    private fun isDark(color: Int): Boolean =
+        ((Color.red(color) * 299 + Color.green(color) * 587 + Color.blue(color) * 114) / 1000) < 150
 
     private fun drawBrushedAluminum(canvas: Canvas, dark: Boolean) {
         val top = if (dark) Color.rgb(48, 52, 55) else Color.rgb(238, 241, 242)
