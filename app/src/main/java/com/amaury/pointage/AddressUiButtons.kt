@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.os.Build
 import android.text.InputType
 import android.util.AttributeSet
@@ -17,7 +18,10 @@ import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
+import java.util.UUID
 
 class AddAddressButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
     override fun onAttachedToWindow() {
@@ -170,13 +174,36 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 }.getOrElse { JSONObject() }
                 companyMap.put(formatted, companySlot)
 
-                gpsPrefs.edit()
+                // Géocode immédiatement l'adresse AVANT d'ouvrir le sélecteur de point.
+                // Ainsi la carte s'ouvre sur l'adresse choisie, jamais sur la position actuelle du téléphone.
+                val geocoded = runCatching {
+                    Geocoder(context, Locale.FRANCE).getFromLocationName(formatted, 1)?.firstOrNull()
+                }.getOrNull()
+
+                val zones = runCatching {
+                    JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+                }.getOrElse { JSONArray() }
+
+                if (geocoded != null) {
+                    val zone = JSONObject()
+                        .put("id", UUID.randomUUID().toString())
+                        .put("address", formatted)
+                        .put("latitude", geocoded.latitude)
+                        .put("longitude", geocoded.longitude)
+                        .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
+                        .put("pointSource", "geocoder")
+                    zones.put(zone)
+                }
+
+                val editor = gpsPrefs.edit()
                     .putString("address", updated.joinToString("\n"))
                     .putString("arrival_contacts", contacts.toString())
                     .putString("address_company_slots", companyMap.toString())
-                    // Le sélecteur GPS écoute directement cette clé : aucun second bouton Enregistrer n'est nécessaire.
+                    .putString("zones", zones.toString())
+                    .remove("active_zones")
                     .putString("pending_point_address", formatted)
-                    .apply()
+
+                editor.apply()
 
                 if (notifyOnArrival.isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -186,7 +213,11 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
 
                 rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                 val companyName = if (companySlot == 1) company1Name else company2Name
-                Toast.makeText(context, "$nameValue ajouté à $companyName — choisis maintenant le point GPS", Toast.LENGTH_LONG).show()
+                val message = if (geocoded != null)
+                    "$nameValue ajouté à $companyName — la carte va s'ouvrir sur l'adresse"
+                else
+                    "$nameValue ajouté à $companyName — adresse introuvable automatiquement, place le point manuellement"
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 dialog.dismiss()
             }
         }
