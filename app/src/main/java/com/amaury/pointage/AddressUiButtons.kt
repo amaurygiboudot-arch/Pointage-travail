@@ -181,7 +181,14 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
                 val companyName = if (companySlot == 1) company1Name else company2Name
                 Toast.makeText(context, "$nameValue ajouté à $companyName", Toast.LENGTH_SHORT).show()
+
+                // Le bouton manuel « Enregistrer les lieux » n'est plus nécessaire :
+                // dès que le formulaire est validé, on géocode et on enregistre la zone.
+                // GpsPointPickerView détecte ensuite la nouvelle zone et ouvre le choix du point précis.
                 dialog.dismiss()
+                rootView.post {
+                    rootView.findViewById<Button>(R.id.saveGpsSettingsButton)?.performClick()
+                }
             }
         }
         dialog.show()
@@ -206,7 +213,7 @@ class SafeGpsSaveButton @JvmOverloads constructor(context: Context, attrs: Attri
                     .putInt("radius", radius)
                     .putBoolean("enabled", true)
                     .apply()
-                Toast.makeText(context, "Adresses enregistrées. Autorise maintenant la localisation avec le bouton dédié.", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Adresse enregistrée. Autorise maintenant la localisation pour activer le pointage automatique.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
             listener?.onClick(this)
