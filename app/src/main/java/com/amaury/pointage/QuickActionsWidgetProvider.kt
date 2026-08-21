@@ -6,7 +6,6 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.widget.RemoteViews
 import android.widget.Toast
 
@@ -36,16 +35,13 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val dark = AppThemeCatalog.useDarkPalette(context)
             val accent = if (dark) theme.accentLight else theme.accent
 
-            views.setInt(R.id.quick_root, "setBackgroundResource", backgroundFor(theme.id, dark))
-            views.setInt(R.id.quick_entry_button, "setBackgroundResource", R.drawable.widget_action_entry_new)
-            views.setInt(R.id.quick_pause_icon, "setBackgroundResource", R.drawable.widget_action_pause_new)
-            views.setInt(R.id.quick_exit_button, "setBackgroundResource", R.drawable.widget_action_exit_new)
+            views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            views.setImageViewBitmap(R.id.quick_entry_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.ENTRY, 200))
+            views.setImageViewBitmap(R.id.quick_pause_icon, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.PAUSE, 200))
+            views.setImageViewBitmap(R.id.quick_exit_button, WidgetVisualRenderer.jewel(context, WidgetVisualRenderer.Jewel.EXIT, 200))
             views.setTextColor(R.id.quick_entry_label, accent)
             views.setTextColor(R.id.quick_pause_label, accent)
             views.setTextColor(R.id.quick_exit_label, accent)
-            views.setTextColor(R.id.quick_entry_button, Color.WHITE)
-            views.setTextColor(R.id.quick_pause_icon, Color.WHITE)
-            views.setTextColor(R.id.quick_exit_button, Color.WHITE)
 
             val entryIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_ENTRY }
             val pauseIntent = Intent(context, QuickActionsWidgetProvider::class.java).apply { action = ACTION_PAUSE }
@@ -57,7 +53,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val hasOpen = PointageStore.hasOpen(context)
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
-            views.setTextViewText(R.id.quick_pause_icon, if (paused) "▶" else "Ⅱ")
             views.setFloat(R.id.quick_entry, "setAlpha", if (hasOpen) 0.45f else 1f)
             views.setFloat(R.id.quick_pause, "setAlpha", if (hasOpen) 1f else 0.45f)
             views.setFloat(R.id.quick_exit, "setAlpha", if (hasOpen) 1f else 0.45f)
@@ -65,40 +60,21 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         }
     }
 
-    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        ids.forEach { updateWidget(context, manager, it) }
-    }
-
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) { ids.forEach { updateWidget(context, manager, it) } }
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            ACTION_ENTRY -> if (PointageStore.entry(context)) {
-                Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
-            }
+            ACTION_ENTRY -> if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             ACTION_PAUSE -> when {
                 !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                PointageStore.isPaused(context) -> {
-                    PointageStore.resumePause(context)
-                    Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
-                }
-                else -> {
-                    PointageStore.startPause(context)
-                    Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
-                }
+                PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
             }
-            ACTION_EXIT -> if (PointageStore.exit(context)) {
-                Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-            }
+            ACTION_EXIT -> if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show() else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             Intent.ACTION_CONFIGURATION_CHANGED -> Unit
         }
         if (intent.action == ACTION_ENTRY || intent.action == ACTION_PAUSE || intent.action == ACTION_EXIT || intent.action == Intent.ACTION_CONFIGURATION_CHANGED) {
-            IconSwitcher.sync(context)
-            PointageWidgetProvider.updateAll(context)
-            updateAll(context)
+            IconSwitcher.sync(context); PointageWidgetProvider.updateAll(context); updateAll(context)
         }
     }
 }
