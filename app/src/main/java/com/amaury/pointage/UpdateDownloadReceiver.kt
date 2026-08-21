@@ -40,28 +40,34 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
             return
         }
 
-        val valid = runCatching { UpdateChecker.validateApk(context, apk) }.isSuccess
-        if (!valid) {
+        if (runCatching { UpdateChecker.validateApk(context, apk) }.isFailure) {
             apk.delete()
             UpdateChecker.clearDownloadState(context)
             notifyFailure(context)
             return
         }
 
+        // On conserve l'APK comme « prête à installer ». Ainsi, si Android/HyperOS bloque
+        // l'ouverture de l'installateur depuis l'arrière-plan, HP Travail le relancera
+        // automatiquement dès qu'il repasse au premier plan.
+        UpdateChecker.markDownloadReady(context, apk)
         val installIntent = UpdateChecker.installerIntent(context, apk)
-        UpdateChecker.clearDownloadState(context)
 
-        // Essaie d'ouvrir immédiatement l'installateur Android dès que l'APK est prêt.
-        // Certains Android/constructeurs peuvent bloquer le lancement d'une Activity depuis
-        // l'arrière-plan : dans ce cas la notification ci-dessous reste le chemin de secours.
+        val pending = PendingIntent.getActivity(
+            context,
+            4107,
+            installIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val launched = runCatching {
-            context.startActivity(installIntent)
+            pending.send()
             true
         }.getOrDefault(false)
 
-        if (!launched) {
-            notifyReady(context, installIntent)
-        }
+        // La notification reste seulement comme secours système. Aucun nouveau téléchargement
+        // ni passage manuel par le menu de mise à jour n'est nécessaire.
+        if (!launched) notifyReady(context, installIntent)
     }
 
     private fun notifyReady(context: Context, installIntent: Intent) {
@@ -76,7 +82,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_icon_red)
             .setContentTitle("Mise à jour HP Travail prête")
-            .setContentText("Appuie ici si Android n'a pas ouvert l'installation automatiquement.")
+            .setContentText("L'installation se lancera automatiquement au retour dans HP Travail.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -90,7 +96,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_icon_red)
             .setContentTitle("Mise à jour interrompue")
-            .setContentText("Relance la vérification des mises à jour dans HP Travail.")
+            .setContentText("HP Travail réessaiera automatiquement.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .build()
@@ -101,11 +107,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    "Mises à jour HP Travail",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
+                NotificationChannel(CHANNEL_ID, "Mises à jour HP Travail", NotificationManager.IMPORTANCE_HIGH)
             )
         }
     }
