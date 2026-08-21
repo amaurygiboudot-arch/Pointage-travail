@@ -14,7 +14,7 @@ import android.widget.ScrollView
 import java.io.File
 import kotlin.math.max
 
-/** Fond visible de HP Travail. Les textures sont procédurales : aucune image figée. */
+/** Fond visible de HP Travail. Le fond reste fixe pendant le défilement. */
 class ThemedBackgroundScrollView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -26,7 +26,10 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private var cachedPath: String? = null
 
     override fun dispatchDraw(canvas: Canvas) {
+        canvas.save()
+        canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
+        canvas.restore()
         super.dispatchDraw(canvas)
     }
 
@@ -70,7 +73,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         paint.shader = null
 
-        // Stries fines légèrement irrégulières, comme un vrai brossage longitudinal.
         var y = 0
         while (y < height) {
             val phase = (y * 37) % 11
@@ -105,7 +107,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             y += half
             row++
         }
-        // Vernis très léger pour éviter l'effet damier artificiel.
         paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), Color.argb(if (dark) 28 else 20, 255,255,255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         paint.shader = null
