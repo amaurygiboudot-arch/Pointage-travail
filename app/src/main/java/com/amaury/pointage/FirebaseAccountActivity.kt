@@ -35,6 +35,7 @@ class FirebaseAccountActivity : Activity() {
         db = FirebaseFirestore.getInstance()
         setContentView(buildContent())
         refreshUi()
+        DeviceRegistry.registerIfSignedIn(this)
     }
 
     private fun buildContent(): LinearLayout {
@@ -113,6 +114,7 @@ class FirebaseAccountActivity : Activity() {
             auth.signInWithCredential(credential)
                 .addOnSuccessListener {
                     saveUserProfile()
+                    DeviceRegistry.registerIfSignedIn(this, force = true)
                     refreshUi()
                     Toast.makeText(this, "Connexion Google réussie", Toast.LENGTH_SHORT).show()
                 }
@@ -154,7 +156,7 @@ class FirebaseAccountActivity : Activity() {
             signOutButton.isEnabled = false
         } else {
             val label = user.displayName ?: user.email ?: "Compte Google"
-            statusText.text = "Connecté : $label\nUID Firebase : ${user.uid}"
+            statusText.text = "Connecté : $label\nUID Firebase : ${user.uid}\nInstallation : ${DeviceRegistry.installId(this)}"
             signInButton.isEnabled = false
             signOutButton.isEnabled = true
         }
