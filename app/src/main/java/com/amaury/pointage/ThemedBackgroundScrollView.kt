@@ -18,6 +18,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import java.io.File
+import java.util.WeakHashMap
 import kotlin.math.max
 
 /** Fond visible de HP Travail. Le fond reste fixe pendant le défilement. */
@@ -27,28 +28,41 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : ScrollView(context, attrs, defStyleAttr) {
 
+    private data class BackgroundStats(
+        val averageLuma: Float,
+        val brightRatio: Float,
+        val darkRatio: Float
+    )
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedImage: Bitmap? = null
     private var cachedPath: String? = null
     private var lastThemeToken: String? = null
-    private var lastContrastScrollY = Int.MIN_VALUE
+    private var contrastFramePending = false
+    private val lastUseDarkText = WeakHashMap<TextView, Boolean>()
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
-        applyAdaptiveTextContrast(force = false)
+        scheduleAdaptiveContrast()
         super.dispatchDraw(canvas)
     }
 
     override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
         super.onScrollChanged(l, t, oldl, oldt)
-        // Le fond ne bouge pas, mais le texte se déplace dessus : on recalcule donc
-        // localement la meilleure couleur au fur et à mesure du défilement.
-        if (kotlin.math.abs(t - lastContrastScrollY) >= 12) {
+        // Un seul recalcul par frame : le changement de contraste reste fluide même
+        // pendant un défilement rapide, sans analyser la photo des dizaines de fois par frame.
+        scheduleAdaptiveContrast()
+    }
+
+    private fun scheduleAdaptiveContrast() {
+        if (contrastFramePending) return
+        contrastFramePending = true
+        postOnAnimation {
+            contrastFramePending = false
             applyAdaptiveTextContrast(force = true)
-            lastContrastScrollY = t
         }
     }
 
@@ -86,7 +100,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
             cachedPath = file.absolutePath
             lastThemeToken = null
-            lastContrastScrollY = Int.MIN_VALUE
+            lastUseDarkText.clear()
         }
     }
 
@@ -98,8 +112,8 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         if (hasImage) {
             ensureImage(file)
             val bmp = cachedImage ?: return
-            // Une photo peut être claire à un endroit et sombre 50 px plus loin.
-            // On choisit donc la couleur POUR CHAQUE TEXTE selon la zone située juste derrière lui.
+            // Chaque texte analyse toute la zone de photo située derrière lui.
+            // On calcule un taux de clarté / de sombre, puis on choisit noir ou blanc.
             applyLocalContrastRecursively(this, bmp)
             return
         }
@@ -117,9 +131,8 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private fun applyLocalContrastRecursively(view: View, bitmap: Bitmap) {
         when (view) {
             is EditText -> styleTextForLocalBackground(view, bitmap, true)
-            is TextView -> {
-                // Les boutons ont déjà leur propre fond/contraste ; on ne les recolore pas.
-                if (view !is Button && view !is Switch) styleTextForLocalBackground(view, bitmap, false)
+            is TextView -> if (view !is Button && view !is Switch) {
+                styleTextForLocalBackground(view, bitmap, false)
             }
         }
         if (view is ViewGroup) {
@@ -130,54 +143,99 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private fun styleTextForLocalBackground(view: TextView, bitmap: Bitmap, isInput: Boolean) {
         if (view.visibility != View.VISIBLE || view.width <= 0 || view.height <= 0 || width <= 0 || height <= 0) return
 
-        val scrollLocation = IntArray(2)
+        val rootLocation = IntArray(2)
         val viewLocation = IntArray(2)
-        getLocationOnScreen(scrollLocation)
+        getLocationOnScreen(rootLocation)
         view.getLocationOnScreen(viewLocation)
 
-        val centerX = (viewLocation[0] - scrollLocation[0] + view.width / 2f).coerceIn(0f, width.toFloat())
-        val centerY = (viewLocation[1] - scrollLocation[1] + view.height / 2f).coerceIn(0f, height.toFloat())
-        val local = localBackgroundColor(bitmap, centerX, centerY)
+        val left = (viewLocation[0] - rootLocation[0]).toFloat().coerceIn(0f, width.toFloat())
+        val top = (viewLocation[1] - rootLocation[1]).toFloat().coerceIn(0f, height.toFloat())
+        val right = (left + view.width).coerceIn(left, width.toFloat())
+        val bottom = (top + view.height).coerceIn(top, height.toFloat())
 
-        val foreground = if (isDark(local)) Color.WHITE else Color.rgb(12, 12, 12)
-        val shadow = if (foreground == Color.WHITE) Color.argb(235, 0, 0, 0) else Color.argb(225, 255, 255, 255)
+        val stats = backgroundStats(bitmap, left, top, right, bottom)
+        val previousDarkText = lastUseDarkText[view]
+
+        // Score 0 = très sombre, 1 = très clair. On mélange luminosité moyenne et
+        // proportion de pixels réellement clairs pour mieux gérer visages, herbe et ciel.
+        val clarityScore = (stats.averageLuma * 0.62f + stats.brightRatio * 0.38f).coerceIn(0f, 1f)
+
+        // Hystérésis : dans la zone intermédiaire on conserve la couleur précédente.
+        // Ça évite que le texte clignote noir/blanc à chaque petit mouvement du scroll.
+        val useDarkText = when (previousDarkText) {
+            true -> clarityScore >= 0.46f
+            false -> clarityScore > 0.58f
+            null -> clarityScore >= 0.52f
+        }
+        lastUseDarkText[view] = useDarkText
+
+        val foreground = if (useDarkText) Color.rgb(8, 8, 8) else Color.WHITE
+        val shadow = if (useDarkText) Color.argb(235, 255, 255, 255) else Color.argb(240, 0, 0, 0)
 
         view.setTextColor(foreground)
-        // Ombre assez franche pour rester lisible sur herbe, feuillage, visages, ciel, etc.
-        view.setShadowLayer(4.2f, 0f, 1.2f, shadow)
+        view.setShadowLayer(4.6f, 0f, 1.2f, shadow)
         if (isInput && view is EditText) {
-            view.setHintTextColor(if (foreground == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
+            view.setHintTextColor(if (useDarkText) Color.rgb(55, 55, 55) else Color.rgb(225, 225, 225))
         }
     }
 
-    private fun localBackgroundColor(bitmap: Bitmap, viewportX: Float, viewportY: Float): Int {
+    private fun backgroundStats(bitmap: Bitmap, viewportLeft: Float, viewportTop: Float, viewportRight: Float, viewportBottom: Float): BackgroundStats {
         val scale = max(width.toFloat() / bitmap.width, height.toFloat() / bitmap.height)
         val drawnW = bitmap.width * scale
         val drawnH = bitmap.height * scale
-        val left = (width - drawnW) / 2f
-        val top = (height - drawnH) / 2f
+        val imageLeft = (width - drawnW) / 2f
+        val imageTop = (height - drawnH) / 2f
 
-        val srcX = ((viewportX - left) / scale).toInt().coerceIn(0, bitmap.width - 1)
-        val srcY = ((viewportY - top) / scale).toInt().coerceIn(0, bitmap.height - 1)
-        val radiusX = (bitmap.width / 80).coerceIn(3, 24)
-        val radiusY = (bitmap.height / 120).coerceIn(3, 24)
+        fun toSrcX(x: Float) = ((x - imageLeft) / scale).toInt().coerceIn(0, bitmap.width - 1)
+        fun toSrcY(y: Float) = ((y - imageTop) / scale).toInt().coerceIn(0, bitmap.height - 1)
 
-        var r = 0L; var g = 0L; var b = 0L; var count = 0L
-        var y = (srcY - radiusY).coerceAtLeast(0)
-        val yEnd = (srcY + radiusY).coerceAtMost(bitmap.height - 1)
-        while (y <= yEnd) {
-            var x = (srcX - radiusX).coerceAtLeast(0)
-            val xEnd = (srcX + radiusX).coerceAtMost(bitmap.width - 1)
-            val step = 3
-            while (x <= xEnd) {
+        var x0 = toSrcX(viewportLeft)
+        var x1 = toSrcX(viewportRight)
+        var y0 = toSrcY(viewportTop)
+        var y1 = toSrcY(viewportBottom)
+        if (x1 < x0) x0 = x1.also { x1 = x0 }
+        if (y1 < y0) y0 = y1.also { y1 = y0 }
+
+        // Élargit légèrement la zone : on tient compte du décor autour des lettres,
+        // pas seulement d'une ligne de pixels située exactement sous les glyphes.
+        val padX = ((x1 - x0) * 0.12f).toInt().coerceAtLeast(2)
+        val padY = ((y1 - y0) * 0.25f).toInt().coerceAtLeast(2)
+        x0 = (x0 - padX).coerceAtLeast(0)
+        x1 = (x1 + padX).coerceAtMost(bitmap.width - 1)
+        y0 = (y0 - padY).coerceAtLeast(0)
+        y1 = (y1 + padY).coerceAtMost(bitmap.height - 1)
+
+        val areaW = (x1 - x0 + 1).coerceAtLeast(1)
+        val areaH = (y1 - y0 + 1).coerceAtLeast(1)
+        val stepX = (areaW / 18).coerceAtLeast(1)
+        val stepY = (areaH / 8).coerceAtLeast(1)
+
+        var sumLuma = 0f
+        var bright = 0
+        var dark = 0
+        var count = 0
+        var y = y0
+        while (y <= y1) {
+            var x = x0
+            while (x <= x1) {
                 val c = bitmap.getPixel(x, y)
-                r += Color.red(c); g += Color.green(c); b += Color.blue(c); count++
-                x += step
+                // Luminance perçue (sRGB simplifiée), plus proche de ce que l'œil voit.
+                val luma = (0.2126f * Color.red(c) + 0.7152f * Color.green(c) + 0.0722f * Color.blue(c)) / 255f
+                sumLuma += luma
+                if (luma >= 0.60f) bright++
+                if (luma <= 0.38f) dark++
+                count++
+                x += stepX
             }
-            y += step
+            y += stepY
         }
-        if (count == 0L) return Color.BLACK
-        return Color.rgb((r / count).toInt(), (g / count).toInt(), (b / count).toInt())
+
+        if (count == 0) return BackgroundStats(0f, 0f, 1f)
+        return BackgroundStats(
+            averageLuma = sumLuma / count,
+            brightRatio = bright.toFloat() / count,
+            darkRatio = dark.toFloat() / count
+        )
     }
 
     private fun applyUniformTextStyleRecursively(view: View, color: Int, shadow: Int) {
@@ -242,7 +300,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             y += half
             row++
         }
-        paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), Color.argb(if (dark) 28 else 20, 255,255,255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
+        paint.shader = LinearGradient(0f, 0f, width.toFloat(), height.toFloat(), Color.argb(if (dark) 28 else 20, 255, 255, 255), Color.TRANSPARENT, Shader.TileMode.CLAMP)
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
         paint.shader = null
     }
