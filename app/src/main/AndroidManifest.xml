@@ -34,6 +34,7 @@
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
         <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />
         <provider android:name=".SecurityUiInitProvider" android:authorities="${applicationId}.security-ui-init" android:exported="false" android:initOrder="80" />
+        <provider android:name=".DeviceRegistryInitProvider" android:authorities="${applicationId}.device-registry-init" android:exported="false" android:initOrder="70" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.update-files"
