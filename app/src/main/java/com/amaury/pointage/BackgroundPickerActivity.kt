@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.graphics.RectF
+import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.view.MotionEvent
@@ -21,7 +22,10 @@ import android.widget.Toast
 import java.io.File
 
 class BackgroundPickerActivity : Activity() {
-    companion object { private const val REQUEST_IMAGE = 9011 }
+    companion object {
+        private const val REQUEST_IMAGE = 9011
+        private const val MAX_PREVIEW_SIDE = 4096
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -36,11 +40,59 @@ class BackgroundPickerActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_IMAGE || resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
-        val bitmap = runCatching { contentResolver.openInputStream(uri)?.use(BitmapFactory::decodeStream) }.getOrNull()
+
+        val bitmap = decodeBackgroundSafely(uri)
         if (bitmap == null) {
-            Toast.makeText(this, "Impossible d'ouvrir cette image", Toast.LENGTH_LONG).show(); finish(); return
+            Toast.makeText(this, "Impossible d'ouvrir cette image", Toast.LENGTH_LONG).show()
+            finish()
+            return
         }
         showCropEditor(bitmap)
+    }
+
+    /**
+     * Charge une version de travail suffisamment détaillée pour le cadrage,
+     * sans jamais décoder une photo géante en bitmap complet dans la RAM.
+     * Le zoom/déplacement manuel reste ensuite entièrement disponible dans l'éditeur.
+     */
+    private fun decodeBackgroundSafely(uri: Uri): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        runCatching {
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        }.getOrNull()
+
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val screenLongest = maxOf(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels)
+        val requestedMaxSide = maxOf(screenLongest * 2, 2048).coerceAtMost(MAX_PREVIEW_SIDE)
+
+        var sample = 1
+        var sampledWidth = bounds.outWidth
+        var sampledHeight = bounds.outHeight
+        while (maxOf(sampledWidth, sampledHeight) > requestedMaxSide * 2) {
+            sample *= 2
+            sampledWidth = (bounds.outWidth / sample).coerceAtLeast(1)
+            sampledHeight = (bounds.outHeight / sample).coerceAtLeast(1)
+        }
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+
+        val decoded = runCatching {
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+        }.getOrNull() ?: return null
+
+        val longest = maxOf(decoded.width, decoded.height)
+        if (longest <= MAX_PREVIEW_SIDE) return decoded
+
+        val scale = MAX_PREVIEW_SIDE.toFloat() / longest.toFloat()
+        val targetW = (decoded.width * scale).toInt().coerceAtLeast(1)
+        val targetH = (decoded.height * scale).toInt().coerceAtLeast(1)
+        val resized = runCatching { Bitmap.createScaledBitmap(decoded, targetW, targetH, true) }.getOrNull()
+        if (resized != null && resized !== decoded) decoded.recycle()
+        return resized ?: decoded
     }
 
     private fun showCropEditor(bitmap: Bitmap) {
@@ -113,8 +165,6 @@ class BackgroundPickerActivity : Activity() {
         setContentView(root)
         AppearanceManager.apply(this)
 
-        // Garde la barre VALIDER / ANNULER au-dessus de la navigation système,
-        // quel que soit le mode de navigation Android (3 boutons ou gestes).
         root.setOnApplyWindowInsetsListener { view, insets ->
             val bottomInset = insets.systemWindowInsetBottom.coerceAtLeast(0)
             view.setPadding(dp(10), dp(6), dp(10), baseBottomPadding + bottomInset)
@@ -123,7 +173,6 @@ class BackgroundPickerActivity : Activity() {
         root.systemUiVisibility = root.systemUiVisibility and View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION.inv()
         root.requestApplyInsets()
 
-        // Le thème peut modifier la taille/minHeight des boutons : on force à nouveau la barre après application.
         buttons.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58))
         cancel.layoutParams.height = dp(48)
         save.layoutParams.height = dp(48)
