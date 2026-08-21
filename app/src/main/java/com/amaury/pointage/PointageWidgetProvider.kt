@@ -16,10 +16,8 @@ import java.util.Locale
 
 /**
  * Widget principal HP Travail — version reconstruite.
- *
- * Le widget ne possède plus de palette indépendante : il suit toujours le thème
- * et le mode jour/nuit choisis dans l'application. La seule préférence conservée
- * est l'affichage ou non de la position.
+ * Le widget suit toujours le thème et le mode jour/nuit choisis dans l'application.
+ * La seule préférence propre au widget conservée est l'affichage de la position.
  */
 class PointageWidgetProvider : AppWidgetProvider() {
     companion object {
@@ -33,8 +31,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
         }
 
-        private fun formatTime(time: Long) =
-            SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(time))
+        private fun formatTime(time: Long) = SimpleDateFormat("HH:mm", Locale.FRANCE).format(Date(time))
 
         private fun formatDuration(ms: Long): String {
             val totalMinutes = ms.coerceAtLeast(0L) / 60000L
@@ -95,35 +92,26 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val accent = if (dark) theme.accentLight else theme.accent
             val text = if (dark) theme.darkText else theme.lightText
             val secondary = if (dark) theme.darkHint else theme.lightHint
-            val panel = if (dark) theme.darkPanel else theme.lightPanel
 
             views.setInt(R.id.widget_root, "setBackgroundResource", backgroundFor(theme.id, dark))
             views.setInt(R.id.widget_clock_frame, "setBackgroundColor", Color.TRANSPARENT)
-            views.setInt(R.id.widget_clock_glow, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(accent))
+            views.setInt(R.id.widget_entry_button, "setBackgroundResource", R.drawable.widget_action_entry_new)
+            views.setInt(R.id.widget_pause_button, "setBackgroundResource", R.drawable.widget_action_pause_new)
+            views.setInt(R.id.widget_exit_button, "setBackgroundResource", R.drawable.widget_action_exit_new)
 
             listOf(
-                R.id.widget_crown,
-                R.id.widget_hp,
-                R.id.widget_work,
-                R.id.widget_entry_label,
-                R.id.widget_pause_label,
-                R.id.widget_exit_label,
-                R.id.widget_duration,
-                R.id.widget_location
+                R.id.widget_crown, R.id.widget_hp, R.id.widget_work,
+                R.id.widget_entry_label, R.id.widget_pause_label, R.id.widget_exit_label,
+                R.id.widget_duration, R.id.widget_location
             ).forEach { views.setTextColor(it, accent) }
             views.setTextColor(R.id.widget_state, text)
             views.setTextColor(R.id.widget_entry_time, Color.parseColor("#55D96B"))
             views.setTextColor(R.id.widget_pause_time, secondary)
             views.setTextColor(R.id.widget_exit_time, Color.parseColor("#FF655D"))
-            listOf(R.id.widget_entry_location, R.id.widget_exit_location).forEach { views.setTextColor(it, secondary) }
-
-            // Les fonds des trois boutons sont translucides ; le contour reste franc.
-            views.setInt(R.id.widget_entry_button, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(Color.argb(if (dark) 120 else 76, 40, 170, 82)))
-            views.setInt(R.id.widget_pause_button, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(Color.argb(if (dark) 120 else 76, 232, 148, 53)))
-            views.setInt(R.id.widget_exit_button, "setBackgroundTintList", android.content.res.ColorStateList.valueOf(Color.argb(if (dark) 120 else 76, 205, 65, 61)))
             views.setTextColor(R.id.widget_entry_button, Color.WHITE)
             views.setTextColor(R.id.widget_pause_button, Color.WHITE)
             views.setTextColor(R.id.widget_exit_button, Color.WHITE)
+            listOf(R.id.widget_entry_location, R.id.widget_exit_location).forEach { views.setTextColor(it, secondary) }
 
             var entryText = "--:--"
             var exitText = "--:--"
@@ -188,7 +176,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 R.id.widget_location,
                 if (widgetPrefs.getBoolean("show_position", true)) View.VISIBLE else View.GONE
             )
-
             manager.updateAppWidget(widgetId, views)
         }
     }
