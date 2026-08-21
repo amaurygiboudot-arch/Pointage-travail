@@ -49,26 +49,39 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         }
 
         val installIntent = UpdateChecker.installerIntent(context, apk)
+        UpdateChecker.clearDownloadState(context)
+
+        // Essaie d'ouvrir immédiatement l'installateur Android dès que l'APK est prêt.
+        // Certains Android/constructeurs peuvent bloquer le lancement d'une Activity depuis
+        // l'arrière-plan : dans ce cas la notification ci-dessous reste le chemin de secours.
+        val launched = runCatching {
+            context.startActivity(installIntent)
+            true
+        }.getOrDefault(false)
+
+        if (!launched) {
+            notifyReady(context, installIntent)
+        }
+    }
+
+    private fun notifyReady(context: Context, installIntent: Intent) {
         val pendingIntent = PendingIntent.getActivity(
             context,
             4107,
             installIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
         ensureChannel(context)
-        val managerNotification = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_icon_red)
             .setContentTitle("Mise à jour HP Travail prête")
-            .setContentText("Appuie ici pour installer la nouvelle version.")
+            .setContentText("Appuie ici si Android n'a pas ouvert l'installation automatiquement.")
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()
-        managerNotification.notify(NOTIFICATION_ID, notification)
-
-        UpdateChecker.clearDownloadState(context)
+        manager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun notifyFailure(context: Context) {
