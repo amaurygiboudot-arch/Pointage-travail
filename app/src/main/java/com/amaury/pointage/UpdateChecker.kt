@@ -21,13 +21,16 @@ object UpdateChecker {
     internal const val KEY_DOWNLOAD_ID = "download_id"
     internal const val KEY_VERSION = "version"
     internal const val KEY_FILE_NAME = "file_name"
+    internal const val KEY_READY_FILE = "ready_file"
+    internal const val KEY_READY_VERSION = "ready_version"
     private const val KEY_LAST_AUTO_CHECK = "last_auto_check"
     private const val AUTO_CHECK_INTERVAL_MS = 15L * 60L * 1000L
 
     @Volatile private var updateInProgress = false
+    @Volatile private var installerOpening = false
 
-    /** Vérification automatique silencieuse. Appelable à chaque retour dans HP Travail. */
     fun checkAutomatically(activity: Activity) {
+        if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) return
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
@@ -37,7 +40,56 @@ object UpdateChecker {
         check(activity, silent = true)
     }
 
+    /**
+     * Si un APK a déjà fini de se télécharger, ouvre automatiquement l'installateur
+     * dès que HP Travail revient au premier plan. C'est le chemin fiable sur les Android
+     * qui interdisent au BroadcastReceiver d'ouvrir un écran depuis l'arrière-plan.
+     */
+    fun tryInstallReady(activity: Activity): Boolean {
+        if (installerOpening || activity.isFinishing || activity.isDestroyed) return false
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val readyName = prefs.getString(KEY_READY_FILE, null) ?: return false
+        val readyVersion = prefs.getString(KEY_READY_VERSION, "").orEmpty()
+
+        val currentVersion = runCatching {
+            activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
+        }.getOrDefault("")
+        if (readyVersion.isNotBlank() && compareVersions(currentVersion, readyVersion) >= 0) {
+            clearReadyState(activity, deleteFile = true)
+            return false
+        }
+
+        val apk = File(File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), readyName)
+        if (!apk.exists()) {
+            clearReadyState(activity, deleteFile = false)
+            return false
+        }
+        if (runCatching { validateApk(activity, apk) }.isFailure) {
+            clearReadyState(activity, deleteFile = true)
+            return false
+        }
+
+        installerOpening = true
+        activity.window.decorView.postDelayed({ installerOpening = false }, 2500L)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
+            runCatching {
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
+            }
+            return true
+        }
+
+        return runCatching {
+            activity.startActivity(installerIntent(activity, apk))
+            true
+        }.getOrElse {
+            installerOpening = false
+            false
+        }
+    }
+
     fun check(activity: Activity, silent: Boolean = true) {
+        if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) {
             if (!silent) Toast.makeText(activity, "La mise à jour continue en arrière-plan", Toast.LENGTH_LONG).show()
             return
@@ -89,9 +141,7 @@ object UpdateChecker {
                     return@Thread
                 }
 
-                activity.runOnUiThread {
-                    enqueueBackgroundDownload(activity, apkUrl, versionName, silent)
-                }
+                activity.runOnUiThread { enqueueBackgroundDownload(activity, apkUrl, versionName, silent) }
             } catch (e: Exception) {
                 showStatus(activity, silent, "Vérification impossible : ${shortError(e)}")
             } finally {
@@ -123,11 +173,11 @@ object UpdateChecker {
                 .putLong(KEY_DOWNLOAD_ID, downloadId)
                 .putString(KEY_VERSION, versionName)
                 .putString(KEY_FILE_NAME, fileName)
+                .remove(KEY_READY_FILE)
+                .remove(KEY_READY_VERSION)
                 .apply()
 
-            if (!silent) {
-                Toast.makeText(activity, "Mise à jour trouvée : téléchargement automatique lancé en arrière-plan.", Toast.LENGTH_LONG).show()
-            }
+            if (!silent) Toast.makeText(activity, "Mise à jour trouvée : téléchargement automatique lancé.", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show()
         }
@@ -145,33 +195,41 @@ object UpdateChecker {
                     false
                 } else {
                     val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-                    when (status) {
-                        DownloadManager.STATUS_PENDING,
-                        DownloadManager.STATUS_RUNNING,
-                        DownloadManager.STATUS_PAUSED -> true
-                        else -> false
-                    }
+                    status == DownloadManager.STATUS_PENDING || status == DownloadManager.STATUS_RUNNING || status == DownloadManager.STATUS_PAUSED
                 }
             }
-        } catch (_: Exception) {
-            false
-        }
+        } catch (_: Exception) { false }
     }
 
     internal fun downloadedApkFile(context: Context): File? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val fileName = prefs.getString(KEY_FILE_NAME, null) ?: return null
-        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates")
-        return File(dir, fileName)
+        return File(File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), fileName)
+    }
+
+    internal fun markDownloadReady(context: Context, apk: File) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val version = prefs.getString(KEY_VERSION, "").orEmpty()
+        prefs.edit()
+            .putString(KEY_READY_FILE, apk.name)
+            .putString(KEY_READY_VERSION, version)
+            .remove(KEY_DOWNLOAD_ID)
+            .remove(KEY_FILE_NAME)
+            .apply()
     }
 
     internal fun clearDownloadState(context: Context) {
-        // Ne supprime pas la date de dernière vérification automatique.
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_DOWNLOAD_ID)
-            .remove(KEY_VERSION)
-            .remove(KEY_FILE_NAME)
-            .apply()
+            .remove(KEY_DOWNLOAD_ID).remove(KEY_VERSION).remove(KEY_FILE_NAME).apply()
+    }
+
+    private fun clearReadyState(context: Context, deleteFile: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val name = prefs.getString(KEY_READY_FILE, null)
+        if (deleteFile && !name.isNullOrBlank()) {
+            File(File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), name).delete()
+        }
+        prefs.edit().remove(KEY_READY_FILE).remove(KEY_READY_VERSION).apply()
     }
 
     internal fun validateApk(context: Context, apk: File) {
@@ -179,8 +237,7 @@ object UpdateChecker {
         if (apk.length() < 100_000L) throw IllegalStateException("fichier APK incomplet (${apk.length()} octets)")
         val magic = apk.inputStream().use { input -> ByteArray(2).also { if (input.read(it) != 2) throw IllegalStateException("APK illisible") } }
         if (magic[0] != 0x50.toByte() || magic[1] != 0x4B.toByte()) throw IllegalStateException("fichier reçu invalide")
-        val archive = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
-            ?: throw IllegalStateException("Android ne reconnaît pas l'APK")
+        val archive = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0) ?: throw IllegalStateException("Android ne reconnaît pas l'APK")
         if (archive.packageName != context.packageName) throw IllegalStateException("APK d'une autre application")
     }
 
@@ -188,18 +245,13 @@ object UpdateChecker {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.update-files", apk)
         return Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         }
     }
 
     fun openInstaller(activity: Activity, apk: File) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(activity, "Autorise HP Travail à installer les mises à jour.", Toast.LENGTH_LONG).show()
-            activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
-            return
-        }
-        activity.startActivity(installerIntent(activity, apk))
+        markDownloadReady(activity, apk)
+        tryInstallReady(activity)
     }
 
     private fun openConnection(url: String, connectTimeout: Int, readTimeout: Int): HttpURLConnection {
@@ -216,9 +268,7 @@ object UpdateChecker {
 
     private fun showStatus(activity: Activity, silent: Boolean, message: String) {
         if (silent) return
-        activity.runOnUiThread {
-            if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
-        }
+        activity.runOnUiThread { if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show() }
     }
 
     private fun shortError(e: Exception): String {
@@ -231,8 +281,7 @@ object UpdateChecker {
         val pb = b.split('.', '-', '_').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
         val max = maxOf(pa.size, pb.size)
         for (i in 0 until max) {
-            val av = pa.getOrElse(i) { 0 }
-            val bv = pb.getOrElse(i) { 0 }
+            val av = pa.getOrElse(i) { 0 }; val bv = pb.getOrElse(i) { 0 }
             if (av != bv) return av.compareTo(bv)
         }
         return 0
