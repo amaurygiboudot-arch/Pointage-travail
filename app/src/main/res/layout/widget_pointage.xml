@@ -68,14 +68,15 @@
         android:id="@+id/widget_clock_frame"
         android:layout_width="0dp"
         android:layout_height="match_parent"
-        android:layout_weight="1.16"
-        android:foregroundGravity="center">
-        <View
+        android:layout_weight="1.16">
+        <ImageView
             android:id="@+id/widget_clock_glow"
             android:layout_width="80dp"
             android:layout_height="80dp"
             android:layout_gravity="center"
-            android:background="@drawable/widget_clock_dial_new" />
+            android:src="@drawable/widget_clock_dial_new"
+            android:scaleType="fitCenter"
+            android:contentDescription="Horloge" />
         <AnalogClock
             android:id="@+id/widget_clock"
             android:layout_width="72dp"
