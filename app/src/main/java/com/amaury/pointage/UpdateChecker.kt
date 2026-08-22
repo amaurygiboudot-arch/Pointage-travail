@@ -176,8 +176,6 @@ object UpdateChecker {
                 setMimeType("application/vnd.android.package-archive")
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(false)
-                // Affiche seulement la progression. À la fin, HP Travail ouvre lui-même
-                // l'installateur Android afin d'éviter que HyperOS propose Word/WPS/DOCX.
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
             }
@@ -258,9 +256,11 @@ object UpdateChecker {
 
     internal fun installerIntent(context: Context, apk: File): Intent {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.update-files", apk)
-        return Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/vnd.android.package-archive")
+        return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+            data = uri
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            putExtra(Intent.EXTRA_RETURN_RESULT, false)
         }
     }
 
