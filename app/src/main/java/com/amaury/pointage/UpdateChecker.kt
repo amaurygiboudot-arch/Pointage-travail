@@ -176,7 +176,9 @@ object UpdateChecker {
                 setMimeType("application/vnd.android.package-archive")
                 setAllowedOverMetered(true)
                 setAllowedOverRoaming(false)
-                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                // Affiche seulement la progression. À la fin, HP Travail ouvre lui-même
+                // l'installateur Android afin d'éviter que HyperOS propose Word/WPS/DOCX.
+                setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
             }
 
