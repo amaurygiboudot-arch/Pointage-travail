@@ -14,6 +14,8 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
 class SecurityUiInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
@@ -34,31 +36,54 @@ class SecurityUiInitProvider : ContentProvider() {
         if (activity !is MainActivity) return
         activity.window.decorView.post {
             val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return@post
-            if (panel.findViewWithTag<View>(TAG_SECURITY_BLOCK) != null) return@post
+            val existing = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+            val user = FirebaseAuth.getInstance().currentUser
 
-            val block = LinearLayout(activity).apply {
-                tag = TAG_SECURITY_BLOCK
-                orientation = LinearLayout.VERTICAL
-                setPadding(0, dp(activity, 18), 0, 0)
+            if (user == null) {
+                if (existing != null) panel.removeView(existing)
+                return@post
             }
-            block.addView(TextView(activity).apply {
-                text = "SÉCURITÉ DE L'APPLICATION"
-                textSize = 16f
-                setPadding(0, 0, 0, dp(activity, 10))
-            })
-            block.addView(Button(activity).apply {
-                text = "🛡 VÉRIFIER LA SÉCURITÉ"
-                isAllCaps = false
-                textSize = 14f
-                gravity = Gravity.CENTER
-                minHeight = 0
-                minimumHeight = 0
-                setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
-                setBackgroundResource(R.drawable.hp_panel)
-                setOnClickListener { activity.startActivity(Intent(activity, SecurityInfoActivity::class.java)) }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            panel.addView(block)
-            AppearanceManager.apply(activity)
+
+            FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+                .addOnSuccessListener { profile ->
+                    val isOwner = profile.getBoolean("owner") == true
+                    val current = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+
+                    if (!isOwner) {
+                        if (current != null) panel.removeView(current)
+                        return@addOnSuccessListener
+                    }
+
+                    if (current != null) return@addOnSuccessListener
+
+                    val block = LinearLayout(activity).apply {
+                        tag = TAG_SECURITY_BLOCK
+                        orientation = LinearLayout.VERTICAL
+                        setPadding(0, dp(activity, 18), 0, 0)
+                    }
+                    block.addView(TextView(activity).apply {
+                        text = "SÉCURITÉ DE L'APPLICATION"
+                        textSize = 16f
+                        setPadding(0, 0, 0, dp(activity, 10))
+                    })
+                    block.addView(Button(activity).apply {
+                        text = "🛡 VÉRIFIER LA SÉCURITÉ"
+                        isAllCaps = false
+                        textSize = 14f
+                        gravity = Gravity.CENTER
+                        minHeight = 0
+                        minimumHeight = 0
+                        setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
+                        setBackgroundResource(R.drawable.hp_panel)
+                        setOnClickListener { activity.startActivity(Intent(activity, SecurityInfoActivity::class.java)) }
+                    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                    panel.addView(block)
+                    AppearanceManager.apply(activity)
+                }
+                .addOnFailureListener {
+                    val current = panel.findViewWithTag<View>(TAG_SECURITY_BLOCK)
+                    if (current != null) panel.removeView(current)
+                }
         }
     }
 
