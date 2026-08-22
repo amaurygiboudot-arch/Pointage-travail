@@ -140,7 +140,6 @@ class MainActivity : Activity() {
             animateClick(entryButton)
             if (PointageStore.entry(this)) {
                 Toast.makeText(this, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                updateWidgets()
                 refreshScreen()
             } else {
                 Toast.makeText(this, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
@@ -151,7 +150,6 @@ class MainActivity : Activity() {
             animateClick(exitButton)
             if (PointageStore.exit(this)) {
                 Toast.makeText(this, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                updateWidgets()
                 refreshScreen()
             } else {
                 Toast.makeText(this, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
