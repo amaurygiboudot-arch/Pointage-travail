@@ -1,0 +1,39 @@
+name: Build iOS
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios/HPTravail
+        run: xcodegen generate
+
+      - name: Resolve Swift packages
+        working-directory: ios/HPTravail
+        run: xcodebuild -project HPTravail.xcodeproj -scheme HPTravail -resolvePackageDependencies
+
+      - name: Build for iOS Simulator
+        working-directory: ios/HPTravail
+        run: |
+          xcodebuild \
+            -project HPTravail.xcodeproj \
+            -scheme HPTravail \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build
