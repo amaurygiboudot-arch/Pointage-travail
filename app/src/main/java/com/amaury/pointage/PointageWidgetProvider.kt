@@ -28,6 +28,12 @@ class PointageWidgetProvider : AppWidgetProvider() {
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, PointageWidgetProvider::class.java)
+            manager.getAppWidgetIds(component).forEach { updateDynamicWidget(context, manager, it) }
+        }
+
+        private fun rebuildAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, PointageWidgetProvider::class.java)
             manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
         }
 
@@ -82,6 +88,66 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun applyDynamicState(context: Context, views: RemoteViews) {
+            val dark = AppThemeCatalog.useDarkPalette(context)
+            val (adaptiveText, _) = adaptiveWidgetTextColors(context, dark)
+            var entryText = "--:--"
+            var exitText = "--:--"
+            var durationText = "00h 00m"
+            var pauseText = "00h 00m"
+            var stateText = "PRÊT"
+            var stateColor = adaptiveText
+            var locationText = "📍 Aucune zone"
+            var entryLocation = ""
+            var exitLocation = ""
+            val paused = PointageStore.isPaused(context)
+            views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+
+            val data = PointageStore.load(context)
+            if (data.length() > 0) {
+                data.optJSONObject(data.length() - 1)?.let { last ->
+                    val entry = last.optLong("entry", -1L)
+                    if (entry > 0L) {
+                        val zoneAddress = last.optString("zoneAddress").trim()
+                        entryText = formatTime(entry)
+                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
+                        entryLocation = place
+                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
+                        val effectiveEnd: Long
+                        if (last.isNull("exit")) {
+                            effectiveEnd = System.currentTimeMillis()
+                            stateText = if (paused) "EN PAUSE" else "EN COURS"
+                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
+                        } else {
+                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
+                            exitText = formatTime(effectiveEnd)
+                            exitLocation = place
+                            stateText = "TERMINÉ"
+                            stateColor = Color.parseColor("#D93630")
+                        }
+                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
+                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
+                    }
+                }
+            }
+
+            views.setTextViewText(R.id.widget_entry_time, entryText)
+            views.setTextViewText(R.id.widget_exit_time, exitText)
+            views.setTextViewText(R.id.widget_entry_location, entryLocation)
+            views.setTextViewText(R.id.widget_exit_location, exitLocation)
+            views.setTextViewText(R.id.widget_pause_time, pauseText)
+            views.setTextViewText(R.id.widget_duration, durationText)
+            views.setTextViewText(R.id.widget_state, stateText)
+            views.setTextColor(R.id.widget_state, stateColor)
+            views.setTextViewText(R.id.widget_location, locationText)
+        }
+
+        private fun updateDynamicWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            val views = RemoteViews(context.packageName, R.layout.widget_pointage)
+            applyDynamicState(context, views)
+            manager.partiallyUpdateAppWidget(widgetId, views)
+        }
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_pointage)
             val openApp = PendingIntent.getActivity(context, widgetId * 10 + 7, Intent(context, MainActivity::class.java).apply {
@@ -93,8 +159,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-            // Le cadre du widget et les cadres ronds ne sont plus des zones de clic.
-            // Seuls les fonds ronds intérieurs déclenchent Entrée / Pause / Sortie.
             views.setOnClickPendingIntent(R.id.widget_clock, openApp)
             views.setOnClickPendingIntent(R.id.widget_location, openSettings)
             views.setOnClickPendingIntent(R.id.widget_status_area, openApp)
@@ -157,55 +221,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setTextColor(R.id.widget_entry_time, Color.parseColor("#34B84A"))
             views.setTextColor(R.id.widget_exit_time, Color.parseColor("#E8433C"))
 
-            var entryText = "--:--"
-            var exitText = "--:--"
-            var durationText = "00h 00m"
-            var pauseText = "00h 00m"
-            var stateText = "PRÊT"
-            var stateColor = adaptiveText
-            var locationText = "📍 Aucune zone"
-            var entryLocation = ""
-            var exitLocation = ""
-            val paused = PointageStore.isPaused(context)
-            views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
-
-            val data = PointageStore.load(context)
-            if (data.length() > 0) {
-                data.optJSONObject(data.length() - 1)?.let { last ->
-                    val entry = last.optLong("entry", -1L)
-                    if (entry > 0L) {
-                        val zoneAddress = last.optString("zoneAddress").trim()
-                        entryText = formatTime(entry)
-                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
-                        entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
-                        val effectiveEnd: Long
-                        if (last.isNull("exit")) {
-                            effectiveEnd = System.currentTimeMillis()
-                            stateText = if (paused) "EN PAUSE" else "EN COURS"
-                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
-                        } else {
-                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
-                            exitText = formatTime(effectiveEnd)
-                            exitLocation = place
-                            stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#D93630")
-                        }
-                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
-                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
-                    }
-                }
-            }
-
-            views.setTextViewText(R.id.widget_entry_time, entryText)
-            views.setTextViewText(R.id.widget_exit_time, exitText)
-            views.setTextViewText(R.id.widget_entry_location, entryLocation)
-            views.setTextViewText(R.id.widget_exit_location, exitLocation)
-            views.setTextViewText(R.id.widget_pause_time, pauseText)
-            views.setTextViewText(R.id.widget_duration, durationText)
-            views.setTextViewText(R.id.widget_state, stateText)
-            views.setTextColor(R.id.widget_state, stateColor)
-            views.setTextViewText(R.id.widget_location, locationText)
+            applyDynamicState(context, views)
 
             val widgetPrefs = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
             views.setViewVisibility(R.id.widget_location, if (widgetPrefs.getBoolean("show_position", true)) View.VISIBLE else View.GONE)
@@ -222,15 +238,16 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        var actionHandled = false
+        var handledAction = false
+        var needsFullRebuild = false
         when (intent.action) {
             ACTION_ENTRY -> {
-                actionHandled = true
+                handledAction = true
                 if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
             ACTION_PAUSE -> {
-                actionHandled = true
+                handledAction = true
                 when {
                     !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
@@ -238,15 +255,16 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 }
             }
             ACTION_EXIT -> {
-                actionHandled = true
+                handledAction = true
                 if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             }
-            Intent.ACTION_CONFIGURATION_CHANGED, Intent.ACTION_WALLPAPER_CHANGED -> actionHandled = true
+            Intent.ACTION_CONFIGURATION_CHANGED, Intent.ACTION_WALLPAPER_CHANGED -> needsFullRebuild = true
         }
-        if (actionHandled) {
-            // Ne change pas le composant launcher ici : cela faisait brièvement disparaître
-            // l'icône et forçait certains launchers à reconstruire les widgets.
+        if (needsFullRebuild) {
+            rebuildAll(context)
+            QuickActionsWidgetProvider.updateAll(context)
+        } else if (handledAction) {
             updateAll(context)
             QuickActionsWidgetProvider.updateAll(context)
         }
