@@ -16,11 +16,53 @@ import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderF
 class AppCheckInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         val appContext = context?.applicationContext ?: return false
-        FirebaseApp.initializeApp(appContext)
-        FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
-            PlayIntegrityAppCheckProviderFactory.getInstance()
-        )
-        return true
+        val prefs = appContext.getSharedPreferences("app_check_status", 0)
+
+        return runCatching {
+            FirebaseApp.initializeApp(appContext)
+            val appCheck = FirebaseAppCheck.getInstance()
+            appCheck.installAppCheckProviderFactory(
+                PlayIntegrityAppCheckProviderFactory.getInstance()
+            )
+            appCheck.setTokenAutoRefreshEnabled(true)
+
+            prefs.edit()
+                .putString("state", "initializing")
+                .remove("error")
+                .putLong("checked_at", System.currentTimeMillis())
+                .apply()
+
+            // Force une vraie attestation au démarrage. Aucun jeton n'est stocké.
+            appCheck.getAppCheckToken(true)
+                .addOnSuccessListener {
+                    prefs.edit()
+                        .putString("state", "valid")
+                        .remove("error")
+                        .putLong("checked_at", System.currentTimeMillis())
+                        .apply()
+                }
+                .addOnFailureListener { error ->
+                    prefs.edit()
+                        .putString("state", "error")
+                        .putString(
+                            "error",
+                            "${error.javaClass.simpleName}: ${error.message.orEmpty()}".take(500)
+                        )
+                        .putLong("checked_at", System.currentTimeMillis())
+                        .apply()
+                }
+            true
+        }.getOrElse { error ->
+            prefs.edit()
+                .putString("state", "error")
+                .putString(
+                    "error",
+                    "${error.javaClass.simpleName}: ${error.message.orEmpty()}".take(500)
+                )
+                .putLong("checked_at", System.currentTimeMillis())
+                .apply()
+            true
+        }
     }
 
     override fun query(
