@@ -56,7 +56,6 @@ object PointageStore {
         if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
         data.put(item)
         save(context, data)
-        IconSwitcher.sync(context)
         PauseScheduleManager.applyCurrentWindow(context)
         updateWidgets(context)
         return true
@@ -74,7 +73,6 @@ object PointageStore {
         if (automatic) pause.put("automatic", true)
         pauses.put(pause)
         save(context, data)
-        IconSwitcher.sync(context)
         updateWidgets(context)
         return true
     }
@@ -89,7 +87,6 @@ object PointageStore {
         if (start <= 0L || now < start) return false
         pause.put("end", now)
         save(context, data)
-        IconSwitcher.sync(context)
         updateWidgets(context)
         return true
     }
@@ -188,7 +185,6 @@ object PointageStore {
             }
             item.put("exit", now)
             save(context, data)
-            IconSwitcher.sync(context)
             updateWidgets(context)
             DriveBackupManager.syncCurrentMonthAsync(context)
             return true
