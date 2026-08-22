@@ -1,7 +1,6 @@
 package com.amaury.pointage
 
 import android.app.Activity
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -35,44 +34,44 @@ class OwnerFeedbackActivity : Activity() {
     private fun buildContent(): ScrollView {
         val theme = AppThemeCatalog.current(this)
         val dark = AppThemeCatalog.useDarkPalette(this)
-        val background = if (dark) theme.darkBackground else theme.lightBackground
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val hint = if (dark) theme.darkHint else theme.lightHint
-        val accent = if (dark) theme.accentLight else theme.accent
+        val backgroundColor = if (dark) theme.darkBackground else theme.lightBackground
+        val panelColor = if (dark) theme.darkPanel else theme.lightPanel
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val hintColor = if (dark) theme.darkHint else theme.lightHint
+        val accentColor = if (dark) theme.accentLight else theme.accent
         val pad = dp(18)
 
         list = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, dp(28))
-            setBackgroundColor(background)
+            setBackgroundColor(backgroundColor)
 
             addView(TextView(this@OwnerFeedbackActivity).apply {
-                this.text = "📥  BOÎTE À IDÉES REÇUES"
+                text = "📥  BOÎTE À IDÉES REÇUES"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTypeface(typeface, Typeface.BOLD)
-                setTextColor(accent)
+                setTextColor(accentColor)
                 setPadding(0, dp(8), 0, dp(12))
             })
 
             status = TextView(this@OwnerFeedbackActivity).apply {
-                this.text = "Vérification du compte propriétaire…"
+                text = "Vérification du compte propriétaire…"
                 textSize = 14f
                 gravity = Gravity.CENTER
-                setTextColor(hint)
+                setTextColor(hintColor)
                 setPadding(0, 0, 0, dp(14))
             }
             addView(status)
 
             addView(Button(this@OwnerFeedbackActivity).apply {
-                this.text = "↻  ACTUALISER"
+                text = "↻  ACTUALISER"
                 isAllCaps = false
-                setTextColor(text)
-                background = GradientDrawable().apply {
+                setTextColor(textColor)
+                this.background = GradientDrawable().apply {
                     cornerRadius = dp(14).toFloat()
-                    setColor(panel)
-                    setStroke(dp(1), accent)
+                    setColor(panelColor)
+                    setStroke(dp(1), accentColor)
                 }
                 setOnClickListener { verifyOwnerAndLoad() }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply {
@@ -82,7 +81,7 @@ class OwnerFeedbackActivity : Activity() {
 
         return ScrollView(this).apply {
             isFillViewport = true
-            setBackgroundColor(background)
+            setBackgroundColor(backgroundColor)
             addView(list, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
     }
@@ -96,7 +95,9 @@ class OwnerFeedbackActivity : Activity() {
         status.text = "Vérification du compte propriétaire…"
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { profile ->
-                if (profile.getBoolean("owner") == true) loadFeedback() else {
+                if (profile.getBoolean("owner") == true) {
+                    loadFeedback()
+                } else {
                     status.text = "Accès réservé au propriétaire de HP Travail."
                 }
             }
@@ -126,36 +127,38 @@ class OwnerFeedbackActivity : Activity() {
     private fun feedbackCard(doc: DocumentSnapshot): LinearLayout {
         val theme = AppThemeCatalog.current(this)
         val dark = AppThemeCatalog.useDarkPalette(this)
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val hint = if (dark) theme.darkHint else theme.lightHint
-        val accent = if (dark) theme.accentLight else theme.accent
+        val panelColor = if (dark) theme.darkPanel else theme.lightPanel
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val hintColor = if (dark) theme.darkHint else theme.lightHint
+        val accentColor = if (dark) theme.accentLight else theme.accent
         val idea = doc.getString("text").orEmpty().ifBlank { "(idée sans texte)" }
         val currentStatus = doc.getString("status") ?: "new"
         val device = listOfNotNull(doc.getString("manufacturer"), doc.getString("model")).joinToString(" ").trim()
         val version = doc.getString("appVersionName") ?: "?"
         val uid = doc.getString("uid").orEmpty()
-        val date = createdAtMillis(doc).takeIf { it > 0L }?.let { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date(it)) } ?: "date inconnue"
+        val date = createdAtMillis(doc).takeIf { it > 0L }
+            ?.let { SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date(it)) }
+            ?: "date inconnue"
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
+            this.background = GradientDrawable().apply {
                 cornerRadius = dp(16).toFloat()
-                setColor(panel)
-                setStroke(dp(1), accent)
+                setColor(panelColor)
+                setStroke(dp(1), accentColor)
             }
 
             addView(TextView(this@OwnerFeedbackActivity).apply {
-                this.text = idea
+                text = idea
                 textSize = 16f
-                setTextColor(text)
+                setTextColor(textColor)
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(TextView(this@OwnerFeedbackActivity).apply {
-                this.text = "État : ${labelForStatus(currentStatus)}  •  $date\nVersion $version${if (device.isNotBlank()) "  •  $device" else ""}${if (uid.isNotBlank()) "\nUtilisateur : ${uid.take(10)}…" else ""}"
+                text = "État : ${labelForStatus(currentStatus)}  •  $date\nVersion $version${if (device.isNotBlank()) "  •  $device" else ""}${if (uid.isNotBlank()) "\nUtilisateur : ${uid.take(10)}…" else ""}"
                 textSize = 12f
-                setTextColor(hint)
+                setTextColor(hintColor)
                 setPadding(0, dp(7), 0, dp(9))
             })
 
@@ -163,10 +166,10 @@ class OwnerFeedbackActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
             }
-            actions.addView(statusButton("À VOIR", "new", doc, accent), LinearLayout.LayoutParams(0, dp(46), 1f))
-            actions.addView(statusButton("RETENUE", "accepted", doc, accent), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-            actions.addView(statusButton("REFUSÉE", "rejected", doc, accent), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-            actions.addView(statusButton("FAITE", "done", doc, accent), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+            actions.addView(statusButton("À VOIR", "new", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f))
+            actions.addView(statusButton("RETENUE", "accepted", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+            actions.addView(statusButton("REFUSÉE", "rejected", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+            actions.addView(statusButton("FAITE", "done", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
             addView(actions)
         }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -175,12 +178,12 @@ class OwnerFeedbackActivity : Activity() {
         }
     }
 
-    private fun statusButton(label: String, value: String, doc: DocumentSnapshot, accent: Int) = Button(this).apply {
+    private fun statusButton(label: String, value: String, doc: DocumentSnapshot, accentColor: Int) = Button(this).apply {
         text = label
         isAllCaps = false
         textSize = 10f
         setPadding(dp(2), 0, dp(2), 0)
-        setTextColor(accent)
+        setTextColor(accentColor)
         setBackgroundResource(R.drawable.hp_panel)
         setOnClickListener {
             doc.reference.update("status", value)
