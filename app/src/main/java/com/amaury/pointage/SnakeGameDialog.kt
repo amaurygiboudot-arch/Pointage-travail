@@ -17,6 +17,9 @@ import android.view.Window
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.math.abs
 import kotlin.random.Random
 
@@ -29,9 +32,22 @@ object SnakeGameDialog {
             text = "Score : 0"
             textSize = 18f
             gravity = Gravity.CENTER
-            setPadding(0, dp(context, 8), 0, dp(context, 8))
+            setPadding(0, dp(context, 8), 0, dp(context, 4))
         }
-        val game = SnakeBoard(context) { score.text = "Score : $it" }
+        val ranking = TextView(context).apply {
+            text = "🏆 Classement : chargement…"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setPadding(dp(context, 4), dp(context, 4), dp(context, 4), dp(context, 8))
+        }
+
+        val game = SnakeBoard(
+            context,
+            onScore = { score.text = "Score : $it" },
+            onGameOver = { finalScore ->
+                saveBestScore(context, finalScore) { loadRanking(ranking) }
+            }
+        )
 
         val restart = Button(context).apply {
             text = "RECOMMENCER"
@@ -58,6 +74,7 @@ object SnakeGameDialog {
                 gravity = Gravity.CENTER
             })
             addView(score)
+            addView(ranking)
             addView(game, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -71,12 +88,65 @@ object SnakeGameDialog {
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         dialog.show()
         dialog.window?.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        loadRanking(ranking)
+    }
+
+    private fun saveBestScore(context: Context, score: Int, done: () -> Unit) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            done()
+            return
+        }
+        val ref = FirebaseFirestore.getInstance().collection("snake_scores").document(user.uid)
+        FirebaseFirestore.getInstance().runTransaction { tx ->
+            val old = tx.get(ref).getLong("bestScore")?.toInt() ?: -1
+            if (score > old) {
+                tx.set(ref, mapOf(
+                    "uid" to user.uid,
+                    "displayName" to (user.displayName ?: user.email?.substringBefore('@') ?: "Joueur"),
+                    "bestScore" to score,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                ))
+            }
+        }.addOnCompleteListener { done() }
+    }
+
+    private fun loadRanking(view: TextView) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null) {
+            view.text = "🏆 Classement\nConnecte ton compte Google pour participer"
+            return
+        }
+        FirebaseFirestore.getInstance().collection("snake_scores")
+            .orderBy("bestScore", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(10)
+            .get()
+            .addOnSuccessListener { snap ->
+                if (snap.isEmpty) {
+                    view.text = "🏆 Classement\nAucun score pour le moment"
+                } else {
+                    val lines = snap.documents.mapIndexed { index, doc ->
+                        val name = doc.getString("displayName")?.take(18) ?: "Joueur"
+                        val best = doc.getLong("bestScore") ?: 0L
+                        val medal = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "${index + 1}." }
+                        "$medal $name — $best"
+                    }
+                    view.text = "🏆 TOP 10\n" + lines.joinToString("\n")
+                }
+            }
+            .addOnFailureListener {
+                view.text = "🏆 Classement indisponible"
+            }
     }
 
     private fun dp(context: Context, v: Int) = (v * context.resources.displayMetrics.density).toInt()
 }
 
-private class SnakeBoard(context: Context, private val onScore: (Int) -> Unit) : View(context) {
+private class SnakeBoard(
+    context: Context,
+    private val onScore: (Int) -> Unit,
+    private val onGameOver: (Int) -> Unit
+) : View(context) {
     private data class Cell(val x: Int, val y: Int)
     private enum class Dir { UP, DOWN, LEFT, RIGHT }
 
@@ -152,6 +222,7 @@ private class SnakeBoard(context: Context, private val onScore: (Int) -> Unit) :
         }
         if (n.x !in 0 until cols || n.y !in 0 until rows || snake.contains(n)) {
             running = false
+            onGameOver(score)
             invalidate()
             return
         }
@@ -198,6 +269,8 @@ private class SnakeBoard(context: Context, private val onScore: (Int) -> Unit) :
             paint.textAlign = Paint.Align.CENTER
             paint.textSize = cell
             canvas.drawText("PERDU 😄", width / 2f, height / 2f, paint)
+            paint.textSize = cell * .58f
+            canvas.drawText("Score : $score", width / 2f, height / 2f + cell, paint)
         }
     }
 }
