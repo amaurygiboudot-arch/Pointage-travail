@@ -11,6 +11,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -96,6 +97,14 @@ class FirebaseAccountActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+
+            addView(TextView(this@FirebaseAccountActivity).apply {
+                text = "COMPTE GOOGLE"
+                textSize = 22f
+                gravity = Gravity.CENTER
+                setTextColor(accentColor)
+                setPadding(0, 4, 0, 20)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
             signInButton = themedButton("SE CONNECTER AVEC GOOGLE", textColor, accentColor) {
                 startGoogleSignIn()
