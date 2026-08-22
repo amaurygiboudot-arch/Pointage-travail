@@ -16,7 +16,6 @@
     </style>
 
     <style name="Theme.PointageDialog" parent="android:style/Theme.Material.Light.Dialog.Alert">
-        <item name="android:windowGravity">center</item>
         <item name="android:windowMinWidthMajor">88%</item>
         <item name="android:windowMinWidthMinor">88%</item>
         <item name="android:windowBackground">#FFFDF9</item>
