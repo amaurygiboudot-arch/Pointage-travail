@@ -19,6 +19,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 class FirebaseAccountActivity : Activity() {
 
@@ -195,8 +196,11 @@ class FirebaseAccountActivity : Activity() {
             "platform" to "android"
         )
 
+        // Fusionner le profil au lieu de remplacer le document complet.
+        // Les champs administratifs ajoutés côté Firebase (notamment owner)
+        // restent ainsi intacts lors des reconnexions Google.
         db.collection("users").document(user.uid)
-            .set(data)
+            .set(data, SetOptions.merge())
             .addOnFailureListener { error ->
                 Toast.makeText(
                     this,
