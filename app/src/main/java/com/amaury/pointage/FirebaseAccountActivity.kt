@@ -99,7 +99,7 @@ class FirebaseAccountActivity : Activity() {
             )
 
             addView(TextView(this@FirebaseAccountActivity).apply {
-                text = "COMPTE GOOGLE"
+                text = "COMPTE GOOGLE / iOS"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTextColor(accentColor)
