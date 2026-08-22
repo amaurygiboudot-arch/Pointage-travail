@@ -21,6 +21,12 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, QuickActionsWidgetProvider::class.java)
+            manager.getAppWidgetIds(component).forEach { updateDynamicState(context, manager, it) }
+        }
+
+        private fun rebuildAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, QuickActionsWidgetProvider::class.java)
             manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
         }
 
@@ -46,6 +52,13 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun updateDynamicState(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
+            val paused = PointageStore.isPaused(context)
+            views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            manager.partiallyUpdateAppWidget(widgetId, views)
+        }
+
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
             val theme = AppThemeCatalog.current(context)
@@ -53,9 +66,6 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val accent = if (dark) theme.accentLight else theme.accent
 
             val (widgetWidth, _) = widgetSize(manager, widgetId)
-            // Certains launchers (dont Xiaomi) renvoient une hauteur minimale trop petite.
-            // On dimensionne donc le rond surtout à partir de la largeur réelle du widget,
-            // avec 3 cellules égales. Cela évite les minuscules boutons vus à l'écran.
             val cellWidth = widgetWidth / 3f
             val buttonDp = (cellWidth * .66f).coerceIn(52f, 78f)
             val innerDp = buttonDp * .885f
@@ -112,15 +122,16 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        var handled = false
+        var handledAction = false
+        var needsFullRebuild = false
         when (intent.action) {
             ACTION_ENTRY -> {
-                handled = true
+                handledAction = true
                 if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
             ACTION_PAUSE -> {
-                handled = true
+                handledAction = true
                 when {
                     !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
@@ -128,13 +139,17 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                 }
             }
             ACTION_EXIT -> {
-                handled = true
+                handledAction = true
                 if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             }
-            Intent.ACTION_CONFIGURATION_CHANGED -> handled = true
+            Intent.ACTION_CONFIGURATION_CHANGED -> needsFullRebuild = true
         }
-        if (handled) {
+
+        if (needsFullRebuild) {
+            PointageWidgetProvider.updateAll(context)
+            rebuildAll(context)
+        } else if (handledAction) {
             PointageWidgetProvider.updateAll(context)
             updateAll(context)
         }
