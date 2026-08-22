@@ -1,7 +1,7 @@
 package com.amaury.pointage
 
-import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.util.AttributeSet
 import android.widget.Toast
 
@@ -34,10 +34,16 @@ class PauseJewelButton @JvmOverloads constructor(
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 
             if (changed) {
-                PointageWidgetProvider.updateAll(context)
                 DriveBackupManager.syncCurrentMonthAsync(context)
+
+                // Ne jamais recréer toute l'activité pour un simple changement de pause :
+                // cela provoquait un flash complet de l'interface et réappliquait le thème.
+                val refreshIntent = Intent(context, MainActivity::class.java).apply {
+                    putExtra("open_tab", "today")
+                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                context.startActivity(refreshIntent)
             }
-            (context as? Activity)?.recreate()
         }
     }
 }
