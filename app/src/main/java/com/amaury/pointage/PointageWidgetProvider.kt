@@ -265,8 +265,15 @@ class PointageWidgetProvider : AppWidgetProvider() {
             rebuildAll(context)
             QuickActionsWidgetProvider.updateAll(context)
         } else if (handledAction) {
-            updateAll(context)
-            QuickActionsWidgetProvider.updateAll(context)
+            val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val manager = AppWidgetManager.getInstance(context)
+                if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicWidget(context, manager, clickedId)
+                else updateAll(context)
+
+                // Le petit widget n'a besoin d'être modifié que si Pause devient Reprendre (ou inversement).
+                if (intent.action == ACTION_PAUSE) QuickActionsWidgetProvider.updateAll(context)
+            }, 260L)
         }
     }
 }
