@@ -23,6 +23,11 @@ class OwnerFeedbackActivity : Activity() {
     private lateinit var db: FirebaseFirestore
     private lateinit var list: LinearLayout
     private lateinit var status: TextView
+    private lateinit var tabNew: Button
+    private lateinit var tabDone: Button
+    private lateinit var tabRejected: Button
+    private var currentTab = "active"
+    private var allDocs: List<DocumentSnapshot> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +52,7 @@ class OwnerFeedbackActivity : Activity() {
             setBackgroundColor(backgroundColor)
 
             addView(TextView(this@OwnerFeedbackActivity).apply {
-                text = "📥  BOÎTE À IDÉES REÇUES"
+                text = "📥  BOÎTE À IDÉES"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTypeface(typeface, Typeface.BOLD)
@@ -60,15 +65,29 @@ class OwnerFeedbackActivity : Activity() {
                 textSize = 14f
                 gravity = Gravity.CENTER
                 setTextColor(hintColor)
-                setPadding(0, 0, 0, dp(14))
+                setPadding(0, 0, 0, dp(12))
             }
             addView(status)
+
+            val tabs = LinearLayout(this@OwnerFeedbackActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            tabNew = tabButton("REÇUES", "active", textColor, accentColor, panelColor)
+            tabDone = tabButton("FAITES", "done", textColor, accentColor, panelColor)
+            tabRejected = tabButton("REFUSÉES", "rejected", textColor, accentColor, panelColor)
+            tabs.addView(tabNew, LinearLayout.LayoutParams(0, dp(48), 1f))
+            tabs.addView(tabDone, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+            tabs.addView(tabRejected, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
+            addView(tabs, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(10)
+            })
 
             addView(Button(this@OwnerFeedbackActivity).apply {
                 text = "↻  ACTUALISER"
                 isAllCaps = false
                 setTextColor(textColor)
-                this.background = GradientDrawable().apply {
+                background = GradientDrawable().apply {
                     cornerRadius = dp(14).toFloat()
                     setColor(panelColor)
                     setStroke(dp(1), accentColor)
@@ -86,6 +105,41 @@ class OwnerFeedbackActivity : Activity() {
         }
     }
 
+    private fun tabButton(label: String, tab: String, textColor: Int, accentColor: Int, panelColor: Int) = Button(this).apply {
+        text = label
+        isAllCaps = false
+        textSize = 11f
+        setPadding(dp(2), 0, dp(2), 0)
+        setTextColor(if (currentTab == tab) accentColor else textColor)
+        background = GradientDrawable().apply {
+            cornerRadius = dp(13).toFloat()
+            setColor(panelColor)
+            setStroke(dp(if (currentTab == tab) 2 else 1), accentColor)
+        }
+        setOnClickListener {
+            currentTab = tab
+            updateTabs()
+            renderCurrentTab()
+        }
+    }
+
+    private fun updateTabs() {
+        val theme = AppThemeCatalog.current(this)
+        val dark = AppThemeCatalog.useDarkPalette(this)
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val accentColor = if (dark) theme.accentLight else theme.accent
+        val panelColor = if (dark) theme.darkPanel else theme.lightPanel
+        listOf(tabNew to "active", tabDone to "done", tabRejected to "rejected").forEach { (button, tab) ->
+            val selected = currentTab == tab
+            button.setTextColor(if (selected) accentColor else textColor)
+            button.background = GradientDrawable().apply {
+                cornerRadius = dp(13).toFloat()
+                setColor(panelColor)
+                setStroke(dp(if (selected) 2 else 1), accentColor)
+            }
+        }
+    }
+
     private fun verifyOwnerAndLoad() {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -95,11 +149,8 @@ class OwnerFeedbackActivity : Activity() {
         status.text = "Vérification du compte propriétaire…"
         db.collection("users").document(user.uid).get()
             .addOnSuccessListener { profile ->
-                if (profile.getBoolean("owner") == true) {
-                    loadFeedback()
-                } else {
-                    status.text = "Accès réservé au propriétaire de HP Travail."
-                }
+                if (profile.getBoolean("owner") == true) loadFeedback()
+                else status.text = "Accès réservé au propriétaire de HP Travail."
             }
             .addOnFailureListener { error ->
                 status.text = "Impossible de vérifier l’accès : ${error.localizedMessage ?: "erreur Firebase"}"
@@ -110,17 +161,28 @@ class OwnerFeedbackActivity : Activity() {
         status.text = "Chargement des idées…"
         db.collectionGroup("feedback").get()
             .addOnSuccessListener { result ->
-                val docs = result.documents.sortedByDescending { createdAtMillis(it) }
-                renderFeedback(docs)
+                allDocs = result.documents.sortedByDescending { createdAtMillis(it) }
+                renderCurrentTab()
             }
             .addOnFailureListener { error ->
                 status.text = "Lecture impossible : ${error.localizedMessage ?: "règles Firebase à vérifier"}"
             }
     }
 
-    private fun renderFeedback(docs: List<DocumentSnapshot>) {
-        while (list.childCount > 3) list.removeViewAt(3)
-        status.text = if (docs.isEmpty()) "Aucune idée reçue pour le moment." else "${docs.size} idée(s) reçue(s)"
+    private fun renderCurrentTab() {
+        while (list.childCount > 4) list.removeViewAt(4)
+        val docs = allDocs.filter { doc ->
+            when (currentTab) {
+                "done" -> doc.getString("status") == "done"
+                "rejected" -> doc.getString("status") == "rejected"
+                else -> doc.getString("status") !in setOf("done", "rejected")
+            }
+        }
+        status.text = when (currentTab) {
+            "done" -> if (docs.isEmpty()) "Aucune idée faite." else "${docs.size} idée(s) faite(s)"
+            "rejected" -> if (docs.isEmpty()) "Aucune idée refusée." else "${docs.size} idée(s) refusée(s)"
+            else -> if (docs.isEmpty()) "Aucune idée en attente." else "${docs.size} idée(s) reçue(s)"
+        }
         docs.forEach { doc -> list.addView(feedbackCard(doc)) }
     }
 
@@ -143,12 +205,11 @@ class OwnerFeedbackActivity : Activity() {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            this.background = GradientDrawable().apply {
+            background = GradientDrawable().apply {
                 cornerRadius = dp(16).toFloat()
                 setColor(panelColor)
                 setStroke(dp(1), accentColor)
             }
-
             addView(TextView(this@OwnerFeedbackActivity).apply {
                 text = idea
                 textSize = 16f
@@ -166,15 +227,17 @@ class OwnerFeedbackActivity : Activity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
             }
-            actions.addView(statusButton("À VOIR", "new", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f))
-            actions.addView(statusButton("RETENUE", "accepted", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-            actions.addView(statusButton("REFUSÉE", "rejected", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
-            actions.addView(statusButton("FAITE", "done", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+            if (currentTab == "active") {
+                actions.addView(statusButton("À VOIR", "new", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f))
+                actions.addView(statusButton("RETENUE", "accepted", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+                actions.addView(statusButton("REFUSER", "rejected", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+                actions.addView(statusButton("FAITE", "done", doc, accentColor), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+            } else {
+                actions.addView(statusButton("RESTAURER", "new", doc, accentColor), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+            }
             addView(actions)
         }.also {
-            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                bottomMargin = dp(12)
-            }
+            it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) }
         }
     }
 
@@ -206,7 +269,7 @@ class OwnerFeedbackActivity : Activity() {
     private fun labelForStatus(value: String) = when (value) {
         "accepted" -> "Retenue"
         "rejected" -> "Refusée"
-        "done" -> "Traitée"
+        "done" -> "Faite"
         else -> "Nouvelle"
     }
 
