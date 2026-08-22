@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: WorkStore
     @EnvironmentObject private var locationManager: LocationManager
+    @EnvironmentObject private var authManager: AuthManager
     @AppStorage("hp_theme") private var theme = "signature"
 
     var body: some View {
@@ -15,6 +16,14 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .alert("Compte Google", isPresented: Binding(
+            get: { authManager.errorMessage != nil },
+            set: { if !$0 { authManager.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { authManager.errorMessage = nil }
+        } message: {
+            Text(authManager.errorMessage ?? "")
+        }
     }
 
     private var todayView: some View {
@@ -79,6 +88,22 @@ struct ContentView: View {
     private var settingsView: some View {
         NavigationStack {
             Form {
+                Section("Compte Google") {
+                    if !authManager.isFirebaseConfigured {
+                        Text("Configuration Firebase iOS requise")
+                            .foregroundStyle(.secondary)
+                    } else if let user = authManager.user {
+                        Text(user.displayName ?? user.email ?? "Compte Google")
+                        Button("SE DÉCONNECTER", role: .destructive) {
+                            authManager.signOut()
+                        }
+                    } else {
+                        Button("SE CONNECTER AVEC GOOGLE") {
+                            authManager.signInWithGoogle()
+                        }
+                    }
+                }
+
                 Section("Apparence") {
                     Picker("Thème", selection: $theme) {
                         Text("Signature Or").tag("signature")
@@ -98,7 +123,7 @@ struct ContentView: View {
 
                 Section("À propos") {
                     Text("Version iPhone de HP Travail")
-                    Text("Entrée, pause, sortie, historique et localisation sont déjà intégrés. Les fonctions avancées seront alignées progressivement avec la version Android.")
+                    Text("Entrée, pause, sortie, historique, localisation et compte Google Firebase sont intégrés.")
                         .foregroundStyle(.secondary)
                 }
             }
