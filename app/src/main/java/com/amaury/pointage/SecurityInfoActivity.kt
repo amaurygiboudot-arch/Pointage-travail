@@ -9,11 +9,14 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import java.security.MessageDigest
 
 class SecurityInfoActivity : Activity() {
@@ -53,6 +56,20 @@ class SecurityInfoActivity : Activity() {
             setPadding(dp(6), dp(16), dp(6), dp(12))
         })
 
+        val snakeButton = Button(this).apply {
+            text = "🐍 JEU DU SERPENT"
+            isAllCaps = false
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { startActivity(Intent(this@SecurityInfoActivity, SnakeGameActivity::class.java)) }
+        }
+        root.addView(snakeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+        revealOwnerGame(snakeButton)
+
         root.addView(Button(this).apply {
             text = "OUVRIR LA VERSION OFFICIELLE GITHUB"
             isAllCaps = false
@@ -79,6 +96,14 @@ class SecurityInfoActivity : Activity() {
 
         setContentView(ScrollView(this).apply { addView(root) })
         AppearanceManager.apply(this)
+    }
+
+    private fun revealOwnerGame(button: Button) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+            .addOnSuccessListener { profile ->
+                button.visibility = if (profile.getBoolean("owner") == true) View.VISIBLE else View.GONE
+            }
     }
 
     private fun addCard(parent: LinearLayout, title: String, value: String) {
