@@ -150,8 +150,19 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             PointageWidgetProvider.updateAll(context)
             rebuildAll(context)
         } else if (handledAction) {
-            PointageWidgetProvider.updateAll(context)
-            updateAll(context)
+            val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Le petit widget n'a rien à redessiner pour Entrée/Sortie.
+                // On ne touche à son RemoteViews que lorsque le libellé Pause/Reprendre change.
+                if (intent.action == ACTION_PAUSE) {
+                    val manager = AppWidgetManager.getInstance(context)
+                    if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)
+                    else updateAll(context)
+                }
+                // Le grand widget affiche l'état, les heures et les durées : mise à jour différée
+                // pour laisser le launcher terminer l'animation du clic avant le RemoteViews.
+                PointageWidgetProvider.updateAll(context)
+            }, 260L)
         }
     }
 }
