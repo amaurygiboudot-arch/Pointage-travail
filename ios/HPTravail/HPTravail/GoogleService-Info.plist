@@ -2,19 +2,35 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-<key>CLIENT_ID</key><string>827513765896-1123kjunj8pn19b487jpctq101qfr22l.apps.googleusercontent.com</string>
-<key>REVERSED_CLIENT_ID</key><string>com.googleusercontent.apps.827513765896-1123kjunj8pn19b487jpctq101qfr22l</string>
-<key>API_KEY</key><string>REDACTED_NEEDS_ORIGINAL_FILE</string>
-<key>GCM_SENDER_ID</key><string>827513765896</string>
-<key>PLIST_VERSION</key><string>1</string>
-<key>BUNDLE_ID</key><string>com.amaury.hptravail</string>
-<key>PROJECT_ID</key><string>pointage-travail</string>
-<key>STORAGE_BUCKET</key><string>pointage-travail.firebasestorage.app</string>
-<key>IS_ADS_ENABLED</key><false/>
-<key>IS_ANALYTICS_ENABLED</key><false/>
-<key>IS_APPINVITE_ENABLED</key><true/>
-<key>IS_GCM_ENABLED</key><true/>
-<key>IS_SIGNIN_ENABLED</key><true/>
-<key>GOOGLE_APP_ID</key><string>1:827513765896:ios:7618a5031c31bc4bf691bd</string>
+	<key>CLIENT_ID</key>
+	<string>827513765896-1123kjunj8pn19b487jpctq101qfr22l.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.827513765896-1123kjunj8pn19b487jpctq101qfr22l</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>827513765896-sp53joaghb39bko7c5p1ilmrtadvjsib.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyCStDp2T6EHjaMXIYMQWB7UXlIPhAtzvnM</string>
+	<key>GCM_SENDER_ID</key>
+	<string>827513765896</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.amaury.hptravail</string>
+	<key>PROJECT_ID</key>
+	<string>pointage-travail</string>
+	<key>STORAGE_BUCKET</key>
+	<string>pointage-travail.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:827513765896:ios:7618a5031c31bc4bf691bd</string>
 </dict>
 </plist>
