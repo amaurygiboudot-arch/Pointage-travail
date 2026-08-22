@@ -34,6 +34,10 @@ targets:
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
         NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.827513765896-1123kjunj8pn19b487jpctq101qfr22l
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail
