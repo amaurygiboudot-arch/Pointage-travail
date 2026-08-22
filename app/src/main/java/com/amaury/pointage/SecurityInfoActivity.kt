@@ -63,7 +63,7 @@ class SecurityInfoActivity : Activity() {
             visibility = View.GONE
             setPadding(dp(12), dp(10), dp(12), dp(10))
             setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener { startActivity(Intent(this@SecurityInfoActivity, SnakeGameActivity::class.java)) }
+            setOnClickListener { SnakeGameDialog.show(this@SecurityInfoActivity) }
         }
         root.addView(snakeButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
