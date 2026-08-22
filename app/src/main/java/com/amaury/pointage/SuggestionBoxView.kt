@@ -7,6 +7,7 @@ import android.os.Build
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -37,6 +38,15 @@ class SuggestionBoxView @JvmOverloads constructor(
         addView(guide, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(14)
         })
+
+        val ownerInbox = adaptiveButton("📥  IDÉES REÇUES").apply {
+            visibility = View.GONE
+            setOnClickListener { context.startActivity(Intent(context, OwnerFeedbackActivity::class.java)) }
+        }
+        addView(ownerInbox, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(14)
+        })
+        revealOwnerInboxIfAllowed(ownerInbox)
 
         addView(sectionTitle("IDÉES & AMÉLIORATIONS"))
 
@@ -100,6 +110,15 @@ class SuggestionBoxView @JvmOverloads constructor(
         ideaInput.setOnFocusChangeListener { _, hasFocus ->
             if (!hasFocus) prefs.edit().putString("draft_idea", ideaInput.text.toString()).apply()
         }
+    }
+
+    private fun revealOwnerInboxIfAllowed(button: Button) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        FirebaseFirestore.getInstance().collection("users").document(user.uid).get()
+            .addOnSuccessListener { profile ->
+                button.visibility = if (profile.getBoolean("owner") == true) View.VISIBLE else View.GONE
+            }
+            .addOnFailureListener { button.visibility = View.GONE }
     }
 
     private fun adaptiveButton(label: String) = Button(context).apply {
