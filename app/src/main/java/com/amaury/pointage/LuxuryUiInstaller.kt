@@ -50,6 +50,7 @@ object LuxuryUiInstaller {
 
         val theme = AppThemeCatalog.current(activity)
         val dark = AppThemeCatalog.useDarkPalette(activity)
+        val mainText = if (dark) theme.darkText else theme.lightText
 
         activity.findViewById<TextView>(R.id.logoText)?.apply {
             text = "♛\nH  P\nT R A V A I L"
@@ -61,19 +62,21 @@ object LuxuryUiInstaller {
         }
 
         activity.findViewById<TextView>(R.id.statusCard)?.apply {
+            setTextColor(mainText)
             typeface = Typeface.create("serif", Typeface.NORMAL)
             textSize = 16f
             letterSpacing = 0.04f
         }
 
         activity.findViewById<TextView>(R.id.contentTitle)?.apply {
-            setTextColor(if (dark) theme.accentLight else theme.accent)
+            setTextColor(mainText)
             typeface = Typeface.create("serif", Typeface.BOLD)
             textSize = 16f
             letterSpacing = 0.08f
         }
 
         activity.findViewById<TextView>(R.id.historyText)?.apply {
+            setTextColor(mainText)
             typeface = Typeface.create("serif", Typeface.NORMAL)
             textSize = 14f
             letterSpacing = 0.03f
@@ -86,6 +89,7 @@ object LuxuryUiInstaller {
 
         AppearanceManager.apply(activity)
         activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
+        applyThemeColors(activity)
         syncTabs(activity)
         syncTodayLuxuryText(activity)
         normalizeTypography(activity.window.decorView, activity)
@@ -124,7 +128,7 @@ object LuxuryUiInstaller {
         val accent = if (dark) theme.accentLight else theme.accent
         val text = if (dark) theme.darkText else theme.lightText
         activity.findViewById<TextView>(R.id.logoText)?.setTextColor(accent)
-        activity.findViewById<TextView>(R.id.contentTitle)?.setTextColor(accent)
+        activity.findViewById<TextView>(R.id.contentTitle)?.setTextColor(text)
         activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(text)
         activity.findViewById<TextView>(R.id.historyText)?.setTextColor(text)
     }
@@ -344,10 +348,9 @@ object LuxuryUiInstaller {
         val theme = AppThemeCatalog.current(activity)
         val dark = AppThemeCatalog.useDarkPalette(activity)
         val mainText = if (dark) theme.darkText else theme.lightText
-        val accentText = if (dark) theme.accentLight else theme.accent
         activity.findViewById<TextView>(R.id.statusCard)?.setTextColor(mainText)
         val pointagePanel = activity.findViewById<ViewGroup>(R.id.pointageButtons) ?: return
-        recolorTextChildren(pointagePanel, accentText)
+        recolorTextChildren(pointagePanel, mainText)
     }
 
     private fun recolorTextChildren(view: View, color: Int) {
@@ -358,7 +361,7 @@ object LuxuryUiInstaller {
     private fun syncTabs(activity: MainActivity) {
         val theme = AppThemeCatalog.current(activity)
         val dark = AppThemeCatalog.useDarkPalette(activity)
-        val activeColor = if (dark) theme.accentLight else theme.accent
+        val activeColor = if (dark) theme.darkText else theme.lightText
         val inactiveColor = if (dark) theme.darkHint else theme.lightHint
 
         val today = activity.findViewById<TextView>(R.id.tabToday)
@@ -367,8 +370,6 @@ object LuxuryUiInstaller {
         val salary = activity.findViewById<TextView>(R.id.tabSalary)
         val settings = activity.findViewById<TextView>(R.id.tabSettings)
 
-        // Le bandeau derrière les onglets doit rester totalement transparent :
-        // seuls les onglets eux-mêmes reçoivent leur fond/cadre.
         (today?.parent as? LinearLayout)?.apply {
             setBackgroundColor(android.graphics.Color.TRANSPARENT)
             backgroundTintList = null
