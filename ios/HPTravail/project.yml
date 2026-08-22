@@ -4,6 +4,13 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.9
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    from: 11.0.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS.git
+    from: 8.0.0
 targets:
   HPTravail:
     type: application
@@ -11,6 +18,15 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - HPTravail
+    dependencies:
+      - package: Firebase
+        product: FirebaseCore
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - package: GoogleSignIn
+        product: GoogleSignIn
     info:
       path: HPTravail/Info.plist
       properties:
