@@ -41,6 +41,7 @@ class SecurityInfoActivity : Activity() {
         addCard(root, "Version installée", "$versionName  (code $versionCode)")
         addCard(root, "Identifiant de l'application", pkg)
         addCard(root, "Certificat SHA-256", signingCertificateSha256())
+        addCard(root, "Firebase App Check", appCheckStatus())
         addCard(root, "Installation d'autres applications", if (declaresPermission(Manifest.permission.REQUEST_INSTALL_PACKAGES)) "⚠ Permission présente" else "✓ Permission absente")
         addCard(root, "Trafic réseau non chiffré", "✓ Désactivé par la configuration de HP Travail")
         addCard(root, "Localisation en arrière-plan", if (declaresPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) "Utilisée pour le pointage GPS automatique" else "Non demandée")
@@ -102,6 +103,16 @@ class SecurityInfoActivity : Activity() {
         })
     }
 
+    private fun appCheckStatus(): String {
+        val prefs = getSharedPreferences("app_check_status", MODE_PRIVATE)
+        return when (prefs.getString("state", null)) {
+            "valid" -> "✓ Jeton Play Integrity obtenu"
+            "initializing" -> "Attestation Play Integrity en cours…"
+            "error" -> "✗ Échec d'attestation\n${prefs.getString("error", "Erreur inconnue").orEmpty()}"
+            else -> "Pas encore testé sur cette installation"
+        }
+    }
+
     private fun declaresPermission(permission: String): Boolean {
         val info = packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
         return info.requestedPermissions?.contains(permission) == true
@@ -112,14 +123,12 @@ class SecurityInfoActivity : Activity() {
             val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
             } else {
-                @Suppress("DEPRECATION")
-                packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+                @Suppress("DEPRECATION") packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
             }
             val bytes = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 info.signingInfo?.apkContentsSigners?.firstOrNull()?.toByteArray()
             } else {
-                @Suppress("DEPRECATION")
-                info.signatures?.firstOrNull()?.toByteArray()
+                @Suppress("DEPRECATION") info.signatures?.firstOrNull()?.toByteArray()
             } ?: return@runCatching "Indisponible"
             MessageDigest.getInstance("SHA-256").digest(bytes)
                 .joinToString(":") { "%02X".format(it) }
