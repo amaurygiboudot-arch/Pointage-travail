@@ -6,11 +6,11 @@ import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -29,7 +29,6 @@ class FirebaseAccountActivity : Activity() {
 
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
-    private lateinit var statusText: TextView
     private lateinit var signInButton: Button
     private lateinit var signOutButton: Button
 
@@ -47,6 +46,7 @@ class FirebaseAccountActivity : Activity() {
     override fun onResume() {
         super.onResume()
         styleAsCenteredPopup()
+        refreshUi()
     }
 
     private fun palette(): Triple<Int, Int, Int> {
@@ -87,7 +87,7 @@ class FirebaseAccountActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(pad, pad, pad, pad)
-            this.background = GradientDrawable().apply {
+            background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 22f * resources.displayMetrics.density
                 setColor(backgroundColor)
@@ -96,22 +96,6 @@ class FirebaseAccountActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
-
-            addView(TextView(this@FirebaseAccountActivity).apply {
-                text = "COMPTE GOOGLE"
-                textSize = 22f
-                gravity = Gravity.CENTER
-                setTextColor(accentColor)
-                setPadding(0, 20, 0, 24)
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-
-            statusText = TextView(this@FirebaseAccountActivity).apply {
-                textSize = 16f
-                gravity = Gravity.CENTER
-                setTextColor(textColor)
-                setPadding(12, 16, 12, 24)
-            }
-            addView(statusText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
             signInButton = themedButton("SE CONNECTER AVEC GOOGLE", textColor, accentColor) {
                 startGoogleSignIn()
@@ -129,7 +113,7 @@ class FirebaseAccountActivity : Activity() {
 
             addView(themedButton("FERMER", textColor, accentColor) { finish() },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 24
+                    topMargin = 18
                 })
         }
     }
@@ -178,10 +162,10 @@ class FirebaseAccountActivity : Activity() {
                     Toast.makeText(this, "Connexion Google réussie", Toast.LENGTH_SHORT).show()
                 }
                 .addOnFailureListener { error ->
-                    statusText.text = "Connexion Firebase impossible : ${error.localizedMessage ?: "erreur inconnue"}"
+                    Toast.makeText(this, "Connexion Firebase impossible : ${error.localizedMessage ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                 }
         } catch (error: ApiException) {
-            statusText.text = "Connexion Google annulée ou impossible (code ${error.statusCode})."
+            Toast.makeText(this, "Connexion Google annulée ou impossible (code ${error.statusCode}).", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -196,9 +180,6 @@ class FirebaseAccountActivity : Activity() {
             "platform" to "android"
         )
 
-        // Fusionner le profil au lieu de remplacer le document complet.
-        // Les champs administratifs ajoutés côté Firebase (notamment owner)
-        // restent ainsi intacts lors des reconnexions Google.
         db.collection("users").document(user.uid)
             .set(data, SetOptions.merge())
             .addOnFailureListener { error ->
@@ -211,16 +192,8 @@ class FirebaseAccountActivity : Activity() {
     }
 
     private fun refreshUi() {
-        val user = auth.currentUser
-        if (user == null) {
-            statusText.text = "Aucun compte connecté.\nConnecte ton compte Google pour activer la synchronisation Firebase."
-            signInButton.isEnabled = true
-            signOutButton.isEnabled = false
-        } else {
-            val label = user.displayName ?: user.email ?: "Compte Google"
-            statusText.text = "Connecté : $label\nUID Firebase : ${user.uid}\nInstallation : ${DeviceRegistry.installId(this)}"
-            signInButton.isEnabled = false
-            signOutButton.isEnabled = true
-        }
+        val connected = auth.currentUser != null
+        signInButton.visibility = if (connected) View.GONE else View.VISIBLE
+        signOutButton.visibility = if (connected) View.VISIBLE else View.GONE
     }
 }
