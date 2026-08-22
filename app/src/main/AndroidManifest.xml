@@ -45,43 +45,14 @@
 
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" />
 
-        <activity-alias
-            android:name=".IconRed"
-            android:enabled="true"
-            android:exported="true"
-            android:icon="@drawable/hp_icon_red"
-            android:label="HP Travail"
-            android:targetActivity=".LaunchActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-
-        <activity-alias
-            android:name=".IconGreen"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@drawable/hp_icon_green"
-            android:label="HP Travail"
-            android:targetActivity=".LaunchActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-
-        <activity-alias
-            android:name=".IconOrange"
-            android:enabled="false"
-            android:exported="true"
-            android:icon="@drawable/hp_icon_orange"
-            android:label="HP Travail"
-            android:targetActivity=".LaunchActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+        <activity-alias android:name=".IconOrange" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_orange" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
 
         <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
@@ -94,32 +65,13 @@
         <activity android:name=".DiamondLabActivity" android:exported="false" />
         <activity android:name=".SecurityInfoActivity" android:exported="false" />
 
-        <receiver android:name=".PointageWidgetProvider" android:exported="false">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="android.intent.action.CONFIGURATION_CHANGED" />
-            </intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/pointage_widget_info" />
-        </receiver>
-
-        <receiver android:name=".QuickActionsWidgetProvider" android:exported="false">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="android.intent.action.CONFIGURATION_CHANGED" />
-            </intent-filter>
-            <meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" />
-        </receiver>
-
-        <receiver android:name=".UpdateDownloadReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
-            </intent-filter>
-        </receiver>
-
+        <receiver android:name=".PointageWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/pointage_widget_info" /></receiver>
+        <receiver android:name=".QuickActionsWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" /></receiver>
+        <receiver android:name=".UpdateDownloadReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE" /></intent-filter></receiver>
         <receiver android:name=".DriveBackupReceiver" android:exported="false" />
         <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
         <receiver android:name=".PauseScheduleReceiver" android:exported="false" />
-        <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
+        <receiver android:name=".BootReceiver" android:enabled="true" android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
