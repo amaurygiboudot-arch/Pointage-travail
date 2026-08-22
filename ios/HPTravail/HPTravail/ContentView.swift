@@ -16,7 +16,7 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
-        .alert("Compte Google", isPresented: Binding(
+        .alert("Compte Google / Apple", isPresented: Binding(
             get: { authManager.errorMessage != nil },
             set: { if !$0 { authManager.errorMessage = nil } }
         )) {
@@ -88,18 +88,41 @@ struct ContentView: View {
     private var settingsView: some View {
         NavigationStack {
             Form {
-                Section("Compte Google") {
+                Section("Compte Google / Apple") {
                     if !authManager.isFirebaseConfigured {
                         Text("Configuration Firebase iOS requise")
                             .foregroundStyle(.secondary)
-                    } else if let user = authManager.user {
-                        Text(user.displayName ?? user.email ?? "Compte Google")
-                        Button("SE DÉCONNECTER", role: .destructive) {
-                            authManager.signOut()
-                        }
                     } else {
-                        Button("SE CONNECTER AVEC GOOGLE") {
-                            authManager.signInWithGoogle()
+                        HStack {
+                            Text("Google")
+                            Spacer()
+                            Text(authManager.isGoogleLinked ? "Connecté" : "Non connecté")
+                                .foregroundStyle(authManager.isGoogleLinked ? .green : .secondary)
+                        }
+                        if !authManager.isGoogleLinked {
+                            Button("SE CONNECTER AVEC GOOGLE") {
+                                authManager.signInWithGoogle()
+                            }
+                        }
+
+                        HStack {
+                            Text("Apple")
+                            Spacer()
+                            Text(authManager.isAppleLinked ? "Connecté" : "Non connecté")
+                                .foregroundStyle(authManager.isAppleLinked ? .green : .secondary)
+                        }
+                        if !authManager.isAppleLinked {
+                            Button("SE CONNECTER AVEC APPLE") {
+                                authManager.signInWithApple()
+                            }
+                        }
+
+                        if let user = authManager.user {
+                            Text(user.displayName ?? user.email ?? "Profil HP Travail")
+                                .foregroundStyle(.secondary)
+                            Button("SE DÉCONNECTER DU PROFIL", role: .destructive) {
+                                authManager.signOut()
+                            }
                         }
                     }
                 }
@@ -123,7 +146,7 @@ struct ContentView: View {
 
                 Section("À propos") {
                     Text("Version iPhone de HP Travail")
-                    Text("Entrée, pause, sortie, historique, localisation et compte Google Firebase sont intégrés.")
+                    Text("Google et Apple peuvent être liés séparément ou ensemble au même profil Firebase.")
                         .foregroundStyle(.secondary)
                 }
             }
