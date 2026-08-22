@@ -51,14 +51,14 @@ class FirebaseAccountActivity : Activity() {
     private fun palette(): Triple<Int, Int, Int> {
         val theme = AppThemeCatalog.current(this)
         val dark = AppThemeCatalog.useDarkPalette(this)
-        val background = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val accent = if (dark) theme.accentLight else theme.accent
-        return Triple(background, text, accent)
+        val backgroundColor = if (dark) theme.darkPanel else theme.lightPanel
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val accentColor = if (dark) theme.accentLight else theme.accent
+        return Triple(backgroundColor, textColor, accentColor)
     }
 
     private fun styleAsCenteredPopup() {
-        val (background, _, _) = palette()
+        val (backgroundColor, _, _) = palette()
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         val params = window.attributes
@@ -74,22 +74,22 @@ class FirebaseAccountActivity : Activity() {
             root.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 22f * resources.displayMetrics.density
-                setColor(background)
+                setColor(backgroundColor)
             }
         }
     }
 
     private fun buildContent(): LinearLayout {
         val pad = (20 * resources.displayMetrics.density).toInt()
-        val (background, textColor, accentColor) = palette()
+        val (backgroundColor, textColor, accentColor) = palette()
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(pad, pad, pad, pad)
-            background = GradientDrawable().apply {
+            this.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 22f * resources.displayMetrics.density
-                setColor(background)
+                setColor(backgroundColor)
             }
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
