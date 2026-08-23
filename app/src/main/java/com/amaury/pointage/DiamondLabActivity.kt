@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Color
@@ -8,6 +9,7 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -27,9 +29,11 @@ class DiamondLabActivity : Activity() {
     private lateinit var alphaBar: SeekBar
     private lateinit var rotationBar: SeekBar
     private lateinit var lightBar: SeekBar
+    private lateinit var presets: MutableList<DiamondDesignerLibrary.Preset>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        presets = DiamondDesignerLibrary.load(this)
         window.statusBarColor = Color.parseColor("#05070B")
         window.navigationBarColor = Color.parseColor("#05070B")
         setContentView(buildUi())
@@ -42,14 +46,13 @@ class DiamondLabActivity : Activity() {
             setBackgroundColor(Color.parseColor("#05070B"))
         }
 
-        val title = TextView(this).apply {
+        root.addView(TextView(this).apply {
             text = "DIAMOND DESIGNER"
             setTextColor(Color.WHITE)
             textSize = 20f
             gravity = Gravity.CENTER
             setPadding(dp(12), dp(12), dp(12), dp(8))
-        }
-        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        })
 
         val library = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -58,8 +61,12 @@ class DiamondLabActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(8), dp(4), dp(8), dp(8))
                 addView(toolButton("+ Entrée") { canvas.addEntryButton() })
+                addView(toolButton("+ Pause") { canvas.addPauseButton() })
+                addView(toolButton("+ Sortie") { canvas.addExitButton() })
                 addView(toolButton("+ Cadre") { canvas.addFrame() })
                 addView(toolButton("+ Fond") { canvas.addBackground() })
+                addView(toolButton("Bibliothèque") { showLibrary() })
+                addView(toolButton("Enregistrer") { saveSelectedPreset() })
                 addView(toolButton("Dupliquer") { canvas.duplicateSelected() })
                 addView(toolButton("Avant") { canvas.bringForward() })
                 addView(toolButton("Arrière") { canvas.sendBackward() })
@@ -82,76 +89,86 @@ class DiamondLabActivity : Activity() {
         return root
     }
 
-    private fun buildControls(): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(8), dp(14), dp(14))
+    private fun buildControls(): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(14), dp(8), dp(14), dp(14))
 
-            selectionLabel = TextView(this@DiamondLabActivity).apply {
-                setTextColor(Color.WHITE)
-                textSize = 15f
-                text = "Aucun élément sélectionné"
-            }
-            addView(selectionLabel)
-
-            lensLabel = valueLabel()
-            lensBar = slider(0, 1000)
-            addView(lensLabel); addView(lensBar)
-
-            alphaLabel = valueLabel()
-            alphaBar = slider(50, 1000)
-            addView(alphaLabel); addView(alphaBar)
-
-            rotationLabel = valueLabel()
-            rotationBar = slider(0, 3600)
-            addView(rotationLabel); addView(rotationBar)
-
-            lightLabel = valueLabel()
-            lightBar = slider(0, 3600)
-            addView(lightLabel); addView(lightBar)
-
-            val report = Button(this@DiamondLabActivity).apply {
-                text = "COPIER LE RAPPORT"
-                isAllCaps = false
-                setOnClickListener {
-                    val text = canvas.report()
-                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                    cm.setPrimaryClip(ClipData.newPlainText("Diamond Designer", text))
-                    Toast.makeText(this@DiamondLabActivity, "Rapport copié", Toast.LENGTH_SHORT).show()
-                }
-            }
-            addView(report, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
+        selectionLabel = TextView(this@DiamondLabActivity).apply {
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            text = "Aucun élément sélectionné"
         }
+        addView(selectionLabel)
+
+        lensLabel = valueLabel(); lensBar = slider(0, 1000); addView(lensLabel); addView(lensBar)
+        alphaLabel = valueLabel(); alphaBar = slider(50, 1000); addView(alphaLabel); addView(alphaBar)
+        rotationLabel = valueLabel(); rotationBar = slider(0, 3600); addView(rotationLabel); addView(rotationBar)
+        lightLabel = valueLabel(); lightBar = slider(0, 3600); addView(lightLabel); addView(lightBar)
+
+        addView(Button(this@DiamondLabActivity).apply {
+            text = "COPIER LE RAPPORT"
+            isAllCaps = false
+            setOnClickListener {
+                val text = canvas.report()
+                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Diamond Designer", text))
+                Toast.makeText(this@DiamondLabActivity, "Rapport copié", Toast.LENGTH_SHORT).show()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
     }
 
     private fun bindCanvas() {
         canvas.onSelectionChanged = { updateControls(it) }
         canvas.onDesignChanged = { canvas.selectedElement()?.let { updateLabels(it) } }
-
         lensBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedLens(p / 1000f) })
         alphaBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedAlpha(p / 1000f) })
         rotationBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedRotation(p / 10f) })
         lightBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedLightAngle(p / 10f) })
     }
 
-    private fun updateControls(e: DiamondDesignerCanvas.DesignElement?) {
-        if (e == null) {
-            selectionLabel.text = "Aucun élément sélectionné"
-            return
+    private fun showLibrary() {
+        val names = presets.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Bibliothèque")
+            .setItems(names) { _, which -> presets.getOrNull(which)?.let { canvas.addPreset(it) } }
+            .setNegativeButton("Fermer", null)
+            .show()
+    }
+
+    private fun saveSelectedPreset() {
+        val e = canvas.selectedElement() ?: run {
+            Toast.makeText(this, "Sélectionne d'abord un élément", Toast.LENGTH_SHORT).show(); return
         }
+        val input = EditText(this).apply { setText(e.name); selectAll() }
+        AlertDialog.Builder(this)
+            .setTitle("Enregistrer dans la bibliothèque")
+            .setView(input)
+            .setPositiveButton("Enregistrer") { _, _ ->
+                val name = input.text?.toString()?.trim().orEmpty().ifBlank { e.name }
+                presets.add(DiamondDesignerLibrary.presetFromElement(name, e))
+                DiamondDesignerLibrary.save(this, presets)
+                Toast.makeText(this, "$name enregistré", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun updateControls(e: DiamondDesignerCanvas.DesignElement?) {
+        if (e == null) { selectionLabel.text = "Aucun élément sélectionné"; return }
         selectionLabel.text = "${e.name} • ${e.type}${if (e.locked) " • verrouillé" else ""}"
         lensBar.progress = (e.lensStrength * 1000f).toInt()
         alphaBar.progress = (e.alpha * 1000f).toInt()
-        rotationBar.progress = (((e.rotation % 360f) + 360f) % 360f * 10f).toInt()
+        rotationBar.progress = ((((e.rotation % 360f) + 360f) % 360f) * 10f).toInt()
         lightBar.progress = (e.lightAngle * 10f).toInt()
-        lensBar.isEnabled = e.type == DiamondDesignerCanvas.ElementType.ENTRY_BUTTON
-        lightBar.isEnabled = e.type == DiamondDesignerCanvas.ElementType.ENTRY_BUTTON
+        val diamond = e.type == DiamondDesignerCanvas.ElementType.ENTRY_BUTTON || e.type == DiamondDesignerCanvas.ElementType.PAUSE_BUTTON || e.type == DiamondDesignerCanvas.ElementType.EXIT_BUTTON
+        lensBar.isEnabled = diamond
+        lightBar.isEnabled = diamond
         updateLabels(e)
     }
 
     private fun updateLabels(e: DiamondDesignerCanvas.DesignElement) {
         lensLabel.text = "Bombé : ${(e.lensStrength * 100f).toInt()} %"
-        alphaLabel.text = "Transparence : ${(e.alpha * 100f).toInt()} %"
+        alphaLabel.text = "Opacité : ${(e.alpha * 100f).toInt()} %"
         rotationLabel.text = "Rotation : ${e.rotation.toInt()}°"
         lightLabel.text = "Lumière : ${e.lightAngle.toInt()}°"
     }
