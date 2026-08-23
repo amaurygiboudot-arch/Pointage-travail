@@ -106,7 +106,7 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
     fun setSelectedAlpha(v: Float) { selected?.let { it.alpha = v.coerceIn(.05f,1f); invalidate(); onDesignChanged?.invoke() } }
     fun setSelectedRotation(v: Float) { selected?.let { it.rotation = v; invalidate(); onDesignChanged?.invoke() } }
     fun setSelectedLightAngle(v: Float) { selected?.let { if (isDiamond(it)) { it.lightAngle = ((v % 360f) + 360f) % 360f; invalidate(); onDesignChanged?.invoke() } } }
-    fun setSelectedRingGain(ring: Int, v: Float) { selected?.let { if (isDiamond(it)) { when(ring){1->it.ring1Gain=v;2->it.ring2Gain=v;3->it.ring3Gain=v}; invalidate(); onDesignChanged?.invoke() } } }
+    fun setSelectedRingGain(ring: Int, v: Float) { selected?.let { if (isDiamond(it)) { val g=v.coerceIn(.20f,1.80f); when(ring){1->it.ring1Gain=g;2->it.ring2Gain=g;3->it.ring3Gain=g}; invalidate(); onDesignChanged?.invoke() } } }
     fun setSelectedFrameWidth(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.frameWidth = v.coerceIn(1f,80f); invalidate(); onDesignChanged?.invoke() } } }
     fun setSelectedCornerRadius(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.cornerRadius = v.coerceIn(0f,120f); invalidate(); onDesignChanged?.invoke() } } }
     fun toggleLock() { selected?.let { it.locked = !it.locked; onSelectionChanged?.invoke(it); invalidate() } }
@@ -126,10 +126,34 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
     }
 
     private fun drawDiamondButton(canvas: Canvas, e: DesignElement, v: RedDiamondFinalButton) {
-        v.alpha = e.alpha; v.setLensStrength(e.lensStrength); v.setDiamondLightAngle(e.lightAngle); v.setDesignerRingGains(e.ring1Gain, e.ring2Gain, e.ring3Gain)
         val w = max(1, e.width.toInt()); val h = max(1, e.height.toInt())
-        v.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY)); v.layout(0, 0, w, h)
-        canvas.save(); canvas.translate(e.x, e.y); v.draw(canvas); canvas.restore()
+        v.alpha = e.alpha
+        v.setDiamondLightAngle(e.lightAngle)
+        v.measure(MeasureSpec.makeMeasureSpec(w, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(h, MeasureSpec.EXACTLY))
+        v.layout(0, 0, w, h)
+
+        canvas.save()
+        canvas.translate(e.x, e.y)
+        drawDiamondRing(canvas, v, w, h, 0f, .28f, e.lensStrength * e.ring1Gain)
+        drawDiamondRing(canvas, v, w, h, .28f, .63f, e.lensStrength * e.ring2Gain)
+        drawDiamondRing(canvas, v, w, h, .63f, 1f, e.lensStrength * e.ring3Gain)
+        canvas.restore()
+    }
+
+    private fun drawDiamondRing(canvas: Canvas, v: RedDiamondFinalButton, w: Int, h: Int, inner: Float, outer: Float, lens: Float) {
+        val cx = w * .5f
+        val cy = h * .5f
+        val r = min(w, h) * .455f
+        val ring = Path().apply {
+            fillType = Path.FillType.EVEN_ODD
+            addCircle(cx, cy, r * outer, Path.Direction.CW)
+            if (inner > 0f) addCircle(cx, cy, r * inner, Path.Direction.CW)
+        }
+        canvas.save()
+        canvas.clipPath(ring)
+        v.setLensStrength(lens.coerceIn(0f, 1f))
+        v.draw(canvas)
+        canvas.restore()
     }
 
     private fun drawSelection(canvas: Canvas, e: DesignElement) {
