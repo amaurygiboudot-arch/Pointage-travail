@@ -96,8 +96,11 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
         val y = max(40f, (height - p.height) / 2f)
         val e = DesignElement(
             type = p.type, x = x, y = y, width = p.width, height = p.height, rotation = p.rotation, alpha = p.alpha,
+            transparency = p.transparency, translucency = p.translucency,
             lensStrength = p.lensStrength, lightAngle = p.lightAngle, ring1Gain = p.ring1Gain, ring2Gain = p.ring2Gain,
-            ring3Gain = p.ring3Gain, frameWidth = p.frameWidth, cornerRadius = p.cornerRadius, name = p.name
+            ring3Gain = p.ring3Gain, edgeWidth = p.edgeWidth, edgeAlpha = p.edgeAlpha, edgeContrast = p.edgeContrast,
+            edgeSoftness = p.edgeSoftness, radialEdgeGain = p.radialEdgeGain, circularEdgeGain = p.circularEdgeGain,
+            frameWidth = p.frameWidth, cornerRadius = p.cornerRadius, name = p.name
         )
         if (p.type == ElementType.BACKGROUND) elements.add(0, e) else elements.add(e)
         select(e); invalidate(); onDesignChanged?.invoke()
