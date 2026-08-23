@@ -12,6 +12,10 @@
         android:supportsRtl="true"
         android:allowBackup="true">
 
+        <meta-data
+            android:name="io.sentry.auto-init"
+            android:value="false" />
+
         <activity
             android:name=".DiamondLabActivity"
             android:exported="true"
