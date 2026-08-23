@@ -17,6 +17,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     companion object {
         const val RENDER_NAME = "Diamant rouge final"
         private const val FACETS = 16
+        private const val FACET_COUNT = 80
         private const val MESH = 40
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
@@ -36,6 +37,15 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         }
     }
 
+    private data class FacetState(
+        val baseColor: Int,
+        val referenceAlpha: Int,
+        var luminosity: Float,
+        var reflection: Float,
+        var lastAzimuth: Float,
+        var lastTilt: Float
+    )
+
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -53,6 +63,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 
     private var renderBitmap: Bitmap? = null
     private var meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
+    private val facetStates = arrayOfNulls<FacetState>(FACET_COUNT)
 
     open fun diamondPalette() = intArrayOf(
         Color.rgb(255, 50, 76), Color.rgb(214, 5, 35), Color.rgb(132, 0, 24),
@@ -276,7 +287,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         for (i in 0 until FACETS) {
             val a0 = angle(i)
             val a1 = angle(i + 1)
-            facet(c, center(cx, cy, pt(cx, cy, tr, a0), pt(cx, cy, tr, a1)), i, (a0 + a1) * .5f, 0, 1.16f)
+            facet(c, center(cx, cy, pt(cx, cy, tr, a0), pt(cx, cy, tr, a1)), i, i, (a0 + a1) * .5f, 0, 1.16f)
         }
 
         for (i in 0 until FACETS) {
@@ -288,8 +299,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             val m0 = pt(cx, cy, cr, a0)
             val m1 = pt(cx, cy, cr, a1)
             val mm = pt(cx, cy, cr, am)
-            facet(c, poly(i0, m0, mm, i1), i + 3, (a0 + am) * .5f, 1, .98f)
-            facet(c, poly(i1, mm, m1), i + 9, (am + a1) * .5f, 1, .87f)
+            facet(c, poly(i0, m0, mm, i1), 16 + i * 2, i + 3, (a0 + am) * .5f, 1, .98f)
+            facet(c, poly(i1, mm, m1), 17 + i * 2, i + 9, (am + a1) * .5f, 1, .87f)
         }
 
         for (i in 0 until FACETS) {
@@ -301,16 +312,21 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             val o0 = pt(cx, cy, gr, a0)
             val o1 = pt(cx, cy, gr, a1)
             val om = pt(cx, cy, gr, am)
-            facet(c, poly(m0, o0, om, m1), i + 5, (a0 + am) * .5f, 2, .73f)
-            facet(c, poly(m1, om, o1), i + 12, (am + a1) * .5f, 2, .61f)
+            facet(c, poly(m0, o0, om, m1), 48 + i * 2, i + 5, (a0 + am) * .5f, 2, .73f)
+            facet(c, poly(m1, om, o1), 49 + i * 2, i + 12, (am + a1) * .5f, 2, .61f)
         }
     }
 
-    private fun facet(c: Canvas, path: Path, index: Int, az: Float, ring: Int, energy: Float) {
+    private fun facet(c: Canvas, path: Path, facetId: Int, paletteIndex: Int, az: Float, ring: Int, energy: Float) {
         val bt = when (ring) { 0 -> 11f; 1 -> 30f; else -> 47f }
-        val mt = (((index * 37 + ring * 53) % 17) - 8) * .46f
-        val ma = (((index * 29 + ring * 11) % 13) - 6) * .42f
-        val n = normal3(az + ma, bt + mt, pitch, roll)
+        val mt = (((paletteIndex * 37 + ring * 53) % 17) - 8) * .46f
+        val ma = (((paletteIndex * 29 + ring * 11) % 13) - 6) * .42f
+        val cutTilt = bt + mt
+        val facetAzimuth = norm(az + ma + roll * .10f)
+        val facetTilt = (cutTilt + pitch * .010f).coerceIn(6f, 74f)
+        val state = facetState(facetId, paletteIndex, ring, az, cutTilt, facetAzimuth, facetTilt)
+
+        val n = normal3(az + ma, cutTilt, pitch, roll)
         val l = light3(lightAngle, elevation)
         val v = floatArrayOf(0f, 0f, 1f)
         val ndl = max(0f, dot(n, l))
@@ -326,21 +342,28 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val trans = (1 - fres) * (1 - tir) * ndl
         val rd = when (ring) { 0 -> 1.05f; 1 -> .83f; else -> .58f }
         val dynamic = energy * rd * (ndl * .34f + trans * .14f) + fres * .08f + tir * .04f
-        val bright = (.62f + dynamic).coerceIn(.58f, 1.26f)
-        val base = diamondPalette()[index % diamondPalette().size]
+        val targetLuminosity = (.72f + dynamic).coerceIn(.70f, 1.24f)
+        val targetReflection = (spec * 1.18f + fres * .07f + tir * .05f).coerceIn(0f, .34f)
+
+        state.luminosity += targetLuminosity - state.luminosity
+        state.reflection += targetReflection - state.reflection
+        state.lastAzimuth = facetAzimuth
+        state.lastTilt = facetTilt
+
+        val bright = state.luminosity
+        val base = state.baseColor
         val hi = diamondHighlight()
         val rr = (Color.red(base) * bright).toInt().coerceIn(0, 255)
         val gg = (Color.green(base) * bright).toInt().coerceIn(0, 255)
         val bb = (Color.blue(base) * bright).toInt().coerceIn(0, 255)
-        val flash = (spec * 1.35f + fres * .09f + tir * .07f).coerceIn(0f, .55f)
-        val top = mix(Color.rgb(rr, gg, bb), hi, flash)
+        val top = mix(Color.rgb(rr, gg, bb), hi, state.reflection)
         val df = when (ring) { 0 -> .66f; 1 -> .54f; else -> .42f }
         val deep = Color.rgb(
             (rr * df).toInt().coerceIn(0, 255),
             (gg * df).toInt().coerceIn(0, 255),
             (bb * df).toInt().coerceIn(0, 255)
         )
-        val a = facetReferenceAlpha(index, ring, az, bt + mt)
+        val a = state.referenceAlpha
         val ga = Math.toRadians((az + 90).toDouble())
         val gx = cos(ga).toFloat() * width * .42f
         val gy = sin(ga).toFloat() * height * .42f
@@ -352,16 +375,38 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         c.drawPath(path, fill)
         fill.shader = null
         if (spec > .62f) {
-            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 92).toInt().coerceIn(0, 92))
+            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 64).toInt().coerceIn(0, 64))
             c.drawPath(path, fill)
         }
-        fire(c, path, index, ring, ndh, trans, tir)
+        fire(c, path, facetId, ring, ndh, trans, tir)
     }
 
-    private fun facetReferenceAlpha(index: Int, ring: Int, az: Float, cutTilt: Float): Int {
+    private fun facetState(
+        facetId: Int,
+        paletteIndex: Int,
+        ring: Int,
+        az: Float,
+        cutTilt: Float,
+        currentAzimuth: Float,
+        currentTilt: Float
+    ): FacetState {
+        val existing = facetStates[facetId]
+        if (existing != null) return existing
+        val palette = diamondPalette()
+        return FacetState(
+            baseColor = palette[paletteIndex % palette.size],
+            referenceAlpha = facetReferenceAlpha(facetId, ring, az, cutTilt),
+            luminosity = 1f,
+            reflection = 0f,
+            lastAzimuth = currentAzimuth,
+            lastTilt = currentTilt
+        ).also { facetStates[facetId] = it }
+    }
+
+    private fun facetReferenceAlpha(facetId: Int, ring: Int, az: Float, cutTilt: Float): Int {
         val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 8f).toInt()
         val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
-        val signature = ((index * 13 + ring * 17) % 13) - 6
+        val signature = ((facetId * 13 + ring * 17) % 13) - 6
         return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
     }
 
