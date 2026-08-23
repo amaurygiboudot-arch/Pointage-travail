@@ -18,6 +18,8 @@ import java.net.URL
 
 object UpdateChecker {
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases/latest"
+    private const val LATEST_RELEASE_PAGE = "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/latest"
+    private const val LATEST_APK_FALLBACK = "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/latest/download/HP-Travail.apk"
     internal const val PREFS = "update_download"
     internal const val KEY_DOWNLOAD_ID = "download_id"
     internal const val KEY_VERSION = "version"
@@ -36,13 +38,11 @@ object UpdateChecker {
         check(activity, silent = true, askBeforeDownload = true)
     }
 
-    /** Si un APK est prêt, HP Travail affiche d'abord sa propre confirmation. */
     fun tryInstallReady(activity: Activity): Boolean {
         if (installerOpening || installPromptShowing || activity.isFinishing || activity.isDestroyed) return false
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val readyName = prefs.getString(KEY_READY_FILE, null) ?: return false
         val readyVersion = prefs.getString(KEY_READY_VERSION, "").orEmpty()
-
         val currentVersion = runCatching {
             activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
         }.getOrDefault("")
@@ -50,7 +50,6 @@ object UpdateChecker {
             clearReadyState(activity, deleteFile = true)
             return false
         }
-
         val apk = File(File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), readyName)
         if (!apk.exists()) {
             clearReadyState(activity, deleteFile = false)
@@ -60,7 +59,6 @@ object UpdateChecker {
             clearReadyState(activity, deleteFile = true)
             return false
         }
-
         showInstallConfirmation(activity, apk, readyVersion)
         return true
     }
@@ -83,7 +81,6 @@ object UpdateChecker {
         if (installerOpening) return
         installerOpening = true
         activity.window.decorView.postDelayed({ installerOpening = false }, 2500L)
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             runCatching {
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}")))
@@ -93,10 +90,7 @@ object UpdateChecker {
             }
             return
         }
-
-        runCatching {
-            activity.startActivity(installerIntent(activity, apk))
-        }.onFailure {
+        runCatching { activity.startActivity(installerIntent(activity, apk)) }.onFailure {
             installerOpening = false
             Toast.makeText(activity, "Impossible d'ouvrir l'installateur Android.", Toast.LENGTH_LONG).show()
         }
@@ -117,38 +111,91 @@ object UpdateChecker {
         Thread {
             var connection: HttpURLConnection? = null
             try {
+                var versionName: String? = null
+                var apkUrl: String? = null
+
                 connection = openConnection(LATEST_RELEASE_API, 10_000, 20_000)
                 val code = connection.responseCode
-                if (code !in 200..299) { showStatus(activity, silent, "Vérification impossible (HTTP $code)"); return@Thread }
-                val release = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-                val versionName = release.optString("tag_name").trim().removePrefix("v")
-                if (versionName.isBlank()) { showStatus(activity, silent, "Version de mise à jour introuvable"); return@Thread }
-                val currentVersion = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
-                if (compareVersions(versionName, currentVersion) <= 0) { showStatus(activity, silent, "Aucune mise à jour disponible"); return@Thread }
-
-                val assets = release.optJSONArray("assets")
-                var apkUrl: String? = null
-                if (assets != null) for (i in 0 until assets.length()) {
-                    val asset = assets.optJSONObject(i) ?: continue
-                    val name = asset.optString("name")
-                    if (name.equals("HP-Travail.apk", true) || name.endsWith(".apk", true)) {
-                        apkUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
-                        if (apkUrl != null) break
+                if (code in 200..299) {
+                    val release = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                    versionName = release.optString("tag_name").trim().removePrefix("v").takeIf { it.isNotBlank() }
+                    val assets = release.optJSONArray("assets")
+                    if (assets != null) for (i in 0 until assets.length()) {
+                        val asset = assets.optJSONObject(i) ?: continue
+                        val name = asset.optString("name")
+                        if (name.equals("HP-Travail.apk", true) || name.endsWith(".apk", true)) {
+                            apkUrl = asset.optString("browser_download_url").takeIf { it.isNotBlank() }
+                            if (apkUrl != null) break
+                        }
                     }
+                } else if (code == 403 || code == 429) {
+                    connection.disconnect()
+                    connection = null
+                    val fallback = resolveLatestReleaseWithoutApi()
+                    versionName = fallback.first
+                    apkUrl = fallback.second
+                } else {
+                    showStatus(activity, silent, "Vérification temporairement indisponible")
+                    return@Thread
                 }
-                if (apkUrl == null) { showStatus(activity, silent, "APK introuvable dans la dernière version"); return@Thread }
-                val finalUrl = apkUrl
+
+                if (versionName.isNullOrBlank()) {
+                    showStatus(activity, silent, "Version de mise à jour introuvable")
+                    return@Thread
+                }
+                val currentVersion = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
+                if (compareVersions(versionName, currentVersion) <= 0) {
+                    showStatus(activity, silent, "Aucune mise à jour disponible")
+                    return@Thread
+                }
+                val finalUrl = apkUrl ?: LATEST_APK_FALLBACK
                 activity.runOnUiThread {
                     if (askBeforeDownload) showUpdatePrompt(activity, versionName, finalUrl)
                     else enqueueBackgroundDownload(activity, finalUrl, versionName, silent)
                 }
             } catch (e: Exception) {
-                showStatus(activity, silent, "Vérification impossible : ${shortError(e)}")
+                val fallback = runCatching { resolveLatestReleaseWithoutApi() }.getOrNull()
+                if (fallback != null) {
+                    val versionName = fallback.first
+                    val currentVersion = runCatching {
+                        activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
+                    }.getOrDefault("")
+                    if (versionName.isNotBlank() && compareVersions(versionName, currentVersion) > 0) {
+                        activity.runOnUiThread {
+                            if (askBeforeDownload) showUpdatePrompt(activity, versionName, fallback.second)
+                            else enqueueBackgroundDownload(activity, fallback.second, versionName, silent)
+                        }
+                    } else showStatus(activity, silent, "Aucune mise à jour disponible")
+                } else {
+                    showStatus(activity, silent, "Vérification temporairement indisponible")
+                }
             } finally {
                 updateInProgress = false
                 connection?.disconnect()
             }
         }.start()
+    }
+
+    private fun resolveLatestReleaseWithoutApi(): Pair<String, String> {
+        val c = (URL(LATEST_RELEASE_PAGE).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            connectTimeout = 10_000
+            readTimeout = 15_000
+            requestMethod = "GET"
+            setRequestProperty("User-Agent", "HP-Travail-Android")
+            setRequestProperty("Accept", "text/html,application/xhtml+xml")
+            connect()
+        }
+        try {
+            val code = c.responseCode
+            if (code !in 300..399) error("redirection release absente")
+            val location = c.getHeaderField("Location") ?: error("version release absente")
+            val tag = location.substringAfterLast('/').removePrefix("v").trim()
+            if (tag.isBlank()) error("version release invalide")
+            return tag to LATEST_APK_FALLBACK
+        } finally {
+            c.disconnect()
+        }
     }
 
     private fun showUpdatePrompt(activity: Activity, versionName: String, apkUrl: String) {
@@ -169,16 +216,23 @@ object UpdateChecker {
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { if (it.name.endsWith(".apk", true)) it.delete() }
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
-                setTitle("Mise à jour HP Travail"); setDescription("Téléchargement de la version $versionName")
-                setMimeType("application/vnd.android.package-archive"); setAllowedOverMetered(true); setAllowedOverRoaming(false)
+                setTitle("Mise à jour HP Travail")
+                setDescription("Téléchargement de la version $versionName")
+                setMimeType("application/vnd.android.package-archive")
+                setAllowedOverMetered(true)
+                setAllowedOverRoaming(false)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
             }
             val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val downloadId = manager.enqueue(request)
             activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putLong(KEY_DOWNLOAD_ID, downloadId).putString(KEY_VERSION, versionName).putString(KEY_FILE_NAME, fileName)
-                .remove(KEY_READY_FILE).remove(KEY_READY_VERSION).apply()
+                .putLong(KEY_DOWNLOAD_ID, downloadId)
+                .putString(KEY_VERSION, versionName)
+                .putString(KEY_FILE_NAME, fileName)
+                .remove(KEY_READY_FILE)
+                .remove(KEY_READY_VERSION)
+                .apply()
             Toast.makeText(activity, "Téléchargement de la mise à jour lancé", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show()
@@ -214,7 +268,8 @@ object UpdateChecker {
     }
 
     internal fun clearDownloadState(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_DOWNLOAD_ID).remove(KEY_VERSION).remove(KEY_FILE_NAME).apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_DOWNLOAD_ID).remove(KEY_VERSION).remove(KEY_FILE_NAME).apply()
     }
 
     private fun clearReadyState(context: Context, deleteFile: Boolean) {
@@ -247,20 +302,30 @@ object UpdateChecker {
 
     private fun openConnection(url: String, connectTimeout: Int, readTimeout: Int): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
-            instanceFollowRedirects = true; this.connectTimeout = connectTimeout; this.readTimeout = readTimeout
+            instanceFollowRedirects = true
+            this.connectTimeout = connectTimeout
+            this.readTimeout = readTimeout
             setRequestProperty("Accept", "application/vnd.github+json, application/octet-stream;q=0.9, */*;q=0.8")
-            setRequestProperty("User-Agent", "HP-Travail-Android"); setRequestProperty("Cache-Control", "no-cache"); connect()
+            setRequestProperty("User-Agent", "HP-Travail-Android")
+            setRequestProperty("Cache-Control", "no-cache")
+            connect()
         }
 
     private fun showStatus(activity: Activity, silent: Boolean, message: String) {
-        if (!silent) activity.runOnUiThread { if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show() }
+        if (!silent) activity.runOnUiThread {
+            if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+        }
     }
+
     private fun shortError(e: Exception): String = e.message?.trim().takeUnless { it.isNullOrBlank() }?.take(120) ?: e.javaClass.simpleName
+
     private fun compareVersions(a: String, b: String): Int {
         val pa = a.split('.', '-', '_').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
         val pb = b.split('.', '-', '_').map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
         for (i in 0 until maxOf(pa.size, pb.size)) {
-            val av = pa.getOrElse(i) { 0 }; val bv = pb.getOrElse(i) { 0 }; if (av != bv) return av.compareTo(bv)
+            val av = pa.getOrElse(i) { 0 }
+            val bv = pb.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
         }
         return 0
     }
