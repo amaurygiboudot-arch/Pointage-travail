@@ -21,11 +21,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.amaury.pointage"
+        applicationId = "com.amaury.pointage.test"
         minSdk = 23
         targetSdk = 36
         versionCode = 9
-        versionName = "1.9"
+        versionName = "1.9-test"
 
         fun envString(name: String): String = (System.getenv(name) ?: "")
             .replace("\\", "\\\\")
