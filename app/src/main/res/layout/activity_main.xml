@@ -67,7 +67,7 @@
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="PAUSE" android:textColor="@color/hp_gold_light" android:textSize="14sp" android:fontFamily="serif"/>
                 </LinearLayout>
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:gravity="center">
-                    <com.amaury.pointage.LightReactiveJewelButton android:id="@+id/exitButton" android:layout_width="108dp" android:layout_height="108dp" android:text="" android:contentDescription="Sortie"/>
+                    <com.amaury.pointage.RedDiamondFinalButton android:id="@+id/exitButton" android:layout_width="108dp" android:layout_height="108dp" android:text="" android:contentDescription="Sortie"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="SORTIE" android:textColor="@color/hp_gold_light" android:textSize="14sp" android:fontFamily="serif"/>
                 </LinearLayout>
             </LinearLayout>
