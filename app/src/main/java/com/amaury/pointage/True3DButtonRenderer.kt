@@ -138,7 +138,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
             Matrix.setLookAtM(view,0,0f,-2.72f,4.3f,0f,0f,0f,0f,1f,0f)
             Matrix.setIdentityM(model,0)
             Matrix.translateM(model,0,0f,if(pressed).035f else 0f,if(pressed)-.16f else .18f)
-            // vraie parallaxe : le mesh tourne avec le téléphone, pas seulement la lumière.
             Matrix.rotateM(model,0,-8.2f + smoothPitch*.20f,1f,0f,0f)
             Matrix.rotateM(model,0,2.4f - smoothRoll*.24f,0f,1f,0f)
             Matrix.rotateM(model,0,smoothYaw*.025f,0f,0f,1f)
@@ -256,9 +255,43 @@ class True3DButtonHost(context:Context):FrameLayout(context){
 }
 
 object True3DButtonInstaller{
-    private const val TAG="hp_true_3d_wrapped_v4"; private val hosts=WeakHashMap<Button,True3DButtonHost>()
-    fun install(root:View,lightAngle:Float){val list=ArrayList<Button>();collect(root,list);list.forEach{wrap(it,lightAngle)}}
-    fun updateLight(root:View,lightAngle:Float){hosts.entries.toList().forEach{(b,h)->if(b.rootView===root.rootView)h.setLightAngle(lightAngle)}}
-    private fun collect(v:View,out:MutableList<Button>){if(v is Button&&v.getTag(R.id.true3d_internal_tag)!=TAG)out.add(v);if(v is ViewGroup&&v !is True3DButtonHost)for(i in 0 until v.childCount)collect(v.getChildAt(i),out)}
-    private fun wrap(button:Button,lightAngle:Float){if(hosts.containsKey(button))return;val parent=button.parent as? ViewGroup?:return;if(parent is True3DButtonHost)return;val i=parent.indexOfChild(button);val lp=button.layoutParams;parent.removeViewAt(i);val host=True3DButtonHost(button.context);host.layoutParams=lp;host.setTag(R.id.true3d_internal_tag,TAG);parent.addView(host,i);host.attachButton(button,DiamondTuningStore.load(button.context),lightAngle);button.setTag(R.id.true3d_internal_tag,TAG);hosts[button]=host}
+    private const val TAG="hp_true_3d_wrapped_v5_secondary_only"
+    private val hosts=WeakHashMap<Button,True3DButtonHost>()
+
+    fun install(root:View,lightAngle:Float){
+        val list=ArrayList<Button>()
+        collect(root,list)
+        list.forEach{wrap(it,lightAngle)}
+    }
+
+    fun updateLight(root:View,lightAngle:Float){
+        hosts.entries.toList().forEach{(b,h)->if(b.rootView===root.rootView)h.setLightAngle(lightAngle)}
+    }
+
+    private fun collect(v:View,out:MutableList<Button>){
+        if(v is Button && v.getTag(R.id.true3d_internal_tag)!=TAG && !isPrimaryPointageButton(v)) out.add(v)
+        if(v is ViewGroup && v !is True3DButtonHost) for(i in 0 until v.childCount) collect(v.getChildAt(i),out)
+    }
+
+    /** Entrée / Pause / Sortie restent volontairement inchangés pendant ce test. */
+    private fun isPrimaryPointageButton(button:Button):Boolean{
+        val name=runCatching{button.resources.getResourceEntryName(button.id)}.getOrNull().orEmpty()
+        return name=="entryButton" || name=="pauseButton" || name=="exitButton"
+    }
+
+    private fun wrap(button:Button,lightAngle:Float){
+        if(hosts.containsKey(button))return
+        val parent=button.parent as? ViewGroup?:return
+        if(parent is True3DButtonHost)return
+        val i=parent.indexOfChild(button)
+        val lp=button.layoutParams
+        parent.removeViewAt(i)
+        val host=True3DButtonHost(button.context)
+        host.layoutParams=lp
+        host.setTag(R.id.true3d_internal_tag,TAG)
+        parent.addView(host,i)
+        host.attachButton(button,DiamondTuningStore.load(button.context),lightAngle)
+        button.setTag(R.id.true3d_internal_tag,TAG)
+        hosts[button]=host
+    }
 }
