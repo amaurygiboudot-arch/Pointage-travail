@@ -17,7 +17,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     companion object {
         const val RENDER_NAME = "Diamant rouge final"
         private const val FACETS = 16
-        private const val FACET_COUNT = 80
         private const val MESH = 40
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
@@ -37,15 +36,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         }
     }
 
-    private data class FacetState(
-        val baseColor: Int,
-        val referenceAlpha: Int,
-        var luminosity: Float,
-        var reflection: Float,
-        var lastAzimuth: Float,
-        var lastTilt: Float
-    )
-
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -58,12 +48,11 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private var intensity = .78f
     private var night = false
     private var elevation = 45f
-
     private var lensStrength = .50f
 
     private var renderBitmap: Bitmap? = null
     private var meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
-    private val facetStates = arrayOfNulls<FacetState>(FACET_COUNT)
+    private val facetManager = DiamondFacetManager(80)
 
     open fun diamondPalette() = intArrayOf(
         Color.rgb(255, 50, 76), Color.rgb(214, 5, 35), Color.rgb(132, 0, 24),
@@ -97,9 +86,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     }
 
     private fun releaseRenderBitmap() {
-        renderBitmap?.let {
-            if (!it.isRecycled) it.recycle()
-        }
+        renderBitmap?.let { if (!it.isRecycled) it.recycle() }
         renderBitmap = null
     }
 
@@ -153,6 +140,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         glints(bc, cx, cy, r)
         bc.restore()
 
+        // La loupe reste strictement la dernière transformation du rendu.
         buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, r)
 
         c.save()
@@ -198,22 +186,13 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                     val ringGain: Float
                     when {
                         diamondN < .28f -> {
-                            angularCount = 16
-                            ringStart = 0f
-                            ringEnd = .28f
-                            ringGain = .92f
+                            angularCount = 16; ringStart = 0f; ringEnd = .28f; ringGain = .92f
                         }
                         diamondN < .63f -> {
-                            angularCount = 32
-                            ringStart = .28f
-                            ringEnd = .63f
-                            ringGain = 1.05f
+                            angularCount = 32; ringStart = .28f; ringEnd = .63f; ringGain = 1.05f
                         }
                         else -> {
-                            angularCount = 32
-                            ringStart = .63f
-                            ringEnd = .96f
-                            ringGain = .88f
+                            angularCount = 32; ringStart = .63f; ringEnd = .96f; ringGain = .88f
                         }
                     }
 
@@ -222,11 +201,9 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                     val localA = ((angleDeg % step) / step).coerceIn(0f, 1f)
                     val angularArch = sin(Math.PI.toFloat() * localA).pow(2)
                     val angularFacet = .72f + .28f * angularArch
-
                     val localR = ((diamondN - ringStart) / (ringEnd - ringStart)).coerceIn(0f, 1f)
                     val radialArch = sin(Math.PI.toFloat() * localR).pow(2)
                     val radialFacet = .78f + .22f * radialArch
-
                     val facetShape = angularFacet * radialFacet * ringGain
                     val radialScale = 1f + k * .34f * smoothDome * facetShape
 
@@ -324,7 +301,16 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val cutTilt = bt + mt
         val facetAzimuth = norm(az + ma + roll * .10f)
         val facetTilt = (cutTilt + pitch * .010f).coerceIn(6f, 74f)
-        val state = facetState(facetId, paletteIndex, ring, az, cutTilt, facetAzimuth, facetTilt)
+        val palette = diamondPalette()
+        val state = facetManager.stateFor(
+            facetId = facetId,
+            paletteColor = palette[paletteIndex % palette.size],
+            ring = ring,
+            baseAzimuth = az,
+            cutTilt = cutTilt,
+            currentAzimuth = facetAzimuth,
+            currentTilt = facetTilt
+        )
 
         val n = normal3(az + ma, cutTilt, pitch, roll)
         val l = light3(lightAngle, elevation)
@@ -345,10 +331,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val targetLuminosity = (.72f + dynamic).coerceIn(.70f, 1.24f)
         val targetReflection = (spec * 1.18f + fres * .07f + tir * .05f).coerceIn(0f, .34f)
 
-        state.luminosity += targetLuminosity - state.luminosity
-        state.reflection += targetReflection - state.reflection
-        state.lastAzimuth = facetAzimuth
-        state.lastTilt = facetTilt
+        facetManager.update(state, targetLuminosity, targetReflection, facetAzimuth, facetTilt)
 
         val bright = state.luminosity
         val base = state.baseColor
@@ -379,35 +362,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             c.drawPath(path, fill)
         }
         fire(c, path, facetId, ring, ndh, trans, tir)
-    }
-
-    private fun facetState(
-        facetId: Int,
-        paletteIndex: Int,
-        ring: Int,
-        az: Float,
-        cutTilt: Float,
-        currentAzimuth: Float,
-        currentTilt: Float
-    ): FacetState {
-        val existing = facetStates[facetId]
-        if (existing != null) return existing
-        val palette = diamondPalette()
-        return FacetState(
-            baseColor = palette[paletteIndex % palette.size],
-            referenceAlpha = facetReferenceAlpha(facetId, ring, az, cutTilt),
-            luminosity = 1f,
-            reflection = 0f,
-            lastAzimuth = currentAzimuth,
-            lastTilt = currentTilt
-        ).also { facetStates[facetId] = it }
-    }
-
-    private fun facetReferenceAlpha(facetId: Int, ring: Int, az: Float, cutTilt: Float): Int {
-        val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 8f).toInt()
-        val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
-        val signature = ((facetId * 13 + ring * 17) % 13) - 6
-        return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
     }
 
     private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
