@@ -15,9 +15,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 ) : Button(context, attrs, defStyleAttr) {
 
     companion object {
-        const val RENDER_NAME = "Diamant rouge final"
+        const val RENDER_NAME = "Diamant 80 facettes"
         private const val FACETS = 16
-        private const val FACET_COUNT = 80
         private const val MESH = 40
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
@@ -35,22 +34,17 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                 it.setNaturalLight(angle, pitch, roll, intensity, night, elevation)
             }
         }
-    }
 
-    private data class FacetState(
-        val baseColor: Int,
-        val referenceAlpha: Int,
-        var luminosity: Float,
-        var reflection: Float,
-        var lastAzimuth: Float,
-        var lastTilt: Float
-    )
+        fun updateGlobalDevicePose(pitch: Float, roll: Float) {
+            live.toList().forEach { it.setDevicePose(pitch, roll) }
+        }
+    }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
     private val shadow = Paint(Paint.ANTI_ALIAS_FLAG)
     private val outer = Path()
+    private val facetEngine = DiamondFacetEngine { diamondPalette() }
 
     private var lightAngle = -55f
     private var pitch = 0f
@@ -58,12 +52,10 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private var intensity = .78f
     private var night = false
     private var elevation = 45f
-
     private var lensStrength = .50f
 
     private var renderBitmap: Bitmap? = null
-    private var meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
-    private val facetStates = arrayOfNulls<FacetState>(FACET_COUNT)
+    private val meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
 
     open fun diamondPalette() = intArrayOf(
         Color.rgb(255, 50, 76), Color.rgb(214, 5, 35), Color.rgb(132, 0, 24),
@@ -88,19 +80,14 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         live.add(this)
+        DiamondMotionController.attach(context)
     }
 
     override fun onDetachedFromWindow() {
         live.remove(this)
+        DiamondMotionController.detach()
         releaseRenderBitmap()
         super.onDetachedFromWindow()
-    }
-
-    private fun releaseRenderBitmap() {
-        renderBitmap?.let {
-            if (!it.isRecycled) it.recycle()
-        }
-        renderBitmap = null
     }
 
     fun setDiamondLightAngle(angle: Float) {
@@ -109,7 +96,12 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 
     fun setLensStrength(value: Float) {
         lensStrength = value.coerceIn(0f, 1f)
-        releaseRenderBitmap()
+        postInvalidateOnAnimation()
+    }
+
+    private fun setDevicePose(p: Float, r: Float) {
+        pitch = p.coerceIn(-90f, 90f)
+        roll = r.coerceIn(-90f, 90f)
         postInvalidateOnAnimation()
     }
 
@@ -120,56 +112,195 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         intensity = i.coerceIn(.12f, 1f)
         night = n
         elevation = e.coerceIn(-10f, 90f)
-        releaseRenderBitmap()
         postInvalidateOnAnimation()
     }
 
-    override fun onDraw(c: Canvas) {
+    override fun onDraw(canvas: Canvas) {
         val w = width
         val h = height
         if (w <= 0 || h <= 0) return
 
         val cx = w * .5f
         val cy = h * .5f
-        val r = min(w, h) * .455f
+        val radius = min(w, h) * .455f
         val press = if (isPressed) .93f else 1f
 
-        drop(c, cx, cy, r * press)
+        drawShadow(canvas, cx, cy, radius * press)
 
         val bitmap = ensureRenderBitmap(w, h)
         bitmap.eraseColor(Color.TRANSPARENT)
-        val bc = Canvas(bitmap)
-
+        val materialCanvas = Canvas(bitmap)
         outer.reset()
-        outer.addCircle(cx, cy, r, Path.Direction.CW)
-        bc.save()
-        bc.clipPath(outer)
-        glass(bc, cx, cy, r)
-        pavilion(bc, cx, cy, r)
-        facets(bc, cx, cy, r)
-        table(bc, cx, cy, r)
-        refraction(bc, cx, cy, r)
-        edges(bc, cx, cy, r)
-        glints(bc, cx, cy, r)
-        bc.restore()
+        outer.addCircle(cx, cy, radius, Path.Direction.CW)
+        materialCanvas.save()
+        materialCanvas.clipPath(outer)
+        drawTranslucentBody(materialCanvas, cx, cy, radius)
+        drawFacets(materialCanvas, cx, cy, radius)
+        drawFacetStructure(materialCanvas, cx, cy, radius)
+        materialCanvas.restore()
 
-        buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, r)
+        buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, radius)
 
-        c.save()
-        c.scale(press, press, cx, cy)
-        c.clipPath(outer)
-        c.drawBitmapMesh(bitmap, MESH, MESH, meshVerts, 0, null, 0, null)
-        c.restore()
+        canvas.save()
+        canvas.scale(press, press, cx, cy)
+        canvas.clipPath(outer)
+        canvas.drawBitmapMesh(bitmap, MESH, MESH, meshVerts, 0, null, 0, null)
+        canvas.restore()
 
-        girdle(c, cx, cy, r * press)
+        drawGirdle(canvas, cx, cy, radius * press)
     }
 
-    private fun ensureRenderBitmap(w: Int, h: Int): Bitmap {
-        val current = renderBitmap
-        if (current == null || current.width != w || current.height != h || current.isRecycled) {
-            renderBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    private fun drawTranslucentBody(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tint = diamondTint()
+        val dark = diamondDark()
+        fill.shader = RadialGradient(
+            cx, cy, r,
+            intArrayOf(alpha(tint, 46), alpha(tint, 34), alpha(dark, 52), alpha(dark, 68)),
+            floatArrayOf(0f, .38f, .76f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy, r, fill)
+        fill.shader = null
+    }
+
+    private fun drawFacets(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tableRadius = r * .28f
+        val crownRadius = r * .63f
+        val girdleRadius = r * .96f
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            drawFacet(c, center(cx, cy, pt(cx, cy, tableRadius, a0), pt(cx, cy, tableRadius, a1)), i, i, (a0 + a1) * .5f, 0, 1.16f)
         }
-        return renderBitmap!!
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            val am = (a0 + a1) * .5f
+            val i0 = pt(cx, cy, tableRadius, a0)
+            val i1 = pt(cx, cy, tableRadius, a1)
+            val m0 = pt(cx, cy, crownRadius, a0)
+            val m1 = pt(cx, cy, crownRadius, a1)
+            val mm = pt(cx, cy, crownRadius, am)
+            drawFacet(c, poly(i0, m0, mm, i1), 16 + i * 2, i + 3, (a0 + am) * .5f, 1, .98f)
+            drawFacet(c, poly(i1, mm, m1), 17 + i * 2, i + 9, (am + a1) * .5f, 1, .87f)
+        }
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            val am = (a0 + a1) * .5f
+            val m0 = pt(cx, cy, crownRadius, a0)
+            val m1 = pt(cx, cy, crownRadius, a1)
+            val o0 = pt(cx, cy, girdleRadius, a0)
+            val o1 = pt(cx, cy, girdleRadius, a1)
+            val om = pt(cx, cy, girdleRadius, am)
+            drawFacet(c, poly(m0, o0, om, m1), 48 + i * 2, i + 5, (a0 + am) * .5f, 2, .73f)
+            drawFacet(c, poly(m1, om, o1), 49 + i * 2, i + 12, (am + a1) * .5f, 2, .61f)
+        }
+    }
+
+    private fun drawFacet(
+        c: Canvas,
+        path: Path,
+        facetId: Int,
+        paletteIndex: Int,
+        azimuth: Float,
+        ring: Int,
+        energy: Float
+    ) {
+        val baseTilt = when (ring) { 0 -> 11f; 1 -> 30f; else -> 47f }
+        val tiltSignature = (((paletteIndex * 37 + ring * 53) % 17) - 8) * .46f
+        val azimuthSignature = (((paletteIndex * 29 + ring * 11) % 13) - 6) * .42f
+        val cutTilt = baseTilt + tiltSignature
+        val facetAzimuth = norm(azimuth + azimuthSignature + roll * .10f)
+        val facetTilt = (cutTilt + pitch * .010f).coerceIn(6f, 74f)
+
+        val state = facetEngine.stateFor(
+            facetId,
+            paletteIndex,
+            ring,
+            azimuth,
+            cutTilt,
+            facetAzimuth,
+            facetTilt
+        )
+
+        val normal = normal3(azimuth + azimuthSignature, cutTilt, pitch, roll)
+        val light = light3(lightAngle, elevation)
+        val view = floatArrayOf(0f, 0f, 1f)
+        val ndl = max(0f, dot(normal, light))
+        val ndv = max(.001f, dot(normal, view))
+        val halfVector = normalize3(floatArrayOf(light[0] + view[0], light[1] + view[1], light[2] + view[2]))
+        val ndh = max(0f, dot(normal, halfVector))
+
+        val r0 = ((N_AIR - N_DIAMOND) / (N_AIR + N_DIAMOND)).pow(2)
+        val fresnel = r0 + (1 - r0) * (1 - ndv).pow(5)
+        val specular = ndh.pow(if (night) 70f else 155f) * intensity
+        val incidence = Math.toDegrees(acos(ndl.coerceIn(0f, 1f)).toDouble()).toFloat()
+        val critical = Math.toDegrees(asin((N_AIR / N_DIAMOND).toDouble())).toFloat()
+        val internalReflection = if (incidence > critical) {
+            ((incidence - critical) / (90f - critical)).coerceIn(0f, 1f)
+        } else 0f
+        val transmission = (1 - fresnel) * (1 - internalReflection) * ndl
+        val ringDepth = when (ring) { 0 -> 1.05f; 1 -> .83f; else -> .58f }
+        val dynamic = energy * ringDepth * (ndl * .34f + transmission * .14f) + fresnel * .08f + internalReflection * .04f
+
+        val targetLuminosity = (.72f + dynamic).coerceIn(.70f, 1.24f)
+        val targetReflection = (specular * 1.10f + fresnel * .06f + internalReflection * .04f).coerceIn(0f, .30f)
+        val lighting = facetEngine.update(state, targetLuminosity, targetReflection, facetAzimuth, facetTilt)
+
+        val base = state.baseColor
+        val rr = (Color.red(base) * lighting.luminosity).toInt().coerceIn(0, 255)
+        val gg = (Color.green(base) * lighting.luminosity).toInt().coerceIn(0, 255)
+        val bb = (Color.blue(base) * lighting.luminosity).toInt().coerceIn(0, 255)
+        val litColor = Color.rgb(rr, gg, bb)
+        val reflectedColor = mix(litColor, diamondHighlight(), lighting.reflection)
+        val depth = when (ring) { 0 -> .72f; 1 -> .62f; else -> .52f }
+        val deepColor = Color.rgb(
+            (rr * depth).toInt().coerceIn(0, 255),
+            (gg * depth).toInt().coerceIn(0, 255),
+            (bb * depth).toInt().coerceIn(0, 255)
+        )
+
+        val gradientAngle = Math.toRadians((azimuth + 90f).toDouble())
+        val gx = cos(gradientAngle).toFloat() * width * .42f
+        val gy = sin(gradientAngle).toFloat() * height * .42f
+        val facetAlpha = state.referenceAlpha
+        fill.shader = LinearGradient(
+            width * .5f - gx,
+            height * .5f - gy,
+            width * .5f + gx,
+            height * .5f + gy,
+            alpha(reflectedColor, facetAlpha),
+            alpha(deepColor, (facetAlpha * .88f).toInt()),
+            Shader.TileMode.CLAMP
+        )
+        c.drawPath(path, fill)
+        fill.shader = null
+    }
+
+    private fun drawFacetStructure(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val hi = diamondHighlight()
+        edge.shader = null
+        edge.strokeWidth = maxOf(1f, r * .008f)
+        edge.color = alpha(hi, if (night) 30 else 48)
+
+        for (i in 0 until FACETS) {
+            val a = angle(i)
+            val p1 = pt(cx, cy, r * .28f, a)
+            val p2 = pt(cx, cy, r * .63f, a)
+            val p3 = pt(cx, cy, r * .96f, a)
+            c.drawLine(cx, cy, p1[0], p1[1], edge)
+            c.drawLine(p1[0], p1[1], p2[0], p2[1], edge)
+            c.drawLine(p2[0], p2[1], p3[0], p3[1], edge)
+        }
+
+        edge.color = alpha(hi, if (night) 26 else 42)
+        c.drawCircle(cx, cy, r * .28f, edge)
+        edge.color = alpha(hi, if (night) 20 else 34)
+        c.drawCircle(cx, cy, r * .63f, edge)
     }
 
     private fun buildConvexMesh(w: Float, h: Float, cx: Float, cy: Float, r: Float) {
@@ -186,7 +317,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                 val dy = sy - cy
                 val dist = sqrt(dx * dx + dy * dy)
 
-                if (dist > 0.0001f && dist < lensRadius) {
+                if (dist > .0001f && dist < lensRadius) {
                     val lensN = (dist / lensRadius).coerceIn(0f, 1f)
                     val diamondN = (dist / r).coerceIn(0f, 1f)
                     val dome = 4f * lensN * (1f - lensN)
@@ -222,11 +353,9 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                     val localA = ((angleDeg % step) / step).coerceIn(0f, 1f)
                     val angularArch = sin(Math.PI.toFloat() * localA).pow(2)
                     val angularFacet = .72f + .28f * angularArch
-
                     val localR = ((diamondN - ringStart) / (ringEnd - ringStart)).coerceIn(0f, 1f)
                     val radialArch = sin(Math.PI.toFloat() * localR).pow(2)
                     val radialFacet = .78f + .22f * radialArch
-
                     val facetShape = angularFacet * radialFacet * ringGain
                     val radialScale = 1f + k * .34f * smoothDome * facetShape
 
@@ -240,302 +369,50 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         }
     }
 
-    private fun drop(c: Canvas, cx: Float, cy: Float, r: Float) {
+    private fun drawShadow(c: Canvas, cx: Float, cy: Float, r: Float) {
         shadow.shader = RadialGradient(
-            cx, cy + r * .08f, r * 1.16f,
-            intArrayOf(Color.TRANSPARENT, Color.argb(88, 0, 0, 0), Color.TRANSPARENT),
-            floatArrayOf(.67f, .88f, 1f), Shader.TileMode.CLAMP
+            cx,
+            cy + r * .08f,
+            r * 1.16f,
+            intArrayOf(Color.TRANSPARENT, Color.argb(72, 0, 0, 0), Color.TRANSPARENT),
+            floatArrayOf(.67f, .88f, 1f),
+            Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy + r * .08f, r * 1.16f, shadow)
         shadow.shader = null
     }
 
-    private fun glass(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val q = Math.toRadians(lightAngle.toDouble())
-        val lx = cx + cos(q).toFloat() * r * .24f
-        val ly = cy + sin(q).toFloat() * r * .24f
-        val t = diamondTint()
-        val d = diamondDark()
-        fill.shader = RadialGradient(
-            lx, ly, r * 1.28f,
-            intArrayOf(
-                alpha(lighten(t, .26f), 218), alpha(t, 232), alpha(d, 238),
-                Color.argb(244, Color.red(d) / 7, Color.green(d) / 7, Color.blue(d) / 7)
-            ),
-            floatArrayOf(0f, .34f, .72f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawCircle(cx, cy, r, fill)
-        fill.shader = null
-    }
-
-    private fun pavilion(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val d = diamondDark()
-        fill.shader = RadialGradient(
-            cx - roll * .012f, cy + pitch * .008f, r,
-            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, alpha(d, 28), alpha(Color.BLACK, 92)),
-            floatArrayOf(0f, .43f, .73f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawCircle(cx, cy, r, fill)
-        fill.shader = null
-    }
-
-    private fun facets(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val tr = r * .28f
-        val cr = r * .63f
-        val gr = r * .96f
-
-        for (i in 0 until FACETS) {
-            val a0 = angle(i)
-            val a1 = angle(i + 1)
-            facet(c, center(cx, cy, pt(cx, cy, tr, a0), pt(cx, cy, tr, a1)), i, i, (a0 + a1) * .5f, 0, 1.16f)
-        }
-
-        for (i in 0 until FACETS) {
-            val a0 = angle(i)
-            val a1 = angle(i + 1)
-            val am = (a0 + a1) * .5f
-            val i0 = pt(cx, cy, tr, a0)
-            val i1 = pt(cx, cy, tr, a1)
-            val m0 = pt(cx, cy, cr, a0)
-            val m1 = pt(cx, cy, cr, a1)
-            val mm = pt(cx, cy, cr, am)
-            facet(c, poly(i0, m0, mm, i1), 16 + i * 2, i + 3, (a0 + am) * .5f, 1, .98f)
-            facet(c, poly(i1, mm, m1), 17 + i * 2, i + 9, (am + a1) * .5f, 1, .87f)
-        }
-
-        for (i in 0 until FACETS) {
-            val a0 = angle(i)
-            val a1 = angle(i + 1)
-            val am = (a0 + a1) * .5f
-            val m0 = pt(cx, cy, cr, a0)
-            val m1 = pt(cx, cy, cr, a1)
-            val o0 = pt(cx, cy, gr, a0)
-            val o1 = pt(cx, cy, gr, a1)
-            val om = pt(cx, cy, gr, am)
-            facet(c, poly(m0, o0, om, m1), 48 + i * 2, i + 5, (a0 + am) * .5f, 2, .73f)
-            facet(c, poly(m1, om, o1), 49 + i * 2, i + 12, (am + a1) * .5f, 2, .61f)
-        }
-    }
-
-    private fun facet(c: Canvas, path: Path, facetId: Int, paletteIndex: Int, az: Float, ring: Int, energy: Float) {
-        val bt = when (ring) { 0 -> 11f; 1 -> 30f; else -> 47f }
-        val mt = (((paletteIndex * 37 + ring * 53) % 17) - 8) * .46f
-        val ma = (((paletteIndex * 29 + ring * 11) % 13) - 6) * .42f
-        val cutTilt = bt + mt
-        val facetAzimuth = norm(az + ma + roll * .10f)
-        val facetTilt = (cutTilt + pitch * .010f).coerceIn(6f, 74f)
-        val state = facetState(facetId, paletteIndex, ring, az, cutTilt, facetAzimuth, facetTilt)
-
-        val n = normal3(az + ma, cutTilt, pitch, roll)
-        val l = light3(lightAngle, elevation)
-        val v = floatArrayOf(0f, 0f, 1f)
-        val ndl = max(0f, dot(n, l))
-        val ndv = max(.001f, dot(n, v))
-        val hv = normalize3(floatArrayOf(l[0] + v[0], l[1] + v[1], l[2] + v[2]))
-        val ndh = max(0f, dot(n, hv))
-        val r0 = ((N_AIR - N_DIAMOND) / (N_AIR + N_DIAMOND)).pow(2)
-        val fres = r0 + (1 - r0) * (1 - ndv).pow(5)
-        val spec = ndh.pow(if (night) 70f else 155f) * intensity
-        val inc = Math.toDegrees(acos(ndl.coerceIn(0f, 1f)).toDouble()).toFloat()
-        val crit = Math.toDegrees(asin((N_AIR / N_DIAMOND).toDouble())).toFloat()
-        val tir = if (inc > crit) ((inc - crit) / (90f - crit)).coerceIn(0f, 1f) else 0f
-        val trans = (1 - fres) * (1 - tir) * ndl
-        val rd = when (ring) { 0 -> 1.05f; 1 -> .83f; else -> .58f }
-        val dynamic = energy * rd * (ndl * .34f + trans * .14f) + fres * .08f + tir * .04f
-        val targetLuminosity = (.72f + dynamic).coerceIn(.70f, 1.24f)
-        val targetReflection = (spec * 1.18f + fres * .07f + tir * .05f).coerceIn(0f, .34f)
-
-        state.luminosity += targetLuminosity - state.luminosity
-        state.reflection += targetReflection - state.reflection
-        state.lastAzimuth = facetAzimuth
-        state.lastTilt = facetTilt
-
-        val bright = state.luminosity
-        val base = state.baseColor
-        val hi = diamondHighlight()
-        val rr = (Color.red(base) * bright).toInt().coerceIn(0, 255)
-        val gg = (Color.green(base) * bright).toInt().coerceIn(0, 255)
-        val bb = (Color.blue(base) * bright).toInt().coerceIn(0, 255)
-        val top = mix(Color.rgb(rr, gg, bb), hi, state.reflection)
-        val df = when (ring) { 0 -> .66f; 1 -> .54f; else -> .42f }
-        val deep = Color.rgb(
-            (rr * df).toInt().coerceIn(0, 255),
-            (gg * df).toInt().coerceIn(0, 255),
-            (bb * df).toInt().coerceIn(0, 255)
-        )
-        val a = state.referenceAlpha
-        val ga = Math.toRadians((az + 90).toDouble())
-        val gx = cos(ga).toFloat() * width * .42f
-        val gy = sin(ga).toFloat() * height * .42f
-        fill.shader = LinearGradient(
-            width * .5f - gx, height * .5f - gy,
-            width * .5f + gx, height * .5f + gy,
-            alpha(top, a), alpha(deep, (a * .90f).toInt()), Shader.TileMode.CLAMP
-        )
-        c.drawPath(path, fill)
-        fill.shader = null
-        if (spec > .62f) {
-            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 64).toInt().coerceIn(0, 64))
-            c.drawPath(path, fill)
-        }
-        fire(c, path, facetId, ring, ndh, trans, tir)
-    }
-
-    private fun facetState(
-        facetId: Int,
-        paletteIndex: Int,
-        ring: Int,
-        az: Float,
-        cutTilt: Float,
-        currentAzimuth: Float,
-        currentTilt: Float
-    ): FacetState {
-        val existing = facetStates[facetId]
-        if (existing != null) return existing
-        val palette = diamondPalette()
-        return FacetState(
-            baseColor = palette[paletteIndex % palette.size],
-            referenceAlpha = facetReferenceAlpha(facetId, ring, az, cutTilt),
-            luminosity = 1f,
-            reflection = 0f,
-            lastAzimuth = currentAzimuth,
-            lastTilt = currentTilt
-        ).also { facetStates[facetId] = it }
-    }
-
-    private fun facetReferenceAlpha(facetId: Int, ring: Int, az: Float, cutTilt: Float): Int {
-        val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 8f).toInt()
-        val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
-        val signature = ((facetId * 13 + ring * 17) % 13) - 6
-        return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
-    }
-
-    private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
-        if (night) return
-        val th = .90f + ring * .016f
-        val gate = ((align - th) / (1 - th)).coerceIn(0f, 1f)
-        if (((index * 17 + ring * 7) % 13) > 3 || gate <= 0) return
-        val p = (gate.pow(2.1f) * trans * intensity * (1 - .30f * tir)).coerceIn(0f, .18f)
-        if (p < .02f) return
-        val q = Math.toRadians((lightAngle + index * 3.2f).toDouble())
-        val dx = cos(q).toFloat() * width * .012f
-        val dy = sin(q).toFloat() * height * .012f
-        fill.shader = LinearGradient(
-            width * .5f - dx, height * .5f - dy,
-            width * .5f + dx, height * .5f + dy,
-            intArrayOf(
-                alpha(Color.rgb(255, 134, 58), (80 * p).toInt()),
-                Color.TRANSPARENT,
-                alpha(Color.rgb(80, 150, 255), (90 * p).toInt())
-            ),
-            floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawPath(path, fill)
-        fill.shader = null
-    }
-
-    private fun table(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val tr = r * .285f
-        val q = Math.toRadians(lightAngle.toDouble())
-        val hx = cx + cos(q).toFloat() * tr * .34f
-        val hy = cy + sin(q).toFloat() * tr * .34f
-        val hi = diamondHighlight()
-        fill.shader = RadialGradient(
-            hx, hy, tr * 1.12f,
-            intArrayOf(alpha(hi, if (night) 30 else 54), Color.TRANSPARENT, alpha(Color.BLACK, 28)),
-            floatArrayOf(0f, .58f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawCircle(cx, cy, tr, fill)
-        fill.shader = null
-        edge.strokeWidth = maxOf(1f, r * .014f)
-        edge.color = alpha(hi, if (night) 38 else 72)
-        c.drawCircle(cx, cy, tr, edge)
-    }
-
-    private fun refraction(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val q = Math.toRadians(lightAngle.toDouble())
-        val ux = cos(q).toFloat()
-        val uy = sin(q).toFloat()
-        val hi = diamondHighlight()
-        val t = diamondTint()
-        fill.shader = LinearGradient(
-            cx - ux * r * .72f, cy - uy * r * .72f,
-            cx + ux * r * .72f, cy + uy * r * .72f,
-            intArrayOf(Color.TRANSPARENT, alpha(t, 16), alpha(hi, if (night) 28 else 58), alpha(t, 20), Color.TRANSPARENT),
-            floatArrayOf(0f, .32f, .50f, .68f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawCircle(cx, cy, r * .78f, fill)
-        fill.shader = null
-    }
-
-    private fun edges(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val hi = diamondHighlight()
-        edge.strokeWidth = maxOf(1f, r * .009f)
-        edge.color = alpha(hi, if (night) 38 else 62)
-        for (i in 0 until FACETS) {
-            val a = angle(i)
-            val p1 = pt(cx, cy, r * .28f, a)
-            val p2 = pt(cx, cy, r * .63f, a)
-            val p3 = pt(cx, cy, r * .96f, a)
-            c.drawLine(cx, cy, p1[0], p1[1], edge)
-            c.drawLine(p1[0], p1[1], p2[0], p2[1], edge)
-            c.drawLine(p2[0], p2[1], p3[0], p3[1], edge)
-        }
-        edge.alpha = 56
-        c.drawCircle(cx, cy, r * .28f, edge)
-        edge.alpha = 42
-        c.drawCircle(cx, cy, r * .63f, edge)
-        edge.alpha = 255
-    }
-
-    private fun glints(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val q = Math.toRadians(lightAngle.toDouble())
-        val ux = cos(q).toFloat()
-        val uy = sin(q).toFloat()
-        val hi = diamondHighlight()
-        val ef = ((elevation + 5) / 70).coerceIn(.15f, 1f)
-        val power = intensity * ef * (if (night) .30f else 1f)
-        val x = cx + ux * r * (.43f + roll * .0010f).coerceIn(.24f, .65f)
-        val y = cy + uy * r * (.43f - pitch * .0004f).coerceIn(.30f, .56f)
-        glow.shader = RadialGradient(
-            x, y, r * .17f,
-            intArrayOf(
-                alpha(Color.WHITE, (170 * power).toInt().coerceIn(0, 170)),
-                alpha(hi, (84 * power).toInt().coerceIn(0, 84)),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, .10f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawCircle(x, y, r * .17f, glow)
-        glow.shader = null
-        if (!night && power > .60f) {
-            edge.strokeWidth = maxOf(1f, r * .010f)
-            edge.color = alpha(Color.WHITE, (145 * power).toInt().coerceIn(0, 145))
-            val len = r * (.035f + .08f * power)
-            c.drawLine(x - len, y, x + len, y, edge)
-            c.drawLine(x, y - len, x, y + len, edge)
-        }
-    }
-
-    private fun girdle(c: Canvas, cx: Float, cy: Float, r: Float) {
-        val d = diamondDark()
-        val t = diamondTint()
+    private fun drawGirdle(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val dark = diamondDark()
+        val tint = diamondTint()
         val hi = diamondHighlight()
         edge.style = Paint.Style.STROKE
-        edge.strokeWidth = maxOf(2.2f, r * .060f)
+        edge.strokeWidth = maxOf(2.2f, r * .052f)
         edge.shader = SweepGradient(
-            cx, cy,
-            intArrayOf(alpha(d, 255), alpha(t, 230), alpha(hi, 238), alpha(d, 255), alpha(t, 220), alpha(hi, 228), alpha(d, 255)),
+            cx,
+            cy,
+            intArrayOf(alpha(dark, 235), alpha(tint, 214), alpha(hi, 178), alpha(dark, 235), alpha(tint, 210), alpha(dark, 235)),
             null
         )
         c.drawCircle(cx, cy, r * .982f, edge)
         edge.shader = null
-        edge.strokeWidth = maxOf(1f, r * .015f)
-        edge.color = alpha(hi, if (night) 72 else 145)
-        c.drawCircle(cx, cy, r * .952f, edge)
-        edge.strokeWidth = maxOf(1f, r * .012f)
-        edge.color = alpha(Color.BLACK, 140)
+        edge.strokeWidth = maxOf(1f, r * .011f)
+        edge.color = alpha(Color.BLACK, 128)
         c.drawCircle(cx, cy, r * 1.012f, edge)
+    }
+
+    private fun ensureRenderBitmap(w: Int, h: Int): Bitmap {
+        val current = renderBitmap
+        if (current == null || current.width != w || current.height != h || current.isRecycled) {
+            releaseRenderBitmap()
+            renderBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        }
+        return renderBitmap!!
+    }
+
+    private fun releaseRenderBitmap() {
+        renderBitmap?.let { if (!it.isRecycled) it.recycle() }
+        renderBitmap = null
     }
 
     private fun normal3(azimuth: Float, tilt: Float, p: Float, r: Float): FloatArray {
@@ -555,36 +432,35 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private fun dot(a: FloatArray, b: FloatArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
     private fun normalize3(v: FloatArray): FloatArray {
-        val l = sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).coerceAtLeast(1e-8f))
-        return floatArrayOf(v[0] / l, v[1] / l, v[2] / l)
+        val length = sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).coerceAtLeast(1e-8f))
+        return floatArrayOf(v[0] / length, v[1] / length, v[2] / length)
     }
 
     private fun angle(i: Int) = -90f + i * (360f / FACETS)
-    private fun norm(v: Float) = ((v % 360) + 360) % 360
+    private fun norm(v: Float) = ((v % 360f) + 360f) % 360f
 
-    private fun pt(cx: Float, cy: Float, r: Float, d: Float): FloatArray {
-        val q = Math.toRadians(d.toDouble())
+    private fun pt(cx: Float, cy: Float, r: Float, degrees: Float): FloatArray {
+        val q = Math.toRadians(degrees.toDouble())
         return floatArrayOf(cx + cos(q).toFloat() * r, cy + sin(q).toFloat() * r)
     }
 
-    private fun poly(vararg p: FloatArray) = Path().apply {
-        moveTo(p[0][0], p[0][1])
-        for (i in 1 until p.size) lineTo(p[i][0], p[i][1])
+    private fun poly(vararg points: FloatArray) = Path().apply {
+        moveTo(points[0][0], points[0][1])
+        for (i in 1 until points.size) lineTo(points[i][0], points[i][1])
         close()
     }
 
-    private fun center(cx: Float, cy: Float, vararg p: FloatArray) = Path().apply {
+    private fun center(cx: Float, cy: Float, vararg points: FloatArray) = Path().apply {
         moveTo(cx, cy)
-        p.forEach { lineTo(it[0], it[1]) }
+        points.forEach { lineTo(it[0], it[1]) }
         close()
     }
 
-    private fun alpha(c: Int, a: Int) = Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
-
-    private fun lighten(c: Int, t: Float) = Color.rgb(
-        (Color.red(c) + (255 - Color.red(c)) * t).toInt().coerceIn(0, 255),
-        (Color.green(c) + (255 - Color.green(c)) * t).toInt().coerceIn(0, 255),
-        (Color.blue(c) + (255 - Color.blue(c)) * t).toInt().coerceIn(0, 255)
+    private fun alpha(color: Int, alpha: Int) = Color.argb(
+        alpha.coerceIn(0, 255),
+        Color.red(color),
+        Color.green(color),
+        Color.blue(color)
     )
 
     private fun mix(a: Int, b: Int, t: Float): Int {

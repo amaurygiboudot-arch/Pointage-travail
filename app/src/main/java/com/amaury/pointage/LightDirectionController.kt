@@ -22,9 +22,11 @@ object LightDirectionController {
         val lightAngle: Float,
         val celestialAngle: Float?,
         val celestialElevation: Float,
+        val lightIntensity: Float,
         val night: Boolean,
         val deviceAzimuth: Float,
-        val devicePitch: Float
+        val devicePitch: Float,
+        val deviceRoll: Float
     )
 
     private data class Registration(
@@ -52,23 +54,6 @@ object LightDirectionController {
         var azimuth = 0f
         var pitch = 0f
         var roll = 0f
-
-        fun state(angle: Float): LightingState {
-            CarbonCompositeDrawable.updateGlobalLight(angle, night)
-            val diamondPitch = pitch.coerceIn(-55f, 55f)
-            val diamondRoll = roll.coerceIn(-55f, 55f)
-            val diamondIntensity = if (night) intensity.coerceIn(.34f, .48f) else intensity.coerceIn(.72f, 1f)
-            val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
-            RedDiamondFinalButton.updateGlobalNaturalLight(
-                angle,
-                diamondPitch,
-                diamondRoll,
-                diamondIntensity,
-                night,
-                diamondElevation
-            )
-            return LightingState(angle, celestialAngle, elevation, night, azimuth, pitch)
-        }
 
         fun recompute() {
             val now = System.currentTimeMillis()
@@ -99,7 +84,30 @@ object LightDirectionController {
 
         fun emitImmediately() {
             recompute()
-            onLightingChanged(state(target))
+
+            val diamondIntensity = if (night) intensity.coerceIn(.34f, .48f) else intensity.coerceIn(.72f, 1f)
+            val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
+            RedDiamondFinalButton.updateGlobalNaturalLight(
+                target,
+                pitch.coerceIn(-55f, 55f),
+                roll.coerceIn(-55f, 55f),
+                diamondIntensity,
+                night,
+                diamondElevation
+            )
+
+            onLightingChanged(
+                LightingState(
+                    lightAngle = target,
+                    celestialAngle = celestialAngle,
+                    celestialElevation = elevation,
+                    lightIntensity = intensity,
+                    night = night,
+                    deviceAzimuth = azimuth,
+                    devicePitch = pitch,
+                    deviceRoll = roll
+                )
+            )
         }
 
         val listener = object : SensorEventListener {
@@ -115,7 +123,6 @@ object LightDirectionController {
                         pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
                     }
-
                     Sensor.TYPE_ACCELEROMETER -> {
                         val ax = event.values[0]
                         val ay = event.values[1]
@@ -150,33 +157,33 @@ object LightDirectionController {
     }
 
     fun detach(activity: Activity) {
-        val r = registrations.remove(System.identityHashCode(activity)) ?: return
-        r.manager.unregisterListener(r.listener)
-        mainHandler.removeCallbacks(r.ticker)
+        val registration = registrations.remove(System.identityHashCode(activity)) ?: return
+        registration.manager.unregisterListener(registration.listener)
+        mainHandler.removeCallbacks(registration.ticker)
     }
 
     fun isNight(context: Context): Boolean {
-        val l = lastKnownLocation(context)
-        return if (l != null) {
-            CelestialEphemeris.sun(l.latitude, l.longitude).altitude < -0.833
+        val location = lastKnownLocation(context)
+        return if (location != null) {
+            CelestialEphemeris.sun(location.latitude, location.longitude).altitude < -0.833
         } else {
             fallbackNightByClock()
         }
     }
 
     private fun fallbackNightByClock(): Boolean {
-        val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        return h < 7 || h >= 20
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return hour < 7 || hour >= 20
     }
 
     private fun lastKnownLocation(context: Context): Location? {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return null
-        val m = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return runCatching {
-            m.getProviders(true)
-                .mapNotNull { p -> runCatching { m.getLastKnownLocation(p) }.getOrNull() }
+            manager.getProviders(true)
+                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
                 .maxByOrNull { it.time }
         }.getOrNull()
     }
