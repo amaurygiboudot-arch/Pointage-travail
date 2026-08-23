@@ -5,6 +5,7 @@ import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -32,22 +33,39 @@ class RecoveryActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.decorView.alpha = 1f
+        window.setBackgroundDrawableResource(android.R.color.white)
         buildUi()
         RecoveryUpdater.checkAndRepair(this, status, progress, retry)
     }
 
     private fun buildUi() {
         fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+        fun buttonBg(enabled: Boolean = true) = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setColor(if (enabled) Color.rgb(24, 24, 24) else Color.rgb(105, 105, 105))
+        }
+        fun styleButton(button: Button) {
+            button.isAllCaps = false
+            button.textSize = 15f
+            button.setTextColor(Color.WHITE)
+            button.backgroundTintList = null
+            button.background = buttonBg(button.isEnabled)
+            button.alpha = 1f
+        }
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(24), dp(48), dp(24), dp(24))
-            setBackgroundColor(Color.rgb(10, 10, 10))
+            setPadding(dp(24), dp(38), dp(24), dp(28))
+            setBackgroundColor(Color.rgb(250, 250, 250))
+            alpha = 1f
         }
         val root = ScrollView(this).apply {
             isFillViewport = true
-            setBackgroundColor(Color.rgb(10, 10, 10))
+            setBackgroundColor(Color.rgb(250, 250, 250))
+            alpha = 1f
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
@@ -55,39 +73,44 @@ class RecoveryActivity : Activity() {
             text = "♛  HP TRAVAIL"
             textSize = 25f
             gravity = Gravity.CENTER
-            setTextColor(Color.rgb(243, 213, 138))
+            setTextColor(Color.rgb(20, 20, 20))
+            alpha = 1f
         })
         content.addView(TextView(this).apply {
             text = "MODE RÉCUPÉRATION"
             textSize = 19f
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            setPadding(0, dp(12), 0, dp(24))
+            setTextColor(Color.rgb(170, 25, 25))
+            setPadding(0, dp(12), 0, dp(22))
+            alpha = 1f
         })
 
         status = TextView(this).apply {
             text = "Vérification d'une mise à jour de réparation…"
             textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(Color.LTGRAY)
-            setPadding(0, 0, 0, dp(18))
+            setTextColor(Color.BLACK)
+            setPadding(dp(4), 0, dp(4), dp(18))
+            alpha = 1f
         }
         content.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
+            alpha = 1f
         }
         content.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)))
 
         val errorDetails = TextView(this).apply {
             text = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivity)
-            textSize = 12f
-            setTextColor(Color.rgb(225, 225, 225))
-            setBackgroundColor(Color.rgb(28, 28, 28))
+            textSize = 13f
+            setTextColor(Color.BLACK)
+            setBackgroundColor(Color.rgb(235, 235, 235))
             setPadding(dp(14), dp(14), dp(14), dp(14))
             setTextIsSelectable(true)
             visibility = View.GONE
+            alpha = 1f
         }
         content.addView(errorDetails, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(16)
@@ -95,17 +118,17 @@ class RecoveryActivity : Activity() {
 
         content.addView(Button(this).apply {
             text = "VOIR L’ERREUR"
-            isAllCaps = false
+            styleButton(this)
             setOnClickListener {
                 val showing = errorDetails.visibility == View.VISIBLE
                 errorDetails.visibility = if (showing) View.GONE else View.VISIBLE
                 text = if (showing) "VOIR L’ERREUR" else "MASQUER L’ERREUR"
             }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(18) })
 
         content.addView(Button(this).apply {
             text = "PARTAGER DANS LA BOÎTE À IDÉES"
-            isAllCaps = false
+            styleButton(this)
             setOnClickListener {
                 val report = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivity)
                 val share = Intent(Intent.ACTION_SEND).apply {
@@ -115,25 +138,25 @@ class RecoveryActivity : Activity() {
                 }
                 startActivity(Intent.createChooser(share, "Partager le rapport d’erreur"))
             }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         retry = Button(this).apply {
             text = "RÉESSAYER LA RÉPARATION"
-            isAllCaps = false
             isEnabled = false
+            styleButton(this)
             setOnClickListener { RecoveryUpdater.checkAndRepair(this@RecoveryActivity, status, progress, this) }
         }
-        content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
+        content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         content.addView(Button(this).apply {
             text = "OUVRIR HP TRAVAIL QUAND MÊME"
-            isAllCaps = false
+            styleButton(this)
             setOnClickListener {
                 CrashRecoveryManager.clear(this@RecoveryActivity)
                 startActivity(Intent(this@RecoveryActivity, MainActivity::class.java))
                 finish()
             }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         setContentView(root)
     }
@@ -144,6 +167,7 @@ object RecoveryUpdater {
 
     fun checkAndRepair(activity: Activity, status: TextView, progress: ProgressBar, retry: Button) {
         retry.isEnabled = false
+        retry.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 24f; setColor(Color.rgb(105, 105, 105)) }
         progress.progress = 0
         status.text = "Recherche d'une version de réparation…"
         Thread {
@@ -163,6 +187,8 @@ object RecoveryUpdater {
                     activity.runOnUiThread {
                         status.text = "Aucune version plus récente n'est disponible. Tu peux réessayer HP Travail ou attendre une nouvelle mise à jour."
                         retry.isEnabled = true
+                        retry.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 24f; setColor(Color.rgb(24, 24, 24)) }
+                        retry.setTextColor(Color.WHITE)
                     }
                     return@Thread
                 }
@@ -187,6 +213,8 @@ object RecoveryUpdater {
                 activity.runOnUiThread {
                     status.text = "Réparation indisponible : ${error.message ?: "erreur réseau"}"
                     retry.isEnabled = true
+                    retry.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 24f; setColor(Color.rgb(24, 24, 24)) }
+                    retry.setTextColor(Color.WHITE)
                 }
             }
         }.start()
@@ -205,14 +233,7 @@ object RecoveryUpdater {
             ?: error("Empreinte SHA-256 invalide")
     }
 
-    private fun downloadAndInstall(
-        activity: Activity,
-        apkUrl: String,
-        expectedSha: String,
-        status: TextView,
-        progress: ProgressBar,
-        retry: Button
-    ) {
+    private fun downloadAndInstall(activity: Activity, apkUrl: String, expectedSha: String, status: TextView, progress: ProgressBar, retry: Button) {
         val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val fileName = "hp-travail-recovery.apk"
         val target = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), fileName)
