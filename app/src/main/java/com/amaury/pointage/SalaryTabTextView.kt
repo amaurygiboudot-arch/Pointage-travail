@@ -32,6 +32,18 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun selectTab(activeId:Int){listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->rootView.findViewById<TextView>(id)?.let{it.isSelected=id==activeId;styleTab(it,id==activeId)}}}
     private fun styleTab(tab:TextView,active:Boolean){
         val theme=AppThemeCatalog.current(context);val dark=AppThemeCatalog.useDarkPalette(context)
+
+        // Thème Carbone : les onglets utilisent exactement le même fond fibre
+        // + cadre métallique que les autres boutons secondaires du thème.
+        if(theme.id=="natural_carbon"){
+            tab.backgroundTintList=null
+            tab.background=CarbonCompositeDrawable(context)
+            tab.setTextColor(Color.WHITE)
+            tab.alpha=if(active)1f else .86f
+            tab.elevation=if(active)dp(7).toFloat() else dp(3).toFloat()
+            return
+        }
+
         val text=if(dark)theme.darkText else theme.lightText;val accent=if(dark)theme.accentLight else theme.accent
         // Fond céleste translucide : aucune base blanche / lightPanel.
         val celestial=if(dark) Color.argb(if(active)205 else 155,18,67,105) else Color.argb(if(active)205 else 150,95,181,232)
@@ -40,7 +52,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val inner=rounded(celestial,if(active)theme.accentLight else accent,1f,11f)
         tab.backgroundTintList=null
         tab.background=LayerDrawable(arrayOf(outer,blue,inner)).apply{setLayerInset(1,dp(3),dp(3),dp(3),dp(3));setLayerInset(2,dp(7),dp(7),dp(7),dp(7))}
-        tab.setTextColor(text);tab.alpha=1f
+        tab.setTextColor(text);tab.alpha=1f;tab.elevation=0f
     }
     private fun rounded(fill:Int,stroke:Int,strokeDp:Float,radiusDp:Float)=GradientDrawable().apply{shape=GradientDrawable.RECTANGLE;cornerRadius=radiusDp*resources.displayMetrics.density;setColor(fill);setStroke((strokeDp*resources.displayMetrics.density).toInt().coerceAtLeast(1),stroke)}
     private fun installAddressUi(){val root=rootView?:return;val panel=root.findViewById<LinearLayout>(R.id.gpsSettingsPanel)?:return;val addressList=root.findViewById<EditText>(R.id.workplaceAddress)?:return;if(panel.findViewWithTag<AddAddressButton>("add_address_button")!=null)return;addressList.isFocusable=false;addressList.isFocusableInTouchMode=false;addressList.isCursorVisible=false;addressList.isLongClickable=false;addressList.hint="Aucune adresse — utilise le bouton +";addressList.setPadding(dp(12),dp(10),dp(12),dp(10));addressList.setBackgroundResource(R.drawable.hp_panel);val appearance=context.getSharedPreferences("appearance_settings",Context.MODE_PRIVATE);val mode=appearance.getString("mode","auto")?:"auto";val systemDark=(resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;val dark=when(mode){"light"->false;"dark"->true;else->systemDark};val buttonBackground=Color.parseColor(if(dark)"#181818" else "#FFFFFF");val buttonText=Color.parseColor(if(dark)"#F3D58A" else "#111111");val addButton=AddAddressButton(context).apply{tag="add_address_button";text="+  AJOUTER UNE ADRESSE";textSize=16f;setBackgroundResource(R.drawable.hp_panel);backgroundTintList=ColorStateList.valueOf(buttonBackground);setTextColor(buttonText);isAllCaps=false};val index=panel.indexOfChild(addressList);if(index>=0)panel.addView(addButton,index+1,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(54)).apply{topMargin=dp(8)})}
