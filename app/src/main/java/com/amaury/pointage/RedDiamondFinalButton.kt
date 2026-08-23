@@ -34,6 +34,10 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                 it.setNaturalLight(angle, pitch, roll, intensity, night, elevation)
             }
         }
+
+        fun updateGlobalDevicePose(pitch: Float, roll: Float) {
+            live.toList().forEach { it.setDevicePose(pitch, roll) }
+        }
     }
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -76,10 +80,12 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         live.add(this)
+        DiamondMotionController.attach(context)
     }
 
     override fun onDetachedFromWindow() {
         live.remove(this)
+        DiamondMotionController.detach()
         releaseRenderBitmap()
         super.onDetachedFromWindow()
     }
@@ -90,6 +96,12 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 
     fun setLensStrength(value: Float) {
         lensStrength = value.coerceIn(0f, 1f)
+        postInvalidateOnAnimation()
+    }
+
+    private fun setDevicePose(p: Float, r: Float) {
+        pitch = p.coerceIn(-90f, 90f)
+        roll = r.coerceIn(-90f, 90f)
         postInvalidateOnAnimation()
     }
 
@@ -113,10 +125,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val radius = min(w, h) * .455f
         val press = if (isPressed) .93f else 1f
 
-        // 1. Ombre extérieure : hors du matériau, donc avant le diamant.
         drawShadow(canvas, cx, cy, radius * press)
 
-        // 2. Rendu matériau : fond translucide léger puis exactement 80 facettes.
         val bitmap = ensureRenderBitmap(w, h)
         bitmap.eraseColor(Color.TRANSPARENT)
         val materialCanvas = Canvas(bitmap)
@@ -129,17 +139,14 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         drawFacetStructure(materialCanvas, cx, cy, radius)
         materialCanvas.restore()
 
-        // 3. Déformation bombée uniquement géométrique. Elle ne crée aucune lumière.
         buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, radius)
 
-        // 4. Projection du matériau déjà calculé à travers le bombé.
         canvas.save()
         canvas.scale(press, press, cx, cy)
         canvas.clipPath(outer)
         canvas.drawBitmapMesh(bitmap, MESH, MESH, meshVerts, 0, null, 0, null)
         canvas.restore()
 
-        // 5. Cerclage final, sans modifier l'état des facettes.
         drawGirdle(canvas, cx, cy, radius * press)
     }
 
@@ -161,22 +168,12 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val crownRadius = r * .63f
         val girdleRadius = r * .96f
 
-        // 16 facettes centrales : ids 0..15
         for (i in 0 until FACETS) {
             val a0 = angle(i)
             val a1 = angle(i + 1)
-            drawFacet(
-                c,
-                center(cx, cy, pt(cx, cy, tableRadius, a0), pt(cx, cy, tableRadius, a1)),
-                facetId = i,
-                paletteIndex = i,
-                azimuth = (a0 + a1) * .5f,
-                ring = 0,
-                energy = 1.16f
-            )
+            drawFacet(c, center(cx, cy, pt(cx, cy, tableRadius, a0), pt(cx, cy, tableRadius, a1)), i, i, (a0 + a1) * .5f, 0, 1.16f)
         }
 
-        // 32 facettes intermédiaires : ids 16..47
         for (i in 0 until FACETS) {
             val a0 = angle(i)
             val a1 = angle(i + 1)
@@ -190,7 +187,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             drawFacet(c, poly(i1, mm, m1), 17 + i * 2, i + 9, (am + a1) * .5f, 1, .87f)
         }
 
-        // 32 facettes périphériques : ids 48..79
         for (i in 0 until FACETS) {
             val a0 = angle(i)
             val a1 = angle(i + 1)
@@ -221,7 +217,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val facetAzimuth = norm(azimuth + azimuthSignature + roll * .10f)
         val facetTilt = (cutTilt + pitch * .010f).coerceIn(6f, 74f)
 
-        // État permanent d'abord : couleur + transparence + historique de cette facette.
         val state = facetEngine.stateFor(
             facetId,
             paletteIndex,
@@ -232,7 +227,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             facetTilt
         )
 
-        // Ensuite seulement : orientation actuelle -> lumière et reflet.
         val normal = normal3(azimuth + azimuthSignature, cutTilt, pitch, roll)
         val light = light3(lightAngle, elevation)
         val view = floatArrayOf(0f, 0f, 1f)
@@ -255,15 +249,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 
         val targetLuminosity = (.72f + dynamic).coerceIn(.70f, 1.24f)
         val targetReflection = (specular * 1.10f + fresnel * .06f + internalReflection * .04f).coerceIn(0f, .30f)
-        val lighting = facetEngine.update(
-            state,
-            targetLuminosity,
-            targetReflection,
-            facetAzimuth,
-            facetTilt
-        )
+        val lighting = facetEngine.update(state, targetLuminosity, targetReflection, facetAzimuth, facetTilt)
 
-        // Enfin : rendu unique de la facette. Sa couleur de base et son alpha ne bougent jamais.
         val base = state.baseColor
         val rr = (Color.red(base) * lighting.luminosity).toInt().coerceIn(0, 255)
         val gg = (Color.green(base) * lighting.luminosity).toInt().coerceIn(0, 255)
@@ -280,14 +267,14 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val gradientAngle = Math.toRadians((azimuth + 90f).toDouble())
         val gx = cos(gradientAngle).toFloat() * width * .42f
         val gy = sin(gradientAngle).toFloat() * height * .42f
-        val alpha = state.referenceAlpha
+        val facetAlpha = state.referenceAlpha
         fill.shader = LinearGradient(
             width * .5f - gx,
             height * .5f - gy,
             width * .5f + gx,
             height * .5f + gy,
-            alpha(reflectedColor, alpha),
-            alpha(deepColor, (alpha * .88f).toInt()),
+            alpha(reflectedColor, facetAlpha),
+            alpha(deepColor, (facetAlpha * .88f).toInt()),
             Shader.TileMode.CLAMP
         )
         c.drawPath(path, fill)
@@ -316,10 +303,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         c.drawCircle(cx, cy, r * .63f, edge)
     }
 
-    /**
-     * Déformation radiale non linéaire conservée à l'identique dans son principe.
-     * Elle déforme la texture déjà rendue et n'ajoute aucun éclairage/reflet.
-     */
     private fun buildConvexMesh(w: Float, h: Float, cx: Float, cy: Float, r: Float) {
         val lensRadius = r * .955f
         val strength = lensStrength.coerceIn(0f, 1f)
