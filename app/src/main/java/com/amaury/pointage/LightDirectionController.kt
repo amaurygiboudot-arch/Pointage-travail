@@ -63,13 +63,17 @@ object LightDirectionController {
         var ay = 0f
         var az = 9.81f
 
-        fun state(angle: Float) = LightingState(
-            lightAngle = angle,
-            celestialAngle = celestialAngle,
-            night = currentNight,
-            deviceAzimuth = deviceAzimuth,
-            devicePitch = pitch
-        )
+        fun state(angle: Float): LightingState {
+            // Une seule direction céleste pilote désormais aussi le chrome du thème Carbone.
+            CarbonCompositeDrawable.updateGlobalLight(angle, currentNight)
+            return LightingState(
+                lightAngle = angle,
+                celestialAngle = celestialAngle,
+                night = currentNight,
+                deviceAzimuth = deviceAzimuth,
+                devicePitch = pitch
+            )
+        }
 
         fun recomputeCelestial() {
             val now = System.currentTimeMillis()
