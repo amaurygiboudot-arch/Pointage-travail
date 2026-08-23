@@ -32,7 +32,14 @@ object LightDirectionController {
 
         fun state(angle:Float):LightingState{
             CarbonCompositeDrawable.updateGlobalLight(angle,night)
-            RedDiamondFinalButton.updateGlobalNaturalLight(angle,pitch,roll,intensity,night,elevation)
+            // Les trois diamants gardent une couleur stable. Les capteurs déplacent les reflets,
+            // mais leur inclinaison et leur intensité sont volontairement bornées pour éviter
+            // la dérive progressive vers un rendu blanc/gris après quelques secondes.
+            val diamondPitch=(pitch*.12f).coerceIn(-7f,7f)
+            val diamondRoll=(roll*.12f).coerceIn(-7f,7f)
+            val diamondIntensity=if(night) intensity.coerceIn(.34f,.48f) else intensity.coerceIn(.72f,1f)
+            val diamondElevation=elevation.coerceIn(if(night) 12f else 20f,90f)
+            RedDiamondFinalButton.updateGlobalNaturalLight(angle,diamondPitch,diamondRoll,diamondIntensity,night,diamondElevation)
             return LightingState(angle,celestialAngle,elevation,night,azimuth,pitch)
         }
         fun recompute(){
