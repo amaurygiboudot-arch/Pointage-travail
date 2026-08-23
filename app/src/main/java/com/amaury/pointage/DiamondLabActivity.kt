@@ -1,163 +1,178 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 
 class DiamondLabActivity : Activity() {
-    private lateinit var previewSurface: True3DButtonTextureView
-    private lateinit var previewLabel: Button
-    private var tuning = DiamondTuning()
-    private var lightAngle = 305f
+    private lateinit var canvas: DiamondDesignerCanvas
+    private lateinit var selectionLabel: TextView
+    private lateinit var lensLabel: TextView
+    private lateinit var alphaLabel: TextView
+    private lateinit var rotationLabel: TextView
+    private lateinit var lightLabel: TextView
+    private lateinit var lensBar: SeekBar
+    private lateinit var alphaBar: SeekBar
+    private lateinit var rotationBar: SeekBar
+    private lateinit var lightBar: SeekBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        tuning = DiamondTuningStore.load(this)
-        window.statusBarColor = Color.parseColor("#030810")
-        window.navigationBarColor = Color.parseColor("#030810")
+        window.statusBarColor = Color.parseColor("#05070B")
+        window.navigationBarColor = Color.parseColor("#05070B")
         setContentView(buildUi())
-        refreshPreview()
+        bindCanvas()
     }
 
-    private fun buildUi(): ScrollView {
-        val root = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#030810")) }
-        val content = LinearLayout(this).apply {
+    private fun buildUi(): LinearLayout {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(20), dp(18), dp(28))
+            setBackgroundColor(Color.parseColor("#05070B"))
         }
-        root.addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        content.addView(TextView(this).apply {
-            text = "LABORATOIRE DIAMANT"
-            textSize = 22f
+        val title = TextView(this).apply {
+            text = "DIAMOND DESIGNER"
             setTextColor(Color.WHITE)
+            textSize = 20f
             gravity = Gravity.CENTER
-        }, lp(top = 0, bottom = 8))
+            setPadding(dp(12), dp(12), dp(12), dp(8))
+        }
+        root.addView(title, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        content.addView(TextView(this).apply {
-            text = "Ajuste le cristal en direct. Cet aperçu utilise exactement le nouveau moteur 3D du thème Diamant."
-            textSize = 14f
-            setTextColor(Color.parseColor("#B8CBD9"))
-            gravity = Gravity.CENTER
-        }, lp(bottom = 18))
+        val library = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(LinearLayout(this@DiamondLabActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), dp(4), dp(8), dp(8))
+                addView(toolButton("+ Entrée") { canvas.addEntryButton() })
+                addView(toolButton("+ Cadre") { canvas.addFrame() })
+                addView(toolButton("+ Fond") { canvas.addBackground() })
+                addView(toolButton("Dupliquer") { canvas.duplicateSelected() })
+                addView(toolButton("Avant") { canvas.bringForward() })
+                addView(toolButton("Arrière") { canvas.sendBackward() })
+                addView(toolButton("Verrou") { canvas.toggleLock() })
+                addView(toolButton("Supprimer") { canvas.deleteSelected() })
+            })
+        }
+        root.addView(library, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        // L'ancien DiamondDrawable 2D n'est plus utilisé ici : l'aperçu est
-        // rendu par le même moteur OpenGL à facettes que les boutons du thème.
-        val previewFrame = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
-            setBackgroundColor(Color.TRANSPARENT)
-        }
-        previewSurface = True3DButtonTextureView(this).apply {
-            setLightAngle(lightAngle)
-            setCrystalTuning(tuning)
-        }
-        previewLabel = Button(this).apply {
-            text = "APERÇU DIAMANT 3D"
-            textSize = 15f
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            isClickable = false
-            isFocusable = false
-            background = ColorDrawable(Color.TRANSPARENT)
-            elevation = 0f
-            stateListAnimator = null
-            setPadding(dp(18), dp(12), dp(18), dp(12))
-        }
-        previewFrame.addView(previewSurface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        previewFrame.addView(previewLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        content.addView(previewFrame, lp(height = 96, bottom = 20))
+        val workspace = FrameLayout(this)
+        canvas = DiamondDesignerCanvas(this)
+        workspace.addView(canvas, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(workspace, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        addSlider(content, "Transparence", tuning.transparency) { tuning = tuning.copy(transparency = it) }
-        addSlider(content, "Profondeur des facettes", tuning.facetDepth) { tuning = tuning.copy(facetDepth = it) }
-        addSlider(content, "Réfraction", tuning.refraction) { tuning = tuning.copy(refraction = it) }
-        addSlider(content, "Éclats lumineux", tuning.sparkle) { tuning = tuning.copy(sparkle = it) }
-        addSlider(content, "Bleu glace", tuning.iceBlue) { tuning = tuning.copy(iceBlue = it) }
-        addSlider(content, "Épaisseur du biseau", tuning.bevel) { tuning = tuning.copy(bevel = it) }
-        addSlider(content, "Direction de la lumière", lightAngle / 360f, valueText = { "${(it * 360f).toInt()}°" }) {
-            lightAngle = it * 360f
-            refreshPreview(save = false)
+        val controls = ScrollView(this).apply {
+            setBackgroundColor(Color.parseColor("#0B1118"))
+            addView(buildControls())
         }
-
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val reset = Button(this).apply {
-            text = "Réinitialiser"
-            isAllCaps = false
-            setOnClickListener {
-                DiamondTuningStore.reset(this@DiamondLabActivity)
-                tuning = DiamondTuningStore.defaults
-                recreate()
-            }
-        }
-        val done = Button(this).apply {
-            text = "Garder ces réglages"
-            isAllCaps = false
-            setOnClickListener {
-                DiamondTuningStore.save(this@DiamondLabActivity, tuning)
-                finish()
-            }
-        }
-        row.addView(reset, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(6) })
-        row.addView(done, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(6) })
-        content.addView(row, lp(top = 18))
+        root.addView(controls, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(285)))
         return root
     }
 
-    private fun addSlider(
-        parent: LinearLayout,
-        title: String,
-        initial: Float,
-        valueText: (Float) -> String = { "${(it * 100).toInt()} %" },
-        onChange: (Float) -> Unit
-    ) {
-        val label = TextView(this).apply {
-            textSize = 14f
-            setTextColor(Color.WHITE)
-        }
-        parent.addView(label, lp(top = 8))
-        val bar = SeekBar(this).apply {
-            max = 1000
-            progress = (initial.coerceIn(0f, 1f) * max).toInt()
-        }
-        fun update(value: Float) {
-            label.text = "$title : ${valueText(value)}"
-            onChange(value)
-            if (title != "Direction de la lumière") refreshPreview()
-        }
-        update(initial)
-        bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) update(progress / 1000f)
+    private fun buildControls(): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(14))
+
+            selectionLabel = TextView(this@DiamondLabActivity).apply {
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                text = "Aucun élément sélectionné"
             }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-        })
-        parent.addView(bar, lp(bottom = 2))
-    }
+            addView(selectionLabel)
 
-    private fun refreshPreview(save: Boolean = true) {
-        if (!::previewSurface.isInitialized) return
-        if (save) DiamondTuningStore.save(this, tuning)
-        previewSurface.setCrystalTuning(tuning)
-        previewSurface.setLightAngle(lightAngle)
-        previewSurface.invalidate()
-    }
+            lensLabel = valueLabel()
+            lensBar = slider(0, 1000)
+            addView(lensLabel); addView(lensBar)
 
-    private fun lp(height: Int? = null, top: Int = 0, bottom: Int = 0) =
-        LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height?.let { dp(it) } ?: ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(top)
-            bottomMargin = dp(bottom)
+            alphaLabel = valueLabel()
+            alphaBar = slider(50, 1000)
+            addView(alphaLabel); addView(alphaBar)
+
+            rotationLabel = valueLabel()
+            rotationBar = slider(0, 3600)
+            addView(rotationLabel); addView(rotationBar)
+
+            lightLabel = valueLabel()
+            lightBar = slider(0, 3600)
+            addView(lightLabel); addView(lightBar)
+
+            val report = Button(this@DiamondLabActivity).apply {
+                text = "COPIER LE RAPPORT"
+                isAllCaps = false
+                setOnClickListener {
+                    val text = canvas.report()
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("Diamond Designer", text))
+                    Toast.makeText(this@DiamondLabActivity, "Rapport copié", Toast.LENGTH_SHORT).show()
+                }
+            }
+            addView(report, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
         }
+    }
 
+    private fun bindCanvas() {
+        canvas.onSelectionChanged = { updateControls(it) }
+        canvas.onDesignChanged = { canvas.selectedElement()?.let { updateLabels(it) } }
+
+        lensBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedLens(p / 1000f) })
+        alphaBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedAlpha(p / 1000f) })
+        rotationBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedRotation(p / 10f) })
+        lightBar.setOnSeekBarChangeListener(listener { p -> canvas.setSelectedLightAngle(p / 10f) })
+    }
+
+    private fun updateControls(e: DiamondDesignerCanvas.DesignElement?) {
+        if (e == null) {
+            selectionLabel.text = "Aucun élément sélectionné"
+            return
+        }
+        selectionLabel.text = "${e.name} • ${e.type}${if (e.locked) " • verrouillé" else ""}"
+        lensBar.progress = (e.lensStrength * 1000f).toInt()
+        alphaBar.progress = (e.alpha * 1000f).toInt()
+        rotationBar.progress = (((e.rotation % 360f) + 360f) % 360f * 10f).toInt()
+        lightBar.progress = (e.lightAngle * 10f).toInt()
+        lensBar.isEnabled = e.type == DiamondDesignerCanvas.ElementType.ENTRY_BUTTON
+        lightBar.isEnabled = e.type == DiamondDesignerCanvas.ElementType.ENTRY_BUTTON
+        updateLabels(e)
+    }
+
+    private fun updateLabels(e: DiamondDesignerCanvas.DesignElement) {
+        lensLabel.text = "Bombé : ${(e.lensStrength * 100f).toInt()} %"
+        alphaLabel.text = "Transparence : ${(e.alpha * 100f).toInt()} %"
+        rotationLabel.text = "Rotation : ${e.rotation.toInt()}°"
+        lightLabel.text = "Lumière : ${e.lightAngle.toInt()}°"
+    }
+
+    private fun listener(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) onChange(progress) }
+        override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+        override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+    }
+
+    private fun toolButton(label: String, action: () -> Unit) = Button(this).apply {
+        text = label
+        isAllCaps = false
+        textSize = 12f
+        minWidth = 0
+        minimumWidth = 0
+        setPadding(dp(10), 0, dp(10), 0)
+        setOnClickListener { action() }
+    }.also { it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42)).apply { marginEnd = dp(6) } }
+
+    private fun valueLabel() = TextView(this).apply { setTextColor(Color.parseColor("#D7E5F2")); textSize = 13f }
+    private fun slider(minValue: Int, maxValue: Int) = SeekBar(this).apply { min = minValue; max = maxValue }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }
