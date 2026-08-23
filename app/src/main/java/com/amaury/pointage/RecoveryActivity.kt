@@ -11,12 +11,13 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Toast
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -37,25 +38,33 @@ class RecoveryActivity : Activity() {
 
     private fun buildUi() {
         fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-        val root = LinearLayout(this).apply {
+
+        val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(24), dp(48), dp(24), dp(24))
             setBackgroundColor(Color.rgb(10, 10, 10))
         }
-        root.addView(TextView(this).apply {
+        val root = ScrollView(this).apply {
+            isFillViewport = true
+            setBackgroundColor(Color.rgb(10, 10, 10))
+            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
+        content.addView(TextView(this).apply {
             text = "♛  HP TRAVAIL"
             textSize = 25f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(243, 213, 138))
         })
-        root.addView(TextView(this).apply {
+        content.addView(TextView(this).apply {
             text = "MODE RÉCUPÉRATION"
             textSize = 19f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
             setPadding(0, dp(12), 0, dp(24))
         })
+
         status = TextView(this).apply {
             text = "Vérification d'une mise à jour de réparation…"
             textSize = 15f
@@ -63,12 +72,50 @@ class RecoveryActivity : Activity() {
             setTextColor(Color.LTGRAY)
             setPadding(0, 0, 0, dp(18))
         }
-        root.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        content.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             progress = 0
         }
-        root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)))
+        content.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(18)))
+
+        val errorDetails = TextView(this).apply {
+            text = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivity)
+            textSize = 12f
+            setTextColor(Color.rgb(225, 225, 225))
+            setBackgroundColor(Color.rgb(28, 28, 28))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setTextIsSelectable(true)
+            visibility = View.GONE
+        }
+        content.addView(errorDetails, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(16)
+        })
+
+        content.addView(Button(this).apply {
+            text = "VOIR L’ERREUR"
+            isAllCaps = false
+            setOnClickListener {
+                val showing = errorDetails.visibility == View.VISIBLE
+                errorDetails.visibility = if (showing) View.GONE else View.VISIBLE
+                text = if (showing) "VOIR L’ERREUR" else "MASQUER L’ERREUR"
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(18) })
+
+        content.addView(Button(this).apply {
+            text = "PARTAGER DANS LA BOÎTE À IDÉES"
+            isAllCaps = false
+            setOnClickListener {
+                val report = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivity)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "HP Travail — rapport d’erreur")
+                    putExtra(Intent.EXTRA_TEXT, report)
+                }
+                startActivity(Intent.createChooser(share, "Partager le rapport d’erreur"))
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
 
         retry = Button(this).apply {
             text = "RÉESSAYER LA RÉPARATION"
@@ -76,9 +123,9 @@ class RecoveryActivity : Activity() {
             isEnabled = false
             setOnClickListener { RecoveryUpdater.checkAndRepair(this@RecoveryActivity, status, progress, this) }
         }
-        root.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(22) })
+        content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(10) })
 
-        root.addView(Button(this).apply {
+        content.addView(Button(this).apply {
             text = "OUVRIR HP TRAVAIL QUAND MÊME"
             isAllCaps = false
             setOnClickListener {
