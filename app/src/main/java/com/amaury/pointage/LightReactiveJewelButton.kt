@@ -38,7 +38,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(context: Context, 
     private fun decodeRawBitmap(r:Int):Bitmap?=runCatching{val s=resources.openRawResource(r).bufferedReader().use{it.readText()};val b=Base64.decode(s.trim(),Base64.DEFAULT);BitmapFactory.decodeByteArray(b,0,b.size)}.getOrNull()
     private fun ensureLayers(){if(loadedForId==id&&backgroundLayer!=null)return;loadedForId=id;backgroundLayer=when(id){R.id.entryButton->decodeRawBitmap(R.raw.hp_button_bg_green_b64);R.id.pauseButton->decodeRawBitmap(R.raw.hp_button_bg_orange_b64);R.id.exitButton->decodeRawBitmap(R.raw.hp_button_bg_red_b64);else->null};sharpenedLayer=backgroundLayer?.let{sharpenOriginal(it)}}
 
-    /** Accentue uniquement les transitions déjà présentes dans le PNG (unsharp mask 3x3). */
     private fun sharpenOriginal(src:Bitmap):Bitmap{
         val w=src.width;val h=src.height;val input=IntArray(w*h);val out=IntArray(w*h);src.getPixels(input,0,w,0,0,w,h)
         for(y in 0 until h) for(x in 0 until w){val i=y*w+x;val c=input[i];val a=Color.alpha(c);if(a==0){out[i]=c;continue};var sr=0;var sg=0;var sb=0;var n=0
@@ -67,11 +66,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(context: Context, 
         super.onDraw(canvas)
     }
 
-    /**
-     * Éclairage réellement piloté par LightDirectionController.
-     * Le point lumineux se déplace sur la matière suivant la position apparente
-     * du Soleil le jour et de la Lune la nuit, avec une teinte plus froide la nuit.
-     */
     private fun drawCelestialLighting(c:Canvas,cx:Float,cy:Float,r:Float){
         val rad=Math.toRadians(jewelLightAngle.toDouble())
         val ux=cos(rad).toFloat();val uy=sin(rad).toFloat()
@@ -94,7 +88,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(context: Context, 
         c.clipPath(Path().apply{addCircle(cx,cy,r,Path.Direction.CW)})
         c.drawCircle(cx,cy,r,celestialLightPaint)
 
-        // Ombre opposée : donne le relief et rend le déplacement de la lumière évident.
         val sx=cx-ux*r*.62f;val sy=cy-uy*r*.62f
         celestialLightPaint.shader=RadialGradient(
             sx,sy,r*.92f,
@@ -105,7 +98,6 @@ open class LightReactiveJewelButton @JvmOverloads constructor(context: Context, 
         c.restore()
         celestialLightPaint.shader=null
 
-        // Petit reflet de bord orienté vers l'astre, comme une arête polie.
         celestialRimPaint.style=Paint.Style.STROKE
         celestialRimPaint.strokeCap=Paint.Cap.ROUND
         celestialRimPaint.strokeWidth=r*.035f
@@ -114,7 +106,65 @@ open class LightReactiveJewelButton @JvmOverloads constructor(context: Context, 
         c.drawArc(RectF(cx-r*.86f,cy-r*.86f,cx+r*.86f,cy+r*.86f),start,54f,false,celestialRimPaint)
     }
 
-    private fun drawFrame(c:Canvas,cx:Float,cy:Float,r:Float){framePaint.style=Paint.Style.STROKE;framePaint.strokeCap=Paint.Cap.SQUARE;framePaint.strokeWidth=r*.09f;framePaint.shader=SweepGradient(cx,cy,intArrayOf(Color.rgb(82,42,2),Color.rgb(255,226,116),Color.rgb(160,88,6),Color.rgb(255,247,184),Color.rgb(91,47,3),Color.rgb(255,218,85),Color.rgb(82,42,2)),null);c.drawCircle(cx,cy,r*.95f,framePaint);framePaint.shader=null;framePaint.strokeWidth=r*.082f;framePaint.shader=SweepGradient(cx,cy,intArrayOf(Color.rgb(0,8,35),Color.rgb(5,91,220),Color.rgb(0,15,62),Color.rgb(24,126,255),Color.rgb(0,13,51),Color.rgb(4,80,202),Color.rgb(0,8,35)),null);c.drawCircle(cx,cy,r*.915f,framePaint);framePaint.shader=null;framePaint.strokeWidth=r*.027f;framePaint.color=Color.rgb(255,202,62);c.drawCircle(cx,cy,r*.878f,framePaint);framePaint.strokeWidth=r*.009f;framePaint.color=Color.rgb(255,248,190);c.drawCircle(cx,cy,r*.893f,framePaint)}
+    private fun drawFrame(c:Canvas,cx:Float,cy:Float,r:Float){
+        val theme=AppThemeCatalog.current(context)
+        framePaint.style=Paint.Style.STROKE
+        framePaint.strokeCap=Paint.Cap.ROUND
+
+        if(theme.id=="natural_carbon"){
+            // Carbone : cadre métallique séparé du bouton coloré. Chrome dur + reflet solaire/lunaire.
+            framePaint.strokeWidth=r*.115f
+            framePaint.shader=SweepGradient(cx,cy,intArrayOf(
+                Color.rgb(35,38,41),Color.rgb(205,211,216),Color.rgb(64,69,74),Color.rgb(252,254,255),
+                Color.rgb(52,56,60),Color.rgb(185,192,198),Color.rgb(31,34,37)
+            ),null)
+            c.drawCircle(cx,cy,r*.935f,framePaint)
+            framePaint.shader=null
+
+            framePaint.strokeWidth=r*.025f
+            framePaint.color=Color.rgb(18,20,22)
+            c.drawCircle(cx,cy,r*.874f,framePaint)
+
+            val rad=Math.toRadians(jewelLightAngle.toDouble())
+            val ux=cos(rad).toFloat();val uy=sin(rad).toFloat()
+            val light=if(nightLight) Color.rgb(195,222,255) else Color.WHITE
+            framePaint.strokeCap=Paint.Cap.ROUND
+            framePaint.strokeWidth=r*(if(nightLight).055f else .070f)
+            framePaint.color=Color.argb(if(nightLight)150 else 245,Color.red(light),Color.green(light),Color.blue(light))
+            c.drawArc(RectF(cx-r*.94f,cy-r*.94f,cx+r*.94f,cy+r*.94f),jewelLightAngle-24f,48f,false,framePaint)
+
+            val hotX=cx+ux*r*.90f;val hotY=cy+uy*r*.90f
+            framePaint.style=Paint.Style.FILL
+            framePaint.shader=RadialGradient(hotX,hotY,r*(if(nightLight).16f else .22f),
+                intArrayOf(Color.argb(if(nightLight)165 else 255,255,255,255),Color.argb(if(nightLight)60 else 145,Color.red(light),Color.green(light),Color.blue(light)),Color.TRANSPARENT),
+                floatArrayOf(0f,.34f,1f),Shader.TileMode.CLAMP)
+            c.drawCircle(hotX,hotY,r*.24f,framePaint)
+            framePaint.shader=null
+            framePaint.style=Paint.Style.STROKE
+            return
+        }
+
+        val colors=when(theme.id){
+            "steel_blue"->intArrayOf(Color.rgb(17,34,48),Color.rgb(94,176,230),Color.rgb(22,57,81),Color.rgb(190,230,255),Color.rgb(21,47,65),Color.rgb(72,143,188),Color.rgb(17,34,48))
+            "brushed_aluminum"->intArrayOf(Color.rgb(74,78,82),Color.rgb(224,228,232),Color.rgb(96,101,106),Color.WHITE,Color.rgb(82,87,92),Color.rgb(196,201,205),Color.rgb(74,78,82))
+            "diamond_crystal"->intArrayOf(Color.rgb(90,150,184),Color.rgb(240,251,255),Color.rgb(106,184,225),Color.WHITE,Color.rgb(92,163,203),Color.rgb(216,244,255),Color.rgb(90,150,184))
+            else->intArrayOf(Color.rgb(82,42,2),Color.rgb(255,226,116),Color.rgb(160,88,6),Color.rgb(255,247,184),Color.rgb(91,47,3),Color.rgb(255,218,85),Color.rgb(82,42,2))
+        }
+        framePaint.strokeWidth=r*.11f
+        framePaint.shader=SweepGradient(cx,cy,colors,null)
+        c.drawCircle(cx,cy,r*.935f,framePaint)
+        framePaint.shader=null
+        framePaint.strokeWidth=r*.018f
+        framePaint.color=if(nightLight) theme.accentLight else theme.accent
+        c.drawCircle(cx,cy,r*.874f,framePaint)
+
+        framePaint.strokeCap=Paint.Cap.ROUND
+        framePaint.strokeWidth=r*.038f
+        val lightColor=if(nightLight) Color.rgb(200,225,255) else Color.WHITE
+        framePaint.color=Color.argb(if(nightLight)110 else 170,Color.red(lightColor),Color.green(lightColor),Color.blue(lightColor))
+        c.drawArc(RectF(cx-r*.93f,cy-r*.93f,cx+r*.93f,cy+r*.93f),jewelLightAngle-20f,40f,false,framePaint)
+    }
+
     private fun drawIcon(c:Canvas,cx:Float,cy:Float,r:Float,mirror:Boolean){val ir=r*.285f;iconPaint.style=Paint.Style.FILL;iconPaint.shader=RadialGradient(cx-ir*.22f,cy-ir*.25f,ir*1.3f,intArrayOf(Color.rgb(24,112,214),Color.rgb(2,35,104),Color.rgb(0,7,28)),floatArrayOf(0f,.58f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,ir,iconPaint);iconPaint.shader=null;detailPaint.style=Paint.Style.STROKE;detailPaint.strokeCap=Paint.Cap.SQUARE;detailPaint.color=Color.rgb(255,205,70);detailPaint.strokeWidth=r*.032f;c.drawCircle(cx,cy,ir*.96f,detailPaint);detailPaint.color=Color.rgb(255,242,168);detailPaint.strokeWidth=r*.01f;c.drawCircle(cx,cy,ir*.78f,detailPaint);c.save();if(mirror)c.scale(-1f,1f,cx,cy);val p=Path().apply{val x0=cx-ir*.5f;val x1=cx+ir*.18f;val tip=cx+ir*.58f;val half=ir*.18f;val head=ir*.33f;moveTo(x0,cy-half);lineTo(x1,cy-half);lineTo(x1,cy-head);lineTo(tip,cy);lineTo(x1,cy+head);lineTo(x1,cy+half);lineTo(x0,cy+half);close()};iconPaint.color=Color.rgb(244,180,43);c.drawPath(p,iconPaint);detailPaint.strokeJoin=Paint.Join.MITER;detailPaint.strokeWidth=r*.018f;detailPaint.color=Color.rgb(255,244,174);c.drawPath(p,detailPaint);c.restore()}
     private fun drawPause(c:Canvas,cx:Float,cy:Float,r:Float){val bw=r*.145f;val bh=r*.54f;val gap=r*.105f;val top=cy-bh*.5f;val bottom=cy+bh*.5f;val corner=bw*.16f;detailPaint.style=Paint.Style.STROKE;detailPaint.strokeWidth=r*.024f;detailPaint.color=Color.rgb(88,45,4);c.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,detailPaint);c.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,detailPaint);pauseGlyphPaint.style=Paint.Style.FILL;pauseGlyphPaint.color=Color.rgb(248,183,48);c.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,pauseGlyphPaint);c.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,pauseGlyphPaint);detailPaint.strokeWidth=r*.009f;detailPaint.color=Color.rgb(255,244,176);c.drawRoundRect(cx-gap-bw,top,cx-gap,bottom,corner,corner,detailPaint);c.drawRoundRect(cx+gap,top,cx+gap+bw,bottom,corner,corner,detailPaint)}
     protected fun shortestDelta(a:Float,b:Float):Float=((b-a+540)%360)-180
