@@ -11,12 +11,9 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Bouton Carbone = deux matériaux distincts :
- * 1. fond fibre carbone : réponse diffuse, douce, bombée ;
- * 2. cadre métal : réponse spéculaire, dure, brillante, très contrastée.
- *
- * Les deux utilisent la même direction Soleil/Lune, mais PAS le même modèle
- * d'éclairage afin que le carbone ne ressemble jamais à du métal.
+ * Bouton Carbone = deux matériaux réellement séparés :
+ * - fond fibre carbone : relief bombé, mat et diffus ;
+ * - cadre métal : reflet dur, brillant et spéculaire.
  */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
     companion object {
@@ -57,95 +54,108 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
         dst.set(bounds)
-        val radius = bounds.height() * 0.48f
+        val radius = bounds.height() * .48f
 
         clipPath.reset()
         clipPath.addRoundRect(dst, radius, radius, Path.Direction.CW)
 
-        // MATÉRIAU 1 : carbone. Toujours sous le métal.
+        // 1) FOND CARBONE : fibre + modelé bombé.
         canvas.save()
         canvas.clipPath(clipPath)
         fillBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackCarbon(canvas, dst)
-        drawCarbonDiffuseRelief(canvas, dst)
+        drawCarbonConvexRelief(canvas, dst)
         canvas.restore()
 
-        // MATÉRIAU 2 : métal. Rendu séparé et beaucoup plus spéculaire.
+        // 2) CADRE MÉTAL : totalement indépendant du fond.
         frameBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackFrame(canvas, dst, radius)
         drawMetalSpecularReflection(canvas, dst, radius)
     }
 
     /**
-     * Carbone : éclairage DIFFUS.
-     * Large halo doux + ombre opposée + liseré intérieur léger.
-     * Aucun point blanc brûlé, aucune bande miroir.
+     * Relief volontairement très visible : le carbone doit sembler physiquement
+     * bombé, comme un coussin rigide légèrement convexe, sans devenir brillant.
      */
-    private fun drawCarbonDiffuseRelief(canvas: Canvas, target: RectF) {
-        val r = Math.toRadians(lightAngle.toDouble())
-        val dx = cos(r).toFloat()
-        val dy = sin(r).toFloat()
+    private fun drawCarbonConvexRelief(canvas: Canvas, target: RectF) {
+        val rad = Math.toRadians(lightAngle.toDouble())
+        val dx = cos(rad).toFloat()
+        val dy = sin(rad).toFloat()
         val cx = target.centerX()
         val cy = target.centerY()
-        val radius = sqrt(target.width() * target.width() + target.height() * target.height()) * .72f
+        val diagonal = sqrt(target.width() * target.width() + target.height() * target.height())
 
         paint.style = Paint.Style.FILL
         paint.colorFilter = null
         paint.alpha = globalAlpha
 
-        // La fibre reçoit une lumière large et mate, légèrement chaude le jour.
-        val tint = if (nightLight) Color.rgb(150, 176, 204) else Color.rgb(224, 216, 196)
-        val hi = if (nightLight) 30 else 62
-        val mid = if (nightLight) 14 else 30
-        val lx = cx + dx * target.width() * .18f
-        val ly = cy + dy * target.height() * .20f
-
+        // Grosse lumière diffuse du côté de l'astre : beaucoup plus présente qu'avant.
+        val tint = if (nightLight) Color.rgb(170, 202, 232) else Color.rgb(244, 235, 210)
+        val lightX = cx + dx * target.width() * .26f
+        val lightY = cy + dy * target.height() * .34f
         paint.shader = RadialGradient(
-            lx, ly, radius,
+            lightX, lightY, diagonal * .50f,
             intArrayOf(
-                Color.argb(hi, Color.red(tint), Color.green(tint), Color.blue(tint)),
-                Color.argb(mid, Color.red(tint), Color.green(tint), Color.blue(tint)),
-                Color.argb(5, 255, 255, 255),
+                Color.argb(if (nightLight) 58 else 118, Color.red(tint), Color.green(tint), Color.blue(tint)),
+                Color.argb(if (nightLight) 34 else 70, Color.red(tint), Color.green(tint), Color.blue(tint)),
+                Color.argb(if (nightLight) 12 else 24, 220, 220, 220),
                 Color.TRANSPARENT
             ),
-            floatArrayOf(0f, .34f, .68f, 1f),
+            floatArrayOf(0f, .32f, .66f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRect(target, paint)
 
-        // Ombre très large du côté opposé : c'est elle qui donne la bosse.
-        val sx = cx - dx * target.width() * .24f
-        val sy = cy - dy * target.height() * .26f
+        // Ombre forte à l'opposé : c'est elle qui fait réellement ressortir la bosse.
+        val shadowX = cx - dx * target.width() * .34f
+        val shadowY = cy - dy * target.height() * .42f
         paint.shader = RadialGradient(
-            sx, sy, radius * .96f,
+            shadowX, shadowY, diagonal * .48f,
             intArrayOf(
-                Color.argb(if (nightLight) 58 else 72, 0, 0, 0),
-                Color.argb(if (nightLight) 28 else 42, 0, 0, 0),
+                Color.argb(if (nightLight) 108 else 132, 0, 0, 0),
+                Color.argb(if (nightLight) 72 else 92, 0, 0, 0),
+                Color.argb(24, 0, 0, 0),
                 Color.TRANSPARENT
             ),
-            floatArrayOf(0f, .48f, 1f),
+            floatArrayOf(0f, .36f, .68f, 1f),
             Shader.TileMode.CLAMP
         )
         canvas.drawRect(target, paint)
 
-        // Relief de bord du carbone : discret, sans aspect chrome.
-        val edge = (target.height() * .045f).coerceAtLeast(1.5f)
+        // Bombé central : centre légèrement relevé, bords assombris.
+        paint.shader = RadialGradient(
+            cx, cy, target.width() * .62f,
+            intArrayOf(
+                Color.argb(if (nightLight) 22 else 38, 230, 230, 230),
+                Color.TRANSPARENT,
+                Color.argb(if (nightLight) 54 else 76, 0, 0, 0)
+            ),
+            floatArrayOf(0f, .56f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
+
+        // Arête intérieure directionnelle : claire côté lumière, noire côté opposé.
+        val edge = (target.height() * .075f).coerceAtLeast(2f)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = edge
         paint.shader = LinearGradient(
-            cx - dx * target.width() * .58f, cy - dy * target.height() * .58f,
-            cx + dx * target.width() * .58f, cy + dy * target.height() * .58f,
+            cx - dx * target.width() * .62f,
+            cy - dy * target.height() * .62f,
+            cx + dx * target.width() * .62f,
+            cy + dy * target.height() * .62f,
             intArrayOf(
-                Color.argb(62, 0, 0, 0),
+                Color.argb(125, 0, 0, 0),
+                Color.argb(52, 0, 0, 0),
                 Color.TRANSPARENT,
-                Color.argb(if (nightLight) 42 else 70, 210, 214, 216)
+                Color.argb(if (nightLight) 82 else 140, 225, 228, 230)
             ),
-            floatArrayOf(0f, .54f, 1f),
+            floatArrayOf(0f, .26f, .62f, 1f),
             Shader.TileMode.CLAMP
         )
-        val inset = edge * .9f
+        val inset = edge * .82f
         canvas.drawRoundRect(
             RectF(target.left + inset, target.top + inset, target.right - inset, target.bottom - inset),
-            target.height() * .42f,
-            target.height() * .42f,
+            target.height() * .40f,
+            target.height() * .40f,
             paint
         )
 
@@ -153,11 +163,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.style = Paint.Style.FILL
     }
 
-    /**
-     * Métal : éclairage SPÉCULAIRE.
-     * Bande miroir très étroite + point chaud + contre-reflet sombre.
-     * Le métal peut donc flasher franchement alors que le carbone reste mat.
-     */
     private fun drawMetalSpecularReflection(canvas: Canvas, target: RectF, radius: Float) {
         val band = (target.height() * .145f).coerceAtLeast(4f)
         val inner = RectF(target.left + band, target.top + band, target.right - band, target.bottom - band)
@@ -169,9 +174,9 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         innerPath.addRoundRect(inner, (radius - band).coerceAtLeast(1f), (radius - band).coerceAtLeast(1f), Path.Direction.CW)
         frameBand.op(innerPath, Path.Op.DIFFERENCE)
 
-        val r = Math.toRadians(lightAngle.toDouble())
-        val dx = cos(r).toFloat()
-        val dy = sin(r).toFloat()
+        val rad = Math.toRadians(lightAngle.toDouble())
+        val dx = cos(rad).toFloat()
+        val dy = sin(rad).toFloat()
         val cx = target.centerX()
         val cy = target.centerY()
         val half = sqrt(target.width() * target.width() + target.height() * target.height()) * .66f
@@ -183,8 +188,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.style = Paint.Style.FILL
         paint.alpha = globalAlpha
         paint.colorFilter = null
-
-        // Très étroit : un vrai trait miroir qui se déplace sur le chrome.
         paint.shader = LinearGradient(
             cx - dx * half, cy - dy * half,
             cx + dx * half, cy + dy * half,
@@ -205,7 +208,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         canvas.clipPath(frameBand)
         canvas.drawRect(target, paint)
 
-        // Point chaud indépendant du fond carbone.
         val hotX = cx + dx * target.width() * .44f
         val hotY = cy + dy * target.height() * .44f
         paint.shader = RadialGradient(
@@ -221,7 +223,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         )
         canvas.drawRect(target, paint)
         canvas.restore()
-
         paint.shader = null
     }
 
@@ -233,7 +234,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         if (bw <= 0f || bh <= 0f || tw <= 0f || th <= 0f) return
         val srcAspect = bw / bh
         val dstAspect = tw / th
-
         if (srcAspect > dstAspect) {
             val wanted = bh * dstAspect
             val left = ((bw - wanted) / 2f).toInt().coerceAtLeast(0)
