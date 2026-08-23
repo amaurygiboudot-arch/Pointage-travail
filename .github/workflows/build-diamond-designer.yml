@@ -28,6 +28,8 @@ jobs:
           gradle-version: '8.13'
 
       - name: Compiler Diamond Designer
+        env:
+          DESIGNER_AI_ENDPOINT: ${{ secrets.DESIGNER_AI_ENDPOINT }}
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Preparer APK
