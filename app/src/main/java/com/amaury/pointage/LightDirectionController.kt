@@ -19,10 +19,9 @@ import kotlin.math.sqrt
 
 /**
  * Contrôleur unique de l'éclairage céleste.
- * - Jour : le Soleil est la source de lumière.
- * - Nuit : la Lune est la source de lumière.
- * - Rotation vector si disponible, accéléromètre en secours.
- * - Mise à jour périodique même lorsque le téléphone reste immobile.
+ * Jour : le Soleil est la source. Nuit : la Lune.
+ * La direction réelle est projetée sur l'écran puis corrigée par l'inclinaison
+ * du téléphone. Les trois diamants de pointage reçoivent aussi l'intensité.
  */
 object LightDirectionController {
     data class LightingState(
@@ -55,6 +54,7 @@ object LightDirectionController {
         var displayedLightAngle = -55f
         var celestialAngle: Float? = null
         var currentNight = isNight(activity)
+        var currentIntensity = if (currentNight) .24f else .78f
         var animationRunning = false
         var deviceAzimuth = 0f
         var pitch = 0f
@@ -64,8 +64,14 @@ object LightDirectionController {
         var az = 9.81f
 
         fun state(angle: Float): LightingState {
-            // Une seule direction céleste pilote désormais aussi le chrome du thème Carbone.
             CarbonCompositeDrawable.updateGlobalLight(angle, currentNight)
+            RedDiamondFinalButton.updateGlobalNaturalLight(
+                angle = angle,
+                pitch = pitch,
+                roll = roll,
+                intensity = currentIntensity,
+                night = currentNight
+            )
             return LightingState(
                 lightAngle = angle,
                 celestialAngle = celestialAngle,
@@ -83,21 +89,29 @@ object LightDirectionController {
                 val sun = CelestialEphemeris.sun(location.latitude, location.longitude, now)
                 val moon = CelestialEphemeris.moon(location.latitude, location.longitude, now)
                 currentNight = sun.altitude < -0.833
-
                 val active = if (currentNight) moon else sun
                 val activeScreenAngle = screenAngle(deviceAzimuth, active.azimuth)
                 celestialAngle = activeScreenAngle
 
-                val tiltInfluence = if (currentNight) {
-                    roll * 0.18f + pitch * 0.08f
+                // Le soleil haut produit des éclats francs. Près de l'horizon,
+                // la lumière reste visible mais plus douce. La lune reste subtile.
+                currentIntensity = if (currentNight) {
+                    ((active.altitude + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
                 } else {
-                    roll * 0.30f + pitch * 0.12f
+                    ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
+                }
+
+                val tiltInfluence = if (currentNight) {
+                    roll * .18f + pitch * .08f
+                } else {
+                    roll * .30f + pitch * .12f
                 }
                 targetLightAngle = normalize(activeScreenAngle + tiltInfluence)
             } else {
                 currentNight = fallbackNightByClock()
                 celestialAngle = normalize(-deviceAzimuth - 90f)
-                val tiltInfluence = roll * 0.24f + pitch * 0.10f
+                currentIntensity = if (currentNight) .24f else .72f
+                val tiltInfluence = roll * .24f + pitch * .10f
                 targetLightAngle = normalize(celestialAngle!! + tiltInfluence)
             }
         }
@@ -108,10 +122,10 @@ object LightDirectionController {
                 val delta = shortestDelta(displayedLightAngle, targetLightAngle)
                 val absDelta = kotlin.math.abs(delta)
                 val factor = when {
-                    absDelta > 90f -> 0.18f
-                    absDelta > 45f -> 0.15f
-                    absDelta > 15f -> 0.12f
-                    else -> 0.09f
+                    absDelta > 90f -> .18f
+                    absDelta > 45f -> .15f
+                    absDelta > 15f -> .12f
+                    else -> .09f
                 }
                 val maxStep = when {
                     absDelta > 90f -> 9f
@@ -122,7 +136,7 @@ object LightDirectionController {
                 displayedLightAngle = normalize(displayedLightAngle + (delta * factor).coerceIn(-maxStep, maxStep))
                 onLightingChanged(state(displayedLightAngle))
 
-                if (absDelta < 0.35f) {
+                if (absDelta < .35f) {
                     displayedLightAngle = targetLightAngle
                     onLightingChanged(state(displayedLightAngle))
                     animationRunning = false
@@ -153,7 +167,7 @@ object LightDirectionController {
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
                     }
                     Sensor.TYPE_ACCELEROMETER -> {
-                        val k = 0.14f
+                        val k = .14f
                         ax += (event.values[0] - ax) * k
                         ay += (event.values[1] - ay) * k
                         az += (event.values[2] - az) * k
@@ -201,9 +215,7 @@ object LightDirectionController {
         val location = lastKnownLocation(context)
         return if (location != null) {
             CelestialEphemeris.sun(location.latitude, location.longitude).altitude < -0.833
-        } else {
-            fallbackNightByClock()
-        }
+        } else fallbackNightByClock()
     }
 
     private fun fallbackNightByClock(): Boolean {
@@ -215,7 +227,6 @@ object LightDirectionController {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return null
-
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return runCatching {
             manager.getProviders(true)
