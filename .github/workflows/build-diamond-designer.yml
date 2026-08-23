@@ -22,16 +22,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Installer Gradle
+      - name: Installer Gradle 8.13
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
 
       - name: Compiler Diamond Designer
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Preparer APK
         run: |
           mkdir -p output
           cp app/build/outputs/apk/debug/app-debug.apk output/Diamond-Designer.apk
+          test -s output/Diamond-Designer.apk
 
       - name: Publier Diamond Designer
         uses: actions/upload-artifact@v4
