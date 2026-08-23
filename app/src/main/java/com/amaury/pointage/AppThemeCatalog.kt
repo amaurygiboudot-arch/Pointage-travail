@@ -1,6 +1,9 @@
 package com.amaury.pointage
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 
@@ -38,8 +41,6 @@ object AppThemeCatalog {
             "light" -> false
             "dark" -> true
             else -> {
-                // En mode automatique, la vraie alternance jour/nuit pilotée par
-                // le Soleil est prioritaire. On ne dépend plus du thème système du téléphone.
                 if (prefs.contains(KEY_CELESTIAL_NIGHT)) {
                     prefs.getBoolean(KEY_CELESTIAL_NIGHT, false)
                 } else {
@@ -70,7 +71,23 @@ object AppThemeCatalog {
             .remove("widget_accent")
             .apply()
 
-        PointageWidgetProvider.updateAll(context)
-        QuickActionsWidgetProvider.updateAll(context)
+        // Une mise à jour partielle ne change que les textes du RemoteViews et
+        // conservait donc parfois l'ancien habillage (ex. Céleste). On force ici
+        // un vrai APPWIDGET_UPDATE afin que chaque provider reconstruise toute
+        // la vue et relise immédiatement le thème sélectionné, dont Carbone.
+        forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
+        forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
+    }
+
+    private fun forceFullWidgetRefresh(context: Context, provider: Class<*>) {
+        val manager = AppWidgetManager.getInstance(context)
+        val component = ComponentName(context, provider)
+        val ids = manager.getAppWidgetIds(component)
+        if (ids.isEmpty()) return
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_UPDATE).apply {
+            this.component = component
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+        }
+        context.sendBroadcast(intent)
     }
 }
