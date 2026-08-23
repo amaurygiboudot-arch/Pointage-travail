@@ -17,6 +17,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val src = Rect()
     private val dst = RectF()
+    private val clipPath = Path()
     private val fillBitmap: Bitmap = decodeRawBase64(context, R.raw.carbon_fill_b64)
     private val frameBitmap: Bitmap = makeBlackTransparent(
         decodeRawBase64(context, R.raw.carbon_frame_b64)
@@ -28,8 +29,11 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         dst.set(bounds)
         val radius = bounds.height() * 0.48f
 
+        clipPath.reset()
+        clipPath.addRoundRect(dst, radius, radius, Path.Direction.CW)
+
         canvas.save()
-        canvas.clipRoundRect(dst, radius, radius)
+        canvas.clipPath(clipPath)
         drawCenterCrop(canvas, fillBitmap, dst)
         canvas.restore()
 
