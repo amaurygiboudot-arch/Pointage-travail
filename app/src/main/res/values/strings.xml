@@ -1,1 +1,4 @@
-<resources><string name="app_name">Diamond Designer</string></resources>
+<resources>
+    <string name="app_name">Diamond Designer</string>
+    <string name="default_web_client_id">designer-disabled</string>
+</resources>
