@@ -4,10 +4,7 @@ import android.content.Context
 import android.graphics.*
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.atan2
-import kotlin.math.hypot
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.*
 
 class DiamondDesignerCanvas(context: Context) : View(context) {
     enum class ElementType { ENTRY_BUTTON, PAUSE_BUTTON, EXIT_BUTTON, FRAME, BACKGROUND }
@@ -25,6 +22,12 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
         var ring1Gain: Float = 1f,
         var ring2Gain: Float = 1f,
         var ring3Gain: Float = 1f,
+        var edgeWidth: Float = 1.4f,
+        var edgeAlpha: Float = .55f,
+        var edgeContrast: Float = .62f,
+        var edgeSoftness: Float = .08f,
+        var radialEdgeGain: Float = 1f,
+        var circularEdgeGain: Float = 1f,
         var frameWidth: Float = 12f,
         var cornerRadius: Float = 24f,
         var locked: Boolean = false,
@@ -41,6 +44,7 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val framePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
     private var entryPreview: GreenDiamondFinalButton? = null
     private var pausePreview: OrangeDiamondFinalButton? = null
     private var exitPreview: RedDiamondFinalButton? = null
@@ -58,6 +62,7 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
 
     init {
         setBackgroundColor(Color.rgb(18, 20, 24))
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
         post { if (elements.isEmpty()) addEntryButton() }
     }
 
@@ -102,14 +107,21 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
     fun sendBackward() { val s = selected ?: return; val i = elements.indexOf(s); if (i > 0) { elements.removeAt(i); elements.add(i - 1, s); invalidate(); onDesignChanged?.invoke() } }
 
     private fun isDiamond(e: DesignElement?) = e?.type == ElementType.ENTRY_BUTTON || e?.type == ElementType.PAUSE_BUTTON || e?.type == ElementType.EXIT_BUTTON
-    fun setSelectedLens(v: Float) { selected?.let { if (isDiamond(it)) { it.lensStrength = v.coerceIn(0f,1f); invalidate(); onDesignChanged?.invoke() } } }
-    fun setSelectedAlpha(v: Float) { selected?.let { it.alpha = v.coerceIn(.05f,1f); invalidate(); onDesignChanged?.invoke() } }
-    fun setSelectedRotation(v: Float) { selected?.let { it.rotation = v; invalidate(); onDesignChanged?.invoke() } }
-    fun setSelectedLightAngle(v: Float) { selected?.let { if (isDiamond(it)) { it.lightAngle = ((v % 360f) + 360f) % 360f; invalidate(); onDesignChanged?.invoke() } } }
-    fun setSelectedRingGain(ring: Int, v: Float) { selected?.let { if (isDiamond(it)) { val g=v.coerceIn(.20f,1.80f); when(ring){1->it.ring1Gain=g;2->it.ring2Gain=g;3->it.ring3Gain=g}; invalidate(); onDesignChanged?.invoke() } } }
-    fun setSelectedFrameWidth(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.frameWidth = v.coerceIn(1f,80f); invalidate(); onDesignChanged?.invoke() } } }
-    fun setSelectedCornerRadius(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.cornerRadius = v.coerceIn(0f,120f); invalidate(); onDesignChanged?.invoke() } } }
+    fun setSelectedLens(v: Float) { selected?.let { if (isDiamond(it)) { it.lensStrength = v.coerceIn(0f,1f); changed() } } }
+    fun setSelectedAlpha(v: Float) { selected?.let { it.alpha = v.coerceIn(.05f,1f); changed() } }
+    fun setSelectedRotation(v: Float) { selected?.let { it.rotation = v; changed() } }
+    fun setSelectedLightAngle(v: Float) { selected?.let { if (isDiamond(it)) { it.lightAngle = ((v % 360f) + 360f) % 360f; changed() } } }
+    fun setSelectedRingGain(ring: Int, v: Float) { selected?.let { if (isDiamond(it)) { val g=v.coerceIn(.20f,1.80f); when(ring){1->it.ring1Gain=g;2->it.ring2Gain=g;3->it.ring3Gain=g}; changed() } } }
+    fun setSelectedEdgeWidth(v: Float) { selected?.let { if (isDiamond(it)) { it.edgeWidth = v.coerceIn(.1f,12f); changed() } } }
+    fun setSelectedEdgeAlpha(v: Float) { selected?.let { if (isDiamond(it)) { it.edgeAlpha = v.coerceIn(0f,1f); changed() } } }
+    fun setSelectedEdgeContrast(v: Float) { selected?.let { if (isDiamond(it)) { it.edgeContrast = v.coerceIn(0f,1f); changed() } } }
+    fun setSelectedEdgeSoftness(v: Float) { selected?.let { if (isDiamond(it)) { it.edgeSoftness = v.coerceIn(0f,1f); changed() } } }
+    fun setSelectedRadialEdgeGain(v: Float) { selected?.let { if (isDiamond(it)) { it.radialEdgeGain = v.coerceIn(0f,2f); changed() } } }
+    fun setSelectedCircularEdgeGain(v: Float) { selected?.let { if (isDiamond(it)) { it.circularEdgeGain = v.coerceIn(0f,2f); changed() } } }
+    fun setSelectedFrameWidth(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.frameWidth = v.coerceIn(1f,80f); changed() } } }
+    fun setSelectedCornerRadius(v: Float) { selected?.let { if (it.type == ElementType.FRAME) { it.cornerRadius = v.coerceIn(0f,120f); changed() } } }
     fun toggleLock() { selected?.let { it.locked = !it.locked; onSelectionChanged?.invoke(it); invalidate() } }
+    private fun changed() { invalidate(); onDesignChanged?.invoke() }
 
     override fun onDraw(canvas: Canvas) { super.onDraw(canvas); for (e in elements) if (e.visible) drawElement(canvas, e); selected?.takeIf { it.visible }?.let { drawSelection(canvas, it) } }
 
@@ -137,6 +149,7 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
         drawDiamondRing(canvas, v, w, h, 0f, .28f, e.lensStrength * e.ring1Gain)
         drawDiamondRing(canvas, v, w, h, .28f, .63f, e.lensStrength * e.ring2Gain)
         drawDiamondRing(canvas, v, w, h, .63f, 1f, e.lensStrength * e.ring3Gain)
+        drawFacetEdges(canvas, e, w, h)
         canvas.restore()
     }
 
@@ -149,11 +162,41 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
             addCircle(cx, cy, r * outer, Path.Direction.CW)
             if (inner > 0f) addCircle(cx, cy, r * inner, Path.Direction.CW)
         }
-        canvas.save()
-        canvas.clipPath(ring)
-        v.setLensStrength(lens.coerceIn(0f, 1f))
-        v.draw(canvas)
-        canvas.restore()
+        canvas.save(); canvas.clipPath(ring); v.setLensStrength(lens.coerceIn(0f, 1f)); v.draw(canvas); canvas.restore()
+    }
+
+    private fun drawFacetEdges(canvas: Canvas, e: DesignElement, w: Int, h: Int) {
+        if (e.edgeAlpha <= 0f || e.edgeWidth <= 0f) return
+        val cx = w * .5f
+        val cy = h * .5f
+        val r = min(w, h) * .455f
+        val baseAlpha = (255f * e.edgeAlpha).toInt().coerceIn(0,255)
+        val bright = (120 + 135 * e.edgeContrast).toInt().coerceIn(0,255)
+        edgePaint.strokeWidth = e.edgeWidth
+        edgePaint.color = Color.argb(baseAlpha, bright, bright, bright)
+        edgePaint.maskFilter = if (e.edgeSoftness > .01f) BlurMaskFilter(1f + e.edgeSoftness * 9f, BlurMaskFilter.Blur.NORMAL) else null
+
+        val radialAlpha = (baseAlpha * e.radialEdgeGain.coerceIn(0f,2f)).toInt().coerceIn(0,255)
+        edgePaint.alpha = radialAlpha
+        for (i in 0 until 16) {
+            val a = Math.toRadians((-90f + i * 22.5f).toDouble())
+            canvas.drawLine(cx, cy, cx + cos(a).toFloat() * r * .28f, cy + sin(a).toFloat() * r * .28f, edgePaint)
+        }
+        for (i in 0 until 32) {
+            val a = Math.toRadians((-90f + i * 11.25f).toDouble())
+            val sx = cx + cos(a).toFloat() * r * .28f
+            val sy = cy + sin(a).toFloat() * r * .28f
+            val ex = cx + cos(a).toFloat() * r * .96f
+            val ey = cy + sin(a).toFloat() * r * .96f
+            canvas.drawLine(sx, sy, ex, ey, edgePaint)
+        }
+
+        edgePaint.alpha = (baseAlpha * e.circularEdgeGain.coerceIn(0f,2f)).toInt().coerceIn(0,255)
+        canvas.drawCircle(cx, cy, r * .28f, edgePaint)
+        canvas.drawCircle(cx, cy, r * .63f, edgePaint)
+        canvas.drawCircle(cx, cy, r * .96f, edgePaint)
+        edgePaint.maskFilter = null
+        edgePaint.alpha = 255
     }
 
     private fun drawSelection(canvas: Canvas, e: DesignElement) {
@@ -174,7 +217,7 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
             MotionEvent.ACTION_MOVE -> {
                 val s = selected ?: return true; if (s.locked) return true
                 when (dragMode) { DragMode.MOVE -> { s.x = startX + event.x - downX; s.y = startY + event.y - downY }; DragMode.RESIZE -> { s.width = max(72f, startW + event.x - downX); s.height = max(72f, startH + event.y - downY) }; DragMode.ROTATE -> s.rotation = startRotation + pointerAngle(event.x, event.y, s) - startPointerAngle; else -> Unit }
-                invalidate(); onDesignChanged?.invoke(); return true
+                changed(); return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { dragMode = DragMode.NONE; return true }
         }
@@ -187,6 +230,6 @@ class DiamondDesignerCanvas(context: Context) : View(context) {
 
     fun report(): String = buildString {
         appendLine("DIAMOND DESIGNER REPORT"); appendLine("elements=${elements.size}")
-        elements.forEachIndexed { i, e -> appendLine("[$i] name=${e.name}; type=${e.type}; x=${"%.1f".format(e.x)}; y=${"%.1f".format(e.y)}; w=${"%.1f".format(e.width)}; h=${"%.1f".format(e.height)}; rotation=${"%.1f".format(e.rotation)}; alpha=${"%.3f".format(e.alpha)}; lens=${"%.3f".format(e.lensStrength)}; light=${"%.1f".format(e.lightAngle)}; ring1=${"%.3f".format(e.ring1Gain)}; ring2=${"%.3f".format(e.ring2Gain)}; ring3=${"%.3f".format(e.ring3Gain)}; frameWidth=${"%.1f".format(e.frameWidth)}; cornerRadius=${"%.1f".format(e.cornerRadius)}; locked=${e.locked}") }
+        elements.forEachIndexed { i, e -> appendLine("[$i] name=${e.name}; type=${e.type}; x=${"%.1f".format(e.x)}; y=${"%.1f".format(e.y)}; w=${"%.1f".format(e.width)}; h=${"%.1f".format(e.height)}; rotation=${"%.1f".format(e.rotation)}; alpha=${"%.3f".format(e.alpha)}; lens=${"%.3f".format(e.lensStrength)}; light=${"%.1f".format(e.lightAngle)}; ring1=${"%.3f".format(e.ring1Gain)}; ring2=${"%.3f".format(e.ring2Gain)}; ring3=${"%.3f".format(e.ring3Gain)}; edgeWidth=${"%.2f".format(e.edgeWidth)}; edgeAlpha=${"%.3f".format(e.edgeAlpha)}; edgeContrast=${"%.3f".format(e.edgeContrast)}; edgeSoftness=${"%.3f".format(e.edgeSoftness)}; radialEdges=${"%.3f".format(e.radialEdgeGain)}; circularEdges=${"%.3f".format(e.circularEdgeGain)}; frameWidth=${"%.1f".format(e.frameWidth)}; cornerRadius=${"%.1f".format(e.cornerRadius)}; locked=${e.locked}") }
     }
 }
