@@ -24,7 +24,9 @@ object DiamondDesignerLibrary {
         val radialEdgeGain: Float = 1f,
         val circularEdgeGain: Float = 1f,
         val frameWidth: Float,
-        val cornerRadius: Float
+        val cornerRadius: Float,
+        val transparency: Float = 0f,
+        val translucency: Float = 0f
     )
 
     private const val PREFS = "diamond_designer_library"
@@ -45,9 +47,27 @@ object DiamondDesignerLibrary {
     }
 
     fun presetFromElement(name: String, e: DiamondDesignerCanvas.DesignElement) = Preset(
-        name, e.type, e.width, e.height, e.rotation, e.alpha, e.lensStrength, e.lightAngle,
-        e.ring1Gain, e.ring2Gain, e.ring3Gain, e.edgeWidth, e.edgeAlpha, e.edgeContrast,
-        e.edgeSoftness, e.radialEdgeGain, e.circularEdgeGain, e.frameWidth, e.cornerRadius
+        name = name,
+        type = e.type,
+        width = e.width,
+        height = e.height,
+        rotation = e.rotation,
+        alpha = e.alpha,
+        lensStrength = e.lensStrength,
+        lightAngle = e.lightAngle,
+        ring1Gain = e.ring1Gain,
+        ring2Gain = e.ring2Gain,
+        ring3Gain = e.ring3Gain,
+        edgeWidth = e.edgeWidth,
+        edgeAlpha = e.edgeAlpha,
+        edgeContrast = e.edgeContrast,
+        edgeSoftness = e.edgeSoftness,
+        radialEdgeGain = e.radialEdgeGain,
+        circularEdgeGain = e.circularEdgeGain,
+        frameWidth = e.frameWidth,
+        cornerRadius = e.cornerRadius,
+        transparency = e.transparency,
+        translucency = e.translucency
     )
 
     private fun defaultPresets() = listOf(
@@ -60,7 +80,8 @@ object DiamondDesignerLibrary {
     )
 
     private fun toJson(p: Preset) = JSONObject().apply {
-        put("name",p.name); put("type",p.type.name); put("width",p.width); put("height",p.height); put("rotation",p.rotation); put("alpha",p.alpha); put("lens",p.lensStrength); put("light",p.lightAngle)
+        put("name",p.name); put("type",p.type.name); put("width",p.width); put("height",p.height); put("rotation",p.rotation); put("alpha",p.alpha)
+        put("transparency",p.transparency); put("translucency",p.translucency); put("lens",p.lensStrength); put("light",p.lightAngle)
         put("r1",p.ring1Gain); put("r2",p.ring2Gain); put("r3",p.ring3Gain); put("edgeWidth",p.edgeWidth); put("edgeAlpha",p.edgeAlpha); put("edgeContrast",p.edgeContrast); put("edgeSoftness",p.edgeSoftness); put("radialEdges",p.radialEdgeGain); put("circularEdges",p.circularEdgeGain)
         put("frameWidth",p.frameWidth); put("cornerRadius",p.cornerRadius)
     }
@@ -71,6 +92,7 @@ object DiamondDesignerLibrary {
         width=o.optDouble("width",300.0).toFloat(), height=o.optDouble("height",300.0).toFloat(), rotation=o.optDouble("rotation",0.0).toFloat(), alpha=o.optDouble("alpha",1.0).toFloat(),
         lensStrength=o.optDouble("lens",.5).toFloat(), lightAngle=o.optDouble("light",305.0).toFloat(), ring1Gain=o.optDouble("r1",1.0).toFloat(), ring2Gain=o.optDouble("r2",1.0).toFloat(), ring3Gain=o.optDouble("r3",1.0).toFloat(),
         edgeWidth=o.optDouble("edgeWidth",1.4).toFloat(), edgeAlpha=o.optDouble("edgeAlpha",.55).toFloat(), edgeContrast=o.optDouble("edgeContrast",.62).toFloat(), edgeSoftness=o.optDouble("edgeSoftness",.08).toFloat(), radialEdgeGain=o.optDouble("radialEdges",1.0).toFloat(), circularEdgeGain=o.optDouble("circularEdges",1.0).toFloat(),
-        frameWidth=o.optDouble("frameWidth",12.0).toFloat(), cornerRadius=o.optDouble("cornerRadius",24.0).toFloat()
+        frameWidth=o.optDouble("frameWidth",12.0).toFloat(), cornerRadius=o.optDouble("cornerRadius",24.0).toFloat(),
+        transparency=o.optDouble("transparency",0.0).toFloat(), translucency=o.optDouble("translucency",0.0).toFloat()
     )
 }
