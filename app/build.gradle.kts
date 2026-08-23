@@ -18,6 +18,7 @@ android {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
 
+        buildConfigField("String", "DESIGNER_AI_ENDPOINT", "\"${envString("DESIGNER_AI_ENDPOINT")}\"")
         buildConfigField("String", "SENTRY_DSN", "\"${envString("SENTRY_DSN")}\"")
         buildConfigField("String", "FIREBASE_API_KEY", "\"${envString("FIREBASE_API_KEY")}\"")
         buildConfigField("String", "FIREBASE_APP_ID", "\"${envString("FIREBASE_APP_ID")}\"")
