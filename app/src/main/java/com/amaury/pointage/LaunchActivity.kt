@@ -33,7 +33,7 @@ class LaunchActivity : Activity() {
         super.onCreate(savedInstanceState)
 
         if (CrashRecoveryManager.shouldOpenRecovery(this)) {
-            openActivity(RecoveryActivity::class.java)
+            openActivity(RecoveryActivityV2::class.java)
             return
         }
 
