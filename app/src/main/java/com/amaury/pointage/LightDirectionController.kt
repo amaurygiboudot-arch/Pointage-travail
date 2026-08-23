@@ -38,10 +38,6 @@ object LightDirectionController {
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /**
-     * Fournit l'orientation du téléphone et les données célestes.
-     * Ce contrôleur ne dessine rien et ne modifie plus directement les boutons diamant.
-     */
     fun attach(activity: Activity, onLightingChanged: (LightingState) -> Unit) {
         val key = System.identityHashCode(activity)
         if (registrations.containsKey(key)) return
@@ -88,6 +84,18 @@ object LightDirectionController {
 
         fun emitImmediately() {
             recompute()
+
+            val diamondIntensity = if (night) intensity.coerceIn(.34f, .48f) else intensity.coerceIn(.72f, 1f)
+            val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
+            RedDiamondFinalButton.updateGlobalNaturalLight(
+                target,
+                pitch.coerceIn(-55f, 55f),
+                roll.coerceIn(-55f, 55f),
+                diamondIntensity,
+                night,
+                diamondElevation
+            )
+
             onLightingChanged(
                 LightingState(
                     lightAngle = target,
@@ -115,7 +123,6 @@ object LightDirectionController {
                         pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
                     }
-
                     Sensor.TYPE_ACCELEROMETER -> {
                         val ax = event.values[0]
                         val ay = event.values[1]
@@ -124,7 +131,6 @@ object LightDirectionController {
                         roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
                     }
                 }
-                // Aucune temporisation : chaque événement capteur produit immédiatement un état.
                 emitImmediately()
             }
 
@@ -134,7 +140,6 @@ object LightDirectionController {
         lateinit var ticker: Runnable
         ticker = object : Runnable {
             override fun run() {
-                // Le ticker ne sert qu'à actualiser soleil/lune, pas à ralentir le mouvement.
                 emitImmediately()
                 mainHandler.postDelayed(this, 30_000L)
             }
