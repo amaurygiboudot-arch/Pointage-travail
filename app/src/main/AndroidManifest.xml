@@ -58,6 +58,8 @@
         </activity-alias>
 
         <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
+        <activity android:name=".RecoveryActivityV2" android:exported="false" android:excludeFromRecents="false" />
+        <activity android:name=".AdminDiagnosticsActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".FirebaseAccountActivity" android:exported="false" />
         <activity android:name=".OwnerFeedbackActivity" android:exported="false" />
