@@ -9,55 +9,501 @@ import java.util.WeakHashMap
 import kotlin.math.*
 
 open class RedDiamondFinalButton @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.buttonStyle
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = android.R.attr.buttonStyle
 ) : Button(context, attrs, defStyleAttr) {
+
     companion object {
         const val RENDER_NAME = "Diamant rouge final"
         private const val FACETS = 16
+        private const val MESH = 24
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
         private val live = Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton, Boolean>())
-        fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.toList().forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}
+
+        fun updateGlobalNaturalLight(
+            angle: Float,
+            pitch: Float,
+            roll: Float,
+            intensity: Float,
+            night: Boolean,
+            elevation: Float
+        ) {
+            live.toList().forEach {
+                it.setNaturalLight(angle, pitch, roll, intensity, night, elevation)
+            }
+        }
     }
-    private val fill=Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edge=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE}
-    private val glow=Paint(Paint.ANTI_ALIAS_FLAG)
-    private val shadow=Paint(Paint.ANTI_ALIAS_FLAG)
-    private val lensPaint=Paint(Paint.ANTI_ALIAS_FLAG)
-    private val outer=Path()
-    private var lightAngle=-55f;private var pitch=0f;private var roll=0f;private var intensity=.78f;private var night=false;private var elevation=45f
-    private var lensStrength=.50f
-    open fun diamondPalette()=intArrayOf(Color.rgb(255,50,76),Color.rgb(214,5,35),Color.rgb(132,0,24),Color.rgb(255,92,118),Color.rgb(92,0,20),Color.rgb(238,12,48),Color.rgb(178,0,31),Color.rgb(255,148,164),Color.rgb(110,0,25),Color.rgb(245,22,56),Color.rgb(156,0,29),Color.rgb(255,72,102),Color.rgb(74,0,18),Color.rgb(226,8,42),Color.rgb(194,0,34),Color.rgb(255,118,140))
-    open fun diamondTint()=Color.rgb(255,28,62);open fun diamondDark()=Color.rgb(96,0,22);open fun diamondHighlight()=Color.rgb(255,238,243)
-    init{background=null;stateListAnimator=null;setPadding(0,0,0,0);isAllCaps=false}
-    override fun onAttachedToWindow(){super.onAttachedToWindow();live.add(this)}
-    override fun onDetachedFromWindow(){live.remove(this);super.onDetachedFromWindow()}
-    fun setDiamondLightAngle(angle:Float){setNaturalLight(angle,pitch,roll,intensity,night,elevation)}
-    fun setLensStrength(value:Float){lensStrength=value.coerceIn(0f,1f);invalidate()}
-    private fun setNaturalLight(a:Float,p:Float,r:Float,i:Float,n:Boolean,e:Float){lightAngle=norm(a);pitch=p.coerceIn(-90f,90f);roll=r.coerceIn(-90f,90f);intensity=i.coerceIn(.12f,1f);night=n;elevation=e.coerceIn(-10f,90f);invalidate()}
-    override fun onDraw(c:Canvas){val w=width.toFloat();val h=height.toFloat();if(w<=0||h<=0)return;val cx=w*.5f;val cy=h*.5f;val r=min(w,h)*.455f;val s=if(isPressed).93f else 1f;drop(c,cx,cy,r*s);c.save();c.scale(s,s,cx,cy);outer.reset();outer.addCircle(cx,cy,r,Path.Direction.CW);c.clipPath(outer);glass(c,cx,cy,r);pavilion(c,cx,cy,r);facets(c,cx,cy,r);table(c,cx,cy,r);refraction(c,cx,cy,r);edges(c,cx,cy,r);glints(c,cx,cy,r);magnify(c,cx,cy,r);c.restore();girdle(c,cx,cy,r*s)}
-    private fun drop(c:Canvas,cx:Float,cy:Float,r:Float){shadow.shader=RadialGradient(cx,cy+r*.08f,r*1.16f,intArrayOf(Color.TRANSPARENT,Color.argb(88,0,0,0),Color.TRANSPARENT),floatArrayOf(.67f,.88f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy+r*.08f,r*1.16f,shadow);shadow.shader=null}
-    private fun glass(c:Canvas,cx:Float,cy:Float,r:Float){val q=Math.toRadians(lightAngle.toDouble());val lx=cx+cos(q).toFloat()*r*.24f;val ly=cy+sin(q).toFloat()*r*.24f;val t=diamondTint();val d=diamondDark();fill.shader=RadialGradient(lx,ly,r*1.28f,intArrayOf(alpha(lighten(t,.26f),218),alpha(t,232),alpha(d,238),Color.argb(244,Color.red(d)/7,Color.green(d)/7,Color.blue(d)/7)),floatArrayOf(0f,.34f,.72f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r,fill);fill.shader=null}
-    private fun pavilion(c:Canvas,cx:Float,cy:Float,r:Float){val d=diamondDark();fill.shader=RadialGradient(cx-roll*.012f,cy+pitch*.008f,r,intArrayOf(Color.TRANSPARENT,Color.TRANSPARENT,alpha(d,28),alpha(Color.BLACK,92)),floatArrayOf(0f,.43f,.73f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r,fill);fill.shader=null}
-    private fun facets(c:Canvas,cx:Float,cy:Float,r:Float){val tr=r*.28f;val cr=r*.63f;val gr=r*.96f;for(i in 0 until FACETS){val a0=angle(i);val a1=angle(i+1);facet(c,center(cx,cy,pt(cx,cy,tr,a0),pt(cx,cy,tr,a1)),i,(a0+a1)*.5f,0,1.16f)};for(i in 0 until FACETS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val i0=pt(cx,cy,tr,a0);val i1=pt(cx,cy,tr,a1);val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val mm=pt(cx,cy,cr,am);facet(c,poly(i0,m0,mm,i1),i+3,(a0+am)*.5f,1,.98f);facet(c,poly(i1,mm,m1),i+9,(am+a1)*.5f,1,.87f)};for(i in 0 until FACETS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val o0=pt(cx,cy,gr,a0);val o1=pt(cx,cy,gr,a1);val om=pt(cx,cy,gr,am);facet(c,poly(m0,o0,om,m1),i+5,(a0+am)*.5f,2,.73f);facet(c,poly(m1,om,o1),i+12,(am+a1)*.5f,2,.61f)}}
-    private fun facet(c:Canvas,path:Path,index:Int,az:Float,ring:Int,energy:Float){val bt=when(ring){0->11f;1->30f;else->47f};val mt=(((index*37+ring*53)%17)-8)*.46f;val ma=(((index*29+ring*11)%13)-6)*.42f;val n=normal3(az+ma,bt+mt,pitch,roll);val l=light3(lightAngle,elevation);val v=floatArrayOf(0f,0f,1f);val ndl=max(0f,dot(n,l));val ndv=max(.001f,dot(n,v));val hv=normalize3(floatArrayOf(l[0]+v[0],l[1]+v[1],l[2]+v[2]));val ndh=max(0f,dot(n,hv));val r0=((N_AIR-N_DIAMOND)/(N_AIR+N_DIAMOND)).pow(2);val fres=r0+(1-r0)*(1-ndv).pow(5);val spec=ndh.pow(if(night)70f else 155f)*intensity;val inc=Math.toDegrees(acos(ndl.coerceIn(0f,1f)).toDouble()).toFloat();val crit=Math.toDegrees(asin((N_AIR/N_DIAMOND).toDouble())).toFloat();val tir=if(inc>crit)((inc-crit)/(90f-crit)).coerceIn(0f,1f) else 0f;val trans=(1-fres)*(1-tir)*ndl;val rd=when(ring){0->1.05f;1->.83f;else->.58f};val dynamic=energy*rd*(ndl*.34f+trans*.14f)+fres*.08f+tir*.04f;val bright=(.62f+dynamic).coerceIn(.58f,1.26f);val base=diamondPalette()[index%diamondPalette().size];val hi=diamondHighlight();val rr=(Color.red(base)*bright).toInt().coerceIn(0,255);val gg=(Color.green(base)*bright).toInt().coerceIn(0,255);val bb=(Color.blue(base)*bright).toInt().coerceIn(0,255);val flash=(spec*1.35f+fres*.09f+tir*.07f).coerceIn(0f,.55f);val top=mix(Color.rgb(rr,gg,bb),hi,flash);val df=when(ring){0->.66f;1->.54f;else->.42f};val deep=Color.rgb((rr*df).toInt().coerceIn(0,255),(gg*df).toInt().coerceIn(0,255),(bb*df).toInt().coerceIn(0,255));val a=(205+ndl*24+fres*12).toInt().coerceIn(202,246);val ga=Math.toRadians((az+90).toDouble());val gx=cos(ga).toFloat()*width*.42f;val gy=sin(ga).toFloat()*height*.42f;fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(top,a),alpha(deep,(a*.90f).toInt()),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null;if(spec>.62f){fill.color=alpha(Color.WHITE,((spec-.62f)/.38f*92).toInt().coerceIn(0,92));c.drawPath(path,fill)};fire(c,path,index,ring,ndh,trans,tir)}
-    private fun fire(c:Canvas,path:Path,index:Int,ring:Int,align:Float,trans:Float,tir:Float){if(night)return;val th=.90f+ring*.016f;val gate=((align-th)/(1-th)).coerceIn(0f,1f);if(((index*17+ring*7)%13)>3||gate<=0)return;val p=(gate.pow(2.1f)*trans*intensity*(1-.30f*tir)).coerceIn(0f,.18f);if(p<.02f)return;val q=Math.toRadians((lightAngle+index*3.2f).toDouble());val dx=cos(q).toFloat()*width*.012f;val dy=sin(q).toFloat()*height*.012f;fill.shader=LinearGradient(width*.5f-dx,height*.5f-dy,width*.5f+dx,height*.5f+dy,intArrayOf(alpha(Color.rgb(255,134,58),(80*p).toInt()),Color.TRANSPARENT,alpha(Color.rgb(80,150,255),(90*p).toInt())),floatArrayOf(0f,.5f,1f),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null}
-    private fun table(c:Canvas,cx:Float,cy:Float,r:Float){val tr=r*.285f;val q=Math.toRadians(lightAngle.toDouble());val hx=cx+cos(q).toFloat()*tr*.34f;val hy=cy+sin(q).toFloat()*tr*.34f;val hi=diamondHighlight();fill.shader=RadialGradient(hx,hy,tr*1.12f,intArrayOf(alpha(hi,if(night)30 else 54),Color.TRANSPARENT,alpha(Color.BLACK,28)),floatArrayOf(0f,.58f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,tr,fill);fill.shader=null;edge.strokeWidth=maxOf(1f,r*.014f);edge.color=alpha(hi,if(night)38 else 72);c.drawCircle(cx,cy,tr,edge)}
-    private fun refraction(c:Canvas,cx:Float,cy:Float,r:Float){val q=Math.toRadians(lightAngle.toDouble());val ux=cos(q).toFloat();val uy=sin(q).toFloat();val hi=diamondHighlight();val t=diamondTint();fill.shader=LinearGradient(cx-ux*r*.72f,cy-uy*r*.72f,cx+ux*r*.72f,cy+uy*r*.72f,intArrayOf(Color.TRANSPARENT,alpha(t,16),alpha(hi,if(night)28 else 58),alpha(t,20),Color.TRANSPARENT),floatArrayOf(0f,.32f,.50f,.68f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r*.78f,fill);fill.shader=null}
-    private fun edges(c:Canvas,cx:Float,cy:Float,r:Float){val hi=diamondHighlight();edge.strokeWidth=maxOf(1f,r*.009f);edge.color=alpha(hi,if(night)38 else 62);for(i in 0 until FACETS){val a=angle(i);val p1=pt(cx,cy,r*.28f,a);val p2=pt(cx,cy,r*.63f,a);val p3=pt(cx,cy,r*.96f,a);c.drawLine(cx,cy,p1[0],p1[1],edge);c.drawLine(p1[0],p1[1],p2[0],p2[1],edge);c.drawLine(p2[0],p2[1],p3[0],p3[1],edge)};edge.alpha=56;c.drawCircle(cx,cy,r*.28f,edge);edge.alpha=42;c.drawCircle(cx,cy,r*.63f,edge);edge.alpha=255}
-    private fun glints(c:Canvas,cx:Float,cy:Float,r:Float){val q=Math.toRadians(lightAngle.toDouble());val ux=cos(q).toFloat();val uy=sin(q).toFloat();val hi=diamondHighlight();val ef=((elevation+5)/70).coerceIn(.15f,1f);val power=intensity*ef*(if(night).30f else 1f);val x=cx+ux*r*(.43f+roll*.0010f).coerceIn(.24f,.65f);val y=cy+uy*r*(.43f-pitch*.0004f).coerceIn(.30f,.56f);glow.shader=RadialGradient(x,y,r*.17f,intArrayOf(alpha(Color.WHITE,(170*power).toInt().coerceIn(0,170)),alpha(hi,(84*power).toInt().coerceIn(0,84)),Color.TRANSPARENT),floatArrayOf(0f,.10f,1f),Shader.TileMode.CLAMP);c.drawCircle(x,y,r*.17f,glow);glow.shader=null;if(!night&&power>.60f){edge.strokeWidth=maxOf(1f,r*.010f);edge.color=alpha(Color.WHITE,(145*power).toInt().coerceIn(0,145));val len=r*(.035f+.08f*power);c.drawLine(x-len,y,x+len,y,edge);c.drawLine(x,y-len,x,y+len,edge)}}
-    private fun magnify(c:Canvas,cx:Float,cy:Float,r:Float){val s=lensStrength.coerceIn(0f,1f);if(s<=0f)return;val save=c.save();c.clipPath(Path().apply{addCircle(cx,cy,r*.72f,Path.Direction.CW)});val zoom=1f+.24f*s;c.scale(zoom,zoom,cx,cy);glass(c,cx,cy,r);pavilion(c,cx,cy,r);facets(c,cx,cy,r);table(c,cx,cy,r);refraction(c,cx,cy,r);edges(c,cx,cy,r);c.restoreToCount(save)}
-    private fun lens(c:Canvas,cx:Float,cy:Float,r:Float){val s=lensStrength.coerceIn(0f,1f);if(s<=0f)return;val q=Math.toRadians(lightAngle.toDouble());val ux=cos(q).toFloat();val uy=sin(q).toFloat();val hx=cx+ux*r*.18f;val hy=cy+uy*r*.18f;lensPaint.style=Paint.Style.FILL;lensPaint.shader=RadialGradient(hx,hy,r*1.02f,intArrayOf(alpha(Color.WHITE,(10+26*s).toInt()),alpha(Color.WHITE,(5+12*s).toInt()),Color.TRANSPARENT,alpha(Color.BLACK,(8+16*s).toInt()),Color.TRANSPARENT),floatArrayOf(0f,.25f,.58f,.84f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy,r*.965f,lensPaint);lensPaint.shader=null;val band=RectF(cx-r*.79f,cy-r*.79f,cx+r*.79f,cy+r*.79f);lensPaint.style=Paint.Style.STROKE;lensPaint.strokeCap=Paint.Cap.ROUND;val baseWidth=r*(.075f+.035f*s);val start=lightAngle-62f;val sweep=124f;lensPaint.strokeWidth=maxOf(1f,baseWidth*2.15f);lensPaint.color=alpha(Color.WHITE,(5+11*s).toInt());c.drawArc(band,start,sweep,false,lensPaint);lensPaint.strokeWidth=maxOf(1f,baseWidth*1.45f);lensPaint.color=alpha(Color.WHITE,(7+15*s).toInt());c.drawArc(band,start,sweep,false,lensPaint);lensPaint.strokeWidth=maxOf(1f,baseWidth*.70f);lensPaint.color=alpha(Color.WHITE,(9+19*s).toInt());c.drawArc(band,start,sweep,false,lensPaint);lensPaint.strokeWidth=maxOf(1f,r*.030f);lensPaint.color=alpha(Color.BLACK,(7+13*s).toInt());c.drawArc(band,lightAngle+118f,124f,false,lensPaint);lensPaint.style=Paint.Style.FILL}
-    private fun girdle(c:Canvas,cx:Float,cy:Float,r:Float){val d=diamondDark();val t=diamondTint();val hi=diamondHighlight();edge.style=Paint.Style.STROKE;edge.strokeWidth=maxOf(2.2f,r*.060f);edge.shader=SweepGradient(cx,cy,intArrayOf(alpha(d,255),alpha(t,230),alpha(hi,238),alpha(d,255),alpha(t,220),alpha(hi,228),alpha(d,255)),null);c.drawCircle(cx,cy,r*.982f,edge);edge.shader=null;edge.strokeWidth=maxOf(1f,r*.015f);edge.color=alpha(hi,if(night)72 else 145);c.drawCircle(cx,cy,r*.952f,edge);edge.strokeWidth=maxOf(1f,r*.012f);edge.color=alpha(Color.BLACK,140);c.drawCircle(cx,cy,r*1.012f,edge)}
-    private fun normal3(azimuth:Float,tilt:Float,p:Float,r:Float):FloatArray{val az=Math.toRadians((azimuth+r*.10f).toDouble());val tr=Math.toRadians((tilt+p*.010f).coerceIn(6f,74f).toDouble());val s=sin(tr).toFloat();return normalize3(floatArrayOf(cos(az).toFloat()*s,sin(az).toFloat()*s,cos(tr).toFloat()))}
-    private fun light3(azimuth:Float,elev:Float):FloatArray{val az=Math.toRadians(azimuth.toDouble());val el=Math.toRadians(elev.coerceIn(-5f,90f).toDouble());val ce=cos(el).toFloat();return normalize3(floatArrayOf(cos(az).toFloat()*ce,sin(az).toFloat()*ce,sin(el).toFloat()))}
-    private fun dot(a:FloatArray,b:FloatArray)=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
-    private fun normalize3(v:FloatArray):FloatArray{val l=sqrt((v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).coerceAtLeast(1e-8f));return floatArrayOf(v[0]/l,v[1]/l,v[2]/l)}
-    private fun angle(i:Int)=-90f+i*(360f/FACETS);private fun norm(v:Float)=((v%360)+360)%360
-    private fun pt(cx:Float,cy:Float,r:Float,d:Float):FloatArray{val q=Math.toRadians(d.toDouble());return floatArrayOf(cx+cos(q).toFloat()*r,cy+sin(q).toFloat()*r)}
-    private fun poly(vararg p:FloatArray)=Path().apply{moveTo(p[0][0],p[0][1]);for(i in 1 until p.size)lineTo(p[i][0],p[i][1]);close()}
-    private fun center(cx:Float,cy:Float,vararg p:FloatArray)=Path().apply{moveTo(cx,cy);p.forEach{lineTo(it[0],it[1])};close()}
-    private fun alpha(c:Int,a:Int)=Color.argb(a.coerceIn(0,255),Color.red(c),Color.green(c),Color.blue(c))
-    private fun lighten(c:Int,t:Float)=Color.rgb((Color.red(c)+(255-Color.red(c))*t).toInt().coerceIn(0,255),(Color.green(c)+(255-Color.green(c))*t).toInt().coerceIn(0,255),(Color.blue(c)+(255-Color.blue(c))*t).toInt().coerceIn(0,255))
-    private fun mix(a:Int,b:Int,t:Float):Int{val q=t.coerceIn(0f,1f);return Color.rgb((Color.red(a)+(Color.red(b)-Color.red(a))*q).toInt().coerceIn(0,255),(Color.green(a)+(Color.green(b)-Color.green(a))*q).toInt().coerceIn(0,255),(Color.blue(a)+(Color.blue(b)-Color.blue(a))*q).toInt().coerceIn(0,255))}
+
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shadow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val outer = Path()
+
+    private var lightAngle = -55f
+    private var pitch = 0f
+    private var roll = 0f
+    private var intensity = .78f
+    private var night = false
+    private var elevation = 45f
+
+    // Réglage de la courbure uniquement. Aucun reflet n'est ajouté par cette "loupe".
+    private var lensStrength = .50f
+
+    private var renderBitmap: Bitmap? = null
+    private var meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
+
+    open fun diamondPalette() = intArrayOf(
+        Color.rgb(255, 50, 76), Color.rgb(214, 5, 35), Color.rgb(132, 0, 24),
+        Color.rgb(255, 92, 118), Color.rgb(92, 0, 20), Color.rgb(238, 12, 48),
+        Color.rgb(178, 0, 31), Color.rgb(255, 148, 164), Color.rgb(110, 0, 25),
+        Color.rgb(245, 22, 56), Color.rgb(156, 0, 29), Color.rgb(255, 72, 102),
+        Color.rgb(74, 0, 18), Color.rgb(226, 8, 42), Color.rgb(194, 0, 34),
+        Color.rgb(255, 118, 140)
+    )
+
+    open fun diamondTint() = Color.rgb(255, 28, 62)
+    open fun diamondDark() = Color.rgb(96, 0, 22)
+    open fun diamondHighlight() = Color.rgb(255, 238, 243)
+
+    init {
+        background = null
+        stateListAnimator = null
+        setPadding(0, 0, 0, 0)
+        isAllCaps = false
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        live.add(this)
+    }
+
+    override fun onDetachedFromWindow() {
+        live.remove(this)
+        renderBitmap?.recycle()
+        renderBitmap = null
+        super.onDetachedFromWindow()
+    }
+
+    fun setDiamondLightAngle(angle: Float) {
+        setNaturalLight(angle, pitch, roll, intensity, night, elevation)
+    }
+
+    fun setLensStrength(value: Float) {
+        lensStrength = value.coerceIn(0f, 1f)
+        invalidate()
+    }
+
+    private fun setNaturalLight(a: Float, p: Float, r: Float, i: Float, n: Boolean, e: Float) {
+        lightAngle = norm(a)
+        pitch = p.coerceIn(-90f, 90f)
+        roll = r.coerceIn(-90f, 90f)
+        intensity = i.coerceIn(.12f, 1f)
+        night = n
+        elevation = e.coerceIn(-10f, 90f)
+        invalidate()
+    }
+
+    override fun onDraw(c: Canvas) {
+        val w = width
+        val h = height
+        if (w <= 0 || h <= 0) return
+
+        val cx = w * .5f
+        val cy = h * .5f
+        val r = min(w, h) * .455f
+        val press = if (isPressed) .93f else 1f
+
+        drop(c, cx, cy, r * press)
+
+        val bitmap = ensureRenderBitmap(w, h)
+        bitmap.eraseColor(Color.TRANSPARENT)
+        val bc = Canvas(bitmap)
+
+        outer.reset()
+        outer.addCircle(cx, cy, r, Path.Direction.CW)
+        bc.save()
+        bc.clipPath(outer)
+        glass(bc, cx, cy, r)
+        pavilion(bc, cx, cy, r)
+        facets(bc, cx, cy, r)
+        table(bc, cx, cy, r)
+        refraction(bc, cx, cy, r)
+        edges(bc, cx, cy, r)
+        glints(bc, cx, cy, r)
+        bc.restore()
+
+        buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, r)
+
+        c.save()
+        c.scale(press, press, cx, cy)
+        c.clipPath(outer)
+        c.drawBitmapMesh(bitmap, MESH, MESH, meshVerts, 0, null, 0, null)
+        c.restore()
+
+        girdle(c, cx, cy, r * press)
+    }
+
+    private fun ensureRenderBitmap(w: Int, h: Int): Bitmap {
+        val current = renderBitmap
+        if (current == null || current.width != w || current.height != h || current.isRecycled) {
+            current?.recycle()
+            renderBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        }
+        return renderBitmap!!
+    }
+
+    /**
+     * Déformation radiale non linéaire d'une calotte convexe.
+     * - centre : presque inchangé
+     * - milieu : étirement radial maximal
+     * - bord : retour progressif à zéro pour rejoindre la ceinture sans cassure
+     * Aucun éclairage, halo ou bande blanche n'est créé ici.
+     */
+    private fun buildConvexMesh(w: Float, h: Float, cx: Float, cy: Float, r: Float) {
+        val lensRadius = r * .955f
+        val k = lensStrength.coerceIn(0f, 1f) * .72f
+        var index = 0
+
+        for (iy in 0..MESH) {
+            val sy = h * iy / MESH.toFloat()
+            for (ix in 0..MESH) {
+                val sx = w * ix / MESH.toFloat()
+                val dx = sx - cx
+                val dy = sy - cy
+                val dist = sqrt(dx * dx + dy * dy)
+
+                if (dist > 0.0001f && dist < lensRadius) {
+                    val n = (dist / lensRadius).coerceIn(0f, 1f)
+                    // zéro au centre et au bord, maximum vers le milieu de la lentille
+                    val dome = 4f * n * (1f - n)
+                    // courbe douce : évite l'aspect zoom circulaire avec une frontière nette
+                    val smoothDome = dome * dome * (3f - 2f * dome)
+                    val radialScale = 1f + k * .34f * smoothDome
+                    meshVerts[index++] = cx + dx * radialScale
+                    meshVerts[index++] = cy + dy * radialScale
+                } else {
+                    meshVerts[index++] = sx
+                    meshVerts[index++] = sy
+                }
+            }
+        }
+    }
+
+    private fun drop(c: Canvas, cx: Float, cy: Float, r: Float) {
+        shadow.shader = RadialGradient(
+            cx, cy + r * .08f, r * 1.16f,
+            intArrayOf(Color.TRANSPARENT, Color.argb(88, 0, 0, 0), Color.TRANSPARENT),
+            floatArrayOf(.67f, .88f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy + r * .08f, r * 1.16f, shadow)
+        shadow.shader = null
+    }
+
+    private fun glass(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val q = Math.toRadians(lightAngle.toDouble())
+        val lx = cx + cos(q).toFloat() * r * .24f
+        val ly = cy + sin(q).toFloat() * r * .24f
+        val t = diamondTint()
+        val d = diamondDark()
+        fill.shader = RadialGradient(
+            lx, ly, r * 1.28f,
+            intArrayOf(
+                alpha(lighten(t, .26f), 218), alpha(t, 232), alpha(d, 238),
+                Color.argb(244, Color.red(d) / 7, Color.green(d) / 7, Color.blue(d) / 7)
+            ),
+            floatArrayOf(0f, .34f, .72f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy, r, fill)
+        fill.shader = null
+    }
+
+    private fun pavilion(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val d = diamondDark()
+        fill.shader = RadialGradient(
+            cx - roll * .012f, cy + pitch * .008f, r,
+            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, alpha(d, 28), alpha(Color.BLACK, 92)),
+            floatArrayOf(0f, .43f, .73f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy, r, fill)
+        fill.shader = null
+    }
+
+    private fun facets(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tr = r * .28f
+        val cr = r * .63f
+        val gr = r * .96f
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            facet(c, center(cx, cy, pt(cx, cy, tr, a0), pt(cx, cy, tr, a1)), i, (a0 + a1) * .5f, 0, 1.16f)
+        }
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            val am = (a0 + a1) * .5f
+            val i0 = pt(cx, cy, tr, a0)
+            val i1 = pt(cx, cy, tr, a1)
+            val m0 = pt(cx, cy, cr, a0)
+            val m1 = pt(cx, cy, cr, a1)
+            val mm = pt(cx, cy, cr, am)
+            facet(c, poly(i0, m0, mm, i1), i + 3, (a0 + am) * .5f, 1, .98f)
+            facet(c, poly(i1, mm, m1), i + 9, (am + a1) * .5f, 1, .87f)
+        }
+
+        for (i in 0 until FACETS) {
+            val a0 = angle(i)
+            val a1 = angle(i + 1)
+            val am = (a0 + a1) * .5f
+            val m0 = pt(cx, cy, cr, a0)
+            val m1 = pt(cx, cy, cr, a1)
+            val o0 = pt(cx, cy, gr, a0)
+            val o1 = pt(cx, cy, gr, a1)
+            val om = pt(cx, cy, gr, am)
+            facet(c, poly(m0, o0, om, m1), i + 5, (a0 + am) * .5f, 2, .73f)
+            facet(c, poly(m1, om, o1), i + 12, (am + a1) * .5f, 2, .61f)
+        }
+    }
+
+    private fun facet(c: Canvas, path: Path, index: Int, az: Float, ring: Int, energy: Float) {
+        val bt = when (ring) { 0 -> 11f; 1 -> 30f; else -> 47f }
+        val mt = (((index * 37 + ring * 53) % 17) - 8) * .46f
+        val ma = (((index * 29 + ring * 11) % 13) - 6) * .42f
+        val n = normal3(az + ma, bt + mt, pitch, roll)
+        val l = light3(lightAngle, elevation)
+        val v = floatArrayOf(0f, 0f, 1f)
+        val ndl = max(0f, dot(n, l))
+        val ndv = max(.001f, dot(n, v))
+        val hv = normalize3(floatArrayOf(l[0] + v[0], l[1] + v[1], l[2] + v[2]))
+        val ndh = max(0f, dot(n, hv))
+        val r0 = ((N_AIR - N_DIAMOND) / (N_AIR + N_DIAMOND)).pow(2)
+        val fres = r0 + (1 - r0) * (1 - ndv).pow(5)
+        val spec = ndh.pow(if (night) 70f else 155f) * intensity
+        val inc = Math.toDegrees(acos(ndl.coerceIn(0f, 1f)).toDouble()).toFloat()
+        val crit = Math.toDegrees(asin((N_AIR / N_DIAMOND).toDouble())).toFloat()
+        val tir = if (inc > crit) ((inc - crit) / (90f - crit)).coerceIn(0f, 1f) else 0f
+        val trans = (1 - fres) * (1 - tir) * ndl
+        val rd = when (ring) { 0 -> 1.05f; 1 -> .83f; else -> .58f }
+        val dynamic = energy * rd * (ndl * .34f + trans * .14f) + fres * .08f + tir * .04f
+        val bright = (.62f + dynamic).coerceIn(.58f, 1.26f)
+        val base = diamondPalette()[index % diamondPalette().size]
+        val hi = diamondHighlight()
+        val rr = (Color.red(base) * bright).toInt().coerceIn(0, 255)
+        val gg = (Color.green(base) * bright).toInt().coerceIn(0, 255)
+        val bb = (Color.blue(base) * bright).toInt().coerceIn(0, 255)
+        val flash = (spec * 1.35f + fres * .09f + tir * .07f).coerceIn(0f, .55f)
+        val top = mix(Color.rgb(rr, gg, bb), hi, flash)
+        val df = when (ring) { 0 -> .66f; 1 -> .54f; else -> .42f }
+        val deep = Color.rgb(
+            (rr * df).toInt().coerceIn(0, 255),
+            (gg * df).toInt().coerceIn(0, 255),
+            (bb * df).toInt().coerceIn(0, 255)
+        )
+        val a = (205 + ndl * 24 + fres * 12).toInt().coerceIn(202, 246)
+        val ga = Math.toRadians((az + 90).toDouble())
+        val gx = cos(ga).toFloat() * width * .42f
+        val gy = sin(ga).toFloat() * height * .42f
+        fill.shader = LinearGradient(
+            width * .5f - gx, height * .5f - gy,
+            width * .5f + gx, height * .5f + gy,
+            alpha(top, a), alpha(deep, (a * .90f).toInt()), Shader.TileMode.CLAMP
+        )
+        c.drawPath(path, fill)
+        fill.shader = null
+        if (spec > .62f) {
+            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 92).toInt().coerceIn(0, 92))
+            c.drawPath(path, fill)
+        }
+        fire(c, path, index, ring, ndh, trans, tir)
+    }
+
+    private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
+        if (night) return
+        val th = .90f + ring * .016f
+        val gate = ((align - th) / (1 - th)).coerceIn(0f, 1f)
+        if (((index * 17 + ring * 7) % 13) > 3 || gate <= 0) return
+        val p = (gate.pow(2.1f) * trans * intensity * (1 - .30f * tir)).coerceIn(0f, .18f)
+        if (p < .02f) return
+        val q = Math.toRadians((lightAngle + index * 3.2f).toDouble())
+        val dx = cos(q).toFloat() * width * .012f
+        val dy = sin(q).toFloat() * height * .012f
+        fill.shader = LinearGradient(
+            width * .5f - dx, height * .5f - dy,
+            width * .5f + dx, height * .5f + dy,
+            intArrayOf(
+                alpha(Color.rgb(255, 134, 58), (80 * p).toInt()),
+                Color.TRANSPARENT,
+                alpha(Color.rgb(80, 150, 255), (90 * p).toInt())
+            ),
+            floatArrayOf(0f, .5f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawPath(path, fill)
+        fill.shader = null
+    }
+
+    private fun table(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val tr = r * .285f
+        val q = Math.toRadians(lightAngle.toDouble())
+        val hx = cx + cos(q).toFloat() * tr * .34f
+        val hy = cy + sin(q).toFloat() * tr * .34f
+        val hi = diamondHighlight()
+        fill.shader = RadialGradient(
+            hx, hy, tr * 1.12f,
+            intArrayOf(alpha(hi, if (night) 30 else 54), Color.TRANSPARENT, alpha(Color.BLACK, 28)),
+            floatArrayOf(0f, .58f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy, tr, fill)
+        fill.shader = null
+        edge.strokeWidth = maxOf(1f, r * .014f)
+        edge.color = alpha(hi, if (night) 38 else 72)
+        c.drawCircle(cx, cy, tr, edge)
+    }
+
+    private fun refraction(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val q = Math.toRadians(lightAngle.toDouble())
+        val ux = cos(q).toFloat()
+        val uy = sin(q).toFloat()
+        val hi = diamondHighlight()
+        val t = diamondTint()
+        fill.shader = LinearGradient(
+            cx - ux * r * .72f, cy - uy * r * .72f,
+            cx + ux * r * .72f, cy + uy * r * .72f,
+            intArrayOf(Color.TRANSPARENT, alpha(t, 16), alpha(hi, if (night) 28 else 58), alpha(t, 20), Color.TRANSPARENT),
+            floatArrayOf(0f, .32f, .50f, .68f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(cx, cy, r * .78f, fill)
+        fill.shader = null
+    }
+
+    private fun edges(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val hi = diamondHighlight()
+        edge.strokeWidth = maxOf(1f, r * .009f)
+        edge.color = alpha(hi, if (night) 38 else 62)
+        for (i in 0 until FACETS) {
+            val a = angle(i)
+            val p1 = pt(cx, cy, r * .28f, a)
+            val p2 = pt(cx, cy, r * .63f, a)
+            val p3 = pt(cx, cy, r * .96f, a)
+            c.drawLine(cx, cy, p1[0], p1[1], edge)
+            c.drawLine(p1[0], p1[1], p2[0], p2[1], edge)
+            c.drawLine(p2[0], p2[1], p3[0], p3[1], edge)
+        }
+        edge.alpha = 56
+        c.drawCircle(cx, cy, r * .28f, edge)
+        edge.alpha = 42
+        c.drawCircle(cx, cy, r * .63f, edge)
+        edge.alpha = 255
+    }
+
+    private fun glints(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val q = Math.toRadians(lightAngle.toDouble())
+        val ux = cos(q).toFloat()
+        val uy = sin(q).toFloat()
+        val hi = diamondHighlight()
+        val ef = ((elevation + 5) / 70).coerceIn(.15f, 1f)
+        val power = intensity * ef * (if (night) .30f else 1f)
+        val x = cx + ux * r * (.43f + roll * .0010f).coerceIn(.24f, .65f)
+        val y = cy + uy * r * (.43f - pitch * .0004f).coerceIn(.30f, .56f)
+        glow.shader = RadialGradient(
+            x, y, r * .17f,
+            intArrayOf(
+                alpha(Color.WHITE, (170 * power).toInt().coerceIn(0, 170)),
+                alpha(hi, (84 * power).toInt().coerceIn(0, 84)),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .10f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawCircle(x, y, r * .17f, glow)
+        glow.shader = null
+        if (!night && power > .60f) {
+            edge.strokeWidth = maxOf(1f, r * .010f)
+            edge.color = alpha(Color.WHITE, (145 * power).toInt().coerceIn(0, 145))
+            val len = r * (.035f + .08f * power)
+            c.drawLine(x - len, y, x + len, y, edge)
+            c.drawLine(x, y - len, x, y + len, edge)
+        }
+    }
+
+    private fun girdle(c: Canvas, cx: Float, cy: Float, r: Float) {
+        val d = diamondDark()
+        val t = diamondTint()
+        val hi = diamondHighlight()
+        edge.style = Paint.Style.STROKE
+        edge.strokeWidth = maxOf(2.2f, r * .060f)
+        edge.shader = SweepGradient(
+            cx, cy,
+            intArrayOf(alpha(d, 255), alpha(t, 230), alpha(hi, 238), alpha(d, 255), alpha(t, 220), alpha(hi, 228), alpha(d, 255)),
+            null
+        )
+        c.drawCircle(cx, cy, r * .982f, edge)
+        edge.shader = null
+        edge.strokeWidth = maxOf(1f, r * .015f)
+        edge.color = alpha(hi, if (night) 72 else 145)
+        c.drawCircle(cx, cy, r * .952f, edge)
+        edge.strokeWidth = maxOf(1f, r * .012f)
+        edge.color = alpha(Color.BLACK, 140)
+        c.drawCircle(cx, cy, r * 1.012f, edge)
+    }
+
+    private fun normal3(azimuth: Float, tilt: Float, p: Float, r: Float): FloatArray {
+        val az = Math.toRadians((azimuth + r * .10f).toDouble())
+        val tr = Math.toRadians((tilt + p * .010f).coerceIn(6f, 74f).toDouble())
+        val s = sin(tr).toFloat()
+        return normalize3(floatArrayOf(cos(az).toFloat() * s, sin(az).toFloat() * s, cos(tr).toFloat()))
+    }
+
+    private fun light3(azimuth: Float, elev: Float): FloatArray {
+        val az = Math.toRadians(azimuth.toDouble())
+        val el = Math.toRadians(elev.coerceIn(-5f, 90f).toDouble())
+        val ce = cos(el).toFloat()
+        return normalize3(floatArrayOf(cos(az).toFloat() * ce, sin(az).toFloat() * ce, sin(el).toFloat()))
+    }
+
+    private fun dot(a: FloatArray, b: FloatArray) = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    private fun normalize3(v: FloatArray): FloatArray {
+        val l = sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).coerceAtLeast(1e-8f))
+        return floatArrayOf(v[0] / l, v[1] / l, v[2] / l)
+    }
+
+    private fun angle(i: Int) = -90f + i * (360f / FACETS)
+    private fun norm(v: Float) = ((v % 360) + 360) % 360
+
+    private fun pt(cx: Float, cy: Float, r: Float, d: Float): FloatArray {
+        val q = Math.toRadians(d.toDouble())
+        return floatArrayOf(cx + cos(q).toFloat() * r, cy + sin(q).toFloat() * r)
+    }
+
+    private fun poly(vararg p: FloatArray) = Path().apply {
+        moveTo(p[0][0], p[0][1])
+        for (i in 1 until p.size) lineTo(p[i][0], p[i][1])
+        close()
+    }
+
+    private fun center(cx: Float, cy: Float, vararg p: FloatArray) = Path().apply {
+        moveTo(cx, cy)
+        p.forEach { lineTo(it[0], it[1]) }
+        close()
+    }
+
+    private fun alpha(c: Int, a: Int) = Color.argb(a.coerceIn(0, 255), Color.red(c), Color.green(c), Color.blue(c))
+
+    private fun lighten(c: Int, t: Float) = Color.rgb(
+        (Color.red(c) + (255 - Color.red(c)) * t).toInt().coerceIn(0, 255),
+        (Color.green(c) + (255 - Color.green(c)) * t).toInt().coerceIn(0, 255),
+        (Color.blue(c) + (255 - Color.blue(c)) * t).toInt().coerceIn(0, 255)
+    )
+
+    private fun mix(a: Int, b: Int, t: Float): Int {
+        val q = t.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(a) + (Color.red(b) - Color.red(a)) * q).toInt().coerceIn(0, 255),
+            (Color.green(a) + (Color.green(b) - Color.green(a)) * q).toInt().coerceIn(0, 255),
+            (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * q).toInt().coerceIn(0, 255)
+        )
+    }
 }
