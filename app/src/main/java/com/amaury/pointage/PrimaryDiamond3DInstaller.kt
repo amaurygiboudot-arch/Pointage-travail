@@ -18,33 +18,37 @@ import java.util.WeakHashMap
 object PrimaryDiamond3DInstaller {
     private const val TAG = "hp_primary_diamond_3d_v1"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
+    private var currentLightAngle = -55f
 
-    fun install(root: View, lightAngle: Float) {
+    fun install(root: View, lightAngle: Float = currentLightAngle) {
+        currentLightAngle = lightAngle
         val buttons = ArrayList<Button>(3)
         collectPrimary(root, buttons)
         buttons.forEach { button ->
             val existing = hosts[button]
             if (existing != null) {
                 button.alpha = 0f
-                existing.setLightAngle(lightAngle)
+                existing.setLightAngle(currentLightAngle)
             } else {
-                wrap(button, lightAngle)
+                wrap(button, currentLightAngle)
             }
         }
     }
 
     fun updateLight(root: View, lightAngle: Float) {
+        currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
-            if (button.rootView === root.rootView) {
-                host.setLightAngle(lightAngle)
-            }
+            if (button.rootView === root.rootView) host.setLightAngle(lightAngle)
         }
     }
 
+    fun updateAllLight(lightAngle: Float) {
+        currentLightAngle = lightAngle
+        hosts.values.toList().forEach { it.setLightAngle(lightAngle) }
+    }
+
     private fun collectPrimary(view: View, out: MutableList<Button>) {
-        if (view is Button && isPrimary(view) && view.getTag(R.id.true3d_internal_tag) != TAG) {
-            out.add(view)
-        }
+        if (view is Button && isPrimary(view) && view.getTag(R.id.true3d_internal_tag) != TAG) out.add(view)
         if (view is ViewGroup && view !is True3DButtonHost) {
             for (i in 0 until view.childCount) collectPrimary(view.getChildAt(i), out)
         }
@@ -72,10 +76,8 @@ object PrimaryDiamond3DInstaller {
         button.setTag(R.id.true3d_internal_tag, TAG)
         button.alpha = 0f
 
-        // Le premier enfant du host est la TextureView OpenGL du moteur 3D.
         val surface = host.getChildAt(0) as? True3DButtonTextureView
         surface?.let { applyPermanentColor(it, button) }
-
         hosts[button] = host
     }
 
@@ -90,8 +92,8 @@ object PrimaryDiamond3DInstaller {
             else -> return
         }
 
-        // BlendMode.COLOR garde la luminance / les éclats blancs calculés par
-        // le shader OpenGL et ne remplace que la teinte générale de la pierre.
+        // COLOR conserve la luminance, les éclats blancs et la profondeur du
+        // shader OpenGL : seule la teinte générale de la pierre est imposée.
         surface.setRenderEffect(
             RenderEffect.createColorFilterEffect(
                 BlendModeColorFilter(tint, BlendMode.COLOR)
