@@ -26,7 +26,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private val lensPaint=Paint(Paint.ANTI_ALIAS_FLAG)
     private val outer=Path()
     private var lightAngle=-55f;private var pitch=0f;private var roll=0f;private var intensity=.78f;private var night=false;private var elevation=45f
-    private var lensStrength=.22f
+    private var lensStrength=.50f
     open fun diamondPalette()=intArrayOf(Color.rgb(255,50,76),Color.rgb(214,5,35),Color.rgb(132,0,24),Color.rgb(255,92,118),Color.rgb(92,0,20),Color.rgb(238,12,48),Color.rgb(178,0,31),Color.rgb(255,148,164),Color.rgb(110,0,25),Color.rgb(245,22,56),Color.rgb(156,0,29),Color.rgb(255,72,102),Color.rgb(74,0,18),Color.rgb(226,8,42),Color.rgb(194,0,34),Color.rgb(255,118,140))
     open fun diamondTint()=Color.rgb(255,28,62);open fun diamondDark()=Color.rgb(96,0,22);open fun diamondHighlight()=Color.rgb(255,238,243)
     init{background=null;stateListAnimator=null;setPadding(0,0,0,0);isAllCaps=false}
