@@ -29,6 +29,11 @@ object PrimaryDiamond3DInstaller {
             if (existing != null) {
                 button.alpha = 0f
                 existing.setLightAngle(currentLightAngle)
+                // Le composite TextureView/RenderEffect peut être recréé lors
+                // d'un layout : on réapplique la couleur puis on force une frame.
+                (existing.getChildAt(0) as? True3DButtonTextureView)?.let {
+                    applyPermanentColor(it, button, currentLightAngle)
+                }
             } else {
                 wrap(button, currentLightAngle)
             }
@@ -38,13 +43,23 @@ object PrimaryDiamond3DInstaller {
     fun updateLight(root: View, lightAngle: Float) {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
-            if (button.rootView === root.rootView) host.setLightAngle(lightAngle)
+            if (button.rootView === root.rootView) {
+                host.setLightAngle(lightAngle)
+                (host.getChildAt(0) as? True3DButtonTextureView)?.let {
+                    applyPermanentColor(it, button, lightAngle)
+                }
+            }
         }
     }
 
     fun updateAllLight(lightAngle: Float) {
         currentLightAngle = lightAngle
-        hosts.values.toList().forEach { it.setLightAngle(lightAngle) }
+        hosts.entries.toList().forEach { (button, host) ->
+            host.setLightAngle(lightAngle)
+            (host.getChildAt(0) as? True3DButtonTextureView)?.let {
+                applyPermanentColor(it, button, lightAngle)
+            }
+        }
     }
 
     private fun collectPrimary(view: View, out: MutableList<Button>) {
@@ -77,11 +92,11 @@ object PrimaryDiamond3DInstaller {
         button.alpha = 0f
 
         val surface = host.getChildAt(0) as? True3DButtonTextureView
-        surface?.let { applyPermanentColor(it, button) }
+        surface?.let { applyPermanentColor(it, button, lightAngle) }
         hosts[button] = host
     }
 
-    private fun applyPermanentColor(surface: True3DButtonTextureView, button: Button) {
+    private fun applyPermanentColor(surface: True3DButtonTextureView, button: Button, lightAngle: Float) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
 
         val name = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
@@ -92,12 +107,16 @@ object PrimaryDiamond3DInstaller {
             else -> return
         }
 
-        // COLOR conserve la luminance, les éclats blancs et la profondeur du
-        // shader OpenGL : seule la teinte générale de la pierre est imposée.
         surface.setRenderEffect(
             RenderEffect.createColorFilterEffect(
                 BlendModeColorFilter(tint, BlendMode.COLOR)
             )
         )
+
+        // Important : le filtre est posé après la première frame OpenGL.
+        // Sans cette nouvelle frame, la pierre reste visuellement décolorée
+        // jusqu'au premier mouvement du téléphone.
+        surface.setLightAngle(lightAngle)
+        surface.postInvalidateOnAnimation()
     }
 }
