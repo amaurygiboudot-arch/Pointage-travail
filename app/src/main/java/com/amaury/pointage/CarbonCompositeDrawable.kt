@@ -11,17 +11,16 @@ import kotlin.math.max
  * - fond fibre de carbone
  * - cadre metallique, dont le noir est rendu transparent a l'execution
  *
- * Aucun effet "diamant" n'est utilise pour le theme Carbone.
+ * Le chargement des images est volontairement fail-safe : une ressource
+ * invalide ne doit jamais faire planter toute l'application au demarrage.
  */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val src = Rect()
     private val dst = RectF()
     private val clipPath = Path()
-    private val fillBitmap: Bitmap = decodeRawBase64(context, R.raw.carbon_fill_b64)
-    private val frameBitmap: Bitmap = makeBlackTransparent(
-        decodeRawBase64(context, R.raw.carbon_frame_b64)
-    )
+    private val fillBitmap: Bitmap? = decodeRawBase64OrNull(context, R.raw.carbon_fill_b64)
+    private val frameBitmap: Bitmap? = decodeRawBase64OrNull(context, R.raw.carbon_frame_b64)?.let(::makeBlackTransparent)
     private var globalAlpha = 255
 
     override fun draw(canvas: Canvas) {
@@ -34,14 +33,44 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
         canvas.save()
         canvas.clipPath(clipPath)
-        drawCenterCrop(canvas, fillBitmap, dst)
+        val fill = fillBitmap
+        if (fill != null) drawCenterCrop(canvas, fill, dst) else drawSafeCarbonFallback(canvas, dst)
         canvas.restore()
 
         // Le cadre reste par-dessus le carbone et conserve son relief metallique.
-        drawCenterCrop(canvas, frameBitmap, dst)
+        frameBitmap?.let { drawCenterCrop(canvas, it, dst) }
+    }
+
+    private fun drawSafeCarbonFallback(canvas: Canvas, target: RectF) {
+        val oldStyle = paint.style
+        val oldColor = paint.color
+        paint.style = Paint.Style.FILL
+        paint.alpha = globalAlpha
+        paint.color = Color.rgb(18, 20, 22)
+        canvas.drawRect(target, paint)
+
+        // Trame carbone simple de secours : uniquement utilisée si l'image source
+        // n'a pas pu etre decodee. Elle evite tout crash et garde le bouton lisible.
+        val step = (target.height() / 7f).coerceAtLeast(6f)
+        paint.strokeWidth = (step * 0.42f).coerceAtLeast(2f)
+        var x = target.left - target.height()
+        paint.color = Color.rgb(48, 51, 54)
+        while (x < target.right + target.height()) {
+            canvas.drawLine(x, target.bottom, x + target.height(), target.top, paint)
+            x += step * 1.5f
+        }
+        x = target.left - target.height() + step * 0.75f
+        paint.color = Color.rgb(8, 9, 10)
+        while (x < target.right + target.height()) {
+            canvas.drawLine(x, target.bottom, x + target.height(), target.top, paint)
+            x += step * 1.5f
+        }
+        paint.style = oldStyle
+        paint.color = oldColor
     }
 
     private fun drawCenterCrop(canvas: Canvas, bitmap: Bitmap, target: RectF) {
+        if (bitmap.width <= 0 || bitmap.height <= 0 || target.width() <= 0f || target.height() <= 0f) return
         val bw = bitmap.width.toFloat()
         val bh = bitmap.height.toFloat()
         val tw = target.width()
@@ -51,22 +80,24 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
         if (srcAspect > dstAspect) {
             val wanted = bh * dstAspect
-            val left = ((bw - wanted) / 2f).toInt()
-            src.set(left, 0, left + wanted.toInt(), bitmap.height)
+            val left = ((bw - wanted) / 2f).toInt().coerceAtLeast(0)
+            src.set(left, 0, (left + wanted.toInt()).coerceAtMost(bitmap.width), bitmap.height)
         } else {
             val wanted = bw / dstAspect
-            val top = ((bh - wanted) / 2f).toInt()
-            src.set(0, top, bitmap.width, top + wanted.toInt())
+            val top = ((bh - wanted) / 2f).toInt().coerceAtLeast(0)
+            src.set(0, top, bitmap.width, (top + wanted.toInt()).coerceAtMost(bitmap.height))
         }
         paint.alpha = globalAlpha
         canvas.drawBitmap(bitmap, src, target, paint)
     }
 
-    private fun decodeRawBase64(context: Context, resId: Int): Bitmap {
+    private fun decodeRawBase64OrNull(context: Context, resId: Int): Bitmap? = runCatching {
         val encoded = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }.trim()
+        if (encoded.isBlank()) return@runCatching null
         val bytes = Base64.decode(encoded, Base64.DEFAULT)
-        return requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size))
-    }
+        if (bytes.isEmpty()) return@runCatching null
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
 
     /**
      * Le cadre source a ete sauvegarde sur fond noir. On convertit uniquement
@@ -83,8 +114,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             val g = Color.green(c)
             val b = Color.blue(c)
             val lum = max(r, max(g, b))
-            // Sous ~18 : totalement transparent. Au-dessus, transition douce
-            // pour garder les ombres du chrome sans rectangle noir visible.
             val a = ((lum - 14) * 8).coerceIn(0, 255)
             pixels[i] = Color.argb(a, r, g, b)
         }
