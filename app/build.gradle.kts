@@ -1,31 +1,18 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.google.gms.google-services")
 }
 
 android {
     namespace = "com.amaury.pointage"
     compileSdk = 36
 
-    signingConfigs {
-        create("release") {
-            val storePath = System.getenv("POINTAGE_KEYSTORE_PATH")
-            if (!storePath.isNullOrBlank()) {
-                storeFile = file(storePath)
-                storePassword = System.getenv("POINTAGE_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("POINTAGE_KEY_ALIAS")
-                keyPassword = System.getenv("POINTAGE_KEY_PASSWORD")
-            }
-        }
-    }
-
     defaultConfig {
-        applicationId = "com.amaury.pointage"
+        applicationId = "com.amaury.diamonddesigner"
         minSdk = 23
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.9"
+        versionCode = 1
+        versionName = "1.0-designer"
 
         fun envString(name: String): String = (System.getenv(name) ?: "")
             .replace("\\", "\\\\")
@@ -43,12 +30,15 @@ android {
     }
 
     buildTypes {
-        getByName("debug") { isDebuggable = true }
+        getByName("debug") {
+            isDebuggable = true
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         getByName("release") {
             isDebuggable = false
-            isMinifyEnabled = true
-            isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
