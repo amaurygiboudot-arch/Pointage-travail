@@ -15,8 +15,8 @@ import kotlin.math.sqrt
  * 1. le fond fibre de carbone ;
  * 2. le cadre métallique validé, conservé au-dessus du fond.
  *
- * Le chrome reçoit en plus un reflet spéculaire très marqué piloté par la
- * direction réelle Soleil/Lune fournie par LightDirectionController.
+ * Le chrome et le fond carbone reçoivent un éclairage dynamique piloté par
+ * la direction réelle Soleil/Lune fournie par LightDirectionController.
  */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
     companion object {
@@ -65,13 +65,93 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         canvas.save()
         canvas.clipPath(clipPath)
         fillBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackCarbon(canvas, dst)
+        drawCarbonSurfaceRelief(canvas, dst)
         canvas.restore()
 
-        // Cadre métal d'origine.
         frameBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackFrame(canvas, dst, radius)
-
-        // Reflet dynamique : très franc le jour, plus froid et plus doux la nuit.
         drawCelestialMetalHighlight(canvas, dst, radius)
+    }
+
+    /**
+     * Donne au fond carbone une vraie forme bombée :
+     * - un éclat large du côté Soleil/Lune ;
+     * - une zone centrale douce pour simuler une surface convexe ;
+     * - une ombre opposée qui accentue l'épaisseur du bouton.
+     */
+    private fun drawCarbonSurfaceRelief(canvas: Canvas, target: RectF) {
+        val radians = Math.toRadians(lightAngle.toDouble())
+        val dx = cos(radians).toFloat()
+        val dy = sin(radians).toFloat()
+        val cx = target.centerX()
+        val cy = target.centerY()
+        val radius = sqrt(target.width() * target.width() + target.height() * target.height()) * .62f
+
+        paint.style = Paint.Style.FILL
+        paint.colorFilter = null
+
+        val lightColor = if (nightLight) Color.rgb(170, 205, 238) else Color.rgb(255, 246, 220)
+        val lightAlpha = if (nightLight) 54 else 108
+        val midAlpha = if (nightLight) 22 else 48
+
+        // Éclairage convexe principal : point lumineux décalé vers la source.
+        val lx = cx + dx * target.width() * .24f
+        val ly = cy + dy * target.height() * .28f
+        paint.shader = RadialGradient(
+            lx, ly, radius,
+            intArrayOf(
+                Color.argb(lightAlpha, Color.red(lightColor), Color.green(lightColor), Color.blue(lightColor)),
+                Color.argb(midAlpha, Color.red(lightColor), Color.green(lightColor), Color.blue(lightColor)),
+                Color.argb(8, 255, 255, 255),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .27f, .58f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
+
+        // Ombre opposée : elle donne le volume bombé sans masquer la fibre carbone.
+        val sx = cx - dx * target.width() * .30f
+        val sy = cy - dy * target.height() * .34f
+        paint.shader = RadialGradient(
+            sx, sy, radius * .92f,
+            intArrayOf(
+                Color.argb(if (nightLight) 72 else 95, 0, 0, 0),
+                Color.argb(if (nightLight) 42 else 62, 0, 0, 0),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .43f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
+
+        // Fin liseré intérieur clair côté lumière et sombre à l'opposé.
+        val edge = (target.height() * .065f).coerceAtLeast(2f)
+        paint.shader = LinearGradient(
+            cx - dx * target.width() * .55f,
+            cy - dy * target.height() * .55f,
+            cx + dx * target.width() * .55f,
+            cy + dy * target.height() * .55f,
+            intArrayOf(
+                Color.argb(85, 0, 0, 0),
+                Color.TRANSPARENT,
+                Color.argb(if (nightLight) 75 else 132, 255, 255, 255)
+            ),
+            floatArrayOf(0f, .54f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = edge
+        val inset = edge * .72f
+        canvas.drawRoundRect(
+            RectF(target.left + inset, target.top + inset, target.right - inset, target.bottom - inset),
+            target.height() * .41f,
+            target.height() * .41f,
+            paint
+        )
+
+        paint.shader = null
+        paint.style = Paint.Style.FILL
+        paint.alpha = globalAlpha
     }
 
     private fun drawCelestialMetalHighlight(canvas: Canvas, target: RectF, radius: Float) {
@@ -119,7 +199,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         canvas.clipPath(frameBand)
         canvas.drawRect(target, paint)
 
-        // Petit point de brûlure spéculaire au bord directement frappé par la lumière.
         val hotX = cx + dx * target.width() * .43f
         val hotY = cy + dy * target.height() * .43f
         paint.shader = RadialGradient(
