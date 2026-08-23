@@ -7,12 +7,19 @@ import java.io.File
 import java.io.FileOutputStream
 
 object DiamondDesignerExporter {
-    fun exportCanvasPng(context: Context, canvasView: DiamondDesignerCanvas, name: String = "diamond_button"): File {
+    fun renderBitmap(canvasView: DiamondDesignerCanvas): Bitmap {
         val w = canvasView.width.coerceAtLeast(1)
         val h = canvasView.height.coerceAtLeast(1)
+        val selected = canvasView.selectedElement()
+        canvasView.selectElement(null)
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bitmap)
-        canvasView.draw(c)
+        canvasView.draw(Canvas(bitmap))
+        canvasView.selectElement(selected)
+        return bitmap
+    }
+
+    fun exportCanvasPng(context: Context, canvasView: DiamondDesignerCanvas, name: String = "diamond_button"): File {
+        val bitmap = renderBitmap(canvasView)
         val dir = File(context.getExternalFilesDir(null), "DiamondDesigner").apply { mkdirs() }
         val file = File(dir, safe(name) + ".png")
         FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
