@@ -32,7 +32,7 @@ object LightDirectionController {
 
         fun state(angle:Float):LightingState{
             CarbonCompositeDrawable.updateGlobalLight(angle,night)
-            PrimaryDiamond3DInstaller.updateAllLight(angle)
+            RedDiamondFinalButton.updateGlobalNaturalLight(angle,pitch,roll,intensity,night,elevation)
             return LightingState(angle,celestialAngle,elevation,night,azimuth,pitch)
         }
         fun recompute(){
