@@ -8,7 +8,7 @@ if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY manquant");
 if (!OPENAI_MODEL) throw new Error("OPENAI_MODEL manquant");
 
 const actionTypes = [
-  "set_lens", "set_ring", "set_alpha", "set_rotation", "set_light_angle",
+  "set_lens", "set_ring", "set_alpha", "set_transparency", "set_translucency", "set_rotation", "set_light_angle",
   "set_edge_width", "set_edge_alpha", "set_edge_contrast", "set_edge_softness",
   "set_radial_edges", "set_circular_edges", "add_entry", "add_pause", "add_exit",
   "add_frame", "add_background", "duplicate", "delete", "bring_forward",
@@ -78,7 +78,8 @@ const server = http.createServer(async (req, res) => {
           "You are the in-app Diamond Designer assistant.",
           "Understand French naturally and modify only the selected design object through the provided function.",
           "Never invent unsupported actions. Keep values conservative unless the user explicitly asks for a strong change.",
-          "Ranges: lens/alpha/edge_alpha/edge_contrast/edge_softness 0..1; ring gains 0.2..1.8; edge width 0.1..12; radial/circular edges 0..2; rotation/light angle degrees.",
+          "Ranges: lens/alpha/transparency/translucency/edge_alpha/edge_contrast/edge_softness 0..1; ring gains 0.2..1.8; edge width 0.1..12; radial/circular edges 0..2; rotation/light angle degrees.",
+          "Transparency means the whole object fades away. Translucency means diamond material lets the background show through while facets remain readable.",
           "For actions that do not use value or ring, send value=0 and ring=0. For set_ring, ring must be 1, 2, or 3."
         ].join(" "),
         input: userText,
