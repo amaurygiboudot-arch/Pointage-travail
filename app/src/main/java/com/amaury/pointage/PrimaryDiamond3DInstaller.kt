@@ -1,22 +1,18 @@
 package com.amaury.pointage
 
-import android.graphics.BlendMode
-import android.graphics.BlendModeColorFilter
 import android.graphics.Color
-import android.graphics.RenderEffect
-import android.os.Build
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import java.util.WeakHashMap
 
 /**
- * Branche les trois boutons de pointage permanents sur le moteur OpenGL déjà
- * utilisé par le thème Diamant. Le bouton Android original reste présent pour
- * conserver son id et ses listeners, mais son dessin 2D est masqué.
+ * Branche les trois boutons de pointage permanents sur le moteur OpenGL.
+ * Les couleurs sont envoyées directement au shader : aucun filtre n'est posé
+ * sur la TextureView, donc le fond reste transparent.
  */
 object PrimaryDiamond3DInstaller {
-    private const val TAG = "hp_primary_diamond_3d_v1"
+    private const val TAG = "hp_primary_diamond_3d_v2"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
     private var currentLightAngle = -55f
 
@@ -29,11 +25,7 @@ object PrimaryDiamond3DInstaller {
             if (existing != null) {
                 button.alpha = 0f
                 existing.setLightAngle(currentLightAngle)
-                // Le composite TextureView/RenderEffect peut être recréé lors
-                // d'un layout : on réapplique la couleur puis on force une frame.
-                (existing.getChildAt(0) as? True3DButtonTextureView)?.let {
-                    applyPermanentColor(it, button, currentLightAngle)
-                }
+                existing.setBaseColor(colorFor(button))
             } else {
                 wrap(button, currentLightAngle)
             }
@@ -44,10 +36,8 @@ object PrimaryDiamond3DInstaller {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
             if (button.rootView === root.rootView) {
+                host.setBaseColor(colorFor(button))
                 host.setLightAngle(lightAngle)
-                (host.getChildAt(0) as? True3DButtonTextureView)?.let {
-                    applyPermanentColor(it, button, lightAngle)
-                }
             }
         }
     }
@@ -55,10 +45,8 @@ object PrimaryDiamond3DInstaller {
     fun updateAllLight(lightAngle: Float) {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
+            host.setBaseColor(colorFor(button))
             host.setLightAngle(lightAngle)
-            (host.getChildAt(0) as? True3DButtonTextureView)?.let {
-                applyPermanentColor(it, button, lightAngle)
-            }
         }
     }
 
@@ -72,6 +60,16 @@ object PrimaryDiamond3DInstaller {
     private fun isPrimary(button: Button): Boolean {
         val name = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
         return name == "entryButton" || name == "pauseButton" || name == "exitButton"
+    }
+
+    private fun colorFor(button: Button): Int {
+        val name = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
+        return when (name) {
+            "entryButton" -> Color.rgb(18, 205, 75)
+            "pauseButton" -> Color.rgb(244, 126, 20)
+            "exitButton" -> Color.rgb(224, 28, 52)
+            else -> Color.rgb(60, 125, 210)
+        }
     }
 
     private fun wrap(button: Button, lightAngle: Float) {
@@ -88,35 +86,9 @@ object PrimaryDiamond3DInstaller {
         parent.addView(host, index)
 
         host.attachButton(button, DiamondTuningStore.load(button.context), lightAngle)
+        host.setBaseColor(colorFor(button))
         button.setTag(R.id.true3d_internal_tag, TAG)
         button.alpha = 0f
-
-        val surface = host.getChildAt(0) as? True3DButtonTextureView
-        surface?.let { applyPermanentColor(it, button, lightAngle) }
         hosts[button] = host
-    }
-
-    private fun applyPermanentColor(surface: True3DButtonTextureView, button: Button, lightAngle: Float) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-
-        val name = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
-        val tint = when (name) {
-            "entryButton" -> Color.rgb(24, 220, 82)
-            "pauseButton" -> Color.rgb(255, 137, 28)
-            "exitButton" -> Color.rgb(238, 32, 58)
-            else -> return
-        }
-
-        surface.setRenderEffect(
-            RenderEffect.createColorFilterEffect(
-                BlendModeColorFilter(tint, BlendMode.COLOR)
-            )
-        )
-
-        // Important : le filtre est posé après la première frame OpenGL.
-        // Sans cette nouvelle frame, la pierre reste visuellement décolorée
-        // jusqu'au premier mouvement du téléphone.
-        surface.setLightAngle(lightAngle)
-        surface.postInvalidateOnAnimation()
     }
 }
