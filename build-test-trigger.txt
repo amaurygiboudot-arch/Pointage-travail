@@ -1,0 +1,1 @@
+Build de test Diamant + Carbone declenche apres integration du moteur 3D et du nouveau rendu carbone.
