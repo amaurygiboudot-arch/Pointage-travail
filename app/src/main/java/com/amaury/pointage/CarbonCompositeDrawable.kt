@@ -4,24 +4,55 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.drawable.Drawable
 import android.util.Base64
+import java.util.WeakHashMap
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
+import kotlin.math.sqrt
 
 /**
  * Bouton Carbone composé de deux couches indépendantes :
  * 1. le fond fibre de carbone ;
  * 2. le cadre métallique validé, conservé au-dessus du fond.
  *
- * Si une ressource ne peut pas être décodée, on garde un rendu de secours
- * au lieu de faire tomber l'application.
+ * Le chrome reçoit en plus un reflet spéculaire très marqué piloté par la
+ * direction réelle Soleil/Lune fournie par LightDirectionController.
  */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
+    companion object {
+        private val instances = WeakHashMap<CarbonCompositeDrawable, Unit>()
+        private var sharedLightAngle = -55f
+        private var sharedNight = false
+
+        @Synchronized
+        fun updateGlobalLight(angle: Float, night: Boolean) {
+            sharedLightAngle = ((angle % 360f) + 360f) % 360f
+            sharedNight = night
+            instances.keys.toList().forEach { it.applyCelestialLight(sharedLightAngle, sharedNight) }
+        }
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val src = Rect()
     private val dst = RectF()
     private val clipPath = Path()
+    private val frameBand = Path()
+    private val innerPath = Path()
     private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)?.let(::makeBlackTransparent)
     private var globalAlpha = 255
+    private var lightAngle = sharedLightAngle
+    private var nightLight = sharedNight
+
+    init {
+        synchronized(CarbonCompositeDrawable::class.java) { instances[this] = Unit }
+    }
+
+    private fun applyCelestialLight(angle: Float, night: Boolean) {
+        lightAngle = angle
+        nightLight = night
+        invalidateSelf()
+    }
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
@@ -36,10 +67,75 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         fillBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackCarbon(canvas, dst)
         canvas.restore()
 
-        // IMPORTANT : le cadre est dessiné après le carbone et n'est pas teinté.
-        // Les gris très sombres du chrome sont volontairement conservés pour
-        // que le relief complet soit visible, pas uniquement les reflets blancs.
+        // Cadre métal d'origine.
         frameBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackFrame(canvas, dst, radius)
+
+        // Reflet dynamique : très franc le jour, plus froid et plus doux la nuit.
+        drawCelestialMetalHighlight(canvas, dst, radius)
+    }
+
+    private fun drawCelestialMetalHighlight(canvas: Canvas, target: RectF, radius: Float) {
+        val band = (target.height() * 0.145f).coerceAtLeast(4f)
+        val inner = RectF(target.left + band, target.top + band, target.right - band, target.bottom - band)
+        if (inner.width() <= 0f || inner.height() <= 0f) return
+
+        frameBand.reset()
+        frameBand.addRoundRect(target, radius, radius, Path.Direction.CW)
+        innerPath.reset()
+        innerPath.addRoundRect(inner, (radius - band).coerceAtLeast(1f), (radius - band).coerceAtLeast(1f), Path.Direction.CW)
+        frameBand.op(innerPath, Path.Op.DIFFERENCE)
+
+        val radians = Math.toRadians(lightAngle.toDouble())
+        val dx = cos(radians).toFloat()
+        val dy = sin(radians).toFloat()
+        val half = sqrt(target.width() * target.width() + target.height() * target.height()) * .58f
+        val cx = target.centerX()
+        val cy = target.centerY()
+
+        val strong = if (nightLight) 150 else 245
+        val medium = if (nightLight) 78 else 165
+        val cool = if (nightLight) Color.rgb(190, 220, 255) else Color.rgb(255, 252, 238)
+
+        paint.style = Paint.Style.FILL
+        paint.alpha = globalAlpha
+        paint.colorFilter = null
+        paint.shader = LinearGradient(
+            cx - dx * half, cy - dy * half,
+            cx + dx * half, cy + dy * half,
+            intArrayOf(
+                Color.TRANSPARENT,
+                Color.argb(18, 25, 30, 35),
+                Color.argb(medium, Color.red(cool), Color.green(cool), Color.blue(cool)),
+                Color.argb(strong, 255, 255, 255),
+                Color.argb(medium, Color.red(cool), Color.green(cool), Color.blue(cool)),
+                Color.argb(28, 20, 24, 28),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .28f, .43f, .50f, .57f, .74f, 1f),
+            Shader.TileMode.CLAMP
+        )
+
+        canvas.save()
+        canvas.clipPath(frameBand)
+        canvas.drawRect(target, paint)
+
+        // Petit point de brûlure spéculaire au bord directement frappé par la lumière.
+        val hotX = cx + dx * target.width() * .43f
+        val hotY = cy + dy * target.height() * .43f
+        paint.shader = RadialGradient(
+            hotX, hotY, (target.height() * if (nightLight) .34f else .46f).coerceAtLeast(8f),
+            intArrayOf(
+                Color.argb(if (nightLight) 135 else 255, 255, 255, 255),
+                Color.argb(if (nightLight) 55 else 145, Color.red(cool), Color.green(cool), Color.blue(cool)),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, .28f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
+        canvas.restore()
+
+        paint.shader = null
     }
 
     private fun drawCenterCrop(canvas: Canvas, bitmap: Bitmap, target: RectF) {
@@ -62,6 +158,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         }
         paint.alpha = globalAlpha
         paint.colorFilter = null
+        paint.shader = null
         canvas.drawBitmap(bitmap, src, target, paint)
     }
 
@@ -71,12 +168,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
 
-    /**
-     * Le visuel du cadre possède un intérieur et un extérieur noirs. Les anciens
-     * seuils rendaient aussi transparents les gris foncés du métal : il ne restait
-     * presque que les reflets blancs. Ici seul le vrai noir disparaît ; dès qu'un
-     * pixel appartient au chrome, on lui conserve une opacité minimale.
-     */
     private fun makeBlackTransparent(source: Bitmap): Bitmap {
         val w = source.width
         val h = source.height
@@ -101,6 +192,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private fun drawFallbackCarbon(canvas: Canvas, target: RectF) {
         paint.alpha = globalAlpha
         paint.style = Paint.Style.FILL
+        paint.shader = null
         paint.color = Color.rgb(13, 15, 17)
         canvas.drawRoundRect(target, target.height() * .48f, target.height() * .48f, paint)
         paint.strokeWidth = (target.height() / 12f).coerceAtLeast(2f)
@@ -139,7 +231,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        // Le cadre métallique doit garder ses couleurs d'origine.
         invalidateSelf()
     }
 
