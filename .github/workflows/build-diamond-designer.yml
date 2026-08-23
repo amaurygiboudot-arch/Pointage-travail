@@ -1,0 +1,42 @@
+name: Build Diamond Designer APK
+
+on:
+  push:
+    branches:
+      - tool/diamond-designer
+  workflow_dispatch:
+
+jobs:
+  build-designer:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Recuperer Diamond Designer
+        uses: actions/checkout@v4
+        with:
+          ref: tool/diamond-designer
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Installer Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compiler Diamond Designer
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Preparer APK
+        run: |
+          mkdir -p output
+          cp app/build/outputs/apk/debug/app-debug.apk output/Diamond-Designer.apk
+
+      - name: Publier Diamond Designer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Diamond-Designer-APK
+          path: output/Diamond-Designer.apk
+          if-no-files-found: error
+          retention-days: 14
