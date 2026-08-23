@@ -17,7 +17,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     companion object {
         const val RENDER_NAME = "Diamant rouge final"
         private const val FACETS = 16
-        private const val MESH = 24
+        private const val MESH = 40
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
         private val live = Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton, Boolean>())
@@ -49,7 +49,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private var night = false
     private var elevation = 45f
 
-    // Réglage de la courbure uniquement. Aucun reflet n'est ajouté par cette "loupe".
+    // Courbure géométrique uniquement : aucun reflet propre à la loupe.
     private var lensStrength = .50f
 
     private var renderBitmap: Bitmap? = null
@@ -156,15 +156,16 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     }
 
     /**
-     * Déformation radiale non linéaire d'une calotte convexe.
-     * - centre : presque inchangé
-     * - milieu : étirement radial maximal
-     * - bord : retour progressif à zéro pour rejoindre la ceinture sans cassure
-     * Aucun éclairage, halo ou bande blanche n'est créé ici.
+     * Calotte convexe non linéaire calée sur les 80 facettes visibles :
+     * 16 facettes centrales + 32 intermédiaires + 32 périphériques.
+     * La position reste continue aux jonctions, mais la pente de la déformation
+     * suit chaque facette pour éviter l'aspect loupe ronde uniforme.
+     * Aucun reflet ou halo n'est ajouté ici.
      */
     private fun buildConvexMesh(w: Float, h: Float, cx: Float, cy: Float, r: Float) {
         val lensRadius = r * .955f
-        val k = lensStrength.coerceIn(0f, 1f) * .72f
+        val strength = lensStrength.coerceIn(0f, 1f)
+        val k = strength * .72f
         var index = 0
 
         for (iy in 0..MESH) {
@@ -176,12 +177,57 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
                 val dist = sqrt(dx * dx + dy * dy)
 
                 if (dist > 0.0001f && dist < lensRadius) {
-                    val n = (dist / lensRadius).coerceIn(0f, 1f)
-                    // zéro au centre et au bord, maximum vers le milieu de la lentille
-                    val dome = 4f * n * (1f - n)
-                    // courbe douce : évite l'aspect zoom circulaire avec une frontière nette
+                    val lensN = (dist / lensRadius).coerceIn(0f, 1f)
+                    val diamondN = (dist / r).coerceIn(0f, 1f)
+
+                    // Bombé global non linéaire : nul au centre et au bord.
+                    val dome = 4f * lensN * (1f - lensN)
                     val smoothDome = dome * dome * (3f - 2f * dome)
-                    val radialScale = 1f + k * .34f * smoothDome
+
+                    // La géométrie réelle du bouton contient 16 + 32 + 32 = 80 facettes.
+                    val angularCount: Int
+                    val ringStart: Float
+                    val ringEnd: Float
+                    val ringGain: Float
+                    when {
+                        diamondN < .28f -> {
+                            angularCount = 16
+                            ringStart = 0f
+                            ringEnd = .28f
+                            ringGain = .92f
+                        }
+                        diamondN < .63f -> {
+                            angularCount = 32
+                            ringStart = .28f
+                            ringEnd = .63f
+                            ringGain = 1.05f
+                        }
+                        else -> {
+                            angularCount = 32
+                            ringStart = .63f
+                            ringEnd = .96f
+                            ringGain = .88f
+                        }
+                    }
+
+                    // Position à l'intérieur de la facette angulaire correspondante.
+                    // Les facettes sont alignées sur -90°, comme le dessin du diamant.
+                    val angleDeg = norm(Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat() + 90f)
+                    val step = 360f / angularCount
+                    val localA = ((angleDeg % step) / step).coerceIn(0f, 1f)
+                    val angularArch = sin(Math.PI.toFloat() * localA).pow(2)
+                    val angularFacet = .72f + .28f * angularArch
+
+                    // Profil radial propre à la rangée de facettes.
+                    val localR = ((diamondN - ringStart) / (ringEnd - ringStart)).coerceIn(0f, 1f)
+                    val radialArch = sin(Math.PI.toFloat() * localR).pow(2)
+                    val radialFacet = .78f + .22f * radialArch
+
+                    // Aux jonctions des facettes, la position reste continue mais la pente
+                    // change légèrement : on perçoit une surface composée de facettes bombées.
+                    val facetShape = angularFacet * radialFacet * ringGain
+                    val radialScale = 1f + k * .34f * smoothDome * facetShape
+
                     meshVerts[index++] = cx + dx * radialScale
                     meshVerts[index++] = cy + dy * radialScale
                 } else {
