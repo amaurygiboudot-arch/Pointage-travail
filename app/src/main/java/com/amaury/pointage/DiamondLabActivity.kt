@@ -14,6 +14,9 @@ class DiamondLabActivity : Activity() {
     private lateinit var canvas: DiamondDesignerCanvas
     private lateinit var selectionLabel: TextView
     private lateinit var presets: MutableList<DiamondDesignerLibrary.Preset>
+    private lateinit var assistantInput: EditText
+    private lateinit var assistantStatus: TextView
+    private lateinit var assistantSend: Button
 
     private data class Control(val label: TextView, val bar: SeekBar)
     private lateinit var lens: Control; private lateinit var ring1: Control; private lateinit var ring2: Control; private lateinit var ring3: Control
@@ -47,7 +50,7 @@ class DiamondLabActivity : Activity() {
 
         val workspace = FrameLayout(this); canvas = DiamondDesignerCanvas(this); workspace.addView(canvas, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.addView(workspace, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,0,1f))
-        root.addView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0B1118")); addView(buildControls()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(520)))
+        root.addView(ScrollView(this).apply { setBackgroundColor(Color.parseColor("#0B1118")); addView(buildControls()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(620)))
         return root
     }
 
@@ -59,6 +62,35 @@ class DiamondLabActivity : Activity() {
         addView(TextView(this@DiamondLabActivity).apply { text="ARÊTES DES FACETTES"; setTextColor(Color.WHITE); textSize=15f; setPadding(0,dp(10),0,dp(4)) })
         edgeWidth = addControl(this,"Épaisseur arêtes",1,1200); edgeAlpha = addControl(this,"Opacité arêtes",0,1000); edgeContrast = addControl(this,"Contraste arêtes",0,1000); edgeSoftness = addControl(this,"Douceur arêtes",0,1000)
         radialEdges = addControl(this,"Arêtes radiales",0,2000); circularEdges = addControl(this,"Arêtes circulaires",0,2000)
+
+        addView(TextView(this@DiamondLabActivity).apply {
+            text = "ASSISTANT"
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            setPadding(0, dp(14), 0, dp(4))
+        })
+        assistantStatus = TextView(this@DiamondLabActivity).apply {
+            setTextColor(Color.parseColor("#B8CADB"))
+            textSize = 13f
+            text = if (BuildConfig.DESIGNER_AI_ENDPOINT.isBlank()) "Assistant prêt côté appli • serveur à configurer" else "Assistant prêt"
+        }
+        addView(assistantStatus)
+        assistantInput = EditText(this@DiamondLabActivity).apply {
+            hint = "Ex. Épaissis les arêtes extérieures et bombe un peu plus l’anneau 2"
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#73879A"))
+            minLines = 2
+            maxLines = 4
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+        }
+        addView(assistantInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        assistantSend = Button(this@DiamondLabActivity).apply {
+            text = "ENVOYER À L’ASSISTANT"
+            isAllCaps = false
+            setOnClickListener { sendToAssistant() }
+        }
+        addView(assistantSend, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+
         addView(Button(this@DiamondLabActivity).apply { text="COPIER LE RAPPORT"; isAllCaps=false; setOnClickListener { val text=canvas.report(); (getSystemService(CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("Diamond Designer",text)); Toast.makeText(this@DiamondLabActivity,"Rapport copié",Toast.LENGTH_SHORT).show() } }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)).apply { topMargin=dp(8) })
     }
 
@@ -72,6 +104,32 @@ class DiamondLabActivity : Activity() {
         alpha.bar.listen { canvas.setSelectedAlpha(it/1000f) }; rotation.bar.listen { canvas.setSelectedRotation(it/10f) }; light.bar.listen { canvas.setSelectedLightAngle(it/10f) }
         edgeWidth.bar.listen { canvas.setSelectedEdgeWidth(it/100f) }; edgeAlpha.bar.listen { canvas.setSelectedEdgeAlpha(it/1000f) }; edgeContrast.bar.listen { canvas.setSelectedEdgeContrast(it/1000f) }; edgeSoftness.bar.listen { canvas.setSelectedEdgeSoftness(it/1000f) }
         radialEdges.bar.listen { canvas.setSelectedRadialEdgeGain(it/1000f) }; circularEdges.bar.listen { canvas.setSelectedCircularEdgeGain(it/1000f) }
+    }
+
+    private fun sendToAssistant() {
+        val message = assistantInput.text?.toString()?.trim().orEmpty()
+        if (message.isBlank()) { Toast.makeText(this,"Écris ce que tu veux modifier",Toast.LENGTH_SHORT).show(); return }
+        assistantSend.isEnabled = false
+        assistantStatus.text = "Assistant en cours…"
+        val state = canvas.report()
+        Thread {
+            runCatching { DiamondDesignerAssistant.ask(message, state) }
+                .onSuccess { result ->
+                    runOnUiThread {
+                        val count = DiamondDesignerAssistant.apply(canvas, result.actions)
+                        canvas.selectedElement()?.let(::updateControls)
+                        assistantStatus.text = "${result.reply} • $count action${if(count>1)"s" else ""} appliquée${if(count>1)"s" else ""}"
+                        assistantInput.text?.clear()
+                        assistantSend.isEnabled = true
+                    }
+                }
+                .onFailure { error ->
+                    runOnUiThread {
+                        assistantStatus.text = error.message ?: "Erreur assistant"
+                        assistantSend.isEnabled = true
+                    }
+                }
+        }.start()
     }
 
     private fun updateControls(e: DiamondDesignerCanvas.DesignElement?) {
