@@ -283,7 +283,7 @@ object ButtonReliefInstaller {
     private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v8"
+        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v9"
 
         if (theme.id == "diamond_crystal") {
             button.backgroundTintList = null
@@ -294,6 +294,22 @@ object ButtonReliefInstaller {
                 button.alpha = 0f
             }
             button.setTag(TAG_KEY, styleKey)
+            return
+        }
+
+        // Theme Carbone : les boutons secondaires/de selection ne sont plus
+        // generes par le moteur de relief standard. Ils utilisent ensemble
+        // le fond fibre carbone et le cadre metallique valides.
+        if (theme.id == "natural_carbon" && !protected) {
+            if (button.getTag(TAG_KEY) != styleKey || button.background !is CarbonCompositeDrawable) {
+                button.alpha = 1f
+                button.backgroundTintList = null
+                button.background = CarbonCompositeDrawable(button.context)
+                button.setTextColor(Color.parseColor("#F4F6F7"))
+                dynamicDrawables.remove(button)
+                button.setTag(TAG_KEY, styleKey)
+            }
+            installPressAnimator(button)
             return
         }
 
