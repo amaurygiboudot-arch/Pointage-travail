@@ -58,7 +58,7 @@ class DiamondLabActivity : Activity() {
         orientation = LinearLayout.VERTICAL; setPadding(dp(14),dp(8),dp(14),dp(14))
         selectionLabel = TextView(this@DiamondLabActivity).apply { setTextColor(Color.WHITE); textSize = 15f; text = "Aucun élément sélectionné" }; addView(selectionLabel)
         lens = addControl(this,"Bombé global",0,1000); ring1 = addControl(this,"Anneau 16 facettes",200,1800); ring2 = addControl(this,"Anneau 32 intérieur",200,1800); ring3 = addControl(this,"Anneau 32 extérieur",200,1800)
-        alpha = addControl(this,"Opacité",50,1000); rotation = addControl(this,"Rotation",0,3600); light = addControl(this,"Lumière",0,3600)
+        this@DiamondLabActivity.alpha = addControl(this,"Opacité",50,1000); this@DiamondLabActivity.rotation = addControl(this,"Rotation",0,3600); light = addControl(this,"Lumière",0,3600)
         addView(TextView(this@DiamondLabActivity).apply { text="ARÊTES DES FACETTES"; setTextColor(Color.WHITE); textSize=15f; setPadding(0,dp(10),0,dp(4)) })
         edgeWidth = addControl(this,"Épaisseur arêtes",1,1200); edgeAlpha = addControl(this,"Opacité arêtes",0,1000); edgeContrast = addControl(this,"Contraste arêtes",0,1000); edgeSoftness = addControl(this,"Douceur arêtes",0,1000)
         radialEdges = addControl(this,"Arêtes radiales",0,2000); circularEdges = addControl(this,"Arêtes circulaires",0,2000)
