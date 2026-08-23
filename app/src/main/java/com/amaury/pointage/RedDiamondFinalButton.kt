@@ -109,8 +109,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         intensity = i.coerceIn(.12f, 1f)
         night = n
         elevation = e.coerceIn(-10f, 90f)
-        // Important : ne jamais réutiliser une texture figée après un changement capteur/lumière.
-        // Les 80 facettes sont recalculées avant la déformation bombée à chaque frame utile.
         releaseRenderBitmap()
         postInvalidateOnAnimation()
     }
@@ -342,7 +340,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             (gg * df).toInt().coerceIn(0, 255),
             (bb * df).toInt().coerceIn(0, 255)
         )
-        val a = (205 + ndl * 24 + fres * 12).toInt().coerceIn(202, 246)
+        val a = facetReferenceAlpha(index, ring, az, bt + mt)
         val ga = Math.toRadians((az + 90).toDouble())
         val gx = cos(ga).toFloat() * width * .42f
         val gy = sin(ga).toFloat() * height * .42f
@@ -358,6 +356,13 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             c.drawPath(path, fill)
         }
         fire(c, path, index, ring, ndh, trans, tir)
+    }
+
+    private fun facetReferenceAlpha(index: Int, ring: Int, az: Float, cutTilt: Float): Int {
+        val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 8f).toInt()
+        val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
+        val signature = ((index * 13 + ring * 17) % 13) - 6
+        return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
     }
 
     private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
