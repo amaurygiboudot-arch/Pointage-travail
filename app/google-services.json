@@ -41,6 +41,35 @@
           ]
         }
       }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:827513765896:android:25560fcc825340fbf691bd",
+        "android_client_info": {
+          "package_name": "com.amaury.pointage.test"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "827513765896-nvs05k065p8n0nvj9uark6532ilefbr4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBy504tOQ_Ox42nMGDDwQ-Tp-nAWJiD_H0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "827513765896-nvs05k065p8n0nvj9uark6532ilefbr4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
     }
   ],
   "configuration_version": "1"
