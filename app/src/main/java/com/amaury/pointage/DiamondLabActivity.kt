@@ -2,17 +2,20 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 
 class DiamondLabActivity : Activity() {
-    private lateinit var preview: Button
+    private lateinit var previewSurface: True3DButtonTextureView
+    private lateinit var previewLabel: Button
     private var tuning = DiamondTuning()
     private var lightAngle = 305f
 
@@ -41,23 +44,39 @@ class DiamondLabActivity : Activity() {
         }, lp(top = 0, bottom = 8))
 
         content.addView(TextView(this).apply {
-            text = "Ajuste le cristal en direct. Les valeurs sont utilisées par le vrai thème Diamant."
+            text = "Ajuste le cristal en direct. Cet aperçu utilise exactement le nouveau moteur 3D du thème Diamant."
             textSize = 14f
             setTextColor(Color.parseColor("#B8CBD9"))
             gravity = Gravity.CENTER
         }, lp(bottom = 18))
 
-        preview = Button(this).apply {
-            text = "APERÇU DIAMANT"
+        // L'ancien DiamondDrawable 2D n'est plus utilisé ici : l'aperçu est
+        // rendu par le même moteur OpenGL à facettes que les boutons du thème.
+        val previewFrame = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        previewSurface = True3DButtonTextureView(this).apply {
+            setLightAngle(lightAngle)
+            setCrystalTuning(tuning)
+        }
+        previewLabel = Button(this).apply {
+            text = "APERÇU DIAMANT 3D"
             textSize = 15f
             isAllCaps = false
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            minHeight = dp(78)
-            minimumHeight = dp(78)
+            isClickable = false
+            isFocusable = false
+            background = ColorDrawable(Color.TRANSPARENT)
+            elevation = 0f
+            stateListAnimator = null
             setPadding(dp(18), dp(12), dp(18), dp(12))
         }
-        content.addView(preview, lp(height = 86, bottom = 20))
+        previewFrame.addView(previewSurface, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        previewFrame.addView(previewLabel, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        content.addView(previewFrame, lp(height = 96, bottom = 20))
 
         addSlider(content, "Transparence", tuning.transparency) { tuning = tuning.copy(transparency = it) }
         addSlider(content, "Profondeur des facettes", tuning.facetDepth) { tuning = tuning.copy(facetDepth = it) }
@@ -127,12 +146,11 @@ class DiamondLabActivity : Activity() {
     }
 
     private fun refreshPreview(save: Boolean = true) {
-        if (!::preview.isInitialized) return
+        if (!::previewSurface.isInitialized) return
         if (save) DiamondTuningStore.save(this, tuning)
-        preview.background = DiamondDrawable(true, resources.displayMetrics.density, tuning).apply {
-            setLightAngle(lightAngle)
-        }
-        preview.invalidate()
+        previewSurface.setCrystalTuning(tuning)
+        previewSurface.setLightAngle(lightAngle)
+        previewSurface.invalidate()
     }
 
     private fun lp(height: Int? = null, top: Int = 0, bottom: Int = 0) =
