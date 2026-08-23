@@ -114,9 +114,15 @@ object ButtonReliefInstaller {
                 val dialog = AlertDialog.Builder(activity)
                     .setTitle("Choisir le thème")
                     .setSingleChoiceItems(themes.map { it.label }.toTypedArray(), selected) { d, which ->
-                        AppThemeCatalog.set(activity, themes[which])
-                        d.dismiss()
-                        activity.window.decorView.post { activity.recreate() }
+                        val targetTheme = themes[which]
+                        if (targetTheme.id == "diamond_crystal" && AppThemeCatalog.current(activity).id != "diamond_crystal") {
+                            d.dismiss()
+                            showDiamondEngineWarning(activity, targetTheme)
+                        } else {
+                            AppThemeCatalog.set(activity, targetTheme)
+                            d.dismiss()
+                            activity.window.decorView.post { activity.recreate() }
+                        }
                     }
                     .setNegativeButton("Annuler", null)
                     .create()
@@ -132,6 +138,24 @@ object ButtonReliefInstaller {
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
                 topMargin = dp(activity, 4); bottomMargin = dp(activity, 4)
             })
+    }
+
+    private fun showDiamondEngineWarning(activity: Activity, targetTheme: HpTheme) {
+        AlertDialog.Builder(activity)
+            .setTitle("💎 Activer le moteur Diamant 3D ?")
+            .setMessage(
+                "Le thème Diamant utilise un moteur de simulation 3D dédié pour calculer les facettes, " +
+                    "la profondeur, les reflets et la réaction à l’inclinaison du téléphone.\n\n" +
+                    "Ce moteur demande plus de ressources graphiques et peut consommer davantage de batterie " +
+                    "que les autres thèmes.\n\n" +
+                    "En continuant, l’application bascule sur le moteur Diamant 3D uniquement tant que ce thème est actif."
+            )
+            .setPositiveButton("ACTIVER LE DIAMANT 3D") { _, _ ->
+                AppThemeCatalog.set(activity, targetTheme)
+                activity.window.decorView.post { activity.recreate() }
+            }
+            .setNegativeButton("ANNULER", null)
+            .show()
     }
 
     private fun installDiamondLabIfPossible(activity: Activity) {
