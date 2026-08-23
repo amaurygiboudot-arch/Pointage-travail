@@ -51,6 +51,8 @@ object DiamondDesignerAssistant {
                 "set_lens" -> { canvas.setSelectedLens(a.doubleValue("value", 0.5)); true }
                 "set_ring" -> { canvas.setSelectedRingGain(a.optInt("ring", 1).coerceIn(1, 3), a.doubleValue("value", 1.0)); true }
                 "set_alpha" -> { canvas.setSelectedAlpha(a.doubleValue("value", 1.0)); true }
+                "set_transparency" -> { canvas.setSelectedTransparency(a.doubleValue("value", 0.0)); true }
+                "set_translucency" -> { canvas.setSelectedTranslucency(a.doubleValue("value", 0.0)); true }
                 "set_rotation" -> { canvas.setSelectedRotation(a.doubleValue("value", 0.0)); true }
                 "set_light_angle" -> { canvas.setSelectedLightAngle(a.doubleValue("value", 305.0)); true }
                 "set_edge_width" -> { canvas.setSelectedEdgeWidth(a.doubleValue("value", 1.4)); true }
