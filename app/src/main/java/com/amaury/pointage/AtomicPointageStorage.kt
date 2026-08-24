@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import org.json.JSONArray
 import java.io.File
+import java.io.FileNotFoundException
 
 /**
  * Durable storage for pointage history.
@@ -21,11 +22,18 @@ internal object AtomicPointageStorage {
         val app = context.applicationContext
         val atomic = AtomicFile(File(app.filesDir, FILE_NAME))
 
-        if (atomic.baseFile.exists()) {
-            val raw = runCatching { atomic.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() } }
-                .getOrElse { return JSONArray() }
-            if (raw.isBlank()) return JSONArray()
-            return parseOrBackup(app, raw)
+        // Always let AtomicFile.openRead() run first: it restores a pending backup after
+        // an interrupted write. Checking baseFile.exists() before openRead() can bypass
+        // that recovery path and accidentally re-import stale legacy SharedPreferences.
+        val atomicRaw = try {
+            atomic.openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (_: FileNotFoundException) {
+            null
+        }
+
+        if (atomicRaw != null) {
+            if (atomicRaw.isBlank()) return JSONArray()
+            return parseOrBackup(app, atomicRaw)
         }
 
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
