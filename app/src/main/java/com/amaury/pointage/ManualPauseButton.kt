@@ -42,6 +42,7 @@ class ManualPauseButton @JvmOverloads constructor(
     private fun showDialog() {
         val selectedDate = Calendar.getInstance(Locale.FRANCE)
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+        val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
         val schedule = PauseScheduleManager.load(context)
         val theme = AppThemeCatalog.current(context)
         val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
@@ -98,13 +99,19 @@ class ManualPauseButton @JvmOverloads constructor(
             setPadding(0, 0, 0, dp(12))
         })
 
+        var reloadPausesForSelectedDate: (() -> Unit)? = null
         val dateButton = styledButton("DATE : ${dateFormat.format(selectedDate.time)}")
         dateButton.setOnClickListener {
             DatePickerDialog(
                 context,
                 { _, year, month, day ->
                     selectedDate.set(year, month, day)
+                    selectedDate.set(Calendar.HOUR_OF_DAY, 0)
+                    selectedDate.set(Calendar.MINUTE, 0)
+                    selectedDate.set(Calendar.SECOND, 0)
+                    selectedDate.set(Calendar.MILLISECOND, 0)
                     dateButton.text = "DATE : ${dateFormat.format(selectedDate.time)}"
+                    reloadPausesForSelectedDate?.invoke()
                 },
                 selectedDate.get(Calendar.YEAR), selectedDate.get(Calendar.MONTH), selectedDate.get(Calendar.DAY_OF_MONTH)
             ).show()
@@ -131,10 +138,6 @@ class ManualPauseButton @JvmOverloads constructor(
             val slotNumber = index + 1
             val start = styledInput("Début $slotNumber — ex. 10:00")
             val end = styledInput("Fin $slotNumber — ex. 10:15")
-            if (index == 0) {
-                start.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
-                end.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
-            }
             val container = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = if (index == 0) View.VISIBLE else View.GONE
@@ -193,7 +196,44 @@ class ManualPauseButton @JvmOverloads constructor(
             current.start.addTextChangedListener(watcher)
             current.end.addTextChangedListener(watcher)
         }
-        updateTotalPause()
+
+        reloadPausesForSelectedDate = {
+            val dayStartCalendar = (selectedDate.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val dayStart = dayStartCalendar.timeInMillis
+            val dayEnd = (dayStartCalendar.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
+            val saved = PointageStore.manualPausesForDay(context, dayStart, dayEnd)
+
+            slots.forEachIndexed { index, slot ->
+                slot.start.error = null
+                slot.end.error = null
+                slot.start.setText("")
+                slot.end.setText("")
+                slot.container.visibility = if (index == 0) View.VISIBLE else View.GONE
+            }
+
+            if (saved.isNotEmpty()) {
+                saved.take(5).forEachIndexed { index, range ->
+                    val slot = slots[index]
+                    slot.start.setText(timeFormat.format(range.first))
+                    slot.end.setText(timeFormat.format(range.second))
+                }
+                val visibleThrough = saved.size.coerceAtMost(4)
+                slots.forEachIndexed { index, slot ->
+                    slot.container.visibility = if (index <= visibleThrough) View.VISIBLE else View.GONE
+                }
+            } else {
+                slots[0].start.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
+                slots[0].end.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
+                slots[0].container.visibility = View.VISIBLE
+            }
+            updateTotalPause()
+        }
+        reloadPausesForSelectedDate?.invoke()
 
         val automatic = Switch(context).apply {
             text = "Programmer automatiquement tous les jours avec le 1er créneau"
