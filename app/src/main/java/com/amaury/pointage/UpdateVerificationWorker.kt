@@ -6,8 +6,15 @@ import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import java.util.concurrent.TimeUnit
 
 class UpdateVerificationWorker(
     appContext: Context,
@@ -18,20 +25,24 @@ class UpdateVerificationWorker(
         val context = applicationContext
         val prefs = context.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
         val version = prefs.getString(UpdateChecker.KEY_VERSION, "").orEmpty()
-        val apk = UpdateChecker.downloadedApkFile(context) ?: return Result.failure()
+        val apk = UpdateChecker.downloadedApkFile(context) ?: run {
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
+            return Result.failure()
+        }
 
         return try {
             ApkUpdateVerifier.verify(context, apk, version)
             UpdateChecker.validateApk(context, apk)
             UpdateChecker.markDownloadReady(context, apk)
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
             notifyReady(context)
             Result.success()
         } catch (e: ApkUpdateVerifier.RetryableVerificationException) {
-            // L'APK est conservé : WorkManager réessaiera lorsque le réseau sera de nouveau utilisable.
+            // L'APK est conservé et l'état pending reste à true pendant les retries.
             Result.retry()
         } catch (e: Exception) {
-            // Une vraie anomalie d'intégrité/package/signature invalide le fichier définitivement.
             apk.delete()
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
             UpdateChecker.clearDownloadState(context)
             notifyFailure(context, e.message ?: "Vérification de sécurité échouée")
             Result.failure()
@@ -94,5 +105,24 @@ class UpdateVerificationWorker(
         const val UNIQUE_WORK = "horatrack_update_verification"
         private const val CHANNEL_ID = "hp_update_download"
         private const val NOTIFICATION_ID = 4107
+
+        fun enqueue(context: Context) {
+            val appContext = context.applicationContext
+            appContext.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, true).apply()
+
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            val request = OneTimeWorkRequestBuilder<UpdateVerificationWorker>()
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(appContext).enqueueUniqueWork(
+                UNIQUE_WORK,
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+        }
     }
 }
