@@ -18,6 +18,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.Switch
 import android.widget.TextView
@@ -26,7 +27,10 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     companion object {
         private const val SALARY_PANEL_TAG = "integrated_salary_panel"
         private const val CONTROL_HEIGHT_DP = 54
+        private const val NAV_MIN_WIDTH_DP = 128
     }
+
+    private var attachmentInstallDone = false
 
     init {
         isClickable = true
@@ -37,13 +41,53 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         WidgetThemeSync.install(context)
-        (context as? Activity)?.let { ButtonReliefInstaller.install(it) }
+        if (!attachmentInstallDone) {
+            attachmentInstallDone = true
+            (context as? Activity)?.let { ButtonReliefInstaller.install(it) }
+        }
         post {
+            installResponsiveNavigation()
             applyTabTypography()
             installTabButtonStyle()
-            installAddressUi()
-            installSalaryAutoHide()
+            if (attachmentInstallDone) {
+                installAddressUi()
+                installSalaryAutoHideOnce()
+            }
             normalizeFrameSizes()
+            syncSelectedTabFromVisiblePanel()
+        }
+    }
+
+    /**
+     * Les cinq destinations restent lisibles et tactiles même en fenêtre très
+     * étroite ou avec une grande police. Le HorizontalScrollView existe dans
+     * le XML : aucun reparenting runtime ne détache SalaryTabTextView.
+     */
+    private fun installResponsiveNavigation() {
+        val root = rootView ?: return
+        val labels = listOf(
+            R.id.tabToday to ("◷\nAUJOURD'HUI" to "Aujourd'hui"),
+            R.id.tabHistory to ("▥\nHISTORIQUE" to "Historique"),
+            R.id.tabAnalytics to ("◔\nANALYSES" to "Analyses"),
+            R.id.tabSalary to ("€\nSALAIRE" to "Salaire"),
+            R.id.tabSettings to ("⚙\nPARAMÈTRES" to "Paramètres")
+        )
+
+        labels.forEach { (id, label) ->
+            root.findViewById<TextView>(id)?.apply {
+                text = label.first
+                contentDescription = label.second
+                minWidth = dp(NAV_MIN_WIDTH_DP)
+                minimumWidth = dp(NAV_MIN_WIDTH_DP)
+                minHeight = dp(56)
+                minimumHeight = dp(56)
+                maxLines = 3
+                ellipsize = null
+                layoutParams = LinearLayout.LayoutParams(
+                    dp(NAV_MIN_WIDTH_DP),
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            }
         }
     }
 
@@ -87,9 +131,11 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         normalizeFrameSizes()
     }
 
-    private fun installSalaryAutoHide() {
+    private fun installSalaryAutoHideOnce() {
         val root = rootView ?: return
         val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
+        if (contentPanel.getTag(R.id.tabSalary) == true) return
+        contentPanel.setTag(R.id.tabSalary, true)
 
         fun hide() {
             val salary = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
@@ -121,13 +167,13 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
             rootView.findViewById<TextView>(id)?.apply {
                 textSize = 12f
                 typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-                maxLines = 2
-                ellipsize = TextUtils.TruncateAt.END
+                maxLines = 3
+                ellipsize = null
                 includeFontPadding = false
                 gravity = Gravity.CENTER
-                setPadding(dp(4), dp(3), dp(4), dp(3))
-                minimumWidth = 0
-                minWidth = 0
+                setPadding(dp(6), dp(3), dp(6), dp(3))
+                minimumWidth = dp(NAV_MIN_WIDTH_DP)
+                minWidth = dp(NAV_MIN_WIDTH_DP)
                 val raw = text.toString()
                 val br = raw.indexOf('\n')
                 if (br > 0 && text !is SpannableString) {
@@ -142,6 +188,8 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun installTabButtonStyle() {
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
             val tab = rootView.findViewById<TextView>(id) ?: return@forEach
+            if (tab.getTag(id) == true) return@forEach
+            tab.setTag(id, true)
             tab.setOnTouchListener { _, e ->
                 if (e.actionMasked == MotionEvent.ACTION_UP) selectTab(id)
                 false
@@ -163,12 +211,23 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     }
 
     private fun selectTab(activeId: Int) {
+        var activeTab: TextView? = null
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
             rootView.findViewById<TextView>(id)?.let {
                 it.isSelected = id == activeId
                 styleTab(it, id == activeId)
+                if (id == activeId) activeTab = it
             }
         }
+        activeTab?.post { revealTab(activeTab ?: return@post) }
+    }
+
+    private fun revealTab(tab: View) {
+        val scroll = rootView.findViewById<HorizontalScrollView>(R.id.navigationTabsScroll) ?: return
+        if (scroll.width <= 0) return
+        val target = (tab.left + tab.width / 2 - scroll.width / 2)
+            .coerceIn(0, (scroll.getChildAt(0)?.width ?: 0) - scroll.width)
+        scroll.smoothScrollTo(target, 0)
     }
 
     private fun styleTab(tab: TextView, active: Boolean) {
@@ -180,10 +239,6 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         tab.setTextColor(if (active) if (dark) theme.darkText else theme.lightText else inactive)
     }
 
-    /**
-     * Uniformise uniquement les dimensions et la tenue du texte.
-     * L'apparence du cadre reste gérée par le thème actif.
-     */
     private fun normalizeFrameSizes() {
         val root = rootView ?: return
         normalizeRecursive(root)
@@ -223,15 +278,20 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun fitText(view: TextView, navigation: Boolean) {
         view.gravity = Gravity.CENTER
         view.includeFontPadding = false
-        view.maxLines = 2
-        view.ellipsize = TextUtils.TruncateAt.END
+        view.maxLines = if (navigation) 3 else 2
+        view.ellipsize = if (navigation) null else TextUtils.TruncateAt.END
         view.setPadding(
-            dp(if (navigation) 4 else 14),
+            dp(if (navigation) 6 else 14),
             dp(5),
-            dp(if (navigation) 4 else 14),
+            dp(if (navigation) 6 else 14),
             dp(5)
         )
-        if (!navigation) view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        if (navigation) {
+            view.minWidth = dp(NAV_MIN_WIDTH_DP)
+            view.minimumWidth = dp(NAV_MIN_WIDTH_DP)
+        } else {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
     }
 
     private fun installAddressUi() {
