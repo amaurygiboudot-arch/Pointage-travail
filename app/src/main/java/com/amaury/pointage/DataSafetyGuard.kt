@@ -3,17 +3,6 @@ package com.amaury.pointage
 import android.content.Context
 import java.io.File
 
-/**
- * Protection locale des données utilisateur pendant les mises à jour APK.
- *
- * Une mise à jour Android normale conserve déjà /data/data/<package>, mais cette
- * sauvegarde indépendante permet de récupérer les SharedPreferences si une future
- * migration de code les endommage ou les supprime accidentellement.
- *
- * Cette protection ne peut pas survivre à une désinstallation manuelle ou à
- * "Effacer les données" dans Android : dans ces cas Android supprime tout le
- * répertoire privé de l'application.
- */
 object DataSafetyGuard {
     private const val BACKUP_DIR = "update_data_safety"
     private const val SHARED_PREFS_DIR = "shared_prefs"
@@ -32,7 +21,6 @@ object DataSafetyGuard {
             val destination = File(temp, SHARED_PREFS_DIR)
             copyDirectory(source, destination)
 
-            // On ne valide jamais une sauvegarde sans le fichier d'historique.
             val pointage = File(destination, "pointage.xml")
             if (!pointage.exists() || pointage.length() <= 0L) {
                 temp.deleteRecursively()
@@ -50,12 +38,6 @@ object DataSafetyGuard {
         }.getOrDefault(false)
     }
 
-    /**
-     * Restaure uniquement en cas d'anomalie nette : le fichier pointage.xml a
-     * disparu alors qu'une sauvegarde de sécurité valide existe. On ne restaure
-     * jamais par-dessus un fichier existant afin de ne pas écraser des données
-     * légitimement modifiées après la mise à jour.
-     */
     fun restoreIfNeeded(context: Context): Boolean {
         return runCatching {
             val liveRoot = File(context.applicationInfo.dataDir, SHARED_PREFS_DIR)
@@ -70,11 +52,18 @@ object DataSafetyGuard {
                 return@runCatching false
             }
 
-            liveRoot.mkdirs()
-            backupPrefs.listFiles().orEmpty().forEach { source ->
+            if (!liveRoot.exists() && !liveRoot.mkdirs()) return@runCatching false
+
+            for (source in backupPrefs.listFiles().orEmpty()) {
                 val destination = File(liveRoot, source.name)
-                if (!destination.exists()) {
-                    source.copyTo(destination, overwrite = false)
+                if (destination.exists()) continue
+
+                val tempDestination = File(liveRoot, ".${source.name}.restore.tmp")
+                if (tempDestination.exists()) tempDestination.delete()
+                source.copyTo(tempDestination, overwrite = true)
+                if (!tempDestination.renameTo(destination)) {
+                    tempDestination.delete()
+                    return@runCatching false
                 }
             }
             true
