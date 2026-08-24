@@ -6,7 +6,6 @@ import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
@@ -93,7 +92,10 @@ object AppearanceManager {
         val contentRoot = activity.window.decorView.findViewById<ViewGroup>(android.R.id.content) ?: return
         val firstChild = contentRoot.getChildAt(0)
         if (hasImage) {
-            val bitmap = runCatching { BitmapFactory.decodeFile(imageFile.absolutePath) }.getOrNull()
+            val metrics = activity.resources.displayMetrics
+            val targetWidth = contentRoot.width.takeIf { it > 0 } ?: metrics.widthPixels
+            val targetHeight = contentRoot.height.takeIf { it > 0 } ?: metrics.heightPixels
+            val bitmap = BackgroundImageSampling.decode(imageFile, targetWidth, targetHeight)
             if (bitmap != null) {
                 val drawable = BitmapDrawable(activity.resources, bitmap).apply { gravity = Gravity.FILL }
                 contentRoot.background = drawable
