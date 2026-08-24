@@ -124,30 +124,6 @@ object PointageStore {
         return true
     }
 
-    fun addManualPause(context: Context, pauseStart: Long, pauseEnd: Long): Boolean {
-        if (pauseStart <= 0L || pauseEnd <= pauseStart) return false
-        val changed = synchronized(storageLock) {
-            val data = loadUnlocked(context)
-            var target: JSONObject? = null
-            for (i in data.length() - 1 downTo 0) {
-                val item = data.optJSONObject(i) ?: continue
-                val entry = item.optLong("entry", -1L)
-                if (entry <= 0L) continue
-                val sessionEnd = if (item.isNull("exit")) System.currentTimeMillis() else item.optLong("exit", -1L)
-                if (sessionEnd >= entry && pauseStart >= entry && pauseEnd <= sessionEnd) { target = item; break }
-            }
-            val item = target ?: return@synchronized false
-            val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
-            pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
-            saveUnlocked(context, data)
-            true
-        }
-        if (!changed) return false
-        updateWidgets(context)
-        DriveBackupManager.syncCurrentMonthAsync(context)
-        return true
-    }
-
     fun pauseDuration(item: JSONObject, until: Long = System.currentTimeMillis()): Long {
         val entry = item.optLong("entry", -1L)
         if (entry <= 0L) return 0L
