@@ -28,8 +28,9 @@ object PointageSessionQueries {
         return null
     }
 
-    /** Pause state belonging specifically to the session selected above. */
+    /** Pause state belonging specifically to the selected, explicitly open session. */
     internal fun isPaused(session: JSONObject, now: Long = System.currentTimeMillis()): Boolean {
+        if (!session.has("exit") || !session.isNull("exit")) return false
         val pauses = session.optJSONArray("pauses") ?: return false
         for (i in pauses.length() - 1 downTo 0) {
             val pause = pauses.optJSONObject(i) ?: continue
