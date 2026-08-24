@@ -26,7 +26,7 @@ class UpdateVerificationWorker(
         val prefs = context.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
         val version = prefs.getString(UpdateChecker.KEY_VERSION, "").orEmpty()
         val apk = UpdateChecker.downloadedApkFile(context) ?: run {
-            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).commit()
             return Result.failure()
         }
 
@@ -39,16 +39,22 @@ class UpdateVerificationWorker(
                     throw IllegalStateException("Sauvegarde de sécurité des pointages impossible")
                 }
                 UpdateChecker.markDownloadReady(context, apk)
+
+                // markDownloadReady uses apply(); a following commit on the same preferences
+                // waits behind the queued write and makes the ready/pending transition durable
+                // before WorkManager is allowed to record Result.success().
+                if (!prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).commit()) {
+                    throw IllegalStateException("État de mise à jour prête impossible à enregistrer")
+                }
             }
 
-            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
             notifyReady(context)
             Result.success()
         } catch (e: ApkUpdateVerifier.RetryableVerificationException) {
             Result.retry()
         } catch (e: Exception) {
             apk.delete()
-            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).commit()
             UpdateChecker.clearDownloadState(context)
             notifyFailure(context, e.message ?: "Vérification de sécurité échouée")
             Result.failure()
