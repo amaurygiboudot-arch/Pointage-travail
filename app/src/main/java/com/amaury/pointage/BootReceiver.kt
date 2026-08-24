@@ -17,7 +17,6 @@ class BootReceiver : BroadcastReceiver() {
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
 
-        // Au redémarrage / après mise à jour, on réarme l'export Drive si configuré.
         if (DriveBackupManager.isConfigured(context)) {
             DriveBackupScheduler.schedule(context)
         }
@@ -35,17 +34,24 @@ class BootReceiver : BroadcastReceiver() {
             val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
             val latitude = item.optDouble("latitude", Double.NaN)
             val longitude = item.optDouble("longitude", Double.NaN)
-            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
-            if (!latitude.isFinite() || !longitude.isFinite()) continue
+            val rawRadius = item.optDouble("radius", 150.0)
+            if (!latitude.isFinite() || latitude !in -90.0..90.0) continue
+            if (!longitude.isFinite() || longitude !in -180.0..180.0) continue
+            if (!rawRadius.isFinite()) continue
+            val radius = rawRadius.toFloat().coerceIn(50f, 1000f)
             zones += WorkZone(id, latitude, longitude, radius)
         }
         if (zones.isEmpty()) return
 
         // La réinscription Geofencing est asynchrone (remove puis add). goAsync() garde le
-        // receiver vivant jusqu'au callback final afin qu'Android ne puisse pas tuer le
-        // processus entre les deux opérations après un reboot ou un remplacement d'APK.
+        // receiver vivant jusqu'au callback final. L'appel est également protégé contre les
+        // exceptions synchrones de construction Play Services afin de toujours libérer le receiver.
         val pendingResult = goAsync()
-        GeofenceManager.registerAll(context, zones) { _, _ ->
+        try {
+            GeofenceManager.registerAll(context, zones) { _, _ ->
+                pendingResult.finish()
+            }
+        } catch (_: Throwable) {
             pendingResult.finish()
         }
     }
