@@ -29,24 +29,81 @@ object ManualPauseBatchStore {
                     }
                 }
                 if (!duplicate) {
-                    pauses.put(
-                        JSONObject()
-                            .put("start", pauseStart)
-                            .put("end", pauseEnd)
-                            .put("manual", true)
-                    )
+                    pauses.put(manualPause(pauseStart, pauseEnd))
                     count++
                 }
             }
             count
         }
 
-        if (added > 0) {
-            PointageWidgetProvider.updateAll(context)
-            QuickActionsWidgetProvider.updateAll(context)
-            DriveBackupManager.syncCurrentMonthAsync(context)
-        }
+        if (added > 0) refresh(context)
         return added
+    }
+
+    /**
+     * Remplace atomiquement les pauses manuelles d'une journée.
+     *
+     * Toutes les nouvelles plages sont d'abord validées et rattachées à une
+     * session avant que l'ancienne saisie soit supprimée. Ainsi une erreur de
+     * plage ne peut jamais effacer les pauses déjà enregistrées.
+     *
+     * @return nombre de pauses sauvegardées, ou -1 si au moins une plage ne
+     * peut être rattachée à aucune session de travail.
+     */
+    fun replaceForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long,
+        ranges: List<Pair<Long, Long>>
+    ): Int {
+        if (dayStart <= 0L || dayEnd <= dayStart) return -1
+        val valid = ranges
+            .filter { (start, end) -> start >= dayStart && start < dayEnd && end > start }
+            .distinct()
+            .take(5)
+        if (valid.size != ranges.size || valid.isEmpty()) return -1
+
+        val saved = PointageStore.update(context) { data ->
+            val targets = valid.map { range ->
+                val target = findContainingSession(data, range.first, range.second)
+                    ?: return@update -1
+                target to range
+            }
+
+            // Supprime uniquement les anciennes pauses manuelles du jour.
+            // Les pauses automatiques/ouvertes et celles des autres jours restent intactes.
+            for (i in 0 until data.length()) {
+                val session = data.optJSONObject(i) ?: continue
+                val pauses = session.optJSONArray("pauses") ?: continue
+                for (j in pauses.length() - 1 downTo 0) {
+                    val pause = pauses.optJSONObject(j) ?: continue
+                    val start = pause.optLong("start", -1L)
+                    if (pause.optBoolean("manual", false) && start >= dayStart && start < dayEnd) {
+                        pauses.remove(j)
+                    }
+                }
+            }
+
+            targets.forEach { (session, range) ->
+                val pauses = session.optJSONArray("pauses") ?: JSONArray().also { session.put("pauses", it) }
+                pauses.put(manualPause(range.first, range.second))
+            }
+            targets.size
+        }
+
+        if (saved >= 0) refresh(context)
+        return saved
+    }
+
+    private fun manualPause(start: Long, end: Long) = JSONObject()
+        .put("start", start)
+        .put("end", end)
+        .put("manual", true)
+
+    private fun refresh(context: Context) {
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
+        DriveBackupManager.syncCurrentMonthAsync(context)
     }
 
     private fun findContainingSession(data: JSONArray, pauseStart: Long, pauseEnd: Long): JSONObject? {
@@ -57,7 +114,7 @@ object ManualPauseBatchStore {
             if (entry <= 0L || pauseStart < entry) continue
 
             if (item.isNull("exit")) {
-                if (pauseStart <= now) return item
+                if (pauseStart <= now && pauseEnd <= now) return item
             } else {
                 val sessionEnd = item.optLong("exit", -1L)
                 if (sessionEnd >= entry && pauseEnd <= sessionEnd) return item
