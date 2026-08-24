@@ -1,4 +1,4 @@
-name: Compiler HP Travail APK
+name: Compiler HP Travail APK et AAB
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
 
 concurrency:
-  group: hp-travail-apk
+  group: hp-travail-apk-aab
   cancel-in-progress: true
 
 jobs:
@@ -51,7 +51,7 @@ jobs:
           echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
 
-      - name: Compiler APK release signe
+      - name: Compiler APK et AAB release signes
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -65,7 +65,7 @@ jobs:
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
-          gradle :app:assembleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
@@ -91,23 +91,29 @@ jobs:
           test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer APK et informations de version
+      - name: Preparer APK AAB et informations de version
         run: |
           cp app/build/outputs/apk/release/app-release.apk HP-Travail.apk
+          cp app/build/outputs/bundle/release/app-release.aab HoraTrack.aab
           sha256sum HP-Travail.apk > HP-Travail-SHA256.txt
+          sha256sum HoraTrack.aab > HoraTrack-AAB-SHA256.txt
           cp HP-Travail-SHA256.txt SHA256.txt
           printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
           test -s HP-Travail.apk
+          test -s HoraTrack.aab
           test -s HP-Travail-SHA256.txt
+          test -s HoraTrack-AAB-SHA256.txt
           test -s SHA256.txt
 
-      - name: Publier artefact APK
+      - name: Publier artefacts APK et AAB
         uses: actions/upload-artifact@v4
         with:
-          name: HP-Travail-APK
+          name: HP-Travail-APK-AAB
           path: |
             HP-Travail.apk
+            HoraTrack.aab
             HP-Travail-SHA256.txt
+            HoraTrack-AAB-SHA256.txt
             SHA256.txt
             HP-Travail-version.txt
           if-no-files-found: error
@@ -139,12 +145,14 @@ jobs:
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" \
             HP-Travail.apk \
+            HoraTrack.aab \
             HP-Travail-SHA256.txt \
+            HoraTrack-AAB-SHA256.txt \
             SHA256.txt \
             HP-Travail-version.txt \
             --target "${GITHUB_SHA}" \
-            --title "HP Travail ${VERSION_NAME}" \
-            --notes "Mise à jour automatique HP Travail" \
+            --title "HoraTrack ${VERSION_NAME}" \
+            --notes "Mise à jour automatique HoraTrack - APK + AAB Google Play" \
             --latest
 
       - name: Verifier que la mise a jour est publiquement disponible
@@ -154,8 +162,10 @@ jobs:
           TAG="v${VERSION_NAME}"
           gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets,url
           gh release download "$TAG" -p "HP-Travail.apk" -D "$RUNNER_TEMP/release-check"
+          gh release download "$TAG" -p "HoraTrack.aab" -D "$RUNNER_TEMP/release-check"
           gh release download "$TAG" -p "SHA256.txt" -D "$RUNNER_TEMP/release-check"
           test -s "$RUNNER_TEMP/release-check/HP-Travail.apk"
+          test -s "$RUNNER_TEMP/release-check/HoraTrack.aab"
           test -s "$RUNNER_TEMP/release-check/SHA256.txt"
 
       - name: Notifier tous les telephones HP Travail
@@ -185,14 +195,14 @@ jobs:
               "message": {
                   "topic": "hp_travail_updates",
                   "notification": {
-                      "title": "Mise à jour HP Travail",
-                      "body": f"La version {version} est disponible. Ouvre HP Travail pour l'installer."
+                      "title": "Mise à jour HoraTrack",
+                      "body": f"La version {version} est disponible. Ouvre HoraTrack pour l'installer."
                   },
                   "data": {
                       "kind": "update",
                       "version": version,
-                      "title": "Mise à jour HP Travail",
-                      "body": f"La version {version} est disponible. Ouvre HP Travail pour l'installer."
+                      "title": "Mise à jour HoraTrack",
+                      "body": f"La version {version} est disponible. Ouvre HoraTrack pour l'installer."
                   },
                   "android": {
                       "priority": "high",
