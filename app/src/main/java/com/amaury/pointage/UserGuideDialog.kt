@@ -16,7 +16,7 @@ object UserGuideDialog {
         }
 
         content.addView(title(context, "NOTICE D'UTILISATION — HP TRAVAIL"))
-        content.addView(body(context, "HP Travail permet d'enregistrer tes heures de travail, tes pauses, de suivre ton historique, d'estimer ton salaire et de sauvegarder automatiquement tes rapports PDF."))
+        content.addView(body(context, "HP Travail permet d'enregistrer tes heures de travail, tes pauses, de suivre ton historique, d'estimer ton salaire et d'exporter automatiquement tes rapports PDF."))
 
         addSection(content, context, "POINTAGE", """
 ENTRÉE
@@ -77,7 +77,7 @@ IMPORTANT
 Le résultat est une estimation. HP Travail ne remplace pas le bulletin de paie. Une prime, une absence, un accord d'entreprise, une règle conventionnelle non intégrée ou une information mal renseignée peut créer une différence avec la paie réelle.
         """.trimIndent())
 
-        addSection(content, context, "PDF ET GOOGLE DRIVE", """
+        addSection(content, context, "EXPORT PDF AUTOMATIQUE ET GOOGLE DRIVE", """
 Une fois le dossier Google Drive configuré, tu n'as normalement plus rien à faire.
 
 • HP Travail vérifie automatiquement les journées terminées et crée un PDF de chaque journée.
@@ -85,9 +85,14 @@ Une fois le dossier Google Drive configuré, tu n'as normalement plus rien à fa
 • Le PDF quotidien reprend les heures d'entrée et de sortie, les pauses et le temps réellement travaillé.
 • Lorsqu'un mois est terminé, HP Travail crée automatiquement le récapitulatif PDF du mois terminé.
 • Le récapitulatif mensuel regroupe les pointages et les totaux du mois.
-• « Synchroniser tout l'historique » permet de recréer/synchroniser les rapports à partir des données encore présentes dans l'application.
+• « Synchroniser tout l'historique » permet de recréer les rapports à partir des données encore présentes dans l'application.
 
-La sauvegarde automatique nécessite que le dossier Drive reste accessible sur le téléphone. Si Google Drive n'est pas disponible au moment du contrôle, HP Travail réessaiera lors d'un prochain contrôle.
+IMPORTANT — CE N'EST PAS UNE SAUVEGARDE RESTAURABLE
+Les fichiers Drive sont des rapports PDF destinés à la consultation et à l'archivage. Ils ne contiennent pas un format de données réimportable dans HP Travail et ne permettent pas de reconstruire automatiquement l'historique sur un nouveau téléphone. Les données de pointage structurées restent stockées localement dans l'application.
+
+Android Backup est volontairement désactivé pour éviter qu'une copie système non contrôlée des données de pointage soit créée. Tant qu'un export structuré, chiffré et réimportable n'est pas disponible, conserve les PDF Drive comme archives de consultation, pas comme moyen de restauration.
+
+L'export PDF automatique nécessite que le dossier Drive reste accessible sur le téléphone. Si Google Drive n'est pas disponible au moment du contrôle, HP Travail réessaiera lors d'un prochain contrôle.
         """.trimIndent())
 
         addSection(content, context, "POINTAGE GPS", """
