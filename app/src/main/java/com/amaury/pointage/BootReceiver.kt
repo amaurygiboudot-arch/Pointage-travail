@@ -9,25 +9,15 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
-        // Après remplacement de l'APK, Android nous avertit que la nouvelle version est en place.
-        // On tente alors de rouvrir HP Travail directement. Certains Android/HyperOS peuvent
-        // bloquer un lancement d'activité depuis l'arrière-plan : dans ce cas le système garde
-        // son comportement de sécurité normal, sans boucle ni crash.
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            runCatching {
-                val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                if (launch != null) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    context.startActivity(launch)
-                }
-            }
-        }
+        // Android moderne bloque fréquemment le lancement d'une Activity depuis un receiver
+        // exécuté en arrière-plan. Après une mise à jour, on ne tente donc pas de rouvrir
+        // HoraTrack automatiquement : on réarme uniquement les mécanismes persistants.
+        // L'utilisateur retrouve normalement l'application au prochain lancement explicite.
 
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
 
-        // Au redémarrage / après mise à jour, on réarme la sauvegarde. Le vrai travail
-        // Drive est exécuté par DriveBackupReceiver avec goAsync(), pas ici.
+        // Au redémarrage / après mise à jour, on réarme l'export Drive si configuré.
         if (DriveBackupManager.isConfigured(context)) {
             DriveBackupScheduler.schedule(context)
         }
