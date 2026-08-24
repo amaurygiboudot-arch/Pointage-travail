@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.roundToLong
 
 object SalaryCalculator {
 
@@ -30,7 +31,8 @@ object SalaryCalculator {
         val entry: Long,
         val exit: Long,
         val workedDuration: Long,
-        val pauses: List<Pair<Long, Long>>
+        val pauses: List<Pair<Long, Long>>,
+        val canonicalPauseDuration: Long
     )
     private data class WeekKey(val year: Int, val week: Int)
 
@@ -53,7 +55,8 @@ object SalaryCalculator {
                         entry = entry,
                         exit = exit,
                         workedDuration = PointageStore.workedDuration(item, exit),
-                        pauses = mergedPauses(item, entry, exit)
+                        pauses = mergedPauses(item, entry, exit),
+                        canonicalPauseDuration = PointageStore.pauseDuration(item, exit)
                     )
                 )
             }
@@ -111,6 +114,7 @@ object SalaryCalculator {
                     session.entry,
                     session.exit,
                     session.pauses,
+                    session.canonicalPauseDuration,
                     nightRule.startMinute,
                     nightRule.endMinute
                 )
@@ -148,7 +152,7 @@ object SalaryCalculator {
         for (i in 0 until pauses.length()) {
             val pause = pauses.optJSONObject(i) ?: continue
             val rawStart = pause.optLong("start", -1L)
-            val rawEnd = pause.optLong("end", -1L)
+            val rawEnd = if (pause.isNull("end")) sessionEnd else pause.optLong("end", -1L)
             if (rawStart <= 0L || rawEnd <= rawStart) continue
             val start = maxOf(rawStart, sessionStart)
             val end = minOf(rawEnd, sessionEnd)
@@ -176,11 +180,12 @@ object SalaryCalculator {
         entry: Long,
         exit: Long,
         pauses: List<Pair<Long, Long>>,
+        canonicalPauseDuration: Long,
         startMinute: Int,
         endMinute: Int
     ): Long {
         if (exit <= entry) return 0L
-        var total = 0L
+        var nightBeforeAutomaticFloor = 0L
         val day = Calendar.getInstance(Locale.FRANCE).apply {
             timeInMillis = entry
             set(Calendar.HOUR_OF_DAY, 0)
@@ -208,16 +213,32 @@ object SalaryCalculator {
                 if (endMinute <= startMinute) add(Calendar.DAY_OF_YEAR, 1)
             }.timeInMillis
 
-            val workedInNight = overlap(entry, exit, nightStart, nightEnd)
-            if (workedInNight > 0L) {
+            val grossNight = overlap(entry, exit, nightStart, nightEnd)
+            if (grossNight > 0L) {
                 val pausedInNight = pauses.sumOf { (pauseStart, pauseEnd) ->
                     overlap(pauseStart, pauseEnd, maxOf(entry, nightStart), minOf(exit, nightEnd))
                 }
-                total += (workedInNight - pausedInNight).coerceAtLeast(0L)
+                nightBeforeAutomaticFloor += (grossNight - pausedInNight).coerceAtLeast(0L)
             }
             day.add(Calendar.DAY_OF_YEAR, 1)
         }
-        return total
+
+        val recordedPause = pauses.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
+        val extraAutomaticPause = (canonicalPauseDuration - recordedPause).coerceAtLeast(0L)
+        if (extraAutomaticPause == 0L || nightBeforeAutomaticFloor == 0L) return nightBeforeAutomaticFloor
+
+        // autoPauseMinutes est une durée minimale sans horodatage. On ne peut donc
+        // pas connaître sa position exacte. On répartit uniquement la partie non
+        // déjà représentée par des intervalles explicites au prorata du temps
+        // travaillé avant ce plancher. Une session entièrement de nuit reçoit ainsi
+        // 100 % de la déduction automatique, sans inventer un faux timestamp.
+        val grossDuration = exit - entry
+        val explicitWorked = (grossDuration - recordedPause).coerceAtLeast(0L)
+        if (explicitWorked == 0L) return 0L
+        val automaticInNight = (extraAutomaticPause.toDouble() *
+            nightBeforeAutomaticFloor.toDouble() / explicitWorked.toDouble()).roundToLong()
+        return (nightBeforeAutomaticFloor - automaticInNight)
+            .coerceIn(0L, (grossDuration - canonicalPauseDuration).coerceAtLeast(0L))
     }
 
     private fun overlap(start: Long, end: Long, rangeStart: Long, rangeEnd: Long): Long {
