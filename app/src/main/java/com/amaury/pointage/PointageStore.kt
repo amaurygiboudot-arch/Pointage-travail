@@ -10,10 +10,11 @@ object PointageStore {
     private const val PREFS = "pointage"
     private const val KEY = "data"
     private const val ICON_SYNC_DELAY_MS = 1500L
+    private val storageLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingIconSync: Runnable? = null
 
-    fun load(context: Context): JSONArray {
+    private fun loadUnlocked(context: Context): JSONArray {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]").orEmpty()
         if (raw.isBlank()) return JSONArray()
         return runCatching { JSONArray(raw) }.getOrElse {
@@ -22,8 +23,19 @@ object PointageStore {
         }
     }
 
-    fun save(context: Context, data: JSONArray) {
+    private fun saveUnlocked(context: Context, data: JSONArray) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, data.toString()).apply()
+    }
+
+    fun load(context: Context): JSONArray = synchronized(storageLock) { loadUnlocked(context) }
+
+    fun save(context: Context, data: JSONArray) = synchronized(storageLock) { saveUnlocked(context, data) }
+
+    internal fun <T> update(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
+        val data = loadUnlocked(context)
+        val result = block(data)
+        saveUnlocked(context, data)
+        result
     }
 
     fun hasOpen(context: Context): Boolean = findOpenSession(load(context)) != null
@@ -47,19 +59,24 @@ object PointageStore {
     }
 
     fun entry(context: Context, zoneId: String? = null, zoneAddress: String? = null): Boolean {
-        val data = load(context)
-        if (findOpenSession(data) != null) return false
         val detectedZone = if (zoneId.isNullOrBlank() && zoneAddress.isNullOrBlank()) currentActiveZone(context) else null
         val finalZoneId = zoneId ?: detectedZone?.first
         val rawAddress = zoneAddress ?: detectedZone?.second
         val finalZoneAddress = rawAddress?.trim()?.takeIf { it.isNotBlank() }?.let { PlaceNames.display(context, it) }
         val now = System.currentTimeMillis()
         val shift = ShiftProfileManager.resolve(context, now)
-        val item = JSONObject().put("entry", now).put("exit", JSONObject.NULL).put("pauses", JSONArray()).put("shiftType", shift.id).put("autoPauseMinutes", ShiftProfileManager.pauseMinutes(context, shift))
-        if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
-        if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
-        data.put(item)
-        save(context, data)
+        val changed = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            if (findOpenSession(data) != null) false else {
+                val item = JSONObject().put("entry", now).put("exit", JSONObject.NULL).put("pauses", JSONArray()).put("shiftType", shift.id).put("autoPauseMinutes", ShiftProfileManager.pauseMinutes(context, shift))
+                if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
+                if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
+                data.put(item)
+                saveUnlocked(context, data)
+                true
+            }
+        }
+        if (!changed) return false
         PauseScheduleManager.applyCurrentWindow(context)
         updateWidgets(context)
         scheduleIconSync(context)
@@ -67,35 +84,40 @@ object PointageStore {
     }
 
     fun startPause(context: Context, automatic: Boolean = false): Boolean {
-        val data = load(context)
-        val item = findOpenSession(data) ?: return false
-        if (openPause(item) != null) return false
         val now = System.currentTimeMillis()
-        val entry = item.optLong("entry", -1L)
-        if (entry <= 0L || now < entry) return false
-        val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
-        val pause = JSONObject().put("start", now).put("end", JSONObject.NULL)
-        if (automatic) pause.put("automatic", true)
-        pauses.put(pause)
-        save(context, data)
+        val changed = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            val item = findOpenSession(data) ?: return@synchronized false
+            if (openPause(item) != null) return@synchronized false
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L || now < entry) return@synchronized false
+            val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
+            val pause = JSONObject().put("start", now).put("end", JSONObject.NULL)
+            if (automatic) pause.put("automatic", true)
+            pauses.put(pause)
+            saveUnlocked(context, data)
+            true
+        }
+        if (!changed) return false
         updateWidgets(context)
         scheduleIconSync(context)
         return true
     }
 
     fun resumePause(context: Context, automaticOnly: Boolean = false): Boolean {
-        val data = load(context)
-        val item = findOpenSession(data) ?: return false
-        val pause = if (automaticOnly) {
-            openPause(item)?.takeIf { it.optBoolean("automatic", false) }
-        } else {
-            currentPause(item)
-        } ?: return false
-        val start = pause.optLong("start", -1L)
         val now = System.currentTimeMillis()
-        if (start <= 0L || now < start) return false
-        pause.put("end", now)
-        save(context, data)
+        val changed = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            val item = findOpenSession(data) ?: return@synchronized false
+            val pause = if (automaticOnly) openPause(item)?.takeIf { it.optBoolean("automatic", false) } else currentPause(item)
+            pause ?: return@synchronized false
+            val start = pause.optLong("start", -1L)
+            if (start <= 0L || now < start) return@synchronized false
+            pause.put("end", now)
+            saveUnlocked(context, data)
+            true
+        }
+        if (!changed) return false
         updateWidgets(context)
         scheduleIconSync(context)
         DriveBackupManager.syncCurrentMonthAsync(context)
@@ -104,19 +126,23 @@ object PointageStore {
 
     fun addManualPause(context: Context, pauseStart: Long, pauseEnd: Long): Boolean {
         if (pauseStart <= 0L || pauseEnd <= pauseStart) return false
-        val data = load(context)
-        var target: JSONObject? = null
-        for (i in data.length() - 1 downTo 0) {
-            val item = data.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
-            val sessionEnd = if (item.isNull("exit")) System.currentTimeMillis() else item.optLong("exit", -1L)
-            if (sessionEnd >= entry && pauseStart >= entry && pauseEnd <= sessionEnd) { target = item; break }
+        val changed = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            var target: JSONObject? = null
+            for (i in data.length() - 1 downTo 0) {
+                val item = data.optJSONObject(i) ?: continue
+                val entry = item.optLong("entry", -1L)
+                if (entry <= 0L) continue
+                val sessionEnd = if (item.isNull("exit")) System.currentTimeMillis() else item.optLong("exit", -1L)
+                if (sessionEnd >= entry && pauseStart >= entry && pauseEnd <= sessionEnd) { target = item; break }
+            }
+            val item = target ?: return@synchronized false
+            val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
+            pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
+            saveUnlocked(context, data)
+            true
         }
-        val item = target ?: return false
-        val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
-        pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
-        save(context, data)
+        if (!changed) return false
         updateWidgets(context)
         DriveBackupManager.syncCurrentMonthAsync(context)
         return true
@@ -166,28 +192,32 @@ object PointageStore {
     }
 
     fun exit(context: Context): Boolean {
-        val data = load(context)
-        for (i in data.length() - 1 downTo 0) {
-            val item = data.optJSONObject(i) ?: continue
-            if (!item.isNull("exit")) continue
-            val entry = item.optLong("entry", -1L)
-            val now = System.currentTimeMillis()
-            if (entry <= 0L || now < entry) continue
-            openPause(item)?.let { pause -> val start = pause.optLong("start", -1L); if (start > 0L && now >= start) pause.put("end", now) }
-            if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
-                currentActiveZone(context)?.let { (zoneId, rawAddress) ->
-                    if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
-                    if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
+        val now = System.currentTimeMillis()
+        val changed = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            for (i in data.length() - 1 downTo 0) {
+                val item = data.optJSONObject(i) ?: continue
+                if (!item.isNull("exit")) continue
+                val entry = item.optLong("entry", -1L)
+                if (entry <= 0L || now < entry) continue
+                openPause(item)?.let { pause -> val start = pause.optLong("start", -1L); if (start > 0L && now >= start) pause.put("end", now) }
+                if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
+                    currentActiveZone(context)?.let { (zoneId, rawAddress) ->
+                        if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
+                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
+                    }
                 }
+                item.put("exit", now)
+                saveUnlocked(context, data)
+                return@synchronized true
             }
-            item.put("exit", now)
-            save(context, data)
-            updateWidgets(context)
-            scheduleIconSync(context)
-            DriveBackupManager.syncCurrentMonthAsync(context)
-            return true
+            false
         }
-        return false
+        if (!changed) return false
+        updateWidgets(context)
+        scheduleIconSync(context)
+        DriveBackupManager.syncCurrentMonthAsync(context)
+        return true
     }
 
     fun manualPausesForDay(context: Context, dayStart: Long, dayEnd: Long): List<Pair<Long, Long>> {
