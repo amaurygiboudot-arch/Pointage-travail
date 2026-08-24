@@ -17,9 +17,11 @@ schemaVersion: Int
 sessionId: UUID/String stable
 userId: String
 entryEpochMs: Long
-exitEpochMs: Long? 
+exitEpochMs: Long?
 shiftType: String?
 autoPauseMinutes: Int
+manual: Boolean
+companySlot: String?
 zoneId: String?
 zoneAddress: String?
 createdAtEpochMs: Long
@@ -28,6 +30,8 @@ originPlatform: android | ios
 revision: Long
 pauses: [Pause]
 ```
+
+`manual` au niveau **Session** indique qu'une session a été créée/saisie manuellement. Il est distinct de `Pause.manual`. `companySlot` conserve l'association éventuelle de la session avec l'entreprise/emplacement choisi par le flux Android ; une valeur inconnue d'une plateforme doit être préservée sans interprétation ni suppression.
 
 `entryEpochMs` et `exitEpochMs` sont stockés en millisecondes UTC depuis l'époque Unix. L'affichage local utilise le fuseau du terminal ; les instants synchronisés ne doivent pas être convertis en chaînes locales.
 
@@ -50,8 +54,9 @@ Les identifiants de session et de pause restent stables après modification afin
 
 Avant activation d'une synchronisation :
 
-- Android doit préserver `shiftType`, `autoPauseMinutes`, `zoneId`, `zoneAddress`, `manual` et `automatic` ;
+- Android doit préserver les champs de session `shiftType`, `autoPauseMinutes`, `manual`, `companySlot`, `zoneId` et `zoneAddress`, ainsi que les champs de pause `manual` et `automatic` ;
 - iOS doit pouvoir décoder et réécrire ces champs même si son interface ne les exploite pas encore ;
+- `Session.manual` et `Pause.manual` sont deux informations différentes et ne doivent jamais être fusionnées ou substituées ;
 - les champs inconnus d'une version plus récente ne doivent pas être supprimés par un ancien client ;
 - les pauses sont bornées à la session et fusionnées uniquement pour les calculs de durée, jamais pour supprimer leurs identités persistantes.
 
