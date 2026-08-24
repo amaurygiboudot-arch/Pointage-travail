@@ -39,9 +39,11 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Le remplissage carbone n'est plus dessiné dans les boutons secondaires.
-    // On garde uniquement le cadre métallique du thème afin que le fond réel
-    // de l'application reste visible à l'intérieur du bouton.
+    // Fond carbone fourni par l'utilisateur : il devient le remplissage exact
+    // des boutons du thème Carbone. Le cadre métallique reste indépendant.
+    private val fillBitmap: Bitmap? = runCatching {
+        BitmapFactory.decodeResource(context.resources, R.drawable.carbon_button_fill)
+    }.getOrNull()
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
     private var globalAlpha = 255
@@ -64,7 +66,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
         val outerRadius = dst.height() * .48f
         val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
-        ButtonFrameGeometry.buildBand(
+        val inner = ButtonFrameGeometry.buildBand(
             target = dst,
             outerRadius = outerRadius,
             thickness = frameThickness,
@@ -72,17 +74,21 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // CENTRE : volontairement transparent. Aucun noir, aucune fibre,
-        // aucun voile ; le fond de l'écran reste visible à travers le bouton.
+        // CENTRE : image carbone utilisateur, recadrée uniquement pour remplir
+        // l'intérieur du bouton sans déformer le cadre.
+        canvas.save()
+        canvas.clipPath(innerPath)
+        fillBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, inner) }
+        canvas.restore()
 
-        // CADRE : vraie couronne métallique ; elle seule est dessinée.
+        // CADRE : même couronne métallique qu'avant.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // Lumière uniquement sur le cadre.
+        // Lumière uniquement sur le cadre : le fond carbone reste fidèle à l'image.
         drawMetalSpecularReflection(canvas, dst)
     }
 
