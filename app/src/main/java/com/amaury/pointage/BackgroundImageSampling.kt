@@ -42,12 +42,13 @@ object BackgroundImageSampling {
         if (sourcePixels <= pixelBudget) return 1
 
         var sample = 1
-        while (true) {
+        while (sample <= Int.MAX_VALUE / 2) {
             val next = sample * 2
-            val nextWidth = sourceWidth / next
-            val nextHeight = sourceHeight / next
-            if (nextWidth <= 0 || nextHeight <= 0) break
-
+            // BitmapFactory never produces a zero-width/zero-height decoded bitmap merely
+            // because inSampleSize exceeds one source dimension. Model the minimum as one pixel
+            // so ultra-thin panoramas cannot escape the memory budget.
+            val nextWidth = (sourceWidth / next).coerceAtLeast(1)
+            val nextHeight = (sourceHeight / next).coerceAtLeast(1)
             sample = next
             val nextPixels = nextWidth.toLong() * nextHeight.toLong()
             if (nextPixels <= pixelBudget) break
