@@ -30,12 +30,12 @@ object PointageStore {
 
     fun isPaused(context: Context): Boolean {
         val open = findOpenSession(load(context)) ?: return false
-        return openPause(open) != null
+        return currentPause(open) != null
     }
 
     fun isPausedAutomatically(context: Context): Boolean {
         val open = findOpenSession(load(context)) ?: return false
-        return openPause(open)?.optBoolean("automatic", false) == true
+        return currentPause(open)?.optBoolean("automatic", false) == true
     }
 
     private fun scheduleIconSync(context: Context) {
@@ -184,6 +184,19 @@ object PointageStore {
             return true
         }
         return false
+    }
+
+    private fun currentPause(item: JSONObject, now: Long = System.currentTimeMillis()): JSONObject? {
+        val pauses = item.optJSONArray("pauses") ?: return null
+        for (i in pauses.length() - 1 downTo 0) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            val start = pause.optLong("start", -1L)
+            if (start <= 0L || now < start) continue
+            if (pause.isNull("end")) return pause
+            val end = pause.optLong("end", -1L)
+            if (end > start && now < end) return pause
+        }
+        return null
     }
 
     private fun openPause(item: JSONObject): JSONObject? {
