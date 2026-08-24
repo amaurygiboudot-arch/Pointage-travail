@@ -17,18 +17,18 @@ jobs:
 
     steps:
       - name: Recuperer le projet
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 1
 
       - name: Installer Java 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Installer Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
         with:
           gradle-version: "8.13"
           cache-cleanup: on-success
@@ -46,10 +46,12 @@ jobs:
           test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
 
-      - name: Preparer la version
+      - name: Preparer la version immuable
         run: |
-          echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          VERSION_CODE_VALUE=$((GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          VERSION_NAME_VALUE="1.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          echo "VERSION_CODE=$VERSION_CODE_VALUE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME_VALUE" >> "$GITHUB_ENV"
 
       - name: Tester lint et compiler APK AAB release signes
         id: gradle_build
@@ -72,9 +74,9 @@ jobs:
 
       - name: Publier le diagnostic si les controles ou la compilation echouent
         if: steps.gradle_build.outputs.exit_code != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: diagnostic-compilation-${{ github.run_number }}
+          name: diagnostic-compilation-${{ github.run_number }}-${{ github.run_attempt }}
           path: build-error.log
           if-no-files-found: error
           retention-days: 14
@@ -106,9 +108,9 @@ jobs:
           test -s SHA256.txt
 
       - name: Publier artefacts APK et AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: HP-Travail-APK-AAB
+          name: HP-Travail-APK-AAB-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             HP-Travail.apk
             HoraTrack.aab
@@ -131,7 +133,7 @@ jobs:
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
           chmod 600 "$RUNNER_TEMP/firebase-service-account.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          npm install --global firebase-tools
+          npm install --global firebase-tools@15.28.1
           firebase appdistribution:distribute HP-Travail.apk \
             --app "$FIREBASE_APP_ID" \
             --release-notes "HP Travail ${VERSION_NAME} - mise a jour automatique depuis GitHub Actions"
@@ -142,7 +144,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${VERSION_NAME}"
-          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release immuable $TAG existe deja : refus de la remplacer."
+            exit 1
+          fi
           gh release create "$TAG" \
             HP-Travail.apk \
             HoraTrack.aab \
