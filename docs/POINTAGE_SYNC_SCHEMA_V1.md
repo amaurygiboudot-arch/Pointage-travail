@@ -21,7 +21,7 @@ exitEpochMs: Long?
 shiftType: morning | day | afternoon | night | null
 autoPauseMinutes: Int (0..240)
 manual: Boolean
-companySlot: Int?
+companySlot: Int32?
 zoneId: String?
 zoneAddress: String?
 createdAtEpochMs: Long
@@ -35,7 +35,9 @@ pauses: [Pause]
 
 `autoPauseMinutes` est un entier canonique borné à **0..240**. Toute donnée reçue hors de cette plage doit être normalisée avec la même borne avant calcul sur Android et iOS, afin que les deux plateformes produisent le même temps travaillé.
 
-`manual` au niveau **Session** indique qu'une session a été créée/saisie manuellement. Il est distinct de `Pause.manual`. `companySlot` conserve l'identifiant numérique de l'entreprise/emplacement choisi par le flux Android (actuellement `1` ou `2`). Sa représentation canonique est un entier nullable ; une valeur numérique future inconnue doit être préservée telle quelle sans interprétation ni conversion en chaîne.
+`manual` au niveau **Session** indique qu'une session a été créée/saisie manuellement. Il est distinct de `Pause.manual`. `companySlot` conserve l'identifiant numérique de l'entreprise/emplacement choisi par le flux Android (actuellement `1` ou `2`). Sa représentation canonique est un entier signé **32 bits nullable**, donc limité à `-2147483648..2147483647` sur toutes les plateformes. Une valeur future dans cette plage doit être préservée telle quelle même si elle n'est pas encore interprétée ; une valeur hors de cette plage n'est pas valide pour le schéma v1.
+
+`originPlatform` utilise en v1 uniquement les littéraux `android` et `ios`. Une valeur brute inconnue provenant d'une version future doit néanmoins être préservée à l'identique lors d'un round-trip par un ancien client, sans être remplacée par `android` ou `ios` ; elle reste non émissible par un client v1.
 
 `entryEpochMs` et `exitEpochMs` sont stockés en millisecondes UTC depuis l'époque Unix. L'affichage local utilise le fuseau du terminal ; les instants synchronisés ne doivent pas être convertis en chaînes locales.
 
@@ -72,9 +74,10 @@ Avant activation d'une synchronisation :
 
 - Android doit préserver les champs de session `shiftType`, `autoPauseMinutes`, `manual`, `companySlot`, `zoneId` et `zoneAddress`, ainsi que les champs de pause `manual` et `automatic` ;
 - iOS doit pouvoir décoder et réécrire ces champs même si son interface ne les exploite pas encore ;
-- `shiftType` émis en v1 est limité à `morning`, `day`, `afternoon`, `night` ou `null` ;
+- `shiftType` émis en v1 est limité à `morning`, `day`, `afternoon`, `night` ou `null`, tandis qu'une valeur future inconnue est conservée brute mais non réémise comme valeur v1 canonique ;
+- `originPlatform` émis en v1 est limité à `android` ou `ios`, tandis qu'une valeur future inconnue est conservée brute sans coercition ;
 - `autoPauseMinutes` est normalisé à `0..240` avant tout calcul sur les deux plateformes ;
-- `companySlot` est un entier nullable sur les deux plateformes afin de rester compatible avec les JSON Android existants ;
+- `companySlot` est un `Int32?` sur les deux plateformes afin de rester compatible avec les JSON Android existants et de garantir une largeur portable ;
 - `Session.manual` et `Pause.manual` sont deux informations différentes et ne doivent jamais être fusionnées ou substituées ;
 - les deux plateformes doivent calculer la pause déduite avec `max(pauses fusionnées, autoPauseMinutes normalisé)` et jamais en additionnant les deux ;
 - les champs inconnus d'une version plus récente ne doivent pas être supprimés par un ancien client ;
