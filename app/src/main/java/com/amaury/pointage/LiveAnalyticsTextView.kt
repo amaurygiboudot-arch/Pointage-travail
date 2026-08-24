@@ -51,7 +51,8 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val data = PointageStore.load(context)
         val totals = LinkedHashMap<String, Long>()
         val now = System.currentTimeMillis()
-        var total = 0L
+        var totalWorked = 0L
+        var totalPause = 0L
         var completedSessions = 0
         var openSessions = 0
 
@@ -65,15 +66,18 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             if (effectiveEnd < entry) continue
 
             val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
+            val pause = PointageStore.pauseDuration(item, effectiveEnd)
             val worked = PointageStore.workedDuration(item, effectiveEnd)
             totals[place] = (totals[place] ?: 0L) + worked
-            total += worked
+            totalWorked += worked
+            totalPause += pause
 
             if (exit == null) openSessions++ else completedSessions++
         }
 
         return buildString {
-            append("⏱ TOTAL TRAVAILLÉ : ").append(formatDuration(total)).append('\n')
+            append("⏱ TOTAL TRAVAILLÉ : ").append(formatDuration(totalWorked)).append('\n')
+            append("⏸ TOTAL HEURES DE PAUSE : ").append(formatDuration(totalPause)).append('\n')
             append("✅ Sessions terminées : ").append(completedSessions).append('\n')
             if (openSessions > 0) {
                 append("🟢 En cours : ").append(openSessions)
