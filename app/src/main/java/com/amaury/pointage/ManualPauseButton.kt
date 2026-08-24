@@ -264,10 +264,7 @@ class ManualPauseButton @JvmOverloads constructor(
                 PauseScheduleManager.setEnabled(context, false)
             }
 
-            var addedCount = 0
-            ranges.forEach { (startMs, endMs) ->
-                if (PointageStore.addManualPause(context, startMs, endMs)) addedCount++
-            }
+            val addedCount = ManualPauseBatchStore.addAll(context, ranges)
             val message = when {
                 automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(ranges)} — programmation automatique activée"
                 automatic.isChecked -> "Pause automatique programmée"
