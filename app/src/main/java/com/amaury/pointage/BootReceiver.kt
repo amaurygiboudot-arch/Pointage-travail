@@ -9,25 +9,14 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
-        // Après remplacement de l'APK, Android nous avertit que la nouvelle version est en place.
-        // On tente alors de rouvrir HP Travail directement. Certains Android/HyperOS peuvent
-        // bloquer un lancement d'activité depuis l'arrière-plan : dans ce cas le système garde
-        // son comportement de sécurité normal, sans boucle ni crash.
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            runCatching {
-                val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                if (launch != null) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    context.startActivity(launch)
-                }
-            }
-        }
+        // Android moderne bloque fréquemment le lancement d'une Activity depuis un receiver
+        // exécuté en arrière-plan. Après une mise à jour, on ne tente donc pas de rouvrir
+        // HoraTrack automatiquement : on réarme uniquement les mécanismes persistants.
+        // L'utilisateur retrouve normalement l'application au prochain lancement explicite.
 
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
 
-        // Au redémarrage / après mise à jour, on réarme la sauvegarde. Le vrai travail
-        // Drive est exécuté par DriveBackupReceiver avec goAsync(), pas ici.
         if (DriveBackupManager.isConfigured(context)) {
             DriveBackupScheduler.schedule(context)
         }
@@ -45,10 +34,25 @@ class BootReceiver : BroadcastReceiver() {
             val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
             val latitude = item.optDouble("latitude", Double.NaN)
             val longitude = item.optDouble("longitude", Double.NaN)
-            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
-            if (!latitude.isFinite() || !longitude.isFinite()) continue
+            val rawRadius = item.optDouble("radius", 150.0)
+            if (!latitude.isFinite() || latitude !in -90.0..90.0) continue
+            if (!longitude.isFinite() || longitude !in -180.0..180.0) continue
+            if (!rawRadius.isFinite()) continue
+            val radius = rawRadius.toFloat().coerceIn(50f, 1000f)
             zones += WorkZone(id, latitude, longitude, radius)
         }
-        if (zones.isNotEmpty()) GeofenceManager.registerAll(context, zones)
+        if (zones.isEmpty()) return
+
+        // La réinscription Geofencing est asynchrone (remove puis add). goAsync() garde le
+        // receiver vivant jusqu'au callback final. L'appel est également protégé contre les
+        // exceptions synchrones de construction Play Services afin de toujours libérer le receiver.
+        val pendingResult = goAsync()
+        try {
+            GeofenceManager.registerAll(context, zones) { _, _ ->
+                pendingResult.finish()
+            }
+        } catch (_: Throwable) {
+            pendingResult.finish()
+        }
     }
 }
