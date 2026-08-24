@@ -39,17 +39,9 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Fond carbone utilisateur : les 4 morceaux sont concaténés AVANT décodage.
-    // Aucun morceau, filtre ou couleur n'est appliqué au bitmap après décodage.
-    private val fillBitmap: Bitmap? = decodeRawBase64Parts(
-        context,
-        intArrayOf(
-            R.raw.carbon_fill_user_1,
-            R.raw.carbon_fill_user_2,
-            R.raw.carbon_fill_user_3,
-            R.raw.carbon_fill_user_4
-        )
-    )
+    // Le remplissage carbone n'est plus dessiné dans les boutons secondaires.
+    // On garde uniquement le cadre métallique du thème afin que le fond réel
+    // de l'application reste visible à l'intérieur du bouton.
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
     private var globalAlpha = 255
@@ -72,7 +64,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
         val outerRadius = dst.height() * .48f
         val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
-        val inner = ButtonFrameGeometry.buildBand(
+        ButtonFrameGeometry.buildBand(
             target = dst,
             outerRadius = outerRadius,
             thickness = frameThickness,
@@ -80,22 +72,10 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // CENTRE : uniquement l'image carbone utilisateur.
-        canvas.save()
-        canvas.clipPath(innerPath)
-        if (fillBitmap != null) {
-            OriginalButtonImageRenderer.draw(canvas, fillBitmap, inner)
-        } else {
-            paint.shader = null
-            paint.colorFilter = null
-            paint.alpha = globalAlpha
-            paint.style = Paint.Style.FILL
-            paint.color = Color.rgb(13, 15, 17)
-            canvas.drawPath(innerPath, paint)
-        }
-        canvas.restore()
+        // CENTRE : volontairement transparent. Aucun noir, aucune fibre,
+        // aucun voile ; le fond de l'écran reste visible à travers le bouton.
 
-        // CADRE : vraie couronne ; le centre n'appartient pas au cadre.
+        // CADRE : vraie couronne métallique ; elle seule est dessinée.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
@@ -153,17 +133,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         canvas.restore()
         paint.shader = null
     }
-
-    private fun decodeRawBase64Parts(context: Context, resIds: IntArray): Bitmap? = runCatching {
-        val encoded = buildString {
-            resIds.forEach { resId ->
-                val part = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
-                append(part.substringAfter("base64,", part).filterNot { it.isWhitespace() })
-            }
-        }
-        val bytes = Base64.decode(encoded, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }.getOrNull()
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
         val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
