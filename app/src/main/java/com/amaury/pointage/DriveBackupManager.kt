@@ -1,12 +1,13 @@
 package com.amaury.pointage
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -40,12 +41,6 @@ object DriveBackupManager {
     }
 
     fun syncCurrentMonthAsync(context: Context) {
-        if (!isConfigured(context)) return
-        val app = context.applicationContext
-        executor.execute { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }
-    }
-
-    fun syncAutomaticAsync(context: Context) {
         if (!isConfigured(context)) return
         val app = context.applicationContext
         executor.execute { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }
@@ -196,26 +191,28 @@ object DriveBackupManager {
     }
 }
 
-class DriveFolderPickerActivity : Activity() {
-    companion object { private const val REQUEST_FOLDER = 7301 }
+class DriveFolderPickerActivity : ComponentActivity() {
+    private val folderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) {
+            finish()
+            return@registerForActivityResult
+        }
+
+        runCatching { DriveBackupManager.saveTreeUri(this, uri) }
+            .onSuccess {
+                Toast.makeText(this, "Dossier Drive mémorisé. Sauvegarde automatique activée.", Toast.LENGTH_LONG).show()
+                DriveBackupManager.syncAllAsync(this) { ok, message ->
+                    runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() }
+                }
+            }
+            .onFailure {
+                Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show()
+            }
+        finish()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
-        }, REQUEST_FOLDER)
-    }
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQUEST_FOLDER && resultCode == RESULT_OK) {
-            data?.data?.let { uri ->
-                runCatching { DriveBackupManager.saveTreeUri(this, uri) }
-                    .onSuccess {
-                        Toast.makeText(this, "Dossier Drive mémorisé. Sauvegarde automatique activée.", Toast.LENGTH_LONG).show()
-                        DriveBackupManager.syncAllAsync(this) { ok, message -> runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() } }
-                    }
-                    .onFailure { Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show() }
-            }
-        }
-        finish()
+        folderPicker.launch(null)
     }
 }
