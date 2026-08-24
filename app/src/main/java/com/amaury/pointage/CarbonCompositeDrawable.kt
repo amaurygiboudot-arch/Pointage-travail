@@ -10,7 +10,6 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
@@ -31,17 +30,13 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         }
     }
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         alpha = 255
         colorFilter = null
     }
     private val dst = RectF()
     private val frameBand = Path()
     private val innerPath = Path()
-
-    private val fillBitmap: Bitmap? = runCatching {
-        BitmapFactory.decodeResource(context.resources, R.drawable.carbon_button_fill)
-    }.getOrNull()
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
     private var globalAlpha = 255
@@ -70,56 +65,70 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // Fond carbone d'abord : il couvre réellement toute la capsule intérieure.
-        // On ne dépend plus des marges noires contenues dans l'image source.
+        // Centre : texture carbone générée directement, sans image, sans marge noire.
         canvas.save()
         canvas.clipPath(innerPath)
-        fillBitmap?.let { drawCarbonFillCover(canvas, it, inner) }
+        drawProceduralCarbon(canvas, inner)
         canvas.restore()
 
-        // Cadre ensuite, mais strictement limité à sa couronne.
+        // Cadre : image dédiée, strictement limitée à la couronne.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // Éclairage dynamique volontairement désactivé pendant le diagnostic.
+        // Éclairage dynamique toujours désactivé pendant le test.
     }
 
-    private fun drawCarbonFillCover(canvas: Canvas, bitmap: Bitmap, target: RectF) {
-        if (bitmap.width <= 0 || bitmap.height <= 0 || target.width() <= 0f || target.height() <= 0f) return
-
-        // L'image fournie possède une capsule carbone entourée de noir.
-        // On prélève uniquement la matière utile puis on applique un vrai CENTER_CROP
-        // pour remplir 100 % de l'intérieur, quelle que soit la hauteur du bouton.
-        val usefulLeft = (bitmap.width * 0.015f).toInt().coerceIn(0, bitmap.width - 1)
-        val usefulTop = (bitmap.height * 0.105f).toInt().coerceIn(0, bitmap.height - 1)
-        val usefulRight = (bitmap.width * 0.985f).toInt().coerceIn(usefulLeft + 1, bitmap.width)
-        val usefulBottom = (bitmap.height * 0.925f).toInt().coerceIn(usefulTop + 1, bitmap.height)
-
-        val usefulW = usefulRight - usefulLeft
-        val usefulH = usefulBottom - usefulTop
-        val targetRatio = target.width() / target.height()
-        val sourceRatio = usefulW.toFloat() / usefulH.toFloat()
-
-        val source = if (sourceRatio > targetRatio) {
-            // Source trop large : coupe uniquement les côtés.
-            val wantedW = (usefulH * targetRatio).toInt().coerceAtLeast(1)
-            val x = usefulLeft + (usefulW - wantedW) / 2
-            Rect(x, usefulTop, (x + wantedW).coerceAtMost(usefulRight), usefulBottom)
-        } else {
-            // Source trop haute : coupe uniquement haut/bas, jamais de bande noire ajoutée.
-            val wantedH = (usefulW / targetRatio).toInt().coerceAtLeast(1)
-            val y = usefulTop + (usefulH - wantedH) / 2
-            Rect(usefulLeft, y, usefulRight, (y + wantedH).coerceAtMost(usefulBottom))
-        }
-
+    private fun drawProceduralCarbon(canvas: Canvas, target: RectF) {
         paint.style = Paint.Style.FILL
         paint.alpha = globalAlpha
-        paint.colorFilter = null
+        paint.shader = LinearGradient(
+            target.left, target.top, target.left, target.bottom,
+            intArrayOf(Color.rgb(26, 27, 29), Color.rgb(8, 9, 10), Color.rgb(18, 19, 21)),
+            floatArrayOf(0f, .55f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
         paint.shader = null
-        canvas.drawBitmap(bitmap, source, target, paint)
+
+        val cell = (target.height() / 6.2f).coerceAtLeast(5f)
+        val strandW = cell * .58f
+        val strandH = cell * .34f
+        val rows = (target.height() / strandH).toInt() + 4
+        val cols = (target.width() / strandW).toInt() + 6
+
+        for (row in -2..rows) {
+            for (col in -3..cols) {
+                val x = target.left + col * strandW + if (row % 2 == 0) 0f else strandW * .5f
+                val y = target.top + row * strandH
+                val bright = (row + col) % 2 == 0
+                paint.color = if (bright) Color.rgb(58, 61, 66) else Color.rgb(15, 16, 18)
+                paint.alpha = (globalAlpha * if (bright) .88f else .96f).toInt().coerceIn(0, 255)
+
+                val p = Path().apply {
+                    moveTo(x, y + strandH)
+                    lineTo(x + strandW * .45f, y)
+                    lineTo(x + strandW, y)
+                    lineTo(x + strandW * .55f, y + strandH)
+                    close()
+                }
+                canvas.drawPath(p, paint)
+            }
+        }
+
+        // Finition résine légère pour donner du relief sans masquer le tressage.
+        paint.alpha = globalAlpha
+        paint.shader = LinearGradient(
+            target.left, target.top, target.left, target.bottom,
+            intArrayOf(Color.argb(75, 255, 255, 255), Color.TRANSPARENT, Color.argb(60, 0, 0, 0)),
+            floatArrayOf(0f, .28f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(target, paint)
+        paint.shader = null
+        paint.alpha = globalAlpha
     }
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
