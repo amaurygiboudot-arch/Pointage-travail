@@ -16,7 +16,9 @@ class BackgroundImageSamplingTest {
 
     @Test
     fun doesNotUndershootEitherTargetDimension() {
-        assertEquals(2, BackgroundImageSampling.calculateInSampleSize(4000, 1200, 1080, 900))
+        // Sampling this 4000x1200 panorama by 2 would leave only 600 px of height,
+        // below the requested 900 px target. Full resolution is therefore correct.
+        assertEquals(1, BackgroundImageSampling.calculateInSampleSize(4000, 1200, 1080, 900))
     }
 
     @Test
