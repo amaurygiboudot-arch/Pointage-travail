@@ -100,34 +100,33 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var locationText = "📍 Aucune zone"
             var entryLocation = ""
             var exitLocation = ""
-            val paused = PointageStore.isPaused(context)
+            val now = System.currentTimeMillis()
+            val last = PointageSessionQueries.latestValidSession(context, now)
+            val paused = last?.let { PointageSessionQueries.isPaused(it, now) } == true
             views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
 
-            val data = PointageStore.load(context)
-            if (data.length() > 0) {
-                data.optJSONObject(data.length() - 1)?.let { last ->
-                    val entry = last.optLong("entry", -1L)
-                    if (entry > 0L) {
-                        val zoneAddress = last.optString("zoneAddress").trim()
-                        entryText = formatTime(entry)
-                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
-                        entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
-                        val effectiveEnd: Long
-                        if (last.isNull("exit")) {
-                            effectiveEnd = System.currentTimeMillis()
-                            stateText = if (paused) "EN PAUSE" else "EN COURS"
-                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
-                        } else {
-                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
-                            exitText = formatTime(effectiveEnd)
-                            exitLocation = place
-                            stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#D93630")
-                        }
-                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
-                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
+            last?.let {
+                val entry = it.optLong("entry", -1L)
+                if (entry > 0L) {
+                    val zoneAddress = it.optString("zoneAddress").trim()
+                    entryText = formatTime(entry)
+                    val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
+                    entryLocation = place
+                    locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
+                    val effectiveEnd: Long
+                    if (it.isNull("exit")) {
+                        effectiveEnd = now
+                        stateText = if (paused) "EN PAUSE" else "EN COURS"
+                        stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
+                    } else {
+                        effectiveEnd = it.optLong("exit", entry).coerceAtLeast(entry)
+                        exitText = formatTime(effectiveEnd)
+                        exitLocation = place
+                        stateText = "TERMINÉ"
+                        stateColor = Color.parseColor("#D93630")
                     }
+                    pauseText = formatDuration(PointageStore.pauseDuration(it, effectiveEnd))
+                    durationText = formatDuration(PointageStore.workedDuration(it, effectiveEnd))
                 }
             }
 
@@ -248,10 +247,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                when (PointageStore.togglePauseForLatestValidSession(context)) {
+                    PointageStore.PauseToggleResult.STARTED -> Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.RESUMED -> Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.NO_ACTIONABLE_SESSION -> Toast.makeText(context, "Aucune entrée valide en cours", Toast.LENGTH_SHORT).show()
                 }
             }
             ACTION_EXIT -> {
@@ -271,7 +270,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicWidget(context, manager, clickedId)
                 else updateAll(context)
 
-                // Le petit widget n'a besoin d'être modifié que si Pause devient Reprendre (ou inversement).
                 if (intent.action == ACTION_PAUSE) QuickActionsWidgetProvider.updateAll(context)
             }, 260L)
         }

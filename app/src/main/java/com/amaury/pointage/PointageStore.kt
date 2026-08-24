@@ -14,6 +14,12 @@ object PointageStore {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingIconSync: Runnable? = null
 
+    enum class PauseToggleResult {
+        STARTED,
+        RESUMED,
+        NO_ACTIONABLE_SESSION
+    }
+
     private fun loadUnlocked(context: Context): JSONArray {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]").orEmpty()
         if (raw.isBlank()) return JSONArray()
@@ -48,6 +54,60 @@ object PointageStore {
     fun isPausedAutomatically(context: Context): Boolean {
         val open = findOpenSession(load(context)) ?: return false
         return currentPause(open)?.optBoolean("automatic", false) == true
+    }
+
+    /**
+     * Widget-only pause mutation that targets exactly the same latest-valid session used for
+     * display. Malformed/future tail records cannot steal the action from the visible session.
+     */
+    fun togglePauseForLatestValidSession(
+        context: Context,
+        now: Long = System.currentTimeMillis()
+    ): PauseToggleResult {
+        val result = synchronized(storageLock) {
+            val data = loadUnlocked(context)
+            val item = PointageSessionQueries.latestValidSession(data, now)
+                ?: return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+            if (!item.has("exit") || !item.isNull("exit")) {
+                return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+            }
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L || entry > now) {
+                return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+            }
+
+            val activePause = currentPause(item, now)
+            if (activePause != null) {
+                val start = activePause.optLong("start", -1L)
+                if (start <= 0L || start > now) {
+                    return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+                }
+                activePause.put("end", now)
+                saveUnlocked(context, data)
+                PauseToggleResult.RESUMED
+            } else {
+                // An explicitly open pause may have a start in the future after a wall-clock
+                // rollback. Do not append a second open pause beside it.
+                if (openPause(item) != null) {
+                    return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+                }
+                val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
+                pauses.put(JSONObject().put("start", now).put("end", JSONObject.NULL))
+                saveUnlocked(context, data)
+                PauseToggleResult.STARTED
+            }
+        }
+
+        if (result != PauseToggleResult.NO_ACTIONABLE_SESSION) {
+            updateWidgets(context)
+            scheduleIconSync(context)
+            if (result == PauseToggleResult.RESUMED) DriveBackupManager.syncCurrentMonthAsync(context)
+        } else {
+            // A wall-clock rollback can make an already-open future pause temporarily
+            // non-actionable. Re-evaluate the launcher icon even though no mutation occurred.
+            scheduleIconSync(context)
+        }
+        return result
     }
 
     private fun scheduleIconSync(context: Context) {
@@ -160,6 +220,8 @@ object PointageStore {
             for (i in 0 until pauses.length()) {
                 val pause = pauses.optJSONObject(i) ?: continue
                 val rawStart = pause.optLong("start", -1L)
+                // Missing `end` is malformed, unlike an explicit JSON null open pause.
+                if (!pause.has("end")) continue
                 val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
                 if (rawStart <= 0L || rawEnd <= rawStart) continue
                 val start = rawStart.coerceAtLeast(entry)
@@ -195,23 +257,24 @@ object PointageStore {
         val now = System.currentTimeMillis()
         val changed = synchronized(storageLock) {
             val data = loadUnlocked(context)
-            for (i in data.length() - 1 downTo 0) {
-                val item = data.optJSONObject(i) ?: continue
-                if (!item.isNull("exit")) continue
-                val entry = item.optLong("entry", -1L)
-                if (entry <= 0L || now < entry) continue
-                openPause(item)?.let { pause -> val start = pause.optLong("start", -1L); if (start > 0L && now >= start) pause.put("end", now) }
-                if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
-                    currentActiveZone(context)?.let { (zoneId, rawAddress) ->
-                        if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
-                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
-                    }
-                }
-                item.put("exit", now)
-                saveUnlocked(context, data)
-                return@synchronized true
+            val item = PointageSessionQueries.latestValidSession(data, now) ?: return@synchronized false
+            if (!item.has("exit") || !item.isNull("exit")) return@synchronized false
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L || entry > now) return@synchronized false
+
+            openPause(item)?.let { pause ->
+                val start = pause.optLong("start", -1L)
+                if (start > 0L && now >= start) pause.put("end", now)
             }
-            false
+            if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
+                currentActiveZone(context)?.let { (zoneId, rawAddress) ->
+                    if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
+                    if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
+                }
+            }
+            item.put("exit", now)
+            saveUnlocked(context, data)
+            true
         }
         if (!changed) return false
         updateWidgets(context)
@@ -244,6 +307,7 @@ object PointageStore {
             val pause = pauses.optJSONObject(i) ?: continue
             val start = pause.optLong("start", -1L)
             if (start <= 0L || now < start) continue
+            if (!pause.has("end")) continue
             if (pause.isNull("end")) return pause
             val end = pause.optLong("end", -1L)
             if (end > start && now < end) return pause
@@ -256,7 +320,7 @@ object PointageStore {
         for (i in pauses.length() - 1 downTo 0) {
             val pause = pauses.optJSONObject(i) ?: continue
             val start = pause.optLong("start", -1L)
-            if (start > 0L && pause.isNull("end")) return pause
+            if (start > 0L && pause.has("end") && pause.isNull("end")) return pause
         }
         return null
     }

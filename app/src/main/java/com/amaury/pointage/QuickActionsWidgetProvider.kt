@@ -52,10 +52,15 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun selectedPaused(context: Context): Boolean {
+            val now = System.currentTimeMillis()
+            val session = PointageSessionQueries.latestValidSession(context, now) ?: return false
+            return PointageSessionQueries.isPaused(session, now)
+        }
+
         private fun updateDynamicState(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
-            val paused = PointageStore.isPaused(context)
-            views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            views.setTextViewText(R.id.quick_pause_label, if (selectedPaused(context)) "REPRENDRE" else "PAUSE")
             manager.partiallyUpdateAppWidget(widgetId, views)
         }
 
@@ -105,8 +110,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
             views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
 
-            val paused = PointageStore.isPaused(context)
-            views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            views.setTextViewText(R.id.quick_pause_label, if (selectedPaused(context)) "REPRENDRE" else "PAUSE")
             manager.updateAppWidget(widgetId, views)
         }
     }
@@ -132,10 +136,10 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                when (PointageStore.togglePauseForLatestValidSession(context)) {
+                    PointageStore.PauseToggleResult.STARTED -> Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.RESUMED -> Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.NO_ACTIONABLE_SESSION -> Toast.makeText(context, "Aucune entrée valide en cours", Toast.LENGTH_SHORT).show()
                 }
             }
             ACTION_EXIT -> {
@@ -152,15 +156,11 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         } else if (handledAction) {
             val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                // Le petit widget n'a rien à redessiner pour Entrée/Sortie.
-                // On ne touche à son RemoteViews que lorsque le libellé Pause/Reprendre change.
                 if (intent.action == ACTION_PAUSE) {
                     val manager = AppWidgetManager.getInstance(context)
                     if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)
                     else updateAll(context)
                 }
-                // Le grand widget affiche l'état, les heures et les durées : mise à jour différée
-                // pour laisser le launcher terminer l'animation du clic avant le RemoteViews.
                 PointageWidgetProvider.updateAll(context)
             }, 260L)
         }
