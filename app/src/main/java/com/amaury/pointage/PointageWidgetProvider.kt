@@ -247,10 +247,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                when (PointageStore.togglePauseForLatestValidSession(context)) {
+                    PointageStore.PauseToggleResult.STARTED -> Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.RESUMED -> Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show()
+                    PointageStore.PauseToggleResult.NO_ACTIONABLE_SESSION -> Toast.makeText(context, "Aucune entrée valide en cours", Toast.LENGTH_SHORT).show()
                 }
             }
             ACTION_EXIT -> {
