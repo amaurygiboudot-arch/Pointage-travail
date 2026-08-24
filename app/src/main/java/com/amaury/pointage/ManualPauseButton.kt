@@ -278,10 +278,36 @@ class ManualPauseButton @JvmOverloads constructor(
         cancel.setOnClickListener { dialog.dismiss() }
         save.setOnClickListener {
             val ranges = mutableListOf<Pair<Long, Long>>()
+            var emptySlotSeen = false
             for ((index, slot) in slots.withIndex()) {
                 val startText = slot.start.text.toString().trim()
                 val endText = slot.end.text.toString().trim()
-                if (index > 0 && startText.isBlank() && endText.isBlank()) break
+                val completelyEmpty = startText.isBlank() && endText.isBlank()
+
+                if (completelyEmpty) {
+                    emptySlotSeen = true
+                    continue
+                }
+
+                if (emptySlotSeen) {
+                    slot.start.error = "Créneau ${index + 1} après un créneau vide"
+                    Toast.makeText(
+                        context,
+                        "Remplis les créneaux dans l'ordre : un créneau vide ne peut pas être suivi d'une autre pause.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return@setOnClickListener
+                }
+
+                if (startText.isBlank()) {
+                    slot.start.error = "Renseigne le début du créneau ${index + 1}"
+                    return@setOnClickListener
+                }
+                if (endText.isBlank()) {
+                    slot.end.error = "Renseigne la fin du créneau ${index + 1}"
+                    return@setOnClickListener
+                }
+
                 val startMs = parseTime(selectedDate, startText)
                 val endMs = parseTime(selectedDate, endText)
                 if (startMs == null) { slot.start.error = "Format attendu : HH:mm"; return@setOnClickListener }
