@@ -19,13 +19,9 @@ object ApkUpdateVerifier {
     fun verify(context: Context, apk: File, versionName: String) {
         if (!apk.exists()) throw IllegalStateException("fichier APK absent")
         if (apk.length() < 100_000L) throw IllegalStateException("fichier APK incomplet")
-
         val expectedSha = downloadExpectedSha256(versionName)
         val actualSha = sha256(apk)
-        if (!MessageDigest.isEqual(hexToBytes(expectedSha), hexToBytes(actualSha))) {
-            throw SecurityException("empreinte SHA-256 de l'APK invalide")
-        }
-
+        if (!MessageDigest.isEqual(hexToBytes(expectedSha), hexToBytes(actualSha))) throw SecurityException("empreinte SHA-256 de l'APK invalide")
         verifyPackageAndSigningCertificate(context, apk)
     }
 
@@ -42,106 +38,64 @@ object ApkUpdateVerifier {
                 setRequestProperty("Accept", "text/plain")
                 connect()
             }
-        } catch (e: IOException) {
-            throw RetryableVerificationException("réseau indisponible pendant la vérification", e)
-        }
-
+        } catch (e: IOException) { throw RetryableVerificationException("réseau indisponible pendant la vérification", e) }
         try {
-            val code = try { connection.responseCode } catch (e: IOException) {
-                throw RetryableVerificationException("réponse réseau indisponible", e)
-            }
-            if (code == 408 || code == 429 || code in 500..599) {
-                throw RetryableVerificationException("service SHA-256 temporairement indisponible ($code)")
-            }
-            if (code !in 200..299) {
-                throw SecurityException("SHA-256 de la release indisponible ($code)")
-            }
-            val text = try {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } catch (e: IOException) {
-                throw RetryableVerificationException("lecture SHA-256 interrompue", e)
-            }
+            val code = try { connection.responseCode } catch (e: IOException) { throw RetryableVerificationException("réponse réseau indisponible", e) }
+            if (code == 403 || code == 408 || code == 429 || code in 500..599) throw RetryableVerificationException("service SHA-256 temporairement indisponible ($code)")
+            if (code !in 200..299) throw SecurityException("SHA-256 de la release indisponible ($code)")
+            val text = try { connection.inputStream.bufferedReader().use { it.readText() } }
+            catch (e: IOException) { throw RetryableVerificationException("lecture SHA-256 interrompue", e) }
             return Regex("(?i)\\b[0-9a-f]{64}\\b").find(text)?.value?.lowercase(Locale.ROOT)
                 ?: throw SecurityException("SHA-256 de la release invalide")
-        } finally {
-            connection.disconnect()
-        }
+        } finally { connection.disconnect() }
     }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
+            while (true) { val read = input.read(buffer); if (read <= 0) break; digest.update(buffer, 0, read) }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun verifyPackageAndSigningCertificate(context: Context, apk: File) {
         val pm = context.packageManager
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES
-        else {
-            @Suppress("DEPRECATION")
-            PackageManager.GET_SIGNATURES
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else {
+            @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
         }
-
-        val archive = pm.getPackageArchiveInfo(apk.absolutePath, flags)
-            ?: throw IllegalStateException("Android ne reconnaît pas l'APK")
+        val archive = pm.getPackageArchiveInfo(apk.absolutePath, flags) ?: throw IllegalStateException("Android ne reconnaît pas l'APK")
         if (archive.packageName != context.packageName) throw SecurityException("APK d'une autre application")
-
         val installed = pm.getPackageInfo(context.packageName, flags)
-        if (!signingCompatible(installed, archive)) {
-            throw SecurityException("certificat de signature incompatible")
-        }
+        if (!signingCompatible(installed, archive)) throw SecurityException("certificat de signature incompatible")
     }
-
-    private data class SigningIdentity(
-        val multiple: Boolean,
-        val current: Set<String>,
-        val lineage: List<String>
-    )
 
     private fun signingCompatible(installed: PackageInfo, archive: PackageInfo): Boolean {
-        val old = signingIdentity(installed)
-        val next = signingIdentity(archive)
-        if (old.current.isEmpty() || next.current.isEmpty()) return false
-
-        if (old.multiple || next.multiple) {
-            return old.multiple && next.multiple && old.current == next.current
-        }
-
-        if (old.lineage.isEmpty() || next.lineage.isEmpty()) return false
-        if (old.lineage.size > next.lineage.size) return false
-        if (next.lineage.take(old.lineage.size) != old.lineage) return false
-        return next.lineage.lastOrNull() in next.current && old.lineage.lastOrNull() in old.current
-    }
-
-    private fun signingIdentity(info: PackageInfo): SigningIdentity {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            @Suppress("DEPRECATION")
-            val current = info.signatures?.map(::digestSignature)?.toSet().orEmpty()
-            return SigningIdentity(multiple = current.size > 1, current = current, lineage = current.sorted())
+            @Suppress("DEPRECATION") val old = installed.signatures?.map(::digestSignature)?.toSet().orEmpty()
+            @Suppress("DEPRECATION") val next = archive.signatures?.map(::digestSignature)?.toSet().orEmpty()
+            return old.isNotEmpty() && old == next
         }
-
-        val signingInfo = info.signingInfo ?: return SigningIdentity(false, emptySet(), emptyList())
-        val current = signingInfo.apkContentsSigners?.map(::digestSignature)?.toSet().orEmpty()
-        if (signingInfo.hasMultipleSigners()) {
-            return SigningIdentity(multiple = true, current = current, lineage = emptyList())
+        val oldInfo = installed.signingInfo ?: return false
+        val nextInfo = archive.signingInfo ?: return false
+        val oldCurrent = oldInfo.apkContentsSigners?.map(::digestSignature)?.toSet().orEmpty()
+        val nextCurrent = nextInfo.apkContentsSigners?.map(::digestSignature)?.toSet().orEmpty()
+        if (oldCurrent.isEmpty() || nextCurrent.isEmpty()) return false
+        if (oldInfo.hasMultipleSigners() || nextInfo.hasMultipleSigners()) {
+            return oldInfo.hasMultipleSigners() && nextInfo.hasMultipleSigners() && oldCurrent == nextCurrent
         }
+        val installedSigner = oldInfo.apkContentsSigners?.singleOrNull() ?: return false
+        val archiveSigner = nextInfo.apkContentsSigners?.singleOrNull() ?: return false
+        if (installedSigner == archiveSigner) return true
 
-        var history = signingInfo.signingCertificateHistory?.map(::digestSignature).orEmpty()
-        val currentDigest = current.singleOrNull()
-        if (currentDigest == null) return SigningIdentity(false, current, emptyList())
-
-        if (history.isEmpty()) history = listOf(currentDigest)
-        else if (history.lastOrNull() != currentDigest && history.firstOrNull() == currentDigest) history = history.reversed()
-
-        if (history.lastOrNull() != currentDigest) return SigningIdentity(false, current, emptyList())
-        return SigningIdentity(multiple = false, current = current, lineage = history)
+        // Android expose directement la preuve de rotation et ses capacités via Signature.checkCapability.
+        // On demande à la nouvelle signature la capacité INSTALLED_DATA vis-à-vis de l'ancienne :
+        // c'est la condition utilisée pour qu'une rotation soit compatible avec les données installées.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching {
+                archiveSigner.checkCapability(installedSigner, android.content.pm.SigningDetails.CertCapabilities.INSTALLED_DATA)
+            }.getOrDefault(false)
+        } else false
     }
 
     private fun digestSignature(signature: android.content.pm.Signature): String =
@@ -149,11 +103,7 @@ object ApkUpdateVerifier {
 
     private fun hexToBytes(value: String): ByteArray {
         val clean = value.trim().lowercase(Locale.ROOT)
-        if (clean.length != 64 || clean.any { it !in "0123456789abcdef" }) {
-            throw IllegalArgumentException("empreinte SHA-256 invalide")
-        }
-        return ByteArray(clean.length / 2) { index ->
-            clean.substring(index * 2, index * 2 + 2).toInt(16).toByte()
-        }
+        if (clean.length != 64 || clean.any { it !in "0123456789abcdef" }) throw IllegalArgumentException("empreinte SHA-256 invalide")
+        return ByteArray(clean.length / 2) { index -> clean.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
     }
 }
