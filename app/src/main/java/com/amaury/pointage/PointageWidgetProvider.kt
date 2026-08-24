@@ -103,31 +103,28 @@ class PointageWidgetProvider : AppWidgetProvider() {
             val paused = PointageStore.isPaused(context)
             views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
 
-            val data = PointageStore.load(context)
-            if (data.length() > 0) {
-                data.optJSONObject(data.length() - 1)?.let { last ->
-                    val entry = last.optLong("entry", -1L)
-                    if (entry > 0L) {
-                        val zoneAddress = last.optString("zoneAddress").trim()
-                        entryText = formatTime(entry)
-                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
-                        entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
-                        val effectiveEnd: Long
-                        if (last.isNull("exit")) {
-                            effectiveEnd = System.currentTimeMillis()
-                            stateText = if (paused) "EN PAUSE" else "EN COURS"
-                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
-                        } else {
-                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
-                            exitText = formatTime(effectiveEnd)
-                            exitLocation = place
-                            stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#D93630")
-                        }
-                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
-                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
+            PointageSessionQueries.latestValidSession(context)?.let { last ->
+                val entry = last.optLong("entry", -1L)
+                if (entry > 0L) {
+                    val zoneAddress = last.optString("zoneAddress").trim()
+                    entryText = formatTime(entry)
+                    val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
+                    entryLocation = place
+                    locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
+                    val effectiveEnd: Long
+                    if (last.isNull("exit")) {
+                        effectiveEnd = System.currentTimeMillis()
+                        stateText = if (paused) "EN PAUSE" else "EN COURS"
+                        stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
+                    } else {
+                        effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
+                        exitText = formatTime(effectiveEnd)
+                        exitLocation = place
+                        stateText = "TERMINÉ"
+                        stateColor = Color.parseColor("#D93630")
                     }
+                    pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
+                    durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
                 }
             }
 
