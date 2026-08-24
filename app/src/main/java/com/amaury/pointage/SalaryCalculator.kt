@@ -35,20 +35,32 @@ object SalaryCalculator {
         hourlyRate: Double,
         convention: ConventionCatalog.Convention
     ): Result {
-        val sessions = mutableListOf<Session>()
+        val monthStart = SessionSlices.monthStart(year, month)
+        val monthEnd = SessionSlices.monthEnd(year, month)
+        val segments = mutableListOf<Session>()
+        var completedSessions = 0
+
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             if (item.isNull("exit")) continue
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
-            if (entry > 0L && exit > entry) {
-                sessions.add(Session(entry, exit, PointageStore.workedDuration(item, exit)))
+            if (entry <= 0L || exit <= entry) continue
+
+            if (SessionSlices.clip(item, monthStart, monthEnd) != null) completedSessions++
+
+            SessionSlices.splitByDay(item).forEach { slice ->
+                val sliceEntry = slice.optLong("entry", -1L)
+                val sliceExit = slice.optLong("exit", -1L)
+                if (sliceEntry > 0L && sliceExit > sliceEntry) {
+                    segments += Session(sliceEntry, sliceExit, PointageStore.workedDuration(slice, sliceExit))
+                }
             }
         }
-        sessions.sortBy { it.entry }
+        segments.sortBy { it.entry }
 
         val sessionsByWeek = linkedMapOf<WeekKey, MutableList<Session>>()
-        sessions.forEach { session ->
+        segments.forEach { session ->
             val cal = Calendar.getInstance(Locale.FRANCE).apply {
                 firstDayOfWeek = Calendar.MONDAY
                 minimalDaysInFirstWeek = 4
@@ -61,7 +73,6 @@ object SalaryCalculator {
         val hourMs = 60L * 60L * 1000L
         val normalLimit = 35L * hourMs
         var regularMs = 0L
-        var completedSessions = 0
         val overtimeByTier = LongArray(convention.overtimeTiers.size)
 
         sessionsByWeek.values.forEach { weekSessions ->
@@ -70,16 +81,15 @@ object SalaryCalculator {
                 val duration = session.workedDuration
                 val startCum = cumulative
                 val endCum = cumulative + duration
-                val entryCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
+                val inRequestedMonth = session.entry >= monthStart && session.entry < monthEnd
 
-                if (entryCal.get(Calendar.YEAR) == year && entryCal.get(Calendar.MONTH) == month) {
+                if (inRequestedMonth) {
                     regularMs += overlap(startCum, endCum, 0L, normalLimit)
                     convention.overtimeTiers.forEachIndexed { index, tier ->
                         val from = (tier.fromHour * hourMs).toLong()
                         val to = tier.toHour?.let { (it * hourMs).toLong() } ?: Long.MAX_VALUE
                         overtimeByTier[index] += overlap(startCum, endCum, from, to)
                     }
-                    completedSessions++
                 }
                 cumulative = endCum
             }
@@ -91,9 +101,8 @@ object SalaryCalculator {
         }
 
         val nightRule = ConventionNightRules.forIdcc(convention.idcc)
-        val nightMs = if (nightRule == null) 0L else sessions.sumOf { session ->
-            val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
-            if (cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month) {
+        val nightMs = if (nightRule == null) 0L else segments.sumOf { session ->
+            if (session.entry >= monthStart && session.entry < monthEnd) {
                 nightOverlap(session.entry, session.exit, nightRule.startMinute, nightRule.endMinute)
             } else 0L
         }
