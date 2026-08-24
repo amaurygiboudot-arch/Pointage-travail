@@ -56,7 +56,7 @@ Certaines fonctions reposent sur des services du système Android ou de Google P
 
 ## Sécurité et politique de sauvegarde Android
 
-Les données principales sont conservées dans l'espace privé de l'application. Les sauvegardes Android automatiques sont volontairement désactivées afin d'éviter qu'une copie non maîtrisée de données de pointage, localisation ou salaire soit transférée par le mécanisme général de sauvegarde du système.
+Les données principales sont conservées dans l'espace privé de l'application. La configuration de HoraTrack désactive la sauvegarde Android générale de l'application. Sur Android 12 et versions ultérieures, certains mécanismes de transfert direct entre appareils peuvent toutefois dépendre de la version du système et du constructeur ; la configuration actuelle ne doit donc pas être présentée comme une garantie absolue qu'aucun transfert système n'est possible sur tous les appareils.
 
 Cette protection a une contrepartie importante : **la désinstallation, l'effacement des données ou la perte du téléphone peut entraîner la perte de l'historique local** tant qu'un véritable export structuré, chiffré et réimportable n'est pas proposé.
 
