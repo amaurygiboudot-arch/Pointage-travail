@@ -1,18 +1,18 @@
-# Politique de confidentialité — HP Travail
+# Politique de confidentialité — HoraTrack
 
-Dernière mise à jour : 16 août 2026
+Dernière mise à jour : 24 août 2026
 
-HP Travail est une application de pointage personnel permettant d'enregistrer des heures de travail, de produire des rapports PDF et, si l'utilisateur l'active, d'automatiser les entrées et sorties à l'aide de zones géographiques configurées par l'utilisateur.
+HoraTrack est une application de pointage personnel permettant d'enregistrer des heures de travail, de produire des rapports PDF et, si l'utilisateur l'active, d'automatiser les entrées et sorties à l'aide de zones géographiques configurées par l'utilisateur.
 
 ## Données utilisées
 
 ### Localisation
 
-HP Travail peut demander l'accès à la localisation précise et à la localisation en arrière-plan lorsque l'utilisateur active le pointage automatique par zone GPS.
+HoraTrack peut demander l'accès à la localisation précise et à la localisation en arrière-plan lorsque l'utilisateur active le pointage automatique par zone GPS.
 
 Cette autorisation sert uniquement à détecter l'entrée ou la sortie des lieux de travail enregistrés par l'utilisateur afin de déclencher le pointage automatique. La localisation en arrière-plan est nécessaire pour cette fonction lorsque l'application n'est pas visible à l'écran.
 
-HP Travail n'utilise pas la localisation à des fins publicitaires, de profilage ou de suivi commercial.
+HoraTrack n'utilise pas la localisation à des fins publicitaires, de profilage ou de suivi commercial.
 
 L'application utilise les services de localisation Android et Google Play Services pour la fonction de géorepérage lorsque ces services sont disponibles sur l'appareil.
 
@@ -28,37 +28,45 @@ Les heures d'entrée, de sortie, durées travaillées et lieux associés sont en
 
 Le taux horaire, la convention collective choisie et la date d'entrée dans l'entreprise sont enregistrés localement afin de réaliser les estimations demandées par l'utilisateur.
 
-## Google Drive
+## Export PDF vers Google Drive
 
-La sauvegarde vers Google Drive est facultative. Elle n'est activée que si l'utilisateur choisit lui-même un dossier avec le sélecteur de fichiers Android. HP Travail utilise alors cette autorisation pour enregistrer les rapports PDF dans le dossier choisi.
+L'export PDF vers Google Drive est facultatif. Il n'est activé que si l'utilisateur choisit lui-même un dossier avec le sélecteur de fichiers Android. HoraTrack utilise alors cette autorisation uniquement pour écrire les rapports PDF dans le dossier choisi.
 
-HP Travail ne demande pas un accès général au contenu du compte Google Drive de l'utilisateur.
+Ces fichiers PDF sont des **archives lisibles et des rapports**, pas une sauvegarde restaurable de la base de données de l'application. Ils ne permettent pas, à eux seuls, de reconstruire automatiquement l'historique dans HoraTrack après une réinstallation ou un changement de téléphone.
+
+HoraTrack ne demande pas un accès général au contenu du compte Google Drive de l'utilisateur.
 
 ## Contacts et SMS
 
-L'utilisateur peut enregistrer manuellement un nom et un numéro de téléphone pour un lieu de travail. HP Travail ne lit pas le carnet d'adresses du téléphone.
+L'utilisateur peut enregistrer manuellement un nom et un numéro de téléphone pour un lieu de travail. HoraTrack ne lit pas le carnet d'adresses du téléphone.
 
-Lorsqu'une notification propose de prévenir un contact à l'arrivée, HP Travail prépare un message dans l'application SMS choisie par l'utilisateur. Le message n'est pas envoyé automatiquement : l'utilisateur conserve la validation finale.
+Lorsqu'une notification propose de prévenir un contact à l'arrivée, HoraTrack prépare un message dans l'application SMS choisie par l'utilisateur. Le message n'est pas envoyé automatiquement : l'utilisateur conserve la validation finale.
 
 ## Rapports PDF
 
-Les rapports PDF sont générés à partir des données de pointage de l'utilisateur. L'utilisateur peut les prévisualiser puis choisir où les enregistrer. Si la sauvegarde Drive a été configurée, des copies peuvent être écrites dans le dossier explicitement sélectionné par l'utilisateur.
+Les rapports PDF sont générés à partir des données de pointage de l'utilisateur. L'utilisateur peut les prévisualiser puis choisir où les enregistrer. Si l'export Drive a été configuré, des copies peuvent être écrites dans le dossier explicitement sélectionné par l'utilisateur.
 
 ## Partage et vente de données
 
-HP Travail ne contient pas de publicité et ne vend pas les données personnelles de l'utilisateur.
+HoraTrack ne contient pas de publicité et ne vend pas les données personnelles de l'utilisateur.
 
-L'application ne dispose d'aucun serveur exploité par le développeur destiné à recevoir l'historique de pointage, les adresses, les coordonnées GPS, les informations salariales ou les numéros de téléphone de l'utilisateur.
+L'application ne dispose pas d'un serveur exploité par le développeur destiné à recevoir l'historique de pointage, les adresses, les coordonnées GPS, les informations salariales ou les numéros de téléphone de l'utilisateur. Les services Firebase éventuellement utilisés par des fonctions distinctes (compte, appareils, feedback, notifications) sont soumis à leurs règles et ne constituent pas une synchronisation automatique de l'historique de pointage.
 
 Certaines fonctions reposent sur des services du système Android ou de Google Play Services. Leur traitement est soumis aux règles applicables à ces services sur l'appareil.
 
-## Sécurité
+## Sécurité et politique de sauvegarde Android
 
-Les données principales sont conservées dans l'espace privé de l'application. Les sauvegardes Android automatiques sont désactivées. Les connexions HTTP non chiffrées sont interdites par la configuration de l'application.
+Les données principales sont conservées dans l'espace privé de l'application. Les sauvegardes Android automatiques sont volontairement désactivées afin d'éviter qu'une copie non maîtrisée de données de pointage, localisation ou salaire soit transférée par le mécanisme général de sauvegarde du système.
+
+Cette protection a une contrepartie importante : **la désinstallation, l'effacement des données ou la perte du téléphone peut entraîner la perte de l'historique local** tant qu'un véritable export structuré, chiffré et réimportable n'est pas proposé.
+
+Les exports PDF Drive ne remplacent pas cette sauvegarde structurée. Une future fonction de restauration devra utiliser un format versionné, chiffré et explicitement réimportable.
+
+Les connexions HTTP non chiffrées sont interdites par la configuration de l'application.
 
 ## Permissions Android
 
-Selon les fonctions activées, HP Travail peut demander :
+Selon les fonctions activées, HoraTrack peut demander :
 
 - localisation approximative ou précise ;
 - localisation en arrière-plan pour le pointage automatique par zone GPS ;
@@ -75,13 +83,13 @@ Les fichiers PDF enregistrés en dehors du stockage privé de l'application, not
 
 ## Enfants
 
-HP Travail n'est pas conçu spécifiquement pour les enfants et ne propose pas de fonctionnalités sociales ou publicitaires destinées aux mineurs.
+HoraTrack n'est pas conçu spécifiquement pour les enfants et ne propose pas de fonctionnalités sociales ou publicitaires destinées aux mineurs.
 
 ## Contact
 
 Responsable de l'application : Amaury Giboudot.
 
-Pour toute question concernant la confidentialité ou l'exercice de droits relatifs aux données, le canal de contact public indiqué sur la fiche Google Play de HP Travail devra être utilisé.
+Pour toute question concernant la confidentialité ou l'exercice de droits relatifs aux données, le canal de contact public indiqué sur la fiche Google Play de HoraTrack devra être utilisé.
 
 ## Évolutions
 
