@@ -6,6 +6,10 @@ on:
     paths:
       - 'ios/**'
       - '.github/workflows/build-ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
   workflow_dispatch:
 
 jobs:
@@ -30,6 +34,7 @@ jobs:
       - name: Build for iOS Simulator
         working-directory: ios/HPTravail
         run: |
+          set -o pipefail
           xcodebuild \
             -project HPTravail.xcodeproj \
             -scheme HPTravail \
@@ -37,3 +42,26 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Archive generic iOS device target
+        working-directory: ios/HPTravail
+        run: |
+          set -o pipefail
+          rm -rf "$RUNNER_TEMP/HPTravail.xcarchive"
+          xcodebuild \
+            -project HPTravail.xcodeproj \
+            -scheme HPTravail \
+            -destination 'generic/platform=iOS' \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/HPTravail.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+          test -d "$RUNNER_TEMP/HPTravail.xcarchive"
+
+      - name: Publish unsigned archive diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: HPTravail-iOS-device-archive
+          path: ${{ runner.temp }}/HPTravail.xcarchive
+          if-no-files-found: error
+          retention-days: 14
