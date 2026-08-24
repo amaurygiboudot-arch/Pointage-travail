@@ -317,7 +317,12 @@ class ManualPauseButton @JvmOverloads constructor(
                 if (endMs <= startMs) { slot.end.error = "La fin doit être après le début"; return@setOnClickListener }
                 ranges += startMs to endMs
             }
-            if (ranges.isEmpty()) return@setOnClickListener
+            if (ranges.isEmpty()) {
+                slots[0].start.error = "Renseigne le début du créneau 1"
+                slots[0].end.error = "Renseigne la fin du créneau 1"
+                Toast.makeText(context, "Renseigne au moins un créneau de pause.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
 
             val firstStart = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().first }
             val firstEnd = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().second }
