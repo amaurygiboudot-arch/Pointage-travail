@@ -12,6 +12,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.util.Calendar
 import kotlin.math.atan2
@@ -46,12 +47,18 @@ object LightDirectionController {
 
         var target = -55f
         var celestialAngle: Float? = null
+        var celestialAzimuth: Double? = null
+        var locationBased = false
         var night = isNight(activity)
         var intensity = if (night) .24f else .78f
         var elevation = if (night) 25f else 45f
         var azimuth = 0f
         var pitch = 0f
         var roll = 0f
+        var lastEmitMs = 0L
+        var lastEmittedAngle = Float.NaN
+        var lastEmittedPitch = Float.NaN
+        var lastEmittedRoll = Float.NaN
 
         fun state(angle: Float): LightingState {
             CarbonCompositeDrawable.updateGlobalLight(angle, night)
@@ -70,7 +77,19 @@ object LightDirectionController {
             return LightingState(angle, celestialAngle, elevation, night, azimuth, pitch)
         }
 
-        fun recompute() {
+        fun updateTargetFromOrientation() {
+            if (locationBased && celestialAzimuth != null) {
+                val screen = screenAngle(azimuth, celestialAzimuth!!)
+                celestialAngle = screen
+                val tilt = if (night) roll * .18f + pitch * .08f else roll * .30f + pitch * .12f
+                target = normalize(screen + tilt)
+            } else {
+                celestialAngle = normalize(-azimuth - 90f)
+                target = normalize(celestialAngle!! + roll * .24f + pitch * .10f)
+            }
+        }
+
+        fun recomputeCelestial() {
             val now = System.currentTimeMillis()
             val loc = lastKnownLocation(activity)
             if (loc != null) {
@@ -78,27 +97,40 @@ object LightDirectionController {
                 val moon = CelestialEphemeris.moon(loc.latitude, loc.longitude, now)
                 night = sun.altitude < -0.833
                 val active = if (night) moon else sun
+                locationBased = true
+                celestialAzimuth = active.azimuth
                 elevation = active.altitude.toFloat().coerceIn(-10f, 90f)
-                val screen = screenAngle(azimuth, active.azimuth)
-                celestialAngle = screen
                 intensity = if (night) {
                     ((active.altitude + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
                 } else {
                     ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
                 }
-                val tilt = if (night) roll * .18f + pitch * .08f else roll * .30f + pitch * .12f
-                target = normalize(screen + tilt)
             } else {
+                locationBased = false
+                celestialAzimuth = null
                 night = fallbackNightByClock()
                 elevation = if (night) 25f else 45f
-                celestialAngle = normalize(-azimuth - 90f)
                 intensity = if (night) .24f else .72f
-                target = normalize(celestialAngle!! + roll * .24f + pitch * .10f)
             }
+            updateTargetFromOrientation()
         }
 
-        fun emitImmediately() {
-            recompute()
+        fun emit(force: Boolean = false) {
+            updateTargetFromOrientation()
+            val now = SystemClock.uptimeMillis()
+            val angleDelta = if (lastEmittedAngle.isNaN()) 360f else kotlin.math.abs(shortestDelta(lastEmittedAngle, target))
+            val pitchDelta = if (lastEmittedPitch.isNaN()) 180f else kotlin.math.abs(lastEmittedPitch - pitch)
+            val rollDelta = if (lastEmittedRoll.isNaN()) 180f else kotlin.math.abs(lastEmittedRoll - roll)
+
+            if (!force) {
+                if (now - lastEmitMs < 24L) return
+                if (angleDelta < .25f && pitchDelta < .25f && rollDelta < .25f) return
+            }
+
+            lastEmitMs = now
+            lastEmittedAngle = target
+            lastEmittedPitch = pitch
+            lastEmittedRoll = roll
             onLightingChanged(state(target))
         }
 
@@ -124,7 +156,7 @@ object LightDirectionController {
                         roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
                     }
                 }
-                emitImmediately()
+                emit()
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
@@ -133,18 +165,20 @@ object LightDirectionController {
         lateinit var ticker: Runnable
         ticker = object : Runnable {
             override fun run() {
-                emitImmediately()
+                recomputeCelestial()
+                emit(force = true)
                 mainHandler.postDelayed(this, 30_000L)
             }
         }
 
         if (rotationSensor != null) {
-            sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_FASTEST)
+            sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
         } else if (accelSensor != null) {
-            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_FASTEST)
+            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_GAME)
         }
 
-        emitImmediately()
+        recomputeCelestial()
+        emit(force = true)
         mainHandler.postDelayed(ticker, 30_000L)
         registrations[key] = Registration(sm, listener, ticker)
     }
