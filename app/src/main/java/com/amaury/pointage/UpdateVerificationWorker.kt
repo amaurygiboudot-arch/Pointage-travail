@@ -33,6 +33,15 @@ class UpdateVerificationWorker(
         return try {
             ApkUpdateVerifier.verify(context, apk, version)
             UpdateChecker.validateApk(context, apk)
+
+            // Avant de rendre l'APK installable, protéger les pointages existants.
+            // Une installation sans historique n'a rien à sauvegarder ; avec un
+            // historique, l'absence de snapshot est considérée comme bloquante.
+            val hasPointageData = PointageStore.load(context).length() > 0
+            if (hasPointageData && !DataSafetyGuard.createSnapshot(context)) {
+                throw IllegalStateException("Sauvegarde de sécurité des pointages impossible")
+            }
+
             UpdateChecker.markDownloadReady(context, apk)
             prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
             notifyReady(context)
