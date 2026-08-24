@@ -45,12 +45,8 @@ object DriveBackupScheduler {
 class DriveBackupReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (!DriveBackupManager.isConfigured(context)) return
-
-        // Un BroadcastReceiver peut être arrêté très vite par Android après onReceive().
-        // goAsync() garde officiellement le receiver vivant jusqu'à la fin du travail.
-        val pendingResult = goAsync()
-        DriveBackupManager.syncAllAsync(context.applicationContext) { _, _ ->
-            pendingResult.finish()
-        }
+        // Le receiver ne fait plus d'I/O et ne reste plus vivant avec goAsync().
+        // Il délègue immédiatement à un travail WorkManager persistant et unique.
+        DriveBackupWorker.enqueue(context)
     }
 }
