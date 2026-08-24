@@ -154,25 +154,46 @@ class ManualPauseButton @JvmOverloads constructor(
             slots += PauseSlot(container, start, end)
         }
 
+        val totalPauseText = TextView(context).apply {
+            text = "TOTAL HEURES DE PAUSE : 00h 00m"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(orange)
+            setPadding(0, dp(14), 0, dp(8))
+        }
+        body.addView(totalPauseText)
+
         fun slotIsComplete(slot: PauseSlot): Boolean {
             val startMs = parseTime(selectedDate, slot.start.text.toString()) ?: return false
             val endMs = parseTime(selectedDate, slot.end.text.toString()) ?: return false
             return endMs > startMs
         }
 
-        for (i in 0 until slots.lastIndex) {
+        fun updateTotalPause() {
+            val ranges = mutableListOf<Pair<Long, Long>>()
+            slots.forEach { slot ->
+                val s = parseTime(selectedDate, slot.start.text.toString())
+                val e = parseTime(selectedDate, slot.end.text.toString())
+                if (s != null && e != null && e > s) ranges += s to e
+            }
+            totalPauseText.text = "TOTAL HEURES DE PAUSE : ${formatMergedDuration(ranges)}"
+        }
+
+        for (i in slots.indices) {
             val current = slots[i]
-            val next = slots[i + 1]
+            val next = slots.getOrNull(i + 1)
             val watcher = object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(s: Editable?) {
-                    if (slotIsComplete(current)) next.container.visibility = View.VISIBLE
+                    if (next != null && slotIsComplete(current)) next.container.visibility = View.VISIBLE
+                    updateTotalPause()
                 }
             }
             current.start.addTextChangedListener(watcher)
             current.end.addTextChangedListener(watcher)
         }
+        updateTotalPause()
 
         val automatic = Switch(context).apply {
             text = "Programmer automatiquement tous les jours avec le 1er créneau"
@@ -248,9 +269,9 @@ class ManualPauseButton @JvmOverloads constructor(
                 if (PointageStore.addManualPause(context, startMs, endMs)) addedCount++
             }
             val message = when {
-                automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} et programmation automatique activée"
+                automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(ranges)} — programmation automatique activée"
                 automatic.isChecked -> "Pause automatique programmée"
-                addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} à la journée sélectionnée"
+                addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(ranges)}"
                 else -> "Aucune session ne contient ces plages horaires"
             }
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
@@ -273,6 +294,27 @@ class ManualPauseButton @JvmOverloads constructor(
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
+    }
+
+    private fun formatMergedDuration(ranges: List<Pair<Long, Long>>): String {
+        if (ranges.isEmpty()) return "00h 00m"
+        val sorted = ranges.filter { it.second > it.first }.sortedBy { it.first }
+        if (sorted.isEmpty()) return "00h 00m"
+        var total = 0L
+        var start = sorted.first().first
+        var end = sorted.first().second
+        for (i in 1 until sorted.size) {
+            val (nextStart, nextEnd) = sorted[i]
+            if (nextStart <= end) end = maxOf(end, nextEnd)
+            else {
+                total += end - start
+                start = nextStart
+                end = nextEnd
+            }
+        }
+        total += end - start
+        val minutes = total / 60_000L
+        return String.format(Locale.FRANCE, "%02dh %02dm", minutes / 60L, minutes % 60L)
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
