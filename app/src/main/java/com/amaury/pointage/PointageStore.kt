@@ -86,6 +86,11 @@ object PointageStore {
                 saveUnlocked(context, data)
                 PauseToggleResult.RESUMED
             } else {
+                // An explicitly open pause may have a start in the future after a wall-clock
+                // rollback. Do not append a second open pause beside it.
+                if (openPause(item) != null) {
+                    return@synchronized PauseToggleResult.NO_ACTIONABLE_SESSION
+                }
                 val pauses = item.optJSONArray("pauses") ?: JSONArray().also { item.put("pauses", it) }
                 pauses.put(JSONObject().put("start", now).put("end", JSONObject.NULL))
                 saveUnlocked(context, data)
@@ -211,6 +216,8 @@ object PointageStore {
             for (i in 0 until pauses.length()) {
                 val pause = pauses.optJSONObject(i) ?: continue
                 val rawStart = pause.optLong("start", -1L)
+                // Missing `end` is malformed, unlike an explicit JSON null open pause.
+                if (!pause.has("end")) continue
                 val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
                 if (rawStart <= 0L || rawEnd <= rawStart) continue
                 val start = rawStart.coerceAtLeast(entry)
