@@ -39,9 +39,17 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Une seule source vérifiée pour le fond : aucune reconstruction en plusieurs morceaux.
-    // Le bitmap source n'est jamais modifié ni recoloré.
-    private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
+    // Fond carbone utilisateur : les 4 morceaux sont concaténés AVANT décodage.
+    // Aucun morceau, filtre ou couleur n'est appliqué au bitmap après décodage.
+    private val fillBitmap: Bitmap? = decodeRawBase64Parts(
+        context,
+        intArrayOf(
+            R.raw.carbon_fill_user_1,
+            R.raw.carbon_fill_user_2,
+            R.raw.carbon_fill_user_3,
+            R.raw.carbon_fill_user_4
+        )
+    )
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
     private var globalAlpha = 255
@@ -72,13 +80,12 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // CENTRE : l'image carbone uniquement. Aucun cadre ni reflet n'entre dans cette zone.
+        // CENTRE : uniquement l'image carbone utilisateur.
         canvas.save()
         canvas.clipPath(innerPath)
         if (fillBitmap != null) {
             OriginalButtonImageRenderer.draw(canvas, fillBitmap, inner)
         } else {
-            // Secours visible : si le décodage échoue, on ne laisse plus un centre invisible.
             paint.shader = null
             paint.colorFilter = null
             paint.alpha = globalAlpha
@@ -88,7 +95,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         }
         canvas.restore()
 
-        // CADRE : vraie couronne, centre géométriquement absent.
+        // CADRE : vraie couronne ; le centre n'appartient pas au cadre.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
@@ -147,6 +154,17 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.shader = null
     }
 
+    private fun decodeRawBase64Parts(context: Context, resIds: IntArray): Bitmap? = runCatching {
+        val encoded = buildString {
+            resIds.forEach { resId ->
+                val part = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+                append(part.substringAfter("base64,", part).filterNot { it.isWhitespace() })
+            }
+        }
+        val bytes = Base64.decode(encoded, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
         val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
         val encoded = raw.substringAfter("base64,", raw).filterNot { it.isWhitespace() }
@@ -179,7 +197,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        // Jamais de filtre sur les images importées.
         invalidateSelf()
     }
 
