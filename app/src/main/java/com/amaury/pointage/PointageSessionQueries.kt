@@ -17,10 +17,13 @@ object PointageSessionQueries {
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L || entry > now) continue
 
+            // Legitimate sessions always persist an explicit exit key: JSONObject.NULL while
+            // open, or a timestamp once completed. A missing key is malformed data, not open work.
+            if (!item.has("exit")) continue
             if (item.isNull("exit")) return item
 
             val exit = item.optLong("exit", -1L)
-            if (exit >= entry) return item
+            if (exit >= entry && exit <= now) return item
         }
         return null
     }
