@@ -29,7 +29,7 @@ internal object AtomicPointageStorage {
         if (atomicRaw != null) {
             parse(atomicRaw)?.let { valid ->
                 if (!prefs.getBoolean(MIGRATION_COMPLETE_KEY, false)) {
-                    prefs.edit().putBoolean(MIGRATION_COMPLETE_KEY, true).commit()
+                    requireMigrationComplete(app)
                 }
                 return valid
             }
@@ -42,7 +42,7 @@ internal object AtomicPointageStorage {
                     JSONArray()
                 }
                 write(app, legacyData)
-                prefs.edit().putBoolean(MIGRATION_COMPLETE_KEY, true).commit()
+                requireMigrationComplete(app)
                 return legacyData
             }
 
@@ -56,7 +56,7 @@ internal object AtomicPointageStorage {
             JSONArray()
         }
         write(app, migrated)
-        prefs.edit().putBoolean(MIGRATION_COMPLETE_KEY, true).commit()
+        requireMigrationComplete(app)
         return migrated
     }
 
@@ -78,6 +78,18 @@ internal object AtomicPointageStorage {
     private fun parse(raw: String): JSONArray? {
         if (raw.isBlank()) return null
         return runCatching { JSONArray(raw) }.getOrNull()
+    }
+
+    private fun requireMigrationComplete(context: Context) {
+        val persisted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(MIGRATION_COMPLETE_KEY, true)
+            .commit()
+        if (!persisted) {
+            // Do not allow callers to continue mutating an atomic store that could later be
+            // mistaken for an unfinished first migration and replaced from stale legacy data.
+            throw IllegalStateException("Unable to persist pointage migration state")
+        }
     }
 
     private fun requireCorruptBackup(context: Context, key: String, raw: String) {
