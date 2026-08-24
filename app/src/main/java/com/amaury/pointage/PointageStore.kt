@@ -102,6 +102,10 @@ object PointageStore {
             updateWidgets(context)
             scheduleIconSync(context)
             if (result == PauseToggleResult.RESUMED) DriveBackupManager.syncCurrentMonthAsync(context)
+        } else {
+            // A wall-clock rollback can make an already-open future pause temporarily
+            // non-actionable. Re-evaluate the launcher icon even though no mutation occurred.
+            scheduleIconSync(context)
         }
         return result
     }
@@ -253,23 +257,24 @@ object PointageStore {
         val now = System.currentTimeMillis()
         val changed = synchronized(storageLock) {
             val data = loadUnlocked(context)
-            for (i in data.length() - 1 downTo 0) {
-                val item = data.optJSONObject(i) ?: continue
-                if (!item.isNull("exit")) continue
-                val entry = item.optLong("entry", -1L)
-                if (entry <= 0L || now < entry) continue
-                openPause(item)?.let { pause -> val start = pause.optLong("start", -1L); if (start > 0L && now >= start) pause.put("end", now) }
-                if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
-                    currentActiveZone(context)?.let { (zoneId, rawAddress) ->
-                        if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
-                        if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
-                    }
-                }
-                item.put("exit", now)
-                saveUnlocked(context, data)
-                return@synchronized true
+            val item = PointageSessionQueries.latestValidSession(data, now) ?: return@synchronized false
+            if (!item.has("exit") || !item.isNull("exit")) return@synchronized false
+            val entry = item.optLong("entry", -1L)
+            if (entry <= 0L || entry > now) return@synchronized false
+
+            openPause(item)?.let { pause ->
+                val start = pause.optLong("start", -1L)
+                if (start > 0L && now >= start) pause.put("end", now)
             }
-            false
+            if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
+                currentActiveZone(context)?.let { (zoneId, rawAddress) ->
+                    if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
+                    if (item.optString("zoneAddress").isBlank()) item.put("zoneAddress", PlaceNames.display(context, rawAddress))
+                }
+            }
+            item.put("exit", now)
+            saveUnlocked(context, data)
+            true
         }
         if (!changed) return false
         updateWidgets(context)
