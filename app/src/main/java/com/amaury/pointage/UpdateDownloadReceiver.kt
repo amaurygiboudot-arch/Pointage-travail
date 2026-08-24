@@ -3,12 +3,18 @@ package com.amaury.pointage
 import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 
 class UpdateDownloadReceiver : BroadcastReceiver() {
 
@@ -34,77 +40,41 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
             return
         }
 
-        val apk = UpdateChecker.downloadedApkFile(context) ?: run {
+        if (UpdateChecker.downloadedApkFile(context) == null) {
             UpdateChecker.clearDownloadState(context)
             notifyFailure(context, "Fichier de mise à jour introuvable")
             return
         }
 
-        val version = prefs.getString(UpdateChecker.KEY_VERSION, "").orEmpty()
-        val pendingResult = goAsync()
-        Thread {
-            try {
-                // Validation forte avant que l'APK puisse être marqué « prêt » :
-                // SHA-256 publié avec la release + package + certificat de signature.
-                ApkUpdateVerifier.verify(context, apk, version)
-                UpdateChecker.validateApk(context, apk)
-                UpdateChecker.markDownloadReady(context, apk)
-
-                val installIntent = UpdateChecker.installerIntent(context, apk)
-                val pending = PendingIntent.getActivity(
-                    context,
-                    4107,
-                    installIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
-                val launched = runCatching {
-                    pending.send()
-                    true
-                }.getOrDefault(false)
-
-                if (!launched) notifyReady(context, installIntent)
-            } catch (e: Exception) {
-                apk.delete()
-                UpdateChecker.clearDownloadState(context)
-                notifyFailure(context, e.message ?: "Vérification de sécurité échouée")
-            } finally {
-                pendingResult.finish()
-            }
-        }.start()
-    }
-
-    private fun notifyReady(context: Context, installIntent: Intent) {
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            4107,
-            installIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        ensureChannel(context)
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.hp_icon_red)
-            .setContentTitle("Mise à jour HoraTrack prête")
-            .setContentText("La mise à jour a été vérifiée et peut être installée.")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
+        // Le receiver se termine immédiatement. Toute vérification réseau/cryptographique
+        // est confiée à WorkManager, qui peut survivre aux contraintes d'arrière-plan.
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        val request = OneTimeWorkRequestBuilder<UpdateVerificationWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            UpdateVerificationWorker.UNIQUE_WORK,
+            ExistingWorkPolicy.REPLACE,
+            request
+        )
     }
 
     private fun notifyFailure(context: Context, reason: String) {
         ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.hp_icon_red)
-            .setContentTitle("Mise à jour refusée")
-            .setContentText(reason.take(120))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setAutoCancel(true)
-            .build()
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(
+            NOTIFICATION_ID,
+            NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.hp_icon_red)
+                .setContentTitle("Mise à jour interrompue")
+                .setContentText(reason.take(120))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
+                .build()
+        )
     }
 
     private fun ensureChannel(context: Context) {
