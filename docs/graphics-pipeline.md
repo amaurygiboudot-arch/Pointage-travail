@@ -12,7 +12,9 @@ Les trois actions principales utilisent actuellement les vues personnalisées su
 - `OrangeDiamondFinalButton` — Pause ;
 - `RedDiamondFinalButton` — Sortie.
 
-Ces classes et toutes leurs dépendances directes constituent le pipeline diamant actif. Les ressources portant des noms historiques comme `original`, `true3d`, `final`, `dynamic`, `composite` ou similaires ne sont pas réputées actives par leur seul nom : leur statut dépend d'une référence réelle depuis ces classes, les layouts ou le code chargé en production.
+Ces classes et toutes leurs dépendances directes constituent le pipeline diamant actif. Le pipeline actif comprend également la chaîne d'éclairage dynamique : `SalaryTabTextView.onAttachedToWindow()` installe `ButtonReliefInstaller`, qui attache `LightDirectionController` et propage l'éclairage naturel/capteur vers les boutons diamant via les mises à jour globales prévues par les boutons finaux. Ces dépendances inverses sont protégées au même titre que les trois vues elles-mêmes.
+
+Les ressources portant des noms historiques comme `original`, `true3d`, `final`, `dynamic`, `composite` ou similaires ne sont pas réputées actives par leur seul nom : leur statut dépend d'une référence réelle depuis ces classes, les layouts ou le code chargé en production.
 
 Aucun nettoyage de ressources ne doit modifier la géométrie, les facettes, les couleurs, l'éclairage dynamique ou le comportement capteur du pipeline diamant actif.
 
@@ -44,6 +46,45 @@ L'horloge du widget est produite par `WidgetVisualRenderer.clock(...)`.
 Le petit widget est piloté par `QuickActionsWidgetProvider`.
 
 Une ressource utilisée uniquement par une génération historique du widget peut être supprimée seulement après confirmation qu'elle n'est pas référencée par `RemoteViews`, XML, `WidgetVisualRenderer`, les providers ou une construction dynamique.
+
+## Candidats orphelins confirmés par la revue
+
+La revue repository-wide a vérifié les références Kotlin/Java, XML, manifestes, `RemoteViews`, constructions de noms/réflexion et dépendances des renderers actifs. Les éléments ci-dessous sont des **candidats de nettoyage à haute confiance** ; ils doivent néanmoins être supprimés dans une PR dédiée et revalidés par lint/build avant fusion.
+
+### Application / graphismes principaux
+
+- `luxury_entry.webp` ;
+- `luxury_exit.webp` ;
+- `cadre_bouton_carbonne.xml` ;
+- `hp_entry.xml` ;
+- `hp_exit.xml` ;
+- `hp_watch_face.xml` ;
+- `layout/hp_logo.xml` et `hp_logo_vector.xml` ;
+- `OriginalButtonImageRenderer` ;
+- `DiamondDrawable` ;
+- `PrimaryDiamond3DInstaller` ;
+- `PauseJewelButton`.
+
+### Widgets
+
+- `widget_action_entry.xml`, `widget_action_pause.xml`, `widget_action_exit.xml` et leurs variantes `_new` ;
+- `widget_bg.xml` ;
+- `widget_center.xml` ;
+- les deux anciennes variantes de cadran d'horloge ;
+- les deux anciennes variantes d'aiguille des heures ;
+- les deux anciennes variantes d'aiguille des minutes ;
+- `widget_clock_transparent.xml` ;
+- `widget_clock_xml.xml` ;
+- `widget_frame_carbon_chrome.xml` ;
+- `widget_green.xml` ;
+- `widget_pause_orange.xml` ;
+- `widget_red.xml` ;
+- `widget_status_panel.xml` ;
+- `widget_clock_luxury.webp` ;
+- `widget_luxury_exact.webp` ;
+- `widget_panel_exact.webp`.
+
+Cette liste n'autorise aucune suppression d'un élément non listé sans nouvelle preuve. En particulier, les classes de l'éclairage dynamique des diamants sont explicitement actives et protégées.
 
 ## Ressources de récupération
 
