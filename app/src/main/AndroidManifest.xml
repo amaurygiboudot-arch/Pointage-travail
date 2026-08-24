@@ -38,23 +38,19 @@
         <provider android:name=".DeviceRegistryInitProvider" android:authorities="${applicationId}.device-registry-init" android:exported="false" android:initOrder="70" />
         <provider android:name=".GoogleAccountPromptProvider" android:authorities="${applicationId}.google-account-prompt" android:exported="false" android:initOrder="60" />
         <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.update-files"
-            android:exported="false"
-            android:grantUriPermissions="true">
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />
         </provider>
 
-        <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" />
+        <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" />
 
-        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" android:targetActivity=".LaunchActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HoraTrack" android:targetActivity=".LaunchActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
-        <activity-alias android:name=".IconOrange" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_orange" android:label="HP Travail" android:targetActivity=".LaunchActivity">
+        <activity-alias android:name=".IconOrange" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_orange" android:label="HoraTrack" android:targetActivity=".LaunchActivity">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity-alias>
 
