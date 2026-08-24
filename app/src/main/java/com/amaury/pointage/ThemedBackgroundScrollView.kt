@@ -46,10 +46,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         super.dispatchDraw(canvas)
     }
 
-    /**
-     * Seule une image explicitement choisie comme fond D'APPLICATION peut être lue ici.
-     * Les images/textures de boutons et de cadres n'entrent jamais dans ce circuit.
-     */
     private fun selectedBackgroundFile(): File? {
         val prefs = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
         if (!prefs.getBoolean("custom_image_bg", false)) return null
@@ -68,10 +64,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             drawSelectedImage(canvas, file)
             return
         }
-
-        // Règle d'architecture : la matière d'un bouton appartient au bouton uniquement.
-        // Un thème peut changer la palette du fond de l'application, mais il ne réutilise
-        // jamais automatiquement une texture/image destinée à un bouton ou à son cadre.
         val theme = AppThemeCatalog.current(context)
         val dark = ThemeDayNight.isDark(context)
         canvas.drawColor(if (dark) theme.darkBackground else theme.lightBackground)
@@ -114,11 +106,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 cachedImage?.let {
                     val useDark = chooseDarkText(globalBackgroundStats(it))
                     cachedTextColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
-                    cachedShadowColor = if (useDark) {
-                        Color.argb(225, 255, 255, 255)
-                    } else {
-                        Color.argb(235, 0, 0, 0)
-                    }
+                    cachedShadowColor = if (useDark) Color.argb(225, 255, 255, 255) else Color.argb(235, 0, 0, 0)
                 }
             }
             textColor = cachedTextColor ?: Color.WHITE
@@ -128,11 +116,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
             val useDark = !isDark(background)
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
-            shadowColor = if (useDark) {
-                Color.argb(210, 255, 255, 255)
-            } else {
-                Color.argb(220, 0, 0, 0)
-            }
+            shadowColor = if (useDark) Color.argb(210, 255, 255, 255) else Color.argb(220, 0, 0, 0)
         }
         applyTextColorRecursively(this, textColor, shadowColor)
     }
@@ -173,31 +157,43 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             }
             y += sy
         }
-        return if (count == 0) {
-            GlobalBackgroundStats(0f, 0f, 1f)
-        } else {
-            GlobalBackgroundStats(sum / count, bright.toFloat() / count, dark.toFloat() / count)
-        }
+        return if (count == 0) GlobalBackgroundStats(0f, 0f, 1f)
+        else GlobalBackgroundStats(sum / count, bright.toFloat() / count, dark.toFloat() / count)
     }
 
     private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
-        // Les onglets possèdent leur propre palette active/inactive gérée par MainActivity.
+        // Les onglets, boutons et switches sont des composants sémantiques :
+        // leur palette active/inactive/entrée/pause/sortie ne doit jamais être
+        // remplacée par la couleur globale du fond.
         if (view.id == R.id.navigationTabs) return
 
-        if (view is TextView) {
-            view.setTextColor(color)
-            view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
-            if (view is EditText) {
-                view.setHintTextColor(
-                    if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55)
-                )
+        when (view) {
+            is Button, is Switch -> Unit
+            is EditText -> {
+                view.setTextColor(color)
+                view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                view.setHintTextColor(if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
+            }
+            is TextView -> {
+                // Les couleurs chromatiques (rouge, orange, vert, or, accents,
+                // erreurs) sont considérées sémantiques et préservées. Seuls les
+                // textes neutres noir/blanc/gris sont réellement adaptatifs.
+                if (isNeutralTextColor(view.currentTextColor)) {
+                    view.setTextColor(color)
+                    view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                }
             }
         }
+
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                applyTextColorRecursively(view.getChildAt(i), color, shadow)
-            }
+            for (i in 0 until view.childCount) applyTextColorRecursively(view.getChildAt(i), color, shadow)
         }
+    }
+
+    private fun isNeutralTextColor(color: Int): Boolean {
+        val maxChannel = maxOf(Color.red(color), Color.green(color), Color.blue(color))
+        val minChannel = minOf(Color.red(color), Color.green(color), Color.blue(color))
+        return maxChannel - minChannel <= 36
     }
 
     private fun isDark(color: Int) =
