@@ -10,13 +10,33 @@ class PointageSessionQueriesTest {
     @Test
     fun fallsBackWhenLastEntryIsInFuture() {
         val now = 2_000L
-        val valid = JSONObject()
-            .put("entry", 1_000L)
-            .put("exit", 1_500L)
-        val future = JSONObject()
-            .put("entry", 3_000L)
-            .put("exit", JSONObject.NULL)
+        val valid = JSONObject().put("entry", 1_000L).put("exit", 1_500L)
+        val future = JSONObject().put("entry", 3_000L).put("exit", JSONObject.NULL)
         val data = JSONArray().put(valid).put(future)
+
+        val result = PointageSessionQueries.latestValidSession(data, now)
+
+        assertEquals(1_000L, result?.optLong("entry"))
+    }
+
+    @Test
+    fun fallsBackWhenLastExitIsInFuture() {
+        val now = 5_000L
+        val valid = JSONObject().put("entry", 1_000L).put("exit", 2_000L)
+        val futureExit = JSONObject().put("entry", 4_000L).put("exit", 6_000L)
+        val data = JSONArray().put(valid).put(futureExit)
+
+        val result = PointageSessionQueries.latestValidSession(data, now)
+
+        assertEquals(1_000L, result?.optLong("entry"))
+    }
+
+    @Test
+    fun fallsBackWhenLastSessionHasNoExitKey() {
+        val now = 5_000L
+        val valid = JSONObject().put("entry", 1_000L).put("exit", 2_000L)
+        val malformed = JSONObject().put("entry", 4_000L)
+        val data = JSONArray().put(valid).put(malformed)
 
         val result = PointageSessionQueries.latestValidSession(data, now)
 
@@ -26,12 +46,8 @@ class PointageSessionQueriesTest {
     @Test
     fun skipsMalformedLastSession() {
         val now = 5_000L
-        val valid = JSONObject()
-            .put("entry", 1_000L)
-            .put("exit", 2_000L)
-        val malformed = JSONObject()
-            .put("entry", 4_000L)
-            .put("exit", 3_500L)
+        val valid = JSONObject().put("entry", 1_000L).put("exit", 2_000L)
+        val malformed = JSONObject().put("entry", 4_000L).put("exit", 3_500L)
         val data = JSONArray().put(valid).put(malformed)
 
         val result = PointageSessionQueries.latestValidSession(data, now)
@@ -42,9 +58,7 @@ class PointageSessionQueriesTest {
     @Test
     fun acceptsLatestOpenSessionThatAlreadyStarted() {
         val now = 5_000L
-        val open = JSONObject()
-            .put("entry", 4_000L)
-            .put("exit", JSONObject.NULL)
+        val open = JSONObject().put("entry", 4_000L).put("exit", JSONObject.NULL)
         val data = JSONArray().put(open)
 
         val result = PointageSessionQueries.latestValidSession(data, now)
