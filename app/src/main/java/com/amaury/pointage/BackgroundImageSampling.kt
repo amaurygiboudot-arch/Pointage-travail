@@ -43,21 +43,20 @@ object BackgroundImageSampling {
         // decoded memory by pixel count while retaining a useful short edge for image quality.
         val targetPixels = targetWidth.toLong() * targetHeight.toLong()
         val pixelBudget = max(MIN_DECODE_PIXELS, targetPixels * TARGET_PIXEL_MULTIPLIER)
-        var sample = 1
+        val sourcePixels = sourceWidth.toLong() * sourceHeight.toLong()
+        if (sourcePixels <= pixelBudget) return 1
 
+        var sample = 1
         while (true) {
             val next = sample * 2
             val nextWidth = sourceWidth / next
             val nextHeight = sourceHeight / next
             if (nextWidth <= 0 || nextHeight <= 0) break
             if (min(nextWidth, nextHeight) < MIN_SHORT_EDGE) break
-            val nextPixels = nextWidth.toLong() * nextHeight.toLong()
-            if (nextPixels > pixelBudget) {
-                sample = next
-                continue
-            }
+
             sample = next
-            break
+            val nextPixels = nextWidth.toLong() * nextHeight.toLong()
+            if (nextPixels <= pixelBudget) break
         }
         return sample.coerceAtLeast(1)
     }
