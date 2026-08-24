@@ -35,11 +35,17 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val dark=AppThemeCatalog.useDarkPalette(context)
         val text=if(dark)theme.darkText else theme.lightText
         val inactive=if(dark)theme.darkHint else theme.lightHint
+        val accent=if(dark)theme.accentLight else theme.accent
 
-        // Navigation volontairement sans fond : aucune plaque, fibre carbone,
-        // bordure, relief ni panneau derrière les onglets.
+        // Navigation : intérieur totalement transparent, mais le cadre est conservé.
+        // Les diamants de pointage ne passent jamais par ce style.
+        val outer=rounded(Color.TRANSPARENT,accent,2f,15f)
+        val innerStroke=if(active) theme.accentLight else accent
+        val inner=rounded(Color.TRANSPARENT,innerStroke,1f,11f)
         tab.backgroundTintList=null
-        tab.background=null
+        tab.background=LayerDrawable(arrayOf(outer,inner)).apply{
+            setLayerInset(1,dp(5),dp(5),dp(5),dp(5))
+        }
         tab.elevation=0f
         tab.alpha=1f
         tab.setTextColor(if(active) text else inactive)
