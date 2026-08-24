@@ -25,6 +25,11 @@ class BackgroundImageSamplingTest {
     }
 
     @Test
+    fun continuesSamplingWhenShortDimensionIsOnePixel() {
+        assertEquals(4, BackgroundImageSampling.calculateInSampleSize(20_000_000, 1, 1080, 1920))
+    }
+
+    @Test
     fun invalidDimensionsFallBackToOne() {
         assertEquals(1, BackgroundImageSampling.calculateInSampleSize(0, 4000, 1080, 1920))
     }
