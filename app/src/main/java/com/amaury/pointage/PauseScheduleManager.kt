@@ -62,8 +62,6 @@ object PauseScheduleManager {
             applyCurrentWindow(context)
         } else {
             cancel(context)
-            // Une pause créée automatiquement ne doit jamais rester ouverte
-            // simplement parce que l'utilisateur désactive la programmation.
             if (PointageStore.isPausedAutomatically(context)) {
                 PointageStore.resumePause(context, automaticOnly = true)
             }
@@ -98,10 +96,8 @@ object PauseScheduleManager {
         val inside = if (end > start) minuteNow in start until end else minuteNow >= start || minuteNow < end
 
         val changed = when {
-            inside && !PointageStore.isPaused(context) ->
-                PointageStore.startPause(context, automatic = true)
-            !inside && PointageStore.isPausedAutomatically(context) ->
-                PointageStore.resumePause(context, automaticOnly = true)
+            inside && !PointageStore.isPaused(context) -> PointageStore.startPause(context, automatic = true)
+            !inside && PointageStore.isPausedAutomatically(context) -> PointageStore.resumePause(context, automaticOnly = true)
             else -> false
         }
         if (changed) updateWidgets(context)
@@ -117,12 +113,14 @@ object PauseScheduleManager {
             if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
         }
         val pi = pending(context, action, requestCode)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+
+        // Une pause planifiée n'est pas une alarme utilisateur critique au sens
+        // Android. On évite donc SCHEDULE_EXACT_ALARM et son parcours spécial.
+        // applyCurrentWindow() réconcilie l'état au prochain passage dans l'app.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         } else {
-            alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+            alarm.set(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         }
     }
 
