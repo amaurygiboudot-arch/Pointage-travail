@@ -5,42 +5,43 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Enregistre plusieurs pauses manuelles en une seule transaction logique.
- * Évite de recharger/réécrire le stockage pour chaque créneau.
+ * Enregistre plusieurs pauses manuelles sous le même verrou que toutes les
+ * autres mutations de pointage afin qu'un widget, une géofence ou une alarme
+ * ne puisse pas écraser silencieusement la saisie en cours.
  */
 object ManualPauseBatchStore {
     fun addAll(context: Context, ranges: List<Pair<Long, Long>>): Int {
         val valid = ranges.filter { (start, end) -> start > 0L && end > start }
         if (valid.isEmpty()) return 0
 
-        val data = PointageStore.load(context)
-        var added = 0
+        val added = PointageStore.update(context) { data ->
+            var count = 0
+            valid.forEach { (pauseStart, pauseEnd) ->
+                val target = findContainingSession(data, pauseStart, pauseEnd) ?: return@forEach
+                val pauses = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
 
-        valid.forEach { (pauseStart, pauseEnd) ->
-            val target = findContainingSession(data, pauseStart, pauseEnd) ?: return@forEach
-            val pauses = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
-
-            var duplicate = false
-            for (i in 0 until pauses.length()) {
-                val existing = pauses.optJSONObject(i) ?: continue
-                if (existing.optLong("start", -1L) == pauseStart && existing.optLong("end", -1L) == pauseEnd) {
-                    duplicate = true
-                    break
+                var duplicate = false
+                for (i in 0 until pauses.length()) {
+                    val existing = pauses.optJSONObject(i) ?: continue
+                    if (existing.optLong("start", -1L) == pauseStart && existing.optLong("end", -1L) == pauseEnd) {
+                        duplicate = true
+                        break
+                    }
+                }
+                if (!duplicate) {
+                    pauses.put(
+                        JSONObject()
+                            .put("start", pauseStart)
+                            .put("end", pauseEnd)
+                            .put("manual", true)
+                    )
+                    count++
                 }
             }
-            if (!duplicate) {
-                pauses.put(
-                    JSONObject()
-                        .put("start", pauseStart)
-                        .put("end", pauseEnd)
-                        .put("manual", true)
-                )
-                added++
-            }
+            count
         }
 
         if (added > 0) {
-            PointageStore.save(context, data)
             PointageWidgetProvider.updateAll(context)
             QuickActionsWidgetProvider.updateAll(context)
             DriveBackupManager.syncCurrentMonthAsync(context)
@@ -56,8 +57,6 @@ object ManualPauseBatchStore {
             if (entry <= 0L || pauseStart < entry) continue
 
             if (item.isNull("exit")) {
-                // Une pause manuelle déjà commencée peut avoir une fin future.
-                // On l'associe à la session ouverte dès lors que son début est atteint.
                 if (pauseStart <= now) return item
             } else {
                 val sessionEnd = item.optLong("exit", -1L)
