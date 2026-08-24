@@ -66,7 +66,7 @@ object SalaryCalculator {
                 minimalDaysInFirstWeek = 4
                 timeInMillis = session.entry
             }
-            val key = WeekKey(cal.getWeekYear(), cal.get(Calendar.WEEK_OF_YEAR))
+            val key = WeekKey(isoWeekYear(cal), cal.get(Calendar.WEEK_OF_YEAR))
             sessionsByWeek.getOrPut(key) { mutableListOf() }.add(session)
         }
 
@@ -130,6 +130,17 @@ object SalaryCalculator {
             monthlyEstimatedGross = monthlyEstimatedGross,
             completedSessions = completedSessions
         )
+    }
+
+    /** ISO-8601 week-based year using Calendar APIs available on Android API 23. */
+    private fun isoWeekYear(calendar: Calendar): Int {
+        val thursday = calendar.clone() as Calendar
+        thursday.firstDayOfWeek = Calendar.MONDAY
+        thursday.minimalDaysInFirstWeek = 4
+        val dayOfWeek = thursday.get(Calendar.DAY_OF_WEEK)
+        val mondayIndex = (dayOfWeek + 5) % 7 // Monday=0 ... Sunday=6
+        thursday.add(Calendar.DAY_OF_YEAR, 3 - mondayIndex)
+        return thursday.get(Calendar.YEAR)
     }
 
     private fun nightOverlap(entry: Long, exit: Long, startMinute: Int, endMinute: Int): Long {
