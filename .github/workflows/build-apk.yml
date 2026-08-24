@@ -72,7 +72,7 @@ jobs:
 
       - name: Publier le diagnostic si la compilation echoue
         if: steps.gradle_build.outputs.exit_code != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: diagnostic-compilation-${{ github.run_number }}
           path: build-error.log
@@ -106,7 +106,7 @@ jobs:
           test -s SHA256.txt
 
       - name: Publier artefacts APK et AAB
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: HP-Travail-APK-AAB
           path: |
