@@ -26,6 +26,7 @@ final class WorkStore: ObservableObject {
     private let legacyKey = "hp_travail_sessions_v1"
     private let schemaVersion = 1
     private let fileManager = FileManager.default
+    private var persistenceReadOnly = false
 
     init() { load() }
 
@@ -38,12 +39,20 @@ final class WorkStore: ObservableObject {
     }
 
     func clockIn() {
+        guard !persistenceReadOnly else {
+            warnReadOnlySchema()
+            return
+        }
         guard !isWorking else { return }
         sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
         _ = save()
     }
 
     func togglePause() {
+        guard !persistenceReadOnly else {
+            warnReadOnlySchema()
+            return
+        }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
@@ -54,6 +63,10 @@ final class WorkStore: ObservableObject {
     }
 
     func clockOut() {
+        guard !persistenceReadOnly else {
+            warnReadOnlySchema()
+            return
+        }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
@@ -93,9 +106,14 @@ final class WorkStore: ObservableObject {
     }
 
     func restorePreviousBackup() -> Bool {
+        guard !persistenceReadOnly else {
+            warnReadOnlySchema()
+            return false
+        }
         do {
             let urls = try storageURLs()
             guard let decoded = decodeFile(at: urls.backup) else { return false }
+            guard !persistenceReadOnly else { return false }
             sessions = decoded
             guard save(preserveBackup: true, clearWarningOnSuccess: false) else {
                 persistenceWarning = "La restauration a été chargée mais n’a pas pu être enregistrée durablement."
@@ -112,22 +130,38 @@ final class WorkStore: ObservableObject {
 
     @discardableResult
     private func save(preserveBackup: Bool = false, clearWarningOnSuccess: Bool = true) -> Bool {
+        guard !persistenceReadOnly else {
+            warnReadOnlySchema()
+            return false
+        }
         do {
             let urls = try storageURLs()
             let envelope = WorkStoreEnvelope(schemaVersion: schemaVersion, sessions: sessions)
             let data = try JSONEncoder().encode(envelope)
 
             var previousPrimaryData: Data?
-            if !preserveBackup,
-               fileManager.fileExists(atPath: urls.primary.path),
-               decodeFile(at: urls.primary) != nil {
-                previousPrimaryData = try Data(contentsOf: urls.primary)
+            if !preserveBackup, fileManager.fileExists(atPath: urls.primary.path) {
+                if decodeFile(at: urls.primary) != nil {
+                    previousPrimaryData = try Data(contentsOf: urls.primary)
+                } else if persistenceReadOnly {
+                    warnReadOnlySchema()
+                    return false
+                }
             }
 
+            // Failure here means the current mutation is not durable.
             try data.write(to: urls.primary, options: [.atomic])
 
+            // Once the primary write succeeded, a failure rotating the historical backup
+            // must not be reported as an unsaved pointage: the new primary is durable.
             if let previousPrimaryData, !preserveBackup {
-                try previousPrimaryData.write(to: urls.backup, options: [.atomic])
+                do {
+                    try previousPrimaryData.write(to: urls.backup, options: [.atomic])
+                } catch {
+                    persistenceWarning = "Les données sont enregistrées, mais la copie de secours précédente n’a pas pu être mise à jour."
+                    NSLog("WorkStore previous-backup rotation failed: %@", String(describing: error))
+                    return true
+                }
             }
 
             if clearWarningOnSuccess { persistenceWarning = nil }
@@ -146,6 +180,7 @@ final class WorkStore: ObservableObject {
                 sessions = primary
                 return
             }
+            if persistenceReadOnly { return }
 
             if let backup = decodeFile(at: urls.backup) {
                 sessions = backup
@@ -155,6 +190,7 @@ final class WorkStore: ObservableObject {
                 }
                 return
             }
+            if persistenceReadOnly { return }
 
             if let legacy = decodeLegacyUserDefaults() {
                 sessions = legacy
@@ -195,6 +231,8 @@ final class WorkStore: ObservableObject {
             let data = try Data(contentsOf: url)
             let envelope = try JSONDecoder().decode(WorkStoreEnvelope.self, from: data)
             guard envelope.schemaVersion == schemaVersion else {
+                persistenceReadOnly = true
+                persistenceWarning = "Ces données ont été créées par une version plus récente de HoraTrack. Elles sont protégées en lecture seule : réinstalle la version la plus récente pour les modifier."
                 NSLog("WorkStore unsupported schema version: %d", envelope.schemaVersion)
                 return nil
             }
@@ -203,6 +241,10 @@ final class WorkStore: ObservableObject {
             NSLog("WorkStore decode failed for %@: %@", url.lastPathComponent, String(describing: error))
             return nil
         }
+    }
+
+    private func warnReadOnlySchema() {
+        persistenceWarning = "Ces données ont été créées par une version plus récente de HoraTrack et ne seront pas écrasées. Réinstalle la version la plus récente pour continuer à pointer."
     }
 
     private func decodeLegacyUserDefaults() -> [WorkSession]? {
