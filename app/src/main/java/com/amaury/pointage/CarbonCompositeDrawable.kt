@@ -10,53 +10,27 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.util.Base64
-import java.util.WeakHashMap
 
+/**
+ * Rendu carbone volontairement minimal.
+ * Aucune géométrie, aucun masque, aucun recadrage, aucun effet lumineux.
+ * Ordre unique : fond Base64, puis cadre Base64.
+ */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
-    companion object {
-        private val instances = WeakHashMap<CarbonCompositeDrawable, Unit>()
-        private var sharedLightAngle = -55f
-        private var sharedNight = false
-
-        @Synchronized
-        fun updateGlobalLight(angle: Float, night: Boolean) {
-            sharedLightAngle = ((angle % 360f) + 360f) % 360f
-            sharedNight = night
-            instances.keys.toList().forEach { it.invalidateSelf() }
-        }
-    }
-
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val dst = RectF()
-
+    private val destination = RectF()
     private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
-
     private var globalAlpha = 255
-
-    init {
-        synchronized(CarbonCompositeDrawable::class.java) {
-            instances[this] = Unit
-        }
-    }
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
-        dst.set(bounds)
-
+        destination.set(bounds)
         paint.alpha = globalAlpha
         paint.colorFilter = null
 
-        // Thème carbone : aucune géométrie logicielle supplémentaire.
-        // Les deux ressources Base64 définissent elles-mêmes leur forme.
-        // Elles utilisent exactement le même rectangle de destination.
-        fillBitmap?.let { bitmap ->
-            canvas.drawBitmap(bitmap, null, dst, paint)
-        }
-
-        frameBitmap?.let { bitmap ->
-            canvas.drawBitmap(bitmap, null, dst, paint)
-        }
+        fillBitmap?.let { canvas.drawBitmap(it, null, destination, paint) }
+        frameBitmap?.let { canvas.drawBitmap(it, null, destination, paint) }
     }
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
