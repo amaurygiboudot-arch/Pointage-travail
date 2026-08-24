@@ -24,8 +24,8 @@ android {
         applicationId = "com.amaury.pointage"
         minSdk = 23
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.9"
+        versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 9
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "1.9"
 
         fun envString(name: String): String = (System.getenv(name) ?: "")
             .replace("\\", "\\\\")
