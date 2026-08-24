@@ -69,6 +69,7 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("io.sentry:sentry-android:8.43.0")
 }
 
