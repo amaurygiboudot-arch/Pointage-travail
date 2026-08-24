@@ -2,7 +2,6 @@ package com.amaury.pointage
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -83,8 +82,13 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private fun ensureImage(file: File) {
         val token = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
         if (cachedImageToken != token || cachedImage == null) {
+            val metrics = resources.displayMetrics
+            val targetWidth = width.takeIf { it > 0 } ?: metrics.widthPixels
+            val targetHeight = height.takeIf { it > 0 } ?: metrics.heightPixels
+            val decoded = BackgroundImageSampling.decode(file, targetWidth, targetHeight)
+
             cachedImage?.recycle()
-            cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+            cachedImage = decoded
             cachedImageToken = token
             cachedTextColor = null
             cachedShadowColor = null
@@ -116,9 +120,11 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
             val useDark = !isDark(background)
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
-            shadowColor = if (useDark) Color.argb(210, 255, 255, 255) else Color.argb(220, 0, 0, 0)
+            // Not used without a photo. Passing a defined value keeps this routine simple,
+            // while applyTextColorRecursively explicitly clears any previously applied shadow.
+            shadowColor = Color.TRANSPARENT
         }
-        applyTextColorRecursively(this, textColor, shadowColor)
+        applyTextColorRecursively(this, textColor, shadowColor, hasImage)
     }
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
@@ -161,7 +167,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         else GlobalBackgroundStats(sum / count, bright.toFloat() / count, dark.toFloat() / count)
     }
 
-    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
+    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int, photoActive: Boolean) {
         // Les onglets, boutons et switches sont des composants sémantiques :
         // leur palette active/inactive/entrée/pause/sortie ne doit jamais être
         // remplacée par la couleur globale du fond.
@@ -171,7 +177,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             is Button, is Switch -> Unit
             is EditText -> {
                 view.setTextColor(color)
-                view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                if (photoActive) view.setShadowLayer(3.8f, 0f, 1.1f, shadow) else view.clearShadowLayer()
                 view.setHintTextColor(if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
             }
             is TextView -> {
@@ -180,13 +186,13 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 // textes neutres noir/blanc/gris sont réellement adaptatifs.
                 if (isNeutralTextColor(view.currentTextColor)) {
                     view.setTextColor(color)
-                    view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                    if (photoActive) view.setShadowLayer(3.8f, 0f, 1.1f, shadow) else view.clearShadowLayer()
                 }
             }
         }
 
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) applyTextColorRecursively(view.getChildAt(i), color, shadow)
+            for (i in 0 until view.childCount) applyTextColorRecursively(view.getChildAt(i), color, shadow, photoActive)
         }
     }
 
