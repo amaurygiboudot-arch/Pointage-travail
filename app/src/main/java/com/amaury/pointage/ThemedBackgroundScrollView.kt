@@ -188,9 +188,18 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
         val nowInside = insideEnterprise || view is EnterpriseLookupView
-        if (nowInside && view is ViewGroup && view !is Button && view !is EditText && view !is Switch) {
+        if (
+            nowInside &&
+            view is ViewGroup &&
+            view !is Button &&
+            view !is EditText &&
+            view !is Switch &&
+            view.background != null
+        ) {
+            // Une fois le panneau rendu transparent, ne réinstalle pas un ColorDrawable
+            // transparent à chaque passe : cela peut redemander un layout et recréer une
+            // boucle layout -> style -> layout pendant le défilement.
             view.background = null
-            view.setBackgroundColor(Color.TRANSPARENT)
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) clearPhotoPanels(view.getChildAt(i), nowInside)
