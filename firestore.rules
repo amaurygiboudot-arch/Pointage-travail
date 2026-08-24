@@ -11,33 +11,131 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.owner == true;
     }
 
+    function optionalString(data, key, maxSize) {
+      return !data.keys().hasAny([key])
+        || data[key] == null
+        || (data[key] is string && data[key].size() <= maxSize);
+    }
+
+    function validProfile(data, userId) {
+      return data.keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoUrl', 'lastLoginAt',
+          'platform', 'providers', 'owner'
+        ])
+        && data.keys().hasAll(['uid', 'lastLoginAt', 'platform'])
+        && data.uid == userId
+        && data.platform in ['android', 'ios']
+        && data.lastLoginAt is timestamp
+        && optionalString(data, 'displayName', 200)
+        && optionalString(data, 'email', 320)
+        && optionalString(data, 'photoUrl', 2048)
+        && (!data.keys().hasAny(['providers'])
+          || (data.providers is list && data.providers.size() <= 10))
+        && (!data.keys().hasAny(['owner']) || data.owner is bool);
+    }
+
+    function validDevice(data, deviceId) {
+      return data.keys().hasOnly([
+          'installationId', 'displayModel', 'manufacturer', 'model', 'device',
+          'product', 'androidVersion', 'sdkInt', 'appVersionName',
+          'appVersionCode', 'packageName', 'platform', 'active',
+          'firstSeenAt', 'lastSeenAt'
+        ])
+        && data.keys().hasAll([
+          'installationId', 'displayModel', 'manufacturer', 'model', 'device',
+          'product', 'androidVersion', 'sdkInt', 'appVersionName',
+          'appVersionCode', 'packageName', 'platform', 'active', 'lastSeenAt'
+        ])
+        && data.installationId == deviceId
+        && data.installationId is string
+        && data.installationId.size() <= 80
+        && data.displayModel is string && data.displayModel.size() <= 200
+        && data.manufacturer is string && data.manufacturer.size() <= 100
+        && data.model is string && data.model.size() <= 150
+        && data.device is string && data.device.size() <= 150
+        && data.product is string && data.product.size() <= 150
+        && data.androidVersion is string && data.androidVersion.size() <= 50
+        && data.sdkInt is int && data.sdkInt >= 1 && data.sdkInt <= 1000
+        && data.appVersionName is string && data.appVersionName.size() <= 100
+        && data.appVersionCode is int && data.appVersionCode >= 0
+        && data.packageName is string && data.packageName.size() <= 200
+        && data.platform == 'android'
+        && data.active is bool
+        && data.lastSeenAt is timestamp
+        && (!data.keys().hasAny(['firstSeenAt']) || data.firstSeenAt is timestamp);
+    }
+
+    function validFeedbackCreate(data, userId) {
+      return data.keys().hasOnly([
+          'text', 'createdAt', 'status', 'platform', 'uid', 'installationId',
+          'appVersionName', 'appVersionCode', 'androidVersion', 'sdkInt',
+          'manufacturer', 'model', 'reviewOnly', 'ownerApprovalRequired'
+        ])
+        && data.keys().hasAll([
+          'text', 'createdAt', 'status', 'platform', 'uid', 'installationId',
+          'appVersionName', 'appVersionCode', 'androidVersion', 'sdkInt',
+          'manufacturer', 'model', 'reviewOnly', 'ownerApprovalRequired'
+        ])
+        && data.uid == userId
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 4000
+        && data.createdAt is timestamp
+        && data.status == 'new'
+        && data.platform == 'android'
+        && data.installationId is string && data.installationId.size() <= 80
+        && data.appVersionName is string && data.appVersionName.size() <= 100
+        && data.appVersionCode is int && data.appVersionCode >= 0
+        && data.androidVersion is string && data.androidVersion.size() <= 50
+        && data.sdkInt is int && data.sdkInt >= 1 && data.sdkInt <= 1000
+        && data.manufacturer is string && data.manufacturer.size() <= 100
+        && data.model is string && data.model.size() <= 150
+        && data.reviewOnly == true
+        && data.ownerApprovalRequired == true;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn()
         && (request.auth.uid == userId || isOwner());
 
       allow create: if isSignedIn()
         && request.auth.uid == userId
-        && !request.resource.data.keys().hasAny(['owner']);
+        && !request.resource.data.keys().hasAny(['owner'])
+        && validProfile(request.resource.data, userId);
 
       allow update: if isSignedIn()
         && request.auth.uid == userId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner'])
+        && validProfile(request.resource.data, userId);
 
       allow delete: if false;
 
       match /feedback/{feedbackId} {
         allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn()
+          && request.auth.uid == userId
+          && validFeedbackCreate(request.resource.data, userId);
         allow update, delete: if false;
       }
 
       match /devices/{deviceId} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow create: if isSignedIn()
+          && request.auth.uid == userId
+          && validDevice(request.resource.data, deviceId);
+        allow update: if isSignedIn()
+          && request.auth.uid == userId
+          && validDevice(request.resource.data, deviceId)
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'installationId', 'firstSeenAt', 'platform', 'packageName'
+          ]);
+        allow delete: if false;
       }
     }
 
     match /{path=**}/feedback/{feedbackId} {
-      allow read, update: if isOwner();
+      allow read: if isOwner();
+      allow update: if isOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['new', 'accepted', 'rejected', 'done'];
       allow create, delete: if false;
     }
 
@@ -46,18 +144,23 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'bestScore', 'displayName', 'updatedAt'])
         && request.resource.data.uid == userId
         && request.resource.data.bestScore is int
         && request.resource.data.bestScore >= 0
         && request.resource.data.bestScore <= 447
-        && request.resource.data.displayName is string;
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 200;
 
       allow update: if isSignedIn()
         && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'bestScore', 'displayName', 'updatedAt'])
         && request.resource.data.uid == userId
         && request.resource.data.bestScore is int
         && request.resource.data.bestScore >= resource.data.bestScore
         && request.resource.data.bestScore <= 447
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 200
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['bestScore', 'displayName', 'updatedAt']);
 
