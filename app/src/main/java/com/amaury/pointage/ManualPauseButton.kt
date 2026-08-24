@@ -8,9 +8,12 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -27,6 +30,12 @@ class ManualPauseButton @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : Button(context, attrs) {
+
+    private data class PauseSlot(
+        val container: LinearLayout,
+        val start: EditText,
+        val end: EditText
+    )
 
     init { setOnClickListener { showDialog() } }
 
@@ -83,7 +92,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setPadding(0, dp(4), 0, dp(8))
         })
         body.addView(TextView(context).apply {
-            text = "Ajoute une pause oubliée à une journée déjà pointée, ou programme une pause automatique quotidienne."
+            text = "Ajoute jusqu'à 5 pauses à une même journée. Le créneau suivant apparaît seulement quand le précédent est correctement renseigné."
             textSize = 14f
             setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
@@ -101,13 +110,6 @@ class ManualPauseButton @JvmOverloads constructor(
             ).show()
         }
 
-        val start = styledInput("Début — ex. 10:00").apply {
-            setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
-        }
-        val end = styledInput("Fin — ex. 10:15").apply {
-            setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
-        }
-
         body.addView(TextView(context).apply {
             text = "JOURNÉE"
             textSize = 14f
@@ -123,11 +125,57 @@ class ManualPauseButton @JvmOverloads constructor(
             setTextColor(accent)
             setPadding(0, dp(14), 0, dp(5))
         })
-        body.addView(start, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
-        body.addView(end, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
+
+        val slots = mutableListOf<PauseSlot>()
+        repeat(5) { index ->
+            val slotNumber = index + 1
+            val start = styledInput("Début $slotNumber — ex. 10:00")
+            val end = styledInput("Fin $slotNumber — ex. 10:15")
+            if (index == 0) {
+                start.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
+                end.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
+            }
+            val container = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (index == 0) View.VISIBLE else View.GONE
+                if (index > 0) {
+                    addView(TextView(context).apply {
+                        text = "CRÉNEAU $slotNumber"
+                        textSize = 13f
+                        setTypeface(typeface, Typeface.BOLD)
+                        setTextColor(accent)
+                        setPadding(0, dp(12), 0, dp(5))
+                    })
+                }
+                addView(start, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
+                addView(end, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
+            }
+            body.addView(container)
+            slots += PauseSlot(container, start, end)
+        }
+
+        fun slotIsComplete(slot: PauseSlot): Boolean {
+            val startMs = parseTime(selectedDate, slot.start.text.toString()) ?: return false
+            val endMs = parseTime(selectedDate, slot.end.text.toString()) ?: return false
+            return endMs > startMs
+        }
+
+        for (i in 0 until slots.lastIndex) {
+            val current = slots[i]
+            val next = slots[i + 1]
+            val watcher = object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+                override fun afterTextChanged(s: Editable?) {
+                    if (slotIsComplete(current)) next.container.visibility = View.VISIBLE
+                }
+            }
+            current.start.addTextChangedListener(watcher)
+            current.end.addTextChangedListener(watcher)
+        }
 
         val automatic = Switch(context).apply {
-            text = "Programmer automatiquement tous les jours"
+            text = "Programmer automatiquement tous les jours avec le 1er créneau"
             textSize = 14f
             setTextColor(textColor)
             isChecked = schedule.enabled
@@ -135,7 +183,7 @@ class ManualPauseButton @JvmOverloads constructor(
         }
         body.addView(automatic)
         body.addView(TextView(context).apply {
-            text = "La pause automatique ne se déclenche que lorsqu'une entrée est en cours. À l'heure de fin, HP Travail reprend automatiquement le temps de travail."
+            text = "La programmation automatique utilise uniquement le premier créneau. Les créneaux 2 à 5 servent à la saisie manuelle de la journée sélectionnée."
             textSize = 14f
             setTextColor(hintColor)
             setPadding(0, 0, 0, dp(10))
@@ -146,7 +194,7 @@ class ManualPauseButton @JvmOverloads constructor(
             addView(body)
         }
         val cancel = styledButton("ANNULER", hintColor)
-        val save = styledButton("ENREGISTRER LA PAUSE", orange)
+        val save = styledButton("ENREGISTRER LES PAUSES", orange)
         val actions = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(background)
@@ -164,38 +212,49 @@ class ManualPauseButton @JvmOverloads constructor(
         dialog.setOnShowListener {
             val m = resources.displayMetrics
             dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-            dialog.window?.setLayout((m.widthPixels * .94f).toInt(), (m.heightPixels * .78f).toInt())
+            dialog.window?.setLayout((m.widthPixels * .94f).toInt(), (m.heightPixels * .82f).toInt())
         }
         cancel.setOnClickListener { dialog.dismiss() }
         save.setOnClickListener {
-            val startMs = parseTime(selectedDate, start.text.toString())
-            val endMs = parseTime(selectedDate, end.text.toString())
-            if (startMs == null) { start.error = "Format attendu : HH:mm"; return@setOnClickListener }
-            if (endMs == null) { end.error = "Format attendu : HH:mm"; return@setOnClickListener }
-            if (endMs <= startMs) { end.error = "La fin doit être après le début"; return@setOnClickListener }
+            val ranges = mutableListOf<Pair<Long, Long>>()
+            for ((index, slot) in slots.withIndex()) {
+                val startText = slot.start.text.toString().trim()
+                val endText = slot.end.text.toString().trim()
+                if (index > 0 && startText.isBlank() && endText.isBlank()) break
+                val startMs = parseTime(selectedDate, startText)
+                val endMs = parseTime(selectedDate, endText)
+                if (startMs == null) { slot.start.error = "Format attendu : HH:mm"; return@setOnClickListener }
+                if (endMs == null) { slot.end.error = "Format attendu : HH:mm"; return@setOnClickListener }
+                if (endMs <= startMs) { slot.end.error = "La fin doit être après le début"; return@setOnClickListener }
+                ranges += startMs to endMs
+            }
+            if (ranges.isEmpty()) return@setOnClickListener
 
-            val startCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = startMs }
-            val endCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = endMs }
+            val firstStart = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().first }
+            val firstEnd = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().second }
             if (automatic.isChecked) {
                 PauseScheduleManager.save(
                     context,
-                    startCal.get(Calendar.HOUR_OF_DAY), startCal.get(Calendar.MINUTE),
-                    endCal.get(Calendar.HOUR_OF_DAY), endCal.get(Calendar.MINUTE),
+                    firstStart.get(Calendar.HOUR_OF_DAY), firstStart.get(Calendar.MINUTE),
+                    firstEnd.get(Calendar.HOUR_OF_DAY), firstEnd.get(Calendar.MINUTE),
                     enabled = true
                 )
             } else if (schedule.enabled) {
                 PauseScheduleManager.setEnabled(context, false)
             }
 
-            val manualAdded = PointageStore.addManualPause(context, startMs, endMs)
+            var addedCount = 0
+            ranges.forEach { (startMs, endMs) ->
+                if (PointageStore.addManualPause(context, startMs, endMs)) addedCount++
+            }
             val message = when {
-                automatic.isChecked && manualAdded -> "Pause ajoutée et programmation automatique activée"
+                automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} et programmation automatique activée"
                 automatic.isChecked -> "Pause automatique programmée"
-                manualAdded -> "Pause ajoutée à la journée sélectionnée"
-                else -> "Aucune session ne contient cette plage horaire"
+                addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} à la journée sélectionnée"
+                else -> "Aucune session ne contient ces plages horaires"
             }
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-            if (automatic.isChecked || manualAdded) {
+            if (automatic.isChecked || addedCount > 0) {
                 dialog.dismiss()
                 (context as? Activity)?.recreate()
             }
