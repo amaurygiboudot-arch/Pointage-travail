@@ -108,7 +108,10 @@ object ManualPauseBatchStore {
             if (entry <= 0L || pauseStart < entry) continue
 
             if (item.isNull("exit")) {
-                if (pauseStart <= now && pauseEnd <= now) return item
+                // Une pause bornée déjà commencée reste éditable même si sa fin
+                // planifiée est encore dans le futur. On refuse seulement une
+                // pause entièrement future sur une session ouverte.
+                if (pauseStart <= now) return item
             } else {
                 val sessionEnd = item.optLong("exit", -1L)
                 if (sessionEnd >= entry && pauseEnd <= sessionEnd) return item
