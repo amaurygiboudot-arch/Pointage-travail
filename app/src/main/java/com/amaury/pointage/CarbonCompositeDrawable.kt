@@ -1,7 +1,18 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.ColorFilter
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.RadialGradient
+import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.util.Base64
 import java.util.WeakHashMap
@@ -19,19 +30,16 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         fun updateGlobalLight(angle: Float, night: Boolean) {
             sharedLightAngle = ((angle % 360f) + 360f) % 360f
             sharedNight = night
-            instances.keys.toList().forEach {
-                it.applyCelestialLight(sharedLightAngle, sharedNight)
-            }
+            instances.keys.toList().forEach { it.applyCelestialLight(sharedLightAngle, sharedNight) }
         }
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val dst = RectF()
-    private val fillClipPath = Path()
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Les bitmaps importés restent des sources strictement en lecture seule.
+    // Images d'origine fournies pour le thème Carbone. Elles ne sont jamais modifiées.
     private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
@@ -40,9 +48,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private var nightLight = sharedNight
 
     init {
-        synchronized(CarbonCompositeDrawable::class.java) {
-            instances[this] = Unit
-        }
+        synchronized(CarbonCompositeDrawable::class.java) { instances[this] = Unit }
     }
 
     private fun applyCelestialLight(angle: Float, night: Boolean) {
@@ -55,37 +61,34 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         if (bounds.isEmpty) return
 
         dst.set(bounds)
-        val radius = bounds.height() * .48f
+        val outerRadius = dst.height() * .48f
         val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
 
-        // 1) Image intérieure : image originale, sans filtre ni traitement de pixels.
-        fillClipPath.reset()
-        fillClipPath.addRoundRect(dst, radius, radius, Path.Direction.CW)
-        canvas.save()
-        canvas.clipPath(fillClipPath)
-        fillBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
-            ?: drawFallbackCarbon(canvas, dst)
-        canvas.restore()
-
-        // 2) Cadre : vraie couronne géométrique. Le centre du cadre n'existe pas.
+        // La géométrie est calculée d'abord : le centre du cadre est réellement vide.
         val inner = ButtonFrameGeometry.buildBand(
             target = dst,
-            outerRadius = radius,
+            outerRadius = outerRadius,
             thickness = frameThickness,
             outPath = frameBand,
             innerPath = innerPath
-        )
+        ) ?: return
 
-        if (inner != null) {
-            canvas.save()
-            canvas.clipPath(frameBand)
-            frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
-                ?: drawFallbackFrameBand(canvas, dst, radius, frameThickness)
-            canvas.restore()
+        // 1) CENTRE : uniquement l'image carbone originale, affichée dans toute la capsule intérieure.
+        // Aucun filtre, aucun assombrissement, aucun reflet et aucune autre couche par-dessus.
+        canvas.save()
+        canvas.clipPath(innerPath)
+        fillBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, inner) }
+        canvas.restore()
 
-            // 3) Les effets lumineux restent des couches séparées du bitmap original.
-            drawMetalSpecularReflection(canvas, dst)
-        }
+        // 2) CADRE : uniquement dans la couronne extérieure. Il n'existe pas dans le centre.
+        canvas.save()
+        canvas.clipPath(frameBand)
+        frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
+            ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
+        canvas.restore()
+
+        // 3) Reflets : strictement limités à la même couronne du cadre.
+        drawMetalSpecularReflection(canvas, dst)
     }
 
     private fun drawMetalSpecularReflection(canvas: Canvas, target: RectF) {
@@ -103,10 +106,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.alpha = globalAlpha
         paint.colorFilter = null
         paint.shader = LinearGradient(
-            cx - dx * half,
-            cy - dy * half,
-            cx + dx * half,
-            cy + dy * half,
+            cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half,
             intArrayOf(
                 Color.argb(48, 5, 7, 9),
                 Color.argb(12, 20, 24, 28),
@@ -132,12 +132,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             (target.height() * if (nightLight) .38f else .48f).coerceAtLeast(9f),
             intArrayOf(
                 Color.argb(if (nightLight) 100 else 145, 255, 255, 255),
-                Color.argb(
-                    if (nightLight) 35 else 65,
-                    Color.red(cool),
-                    Color.green(cool),
-                    Color.blue(cool)
-                ),
+                Color.argb(if (nightLight) 35 else 65, Color.red(cool), Color.green(cool), Color.blue(cool)),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, .35f, 1f),
@@ -149,60 +144,26 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
-        val encoded = context.resources.openRawResource(resId)
-            .bufferedReader()
-            .use { it.readText() }
-            .trim()
+        val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+        val encoded = raw.substringAfter("base64,", raw).filterNot { it.isWhitespace() }
         val bytes = Base64.decode(encoded, Base64.DEFAULT)
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }.getOrNull()
 
-    private fun drawFallbackCarbon(canvas: Canvas, target: RectF) {
-        paint.alpha = globalAlpha
-        paint.style = Paint.Style.FILL
-        paint.colorFilter = null
-        paint.shader = null
-        paint.color = Color.rgb(13, 15, 17)
-        canvas.drawRoundRect(
-            target,
-            target.height() * .48f,
-            target.height() * .48f,
-            paint
-        )
-    }
-
-    private fun drawFallbackFrameBand(
-        canvas: Canvas,
-        target: RectF,
-        radius: Float,
-        thickness: Float
-    ) {
+    private fun drawFallbackFrameBand(canvas: Canvas, target: RectF, radius: Float, thickness: Float) {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = thickness
         paint.alpha = globalAlpha
         paint.colorFilter = null
         paint.shader = LinearGradient(
-            target.left,
-            target.top,
-            target.right,
-            target.bottom,
-            intArrayOf(
-                Color.WHITE,
-                Color.rgb(75, 80, 86),
-                Color.rgb(235, 238, 241),
-                Color.rgb(55, 59, 64)
-            ),
+            target.left, target.top, target.right, target.bottom,
+            intArrayOf(Color.WHITE, Color.rgb(75, 80, 86), Color.rgb(235, 238, 241), Color.rgb(55, 59, 64)),
             null,
             Shader.TileMode.CLAMP
         )
         val inset = thickness / 2f
         canvas.drawRoundRect(
-            RectF(
-                target.left + inset,
-                target.top + inset,
-                target.right - inset,
-                target.bottom - inset
-            ),
+            RectF(target.left + inset, target.top + inset, target.right - inset, target.bottom - inset),
             (radius - inset).coerceAtLeast(1f),
             (radius - inset).coerceAtLeast(1f),
             paint
@@ -212,13 +173,12 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     override fun setAlpha(alpha: Int) {
-        // L'alpha ne s'applique qu'aux couches générées. Les images importées restent intactes.
         globalAlpha = alpha.coerceIn(0, 255)
         invalidateSelf()
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        // Interdit volontairement sur les images importées : elles doivent rester d'origine.
+        // Les images importées ne reçoivent jamais de filtre.
         invalidateSelf()
     }
 
