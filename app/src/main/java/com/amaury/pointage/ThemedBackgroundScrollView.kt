@@ -36,13 +36,26 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
+    private var lastAppliedStyleToken: String? = null
+    private var textStyleDirty = true
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        if (changed) textStyleDirty = true
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
-        applyGlobalAdaptiveTextColor()
+
+        val styleToken = currentStyleToken()
+        if (textStyleDirty || styleToken != lastAppliedStyleToken) {
+            applyGlobalAdaptiveTextColor()
+            lastAppliedStyleToken = styleToken
+            textStyleDirty = false
+        }
         super.dispatchDraw(canvas)
     }
 
@@ -62,6 +75,17 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         return file
     }
 
+    private fun currentStyleToken(): String {
+        val file = selectedBackgroundFile()
+        if (file != null) {
+            return "image:${file.absolutePath}:${file.lastModified()}:${file.length()}"
+        }
+        val theme = AppThemeCatalog.current(context)
+        val dark = ThemeDayNight.isDark(context)
+        val background = if (dark) theme.darkBackground else theme.lightBackground
+        return "palette:$dark:$background:${theme.accent}:${theme.accentLight}"
+    }
+
     private fun drawHpBackground(canvas: Canvas) {
         val file = selectedBackgroundFile()
         if (file != null) {
@@ -69,9 +93,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             return
         }
 
-        // Règle d'architecture : la matière d'un bouton appartient au bouton uniquement.
-        // Un thème peut changer la palette du fond de l'application, mais il ne réutilise
-        // jamais automatiquement une texture/image destinée à un bouton ou à son cadre.
         val theme = AppThemeCatalog.current(context)
         val dark = ThemeDayNight.isDark(context)
         canvas.drawColor(if (dark) theme.darkBackground else theme.lightBackground)
@@ -96,6 +117,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             cachedImageToken = token
             cachedTextColor = null
             cachedShadowColor = null
+            textStyleDirty = true
         }
     }
 
@@ -181,7 +203,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     }
 
     private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
-        // Les onglets possèdent leur propre palette active/inactive gérée par MainActivity.
         if (view.id == R.id.navigationTabs) return
 
         if (view is TextView) {
