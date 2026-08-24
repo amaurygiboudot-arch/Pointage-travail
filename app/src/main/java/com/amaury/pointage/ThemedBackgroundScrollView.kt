@@ -16,6 +16,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import java.io.File
+import java.util.WeakHashMap
 import kotlin.math.max
 
 /** Fond visible de HP Travail. Le fond reste fixe pendant le défilement. */
@@ -31,11 +32,31 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         val darkRatio: Float
     )
 
+    private data class TextRolePalette(
+        val adaptive: Set<Int>,
+        val accent: Int,
+        val accentLight: Int
+    )
+
+    private sealed class SemanticRole {
+        object ThemeAccent : SemanticRole()
+        data class Fixed(val color: Int) : SemanticRole()
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var cachedImage: Bitmap? = null
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
+
+    // Keep semantic role independently from currentTextColor. AppearanceManager can recolor a
+    // TextView during onResume before the next draw; the role must survive that lifecycle pass.
+    private val semanticRoles = WeakHashMap<TextView, SemanticRole>()
+
+    override fun onFinishInflate() {
+        super.onFinishInflate()
+        captureSemanticRoles(this, buildTextRolePalette())
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
@@ -118,7 +139,11 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
             shadowColor = if (useDark) Color.argb(210, 255, 255, 255) else Color.argb(220, 0, 0, 0)
         }
-        applyTextColorRecursively(this, textColor, shadowColor, hasImage)
+
+        // Build once per traversal: no SharedPreferences/theme lookup and no Set allocation per
+        // TextView while the UI is being invalidated or scrolled.
+        val roles = buildTextRolePalette()
+        applyTextColorRecursively(this, textColor, shadowColor, hasImage, roles)
     }
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
@@ -161,7 +186,13 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         else GlobalBackgroundStats(sum / count, bright.toFloat() / count, dark.toFloat() / count)
     }
 
-    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int, photoBackground: Boolean) {
+    private fun applyTextColorRecursively(
+        view: View,
+        color: Int,
+        shadow: Int,
+        photoBackground: Boolean,
+        roles: TextRolePalette
+    ) {
         if (view.id == R.id.navigationTabs) return
 
         when (view) {
@@ -169,48 +200,79 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             is EditText -> {
                 view.setTextColor(color)
                 if (photoBackground) view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                else view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
                 view.setHintTextColor(if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
             }
             is TextView -> {
-                // Les rôles neutres/adaptatifs sont identifiés par la palette du
-                // thème, pas par une heuristique RGB. Un accent gris reste donc
-                // un accent, tandis qu'un hint bleuté reste bien adaptatif.
-                if (isAdaptiveTextRole(view.currentTextColor)) {
+                val role = semanticRoles[view] ?: semanticRoleFor(view.currentTextColor, roles)?.also {
+                    semanticRoles[view] = it
+                }
+
+                if (role != null) {
+                    val semanticColor = when (role) {
+                        SemanticRole.ThemeAccent -> {
+                            val theme = AppThemeCatalog.current(context)
+                            if (ThemeDayNight.isDark(context)) theme.accentLight else theme.accent
+                        }
+                        is SemanticRole.Fixed -> role.color
+                    }
+                    // Restore the semantic foreground even if AppearanceManager overwrote it on
+                    // resume before this draw.
+                    view.setTextColor(semanticColor)
+                } else {
                     view.setTextColor(color)
                 }
-                // Un texte sémantique conserve sa couleur mais reçoit tout de même
-                // le contraste photo. Hors photo, son style propre est laissé intact.
+
+                // Semantic and adaptive text both need photo contrast, and both must lose the
+                // photo-only shadow again when the image background is disabled.
                 if (photoBackground) view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+                else view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             }
         }
 
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                applyTextColorRecursively(view.getChildAt(i), color, shadow, photoBackground)
+                applyTextColorRecursively(view.getChildAt(i), color, shadow, photoBackground, roles)
             }
         }
     }
 
-    private fun isAdaptiveTextRole(color: Int): Boolean {
+    private fun captureSemanticRoles(view: View, roles: TextRolePalette) {
+        when (view) {
+            is Button, is Switch, is EditText -> Unit
+            is TextView -> semanticRoleFor(view.currentTextColor, roles)?.let { semanticRoles[view] = it }
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) captureSemanticRoles(view.getChildAt(i), roles)
+        }
+    }
+
+    private fun semanticRoleFor(color: Int, roles: TextRolePalette): SemanticRole? {
+        if (color == roles.accent || color == roles.accentLight) return SemanticRole.ThemeAccent
+        if (color in roles.adaptive) return null
+        return SemanticRole.Fixed(color)
+    }
+
+    private fun buildTextRolePalette(): TextRolePalette {
         val theme = AppThemeCatalog.current(context)
-        val adaptive = setOf(
-            theme.darkText,
-            theme.lightText,
-            theme.darkHint,
-            theme.lightHint,
-            Color.WHITE,
-            Color.BLACK,
-            Color.rgb(8, 8, 8),
-            Color.rgb(17, 17, 17),
-            Color.rgb(225, 225, 225),
-            Color.rgb(230, 230, 230),
-            Color.rgb(235, 235, 235),
-            Color.rgb(55, 55, 55)
+        return TextRolePalette(
+            adaptive = setOf(
+                theme.darkText,
+                theme.lightText,
+                theme.darkHint,
+                theme.lightHint,
+                Color.WHITE,
+                Color.BLACK,
+                Color.rgb(8, 8, 8),
+                Color.rgb(17, 17, 17),
+                Color.rgb(225, 225, 225),
+                Color.rgb(230, 230, 230),
+                Color.rgb(235, 235, 235),
+                Color.rgb(55, 55, 55)
+            ),
+            accent = theme.accent,
+            accentLight = theme.accentLight
         )
-        // Les accents du thème sont toujours sémantiques, y compris lorsqu'ils
-        // sont presque gris (Aluminium/Carbone).
-        if (color == theme.accent || color == theme.accentLight) return false
-        return color in adaptive
     }
 
     private fun isDark(color: Int) =
