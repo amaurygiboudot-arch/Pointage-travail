@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compact defaults: used on narrow phones, split-screen and constrained windows. -->
+    <dimen name="main_hero_height">220dp</dimen>
+    <dimen name="main_clock_height">190dp</dimen>
+    <dimen name="main_tab_height">56dp</dimen>
+    <dimen name="main_tab_text_size">11sp</dimen>
+    <dimen name="main_diamond_size">88dp</dimen>
+    <dimen name="main_action_label_text_size">12sp</dimen>
+</resources>
