@@ -56,7 +56,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.alpha = globalAlpha
         paint.colorFilter = null
 
-        // Fond carbone fourni : affiché uniquement dans la zone intérieure.
+        // Fond carbone : limité à la zone intérieure du bouton.
         fillBitmap?.let { bitmap ->
             canvas.save()
             canvas.clipPath(innerPath)
@@ -64,12 +64,11 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             canvas.restore()
         }
 
-        // Cadre carbone/métallique fourni séparément : uniquement sur la couronne.
+        // Le fichier du cadre possède déjà son centre et son extérieur transparents.
+        // Il ne faut donc PAS le re-découper avec frameBand : cela supprimait son rendu.
+        // On le pose directement au-dessus du fond sur la totalité du bouton.
         frameBitmap?.let { bitmap ->
-            canvas.save()
-            canvas.clipPath(frameBand)
             canvas.drawBitmap(bitmap, null, dst, paint)
-            canvas.restore()
         }
     }
 
