@@ -131,7 +131,7 @@ jobs:
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
           chmod 600 "$RUNNER_TEMP/firebase-service-account.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
-          npm install --global firebase-tools
+          npm install --global firebase-tools@15.28.1
           firebase appdistribution:distribute HP-Travail.apk \
             --app "$FIREBASE_APP_ID" \
             --release-notes "HP Travail ${VERSION_NAME} - mise a jour automatique depuis GitHub Actions"
@@ -142,7 +142,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${VERSION_NAME}"
-          gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release $TAG existe deja. Refus de la remplacer pour conserver un historique immuable."
+            exit 1
+          fi
           gh release create "$TAG" \
             HP-Travail.apk \
             HoraTrack.aab \
