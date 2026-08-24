@@ -48,9 +48,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private var lightAngle = sharedLightAngle
     private var nightLight = sharedNight
 
-    init {
-        synchronized(CarbonCompositeDrawable::class.java) { instances[this] = Unit }
-    }
+    init { synchronized(CarbonCompositeDrawable::class.java) { instances[this] = Unit } }
 
     private fun applyCelestialLight(angle: Float, night: Boolean) {
         lightAngle = angle
@@ -72,28 +70,50 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // CADRE CARBONE/METAL SANS ECLAIRAGE DYNAMIQUE (test demandé).
+        // Fond carbone d'abord : il couvre réellement toute la capsule intérieure.
+        // On ne dépend plus des marges noires contenues dans l'image source.
+        canvas.save()
+        canvas.clipPath(innerPath)
+        fillBitmap?.let { drawCarbonFillCover(canvas, it, inner) }
+        canvas.restore()
+
+        // Cadre ensuite, mais strictement limité à sa couronne.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // FOND CARBONE EN DERNIER : il remplit toute la zone intérieure utile.
-        canvas.save()
-        canvas.clipPath(innerPath)
-        fillBitmap?.let { drawCarbonFill(canvas, it, inner) }
-        canvas.restore()
+        // Éclairage dynamique volontairement désactivé pendant le diagnostic.
     }
 
-    private fun drawCarbonFill(canvas: Canvas, bitmap: Bitmap, target: RectF) {
+    private fun drawCarbonFillCover(canvas: Canvas, bitmap: Bitmap, target: RectF) {
         if (bitmap.width <= 0 || bitmap.height <= 0 || target.width() <= 0f || target.height() <= 0f) return
 
-        val left = (bitmap.width * 0.010f).toInt().coerceIn(0, bitmap.width - 1)
-        val top = (bitmap.height * 0.105f).toInt().coerceIn(0, bitmap.height - 1)
-        val right = (bitmap.width * 0.990f).toInt().coerceIn(left + 1, bitmap.width)
-        val bottom = (bitmap.height * 0.930f).toInt().coerceIn(top + 1, bitmap.height)
-        val source = Rect(left, top, right, bottom)
+        // L'image fournie possède une capsule carbone entourée de noir.
+        // On prélève uniquement la matière utile puis on applique un vrai CENTER_CROP
+        // pour remplir 100 % de l'intérieur, quelle que soit la hauteur du bouton.
+        val usefulLeft = (bitmap.width * 0.015f).toInt().coerceIn(0, bitmap.width - 1)
+        val usefulTop = (bitmap.height * 0.105f).toInt().coerceIn(0, bitmap.height - 1)
+        val usefulRight = (bitmap.width * 0.985f).toInt().coerceIn(usefulLeft + 1, bitmap.width)
+        val usefulBottom = (bitmap.height * 0.925f).toInt().coerceIn(usefulTop + 1, bitmap.height)
+
+        val usefulW = usefulRight - usefulLeft
+        val usefulH = usefulBottom - usefulTop
+        val targetRatio = target.width() / target.height()
+        val sourceRatio = usefulW.toFloat() / usefulH.toFloat()
+
+        val source = if (sourceRatio > targetRatio) {
+            // Source trop large : coupe uniquement les côtés.
+            val wantedW = (usefulH * targetRatio).toInt().coerceAtLeast(1)
+            val x = usefulLeft + (usefulW - wantedW) / 2
+            Rect(x, usefulTop, (x + wantedW).coerceAtMost(usefulRight), usefulBottom)
+        } else {
+            // Source trop haute : coupe uniquement haut/bas, jamais de bande noire ajoutée.
+            val wantedH = (usefulW / targetRatio).toInt().coerceAtLeast(1)
+            val y = usefulTop + (usefulH - wantedH) / 2
+            Rect(usefulLeft, y, usefulRight, (y + wantedH).coerceAtMost(usefulBottom))
+        }
 
         paint.style = Paint.Style.FILL
         paint.alpha = globalAlpha
@@ -133,9 +153,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         invalidateSelf()
     }
 
-    override fun setColorFilter(colorFilter: ColorFilter?) {
-        invalidateSelf()
-    }
+    override fun setColorFilter(colorFilter: ColorFilter?) { invalidateSelf() }
 
     @Deprecated("Deprecated in Java")
     override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
