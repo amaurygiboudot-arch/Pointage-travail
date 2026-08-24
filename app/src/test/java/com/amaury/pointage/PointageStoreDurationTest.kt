@@ -75,18 +75,16 @@ class PointageStoreDurationTest {
     }
 
     @Test
-    fun pauseIntervalsAreClippedToSessionBounds() {
-        val item = JSONObject()
-            .put("entry", entry)
-            .put("exit", entry + 60 * minute)
-            .put("pauses", JSONArray().put(
-                JSONObject()
-                    .put("start", entry - 30 * minute)
-                    .put("end", entry + 90 * minute)
-            ))
-            .put("autoPauseMinutes", 0)
+    fun pauseStartingBeforeEntryIsClippedAtEntry() {
+        val item = session(60, listOf(-30 to 15))
+        assertEquals(15 * minute, PointageStore.pauseDuration(item))
+        assertEquals(45 * minute, PointageStore.workedDuration(item))
+    }
 
-        assertEquals(60 * minute, PointageStore.pauseDuration(item))
-        assertEquals(0L, PointageStore.workedDuration(item))
+    @Test
+    fun pauseEndingAfterExitIsClippedAtExit() {
+        val item = session(60, listOf(30 to 90))
+        assertEquals(30 * minute, PointageStore.pauseDuration(item))
+        assertEquals(30 * minute, PointageStore.workedDuration(item))
     }
 }
