@@ -44,13 +44,13 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     }
 
     private fun selectedBackgroundFile(): File? {
-        val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)
-        if (!file.exists() || file.length() <= 0L) return null
-        // Le fichier enregistré est la source de vérité. Ainsi une réapplication de thème,
-        // un changement d'onglet ou une ancienne préférence perdue ne peut plus masquer la photo.
         val prefs = context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("custom_image_bg", false)) {
-            prefs.edit().putBoolean("custom_image_bg", true).apply()
+        if (!prefs.getBoolean("custom_image_bg", false)) return null
+
+        val file = File(context.filesDir, AppearanceManager.BACKGROUND_FILE)
+        if (!file.exists() || file.length() <= 0L) {
+            prefs.edit().putBoolean("custom_image_bg", false).apply()
+            return null
         }
         return file
     }
@@ -124,7 +124,26 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         while(y<bitmap.height){ var x=0; while(x<bitmap.width){ val c=bitmap.getPixel(x,y); val l=(.2126f*Color.red(c)+.7152f*Color.green(c)+.0722f*Color.blue(c))/255f; sum+=l; if(l>=.62f)bright++; if(l<=.36f)dark++; count++; x+=sx }; y+=sy }
         return if(count==0) GlobalBackgroundStats(0f,0f,1f) else GlobalBackgroundStats(sum/count,bright.toFloat()/count,dark.toFloat()/count)
     }
-    private fun applyTextColorRecursively(view: View,color:Int,shadow:Int){ if(view is TextView){view.setTextColor(color);view.setShadowLayer(3.8f,0f,1.1f,shadow);if(view is EditText)view.setHintTextColor(if(color==Color.WHITE)Color.rgb(225,225,225) else Color.rgb(55,55,55))};if(view is ViewGroup)for(i in 0 until view.childCount)applyTextColorRecursively(view.getChildAt(i),color,shadow) }
+
+    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
+        // Les onglets possèdent leur propre palette active/inactive gérée par MainActivity.
+        // Le recoloriage adaptatif du fond ne doit jamais écraser ces couleurs.
+        if (view.id == R.id.navigationTabs) return
+
+        if (view is TextView) {
+            view.setTextColor(color)
+            view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+            if (view is EditText) {
+                view.setHintTextColor(if (color == Color.WHITE) Color.rgb(225,225,225) else Color.rgb(55,55,55))
+            }
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                applyTextColorRecursively(view.getChildAt(i), color, shadow)
+            }
+        }
+    }
+
     private fun isDark(color:Int)=((Color.red(color)*299+Color.green(color)*587+Color.blue(color)*114)/1000)<155
 
     private fun drawBrushedAluminum(canvas:Canvas,dark:Boolean){ val top=if(dark)Color.rgb(48,52,55) else Color.rgb(238,241,242);val mid=if(dark)Color.rgb(82,87,90) else Color.rgb(190,197,201);val bottom=if(dark)Color.rgb(35,39,42) else Color.rgb(224,228,230);paint.shader=LinearGradient(0f,0f,width.toFloat(),0f,intArrayOf(top,mid,top,bottom),floatArrayOf(0f,.38f,.7f,1f),Shader.TileMode.CLAMP);canvas.drawRect(0f,0f,width.toFloat(),height.toFloat(),paint);paint.shader=null;var y=0;while(y<height){val phase=(y*37)%11;val alpha=if(phase<4)26 else 12;paint.color=if(dark)Color.argb(alpha,225,232,235) else Color.argb(alpha,35,42,46);paint.strokeWidth=if(phase==0)1.4f else .7f;canvas.drawLine(0f,y.toFloat(),width.toFloat(),y.toFloat(),paint);y+=2+(phase%3)} }
