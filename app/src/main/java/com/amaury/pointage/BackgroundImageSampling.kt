@@ -9,7 +9,7 @@ import kotlin.math.min
 /** Decodes custom application backgrounds near their actual display size with a bounded pixel budget. */
 object BackgroundImageSampling {
     private const val MIN_DECODE_PIXELS = 8_000_000L
-    private const val TARGET_PIXEL_MULTIPLIER = 4L
+    private const val TARGET_PIXEL_MULTIPLIER = 2L
     private const val MIN_SHORT_EDGE = 512
 
     fun decode(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
