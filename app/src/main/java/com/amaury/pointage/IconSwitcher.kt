@@ -13,9 +13,13 @@ object IconSwitcher {
     fun applyPending(context: Context) = sync(context)
 
     fun sync(context: Context) {
+        val now = System.currentTimeMillis()
+        val session = PointageSessionQueries.latestValidSession(context, now)
+        val open = session?.let { it.has("exit") && it.isNull("exit") } == true
+        val paused = session?.let { PointageSessionQueries.isPaused(it, now) } == true
         val target = when {
-            PointageStore.isPaused(context) -> ORANGE
-            PointageStore.hasOpen(context) -> GREEN
+            paused -> ORANGE
+            open -> GREEN
             else -> RED
         }
         setOnly(context, target)
