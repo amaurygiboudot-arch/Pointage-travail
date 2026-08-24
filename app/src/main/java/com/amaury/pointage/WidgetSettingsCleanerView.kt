@@ -7,8 +7,8 @@ import android.view.ViewGroup
 import android.widget.TextView
 
 /**
- * Le widget suit désormais uniquement le thème de l'application.
- * On conserve seulement le réglage « Afficher la position dans le widget ».
+ * Nettoie les anciens réglages du widget et harmonise les libellés dynamiques
+ * installés dans les paramètres.
  */
 class WidgetSettingsCleanerView @JvmOverloads constructor(
     context: Context,
@@ -18,7 +18,7 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
     private val cleanup = object : Runnable {
         override fun run() {
             if (!isAttachedToWindow) return
-            hideLegacyWidgetControls(rootView)
+            cleanDynamicSettings(rootView)
             postDelayed(this, 600L)
         }
     }
@@ -40,16 +40,21 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
         super.onDetachedFromWindow()
     }
 
-    private fun hideLegacyWidgetControls(view: View) {
+    private fun cleanDynamicSettings(view: View) {
         if (view is TextView) {
-            when (view.text?.toString()?.trim()?.uppercase()) {
+            val current = view.text?.toString()?.trim().orEmpty()
+            when (current.uppercase()) {
                 "PERSONNALISER LE WIDGET",
                 "COULEUR DU FOND DU WIDGET",
                 "COULEUR D'ACCENT DU WIDGET" -> view.visibility = GONE
+                "SAUVEGARDE GOOGLE DRIVE" -> view.text = "EXPORT PDF AUTOMATIQUE — GOOGLE DRIVE"
+            }
+            if (current.startsWith("● Sauvegarde Drive active")) {
+                view.text = current.replaceFirst("Sauvegarde Drive active", "Export PDF Drive actif")
             }
         }
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) hideLegacyWidgetControls(view.getChildAt(i))
+            for (i in 0 until view.childCount) cleanDynamicSettings(view.getChildAt(i))
         }
     }
 }
