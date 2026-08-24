@@ -4,13 +4,11 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.File
 import kotlin.math.max
-import kotlin.math.min
 
 /** Decodes custom application backgrounds near their actual display size with a bounded pixel budget. */
 object BackgroundImageSampling {
     private const val MIN_DECODE_PIXELS = 8_000_000L
     private const val TARGET_PIXEL_MULTIPLIER = 2L
-    private const val MIN_SHORT_EDGE = 512
 
     fun decode(file: File, targetWidth: Int, targetHeight: Int): Bitmap? {
         if (!file.exists() || file.length() <= 0L) return null
@@ -38,9 +36,9 @@ object BackgroundImageSampling {
     ): Int {
         if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) return 1
 
-        // Center-crop backgrounds do not need both decoded dimensions to remain larger than
-        // the viewport. That rule leaves extreme panoramas at full resolution. Instead, cap
-        // decoded memory by pixel count while retaining a useful short edge for image quality.
+        // Memory safety is authoritative: keep increasing the power-of-two sample until the
+        // decoded bitmap fits the pixel budget. This also bounds very wide/tall panoramas whose
+        // short edge would otherwise prevent sampling and leave a huge ARGB_8888 allocation.
         val targetPixels = targetWidth.toLong() * targetHeight.toLong()
         val pixelBudget = max(MIN_DECODE_PIXELS, targetPixels * TARGET_PIXEL_MULTIPLIER)
         val sourcePixels = sourceWidth.toLong() * sourceHeight.toLong()
@@ -52,7 +50,6 @@ object BackgroundImageSampling {
             val nextWidth = sourceWidth / next
             val nextHeight = sourceHeight / next
             if (nextWidth <= 0 || nextHeight <= 0) break
-            if (min(nextWidth, nextHeight) < MIN_SHORT_EDGE) break
 
             sample = next
             val nextPixels = nextWidth.toLong() * nextHeight.toLong()
