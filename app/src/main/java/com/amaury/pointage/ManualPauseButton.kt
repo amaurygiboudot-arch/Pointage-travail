@@ -289,6 +289,17 @@ class ManualPauseButton @JvmOverloads constructor(
                     continue
                 }
 
+                // A partially filled slot must report the actually missing field first,
+                // even when an earlier slot is empty.
+                if (startText.isBlank()) {
+                    slot.start.error = "Renseigne le début du créneau ${index + 1}"
+                    return@setOnClickListener
+                }
+                if (endText.isBlank()) {
+                    slot.end.error = "Renseigne la fin du créneau ${index + 1}"
+                    return@setOnClickListener
+                }
+
                 if (emptySlotSeen) {
                     slot.start.error = "Créneau ${index + 1} après un créneau vide"
                     Toast.makeText(
@@ -296,15 +307,6 @@ class ManualPauseButton @JvmOverloads constructor(
                         "Remplis les créneaux dans l'ordre : un créneau vide ne peut pas être suivi d'une autre pause.",
                         Toast.LENGTH_LONG
                     ).show()
-                    return@setOnClickListener
-                }
-
-                if (startText.isBlank()) {
-                    slot.start.error = "Renseigne le début du créneau ${index + 1}"
-                    return@setOnClickListener
-                }
-                if (endText.isBlank()) {
-                    slot.end.error = "Renseigne la fin du créneau ${index + 1}"
                     return@setOnClickListener
                 }
 
