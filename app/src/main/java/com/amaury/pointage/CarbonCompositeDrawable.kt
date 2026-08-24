@@ -10,16 +10,12 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.RadialGradient
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.util.Base64
 import java.util.WeakHashMap
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.sqrt
 
 class CarbonCompositeDrawable(context: Context) : Drawable() {
     companion object {
@@ -76,21 +72,14 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // 1) CADRE en premier. Même si certains GPU Android interprètent légèrement
-        // différemment l'opération de Path, le centre sera redessiné ensuite.
+        // CADRE CARBONE/METAL SANS ECLAIRAGE DYNAMIQUE (test demandé).
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // 2) REFLET du métal, toujours avant le remplissage carbone.
-        // Ainsi aucune couche noire provenant du cadre ne peut finir au-dessus du centre.
-        drawMetalSpecularReflection(canvas, dst)
-
-        // 3) FOND CARBONE EN DERNIER : il remplit 100 % de la zone intérieure utile.
-        // C'est volontairement la dernière couche du centre afin qu'aucun masque,
-        // bitmap de cadre ou reflet ne puisse en cacher la moitié basse.
+        // FOND CARBONE EN DERNIER : il remplit toute la zone intérieure utile.
         canvas.save()
         canvas.clipPath(innerPath)
         fillBitmap?.let { drawCarbonFill(canvas, it, inner) }
@@ -100,8 +89,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private fun drawCarbonFill(canvas: Canvas, bitmap: Bitmap, target: RectF) {
         if (bitmap.width <= 0 || bitmap.height <= 0 || target.width() <= 0f || target.height() <= 0f) return
 
-        // Recadrage de la seule marge noire extérieure de l'image fournie.
-        // On conserve l'intégralité de la capsule carbone (reflets + tressage).
         val left = (bitmap.width * 0.010f).toInt().coerceIn(0, bitmap.width - 1)
         val top = (bitmap.height * 0.105f).toInt().coerceIn(0, bitmap.height - 1)
         val right = (bitmap.width * 0.990f).toInt().coerceIn(left + 1, bitmap.width)
@@ -113,54 +100,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.colorFilter = null
         paint.shader = null
         canvas.drawBitmap(bitmap, source, target, paint)
-    }
-
-    private fun drawMetalSpecularReflection(canvas: Canvas, target: RectF) {
-        val rad = Math.toRadians(lightAngle.toDouble())
-        val dx = cos(rad).toFloat()
-        val dy = sin(rad).toFloat()
-        val cx = target.centerX()
-        val cy = target.centerY()
-        val half = sqrt(target.width() * target.width() + target.height() * target.height()) * .66f
-        val cool = if (nightLight) Color.rgb(188, 220, 255) else Color.rgb(255, 250, 232)
-        val peak = if (nightLight) 145 else 205
-        val shoulder = if (nightLight) 55 else 105
-
-        paint.style = Paint.Style.FILL
-        paint.alpha = globalAlpha
-        paint.colorFilter = null
-        paint.shader = LinearGradient(
-            cx - dx * half, cy - dy * half, cx + dx * half, cy + dy * half,
-            intArrayOf(
-                Color.argb(48, 5, 7, 9), Color.argb(12, 20, 24, 28),
-                Color.argb(shoulder, Color.red(cool), Color.green(cool), Color.blue(cool)),
-                Color.argb(peak, 255, 255, 255),
-                Color.argb(shoulder, Color.red(cool), Color.green(cool), Color.blue(cool)),
-                Color.argb(18, 18, 22, 26), Color.argb(58, 0, 0, 0)
-            ),
-            floatArrayOf(0f, .25f, .39f, .50f, .61f, .75f, 1f),
-            Shader.TileMode.CLAMP
-        )
-
-        canvas.save()
-        canvas.clipPath(frameBand)
-        canvas.drawRect(target, paint)
-
-        val hotX = cx + dx * target.width() * .42f
-        val hotY = cy + dy * target.height() * .42f
-        paint.shader = RadialGradient(
-            hotX, hotY,
-            (target.height() * if (nightLight) .38f else .48f).coerceAtLeast(9f),
-            intArrayOf(
-                Color.argb(if (nightLight) 100 else 145, 255, 255, 255),
-                Color.argb(if (nightLight) 35 else 65, Color.red(cool), Color.green(cool), Color.blue(cool)),
-                Color.TRANSPARENT
-            ),
-            floatArrayOf(0f, .35f, 1f), Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(target, paint)
-        canvas.restore()
-        paint.shader = null
     }
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
