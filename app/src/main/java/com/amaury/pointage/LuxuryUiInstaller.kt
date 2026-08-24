@@ -254,7 +254,7 @@ object LuxuryUiInstaller {
                 }
                 is TextView -> {
                     val t = child.text?.toString().orEmpty()
-                    if (t == "APPARENCE DE L'APPLICATION" || t == "PERSONNALISER LE WIDGET" || t == "NOTICE" || t == "SAUVEGARDE GOOGLE DRIVE" || t == "MISES À JOUR") {
+                    if (t == "APPARENCE DE L'APPLICATION" || t == "PERSONNALISER LE WIDGET" || t == "NOTICE" || t == "SAUVEGARDE GOOGLE DRIVE" || t == "EXPORT PDF GOOGLE DRIVE" || t == "MISES À JOUR") {
                         child.typeface = Typeface.DEFAULT_BOLD
                         child.setPadding(0, dp(activity, 20), 0, dp(activity, 8))
                     }
