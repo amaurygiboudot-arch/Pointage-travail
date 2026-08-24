@@ -53,9 +53,16 @@ object ManualPauseBatchStore {
         for (i in data.length() - 1 downTo 0) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
-            val sessionEnd = if (item.isNull("exit")) now else item.optLong("exit", -1L)
-            if (sessionEnd >= entry && pauseStart >= entry && pauseEnd <= sessionEnd) return item
+            if (entry <= 0L || pauseStart < entry) continue
+
+            if (item.isNull("exit")) {
+                // Une pause manuelle déjà commencée peut avoir une fin future.
+                // On l'associe à la session ouverte dès lors que son début est atteint.
+                if (pauseStart <= now) return item
+            } else {
+                val sessionEnd = item.optLong("exit", -1L)
+                if (sessionEnd >= entry && pauseEnd <= sessionEnd) return item
+            }
         }
         return null
     }
