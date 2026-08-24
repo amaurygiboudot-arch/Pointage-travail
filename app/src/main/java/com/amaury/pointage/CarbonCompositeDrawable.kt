@@ -43,7 +43,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Image carbone fournie par l'utilisateur.
     private val fillBitmap: Bitmap? = runCatching {
         BitmapFactory.decodeResource(context.resources, R.drawable.carbon_button_fill)
     }.getOrNull()
@@ -77,38 +76,39 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // CENTRE : on retire d'abord les marges noires qui entourent l'image
-        // d'origine, puis on adapte toute la capsule carbone à la zone intérieure.
-        // Ainsi aucune bande noire extérieure à l'image ne peut masquer la moitié
-        // basse du motif dans les boutons.
-        canvas.save()
-        canvas.clipPath(innerPath)
-        fillBitmap?.let { drawCarbonFill(canvas, it, inner) }
-        canvas.restore()
-
-        // CADRE : couronne métallique indépendante, inchangée.
+        // 1) CADRE en premier. Même si certains GPU Android interprètent légèrement
+        // différemment l'opération de Path, le centre sera redessiné ensuite.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // Lumière uniquement sur le cadre.
+        // 2) REFLET du métal, toujours avant le remplissage carbone.
+        // Ainsi aucune couche noire provenant du cadre ne peut finir au-dessus du centre.
         drawMetalSpecularReflection(canvas, dst)
+
+        // 3) FOND CARBONE EN DERNIER : il remplit 100 % de la zone intérieure utile.
+        // C'est volontairement la dernière couche du centre afin qu'aucun masque,
+        // bitmap de cadre ou reflet ne puisse en cacher la moitié basse.
+        canvas.save()
+        canvas.clipPath(innerPath)
+        fillBitmap?.let { drawCarbonFill(canvas, it, inner) }
+        canvas.restore()
     }
 
     private fun drawCarbonFill(canvas: Canvas, bitmap: Bitmap, target: RectF) {
-        if (bitmap.width <= 0 || bitmap.height <= 0) return
+        if (bitmap.width <= 0 || bitmap.height <= 0 || target.width() <= 0f || target.height() <= 0f) return
 
-        // La ressource fournie contient une marge noire autour de la capsule.
-        // Ces proportions correspondent uniquement à cette marge externe ;
-        // aucun pixel de la capsule carbone elle-même n'est volontairement coupé.
-        val left = (bitmap.width * 0.005f).toInt().coerceIn(0, bitmap.width - 1)
-        val top = (bitmap.height * 0.092f).toInt().coerceIn(0, bitmap.height - 1)
-        val right = (bitmap.width * 0.995f).toInt().coerceIn(left + 1, bitmap.width)
-        val bottom = (bitmap.height * 0.922f).toInt().coerceIn(top + 1, bitmap.height)
+        // Recadrage de la seule marge noire extérieure de l'image fournie.
+        // On conserve l'intégralité de la capsule carbone (reflets + tressage).
+        val left = (bitmap.width * 0.010f).toInt().coerceIn(0, bitmap.width - 1)
+        val top = (bitmap.height * 0.105f).toInt().coerceIn(0, bitmap.height - 1)
+        val right = (bitmap.width * 0.990f).toInt().coerceIn(left + 1, bitmap.width)
+        val bottom = (bitmap.height * 0.930f).toInt().coerceIn(top + 1, bitmap.height)
         val source = Rect(left, top, right, bottom)
 
+        paint.style = Paint.Style.FILL
         paint.alpha = globalAlpha
         paint.colorFilter = null
         paint.shader = null
