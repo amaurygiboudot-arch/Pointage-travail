@@ -61,7 +61,6 @@ object LightDirectionController {
         var lastEmittedRoll = Float.NaN
 
         fun state(angle: Float): LightingState {
-            CarbonCompositeDrawable.updateGlobalLight(angle, night)
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
             val diamondIntensity = if (night) intensity.coerceIn(.34f, .48f) else intensity.coerceIn(.72f, 1f)
