@@ -85,10 +85,12 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val metrics = resources.displayMetrics
             val targetWidth = width.takeIf { it > 0 } ?: metrics.widthPixels
             val targetHeight = height.takeIf { it > 0 } ?: metrics.heightPixels
-            val decoded = BackgroundImageSampling.decode(file, targetWidth, targetHeight)
 
+            // Release the previous bitmap before allocating the replacement so two large
+            // backgrounds never coexist at peak memory while the selected photo changes.
             cachedImage?.recycle()
-            cachedImage = decoded
+            cachedImage = null
+            cachedImage = BackgroundImageSampling.decode(file, targetWidth, targetHeight)
             cachedImageToken = token
             cachedTextColor = null
             cachedShadowColor = null
@@ -120,8 +122,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
             val useDark = !isDark(background)
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
-            // Not used without a photo. Passing a defined value keeps this routine simple,
-            // while applyTextColorRecursively explicitly clears any previously applied shadow.
             shadowColor = Color.TRANSPARENT
         }
         applyTextColorRecursively(this, textColor, shadowColor, hasImage)
@@ -168,9 +168,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     }
 
     private fun applyTextColorRecursively(view: View, color: Int, shadow: Int, photoActive: Boolean) {
-        // Les onglets, boutons et switches sont des composants sémantiques :
-        // leur palette active/inactive/entrée/pause/sortie ne doit jamais être
-        // remplacée par la couleur globale du fond.
         if (view.id == R.id.navigationTabs) return
 
         when (view) {
@@ -181,9 +178,6 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 view.setHintTextColor(if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55))
             }
             is TextView -> {
-                // Les couleurs chromatiques (rouge, orange, vert, or, accents,
-                // erreurs) sont considérées sémantiques et préservées. Seuls les
-                // textes neutres noir/blanc/gris sont réellement adaptatifs.
                 if (isNeutralTextColor(view.currentTextColor)) {
                     view.setTextColor(color)
                     if (photoActive) view.setShadowLayer(3.8f, 0f, 1.1f, shadow) else view.clearShadowLayer()
