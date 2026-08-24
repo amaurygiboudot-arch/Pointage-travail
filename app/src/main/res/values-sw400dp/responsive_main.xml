@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="main_hero_height">250dp</dimen>
+    <dimen name="main_clock_height">210dp</dimen>
+    <dimen name="main_tab_height">62dp</dimen>
+    <dimen name="main_tab_text_size">14sp</dimen>
+    <dimen name="main_diamond_size">108dp</dimen>
+    <dimen name="main_action_label_text_size">14sp</dimen>
+</resources>
