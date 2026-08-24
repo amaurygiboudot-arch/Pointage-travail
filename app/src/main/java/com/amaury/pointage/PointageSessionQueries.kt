@@ -12,7 +12,12 @@ object PointageSessionQueries {
     ): JSONObject? = latestValidSession(PointageStore.load(context), now)
 
     internal fun latestValidSession(data: JSONArray, now: Long): JSONObject? {
-        for (i in data.length() - 1 downTo 0) {
+        var oldestValidOpen: JSONObject? = null
+        var oldestValidOpenEntry = Long.MAX_VALUE
+        var latestCompleted: JSONObject? = null
+        var latestCompletedEntry = Long.MIN_VALUE
+
+        for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L || entry > now) continue
@@ -20,12 +25,25 @@ object PointageSessionQueries {
             // Legitimate sessions always persist an explicit exit key: JSONObject.NULL while
             // open, or a timestamp once completed. A missing key is malformed data, not open work.
             if (!item.has("exit")) continue
-            if (item.isNull("exit")) return item
+            if (item.isNull("exit")) {
+                // If corruption/manual data produces overlapping open sessions, keep the oldest
+                // valid one stable until it closes. A future-dated tail becoming eligible must
+                // not steal the widget display/action from the session that was already visible.
+                if (entry < oldestValidOpenEntry) {
+                    oldestValidOpen = item
+                    oldestValidOpenEntry = entry
+                }
+                continue
+            }
 
             val exit = item.optLong("exit", -1L)
-            if (exit >= entry && exit <= now) return item
+            if (exit < entry || exit > now) continue
+            if (entry >= latestCompletedEntry) {
+                latestCompleted = item
+                latestCompletedEntry = entry
+            }
         }
-        return null
+        return oldestValidOpen ?: latestCompleted
     }
 
     /** Pause state belonging specifically to the selected, explicitly open session. */
