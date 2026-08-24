@@ -81,7 +81,7 @@ service cloud.firestore {
         && d.active is bool
         && d.lastSeenAt == request.time
         && d.firstSeenAt == resource.data.firstSeenAt
-        && !d.diff(resource.data).affectedKeys().hasAny(['installationId', 'firstSeenAt']);
+        && !d.diff(resource.data).affectedKeys().hasAny(['installationId', 'firstSeenAt', 'packageName']);
     }
 
     function validFeedbackCreate(userId) {
