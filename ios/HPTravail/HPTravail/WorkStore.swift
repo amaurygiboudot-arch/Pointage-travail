@@ -33,6 +33,10 @@ final class WorkStore: ObservableObject {
     var isWorking: Bool { currentSession != nil }
     var isPaused: Bool { currentSession?.pauses.last?.end == nil && currentSession?.pauses.last != nil }
 
+    func clearPersistenceWarning() {
+        persistenceWarning = nil
+    }
+
     func clockIn() {
         guard !isWorking else { return }
         sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
@@ -113,9 +117,6 @@ final class WorkStore: ObservableObject {
             let envelope = WorkStoreEnvelope(schemaVersion: schemaVersion, sessions: sessions)
             let data = try JSONEncoder().encode(envelope)
 
-            // Ne prépare une nouvelle copie précédente que si le primaire actuel
-            // est lui-même décodable. Un primaire corrompu ne doit jamais écraser
-            // une sauvegarde connue comme valide.
             var previousPrimaryData: Data?
             if !preserveBackup,
                fileManager.fileExists(atPath: urls.primary.path),
@@ -123,13 +124,8 @@ final class WorkStore: ObservableObject {
                 previousPrimaryData = try Data(contentsOf: urls.primary)
             }
 
-            // L'écriture atomique du nouveau primaire passe en premier. Si elle
-            // échoue, l'ancien primaire et l'ancienne sauvegarde restent intacts.
             try data.write(to: urls.primary, options: [.atomic])
 
-            // La copie précédente est elle aussi remplacée atomiquement. En cas
-            // d'échec, le primaire neuf reste durable et l'ancienne sauvegarde
-            // n'est pas détruite avant qu'une nouvelle copie soit prête.
             if let previousPrimaryData, !preserveBackup {
                 try previousPrimaryData.write(to: urls.backup, options: [.atomic])
             }
@@ -154,8 +150,6 @@ final class WorkStore: ObservableObject {
             if let backup = decodeFile(at: urls.backup) {
                 sessions = backup
                 persistenceWarning = "Les données précédentes ont été restaurées après une erreur de lecture."
-                // Conserver le backup connu comme valide pendant la reconstruction
-                // du primaire : le primaire corrompu ne doit jamais le remplacer.
                 if !save(preserveBackup: true, clearWarningOnSuccess: false) {
                     persistenceWarning = "Les données de secours sont lisibles mais leur restauration durable a échoué."
                 }
@@ -164,8 +158,6 @@ final class WorkStore: ObservableObject {
 
             if let legacy = decodeLegacyUserDefaults() {
                 sessions = legacy
-                // Le seul exemplaire legacy n'est supprimé qu'après confirmation
-                // que le nouveau fichier Application Support a bien été écrit.
                 if save() {
                     UserDefaults.standard.removeObject(forKey: legacyKey)
                 } else {
