@@ -13,6 +13,10 @@ struct PausePeriod: Codable, Identifiable {
     var end: Date?
 }
 
+private struct WorkStoreSchemaHeader: Codable {
+    let schemaVersion: Int
+}
+
 private struct WorkStoreEnvelope: Codable {
     let schemaVersion: Int
     let sessions: [WorkSession]
@@ -136,6 +140,16 @@ final class WorkStore: ObservableObject {
         }
         do {
             let urls = try storageURLs()
+
+            // Never overwrite an on-disk store written by an unsupported schema. Check the
+            // historical backup too, because normal rotation would otherwise destroy it.
+            if unsupportedSchemaVersion(at: urls.primary) != nil ||
+               (!preserveBackup && unsupportedSchemaVersion(at: urls.backup) != nil) {
+                persistenceReadOnly = true
+                warnReadOnlySchema()
+                return false
+            }
+
             let envelope = WorkStoreEnvelope(schemaVersion: schemaVersion, sessions: sessions)
             let data = try JSONEncoder().encode(envelope)
 
@@ -176,6 +190,16 @@ final class WorkStore: ObservableObject {
     private func load() {
         do {
             let urls = try storageURLs()
+
+            // Inspect both headers before decoding either versioned payload. This protects a
+            // future-schema primary or backup even if that schema has changed `sessions` so
+            // radically that the current WorkStoreEnvelope can no longer decode it.
+            if unsupportedSchemaVersion(at: urls.primary) != nil || unsupportedSchemaVersion(at: urls.backup) != nil {
+                persistenceReadOnly = true
+                warnReadOnlySchema()
+                return
+            }
+
             if let primary = decodeFile(at: urls.primary) {
                 sessions = primary
                 return
@@ -225,17 +249,31 @@ final class WorkStore: ObservableObject {
         )
     }
 
+    private func unsupportedSchemaVersion(at url: URL) -> Int? {
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        do {
+            let data = try Data(contentsOf: url)
+            let header = try JSONDecoder().decode(WorkStoreSchemaHeader.self, from: data)
+            return header.schemaVersion == schemaVersion ? nil : header.schemaVersion
+        } catch {
+            // A malformed file is handled by the normal corruption/recovery path. Only a
+            // successfully decoded unsupported version triggers fail-closed protection.
+            return nil
+        }
+    }
+
     private func decodeFile(at url: URL) -> [WorkSession]? {
         guard fileManager.fileExists(atPath: url.path) else { return nil }
         do {
             let data = try Data(contentsOf: url)
-            let envelope = try JSONDecoder().decode(WorkStoreEnvelope.self, from: data)
-            guard envelope.schemaVersion == schemaVersion else {
+            let header = try JSONDecoder().decode(WorkStoreSchemaHeader.self, from: data)
+            guard header.schemaVersion == schemaVersion else {
                 persistenceReadOnly = true
                 persistenceWarning = "Ces données ont été créées par une version plus récente de HoraTrack. Elles sont protégées en lecture seule : réinstalle la version la plus récente pour les modifier."
-                NSLog("WorkStore unsupported schema version: %d", envelope.schemaVersion)
+                NSLog("WorkStore unsupported schema version: %d", header.schemaVersion)
                 return nil
             }
+            let envelope = try JSONDecoder().decode(WorkStoreEnvelope.self, from: data)
             return envelope.sessions
         } catch {
             NSLog("WorkStore decode failed for %@: %@", url.lastPathComponent, String(describing: error))
