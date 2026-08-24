@@ -45,10 +45,10 @@ internal object AtomicPointageStorage {
             // simply be the result of a crash during that first copy. Preserve it, then retry
             // from the still-authoritative legacy SharedPreferences value.
             if (!prefs.getBoolean(MIGRATION_COMPLETE_KEY, false)) {
-                backupCorruptSynchronously(app, atomicRaw)
+                requireCorruptBackup(app, atomicRaw)
                 val legacy = prefs.getString(LEGACY_KEY, "[]").orEmpty()
                 val legacyData = parse(legacy) ?: run {
-                    backupCorruptSynchronously(app, legacy)
+                    requireCorruptBackup(app, legacy)
                     JSONArray()
                 }
                 write(app, legacyData)
@@ -58,7 +58,7 @@ internal object AtomicPointageStorage {
 
             // Migration was previously successful: the atomic file is authoritative. Back up
             // any damaged bytes synchronously before callers are allowed to replace the file.
-            backupCorruptSynchronously(app, atomicRaw)
+            requireCorruptBackup(app, atomicRaw)
             return JSONArray()
         }
 
@@ -66,7 +66,7 @@ internal object AtomicPointageStorage {
         // persisted only after AtomicFile.finishWrite succeeds.
         val legacy = prefs.getString(LEGACY_KEY, "[]").orEmpty()
         val migrated = parse(legacy) ?: run {
-            backupCorruptSynchronously(app, legacy)
+            requireCorruptBackup(app, legacy)
             JSONArray()
         }
         write(app, migrated)
@@ -94,12 +94,17 @@ internal object AtomicPointageStorage {
         return runCatching { JSONArray(raw) }.getOrNull()
     }
 
-    private fun backupCorruptSynchronously(context: Context, raw: String) {
+    private fun requireCorruptBackup(context: Context, raw: String) {
         // commit() is intentional here: callers may immediately replace the corrupt atomic
         // source, so the recovery copy must be durably persisted before read() returns.
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val persisted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(CORRUPT_BACKUP_KEY, raw)
             .commit()
+        if (!persisted) {
+            // Never return an empty replacement basis when the only recovery copy could not
+            // be written. Propagating the failure preserves the corrupt source for recovery.
+            throw IllegalStateException("Unable to persist corrupt pointage backup")
+        }
     }
 }
