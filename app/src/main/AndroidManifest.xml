@@ -42,6 +42,14 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />
         </provider>
 
+        <service
+            android:name=".HpFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" />
 
         <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" android:targetActivity=".LaunchActivity">
