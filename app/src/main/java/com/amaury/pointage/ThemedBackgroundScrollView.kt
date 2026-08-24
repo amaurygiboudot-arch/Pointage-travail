@@ -2,7 +2,6 @@ package com.amaury.pointage
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -104,8 +103,15 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private fun ensureImage(file: File) {
         val token = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
         if (cachedImageToken != token || cachedImage == null) {
+            val metrics = resources.displayMetrics
+            val targetWidth = width.takeIf { it > 0 } ?: metrics.widthPixels
+            val targetHeight = height.takeIf { it > 0 } ?: metrics.heightPixels
+
+            // Recycle the previous photo before decoding its replacement so two large ARGB
+            // bitmaps cannot coexist at the memory peak when the background changes.
             cachedImage?.recycle()
-            cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
+            cachedImage = null
+            cachedImage = BackgroundImageSampling.decode(file, targetWidth, targetHeight)
             cachedImageToken = token
             cachedTextColor = null
             cachedShadowColor = null
@@ -137,7 +143,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val background = if (ThemeDayNight.isDark(context)) theme.darkBackground else theme.lightBackground
             val useDark = !isDark(background)
             textColor = if (useDark) Color.rgb(8, 8, 8) else Color.WHITE
-            shadowColor = if (useDark) Color.argb(210, 255, 255, 255) else Color.argb(220, 0, 0, 0)
+            shadowColor = Color.TRANSPARENT
         }
 
         // Build once per traversal: no SharedPreferences/theme lookup and no Set allocation per
@@ -216,15 +222,11 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                         }
                         is SemanticRole.Fixed -> role.color
                     }
-                    // Restore the semantic foreground even if AppearanceManager overwrote it on
-                    // resume before this draw.
                     view.setTextColor(semanticColor)
                 } else {
                     view.setTextColor(color)
                 }
 
-                // Semantic and adaptive text both need photo contrast, and both must lose the
-                // photo-only shadow again when the image background is disabled.
                 if (photoBackground) view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
                 else view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             }
