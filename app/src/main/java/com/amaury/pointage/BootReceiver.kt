@@ -9,6 +9,20 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
+        // Après remplacement de l'APK, Android nous avertit que la nouvelle version est en place.
+        // On tente alors de rouvrir HP Travail directement. Certains Android/HyperOS peuvent
+        // bloquer un lancement d'activité depuis l'arrière-plan : dans ce cas le système garde
+        // son comportement de sécurité normal, sans boucle ni crash.
+        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            runCatching {
+                val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                if (launch != null) {
+                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    context.startActivity(launch)
+                }
+            }
+        }
+
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
 
