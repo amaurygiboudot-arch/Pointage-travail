@@ -86,8 +86,11 @@ object PointageStore {
     fun resumePause(context: Context, automaticOnly: Boolean = false): Boolean {
         val data = load(context)
         val item = findOpenSession(data) ?: return false
-        val pause = openPause(item) ?: return false
-        if (automaticOnly && !pause.optBoolean("automatic", false)) return false
+        val pause = if (automaticOnly) {
+            openPause(item)?.takeIf { it.optBoolean("automatic", false) }
+        } else {
+            currentPause(item)
+        } ?: return false
         val start = pause.optLong("start", -1L)
         val now = System.currentTimeMillis()
         if (start <= 0L || now < start) return false
@@ -95,6 +98,7 @@ object PointageStore {
         save(context, data)
         updateWidgets(context)
         scheduleIconSync(context)
+        DriveBackupManager.syncCurrentMonthAsync(context)
         return true
     }
 
@@ -184,6 +188,24 @@ object PointageStore {
             return true
         }
         return false
+    }
+
+    fun manualPausesForDay(context: Context, dayStart: Long, dayEnd: Long): List<Pair<Long, Long>> {
+        if (dayStart <= 0L || dayEnd <= dayStart) return emptyList()
+        val result = mutableListOf<Pair<Long, Long>>()
+        val data = load(context)
+        for (i in 0 until data.length()) {
+            val item = data.optJSONObject(i) ?: continue
+            val pauses = item.optJSONArray("pauses") ?: continue
+            for (j in 0 until pauses.length()) {
+                val pause = pauses.optJSONObject(j) ?: continue
+                if (!pause.optBoolean("manual", false)) continue
+                val start = pause.optLong("start", -1L)
+                val end = pause.optLong("end", -1L)
+                if (start >= dayStart && start < dayEnd && end > start) result += start to end
+            }
+        }
+        return result.distinct().sortedBy { it.first }.take(5)
     }
 
     private fun currentPause(item: JSONObject, now: Long = System.currentTimeMillis()): JSONObject? {
