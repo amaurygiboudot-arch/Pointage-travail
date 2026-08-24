@@ -7,8 +7,6 @@ import android.net.Uri
 import android.os.Build
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
-import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
-import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 /**
  * Installe App Check avant que les écrans et services de l'application
@@ -23,7 +21,7 @@ class AppCheckInitProvider : ContentProvider() {
         val appContext = context?.applicationContext ?: return false
         val prefs = appContext.getSharedPreferences("app_check_status", 0)
         val installer = installerPackage(appContext.packageManager, appContext.packageName)
-        val providerName = if (BuildConfig.DEBUG) "debug" else "play_integrity"
+        val providerName = AppCheckBuildProvider.name
 
         prefs.edit()
             .putString("provider", providerName)
@@ -34,15 +32,9 @@ class AppCheckInitProvider : ContentProvider() {
         return runCatching {
             FirebaseApp.initializeApp(appContext)
             val appCheck = FirebaseAppCheck.getInstance()
-            if (BuildConfig.DEBUG) {
-                appCheck.installAppCheckProviderFactory(
-                    DebugAppCheckProviderFactory.getInstance()
-                )
-            } else {
-                appCheck.installAppCheckProviderFactory(
-                    PlayIntegrityAppCheckProviderFactory.getInstance()
-                )
-            }
+            // La classe concrète est fournie séparément par src/debug ou src/release.
+            // Ainsi le classpath release ne référence jamais firebase-appcheck-debug.
+            AppCheckBuildProvider.install(appCheck)
             appCheck.setTokenAutoRefreshEnabled(true)
 
             prefs.edit()
@@ -51,7 +43,6 @@ class AppCheckInitProvider : ContentProvider() {
                 .putLong("checked_at", System.currentTimeMillis())
                 .apply()
 
-            // Force une vraie attestation au démarrage. Aucun jeton n'est stocké.
             appCheck.getAppCheckToken(true)
                 .addOnSuccessListener {
                     prefs.edit()
@@ -105,15 +96,7 @@ class AppCheckInitProvider : ContentProvider() {
     ): Cursor? = null
 
     override fun getType(uri: Uri): String? = null
-
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
-
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
-
-    override fun update(
-        uri: Uri,
-        values: ContentValues?,
-        selection: String?,
-        selectionArgs: Array<out String>?
-    ): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 }
