@@ -35,6 +35,17 @@ pauses: [Pause]
 
 `entryEpochMs` et `exitEpochMs` sont stockés en millisecondes UTC depuis l'époque Unix. L'affichage local utilise le fuseau du terminal ; les instants synchronisés ne doivent pas être convertis en chaînes locales.
 
+### Règle de déduction des pauses
+
+`autoPauseMinutes` est un **plancher de déduction**, pas une pause supplémentaire à additionner aux pauses enregistrées. Pour une session donnée, les intervalles de pause sont d'abord bornés à la session puis fusionnés afin d'éviter tout double comptage. La durée de pause retenue pour le calcul du temps travaillé est ensuite :
+
+```text
+pauseDeductedMs = max(mergedRecordedPauseMs, autoPauseMinutes * 60_000)
+workedMs = max(0, sessionDurationMs - pauseDeductedMs)
+```
+
+Android et iOS devront appliquer exactement cette règle. `autoPauseMinutes` ne doit donc jamais être ajouté à la durée des pauses enregistrées lorsqu'elles atteignent déjà ou dépassent ce plancher.
+
 ## Pause
 
 ```text
@@ -58,6 +69,7 @@ Avant activation d'une synchronisation :
 - iOS doit pouvoir décoder et réécrire ces champs même si son interface ne les exploite pas encore ;
 - `companySlot` est un entier nullable sur les deux plateformes afin de rester compatible avec les JSON Android existants ;
 - `Session.manual` et `Pause.manual` sont deux informations différentes et ne doivent jamais être fusionnées ou substituées ;
+- les deux plateformes doivent calculer la pause déduite avec `max(pauses fusionnées, autoPauseMinutes)` et jamais en additionnant les deux ;
 - les champs inconnus d'une version plus récente ne doivent pas être supprimés par un ancien client ;
 - les pauses sont bornées à la session et fusionnées uniquement pour les calculs de durée, jamais pour supprimer leurs identités persistantes.
 
