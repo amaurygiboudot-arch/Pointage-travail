@@ -4,26 +4,45 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
+import com.google.firebase.appcheck.debug.DebugAppCheckProviderFactory
 import com.google.firebase.appcheck.playintegrity.PlayIntegrityAppCheckProviderFactory
 
 /**
  * Installe App Check avant que les écrans et services de l'application
  * commencent à utiliser Firebase. Le contrôle strict côté Firebase reste
- * désactivé tant que les métriques App Check n'ont pas été vérifiées.
+ * désactivé tant que les métriques App Check n'ont pas été vérifiées sur tous
+ * les canaux de distribution supportés.
+ *
+ * Important : un échec App Check ne bloque jamais le stockage/pointage local.
  */
 class AppCheckInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         val appContext = context?.applicationContext ?: return false
         val prefs = appContext.getSharedPreferences("app_check_status", 0)
+        val installer = installerPackage(appContext.packageManager, appContext.packageName)
+        val providerName = if (BuildConfig.DEBUG) "debug" else "play_integrity"
+
+        prefs.edit()
+            .putString("provider", providerName)
+            .putString("installer", installer ?: "sideload_or_unknown")
+            .putBoolean("local_pointage_fail_open", true)
+            .apply()
 
         return runCatching {
             FirebaseApp.initializeApp(appContext)
             val appCheck = FirebaseAppCheck.getInstance()
-            appCheck.installAppCheckProviderFactory(
-                PlayIntegrityAppCheckProviderFactory.getInstance()
-            )
+            if (BuildConfig.DEBUG) {
+                appCheck.installAppCheckProviderFactory(
+                    DebugAppCheckProviderFactory.getInstance()
+                )
+            } else {
+                appCheck.installAppCheckProviderFactory(
+                    PlayIntegrityAppCheckProviderFactory.getInstance()
+                )
+            }
             appCheck.setTokenAutoRefreshEnabled(true)
 
             prefs.edit()
@@ -64,6 +83,18 @@ class AppCheckInitProvider : ContentProvider() {
             true
         }
     }
+
+    private fun installerPackage(
+        packageManager: android.content.pm.PackageManager,
+        packageName: String
+    ): String? = runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            packageManager.getInstallSourceInfo(packageName).installingPackageName
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getInstallerPackageName(packageName)
+        }
+    }.getOrNull()
 
     override fun query(
         uri: Uri,
