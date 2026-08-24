@@ -39,8 +39,16 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val frameBand = Path()
     private val innerPath = Path()
 
-    // Images d'origine fournies pour le thème Carbone. Elles ne sont jamais modifiées.
-    private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
+    // Fond fourni par l'utilisateur : stocké en 4 morceaux pour garder l'image séparée du code.
+    private val fillBitmap: Bitmap? = decodeRawBase64Parts(
+        context,
+        intArrayOf(
+            R.raw.carbon_fill_user_1,
+            R.raw.carbon_fill_user_2,
+            R.raw.carbon_fill_user_3,
+            R.raw.carbon_fill_user_4
+        )
+    )
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
     private var globalAlpha = 255
@@ -63,8 +71,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         dst.set(bounds)
         val outerRadius = dst.height() * .48f
         val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
-
-        // La géométrie est calculée d'abord : le centre du cadre est réellement vide.
         val inner = ButtonFrameGeometry.buildBand(
             target = dst,
             outerRadius = outerRadius,
@@ -73,21 +79,19 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
             innerPath = innerPath
         ) ?: return
 
-        // 1) CENTRE : uniquement l'image carbone originale, affichée dans toute la capsule intérieure.
-        // Aucun filtre, aucun assombrissement, aucun reflet et aucune autre couche par-dessus.
+        // Centre : uniquement l'image carbone fournie, sans filtre ni effet ajouté.
         canvas.save()
         canvas.clipPath(innerPath)
         fillBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, inner) }
         canvas.restore()
 
-        // 2) CADRE : uniquement dans la couronne extérieure. Il n'existe pas dans le centre.
+        // Cadre : uniquement la couronne extérieure.
         canvas.save()
         canvas.clipPath(frameBand)
         frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
             ?: drawFallbackFrameBand(canvas, dst, outerRadius, frameThickness)
         canvas.restore()
 
-        // 3) Reflets : strictement limités à la même couronne du cadre.
         drawMetalSpecularReflection(canvas, dst)
     }
 
@@ -145,10 +149,23 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
         val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+        decodeBase64Bitmap(raw)
+    }.getOrNull()
+
+    private fun decodeRawBase64Parts(context: Context, resIds: IntArray): Bitmap? = runCatching {
+        val encoded = buildString {
+            resIds.forEach { resId ->
+                append(context.resources.openRawResource(resId).bufferedReader().use { it.readText() })
+            }
+        }
+        decodeBase64Bitmap(encoded)
+    }.getOrNull()
+
+    private fun decodeBase64Bitmap(raw: String): Bitmap? {
         val encoded = raw.substringAfter("base64,", raw).filterNot { it.isWhitespace() }
         val bytes = Base64.decode(encoded, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }.getOrNull()
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }
 
     private fun drawFallbackFrameBand(canvas: Canvas, target: RectF, radius: Float, thickness: Float) {
         paint.style = Paint.Style.STROKE
