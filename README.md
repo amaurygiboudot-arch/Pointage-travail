@@ -18,7 +18,7 @@ Cette séparation évite de confondre du code expérimental avec l’application
 
 ## Compilation
 1. Ouvrir l’onglet Actions.
-2. Ouvrir le workflow de compilation HoraTrack.
+2. Ouvrir le workflow **« Compiler HP Travail APK et AAB »** (`.github/workflows/build-apk.yml`).
 3. Lancer le workflow si nécessaire.
 4. Télécharger l’artifact APK généré une fois le workflow terminé.
 
