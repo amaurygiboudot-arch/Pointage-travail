@@ -26,12 +26,12 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val src = Rect()
     private val dst = RectF()
     private val fillClipPath = Path()
     private val frameBand = Path()
     private val innerPath = Path()
 
+    // Les bitmaps importés restent des sources strictement en lecture seule.
     private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
     private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
 
@@ -58,12 +58,13 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         val radius = bounds.height() * .48f
         val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
 
-        // 1) Matière intérieure : uniquement la texture carbone.
+        // 1) Image intérieure : image originale, sans filtre ni traitement de pixels.
         fillClipPath.reset()
         fillClipPath.addRoundRect(dst, radius, radius, Path.Direction.CW)
         canvas.save()
         canvas.clipPath(fillClipPath)
-        fillBitmap?.let { drawCenterCrop(canvas, it, dst) } ?: drawFallbackCarbon(canvas, dst)
+        fillBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
+            ?: drawFallbackCarbon(canvas, dst)
         canvas.restore()
 
         // 2) Cadre : vraie couronne géométrique. Le centre du cadre n'existe pas.
@@ -78,11 +79,11 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         if (inner != null) {
             canvas.save()
             canvas.clipPath(frameBand)
-            frameBitmap?.let { drawCenterCrop(canvas, it, dst) }
+            frameBitmap?.let { OriginalButtonImageRenderer.draw(canvas, it, dst) }
                 ?: drawFallbackFrameBand(canvas, dst, radius, frameThickness)
             canvas.restore()
 
-            // 3) Reflets métal : limités à exactement la même couronne.
+            // 3) Les effets lumineux restent des couches séparées du bitmap original.
             drawMetalSpecularReflection(canvas, dst)
         }
     }
@@ -147,41 +148,6 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.shader = null
     }
 
-    private fun drawCenterCrop(canvas: Canvas, bitmap: Bitmap, target: RectF) {
-        val bw = bitmap.width.toFloat()
-        val bh = bitmap.height.toFloat()
-        val tw = target.width()
-        val th = target.height()
-        if (bw <= 0f || bh <= 0f || tw <= 0f || th <= 0f) return
-
-        val sourceAspect = bw / bh
-        val targetAspect = tw / th
-        if (sourceAspect > targetAspect) {
-            val wanted = bh * targetAspect
-            val left = ((bw - wanted) / 2f).toInt().coerceAtLeast(0)
-            src.set(
-                left,
-                0,
-                (left + wanted.toInt()).coerceAtMost(bitmap.width),
-                bitmap.height
-            )
-        } else {
-            val wanted = bw / targetAspect
-            val top = ((bh - wanted) / 2f).toInt().coerceAtLeast(0)
-            src.set(
-                0,
-                top,
-                bitmap.width,
-                (top + wanted.toInt()).coerceAtMost(bitmap.height)
-            )
-        }
-
-        paint.alpha = globalAlpha
-        paint.colorFilter = null
-        paint.shader = null
-        canvas.drawBitmap(bitmap, src, target, paint)
-    }
-
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
         val encoded = context.resources.openRawResource(resId)
             .bufferedReader()
@@ -194,6 +160,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private fun drawFallbackCarbon(canvas: Canvas, target: RectF) {
         paint.alpha = globalAlpha
         paint.style = Paint.Style.FILL
+        paint.colorFilter = null
         paint.shader = null
         paint.color = Color.rgb(13, 15, 17)
         canvas.drawRoundRect(
@@ -213,6 +180,7 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = thickness
         paint.alpha = globalAlpha
+        paint.colorFilter = null
         paint.shader = LinearGradient(
             target.left,
             target.top,
@@ -244,12 +212,13 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     override fun setAlpha(alpha: Int) {
+        // L'alpha ne s'applique qu'aux couches générées. Les images importées restent intactes.
         globalAlpha = alpha.coerceIn(0, 255)
         invalidateSelf()
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        paint.colorFilter = colorFilter
+        // Interdit volontairement sur les images importées : elles doivent rester d'origine.
         invalidateSelf()
     }
 
