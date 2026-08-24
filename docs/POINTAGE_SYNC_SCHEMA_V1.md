@@ -21,7 +21,7 @@ exitEpochMs: Long?
 shiftType: String?
 autoPauseMinutes: Int
 manual: Boolean
-companySlot: String?
+companySlot: Int?
 zoneId: String?
 zoneAddress: String?
 createdAtEpochMs: Long
@@ -31,7 +31,7 @@ revision: Long
 pauses: [Pause]
 ```
 
-`manual` au niveau **Session** indique qu'une session a été créée/saisie manuellement. Il est distinct de `Pause.manual`. `companySlot` conserve l'association éventuelle de la session avec l'entreprise/emplacement choisi par le flux Android ; une valeur inconnue d'une plateforme doit être préservée sans interprétation ni suppression.
+`manual` au niveau **Session** indique qu'une session a été créée/saisie manuellement. Il est distinct de `Pause.manual`. `companySlot` conserve l'identifiant numérique de l'entreprise/emplacement choisi par le flux Android (actuellement `1` ou `2`). Sa représentation canonique est un entier nullable ; une valeur numérique future inconnue doit être préservée telle quelle sans interprétation ni conversion en chaîne.
 
 `entryEpochMs` et `exitEpochMs` sont stockés en millisecondes UTC depuis l'époque Unix. L'affichage local utilise le fuseau du terminal ; les instants synchronisés ne doivent pas être convertis en chaînes locales.
 
@@ -56,6 +56,7 @@ Avant activation d'une synchronisation :
 
 - Android doit préserver les champs de session `shiftType`, `autoPauseMinutes`, `manual`, `companySlot`, `zoneId` et `zoneAddress`, ainsi que les champs de pause `manual` et `automatic` ;
 - iOS doit pouvoir décoder et réécrire ces champs même si son interface ne les exploite pas encore ;
+- `companySlot` est un entier nullable sur les deux plateformes afin de rester compatible avec les JSON Android existants ;
 - `Session.manual` et `Pause.manual` sont deux informations différentes et ne doivent jamais être fusionnées ou substituées ;
 - les champs inconnus d'une version plus récente ne doivent pas être supprimés par un ancien client ;
 - les pauses sont bornées à la session et fusionnées uniquement pour les calculs de durée, jamais pour supprimer leurs identités persistantes.
