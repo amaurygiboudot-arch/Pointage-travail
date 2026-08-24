@@ -6,8 +6,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.util.Base64
@@ -29,34 +29,48 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val dst = RectF()
-    private val buttonBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_button_complete_b64)
+    private val frameBand = Path()
+    private val innerPath = Path()
+
+    private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
+    private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
+
     private var globalAlpha = 255
 
     init { synchronized(CarbonCompositeDrawable::class.java) { instances[this] = Unit } }
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
-        val bitmap = buttonBitmap ?: return
         dst.set(bounds)
 
-        // L'image fournie contient déjà le fond carbone ET le cadre métallique.
-        // On prélève la zone utile du bouton et on l'affiche comme une seule couche,
-        // sans reconstruire le carbone, le cadre ou un reflet en code.
-        val source = usefulButtonRect(bitmap)
+        val outerRadius = dst.height() * .48f
+        val frameThickness = (dst.height() * .145f).coerceAtLeast(4f)
+        val inner = ButtonFrameGeometry.buildBand(
+            target = dst,
+            outerRadius = outerRadius,
+            thickness = frameThickness,
+            outPath = frameBand,
+            innerPath = innerPath
+        ) ?: return
+
         paint.alpha = globalAlpha
         paint.colorFilter = null
-        canvas.drawBitmap(bitmap, source, dst, paint)
-    }
 
-    private fun usefulButtonRect(bitmap: Bitmap): Rect {
-        // Image source 3:2 : le bouton occupe approximativement la bande centrale.
-        // Ces valeurs sont volontairement simples pour le premier test visuel ;
-        // elles pourront être ajustées après contrôle sur téléphone.
-        val left = (bitmap.width * 0.095f).toInt().coerceIn(0, bitmap.width - 1)
-        val right = (bitmap.width * 0.905f).toInt().coerceIn(left + 1, bitmap.width)
-        val top = (bitmap.height * 0.255f).toInt().coerceIn(0, bitmap.height - 1)
-        val bottom = (bitmap.height * 0.735f).toInt().coerceIn(top + 1, bitmap.height)
-        return Rect(left, top, right, bottom)
+        // Fond carbone fourni : affiché uniquement dans la zone intérieure.
+        fillBitmap?.let { bitmap ->
+            canvas.save()
+            canvas.clipPath(innerPath)
+            canvas.drawBitmap(bitmap, null, inner, paint)
+            canvas.restore()
+        }
+
+        // Cadre carbone/métallique fourni séparément : uniquement sur la couronne.
+        frameBitmap?.let { bitmap ->
+            canvas.save()
+            canvas.clipPath(frameBand)
+            canvas.drawBitmap(bitmap, null, dst, paint)
+            canvas.restore()
+        }
     }
 
     private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
