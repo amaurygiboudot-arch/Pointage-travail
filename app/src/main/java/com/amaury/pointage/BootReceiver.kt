@@ -39,6 +39,14 @@ class BootReceiver : BroadcastReceiver() {
             if (!latitude.isFinite() || !longitude.isFinite()) continue
             zones += WorkZone(id, latitude, longitude, radius)
         }
-        if (zones.isNotEmpty()) GeofenceManager.registerAll(context, zones)
+        if (zones.isEmpty()) return
+
+        // La réinscription Geofencing est asynchrone (remove puis add). goAsync() garde le
+        // receiver vivant jusqu'au callback final afin qu'Android ne puisse pas tuer le
+        // processus entre les deux opérations après un reboot ou un remplacement d'APK.
+        val pendingResult = goAsync()
+        GeofenceManager.registerAll(context, zones) { _, _ ->
+            pendingResult.finish()
+        }
     }
 }
