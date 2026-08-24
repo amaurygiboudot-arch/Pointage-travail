@@ -14,9 +14,24 @@ Les trois actions principales utilisent actuellement les vues personnalisées su
 
 Ces classes et toutes leurs dépendances directes constituent le pipeline diamant actif. Le pipeline actif comprend également la chaîne d'éclairage dynamique : `SalaryTabTextView.onAttachedToWindow()` installe `ButtonReliefInstaller`, qui attache `LightDirectionController` et propage l'éclairage naturel/capteur vers les boutons diamant via les mises à jour globales prévues par les boutons finaux. Ces dépendances inverses sont protégées au même titre que les trois vues elles-mêmes.
 
-Les ressources portant des noms historiques comme `original`, `true3d`, `final`, `dynamic`, `composite` ou similaires ne sont pas réputées actives par leur seul nom : leur statut dépend d'une référence réelle depuis ces classes, les layouts ou le code chargé en production.
+### Renderers secondaires actifs
+
+Les noms historiques ne suffisent pas à déterminer qu'un renderer est obsolète. Plusieurs générations portant des noms `true3d`, `dynamic` ou `composite` sont encore réellement utilisées par `ButtonReliefInstaller.applyToButton(...)` pour les boutons secondaires :
+
+- `CarbonCompositeDrawable` pour le thème `natural_carbon` ;
+- `DynamicDiamondDrawable` pour les thèmes ordinaires concernés ;
+- `True3DButtonInstaller` pour le thème `diamond_crystal` ;
+- `carbon_fill_b64` et `carbon_frame_b64` restent des dépendances actives du chemin carbone.
+
+Ces classes et ressources ne sont donc pas des candidats de nettoyage tant que ce routage existe.
 
 Aucun nettoyage de ressources ne doit modifier la géométrie, les facettes, les couleurs, l'éclairage dynamique ou le comportement capteur du pipeline diamant actif.
+
+## Icône launcher pilotée par l'état
+
+Le pipeline d'icône d'application est actif et dynamique. Les alias déclarés dans le manifeste utilisent `hp_icon_red`, `hp_icon_green` et `hp_icon_orange`. `PointageStore.scheduleIconSync()` déclenche `IconSwitcher.sync()` afin d'activer l'alias correspondant à l'état arrêté, en travail ou en pause.
+
+Un alias initialement désactivé dans le manifeste n'est donc pas une preuve d'inutilisation : ces trois icônes et leurs aliases sont des points d'entrée runtime protégés.
 
 ## Fond de l'application
 
@@ -46,6 +61,12 @@ L'horloge du widget est produite par `WidgetVisualRenderer.clock(...)`.
 Le petit widget est piloté par `QuickActionsWidgetProvider`.
 
 Une ressource utilisée uniquement par une génération historique du widget peut être supprimée seulement après confirmation qu'elle n'est pas référencée par `RemoteViews`, XML, `WidgetVisualRenderer`, les providers ou une construction dynamique.
+
+## app-v3
+
+`app-v3` contient son propre `activity_main.xml`, `V3HeaderView`, `V3JewelButton`, `V3SunIndicatorView` et des ressources `v3_*`, mais il n'est pas inclus dans le build racine (`settings.gradle.kts` ne construit que `:app`) et aucun workflow de production ne l'invoque.
+
+Son pipeline graphique est donc **inactif dans le produit officiel actuel**. Il constitue un ensemble de prototype/cleanup distinct et ne doit pas être confondu avec le pipeline graphique de `:app`. Toute remise en service de `app-v3` exige une PR d'intégration et de CI dédiée.
 
 ## Candidats orphelins confirmés par la revue
 
@@ -84,11 +105,13 @@ La revue repository-wide a vérifié les références Kotlin/Java, XML, manifest
 - `widget_luxury_exact.webp` ;
 - `widget_panel_exact.webp`.
 
-Cette liste n'autorise aucune suppression d'un élément non listé sans nouvelle preuve. En particulier, les classes de l'éclairage dynamique des diamants sont explicitement actives et protégées.
+Cette liste n'autorise aucune suppression d'un élément non listé sans nouvelle preuve. En particulier, les classes de l'éclairage dynamique, les renderers secondaires actifs et les icônes launcher pilotées par l'état sont explicitement protégés.
 
 ## Ressources de récupération
 
-Le dépôt contient plusieurs générations de récupération (`RecoveryActivity`, `RecoveryActivityV2` et ressources associées). Elles sont considérées comme fonctionnelles tant que le manifeste ou un provider peut les lancer. Leur consolidation doit faire l'objet d'une correction dédiée avec test du parcours de récupération ; elles ne doivent pas être supprimées dans un simple nettoyage graphique.
+`LaunchActivity` lance explicitement `RecoveryActivityV2`, qui est le parcours de récupération actif. `RecoveryInitProvider` installe `CrashRecoveryManager` mais ne lance pas `RecoveryActivity`.
+
+`RecoveryActivity` reste déclaré dans le manifeste, mais aucune voie de production identifiée (code, alias, provider, réflexion ou nom construit) ne le lance actuellement. Une déclaration de manifeste seule ne constitue pas un chemin d'exécution. Cette génération legacy doit donc être traitée comme **candidate de consolidation/suppression dédiée**, avec test du parcours `RecoveryActivityV2`, et non être supprimée au milieu d'un simple nettoyage graphique.
 
 ## Méthode obligatoire avant suppression
 
