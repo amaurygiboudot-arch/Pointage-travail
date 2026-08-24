@@ -287,32 +287,36 @@ object SettingsUiInstaller {
             setOnClickListener { UserGuideDialog.show(activity) }
         })
 
-        section.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
+        section.addView(title(activity, "EXPORT PDF GOOGLE DRIVE"))
         val driveStatus = TextView(activity).apply {
             textSize = 14f
-            text = if (DriveBackupManager.isConfigured(activity)) "● Sauvegarde Drive active — PDF classés par lieu / année / mois" else "Drive non configuré"
+            text = if (DriveBackupManager.isConfigured(activity)) {
+                "● Export PDF Drive actif — rapports classés par lieu / année / mois. Ces PDF ne permettent pas de restaurer l'historique dans l'application."
+            } else {
+                "Export PDF Drive non configuré — ce n'est pas une sauvegarde restaurable de l'application."
+            }
         }
         section.addView(driveStatus)
-        section.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE").apply {
+        section.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER D'EXPORT PDF" else "CHOISIR LE DOSSIER D'EXPORT PDF").apply {
             setOnClickListener { activity.startActivity(Intent(activity, DriveFolderPickerActivity::class.java)) }
         })
-        section.addView(styledButton(activity, "SYNCHRONISER TOUT L'HISTORIQUE").apply {
+        section.addView(styledButton(activity, "EXPORTER LES PDF DE L'HISTORIQUE").apply {
             setOnClickListener {
                 if (!DriveBackupManager.isConfigured(activity)) {
-                    Toast.makeText(activity, "Choisis d'abord un dossier Google Drive", Toast.LENGTH_LONG).show()
+                    Toast.makeText(activity, "Choisis d'abord un dossier Google Drive pour l'export PDF", Toast.LENGTH_LONG).show()
                 } else {
-                    Toast.makeText(activity, "Synchronisation Drive démarrée", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(activity, "Export PDF Drive démarré", Toast.LENGTH_SHORT).show()
                     DriveBackupManager.syncAllAsync(activity) { ok, message ->
-                        activity.runOnUiThread { Toast.makeText(activity, if (ok) "Drive : $message" else "Erreur Drive : $message", Toast.LENGTH_LONG).show() }
+                        activity.runOnUiThread { Toast.makeText(activity, if (ok) "Export PDF Drive : $message" else "Erreur export Drive : $message", Toast.LENGTH_LONG).show() }
                     }
                 }
             }
         })
-        section.addView(styledButton(activity, "DÉCONNECTER LE DOSSIER DRIVE").apply {
+        section.addView(styledButton(activity, "DÉCONNECTER LE DOSSIER D'EXPORT DRIVE").apply {
             setOnClickListener {
                 DriveBackupManager.clear(activity)
-                driveStatus.text = "Drive non configuré"
-                Toast.makeText(activity, "Sauvegarde Drive désactivée", Toast.LENGTH_SHORT).show()
+                driveStatus.text = "Export PDF Drive non configuré — ce n'est pas une sauvegarde restaurable de l'application."
+                Toast.makeText(activity, "Export PDF Drive désactivé", Toast.LENGTH_SHORT).show()
             }
         })
 
