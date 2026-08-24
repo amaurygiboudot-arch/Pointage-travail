@@ -36,7 +36,7 @@ final class WorkStore: ObservableObject {
     func clockIn() {
         guard !isWorking else { return }
         sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
-        save()
+        _ = save()
     }
 
     func togglePause() {
@@ -46,7 +46,7 @@ final class WorkStore: ObservableObject {
         } else {
             sessions[index].pauses.append(PausePeriod(id: UUID(), start: Date(), end: nil))
         }
-        save()
+        _ = save()
     }
 
     func clockOut() {
@@ -55,44 +55,91 @@ final class WorkStore: ObservableObject {
             sessions[index].pauses[pauseIndex].end = Date()
         }
         sessions[index].exit = Date()
-        save()
+        _ = save()
     }
 
     func workedDuration(for session: WorkSession, until endDate: Date = Date()) -> TimeInterval {
         let end = session.exit ?? endDate
-        let pause = session.pauses.reduce(0.0) { total, period in
-            total + ((period.end ?? endDate).timeIntervalSince(period.start))
+        let rawDuration = max(0, end.timeIntervalSince(session.entry))
+        let intervals = session.pauses.compactMap { period -> (Date, Date)? in
+            let rawEnd = period.end ?? endDate
+            let start = max(period.start, session.entry)
+            let pauseEnd = min(rawEnd, end)
+            return pauseEnd > start ? (start, pauseEnd) : nil
+        }.sorted { $0.0 < $1.0 }
+
+        var mergedPause: TimeInterval = 0
+        var current: (Date, Date)?
+        for interval in intervals {
+            guard let existing = current else {
+                current = interval
+                continue
+            }
+            if interval.0 <= existing.1 {
+                current = (existing.0, max(existing.1, interval.1))
+            } else {
+                mergedPause += existing.1.timeIntervalSince(existing.0)
+                current = interval
+            }
         }
-        return max(0, end.timeIntervalSince(session.entry) - pause)
+        if let existing = current {
+            mergedPause += existing.1.timeIntervalSince(existing.0)
+        }
+        return max(0, rawDuration - min(mergedPause, rawDuration))
     }
 
     func restorePreviousBackup() -> Bool {
-        guard let backupURL = try? storageURLs().backup,
-              let decoded = decodeFile(at: backupURL) else { return false }
-        sessions = decoded
-        save()
-        persistenceWarning = nil
-        return true
+        do {
+            let urls = try storageURLs()
+            guard let decoded = decodeFile(at: urls.backup) else { return false }
+            sessions = decoded
+            guard save(preserveBackup: true, clearWarningOnSuccess: false) else {
+                persistenceWarning = "La restauration a été chargée mais n’a pas pu être enregistrée durablement."
+                return false
+            }
+            persistenceWarning = nil
+            return true
+        } catch {
+            persistenceWarning = "Le stockage local est indisponible."
+            NSLog("WorkStore restore storage lookup failed: %@", String(describing: error))
+            return false
+        }
     }
 
-    private func save() {
+    @discardableResult
+    private func save(preserveBackup: Bool = false, clearWarningOnSuccess: Bool = true) -> Bool {
         do {
             let urls = try storageURLs()
             let envelope = WorkStoreEnvelope(schemaVersion: schemaVersion, sessions: sessions)
             let data = try JSONEncoder().encode(envelope)
 
-            if fileManager.fileExists(atPath: urls.primary.path) {
-                if fileManager.fileExists(atPath: urls.backup.path) {
-                    try fileManager.removeItem(at: urls.backup)
-                }
-                try fileManager.copyItem(at: urls.primary, to: urls.backup)
+            // Ne prépare une nouvelle copie précédente que si le primaire actuel
+            // est lui-même décodable. Un primaire corrompu ne doit jamais écraser
+            // une sauvegarde connue comme valide.
+            var previousPrimaryData: Data?
+            if !preserveBackup,
+               fileManager.fileExists(atPath: urls.primary.path),
+               decodeFile(at: urls.primary) != nil {
+                previousPrimaryData = try Data(contentsOf: urls.primary)
             }
 
+            // L'écriture atomique du nouveau primaire passe en premier. Si elle
+            // échoue, l'ancien primaire et l'ancienne sauvegarde restent intacts.
             try data.write(to: urls.primary, options: [.atomic])
-            persistenceWarning = nil
+
+            // La copie précédente est elle aussi remplacée atomiquement. En cas
+            // d'échec, le primaire neuf reste durable et l'ancienne sauvegarde
+            // n'est pas détruite avant qu'une nouvelle copie soit prête.
+            if let previousPrimaryData, !preserveBackup {
+                try previousPrimaryData.write(to: urls.backup, options: [.atomic])
+            }
+
+            if clearWarningOnSuccess { persistenceWarning = nil }
+            return true
         } catch {
             persistenceWarning = "La sauvegarde locale n’a pas pu être enregistrée."
             NSLog("WorkStore persistence save failed: %@", String(describing: error))
+            return false
         }
     }
 
@@ -103,24 +150,37 @@ final class WorkStore: ObservableObject {
                 sessions = primary
                 return
             }
+
             if let backup = decodeFile(at: urls.backup) {
                 sessions = backup
                 persistenceWarning = "Les données précédentes ont été restaurées après une erreur de lecture."
-                save()
+                // Conserver le backup connu comme valide pendant la reconstruction
+                // du primaire : le primaire corrompu ne doit jamais le remplacer.
+                if !save(preserveBackup: true, clearWarningOnSuccess: false) {
+                    persistenceWarning = "Les données de secours sont lisibles mais leur restauration durable a échoué."
+                }
                 return
             }
+
             if let legacy = decodeLegacyUserDefaults() {
                 sessions = legacy
-                save()
-                UserDefaults.standard.removeObject(forKey: legacyKey)
+                // Le seul exemplaire legacy n'est supprimé qu'après confirmation
+                // que le nouveau fichier Application Support a bien été écrit.
+                if save() {
+                    UserDefaults.standard.removeObject(forKey: legacyKey)
+                } else {
+                    persistenceWarning = "Les anciennes données restent protégées, mais leur migration n’a pas abouti."
+                }
                 return
             }
+
+            if fileManager.fileExists(atPath: urls.primary.path) || fileManager.fileExists(atPath: urls.backup.path) {
+                persistenceWarning = "Les données locales sont illisibles. Une restauration peut être nécessaire."
+            }
         } catch {
-            NSLog("WorkStore persistence load failed: %@", String(describing: error))
+            persistenceWarning = "Le stockage local est indisponible."
+            NSLog("WorkStore persistence load storage lookup failed: %@", String(describing: error))
         }
-        persistenceWarning = fileManager.fileExists(atPath: (try? storageURLs().primary.path) ?? "")
-            ? "Les données locales sont illisibles. Une restauration peut être nécessaire."
-            : nil
     }
 
     private func storageURLs() throws -> (primary: URL, backup: URL) {
