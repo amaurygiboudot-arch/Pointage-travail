@@ -8,13 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
-import java.util.concurrent.TimeUnit
 
 class UpdateDownloadReceiver : BroadcastReceiver() {
 
@@ -40,26 +33,15 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
             return
         }
 
-        if (UpdateChecker.downloadedApkFile(context) == null) {
+        val apk = UpdateChecker.downloadedApkFile(context)
+        if (apk == null || !apk.exists()) {
             UpdateChecker.clearDownloadState(context)
             notifyFailure(context, "Fichier de mise à jour introuvable")
             return
         }
 
-        // Le receiver se termine immédiatement. Toute vérification réseau/cryptographique
-        // est confiée à WorkManager, qui peut survivre aux contraintes d'arrière-plan.
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
-        val request = OneTimeWorkRequestBuilder<UpdateVerificationWorker>()
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .build()
-        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-            UpdateVerificationWorker.UNIQUE_WORK,
-            ExistingWorkPolicy.REPLACE,
-            request
-        )
+        // Aucune opération réseau ou cryptographique ici : le receiver se termine vite.
+        UpdateVerificationWorker.enqueue(context)
     }
 
     private fun notifyFailure(context: Context, reason: String) {
