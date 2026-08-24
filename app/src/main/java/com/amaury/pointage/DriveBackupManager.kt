@@ -64,14 +64,15 @@ object DriveBackupManager {
     private fun syncCompletedDays(context: Context) {
         val all = PointageStore.load(context)
         if (all.length() == 0) return
-        val today = startOfDay(System.currentTimeMillis())
+        val today = SessionSlices.startOfDay(System.currentTimeMillis())
         val days = linkedSetOf<Long>()
         for (i in 0 until all.length()) {
             val item = all.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L || item.isNull("exit")) continue
-            val day = startOfDay(entry)
-            if (day < today) days += day
+            if (item.isNull("exit")) continue
+            SessionSlices.splitByDay(item).forEach { slice ->
+                val day = SessionSlices.startOfDay(slice.optLong("entry", -1L))
+                if (day > 0L && day < today) days += day
+            }
         }
         days.forEach { writeDailyReports(context, all, it) }
     }
@@ -81,10 +82,10 @@ object DriveBackupManager {
         val groups = linkedMapOf<String, JSONArray>()
         for (i in 0 until all.length()) {
             val item = all.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry !in dayStart until dayEnd || item.isNull("exit")) continue
+            if (item.isNull("exit")) continue
+            val slice = SessionSlices.clip(item, dayStart, dayEnd) ?: continue
             val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() } ?: "Pointage manuel"
-            groups.getOrPut(place) { JSONArray() }.put(item)
+            groups.getOrPut(place) { JSONArray() }.put(slice)
         }
         if (groups.isEmpty()) return
 
@@ -115,11 +116,15 @@ object DriveBackupManager {
         val cal = Calendar.getInstance(Locale.FRANCE)
         for (i in 0 until all.length()) {
             val item = all.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
-            cal.timeInMillis = entry
-            val y = cal.get(Calendar.YEAR); val m = cal.get(Calendar.MONTH)
-            if (y * 12 + m < currentKey) months += y to m
+            if (item.isNull("exit")) continue
+            SessionSlices.splitByDay(item).forEach { slice ->
+                val entry = slice.optLong("entry", -1L)
+                if (entry <= 0L) return@forEach
+                cal.timeInMillis = entry
+                val y = cal.get(Calendar.YEAR)
+                val m = cal.get(Calendar.MONTH)
+                if (y * 12 + m < currentKey) months += y to m
+            }
         }
         months.forEach { (y, m) -> syncMonth(context, y, m) }
     }
@@ -127,16 +132,15 @@ object DriveBackupManager {
     fun syncMonth(context: Context, year: Int, month: Int) {
         val treeUri = savedTreeUri(context) ?: return
         val all = PointageStore.load(context)
+        val monthStart = SessionSlices.monthStart(year, month)
+        val monthEnd = SessionSlices.monthEnd(year, month)
         val groups = linkedMapOf<String, JSONArray>()
-        val cal = Calendar.getInstance(Locale.FRANCE)
         for (i in 0 until all.length()) {
             val item = all.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
-            cal.timeInMillis = entry
-            if (cal.get(Calendar.YEAR) != year || cal.get(Calendar.MONTH) != month) continue
+            if (item.isNull("exit")) continue
+            val slice = SessionSlices.clip(item, monthStart, monthEnd) ?: continue
             val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() } ?: "Pointage manuel"
-            groups.getOrPut(place) { JSONArray() }.put(item)
+            groups.getOrPut(place) { JSONArray() }.put(slice)
         }
         if (groups.isEmpty()) return
 
@@ -155,11 +159,6 @@ object DriveBackupManager {
                 ?: error("Impossible d'écrire $fileName")
         }
     }
-
-    private fun startOfDay(time: Long): Long = Calendar.getInstance(Locale.FRANCE).apply {
-        timeInMillis = time
-        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }.timeInMillis
 
     private fun folderNameForPlace(place: String): String = if (place.contains(" — ")) place.substringBefore(" — ").trim() else place.trim()
     private fun safeName(value: String): String = value.replace(Regex("[\\/:*?\"<>|]"), "-").trim().take(80).ifBlank { "Lieu sans nom" }
