@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.ColorFilter
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RectF
@@ -12,14 +14,33 @@ import android.graphics.drawable.Drawable
 import android.util.Base64
 
 /**
- * Fond + cadre carbone. Les bitmaps sont décodés une seule fois par processus :
- * créer un nouveau drawable ne relit plus les gros Base64 à chaque restylage.
+ * Fond + cadre carbone.
+ * - mode sombre : texture carbone originale ;
+ * - mode clair : polarisation/inversion de la même texture.
+ *
+ * Les bitmaps sont décodés une seule fois par processus.
  */
-class CarbonCompositeDrawable(context: Context) : Drawable() {
+class CarbonCompositeDrawable(
+    context: Context,
+    val lightMode: Boolean = !AppThemeCatalog.useDarkPalette(context)
+) : Drawable() {
     companion object {
         @Volatile private var cachedFill: Bitmap? = null
         @Volatile private var cachedFrame: Bitmap? = null
         private val cacheLock = Any()
+
+        private val lightFilter: ColorFilter by lazy {
+            ColorMatrixColorFilter(
+                ColorMatrix(
+                    floatArrayOf(
+                        -1f, 0f, 0f, 0f, 255f,
+                        0f, -1f, 0f, 0f, 255f,
+                        0f, 0f, -1f, 0f, 255f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+            )
+        }
 
         private fun bitmap(context: Context, resId: Int, frame: Boolean): Bitmap? {
             val cached = if (frame) cachedFrame else cachedFill
@@ -46,13 +67,13 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     private val fillBitmap: Bitmap? = bitmap(context, R.raw.carbon_fill_b64, frame = false)
     private val frameBitmap: Bitmap? = bitmap(context, R.raw.carbon_frame_b64, frame = true)
     private var globalAlpha = 255
-    private var filter: ColorFilter? = null
+    private var customFilter: ColorFilter? = null
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
         destination.set(bounds)
         paint.alpha = globalAlpha
-        paint.colorFilter = filter
+        paint.colorFilter = customFilter ?: if (lightMode) lightFilter else null
         fillBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
         frameBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
     }
@@ -65,8 +86,8 @@ class CarbonCompositeDrawable(context: Context) : Drawable() {
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        if (filter === colorFilter) return
-        filter = colorFilter
+        if (customFilter === colorFilter) return
+        customFilter = colorFilter
         invalidateSelf()
     }
 
