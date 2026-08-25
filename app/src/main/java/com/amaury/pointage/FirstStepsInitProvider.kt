@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Toast
 
 /** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
@@ -27,6 +28,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         CompanyNameUiBinder.bind(activity)
         activity.window.decorView.post {
             installReplayButton(activity)
+            installGpsTestButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
@@ -42,6 +44,24 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
+        }
+        panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun installGpsTestButton(activity: MainActivity) {
+        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        if (panel.findViewWithTag<View>("gps_workplace_test") != null) return
+
+        val button = Button(activity).apply {
+            tag = "gps_workplace_test"
+            text = "🧪 MODE TEST GPS — SIMULER 3 JOURS"
+            isAllCaps = false
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener {
+                val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(activity)
+                Toast.makeText(activity, result, Toast.LENGTH_LONG).show()
+                WorkplaceProposalLimiter.showIfAllowed(activity)
+            }
         }
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
