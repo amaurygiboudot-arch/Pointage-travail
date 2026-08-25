@@ -18,6 +18,7 @@ object ThemeFrameStyler {
     private val tabIds = setOf("tabToday", "tabHistory", "tabAnalytics", "tabSalary", "tabSettings")
 
     fun apply(root: View) {
+        AutoDayNightPolarity.apply(root)
         val theme = AppThemeCatalog.current(root.context)
         if (theme.id != "natural_carbon" && theme.id != "signature_gold") return
         val dark = AppThemeCatalog.useDarkPalette(root.context)
