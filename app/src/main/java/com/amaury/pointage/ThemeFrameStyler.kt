@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import android.content.res.ColorStateList
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -9,7 +8,7 @@ import android.widget.Switch
 import android.widget.TextView
 
 /**
- * Applique les vrais fonds/cadres des thèmes sans les remplacer par des aplats.
+ * Applique les vrais fonds/cadres des thèmes sans les remplacer en boucle.
  * Les boutons de pointage diamant restent totalement exclus.
  */
 object ThemeFrameStyler {
@@ -33,7 +32,7 @@ object ThemeFrameStyler {
             view is Button -> styleControl(view, theme, dark)
             view is EditText -> styleControl(view, theme, dark)
             view is Switch -> styleControl(view, theme, dark)
-            view is ViewGroup && isFramedContainer(view, id) -> styleContainer(view, theme)
+            view is ViewGroup && isFramedContainer(view, id) -> ensureBackground(view, theme)
         }
 
         if (view is ViewGroup && view !is True3DButtonHost) {
@@ -50,20 +49,20 @@ object ThemeFrameStyler {
             tag.contains("panel", ignoreCase = true) || tag.contains("card", ignoreCase = true)
     }
 
-    private fun styleContainer(view: View, theme: HpTheme) {
+    private fun ensureBackground(view: View, theme: HpTheme) {
         view.backgroundTintList = null
-        view.background = when (theme.id) {
-            "natural_carbon" -> CarbonCompositeDrawable(view.context)
-            else -> view.context.getDrawable(R.drawable.hp_panel)?.mutate()
+        when (theme.id) {
+            "natural_carbon" -> if (view.background !is CarbonCompositeDrawable) {
+                view.background = CarbonCompositeDrawable(view.context)
+            }
+            "signature_gold" -> if (view.background == null || view.background is CarbonCompositeDrawable) {
+                view.background = view.context.getDrawable(R.drawable.hp_panel)?.mutate()
+            }
         }
     }
 
     private fun styleControl(view: View, theme: HpTheme, dark: Boolean) {
-        view.backgroundTintList = null
-        view.background = when (theme.id) {
-            "natural_carbon" -> CarbonCompositeDrawable(view.context)
-            else -> view.context.getDrawable(R.drawable.hp_panel)?.mutate()
-        }
+        ensureBackground(view, theme)
         when (view) {
             is Button -> view.setTextColor(if (dark) theme.darkText else theme.lightText)
             is EditText -> {
@@ -75,14 +74,12 @@ object ThemeFrameStyler {
     }
 
     private fun styleTab(tab: TextView, theme: HpTheme, dark: Boolean) {
-        tab.backgroundTintList = null
-        tab.background = when (theme.id) {
-            "natural_carbon" -> CarbonCompositeDrawable(tab.context)
-            else -> tab.context.getDrawable(R.drawable.hp_panel)?.mutate()
-        }
+        ensureBackground(tab, theme)
         val active = tab.isSelected
-        tab.alpha = if (active) 1f else 0.78f
-        tab.elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
+        val alpha = if (active) 1f else 0.78f
+        if (tab.alpha != alpha) tab.alpha = alpha
+        val elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
+        if (tab.elevation != elevation) tab.elevation = elevation
         tab.setTextColor(
             if (active) {
                 if (dark) theme.darkText else theme.lightText
