@@ -1,8 +1,10 @@
 package com.amaury.pointage
 
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
+import kotlin.math.roundToLong
 
 object SalaryCalculator {
 
@@ -25,7 +27,13 @@ object SalaryCalculator {
         val completedSessions: Int
     )
 
-    private data class Session(val entry: Long, val exit: Long, val workedDuration: Long)
+    private data class Session(
+        val entry: Long,
+        val exit: Long,
+        val workedDuration: Long,
+        val pauses: List<Pair<Long, Long>>,
+        val canonicalPauseDuration: Long
+    )
     private data class WeekKey(val year: Int, val week: Int)
 
     fun calculate(
@@ -42,7 +50,15 @@ object SalaryCalculator {
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
             if (entry > 0L && exit > entry) {
-                sessions.add(Session(entry, exit, PointageStore.workedDuration(item, exit)))
+                sessions.add(
+                    Session(
+                        entry = entry,
+                        exit = exit,
+                        workedDuration = PointageStore.workedDuration(item, exit),
+                        pauses = mergedPauses(item, entry, exit),
+                        canonicalPauseDuration = PointageStore.pauseDuration(item, exit)
+                    )
+                )
             }
         }
         sessions.sortBy { it.entry }
@@ -94,7 +110,14 @@ object SalaryCalculator {
         val nightMs = if (nightRule == null) 0L else sessions.sumOf { session ->
             val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
             if (cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month) {
-                nightOverlap(session.entry, session.exit, nightRule.startMinute, nightRule.endMinute)
+                nightWorkedOverlap(
+                    session.entry,
+                    session.exit,
+                    session.pauses,
+                    session.canonicalPauseDuration,
+                    nightRule.startMinute,
+                    nightRule.endMinute
+                )
             } else 0L
         }
 
@@ -123,9 +146,46 @@ object SalaryCalculator {
         )
     }
 
-    private fun nightOverlap(entry: Long, exit: Long, startMinute: Int, endMinute: Int): Long {
+    private fun mergedPauses(item: JSONObject, sessionStart: Long, sessionEnd: Long): List<Pair<Long, Long>> {
+        val pauses = item.optJSONArray("pauses") ?: return emptyList()
+        val intervals = mutableListOf<Pair<Long, Long>>()
+        for (i in 0 until pauses.length()) {
+            val pause = pauses.optJSONObject(i) ?: continue
+            val rawStart = pause.optLong("start", -1L)
+            val rawEnd = if (pause.isNull("end")) sessionEnd else pause.optLong("end", -1L)
+            if (rawStart <= 0L || rawEnd <= rawStart) continue
+            val start = maxOf(rawStart, sessionStart)
+            val end = minOf(rawEnd, sessionEnd)
+            if (end > start) intervals += start to end
+        }
+        if (intervals.isEmpty()) return emptyList()
+        intervals.sortBy { it.first }
+        val merged = mutableListOf<Pair<Long, Long>>()
+        var start = intervals.first().first
+        var end = intervals.first().second
+        for (i in 1 until intervals.size) {
+            val (nextStart, nextEnd) = intervals[i]
+            if (nextStart <= end) end = maxOf(end, nextEnd)
+            else {
+                merged += start to end
+                start = nextStart
+                end = nextEnd
+            }
+        }
+        merged += start to end
+        return merged
+    }
+
+    private fun nightWorkedOverlap(
+        entry: Long,
+        exit: Long,
+        pauses: List<Pair<Long, Long>>,
+        canonicalPauseDuration: Long,
+        startMinute: Int,
+        endMinute: Int
+    ): Long {
         if (exit <= entry) return 0L
-        var total = 0L
+        var nightBeforeAutomaticFloor = 0L
         val day = Calendar.getInstance(Locale.FRANCE).apply {
             timeInMillis = entry
             set(Calendar.HOUR_OF_DAY, 0)
@@ -143,19 +203,42 @@ object SalaryCalculator {
             add(Calendar.DAY_OF_YEAR, 1)
         }
         while (day.timeInMillis <= last.timeInMillis) {
-            val start = (day.clone() as Calendar).apply {
+            val nightStart = (day.clone() as Calendar).apply {
                 set(Calendar.HOUR_OF_DAY, startMinute / 60)
                 set(Calendar.MINUTE, startMinute % 60)
-            }
-            val end = (day.clone() as Calendar).apply {
+            }.timeInMillis
+            val nightEnd = (day.clone() as Calendar).apply {
                 set(Calendar.HOUR_OF_DAY, endMinute / 60)
                 set(Calendar.MINUTE, endMinute % 60)
                 if (endMinute <= startMinute) add(Calendar.DAY_OF_YEAR, 1)
+            }.timeInMillis
+
+            val grossNight = overlap(entry, exit, nightStart, nightEnd)
+            if (grossNight > 0L) {
+                val pausedInNight = pauses.sumOf { (pauseStart, pauseEnd) ->
+                    overlap(pauseStart, pauseEnd, maxOf(entry, nightStart), minOf(exit, nightEnd))
+                }
+                nightBeforeAutomaticFloor += (grossNight - pausedInNight).coerceAtLeast(0L)
             }
-            total += overlap(entry, exit, start.timeInMillis, end.timeInMillis)
             day.add(Calendar.DAY_OF_YEAR, 1)
         }
-        return total
+
+        val recordedPause = pauses.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
+        val extraAutomaticPause = (canonicalPauseDuration - recordedPause).coerceAtLeast(0L)
+        if (extraAutomaticPause == 0L || nightBeforeAutomaticFloor == 0L) return nightBeforeAutomaticFloor
+
+        // autoPauseMinutes est une durée minimale sans horodatage. On ne peut donc
+        // pas connaître sa position exacte. On répartit uniquement la partie non
+        // déjà représentée par des intervalles explicites au prorata du temps
+        // travaillé avant ce plancher. Une session entièrement de nuit reçoit ainsi
+        // 100 % de la déduction automatique, sans inventer un faux timestamp.
+        val grossDuration = exit - entry
+        val explicitWorked = (grossDuration - recordedPause).coerceAtLeast(0L)
+        if (explicitWorked == 0L) return 0L
+        val automaticInNight = (extraAutomaticPause.toDouble() *
+            nightBeforeAutomaticFloor.toDouble() / explicitWorked.toDouble()).roundToLong()
+        return (nightBeforeAutomaticFloor - automaticInNight)
+            .coerceIn(0L, (grossDuration - canonicalPauseDuration).coerceAtLeast(0L))
     }
 
     private fun overlap(start: Long, end: Long, rangeStart: Long, rangeEnd: Long): Long {
