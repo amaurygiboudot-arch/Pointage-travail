@@ -28,7 +28,23 @@ object PointageStore {
     }
 
     fun load(context: Context): JSONArray = synchronized(storageLock) { loadUnlocked(context) }
-    fun save(context: Context, data: JSONArray) = synchronized(storageLock) { saveUnlocked(context, data) }
+
+    fun save(context: Context, data: JSONArray) = synchronized(storageLock) {
+        // La saisie manuelle ajoute sa nouvelle journée à la fin du tableau.
+        // On lui attache ici la pause de base de l'entreprise choisie pour que
+        // tous les consommateurs de workedDuration() (historique, analyses,
+        // salaire, PDF, widgets) utilisent exactement la même règle.
+        val last = if (data.length() > 0) data.optJSONObject(data.length() - 1) else null
+        if (last?.optBoolean("manual", false) == true && !last.has("autoPauseMinutes")) {
+            val companySlot = last.optInt("companySlot", 0)
+            val basePause = if (companySlot in 1..2) {
+                CompanyBasePauseSettings.baseMinutes(context, companySlot)
+            } else 0
+            last.put("autoPauseMinutes", basePause)
+            if (!last.has("pauses")) last.put("pauses", JSONArray())
+        }
+        saveUnlocked(context, data)
+    }
 
     internal fun <T> update(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
         val data = loadUnlocked(context)
