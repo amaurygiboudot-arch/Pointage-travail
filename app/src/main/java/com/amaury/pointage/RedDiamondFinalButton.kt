@@ -21,6 +21,10 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         private const val MESH = 40
         private const val N_AIR = 1.000293f
         private const val N_DIAMOND = 2.417f
+        private const val MIN_LIGHT_ANGLE_DELTA = 1.0f
+        private const val MIN_TILT_DELTA = 1.0f
+        private const val MIN_INTENSITY_DELTA = .015f
+        private const val MIN_ELEVATION_DELTA = .75f
         private val live = Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton, Boolean>())
 
         fun updateGlobalNaturalLight(
@@ -31,7 +35,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             night: Boolean,
             elevation: Float
         ) {
-            live.toList().forEach {
+            live.forEach {
                 it.setNaturalLight(angle, pitch, roll, intensity, night, elevation)
             }
         }
@@ -62,6 +66,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private var lensStrength = .50f
 
     private var renderBitmap: Bitmap? = null
+    private var renderDirty = true
+    private var meshDirty = true
     private var meshVerts = FloatArray((MESH + 1) * (MESH + 1) * 2)
     private val facetStates = arrayOfNulls<FacetState>(FACET_COUNT)
 
@@ -101,6 +107,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             if (!it.isRecycled) it.recycle()
         }
         renderBitmap = null
+        renderDirty = true
+        meshDirty = true
     }
 
     fun setDiamondLightAngle(angle: Float) {
@@ -108,19 +116,36 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     }
 
     fun setLensStrength(value: Float) {
-        lensStrength = value.coerceIn(0f, 1f)
-        releaseRenderBitmap()
+        val next = value.coerceIn(0f, 1f)
+        if (abs(next - lensStrength) < .005f) return
+        lensStrength = next
+        meshDirty = true
         postInvalidateOnAnimation()
     }
 
     private fun setNaturalLight(a: Float, p: Float, r: Float, i: Float, n: Boolean, e: Float) {
-        lightAngle = norm(a)
-        pitch = p.coerceIn(-90f, 90f)
-        roll = r.coerceIn(-90f, 90f)
-        intensity = i.coerceIn(.12f, 1f)
+        val nextAngle = norm(a)
+        val nextPitch = p.coerceIn(-90f, 90f)
+        val nextRoll = r.coerceIn(-90f, 90f)
+        val nextIntensity = i.coerceIn(.12f, 1f)
+        val nextElevation = e.coerceIn(-10f, 90f)
+
+        val changed =
+            abs(shortestDelta(lightAngle, nextAngle)) >= MIN_LIGHT_ANGLE_DELTA ||
+                abs(nextPitch - pitch) >= MIN_TILT_DELTA ||
+                abs(nextRoll - roll) >= MIN_TILT_DELTA ||
+                abs(nextIntensity - intensity) >= MIN_INTENSITY_DELTA ||
+                abs(nextElevation - elevation) >= MIN_ELEVATION_DELTA ||
+                n != night
+        if (!changed) return
+
+        lightAngle = nextAngle
+        pitch = nextPitch
+        roll = nextRoll
+        intensity = nextIntensity
         night = n
-        elevation = e.coerceIn(-10f, 90f)
-        releaseRenderBitmap()
+        elevation = nextElevation
+        renderDirty = true
         postInvalidateOnAnimation()
     }
 
@@ -137,23 +162,29 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         drop(c, cx, cy, r * press)
 
         val bitmap = ensureRenderBitmap(w, h)
-        bitmap.eraseColor(Color.TRANSPARENT)
-        val bc = Canvas(bitmap)
-
         outer.reset()
         outer.addCircle(cx, cy, r, Path.Direction.CW)
-        bc.save()
-        bc.clipPath(outer)
-        glass(bc, cx, cy, r)
-        pavilion(bc, cx, cy, r)
-        facets(bc, cx, cy, r)
-        table(bc, cx, cy, r)
-        refraction(bc, cx, cy, r)
-        edges(bc, cx, cy, r)
-        glints(bc, cx, cy, r)
-        bc.restore()
 
-        buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, r)
+        if (renderDirty) {
+            bitmap.eraseColor(Color.TRANSPARENT)
+            val bc = Canvas(bitmap)
+            bc.save()
+            bc.clipPath(outer)
+            glass(bc, cx, cy, r)
+            pavilion(bc, cx, cy, r)
+            facets(bc, cx, cy, r)
+            table(bc, cx, cy, r)
+            refraction(bc, cx, cy, r)
+            edges(bc, cx, cy, r)
+            glints(bc, cx, cy, r)
+            bc.restore()
+            renderDirty = false
+        }
+
+        if (meshDirty) {
+            buildConvexMesh(w.toFloat(), h.toFloat(), cx, cy, r)
+            meshDirty = false
+        }
 
         c.save()
         c.scale(press, press, cx, cy)
@@ -167,7 +198,10 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private fun ensureRenderBitmap(w: Int, h: Int): Bitmap {
         val current = renderBitmap
         if (current == null || current.width != w || current.height != h || current.isRecycled) {
+            current?.let { if (!it.isRecycled) it.recycle() }
             renderBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            renderDirty = true
+            meshDirty = true
         }
         return renderBitmap!!
     }
@@ -561,6 +595,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
 
     private fun angle(i: Int) = -90f + i * (360f / FACETS)
     private fun norm(v: Float) = ((v % 360) + 360) % 360
+    private fun shortestDelta(from: Float, to: Float) = ((to - from + 540f) % 360f) - 180f
 
     private fun pt(cx: Float, cy: Float, r: Float, d: Float): FloatArray {
         val q = Math.toRadians(d.toDouble())
