@@ -397,7 +397,10 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             (gg * df).toInt().coerceIn(0, 255),
             (bb * df).toInt().coerceIn(0, 255)
         )
-        val a = state.referenceAlpha
+
+        // La coupe définit la translucidité de référence. L'inclinaison du téléphone
+        // modifie ensuite l'alpha indépendamment de la lumière et des reflets.
+        val a = dynamicFacetAlpha(state.referenceAlpha, facetAzimuth, ndv)
         val ga = Math.toRadians((az + 90).toDouble())
         val gx = cos(ga).toFloat() * width * .42f
         val gy = sin(ga).toFloat() * height * .42f
@@ -442,6 +445,28 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
         val signature = ((facetId * 13 + ring * 17) % 13) - 6
         return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
+    }
+
+    private fun dynamicFacetAlpha(referenceAlpha: Int, facetAzimuth: Float, viewFacing: Float): Int {
+        val tiltMagnitude = (hypot(pitch.toDouble(), roll.toDouble()).toFloat() / 70f).coerceIn(0f, 1f)
+        if (tiltMagnitude < .01f) return referenceAlpha
+
+        // Direction vers laquelle le haut du téléphone est incliné.
+        val tiltDirection = norm(
+            Math.toDegrees(atan2(roll.toDouble(), -pitch.toDouble())).toFloat()
+        )
+        val delta = Math.toRadians(shortestDelta(tiltDirection, facetAzimuth).toDouble())
+        val alignment = cos(delta).toFloat() // +1 face à l'inclinaison, -1 à l'opposé
+
+        // Une facette plus face à l'observateur devient plus transparente.
+        val facingTransparency = ((viewFacing.coerceIn(0f, 1f) - .5f) * 34f)
+        val orientationShift = alignment * tiltMagnitude * 30f
+
+        // Alpha faible = plus transparent. Les limites empêchent toute disparition
+        // ou opacité complète, même à forte inclinaison.
+        return (referenceAlpha - facingTransparency - orientationShift)
+            .roundToInt()
+            .coerceIn(112, 220)
     }
 
     private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
