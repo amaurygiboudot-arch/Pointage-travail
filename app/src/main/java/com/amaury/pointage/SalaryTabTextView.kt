@@ -2,11 +2,8 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.content.Context
-import android.content.res.ColorStateList
 import android.content.res.Configuration
-import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextUtils
@@ -132,34 +129,27 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     }
 
     private fun selectTab(activeId: Int) {
-        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id -> rootView.findViewById<TextView>(id)?.let { it.isSelected = id == activeId; styleTab(it, id == activeId) } }
+        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
+            rootView.findViewById<TextView>(id)?.let {
+                it.isSelected = id == activeId
+                styleTab(it, id == activeId)
+            }
+        }
     }
 
     private fun styleTab(tab: TextView, active: Boolean) {
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
-        val density = resources.displayMetrics.density
         val activeText = if (dark) theme.darkText else theme.lightText
         val inactiveText = if (dark) theme.darkHint else theme.lightHint
-        val accent = if (dark) theme.accentLight else theme.accent
-        tab.elevation = if (active) 3f * density else 0f
-        tab.alpha = if (active) 1f else 0.82f
+        tab.elevation = if (active) 3f * resources.displayMetrics.density else 0f
+        tab.alpha = if (active) 1f else 0.78f
         tab.setTextColor(if (active) activeText else inactiveText)
-
+        tab.backgroundTintList = null
         tab.background = when (theme.id) {
-            "natural_carbon" -> GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 10f * density
-                setColor(if (active) Color.parseColor("#24282A") else Color.parseColor("#101213"))
-                setStroke((if (active) 2f else 1f).times(density).toInt().coerceAtLeast(1), if (active) Color.parseColor("#CDD2D4") else Color.parseColor("#4B5256"))
-            }
-            "signature_gold" -> GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = 10f * density
-                setColor(if (active) (if (dark) Color.parseColor("#211C12") else Color.parseColor("#FFF8E7")) else (if (dark) Color.parseColor("#0D0C0A") else Color.parseColor("#F3F0E8")))
-                setStroke((if (active) 2f else 1f).times(density).toInt().coerceAtLeast(1), if (active) accent else Color.argb(115, Color.red(accent), Color.green(accent), Color.blue(accent)))
-            }
-            else -> null
+            "natural_carbon" -> CarbonCompositeDrawable(context)
+            "signature_gold" -> context.getDrawable(R.drawable.hp_panel)?.mutate()
+            else -> tab.background
         }
     }
 
@@ -195,16 +185,28 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val addressList = root.findViewById<EditText>(R.id.workplaceAddress) ?: return
         if (panel.findViewWithTag<AddAddressButton>("add_address_button") != null) return
         addressList.isFocusable = false; addressList.isFocusableInTouchMode = false; addressList.isCursorVisible = false; addressList.isLongClickable = false
-        addressList.hint = "Aucune adresse — utilise le bouton +"; addressList.setPadding(dp(12), dp(10), dp(12), dp(10)); addressList.setBackgroundResource(R.drawable.hp_panel)
-        val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
-        val mode = appearance.getString("mode", "auto") ?: "auto"
-        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
-        val buttonBackground = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
-        val buttonText = Color.parseColor(if (dark) "#F3D58A" else "#111111")
-        val addButton = AddAddressButton(context).apply { tag = "add_address_button"; text = "+  AJOUTER UNE ADRESSE"; textSize = 14f; setBackgroundResource(R.drawable.hp_panel); backgroundTintList = ColorStateList.valueOf(buttonBackground); setTextColor(buttonText); isAllCaps = false }
+        addressList.hint = "Aucune adresse — utilise le bouton +"
+        addressList.setPadding(dp(12), dp(10), dp(12), dp(10))
+
+        val theme = AppThemeCatalog.current(context)
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val addButton = AddAddressButton(context).apply {
+            tag = "add_address_button"
+            text = "+  AJOUTER UNE ADRESSE"
+            textSize = 14f
+            isAllCaps = false
+            backgroundTintList = null
+            background = when (theme.id) {
+                "natural_carbon" -> CarbonCompositeDrawable(context)
+                else -> context.getDrawable(R.drawable.hp_panel)?.mutate()
+            }
+            setTextColor(if (dark) theme.darkText else theme.lightText)
+        }
         val index = panel.indexOfChild(addressList)
-        if (index >= 0) { panel.addView(addButton, index + 1, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONTROL_HEIGHT_DP)).apply { topMargin = dp(8) }); post { normalizeFrameSizes() } }
+        if (index >= 0) {
+            panel.addView(addButton, index + 1, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONTROL_HEIGHT_DP)).apply { topMargin = dp(8) })
+            post { normalizeFrameSizes() }
+        }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
