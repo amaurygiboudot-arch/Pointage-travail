@@ -1,0 +1,3 @@
+HoraTrack AAB build trigger
+Date: 2026-08-25
+Purpose: trigger a fresh signed APK/AAB build from main.
