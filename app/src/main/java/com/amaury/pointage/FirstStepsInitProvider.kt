@@ -26,6 +26,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         activity.window.decorView.post {
             installReplayButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
+            WorkplaceProposalLimiter.showIfAllowed(activity)
         }
     }
 
