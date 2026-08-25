@@ -1,17 +1,16 @@
 package com.amaury.pointage
 
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Switch
+import android.widget.TextView
 
 /**
- * Source de vérité visuelle pour les cadres de l'application principale.
- * Les boutons de pointage diamant restent volontairement exclus : leur moteur
- * Canvas dessine déjà son propre contour et ne doit jamais être recouvert.
+ * Applique les vrais fonds/cadres des thèmes sans les remplacer par des aplats.
+ * Les boutons de pointage diamant restent totalement exclus.
  */
 object ThemeFrameStyler {
     private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
@@ -27,13 +26,14 @@ object ThemeFrameStyler {
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean) {
         val id = resourceName(view)
-        if (id in protectedIds || id in tabIds) return
+        if (id in protectedIds) return
 
-        when (view) {
-            is Button -> styleControl(view, theme, dark, emphasized = true)
-            is EditText -> styleControl(view, theme, dark, emphasized = false)
-            is Switch -> styleControl(view, theme, dark, emphasized = false)
-            is ViewGroup -> if (isFramedContainer(view, id)) styleContainer(view, theme, dark)
+        when {
+            id in tabIds && view is TextView -> styleTab(view, theme, dark)
+            view is Button -> styleControl(view, theme, dark)
+            view is EditText -> styleControl(view, theme, dark)
+            view is Switch -> styleControl(view, theme, dark)
+            view is ViewGroup && isFramedContainer(view, id) -> styleContainer(view, theme)
         }
 
         if (view is ViewGroup && view !is True3DButtonHost) {
@@ -46,42 +46,50 @@ object ThemeFrameStyler {
         if (id == "contentPanel" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel") return true
         if (id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)) return true
         val tag = view.tag?.toString().orEmpty()
-        return tag == "settings_personalization_installed" || tag.contains("panel", ignoreCase = true) || tag.contains("card", ignoreCase = true)
+        return tag == "settings_personalization_installed" ||
+            tag.contains("panel", ignoreCase = true) || tag.contains("card", ignoreCase = true)
     }
 
-    private fun styleContainer(view: View, theme: HpTheme, dark: Boolean) {
-        val density = view.resources.displayMetrics.density
-        val drawable = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 14f * density
-            if (theme.id == "natural_carbon") {
-                setColor(if (dark) Color.parseColor("#101213") else Color.parseColor("#D8DADB"))
-                setStroke((1.5f * density).toInt().coerceAtLeast(1), if (dark) Color.parseColor("#666E72") else Color.parseColor("#6F777B"))
-            } else {
-                setColor(if (dark) Color.parseColor("#15130F") else Color.parseColor("#FFFDF7"))
-                val gold = if (dark) theme.accentLight else theme.accent
-                setStroke((1.5f * density).toInt().coerceAtLeast(1), Color.argb(190, Color.red(gold), Color.green(gold), Color.blue(gold)))
-            }
-        }
-        view.background = drawable
-    }
-
-    private fun styleControl(view: View, theme: HpTheme, dark: Boolean, emphasized: Boolean) {
-        val density = view.resources.displayMetrics.density
+    private fun styleContainer(view: View, theme: HpTheme) {
         view.backgroundTintList = null
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 12f * density
-            if (theme.id == "natural_carbon") {
-                setColor(if (dark) Color.parseColor("#171A1C") else Color.parseColor("#CFD2D3"))
-                val stroke = if (emphasized) Color.parseColor("#AEB5B8") else Color.parseColor("#747C80")
-                setStroke(((if (emphasized) 1.8f else 1.2f) * density).toInt().coerceAtLeast(1), stroke)
-            } else {
-                setColor(if (dark) Color.parseColor("#1C1810") else Color.parseColor("#FFFBF0"))
-                val gold = if (dark) theme.accentLight else theme.accent
-                setStroke(((if (emphasized) 1.8f else 1.2f) * density).toInt().coerceAtLeast(1), gold)
-            }
+        view.background = when (theme.id) {
+            "natural_carbon" -> CarbonCompositeDrawable(view.context)
+            else -> view.context.getDrawable(R.drawable.hp_panel)?.mutate()
         }
+    }
+
+    private fun styleControl(view: View, theme: HpTheme, dark: Boolean) {
+        view.backgroundTintList = null
+        view.background = when (theme.id) {
+            "natural_carbon" -> CarbonCompositeDrawable(view.context)
+            else -> view.context.getDrawable(R.drawable.hp_panel)?.mutate()
+        }
+        when (view) {
+            is Button -> view.setTextColor(if (dark) theme.darkText else theme.lightText)
+            is EditText -> {
+                view.setTextColor(if (dark) theme.darkText else theme.lightText)
+                view.setHintTextColor(if (dark) theme.darkHint else theme.lightHint)
+            }
+            is Switch -> view.setTextColor(if (dark) theme.darkText else theme.lightText)
+        }
+    }
+
+    private fun styleTab(tab: TextView, theme: HpTheme, dark: Boolean) {
+        tab.backgroundTintList = null
+        tab.background = when (theme.id) {
+            "natural_carbon" -> CarbonCompositeDrawable(tab.context)
+            else -> tab.context.getDrawable(R.drawable.hp_panel)?.mutate()
+        }
+        val active = tab.isSelected
+        tab.alpha = if (active) 1f else 0.78f
+        tab.elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
+        tab.setTextColor(
+            if (active) {
+                if (dark) theme.darkText else theme.lightText
+            } else {
+                if (dark) theme.darkHint else theme.lightHint
+            }
+        )
     }
 
     private fun resourceName(view: View): String =
