@@ -17,6 +17,8 @@ import androidx.core.content.ContextCompat
 import java.util.Calendar
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -87,8 +89,6 @@ object LightDirectionController {
         var lastEmittedPitch = Float.NaN
         var lastEmittedRoll = Float.NaN
 
-        // Nouvelles données centrales. Elles n'ont qu'une seule origine et sont
-        // remplacées ensemble dans CelestialStateStore.
         var orientationState = DeviceOrientationState.IDENTITY
         var sunPosition: CelestialEphemeris.Position? = null
         var moonPosition: CelestialEphemeris.Position? = null
@@ -111,7 +111,7 @@ object LightDirectionController {
             location ?: return LocationConfidence.NONE
             val ageMs = (now - location.time).coerceAtLeast(0L)
             return when {
-                ageMs <= 5 * 60_000L && location.accuracy <= 250f -> LocationConfidence.FRESH
+                ageMs <= 5 * 60_000L && (!location.hasAccuracy() || location.accuracy <= 250f) -> LocationConfidence.FRESH
                 ageMs <= 6 * 60 * 60_000L -> LocationConfidence.USABLE
                 else -> LocationConfidence.STALE
             }
@@ -129,6 +129,15 @@ object LightDirectionController {
                 apparentScale = position.apparentScale,
                 opticalIntensity = opticalIntensity.coerceIn(0f, 1f),
                 available = true
+            )
+        }
+
+        fun screenDirection(position: CelestialEphemeris.Position?): ScreenDirection? {
+            position ?: return null
+            val delta = Math.toRadians(shortestDelta(orientationState.azimuthDeg, position.azimuth.toFloat()).toDouble())
+            return ScreenDirection(
+                x = sin(delta).toFloat(),
+                y = -cos(delta).toFloat()
             )
         }
 
@@ -158,7 +167,9 @@ object LightDirectionController {
                         )
                     },
                     orientation = orientationState,
-                    locationConfidence = locationConfidence(loc, now)
+                    locationConfidence = locationConfidence(loc, now),
+                    sunScreenDirection = screenDirection(sun),
+                    moonScreenDirection = screenDirection(moon)
                 )
             )
         }
