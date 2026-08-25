@@ -11,7 +11,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.Toast
 
 /** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
@@ -43,7 +42,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
             installReplayButton(activity)
-            installGpsTestButton(activity)
+            installDeveloperButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
@@ -64,20 +63,24 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun installGpsTestButton(activity: MainActivity) {
+    private fun installDeveloperButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>("gps_workplace_test") != null) return
+
+        // Nettoie l'ancien bouton de test GPS s'il a été injecté avant une mise à jour.
+        panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
+
+        if (!AdminDiagnosticsGate.isEnabled(activity)) {
+            panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
+            return
+        }
+        if (panel.findViewWithTag<View>("developer_tools") != null) return
 
         val button = Button(activity).apply {
-            tag = "gps_workplace_test"
-            text = "🧪 MODE TEST GPS — SIMULER 3 JOURS"
+            tag = "developer_tools"
+            text = "🛠 DÉVELOPPEUR"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener {
-                val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(activity)
-                Toast.makeText(activity, result, Toast.LENGTH_LONG).show()
-                WorkplaceProposalLimiter.showIfAllowed(activity)
-            }
+            setOnClickListener { DeveloperToolsDialog.show(activity) }
         }
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
@@ -93,5 +96,5 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?): Int = 0
 }
