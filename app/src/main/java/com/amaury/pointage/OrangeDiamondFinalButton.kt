@@ -33,10 +33,6 @@ class OrangeDiamondFinalButton @JvmOverloads constructor(
 
             if (changed) {
                 DriveBackupManager.syncCurrentMonthAsync(context)
-                // Ne jamais relancer MainActivity depuis le bouton Pause : cela pouvait
-                // réveiller le flux de mise à jour/installation lors du retour d'activité.
-                // Les données sont déjà persistées dans PointageStore ; l'écran courant
-                // sera rafraîchi par les mécanismes normaux de l'activité/widgets.
                 PointageWidgetProvider.updateAll(context)
                 QuickActionsWidgetProvider.updateAll(context)
                 invalidate()
@@ -45,12 +41,12 @@ class OrangeDiamondFinalButton @JvmOverloads constructor(
     }
 
     override fun diamondPalette() = intArrayOf(
-        Color.rgb(255,164,54), Color.rgb(238,108,0), Color.rgb(156,58,0), Color.rgb(255,194,102),
-        Color.rgb(105,38,0), Color.rgb(255,132,12), Color.rgb(204,78,0), Color.rgb(255,218,154),
-        Color.rgb(126,44,0), Color.rgb(250,118,0), Color.rgb(178,65,0), Color.rgb(255,174,70),
-        Color.rgb(78,28,0), Color.rgb(230,92,0), Color.rgb(216,86,0), Color.rgb(255,202,122)
+        Color.rgb(255,172,38), Color.rgb(255,116,0), Color.rgb(210,68,0), Color.rgb(255,202,82),
+        Color.rgb(158,42,0), Color.rgb(255,138,0), Color.rgb(238,82,0), Color.rgb(255,220,132),
+        Color.rgb(184,48,0), Color.rgb(255,124,0), Color.rgb(222,70,0), Color.rgb(255,180,50),
+        Color.rgb(132,32,0), Color.rgb(255,96,0), Color.rgb(246,88,0), Color.rgb(255,208,100)
     )
-    override fun diamondTint() = Color.rgb(255,126,12)
-    override fun diamondDark() = Color.rgb(102,38,0)
+    override fun diamondTint() = Color.rgb(255,118,0)
+    override fun diamondDark() = Color.rgb(142,38,0)
     override fun diamondHighlight() = Color.rgb(255,238,210)
 }
