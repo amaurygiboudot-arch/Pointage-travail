@@ -14,7 +14,10 @@ data class CelestialSnapshot(
     val isNight: Boolean,
     val location: CelestialLocationState?,
     val orientation: DeviceOrientationState,
-    val locationConfidence: LocationConfidence
+    val locationConfidence: LocationConfidence,
+    /** Direction écran normalisée : +X droite, +Y bas. */
+    val sunScreenDirection: ScreenDirection?,
+    val moonScreenDirection: ScreenDirection?
 ) {
     companion object {
         val EMPTY = CelestialSnapshot(
@@ -24,10 +27,14 @@ data class CelestialSnapshot(
             isNight = false,
             location = null,
             orientation = DeviceOrientationState.IDENTITY,
-            locationConfidence = LocationConfidence.NONE
+            locationConfidence = LocationConfidence.NONE,
+            sunScreenDirection = null,
+            moonScreenDirection = null
         )
     }
 }
+
+data class ScreenDirection(val x: Float, val y: Float)
 
 data class CelestialBodyState(
     val azimuthDeg: Double,
