@@ -35,16 +35,19 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
         CompanyNameUiBinder.bind(activity)
+        PrimaryButtonIsolation.install(activity)
         if (CustomBackgroundStore.isEnabled(activity)) {
             CustomBackgroundStore.resolve(activity)
             CustomBackgroundStore.saveBackup(activity)
         }
         activity.window.decorView.post {
+            PrimaryButtonIsolation.install(activity)
             installReplayButton(activity)
             installGpsTestButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
+            PrimaryButtonIsolation.install(activity)
         }
     }
 
