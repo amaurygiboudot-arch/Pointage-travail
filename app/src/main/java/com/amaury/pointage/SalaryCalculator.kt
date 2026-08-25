@@ -104,10 +104,12 @@ object SalaryCalculator {
         }
         val totalOvertimeMs = tierResults.sumOf { it.durationMs }
         val workedGross = regularHours * hourlyRate + overtimeGross
+        // Base contractuelle indicative conservée séparément. Elle n'est plus
+        // injectée dans l'estimation issue des pointages réels.
         val monthlyBaseGross = hourlyRate * 151.67
         val nightPremiumGross = if (nightRule == null) 0.0 else
             (nightMs / hourMs.toDouble()) * hourlyRate * (nightRule.premiumMultiplier - 1.0)
-        val monthlyEstimatedGross = monthlyBaseGross + overtimeGross + nightPremiumGross
+        val monthlyEstimatedGross = workedGross + nightPremiumGross
 
         return Result(
             regularMs = regularMs,
