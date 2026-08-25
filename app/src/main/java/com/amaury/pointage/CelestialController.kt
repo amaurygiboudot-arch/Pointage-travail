@@ -16,7 +16,6 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import kotlin.math.acos
 import kotlin.math.cos
-import kotlin.math.max
 import kotlin.math.sin
 
 /**
@@ -131,7 +130,9 @@ object CelestialController {
                 isNight = isNight,
                 location = referenceLocation,
                 orientation = orientation,
-                locationConfidence = locationConfidence(referenceLocation, nowMs)
+                locationConfidence = locationConfidence(referenceLocation, nowMs),
+                sunScreenDirection = sun?.let { screenDirection(it.azimuth, orientation.azimuthDeg) },
+                moonScreenDirection = moon?.let { screenDirection(it.azimuth, orientation.azimuthDeg) }
             )
         }
 
@@ -161,7 +162,6 @@ object CelestialController {
                         )
                     }
                     Sensor.TYPE_ACCELEROMETER -> {
-                        // Secours uniquement lorsqu'aucun Rotation Vector n'existe.
                         val ax = event.values[0]
                         val ay = event.values[1]
                         val az = event.values[2]
@@ -250,13 +250,11 @@ object CelestialController {
         fixTimeMs = time
     )
 
-    /** Transition crépusculaire continue, sans interrupteur lumineux brutal. */
     private fun solarOpticalIntensity(altitudeDeg: Double): Float {
         val t = ((altitudeDeg + 12.0) / 42.0).toFloat().coerceIn(0f, 1f)
         return smoothStep(t)
     }
 
-    /** La Lune dépend à la fois de son altitude et de sa fraction éclairée. */
     private fun lunarOpticalIntensity(altitudeDeg: Double, illumination: Float): Float {
         if (altitudeDeg <= -5.0) return 0f
         val altitudeFactor = ((altitudeDeg + 5.0) / 50.0).toFloat().coerceIn(0f, 1f)
@@ -280,11 +278,22 @@ object CelestialController {
         return ((1.0 - cos(separation)) * 0.5).toFloat().coerceIn(0f, 1f)
     }
 
+    private fun screenDirection(celestialAzimuthDeg: Double, deviceAzimuthDeg: Float): ScreenDirection {
+        val delta = Math.toRadians(shortestDelta(deviceAzimuthDeg, celestialAzimuthDeg.toFloat()).toDouble())
+        return ScreenDirection(
+            x = sin(delta).toFloat(),
+            y = -cos(delta).toFloat()
+        )
+    }
+
+    private fun shortestDelta(from: Float, to: Float): Float =
+        ((to - from + 540f) % 360f) - 180f
+
     private fun smoothStep(value: Float): Float {
         val t = value.coerceIn(0f, 1f)
         return t * t * (3f - 2f * t)
     }
 
     private fun Float.powGamma(gamma: Float): Float =
-        kotlin.math.pow(this.toDouble(), gamma.toDouble()).toFloat()
+        Math.pow(this.toDouble(), gamma.toDouble()).toFloat()
 }
