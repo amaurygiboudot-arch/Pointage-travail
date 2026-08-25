@@ -31,6 +31,7 @@
         <meta-data android:name="io.sentry.auto-init" android:value="false" />
 
         <provider android:name=".AppCheckInitProvider" android:authorities="${applicationId}.app-check-init" android:exported="false" android:initOrder="1000" />
+        <provider android:name=".DataSafetyInitProvider" android:authorities="${applicationId}.data-safety-init" android:exported="false" android:initOrder="900" />
         <provider android:name=".RecoveryInitProvider" android:authorities="${applicationId}.recovery-init" android:exported="false" android:initOrder="200" />
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
         <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />

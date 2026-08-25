@@ -276,6 +276,29 @@ object RecoveryUpdater {
                 }
                 return@Thread
             }
+
+            // Recovery installation must protect pointage history exactly like the normal
+            // verified-update path. The boundary flushes pointage.xml under the store lock,
+            // then snapshots it before the installer can ever be opened.
+            val safetyReady = runCatching {
+                PointageStore.withDurableSnapshotBoundary(activity) { currentData ->
+                    currentData.length() == 0 || DataSafetyGuard.createSnapshot(activity)
+                }
+            }.getOrDefault(false)
+            if (!safetyReady) {
+                activity.runOnUiThread {
+                    status.text = "Mise à jour bloquée : la sauvegarde de sécurité des pointages a échoué. Tes pointages restent inchangés."
+                    retry.isEnabled = true
+                    retry.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = 24f
+                        setColor(Color.rgb(24, 24, 24))
+                    }
+                    retry.setTextColor(Color.WHITE)
+                }
+                return@Thread
+            }
+
             activity.runOnUiThread {
                 CrashRecoveryManager.clear(activity)
                 launchInstaller(activity, manager, id, status, retry)

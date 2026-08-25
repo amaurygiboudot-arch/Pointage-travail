@@ -38,6 +38,18 @@ object PointageStore {
         result
     }
 
+    internal fun <T> withDurableSnapshotBoundary(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val data = loadUnlocked(context)
+        // A genuinely empty history has nothing to protect. Do not make recovery depend on
+        // writing an unnecessary empty preference file when storage is already unhealthy.
+        if (data.length() > 0) {
+            val flushed = prefs.edit().putString(KEY, data.toString()).commit()
+            if (!flushed) throw IllegalStateException("Impossible de synchroniser durablement les pointages")
+        }
+        block(data)
+    }
+
     fun hasOpen(context: Context): Boolean = findOpenSession(load(context)) != null
 
     fun isPaused(context: Context): Boolean {
