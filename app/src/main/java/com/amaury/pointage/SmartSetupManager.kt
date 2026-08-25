@@ -91,7 +91,6 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
 
-        // Ne recrée jamais une zone déjà associée à cette adresse.
         for (i in 0 until zones.length()) {
             val z = zones.optJSONObject(i) ?: continue
             if (z.optString("address").trim().equals(address, ignoreCase = true)) return
@@ -165,7 +164,6 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     private data class PauseSample(val startMinute: Int, val duration: Int)
 
     private fun learnCompanyPauses(context: Context, companySlot: Int) {
-        // Un réglage manuel garde toujours la priorité. On apprend uniquement les emplacements vides.
         val missing = (1..2).filter { CompanyBasePauseSettings.pause(context, companySlot, it) == null }
         if (missing.isEmpty()) return
 
@@ -194,8 +192,6 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }
         if (samples.size < 3) return
 
-        // Cherche jusqu'à deux habitudes : au moins 3 occurrences proches (±20 min)
-        // et avec une durée proche (±10 min). Les données les plus fréquentes gagnent.
         val candidates = samples.map { anchor ->
             val group = samples.filter {
                 circularMinuteDistance(it.startMinute, anchor.startMinute) <= 20 && abs(it.duration - anchor.duration) <= 10
@@ -208,18 +204,14 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }.filterNotNull()
             .distinctBy { Pair(it.second / 10, it.third / 5) }
             .sortedByDescending { it.first }
-            .toMutableList()
 
         val chosen = mutableListOf<Triple<Int, Int, Int>>()
         for (candidate in candidates) {
-            if (chosen.none { circularMinuteDistance(it.second, candidate.second) > 45 }) {
-                // trop proche d'une pause déjà choisie : même habitude
-            } else {
+            if (chosen.isEmpty() || chosen.all { circularMinuteDistance(it.second, candidate.second) > 45 }) {
                 chosen += candidate
             }
             if (chosen.size == missing.size) break
         }
-        if (chosen.isEmpty() && candidates.isNotEmpty()) chosen += candidates.first()
 
         missing.zip(chosen).forEach { (pauseIndex, candidate) ->
             val start = candidate.second.coerceIn(0, 1439)
@@ -239,8 +231,6 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun circularAverage(values: List<Int>): Int {
         if (values.isEmpty()) return 0
-        // Les pauses usuelles ne traversent presque jamais minuit ; le médian est
-        // volontairement plus robuste que la moyenne face à une journée atypique.
         return values.sorted()[values.size / 2]
     }
 }
