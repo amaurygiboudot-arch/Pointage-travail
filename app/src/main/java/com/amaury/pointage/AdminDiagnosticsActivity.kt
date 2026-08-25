@@ -106,12 +106,28 @@ class AdminDiagnosticsActivity : Activity() {
         })
 
         content.addView(TextView(this).apply {
+            text = "TEST DÉTECTION INTELLIGENTE\n\nPermet de simuler immédiatement 3 jours consécutifs avec au moins 7 h de présence sur une zone candidate. Les vraies règles de production ne sont pas modifiées."
+            textSize = 14f
+            setTextColor(Color.BLACK)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            background = rounded(Color.WHITE, Color.rgb(180, 180, 180))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        content.addView(button("🧪 SIMULER 3 JOURS DE TRAVAIL") {
+            val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(this)
+            Toast.makeText(this, result, Toast.LENGTH_LONG).show()
+            if (result.startsWith("Simulation prête")) {
+                WorkplaceProposalLimiter.showIfAllowed(this)
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
+
+        content.addView(TextView(this).apply {
             text = "ERREUR DÉTECTÉE\n$fingerprint\n\n$analysis"
             textSize = 14f
             setTextColor(Color.BLACK)
             setPadding(dp(14), dp(14), dp(14), dp(14))
             background = rounded(Color.WHITE, Color.rgb(210, 210, 210))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16) })
 
         content.addView(TextView(this).apply {
             text = "RAPPORT TECHNIQUE\n\n$report"
