@@ -6,6 +6,7 @@ import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextUtils
@@ -60,16 +61,8 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
 
         var salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
         if (salaryPanel == null) {
-            salaryPanel = SalaryPanelView(context).apply {
-                tag = SALARY_PANEL_TAG
-                visibility = View.GONE
-            }
-            contentPanel.addView(
-                salaryPanel,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = dp(6)
-                }
-            )
+            salaryPanel = SalaryPanelView(context).apply { tag = SALARY_PANEL_TAG; visibility = View.GONE }
+            contentPanel.addView(salaryPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         }
 
         statusCard?.visibility = View.GONE
@@ -90,30 +83,14 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun installSalaryAutoHide() {
         val root = rootView ?: return
         val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
-
         fun hide() {
             val salary = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
             val shift = root.findViewById<View>(R.id.shiftControlView)
-            val other = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE ||
-                root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE ||
-                root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE ||
-                root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
-            if (other) {
-                salary?.visibility = View.GONE
-                shift?.visibility = View.GONE
-            }
-            syncSelectedTabFromVisiblePanel()
-            normalizeFrameSizes()
+            val other = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
+            if (other) { salary?.visibility = View.GONE; shift?.visibility = View.GONE }
+            syncSelectedTabFromVisiblePanel(); normalizeFrameSizes()
         }
-
-        listOf(
-            root.findViewById<View>(R.id.pointageButtons),
-            root.findViewById<View>(R.id.historyText),
-            root.findViewById<View>(R.id.analyticsPdfPanel),
-            root.findViewById<View>(R.id.gpsSettingsPanel)
-        ).forEach { view ->
-            view?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> hide() }
-        }
+        listOf(root.findViewById<View>(R.id.pointageButtons), root.findViewById<View>(R.id.historyText), root.findViewById<View>(R.id.analyticsPdfPanel), root.findViewById<View>(R.id.gpsSettingsPanel)).forEach { view -> view?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> hide() } }
     }
 
     private fun applyTabTypography() {
@@ -126,15 +103,9 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
                 includeFontPadding = false
                 gravity = Gravity.CENTER
                 setPadding(dp(4), dp(3), dp(4), dp(3))
-                minimumWidth = 0
-                minWidth = 0
-                val raw = text.toString()
-                val br = raw.indexOf('\n')
-                if (br > 0 && text !is SpannableString) {
-                    val s = SpannableString(raw)
-                    s.setSpan(RelativeSizeSpan(1.45f), 0, br, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    text = s
-                }
+                minimumWidth = 0; minWidth = 0
+                val raw = text.toString(); val br = raw.indexOf('\n')
+                if (br > 0 && text !is SpannableString) { val s = SpannableString(raw); s.setSpan(RelativeSizeSpan(1.45f), 0, br, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE); text = s }
             }
         }
     }
@@ -142,10 +113,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun installTabButtonStyle() {
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
             val tab = rootView.findViewById<TextView>(id) ?: return@forEach
-            tab.setOnTouchListener { _, e ->
-                if (e.actionMasked == MotionEvent.ACTION_UP) selectTab(id)
-                false
-            }
+            tab.setOnTouchListener { _, e -> if (e.actionMasked == MotionEvent.ACTION_UP) selectTab(id); false }
         }
         syncSelectedTabFromVisiblePanel()
     }
@@ -163,74 +131,58 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     }
 
     private fun selectTab(activeId: Int) {
-        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
-            rootView.findViewById<TextView>(id)?.let {
-                it.isSelected = id == activeId
-                styleTab(it, id == activeId)
-            }
-        }
+        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id -> rootView.findViewById<TextView>(id)?.let { it.isSelected = id == activeId; styleTab(it, id == activeId) } }
     }
 
     private fun styleTab(tab: TextView, active: Boolean) {
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
-        val inactive = if (dark) theme.darkHint else theme.lightHint
-        tab.elevation = 0f
-        tab.alpha = 1f
-        tab.setTextColor(if (active) if (dark) theme.darkText else theme.lightText else inactive)
+        val density = resources.displayMetrics.density
+        val activeText = if (dark) theme.darkText else theme.lightText
+        val inactiveText = if (dark) theme.darkHint else theme.lightHint
+        val accent = if (dark) theme.accentLight else theme.accent
+        tab.elevation = if (active) 3f * density else 0f
+        tab.alpha = if (active) 1f else 0.82f
+        tab.setTextColor(if (active) activeText else inactiveText)
+
+        tab.background = when (theme.id) {
+            "natural_carbon" -> GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f * density
+                setColor(if (active) Color.parseColor("#24282A") else Color.parseColor("#101213"))
+                setStroke((if (active) 2f else 1f).times(density).toInt().coerceAtLeast(1), if (active) Color.parseColor("#CDD2D4") else Color.parseColor("#4B5256"))
+            }
+            "signature_gold" -> GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 10f * density
+                setColor(if (active) (if (dark) Color.parseColor("#211C12") else Color.parseColor("#FFF8E7")) else (if (dark) Color.parseColor("#0D0C0A") else Color.parseColor("#F3F0E8")))
+                setStroke((if (active) 2f else 1f).times(density).toInt().coerceAtLeast(1), if (active) accent else Color.argb(115, Color.red(accent), Color.green(accent), Color.blue(accent)))
+            }
+            else -> null
+        }
     }
 
-    /**
-     * Uniformise uniquement les dimensions et la tenue du texte.
-     * L'apparence du cadre reste gérée par le thème actif.
-     */
     private fun normalizeFrameSizes() {
         val root = rootView ?: return
         normalizeRecursive(root)
-        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
-            root.findViewById<TextView>(id)?.let { fitText(it, navigation = true) }
-        }
+        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id -> root.findViewById<TextView>(id)?.let { fitText(it, navigation = true) } }
     }
 
     private fun normalizeRecursive(view: View) {
         val id = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
         val protected = id == "entryButton" || id == "pauseButton" || id == "exitButton" || id == "settingsButton"
-
         if (!protected && view.visibility != View.GONE) {
             when (view) {
-                is Button -> {
-                    view.layoutParams?.let { lp ->
-                        lp.height = dp(CONTROL_HEIGHT_DP)
-                        view.layoutParams = lp
-                    }
-                    fitText(view, navigation = false)
-                }
-                is Switch -> {
-                    view.layoutParams?.let { lp ->
-                        lp.height = dp(CONTROL_HEIGHT_DP)
-                        view.layoutParams = lp
-                    }
-                    fitText(view, navigation = false)
-                }
+                is Button -> { view.layoutParams?.let { lp -> lp.height = dp(CONTROL_HEIGHT_DP); view.layoutParams = lp }; fitText(view, false) }
+                is Switch -> { view.layoutParams?.let { lp -> lp.height = dp(CONTROL_HEIGHT_DP); view.layoutParams = lp }; fitText(view, false) }
             }
         }
-
-        if (view is ViewGroup) {
-            for (i in 0 until view.childCount) normalizeRecursive(view.getChildAt(i))
-        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) normalizeRecursive(view.getChildAt(i))
     }
 
     private fun fitText(view: TextView, navigation: Boolean) {
-        view.gravity = Gravity.CENTER
-        view.includeFontPadding = false
-        view.maxLines = 2
-        view.ellipsize = TextUtils.TruncateAt.END
-        view.setPadding(
-            dp(if (navigation) 4 else 14),
-            dp(5),
-            dp(if (navigation) 4 else 14),
-            dp(5)
-        )
+        view.gravity = Gravity.CENTER; view.includeFontPadding = false; view.maxLines = 2; view.ellipsize = TextUtils.TruncateAt.END
+        view.setPadding(dp(if (navigation) 4 else 14), dp(5), dp(if (navigation) 4 else 14), dp(5))
         if (!navigation) view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
     }
 
@@ -239,47 +191,17 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val panel = root.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         val addressList = root.findViewById<EditText>(R.id.workplaceAddress) ?: return
         if (panel.findViewWithTag<AddAddressButton>("add_address_button") != null) return
-
-        addressList.isFocusable = false
-        addressList.isFocusableInTouchMode = false
-        addressList.isCursorVisible = false
-        addressList.isLongClickable = false
-        addressList.hint = "Aucune adresse — utilise le bouton +"
-        addressList.setPadding(dp(12), dp(10), dp(12), dp(10))
-        addressList.setBackgroundResource(R.drawable.hp_panel)
-
+        addressList.isFocusable = false; addressList.isFocusableInTouchMode = false; addressList.isCursorVisible = false; addressList.isLongClickable = false
+        addressList.hint = "Aucune adresse — utilise le bouton +"; addressList.setPadding(dp(12), dp(10), dp(12), dp(10)); addressList.setBackgroundResource(R.drawable.hp_panel)
         val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
         val mode = appearance.getString("mode", "auto") ?: "auto"
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = when (mode) {
-            "light" -> false
-            "dark" -> true
-            else -> systemDark
-        }
+        val dark = when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
         val buttonBackground = Color.parseColor(if (dark) "#181818" else "#FFFFFF")
         val buttonText = Color.parseColor(if (dark) "#F3D58A" else "#111111")
-
-        val addButton = AddAddressButton(context).apply {
-            tag = "add_address_button"
-            text = "+  AJOUTER UNE ADRESSE"
-            textSize = 14f
-            setBackgroundResource(R.drawable.hp_panel)
-            backgroundTintList = ColorStateList.valueOf(buttonBackground)
-            setTextColor(buttonText)
-            isAllCaps = false
-        }
-
+        val addButton = AddAddressButton(context).apply { tag = "add_address_button"; text = "+  AJOUTER UNE ADRESSE"; textSize = 14f; setBackgroundResource(R.drawable.hp_panel); backgroundTintList = ColorStateList.valueOf(buttonBackground); setTextColor(buttonText); isAllCaps = false }
         val index = panel.indexOfChild(addressList)
-        if (index >= 0) {
-            panel.addView(
-                addButton,
-                index + 1,
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONTROL_HEIGHT_DP)).apply {
-                    topMargin = dp(8)
-                }
-            )
-            post { normalizeFrameSizes() }
-        }
+        if (index >= 0) { panel.addView(addButton, index + 1, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONTROL_HEIGHT_DP)).apply { topMargin = dp(8) }); post { normalizeFrameSizes() } }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
