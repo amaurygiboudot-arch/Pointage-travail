@@ -29,7 +29,6 @@
         android:networkSecurityConfig="@xml/network_security_config">
 
         <meta-data android:name="io.sentry.auto-init" android:value="false" />
-
         <provider android:name=".AppCheckInitProvider" android:authorities="${applicationId}.app-check-init" android:exported="false" android:initOrder="1000" />
         <provider android:name=".RecoveryInitProvider" android:authorities="${applicationId}.recovery-init" android:exported="false" android:initOrder="200" />
         <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
@@ -39,14 +38,9 @@
         <provider android:name=".GoogleAccountPromptProvider" android:authorities="${applicationId}.google-account-prompt" android:exported="false" android:initOrder="60" />
         <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
         <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
-        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />
-        </provider>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
 
-        <service android:name=".HpFirebaseMessagingService" android:exported="false">
-            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
-        </service>
-
+        <service android:name=".HpFirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" />
         <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
@@ -71,6 +65,7 @@
         <receiver android:name=".DriveBackupReceiver" android:exported="false" />
         <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
         <receiver android:name=".PauseScheduleReceiver" android:exported="false" />
+        <receiver android:name=".CompanyPauseAlarmReceiver" android:exported="false" />
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="false"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>
     </application>
 </manifest>
