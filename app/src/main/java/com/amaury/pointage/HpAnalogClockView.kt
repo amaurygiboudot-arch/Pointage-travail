@@ -74,8 +74,6 @@ class HpAnalogClockView @JvmOverloads constructor(
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
 
-        // Micro-contraste un peu plus marqué pour mieux détacher chiffres, graduations
-        // et contours sans changer le cadran d'origine ni sa géométrie.
         val contrast = 1.20f
         val translate = (-128f * contrast + 128f) + 4f
         facePaint.colorFilter = ColorMatrixColorFilter(
@@ -111,8 +109,14 @@ class HpAnalogClockView @JvmOverloads constructor(
         bitmapPaint.alpha = 255
         canvas.drawBitmap(bitmap, null, rect, bitmapPaint)
 
-        val dirX = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirX else 0f
-        val dirY = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirY else -1f
+        // Migration sans rupture : la pendule lit d'abord la nouvelle source centrale.
+        // Tant qu'un écran ancien n'a pas encore publié son snapshot, l'ancien relais
+        // reste disponible comme filet de sécurité temporaire.
+        val centralDirection = CelestialStateStore.current().sunScreenDirection
+        val dirX = centralDirection?.x
+            ?: if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirX else 0f
+        val dirY = centralDirection?.y
+            ?: if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirY else -1f
         val visualRadius = max(dstWidth, dstHeight) * 0.5f
 
         val sunSideX = cx + dirX * visualRadius
