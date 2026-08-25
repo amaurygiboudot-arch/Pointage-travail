@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Intent
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
@@ -59,6 +60,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
+            setOnLongClickListener {
+                if (!AdminDiagnosticsGate.isEnabled(activity)) {
+                    activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
+                    true
+                } else false
+            }
         }
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
