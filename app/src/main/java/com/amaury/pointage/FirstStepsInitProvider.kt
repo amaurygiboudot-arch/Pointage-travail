@@ -44,7 +44,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             PrimaryButtonIsolation.install(activity)
             installOwnerShortcut(activity)
             installReplayButton(activity)
-            installGpsTestButton(activity)
+            removeLegacyGpsTestButton(activity)
             installDeveloperButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
@@ -53,17 +53,13 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    /**
-     * Activation cachée mais toujours accessible : appui long sur l'onglet Paramètres.
-     * Le clic normal de l'onglet reste intact.
-     */
+    /** Activation cachée : appui long sur l'onglet Paramètres. */
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
         settingsTab.setOnLongClickListener {
             if (AdminDiagnosticsGate.isEnabled(activity)) {
                 Toast.makeText(activity, "Mode Développeur déjà activé", Toast.LENGTH_SHORT).show()
                 installDeveloperButton(activity)
-                installGpsTestButton(activity)
             } else {
                 activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
             }
@@ -90,25 +86,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun installGpsTestButton(activity: MainActivity) {
+    /** Le test GPS est désormais disponible uniquement dans le menu Développeur. */
+    private fun removeLegacyGpsTestButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (!AdminDiagnosticsGate.isEnabled(activity)) {
-            panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
-            return
-        }
-        if (panel.findViewWithTag<View>("gps_workplace_test") != null) return
-        val button = Button(activity).apply {
-            tag = "gps_workplace_test"
-            text = "🧪 MODE TEST GPS — SIMULER 3 JOURS"
-            isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener {
-                val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(activity)
-                Toast.makeText(activity, result, Toast.LENGTH_LONG).show()
-                WorkplaceProposalLimiter.showIfAllowed(activity)
-            }
-        }
-        panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
     }
 
     private fun installDeveloperButton(activity: MainActivity) {
