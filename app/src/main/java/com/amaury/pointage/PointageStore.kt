@@ -7,24 +7,16 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object PointageStore {
-    private const val PREFS = "pointage"
-    private const val KEY = "data"
     private const val ICON_SYNC_DELAY_MS = 1500L
     private val storageLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingIconSync: Runnable? = null
 
-    private fun loadUnlocked(context: Context): JSONArray {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]").orEmpty()
-        if (raw.isBlank()) return JSONArray()
-        return runCatching { JSONArray(raw) }.getOrElse {
-            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("corrupt_data_backup", raw).apply()
-            JSONArray()
-        }
-    }
+    private fun loadUnlocked(context: Context): JSONArray =
+        AtomicPointageStorage.read(context)
 
     private fun saveUnlocked(context: Context, data: JSONArray) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, data.toString()).apply()
+        AtomicPointageStorage.write(context, data)
     }
 
     fun load(context: Context): JSONArray = synchronized(storageLock) { loadUnlocked(context) }
