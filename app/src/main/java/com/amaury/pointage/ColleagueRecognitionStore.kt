@@ -6,6 +6,10 @@ import java.security.MessageDigest
 /** Local bootstrap for the recognition feature.
  * Workplace is auto-detected by default; manual selection remains available
  * for new users while automatic detection is still learning their workplace.
+ *
+ * IMPORTANT: every public entry point is guarded by ColleagueRecognitionFeatureGate.
+ * Normal users must not be able to read or write recognition data while the
+ * experiment remains owner-only.
  */
 object ColleagueRecognitionStore {
     private const val PREFS = "colleague_recognition"
@@ -15,6 +19,8 @@ object ColleagueRecognitionStore {
     private const val WORKPLACE_CONFIRMED = "workplace_confirmed"
 
     fun currentWorkplace(context: Context): ColleagueRecognitionModel.WorkplaceIdentity? {
+        if (!ColleagueRecognitionFeatureGate.isAvailable(context)) return null
+
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val id = p.getString(WORKPLACE_ID, null)?.takeIf { it.isNotBlank() } ?: return null
         val name = p.getString(WORKPLACE_NAME, null)?.takeIf { it.isNotBlank() } ?: return null
@@ -32,6 +38,7 @@ object ColleagueRecognitionStore {
     }
 
     fun confirmAutoDetectedWorkplace(context: Context, stablePlaceId: String, displayName: String) {
+        ColleagueRecognitionFeatureGate.requireAvailable(context)
         saveWorkplace(
             context,
             ColleagueRecognitionModel.WorkplaceIdentity(
@@ -44,6 +51,7 @@ object ColleagueRecognitionStore {
     }
 
     fun selectManualWorkplace(context: Context, stablePlaceId: String, displayName: String) {
+        ColleagueRecognitionFeatureGate.requireAvailable(context)
         saveWorkplace(
             context,
             ColleagueRecognitionModel.WorkplaceIdentity(
@@ -56,6 +64,7 @@ object ColleagueRecognitionStore {
     }
 
     private fun saveWorkplace(context: Context, workplace: ColleagueRecognitionModel.WorkplaceIdentity) {
+        ColleagueRecognitionFeatureGate.requireAvailable(context)
         require(workplace.id.isNotBlank() && workplace.displayName.isNotBlank())
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(WORKPLACE_ID, workplace.id)
@@ -69,7 +78,8 @@ object ColleagueRecognitionStore {
      * Produces a pseudonymous key suitable for duplicate-vote protection.
      * Never expose the raw account UID in a public evaluation document.
      */
-    fun reviewerKey(accountUid: String, workplaceId: String, colleagueId: String): String {
+    fun reviewerKey(context: Context, accountUid: String, workplaceId: String, colleagueId: String): String {
+        ColleagueRecognitionFeatureGate.requireAvailable(context)
         val raw = "$accountUid|$workplaceId|$colleagueId|horatrack-recognition-v1"
         val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
