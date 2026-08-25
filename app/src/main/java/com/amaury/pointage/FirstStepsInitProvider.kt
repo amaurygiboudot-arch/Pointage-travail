@@ -12,10 +12,11 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 
-/** Branche le tutoriel sans alourdir MainActivity et ajoute un bouton pour le revoir. */
+/** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
+        SmartSetupManager.init(app)
         app.registerActivityLifecycleCallbacks(this)
         return true
     }
