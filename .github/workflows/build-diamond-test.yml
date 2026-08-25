@@ -51,7 +51,20 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
-        run: gradle :app:assembleRelease --stacktrace
+        run: |
+          export VERSION_CODE=$((560000 + GITHUB_RUN_NUMBER))
+          export VERSION_NAME="1.9-rebuild.${GITHUB_RUN_NUMBER}"
+          echo "Compilation versionCode=$VERSION_CODE versionName=$VERSION_NAME"
+          gradle :app:assembleRelease --stacktrace
+
+      - name: Verifier APK Android
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -s "$APK"
+          BUILD_TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          echo "Build-tools: $BUILD_TOOLS_DIR"
+          "$BUILD_TOOLS_DIR/zipalign" -c -v 4 "$APK"
+          "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK"
 
       - name: Preparer APK test
         run: |
