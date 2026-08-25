@@ -62,8 +62,6 @@ object PauseScheduleManager {
             applyCurrentWindow(context)
         } else {
             cancel(context)
-            // Une pause créée automatiquement ne doit jamais rester ouverte
-            // simplement parce que l'utilisateur désactive la programmation.
             if (PointageStore.isPausedAutomatically(context)) {
                 PointageStore.resumePause(context, automaticOnly = true)
             }
@@ -98,10 +96,8 @@ object PauseScheduleManager {
         val inside = if (end > start) minuteNow in start until end else minuteNow >= start || minuteNow < end
 
         val changed = when {
-            inside && !PointageStore.isPaused(context) ->
-                PointageStore.startPause(context, automatic = true)
-            !inside && PointageStore.isPausedAutomatically(context) ->
-                PointageStore.resumePause(context, automaticOnly = true)
+            inside && !PointageStore.isPaused(context) -> PointageStore.startPause(context, automatic = true)
+            !inside && PointageStore.isPausedAutomatically(context) -> PointageStore.resumePause(context, automaticOnly = true)
             else -> false
         }
         if (changed) updateWidgets(context)
@@ -117,12 +113,13 @@ object PauseScheduleManager {
             if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
         }
         val pi = pending(context, action, requestCode)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
+
+        // Une pause planifiée n'est pas une alarme utilisateur critique au sens
+        // Android. On évite donc SCHEDULE_EXACT_ALARM et son parcours spécial.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         } else {
-            alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+            alarm.set(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         }
     }
 
@@ -142,20 +139,15 @@ object PauseScheduleManager {
 
 class PauseScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        when (intent.action) {
-            PauseScheduleManager.ACTION_START -> {
-                if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
-                    PointageStore.startPause(context, automatic = true)
-                }
-            }
-            PauseScheduleManager.ACTION_END -> {
-                if (PointageStore.isPausedAutomatically(context)) {
-                    PointageStore.resumePause(context, automaticOnly = true)
-                }
-            }
+        if (intent.action == PauseScheduleManager.ACTION_START || intent.action == PauseScheduleManager.ACTION_END) {
+            // Les alarmes sont volontairement inexactes. Leur intention historique ne doit
+            // jamais être appliquée aveuglément : on recalcule l'état à l'heure réelle de
+            // livraison. Ainsi un START livré après la fin de la fenêtre ne démarre pas une
+            // pause jusqu'au lendemain, et un END livré tardivement remet l'état en cohérence.
+            PauseScheduleManager.applyCurrentWindow(context)
+            PauseScheduleManager.schedule(context)
         }
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
-        PauseScheduleManager.schedule(context)
     }
 }
