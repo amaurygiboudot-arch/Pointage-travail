@@ -19,8 +19,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         SmartSetupManager.init(app)
         CompanyNameUiBinder.init(app)
 
-        // Le fond personnalisé doit survivre aux mises à jour APK et aux échecs
-        // temporaires de décodage au redémarrage.
         CustomBackgroundStore.protectPreference(app)
         if (CustomBackgroundStore.isEnabled(app)) {
             CustomBackgroundStore.resolve(app)
@@ -65,8 +63,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
     private fun installDeveloperButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-
-        // Nettoie l'ancien bouton de test GPS s'il a été injecté avant une mise à jour.
         panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
 
         if (!AdminDiagnosticsGate.isEnabled(activity)) {
@@ -96,5 +92,5 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 }
