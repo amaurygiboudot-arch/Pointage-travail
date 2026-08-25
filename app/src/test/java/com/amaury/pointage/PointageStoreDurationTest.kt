@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class PointageStoreDurationTest {
     private val minute = 60_000L
-    private val entry = 1_000_000L
+    private val entry = 1_700_000_000_000L
 
     private fun session(
         durationMinutes: Int,
