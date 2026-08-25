@@ -161,7 +161,7 @@ object PointageStore {
                 val pause = pauses.optJSONObject(i) ?: continue
                 val rawStart = pause.optLong("start", -1L)
                 val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
-                if (rawStart <= 0L || rawEnd <= rawStart) continue
+                if (rawStart < 0L || rawEnd <= rawStart) continue
                 val start = rawStart.coerceAtLeast(entry)
                 val end = rawEnd.coerceAtMost(sessionEnd)
                 if (end > start) intervals += start to end
