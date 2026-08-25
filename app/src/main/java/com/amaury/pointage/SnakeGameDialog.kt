@@ -25,6 +25,12 @@ import kotlin.random.Random
 
 object SnakeGameDialog {
     fun show(context: Context) {
+        // Le jeu ne s'ouvre qu'après résolution du surnom. Au premier lancement,
+        // l'utilisateur le choisit une seule fois. Aucun nom Google n'est utilisé.
+        SnakeNicknameStore.ensure(context) { nickname -> showGame(context, nickname) }
+    }
+
+    private fun showGame(context: Context, nickname: String) {
         val dialog = Dialog(context)
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
 
@@ -45,7 +51,7 @@ object SnakeGameDialog {
             context,
             onScore = { score.text = "Score : $it" },
             onGameOver = { finalScore ->
-                saveBestScore(context, finalScore) { loadRanking(ranking) }
+                saveBestScore(context, nickname, finalScore) { loadRanking(ranking) }
             }
         )
 
@@ -69,7 +75,7 @@ object SnakeGameDialog {
                 gravity = Gravity.CENTER
             })
             addView(TextView(context).apply {
-                text = "Glisse ton doigt pour diriger"
+                text = "$nickname • Glisse ton doigt pour diriger"
                 textSize = 13f
                 gravity = Gravity.CENTER
             })
@@ -91,7 +97,7 @@ object SnakeGameDialog {
         loadRanking(ranking)
     }
 
-    private fun saveBestScore(context: Context, score: Int, done: () -> Unit) {
+    private fun saveBestScore(context: Context, nickname: String, score: Int, done: () -> Unit) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             done()
@@ -99,14 +105,21 @@ object SnakeGameDialog {
         }
         val ref = FirebaseFirestore.getInstance().collection("snake_scores").document(user.uid)
         FirebaseFirestore.getInstance().runTransaction { tx ->
-            val old = tx.get(ref).getLong("bestScore")?.toInt() ?: -1
+            val snapshot = tx.get(ref)
+            val old = snapshot.getLong("bestScore")?.toInt() ?: -1
             if (score > old) {
+                // Remplacement complet volontaire : les anciens champs displayName/e-mail
+                // disparaissent du document dès qu'un nouveau meilleur score est enregistré.
                 tx.set(ref, mapOf(
                     "uid" to user.uid,
-                    "displayName" to (user.displayName ?: user.email?.substringBefore('@') ?: "Joueur"),
+                    "nickname" to nickname,
                     "bestScore" to score,
                     "updatedAt" to FieldValue.serverTimestamp()
                 ))
+            } else if (snapshot.getString("nickname").isNullOrBlank()) {
+                // Migration d'un ancien score : on ajoute seulement le surnom et on
+                // n'affiche jamais l'ancien displayName dans le classement.
+                tx.update(ref, "nickname", nickname)
             }
         }.addOnCompleteListener { done() }
     }
@@ -126,7 +139,8 @@ object SnakeGameDialog {
                     view.text = "🏆 Classement\nAucun score pour le moment"
                 } else {
                     val lines = snap.documents.mapIndexed { index, doc ->
-                        val name = doc.getString("displayName")?.take(18) ?: "Joueur"
+                        // IMPORTANT : ne jamais retomber sur displayName, e-mail ou vrai nom.
+                        val name = doc.getString("nickname")?.trim()?.take(16).takeUnless { it.isNullOrBlank() } ?: "Joueur"
                         val best = doc.getLong("bestScore") ?: 0L
                         val medal = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "${index + 1}." }
                         "$medal $name — $best"
