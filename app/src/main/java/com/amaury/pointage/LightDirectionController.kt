@@ -36,6 +36,8 @@ object LightDirectionController {
 
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
+    private const val MIN_RENDER_INTERVAL_MS = 50L
+    private const val MIN_ORIENTATION_DELTA = 0.5f
 
     private fun releaseRegistration(registration: Registration) {
         registration.manager.unregisterListener(registration.listener)
@@ -44,16 +46,11 @@ object LightDirectionController {
 
     private fun detachOtherActivities(activeKey: Int) {
         val obsoleteKeys = registrations.keys.filter { it != activeKey }
-        obsoleteKeys.forEach { key ->
-            registrations.remove(key)?.let(::releaseRegistration)
-        }
+        obsoleteKeys.forEach { key -> registrations.remove(key)?.let(::releaseRegistration) }
     }
 
     fun attach(activity: Activity, onLightingChanged: (LightingState) -> Unit) {
         val key = System.identityHashCode(activity)
-
-        // Une seule activité doit pouvoir piloter l'éclairage des boutons primaires.
-        // Cela nettoie aussi les anciens capteurs/tickers après activity.recreate().
         detachOtherActivities(key)
         if (registrations.containsKey(key)) return
 
@@ -79,12 +76,6 @@ object LightDirectionController {
         fun state(angle: Float): LightingState {
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
-
-            // La nuit doit changer la direction et la douceur de la lumière, pas
-            // supprimer les effets artistiques du diamant. Le moteur Canvas utilise
-            // son flag night pour couper fire() et réduire fortement les glints :
-            // on conserve donc ici un état visuel complet tout en gardant l'état
-            // astronomique réel dans LightingState.night pour le reste de l'UI.
             val diamondIntensity = if (night) {
                 (.62f + intensity.coerceIn(.18f, .42f) * .38f).coerceIn(.68f, .78f)
             } else {
@@ -149,8 +140,8 @@ object LightDirectionController {
             val rollDelta = if (lastEmittedRoll.isNaN()) 180f else kotlin.math.abs(lastEmittedRoll - roll)
 
             if (!force) {
-                if (now - lastEmitMs < 24L) return
-                if (angleDelta < .25f && pitchDelta < .25f && rollDelta < .25f) return
+                if (now - lastEmitMs < MIN_RENDER_INTERVAL_MS) return
+                if (angleDelta < MIN_ORIENTATION_DELTA && pitchDelta < MIN_ORIENTATION_DELTA && rollDelta < MIN_ORIENTATION_DELTA) return
             }
 
             lastEmitMs = now
@@ -173,7 +164,6 @@ object LightDirectionController {
                         pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
                     }
-
                     Sensor.TYPE_ACCELEROMETER -> {
                         val ax = event.values[0]
                         val ay = event.values[1]
@@ -197,10 +187,13 @@ object LightDirectionController {
             }
         }
 
+        // SENSOR_DELAY_UI suffit largement pour un déplacement de lumière visuel.
+        // Le mode GAME produisait beaucoup plus d'événements que le rendu ne pouvait
+        // utilement afficher et surchargeait le thread UI.
         if (rotationSensor != null) {
-            sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
+            sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
         } else if (accelSensor != null) {
-            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_GAME)
+            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
         }
 
         recomputeCelestial()
@@ -216,11 +209,7 @@ object LightDirectionController {
 
     fun isNight(context: Context): Boolean {
         val l = lastKnownLocation(context)
-        return if (l != null) {
-            CelestialEphemeris.sun(l.latitude, l.longitude).altitude < -0.833
-        } else {
-            fallbackNightByClock()
-        }
+        return if (l != null) CelestialEphemeris.sun(l.latitude, l.longitude).altitude < -0.833 else fallbackNightByClock()
     }
 
     private fun fallbackNightByClock(): Boolean {
@@ -234,16 +223,11 @@ object LightDirectionController {
         if (!fine && !coarse) return null
         val m = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return runCatching {
-            m.getProviders(true)
-                .mapNotNull { p -> runCatching { m.getLastKnownLocation(p) }.getOrNull() }
-                .maxByOrNull { it.time }
+            m.getProviders(true).mapNotNull { p -> runCatching { m.getLastKnownLocation(p) }.getOrNull() }.maxByOrNull { it.time }
         }.getOrNull()
     }
 
-    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) =
-        normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()) - 90f)
-
+    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) = normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()) - 90f)
     private fun normalize(v: Float) = ((v % 360f) + 360f) % 360f
-
     private fun shortestDelta(from: Float, to: Float) = ((to - from + 540f) % 360f) - 180f
 }
