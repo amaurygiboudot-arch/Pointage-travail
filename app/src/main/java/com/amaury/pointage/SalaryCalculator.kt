@@ -35,33 +35,44 @@ object SalaryCalculator {
         hourlyRate: Double,
         convention: ConventionCatalog.Convention
     ): Result {
-        val sessions = mutableListOf<Session>()
+        val monthStart = SessionSlices.monthStart(year, month)
+        val monthEnd = SessionSlices.monthEnd(year, month)
+        val segments = mutableListOf<Session>()
+        var completedSessions = 0
+
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
             if (item.isNull("exit")) continue
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
-            if (entry > 0L && exit > entry) {
-                sessions.add(Session(entry, exit, PointageStore.workedDuration(item, exit)))
+            if (entry <= 0L || exit <= entry) continue
+
+            if (SessionSlices.clip(item, monthStart, monthEnd) != null) completedSessions++
+
+            SessionSlices.splitByDay(item).forEach { slice ->
+                val sliceEntry = slice.optLong("entry", -1L)
+                val sliceExit = slice.optLong("exit", -1L)
+                if (sliceEntry > 0L && sliceExit > sliceEntry) {
+                    segments += Session(sliceEntry, sliceExit, PointageStore.workedDuration(slice, sliceExit))
+                }
             }
         }
-        sessions.sortBy { it.entry }
+        segments.sortBy { it.entry }
 
         val sessionsByWeek = linkedMapOf<WeekKey, MutableList<Session>>()
-        sessions.forEach { session ->
+        segments.forEach { session ->
             val cal = Calendar.getInstance(Locale.FRANCE).apply {
                 firstDayOfWeek = Calendar.MONDAY
                 minimalDaysInFirstWeek = 4
                 timeInMillis = session.entry
             }
-            val key = WeekKey(cal.getWeekYear(), cal.get(Calendar.WEEK_OF_YEAR))
+            val key = WeekKey(isoWeekYear(cal), cal.get(Calendar.WEEK_OF_YEAR))
             sessionsByWeek.getOrPut(key) { mutableListOf() }.add(session)
         }
 
         val hourMs = 60L * 60L * 1000L
         val normalLimit = 35L * hourMs
         var regularMs = 0L
-        var completedSessions = 0
         val overtimeByTier = LongArray(convention.overtimeTiers.size)
 
         sessionsByWeek.values.forEach { weekSessions ->
@@ -70,16 +81,15 @@ object SalaryCalculator {
                 val duration = session.workedDuration
                 val startCum = cumulative
                 val endCum = cumulative + duration
-                val entryCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
+                val inRequestedMonth = session.entry >= monthStart && session.entry < monthEnd
 
-                if (entryCal.get(Calendar.YEAR) == year && entryCal.get(Calendar.MONTH) == month) {
+                if (inRequestedMonth) {
                     regularMs += overlap(startCum, endCum, 0L, normalLimit)
                     convention.overtimeTiers.forEachIndexed { index, tier ->
                         val from = (tier.fromHour * hourMs).toLong()
                         val to = tier.toHour?.let { (it * hourMs).toLong() } ?: Long.MAX_VALUE
                         overtimeByTier[index] += overlap(startCum, endCum, from, to)
                     }
-                    completedSessions++
                 }
                 cumulative = endCum
             }
@@ -91,9 +101,8 @@ object SalaryCalculator {
         }
 
         val nightRule = ConventionNightRules.forIdcc(convention.idcc)
-        val nightMs = if (nightRule == null) 0L else sessions.sumOf { session ->
-            val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = session.entry }
-            if (cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month) {
+        val nightMs = if (nightRule == null) 0L else segments.sumOf { session ->
+            if (session.entry >= monthStart && session.entry < monthEnd) {
                 nightOverlap(session.entry, session.exit, nightRule.startMinute, nightRule.endMinute)
             } else 0L
         }
@@ -121,6 +130,17 @@ object SalaryCalculator {
             monthlyEstimatedGross = monthlyEstimatedGross,
             completedSessions = completedSessions
         )
+    }
+
+    /** ISO-8601 week-based year using Calendar APIs available on Android API 23. */
+    private fun isoWeekYear(calendar: Calendar): Int {
+        val thursday = calendar.clone() as Calendar
+        thursday.firstDayOfWeek = Calendar.MONDAY
+        thursday.minimalDaysInFirstWeek = 4
+        val dayOfWeek = thursday.get(Calendar.DAY_OF_WEEK)
+        val mondayIndex = (dayOfWeek + 5) % 7 // Monday=0 ... Sunday=6
+        thursday.add(Calendar.DAY_OF_YEAR, 3 - mondayIndex)
+        return thursday.get(Calendar.YEAR)
     }
 
     private fun nightOverlap(entry: Long, exit: Long, startMinute: Int, endMinute: Int): Long {

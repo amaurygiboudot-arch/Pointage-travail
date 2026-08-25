@@ -48,19 +48,23 @@ object DailyPdfReport {
             c.drawText("Lieu : $place", M, y + 12, text); y += 18
             c.drawText("Entrée : ${timeF.format(Date(entry))}", M, y + 12, text); y += 16
             c.drawText("Sortie : ${timeF.format(Date(exit))}", M, y + 12, text); y += 16
-            c.drawText("Pauses : ${format(pauses)}", M, y + 12, text); y += 16
+            c.drawText("Pauses déduites : ${format(pauses)}", M, y + 12, text); y += 16
             c.drawText("Temps travaillé : ${format(worked)}", M, y + 12, bold); y += 22
 
             val pa = item.optJSONArray("pauses")
             if (pa != null && pa.length() > 0) {
-                c.drawText("Détail des pauses", M + 12, y + 11, bold); y += 16
-                for (j in 0 until pa.length()) {
-                    val p = pa.optJSONObject(j) ?: continue
-                    val s = p.optLong("start", -1L)
-                    val e = if (p.isNull("end")) -1L else p.optLong("end", -1L)
-                    if (s > 0L) {
-                        val label = if (e > s) "${timeF.format(Date(s))} → ${timeF.format(Date(e))} (${format(e-s)})" else "${timeF.format(Date(s))} → non terminée"
-                        c.drawText("• $label", M + 20, y + 11, text); y += 15
+                val visiblePauses = (0 until pa.length()).mapNotNull { index ->
+                    pa.optJSONObject(index)?.takeUnless { it.optBoolean("allocatedAutomatic", false) }
+                }
+                if (visiblePauses.isNotEmpty()) {
+                    c.drawText("Détail des pauses enregistrées", M + 12, y + 11, bold); y += 16
+                    visiblePauses.forEach { p ->
+                        val s = p.optLong("start", -1L)
+                        val e = if (p.isNull("end")) -1L else p.optLong("end", -1L)
+                        if (s > 0L) {
+                            val label = if (e > s) "${timeF.format(Date(s))} → ${timeF.format(Date(e))} (${format(e-s)})" else "${timeF.format(Date(s))} → non terminée"
+                            c.drawText("• $label", M + 20, y + 11, text); y += 15
+                        }
                     }
                 }
             }
