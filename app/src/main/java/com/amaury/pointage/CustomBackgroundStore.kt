@@ -46,10 +46,11 @@ object CustomBackgroundStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("custom_image_bg", false)
 
     /**
-     * Empêche une ancienne passe d'apparence de désactiver définitivement le fond
-     * simplement parce qu'un décodage a échoué une fois. Si le fichier existe encore,
-     * la préférence est restaurée. Une vraie réinitialisation reste possible car elle
-     * supprime d'abord les fichiers.
+     * Protège le fond contre une désactivation accidentelle, sans annuler une vraie
+     * réinitialisation. Si custom_image_bg passe à false alors que le fichier principal
+     * existe encore, on considère qu'il s'agit d'une désactivation accidentelle et on
+     * restaure la préférence. Si le principal a déjà été supprimé, c'est une vraie
+     * réinitialisation : la sauvegarde est supprimée aussi et ne doit jamais ressusciter.
      */
     fun protectPreference(context: Context) {
         if (listener != null) return
@@ -57,14 +58,19 @@ object CustomBackgroundStore {
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         listener = SharedPreferences.OnSharedPreferenceChangeListener { shared, key ->
             if (key != "custom_image_bg") return@OnSharedPreferenceChangeListener
+
             if (shared.getBoolean("custom_image_bg", false)) {
                 resolve(app)?.let { saveBackup(app) }
                 return@OnSharedPreferenceChangeListener
             }
-            val stillExists = primary(app).let { it.exists() && it.length() > 0L } ||
-                backup(app).let { it.exists() && it.length() > 0L }
-            if (stillExists) {
+
+            val primaryFile = primary(app)
+            if (primaryFile.exists() && primaryFile.length() > 0L) {
                 shared.edit().putBoolean("custom_image_bg", true).apply()
+            } else {
+                // Le bouton RÉINITIALISER LE FOND supprime d'abord le principal.
+                // Dans ce cas, la copie de secours est volontairement détruite aussi.
+                backup(app).delete()
             }
         }
         prefs.registerOnSharedPreferenceChangeListener(listener)
