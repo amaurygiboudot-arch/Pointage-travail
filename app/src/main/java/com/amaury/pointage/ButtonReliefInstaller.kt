@@ -14,6 +14,7 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -31,21 +32,37 @@ object ButtonReliefInstaller {
     private const val TAG_DIAMOND_LAB = "diamond_lab_button"
     private const val FIXED_LIGHT_ANGLE = -55f
     private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
+    private val installedActivities = WeakHashMap<Activity, Boolean>()
     private var currentLightAngle = FIXED_LIGHT_ANGLE
     private var currentNight = false
 
     fun install(activity: Activity) {
+        if (installedActivities.put(activity, true) == true) return
+
         val decor = activity.window.decorView
         refresh(activity, decor)
         configureSolarLighting(activity, decor)
-        decor.viewTreeObserver.addOnGlobalLayoutListener {
-            if (!activity.isFinishing && !activity.isDestroyed) {
-                refresh(activity, decor)
+
+        // Avant, un OnGlobalLayoutListener permanent rappelait refresh() à chaque
+        // modification de layout. Cela retraversait tout l'écran plusieurs fois
+        // par frame et recréait des drawables/animations. On attend maintenant
+        // uniquement l'installation de la section Paramètres, puis on retire le listener.
+        val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (activity.isFinishing || activity.isDestroyed) {
+                    if (decor.viewTreeObserver.isAlive) decor.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                    return
+                }
+                val section = decor.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
                 installThemeSelectorIfPossible(activity)
                 installDiamondLabIfPossible(activity)
                 installSolarToggleIfPossible(activity)
+                ThemeFrameStyler.apply(section)
+                AutoDayNightPolarity.apply(decor)
+                if (decor.viewTreeObserver.isAlive) decor.viewTreeObserver.removeOnGlobalLayoutListener(this)
             }
         }
+        decor.viewTreeObserver.addOnGlobalLayoutListener(listener)
     }
 
     private fun configureSolarLighting(activity: Activity, decor: View) {
@@ -297,9 +314,6 @@ object ButtonReliefInstaller {
             return
         }
 
-        // Theme Carbone : les boutons secondaires/de selection ne sont plus
-        // generes par le moteur de relief standard. Ils utilisent ensemble
-        // le fond fibre carbone et le cadre metallique valides.
         if (theme.id == "natural_carbon" && !protected) {
             if (button.getTag(TAG_KEY) != styleKey || button.background !is CarbonCompositeDrawable) {
                 button.alpha = 1f
