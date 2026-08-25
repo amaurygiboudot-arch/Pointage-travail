@@ -243,11 +243,15 @@ class ManualHoursButton @JvmOverloads constructor(
                 companyName.isNotBlank() -> companyName
                 else -> "Saisie manuelle"
             }
-            val data = PointageStore.load(context)
-            val item = JSONObject().put("entry", start).put("exit", end).put("zoneAddress", label).put("manual", true)
-            if (companySlot > 0) item.put("companySlot", companySlot)
-            data.put(item)
-            PointageStore.save(context, data)
+            PointageStore.update(context) { data ->
+                val item = JSONObject()
+                    .put("entry", start)
+                    .put("exit", end)
+                    .put("zoneAddress", label)
+                    .put("manual", true)
+                if (companySlot > 0) item.put("companySlot", companySlot)
+                data.put(item)
+            }
             PointageWidgetProvider.updateAll(context)
             DriveBackupManager.syncCurrentMonthAsync(context)
             Toast.makeText(context, "Heures ajoutées : ${formatDuration(end - start)}", Toast.LENGTH_LONG).show()
