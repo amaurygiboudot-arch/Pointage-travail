@@ -166,6 +166,9 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val root = rootView ?: return
         normalizeRecursive(root)
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id -> root.findViewById<TextView>(id)?.let { fitText(it, navigation = true) } }
+        // Applique le langage de cadre du thème à tous les panneaux et contrôles,
+        // y compris ceux ajoutés dynamiquement après le lancement.
+        ThemeFrameStyler.apply(root)
     }
 
     private fun normalizeRecursive(view: View) {
