@@ -6,8 +6,11 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.content.Intent
 import android.database.Cursor
+import android.hardware.biometrics.BiometricPrompt
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.CancellationSignal
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -45,7 +48,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             installOwnerShortcut(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
-            installDeveloperButton(activity)
+            removeVisibleDeveloperButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
@@ -53,18 +56,58 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    /** Activation cachée : appui long sur l'onglet Paramètres. */
+    /**
+     * Entrée secrète du mode développeur : appui long sur l'onglet Paramètres.
+     * Aucun bouton Développeur n'est affiché dans l'interface normale.
+     */
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
         settingsTab.setOnLongClickListener {
-            if (AdminDiagnosticsGate.isEnabled(activity)) {
-                Toast.makeText(activity, "Mode Développeur déjà activé", Toast.LENGTH_SHORT).show()
-                installDeveloperButton(activity)
-            } else {
+            if (!AdminDiagnosticsGate.isEnabled(activity)) {
                 activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
+            } else {
+                authenticateOwner(activity)
             }
             true
         }
+    }
+
+    /** Authentification biométrique avant chaque ouverture du menu privé. */
+    private fun authenticateOwner(activity: MainActivity) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            Toast.makeText(activity, "Authentification biométrique requise sur Android 9 ou plus.", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val cancellationSignal = CancellationSignal()
+        val prompt = BiometricPrompt.Builder(activity)
+            .setTitle("Développeur")
+            .setSubtitle("Confirme ton empreinte pour ouvrir la zone privée")
+            .setDescription("Accès réservé au propriétaire de HoraTrack")
+            .setNegativeButton("Annuler", activity.mainExecutor) { _, _ -> cancellationSignal.cancel() }
+            .build()
+
+        prompt.authenticate(cancellationSignal, activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
+                super.onAuthenticationSucceeded(result)
+                DeveloperToolsDialog.show(activity)
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                Toast.makeText(activity, "Empreinte non reconnue", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
+                super.onAuthenticationError(errorCode, errString)
+                if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
+                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED &&
+                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                ) {
+                    Toast.makeText(activity, errString ?: "Authentification impossible", Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
     }
 
     private fun installReplayButton(activity: MainActivity) {
@@ -76,38 +119,23 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
-            setOnLongClickListener {
-                if (!AdminDiagnosticsGate.isEnabled(activity)) {
-                    activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
-                    true
-                } else false
-            }
+            // Cette ancienne porte secondaire est supprimée : l'unique accès caché
+            // est désormais l'appui long sur l'onglet Paramètres.
+            setOnLongClickListener(null)
         }
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    /** Le test GPS est désormais disponible uniquement dans le menu Développeur. */
+    /** Le test GPS est disponible uniquement dans le menu Développeur. */
     private fun removeLegacyGpsTestButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
     }
 
-    private fun installDeveloperButton(activity: MainActivity) {
+    /** Supprime toute ancienne version visible du bouton Développeur. */
+    private fun removeVisibleDeveloperButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (!AdminDiagnosticsGate.isEnabled(activity)) {
-            panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
-            return
-        }
-        if (panel.findViewWithTag<View>("developer_tools") != null) return
-
-        val button = Button(activity).apply {
-            tag = "developer_tools"
-            text = "🛠 DÉVELOPPEUR"
-            isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener { DeveloperToolsDialog.show(activity) }
-        }
-        panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -121,5 +149,5 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?): Int = 0
 }
