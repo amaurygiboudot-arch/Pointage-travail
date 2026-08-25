@@ -5,10 +5,15 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 
-/** Initialise l'abonnement push sans ralentir MainActivity. */
+/** Initialise Firebase et synchronise les paramètres centraux sans ralentir MainActivity. */
 class FirebaseUpdateInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
-        context?.let { FirebaseUpdatePush.initialize(it.applicationContext) }
+        context?.applicationContext?.let { app ->
+            FirebaseUpdatePush.initialize(app)
+            // Chaque démarrage vérifie la table centrale. En cas d'échec réseau,
+            // PayrollRatesFirebase conserve automatiquement la dernière table locale valide.
+            PayrollRatesFirebase.refresh(app)
+        }
         return true
     }
 
