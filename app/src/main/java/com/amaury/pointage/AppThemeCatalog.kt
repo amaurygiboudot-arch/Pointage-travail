@@ -76,10 +76,9 @@ object AppThemeCatalog {
         if (prefs.getBoolean(KEY_CELESTIAL_NIGHT, !night) == night && prefs.contains(KEY_CELESTIAL_NIGHT)) return
         prefs.edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
 
-        // La polarisation automatique suit immédiatement la transition astronomique.
-        // Nuit = couleurs normales ; jour = polarisation inversée.
-        (context as? Activity)?.window?.decorView?.post {
-            AutoDayNightPolarity.apply(context.window.decorView)
+        val activity = context as? Activity
+        activity?.window?.decorView?.post {
+            AutoDayNightPolarity.apply(activity.window.decorView)
         }
     }
 
@@ -102,8 +101,9 @@ object AppThemeCatalog {
             .remove("widget_accent")
             .apply()
 
-        (context as? Activity)?.window?.decorView?.post {
-            AutoDayNightPolarity.apply(context.window.decorView)
+        val activity = context as? Activity
+        activity?.window?.decorView?.post {
+            AutoDayNightPolarity.apply(activity.window.decorView)
         }
 
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
