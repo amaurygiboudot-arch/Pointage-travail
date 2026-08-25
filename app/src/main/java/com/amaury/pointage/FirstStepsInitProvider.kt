@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 
 /** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
@@ -41,6 +42,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
+            installOwnerShortcut(activity)
             installReplayButton(activity)
             installGpsTestButton(activity)
             installDeveloperButton(activity)
@@ -48,6 +50,24 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
             PrimaryButtonIsolation.install(activity)
+        }
+    }
+
+    /**
+     * Activation cachée mais toujours accessible : appui long sur l'onglet Paramètres.
+     * Le clic normal de l'onglet reste intact.
+     */
+    private fun installOwnerShortcut(activity: MainActivity) {
+        val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
+        settingsTab.setOnLongClickListener {
+            if (AdminDiagnosticsGate.isEnabled(activity)) {
+                Toast.makeText(activity, "Mode Développeur déjà activé", Toast.LENGTH_SHORT).show()
+                installDeveloperButton(activity)
+                installGpsTestButton(activity)
+            } else {
+                activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
+            }
+            true
         }
     }
 
