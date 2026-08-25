@@ -19,6 +19,13 @@ import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
+/**
+ * Contrôleur de transition vers l'architecture céleste unique.
+ *
+ * Pendant la migration, l'ancienne API LightingState reste disponible pour ne rien
+ * casser dans les vues existantes. En parallèle, chaque calcul publie désormais un
+ * CelestialSnapshot complet et atomique dans CelestialStateStore.
+ */
 object LightDirectionController {
     data class LightingState(
         val lightAngle: Float,
@@ -38,6 +45,8 @@ object LightDirectionController {
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    // Conservés provisoirement pour ne pas modifier le comportement visuel avant
+    // que les consommateurs soient migrés sur la matrice 3D complète.
     private const val MIN_RENDER_INTERVAL_MS = 90L
     private const val MIN_ORIENTATION_DELTA = 0.8f
     private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
@@ -78,6 +87,14 @@ object LightDirectionController {
         var lastEmittedPitch = Float.NaN
         var lastEmittedRoll = Float.NaN
 
+        // Nouvelles données centrales. Elles n'ont qu'une seule origine et sont
+        // remplacées ensemble dans CelestialStateStore.
+        var orientationState = DeviceOrientationState.IDENTITY
+        var sunPosition: CelestialEphemeris.Position? = null
+        var moonPosition: CelestialEphemeris.Position? = null
+        var referenceLocation: Location? = null
+        var astronomyTimestampMs = 0L
+
         fun stabilizeAzimuth(raw: Float): Float {
             val normalizedRaw = normalize(raw)
             if (filteredAzimuth.isNaN()) {
@@ -90,7 +107,65 @@ object LightDirectionController {
             return filteredAzimuth
         }
 
+        fun locationConfidence(location: Location?, now: Long): LocationConfidence {
+            location ?: return LocationConfidence.NONE
+            val ageMs = (now - location.time).coerceAtLeast(0L)
+            return when {
+                ageMs <= 5 * 60_000L && location.accuracy <= 250f -> LocationConfidence.FRESH
+                ageMs <= 6 * 60 * 60_000L -> LocationConfidence.USABLE
+                else -> LocationConfidence.STALE
+            }
+        }
+
+        fun bodyState(
+            position: CelestialEphemeris.Position?,
+            opticalIntensity: Float
+        ): CelestialBodyState = if (position == null) {
+            CelestialBodyState.EMPTY
+        } else {
+            CelestialBodyState(
+                azimuthDeg = position.azimuth,
+                altitudeDeg = position.altitude,
+                apparentScale = position.apparentScale,
+                opticalIntensity = opticalIntensity.coerceIn(0f, 1f),
+                available = true
+            )
+        }
+
+        fun publishSnapshot() {
+            val now = if (astronomyTimestampMs > 0L) astronomyTimestampMs else System.currentTimeMillis()
+            val sun = sunPosition
+            val moon = moonPosition
+            val sunIntensity = if (sun == null) 0f else {
+                ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(0f, 1f)
+            }
+            val moonIntensity = if (moon == null) 0f else {
+                ((moon.altitude + 10.0) / 45.0).toFloat().coerceIn(0f, .42f)
+            }
+            val loc = referenceLocation
+            CelestialStateStore.publish(
+                CelestialSnapshot(
+                    timestampMs = now,
+                    sun = bodyState(sun, sunIntensity),
+                    moon = bodyState(moon, moonIntensity),
+                    isNight = night,
+                    location = loc?.let {
+                        CelestialLocationState(
+                            latitude = it.latitude,
+                            longitude = it.longitude,
+                            accuracyMeters = if (it.hasAccuracy()) it.accuracy else null,
+                            fixTimeMs = it.time
+                        )
+                    },
+                    orientation = orientationState,
+                    locationConfidence = locationConfidence(loc, now)
+                )
+            )
+        }
+
         fun state(angle: Float): LightingState {
+            // Ancien pont conservé pendant la migration. Il disparaîtra lorsque le
+            // moteur 80 facettes consommera directement CelestialStateStore.
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
             val diamondIntensity = 1f
@@ -121,9 +196,13 @@ object LightDirectionController {
         fun recomputeCelestial() {
             val now = System.currentTimeMillis()
             val loc = lastKnownLocation(activity)
+            astronomyTimestampMs = now
+            referenceLocation = loc
             if (loc != null) {
                 val sun = CelestialEphemeris.sun(loc.latitude, loc.longitude, now)
                 val moon = CelestialEphemeris.moon(loc.latitude, loc.longitude, now)
+                sunPosition = sun
+                moonPosition = moon
                 night = sun.altitude < -0.833
                 val active = if (night) moon else sun
                 locationBased = true
@@ -135,6 +214,11 @@ object LightDirectionController {
                     ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
                 }
             } else {
+                // Le comportement visuel historique reste provisoirement identique.
+                // Le remplacement par le dernier snapshot fiable interviendra dans
+                // l'étape de migration du fallback.
+                sunPosition = null
+                moonPosition = null
                 locationBased = false
                 celestialAzimuth = null
                 night = fallbackNightByClock()
@@ -142,6 +226,7 @@ object LightDirectionController {
                 intensity = if (night) .24f else .72f
             }
             updateTargetFromOrientation()
+            publishSnapshot()
         }
 
         fun emit(force: Boolean = false) {
@@ -160,6 +245,7 @@ object LightDirectionController {
             lastEmittedAngle = target
             lastEmittedPitch = pitch
             lastEmittedRoll = roll
+            publishSnapshot()
             onLightingChanged(state(target))
         }
 
@@ -176,6 +262,12 @@ object LightDirectionController {
                         azimuth = stabilizeAzimuth(rawAzimuth)
                         pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
+                        orientationState = DeviceOrientationState.fromRotationMatrix(
+                            rotation,
+                            azimuthDeg = azimuth,
+                            pitchDeg = pitch,
+                            rollDeg = roll
+                        )
                     }
                     Sensor.TYPE_ACCELEROMETER -> {
                         val ax = event.values[0]
@@ -183,6 +275,11 @@ object LightDirectionController {
                         val az = event.values[2]
                         pitch = Math.toDegrees(atan2((-ay).toDouble(), sqrt((ax * ax + az * az).toDouble()))).toFloat()
                         roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
+                        orientationState = DeviceOrientationState.IDENTITY.copy(
+                            azimuthDeg = azimuth,
+                            pitchDeg = pitch,
+                            rollDeg = roll
+                        )
                     }
                 }
                 emit()
