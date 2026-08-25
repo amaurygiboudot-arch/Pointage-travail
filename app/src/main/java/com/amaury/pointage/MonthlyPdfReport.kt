@@ -10,143 +10,29 @@ import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
-import java.util.LinkedHashMap
 import java.util.Locale
 
 object MonthlyPdfReport {
-    private const val PAGE_WIDTH = 595
-    private const val PAGE_HEIGHT = 842
-    private const val MARGIN = 32f
-
-    private data class PlaceTotal(
-        val name: String?,
-        val address: String,
-        var duration: Long = 0L,
-        var sessions: Int = 0
-    )
-
-    fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
-        val totals = LinkedHashMap<String, PlaceTotal>()
-        val cal = Calendar.getInstance(Locale.FRANCE)
-        var grandTotal = 0L
-        var completedSessions = 0
-
-        for (i in 0 until data.length()) {
-            val item = data.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L || item.isNull("exit")) continue
-            cal.timeInMillis = entry
-            if (cal.get(Calendar.YEAR) != year || cal.get(Calendar.MONTH) != month) continue
-
-            val exit = item.optLong("exit", -1L)
-            if (exit <= entry) continue
-            val raw = item.optString("zoneAddress").trim()
-            val (name, address) = resolvePlace(context, raw)
-            val key = normalizeAddress(address)
-            val duration = PointageStore.workedDuration(item, exit)
-            val place = totals.getOrPut(key) { PlaceTotal(name, address) }
-            if (place.name.isNullOrBlank() && !name.isNullOrBlank()) {
-                totals[key] = place.copy(name = name)
-            }
-            totals[key]!!.duration += duration
-            totals[key]!!.sessions += 1
-            grandTotal += duration
-            completedSessions++
-        }
-
-        val pdf = PdfDocument()
-        val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, 1).create()
-        val page = pdf.startPage(pageInfo)
-        val canvas = page.canvas
-
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(38, 38, 38)
-            textSize = 21f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val section = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(133, 94, 20)
-            textSize = 12f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val normal = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45, 45, 45); textSize = 9.5f }
-        val bold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(35, 35, 35)
-            textSize = 9.5f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val muted = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(105, 105, 105); textSize = 9f }
-        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205, 205, 205); strokeWidth = 0.8f }
-        val fill = Paint().apply { color = Color.rgb(243, 239, 230) }
-
-        val monthDate = Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
-        val monthLabel = SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(monthDate).replaceFirstChar { it.uppercase() }
-        val generated = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE).format(Date())
-        var y = MARGIN
-
-        canvas.drawText("RAPPORT MENSUEL DE POINTAGE", MARGIN, y + 18f, title)
-        y += 30f
-        canvas.drawText(monthLabel, MARGIN, y + 14f, section)
-        canvas.drawText("Généré le $generated", PAGE_WIDTH - 185f, y + 14f, muted)
-        y += 28f
-
-        canvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 48f, fill)
-        canvas.drawText("Temps travaillé", MARGIN + 12f, y + 17f, muted)
-        canvas.drawText(formatDuration(grandTotal), MARGIN + 12f, y + 38f, title)
-        canvas.drawText("Sessions", 255f, y + 17f, muted)
-        canvas.drawText(completedSessions.toString(), 255f, y + 38f, bold)
-        canvas.drawText("Adresses", 400f, y + 17f, muted)
-        canvas.drawText(totals.size.toString(), 400f, y + 38f, bold)
-        y += 68f
-
-        canvas.drawText("RÉCAPITULATIF PAR ADRESSE", MARGIN, y + 12f, section)
-        y += 22f
-        canvas.drawRect(MARGIN, y, PAGE_WIDTH - MARGIN, y + 25f, fill)
-        canvas.drawText("Lieu / adresse", MARGIN + 6f, y + 16f, bold)
-        canvas.drawText("Sessions", 420f, y + 16f, bold)
-        canvas.drawText("Temps", 492f, y + 16f, bold)
-        y += 31f
-
-        if (totals.isEmpty()) {
-            canvas.drawText("Aucun pointage terminé pour ce mois.", MARGIN, y + 14f, muted)
-        } else {
-            totals.values.sortedBy { it.address.lowercase(Locale.FRANCE) }.forEach { place ->
-                if (y > PAGE_HEIGHT - 60f) return@forEach
-                val label = if (place.name.isNullOrBlank()) place.address else "${place.name} — ${place.address}"
-                val shown = if (label.length <= 62) label else label.take(59) + "…"
-                canvas.drawText(shown, MARGIN + 6f, y + 14f, normal)
-                canvas.drawText(place.sessions.toString(), 435f, y + 14f, normal)
-                canvas.drawText(formatDuration(place.duration), 492f, y + 14f, bold)
-                y += 24f
-                canvas.drawLine(MARGIN, y, PAGE_WIDTH - MARGIN, y, line)
-            }
-        }
-
-        canvas.drawLine(MARGIN, PAGE_HEIGHT - 28f, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 28f, line)
-        canvas.drawText("HP Travail — récapitulatif mensuel", MARGIN, PAGE_HEIGHT - 14f, muted)
-        pdf.finishPage(page)
-        pdf.writeTo(output)
-        pdf.close()
+    private const val W=842; private const val H=595; private const val M=24f
+    fun write(context:Context,data:JSONArray,year:Int,month:Int,output:OutputStream){
+        val days=WorkReportCalculator.month(context,data,year,month)
+        val pdf=PdfDocument(); var pageNo=0; var page:PdfDocument.Page?=null; var y=0f
+        val title=Paint(1).apply{color=Color.rgb(35,35,35);textSize=18f;typeface=Typeface.DEFAULT_BOLD}
+        val head=Paint(1).apply{color=Color.rgb(35,35,35);textSize=7.5f;typeface=Typeface.DEFAULT_BOLD}
+        val normal=Paint(1).apply{color=Color.rgb(45,45,45);textSize=7.2f}
+        val bold=Paint(1).apply{color=Color.rgb(25,25,25);textSize=7.2f;typeface=Typeface.DEFAULT_BOLD}
+        val muted=Paint(1).apply{color=Color.rgb(105,105,105);textSize=7f}
+        val line=Paint(1).apply{color=Color.rgb(205,205,205);strokeWidth=.7f}
+        val fill=Paint().apply{color=Color.rgb(243,239,230)}
+        val time=SimpleDateFormat("HH:mm",Locale.FRANCE)
+        val monthLabel=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
+        fun startPage(){page?.let{pdf.finishPage(it)};pageNo++;page=pdf.startPage(PdfDocument.PageInfo.Builder(W,H,pageNo).create());val c=page!!.canvas;y=M;c.drawText("RELEVÉ MENSUEL DE TRAVAIL — $monthLabel",M,y+16,title);c.drawText("Généré le ${SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.FRANCE).format(Date())}",W-155f,y+15,muted);y+=30;c.drawRect(M,y,W-M,y+22,fill);val xs=floatArrayOf(M+3,78f,137f,187f,237f,287f,337f,397f,457f,517f,577f,637f,697f,757f);val hs=arrayOf("Date","Poste","Arrivée","Embauche","Sortie","Présence","Pause payée","Pause déduite","Temps payé","Panier","Sessions","Mode","Lieu","Info");hs.forEachIndexed{i,s->c.drawText(s,xs[i],y+14,head)};y+=26}
+        startPage()
+        var totalPaid=0L;var totalPresence=0L;var paidPause=0L;var unpaid=0L;var meals=0
+        days.forEach{d->if(y>H-48)startPage();val c=page!!.canvas;val xs=floatArrayOf(M+3,78f,137f,187f,237f,287f,337f,397f,457f,517f,577f,637f,697f,757f);val vals=arrayOf(d.dateLabel,d.shiftLabel,time.format(d.firstArrival),time.format(d.firstCountedEntry),time.format(d.lastExit),dur(d.presenceMs),dur(d.paidTeamPauseMs),dur(d.unpaidPauseMs),dur(d.paidWorkMs),d.mealCount.toString(),d.sessions.toString(),if(d.manual)"Manuel" else "GPS",short(d.places.joinToString(" / "),9),if(d.paidTeamPauseMs>0)"pause rémun." else "");vals.forEachIndexed{i,s->c.drawText(s,xs[i],y+13,if(i==8)bold else normal)};y+=20;c.drawLine(M,y,W-M,y,line);totalPaid+=d.paidWorkMs;totalPresence+=d.presenceMs;paidPause+=d.paidTeamPauseMs;unpaid+=d.unpaidPauseMs;meals+=d.mealCount}
+        if(y>H-78)startPage();val c=page!!.canvas;y+=10;c.drawRect(M,y,W-M,y+42,fill);c.drawText("TOTAL MOIS",M+8,y+14,head);c.drawText("Présence ${dur(totalPresence)}   •   Temps payé ${dur(totalPaid)}   •   Pauses équipe payées ${dur(paidPause)}   •   Pauses déduites ${dur(unpaid)}   •   Paniers $meals   •   Jours ${days.size}",M+8,y+31,bold);y+=48;c.drawText("Les pauses d'équipe Matin / Après-midi / Nuit restent rémunérées et ne sont pas déduites du temps payé.",M,y+12,muted)
+        page?.let{pdf.finishPage(it)};pdf.writeTo(output);pdf.close()
     }
-
-    private fun resolvePlace(context: Context, raw: String): Pair<String?, String> {
-        if (raw.isBlank()) return null to "Pointage manuel / ancien pointage"
-        val marker = " — "
-        if (raw.contains(marker)) {
-            val name = raw.substringBefore(marker).trim().takeIf { it.isNotBlank() }
-            val address = raw.substringAfterLast(marker).trim().ifBlank { raw }
-            return name to address
-        }
-        return PlaceNames.get(context, raw)?.trim()?.takeIf { it.isNotBlank() } to raw
-    }
-
-    private fun normalizeAddress(address: String): String = address
-        .trim()
-        .lowercase(Locale.FRANCE)
-        .replace(Regex("\\s+"), " ")
-
-    private fun formatDuration(ms: Long): String {
-        val totalMinutes = ms.coerceAtLeast(0L) / 60000L
-        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
-    }
+    private fun dur(ms:Long):String{val m=ms.coerceAtLeast(0)/60000;return String.format(Locale.FRANCE,"%02dh%02d",m/60,m%60)}
+    private fun short(s:String,n:Int)=if(s.length<=n)s else s.take((n-1).coerceAtLeast(1))+"…"
 }
