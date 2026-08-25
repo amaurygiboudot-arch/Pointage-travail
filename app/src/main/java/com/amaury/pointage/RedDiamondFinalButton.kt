@@ -17,129 +17,26 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         private const val FACET_COUNT = 80
         private const val BASE_ALPHA = 26 // ~90 % transparent / 10 % opaque
         private val live = Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton, Boolean>())
-
-        fun updateGlobalNaturalLight(angle: Float, pitch: Float, roll: Float, intensity: Float, night: Boolean, elevation: Float) {
-            live.forEach { it.setNaturalLight(angle, pitch, roll, intensity, night, elevation) }
-        }
+        fun updateGlobalNaturalLight(angle: Float, pitch: Float, roll: Float, intensity: Float, night: Boolean, elevation: Float) { live.forEach { it.setNaturalLight(angle,pitch,roll,intensity,night,elevation) } }
     }
-
-    private data class FacetState(val color: Int, val alpha: Int, var luminosity: Float = 1f, var reflection: Float = 0f)
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val shadow = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val states = arrayOfNulls<FacetState>(FACET_COUNT)
-    private var lightAngle = -55f
-    private var pitch = 0f
-    private var roll = 0f
-    private var intensity = .78f
-    private var night = false
-    private var elevation = 45f
-    private var lensStrength = .50f
-
-    open fun diamondPalette() = intArrayOf(
-        Color.rgb(255,50,76), Color.rgb(214,5,35), Color.rgb(132,0,24), Color.rgb(255,92,118),
-        Color.rgb(92,0,20), Color.rgb(238,12,48), Color.rgb(178,0,31), Color.rgb(255,148,164),
-        Color.rgb(110,0,25), Color.rgb(245,22,56), Color.rgb(156,0,29), Color.rgb(255,72,102),
-        Color.rgb(74,0,18), Color.rgb(226,8,42), Color.rgb(194,0,34), Color.rgb(255,118,140)
-    )
-    open fun diamondTint() = Color.rgb(255,28,62)
-    open fun diamondDark() = Color.rgb(96,0,22)
-    open fun diamondHighlight() = Color.rgb(255,238,243)
-
-    init { background = null; stateListAnimator = null; setPadding(0,0,0,0); isAllCaps = false }
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); live.add(this) }
-    override fun onDetachedFromWindow() { live.remove(this); super.onDetachedFromWindow() }
-
-    fun setDiamondLightAngle(angle: Float) { setNaturalLight(angle,pitch,roll,intensity,night,elevation) }
-    fun setLensStrength(value: Float) { lensStrength = value.coerceIn(0f,1f); invalidate() }
-
-    private fun setNaturalLight(a: Float,p: Float,r: Float,i: Float,n: Boolean,e: Float) {
-        lightAngle = norm(a); pitch = p.coerceIn(-90f,90f); roll = r.coerceIn(-90f,90f)
-        intensity = i.coerceIn(.12f,1f); night = n; elevation = e.coerceIn(-10f,90f)
-        postInvalidateOnAnimation()
-    }
-
-    override fun onDraw(c: Canvas) {
-        val w=width.toFloat(); val h=height.toFloat(); if(w<=0||h<=0)return
-        val cx=w*.5f; val cy=h*.5f; val r=min(w,h)*.455f; val press=if(isPressed).93f else 1f
-        drop(c,cx,cy,r*press)
-        c.save(); c.scale(press,press,cx,cy)
-        // Aucun corps/verre coloré : seules les 80 facettes constituent le diamant.
-        facets(c,cx,cy,r)
-        edges(c,cx,cy,r)
-        c.restore()
-        girdle(c,cx,cy,r*press)
-    }
-
-    private fun facets(c: Canvas,cx:Float,cy:Float,r:Float) {
-        val tr=r*.28f; val cr=r*.63f; val gr=r*.96f
-        for(i in 0 until SEGMENTS){ val a0=angle(i); val a1=angle(i+1); facet(c,center(cx,cy,pt(cx,cy,tr,a0),pt(cx,cy,tr,a1)),i,i,(a0+a1)*.5f,0) }
-        for(i in 0 until SEGMENTS){
-            val a0=angle(i); val a1=angle(i+1); val am=(a0+a1)*.5f
-            val i0=pt(cx,cy,tr,a0); val i1=pt(cx,cy,tr,a1); val m0=pt(cx,cy,cr,a0); val m1=pt(cx,cy,cr,a1); val mm=pt(cx,cy,cr,am)
-            facet(c,poly(i0,m0,mm,i1),16+i*2,i+3,(a0+am)*.5f,1); facet(c,poly(i1,mm,m1),17+i*2,i+9,(am+a1)*.5f,1)
-        }
-        for(i in 0 until SEGMENTS){
-            val a0=angle(i); val a1=angle(i+1); val am=(a0+a1)*.5f
-            val m0=pt(cx,cy,cr,a0); val m1=pt(cx,cy,cr,a1); val o0=pt(cx,cy,gr,a0); val o1=pt(cx,cy,gr,a1); val om=pt(cx,cy,gr,am)
-            facet(c,poly(m0,o0,om,m1),48+i*2,i+5,(a0+am)*.5f,2); facet(c,poly(m1,om,o1),49+i*2,i+12,(am+a1)*.5f,2)
-        }
-    }
-
-    private fun facet(c:Canvas,path:Path,id:Int,paletteIndex:Int,az:Float,ring:Int) {
-        val baseTilt=when(ring){0->11f;1->30f;else->47f}
-        val cutVariation=(((paletteIndex*37+ring*53)%17)-8)*.46f
-        val azVariation=(((paletteIndex*29+ring*11)%13)-6)*.42f
-        val facetAz=az+azVariation; val facetTilt=baseTilt+cutVariation
-        val normal=facetNormal(facetAz,facetTilt)
-        val sun=sunVectorInPhoneSpace(lightAngle,elevation,pitch,roll)
-        val incidence=max(0f,dot(normal,sun))
-        val view=max(.001f,normal[2])
-        val half=normalize3(floatArrayOf(sun[0],sun[1],sun[2]+1f))
-        val spec=max(0f,dot(normal,half)).pow(if(night)70f else 150f)*intensity
-        val state=states[id] ?: FacetState(diamondPalette()[paletteIndex%diamondPalette().size],referenceAlpha(id,ring,facetTilt)).also{states[id]=it}
-        state.luminosity=(.58f+incidence*.78f*intensity).coerceIn(.55f,1.30f)
-        state.reflection=(spec*.55f).coerceIn(0f,.42f)
-        val base=state.color; val lum=state.luminosity
-        val lit=Color.rgb((Color.red(base)*lum).toInt().coerceIn(0,255),(Color.green(base)*lum).toInt().coerceIn(0,255),(Color.blue(base)*lum).toInt().coerceIn(0,255))
-        val color=mix(lit,diamondHighlight(),state.reflection)
-        // 90 % de translucidité de référence ; l'incidence solaire ne change que légèrement l'opacité.
-        val alpha=(state.alpha + incidence*7f - (1f-view)*4f).roundToInt().coerceIn(15,42)
-        fill.color=alpha(color,alpha); fill.shader=null; c.drawPath(path,fill)
-        if(spec>.72f){ fill.color=alpha(Color.WHITE,((spec-.72f)/.28f*34f).toInt().coerceIn(0,34)); c.drawPath(path,fill) }
-    }
-
-    private fun referenceAlpha(id:Int,ring:Int,tilt:Float):Int {
-        val signature=((id*13+ring*17)%7)-3; val cut=(((tilt-35f)/35f)*3f).roundToInt()
-        return (BASE_ALPHA+signature+cut).coerceIn(19,34)
-    }
-
-    /** Soleil exprimé dans le repère de l'écran puis corrigé par l'inclinaison réelle du téléphone. */
-    private fun sunVectorInPhoneSpace(azimuth:Float,elev:Float,pitchDeg:Float,rollDeg:Float):FloatArray {
-        val az=Math.toRadians(azimuth.toDouble()); val el=Math.toRadians(elev.toDouble())
-        var x=(cos(az)*cos(el)).toFloat(); var y=(sin(az)*cos(el)).toFloat(); var z=sin(el).toFloat()
-        val pr=Math.toRadians((-pitchDeg).toDouble()); val cp=cos(pr).toFloat(); val sp=sin(pr).toFloat()
-        val y1=y*cp-z*sp; val z1=y*sp+z*cp; y=y1; z=z1
-        val rr=Math.toRadians((-rollDeg).toDouble()); val cr=cos(rr).toFloat(); val sr=sin(rr).toFloat()
-        val x1=x*cr+z*sr; val z2=-x*sr+z*cr; x=x1; z=z2
-        return normalize3(floatArrayOf(x,y,z))
-    }
-
-    private fun facetNormal(azimuth:Float,tilt:Float):FloatArray {
-        val a=Math.toRadians(azimuth.toDouble()); val t=Math.toRadians(tilt.toDouble()); val s=sin(t).toFloat()
-        return normalize3(floatArrayOf(cos(a).toFloat()*s,sin(a).toFloat()*s,cos(t).toFloat()))
-    }
-
-    private fun drop(c:Canvas,cx:Float,cy:Float,r:Float){ shadow.shader=RadialGradient(cx,cy+r*.08f,r*1.16f,intArrayOf(Color.TRANSPARENT,Color.argb(70,0,0,0),Color.TRANSPARENT),floatArrayOf(.67f,.88f,1f),Shader.TileMode.CLAMP); c.drawCircle(cx,cy+r*.08f,r*1.16f,shadow); shadow.shader=null }
-    private fun edges(c:Canvas,cx:Float,cy:Float,r:Float){ edge.strokeWidth=max(1f,r*.007f); edge.color=alpha(diamondHighlight(),32); for(i in 0 until SEGMENTS){ val a=angle(i); val p1=pt(cx,cy,r*.28f,a); val p2=pt(cx,cy,r*.63f,a); val p3=pt(cx,cy,r*.96f,a); c.drawLine(cx,cy,p1[0],p1[1],edge); c.drawLine(p1[0],p1[1],p2[0],p2[1],edge); c.drawLine(p2[0],p2[1],p3[0],p3[1],edge) } }
-    private fun girdle(c:Canvas,cx:Float,cy:Float,r:Float){ edge.style=Paint.Style.STROKE; edge.strokeWidth=max(1.5f,r*.035f); edge.color=alpha(diamondTint(),90); c.drawCircle(cx,cy,r*.982f,edge); edge.strokeWidth=max(1f,r*.009f); edge.color=alpha(diamondHighlight(),70); c.drawCircle(cx,cy,r*.958f,edge) }
-    private fun dot(a:FloatArray,b:FloatArray)=a[0]*b[0]+a[1]*b[1]+a[2]*b[2]
-    private fun normalize3(v:FloatArray):FloatArray{ val l=sqrt((v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).coerceAtLeast(1e-8f)); return floatArrayOf(v[0]/l,v[1]/l,v[2]/l) }
-    private fun angle(i:Int)=-90f+i*(360f/SEGMENTS)
-    private fun norm(v:Float)=((v%360f)+360f)%360f
-    private fun pt(cx:Float,cy:Float,r:Float,d:Float):FloatArray{ val q=Math.toRadians(d.toDouble()); return floatArrayOf(cx+cos(q).toFloat()*r,cy+sin(q).toFloat()*r) }
-    private fun poly(vararg p:FloatArray)=Path().apply{ moveTo(p[0][0],p[0][1]); for(i in 1 until p.size)lineTo(p[i][0],p[i][1]); close() }
-    private fun center(cx:Float,cy:Float,vararg p:FloatArray)=Path().apply{ moveTo(cx,cy); p.forEach{lineTo(it[0],it[1])}; close() }
-    private fun alpha(c:Int,a:Int)=Color.argb(a.coerceIn(0,255),Color.red(c),Color.green(c),Color.blue(c))
-    private fun mix(a:Int,b:Int,t:Float):Int{ val q=t.coerceIn(0f,1f); return Color.rgb((Color.red(a)+(Color.red(b)-Color.red(a))*q).toInt().coerceIn(0,255),(Color.green(a)+(Color.green(b)-Color.green(a))*q).toInt().coerceIn(0,255),(Color.blue(a)+(Color.blue(b)-Color.blue(a))*q).toInt().coerceIn(0,255)) }
+    private data class FacetState(val color:Int,val alpha:Int,var luminosity:Float=1f,var reflection:Float=0f)
+    private val fill=Paint(Paint.ANTI_ALIAS_FLAG); private val edge=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE}; private val shadow=Paint(Paint.ANTI_ALIAS_FLAG)
+    private val states=arrayOfNulls<FacetState>(FACET_COUNT)
+    private var lightAngle=-55f; private var pitch=0f; private var roll=0f; private var intensity=.78f; private var night=false; private var elevation=45f; private var lensStrength=.50f
+    open fun diamondPalette()=intArrayOf(Color.rgb(255,28,55),Color.rgb(232,0,34),Color.rgb(190,0,28),Color.rgb(255,52,72),Color.rgb(154,0,26),Color.rgb(244,8,42),Color.rgb(211,0,31),Color.rgb(255,76,94),Color.rgb(174,0,29),Color.rgb(250,18,48),Color.rgb(200,0,32),Color.rgb(255,42,67),Color.rgb(142,0,24),Color.rgb(238,4,38),Color.rgb(220,0,34),Color.rgb(255,62,82))
+    open fun diamondTint()=Color.rgb(255,20,50); open fun diamondDark()=Color.rgb(120,0,24); open fun diamondHighlight()=Color.rgb(255,238,243)
+    init{background=null;stateListAnimator=null;setPadding(0,0,0,0);isAllCaps=false}
+    override fun onAttachedToWindow(){super.onAttachedToWindow();live.add(this)}; override fun onDetachedFromWindow(){live.remove(this);super.onDetachedFromWindow()}
+    fun setDiamondLightAngle(angle:Float){setNaturalLight(angle,pitch,roll,intensity,night,elevation)}; fun setLensStrength(value:Float){lensStrength=value.coerceIn(0f,1f);invalidate()}
+    private fun setNaturalLight(a:Float,p:Float,r:Float,i:Float,n:Boolean,e:Float){lightAngle=norm(a);pitch=p.coerceIn(-90f,90f);roll=r.coerceIn(-90f,90f);intensity=i.coerceIn(.12f,1f);night=n;elevation=e.coerceIn(-10f,90f);postInvalidateOnAnimation()}
+    override fun onDraw(c:Canvas){val w=width.toFloat();val h=height.toFloat();if(w<=0||h<=0)return;val cx=w*.5f;val cy=h*.5f;val r=min(w,h)*.455f;val press=if(isPressed).93f else 1f;drop(c,cx,cy,r*press);c.save();c.scale(press,press,cx,cy);facets(c,cx,cy,r);edges(c,cx,cy,r);c.restore();girdle(c,cx,cy,r*press)}
+    private fun facets(c:Canvas,cx:Float,cy:Float,r:Float){val tr=r*.28f;val cr=r*.63f;val gr=r*.96f;for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);facet(c,center(cx,cy,pt(cx,cy,tr,a0),pt(cx,cy,tr,a1)),i,i,(a0+a1)*.5f,0)};for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val i0=pt(cx,cy,tr,a0);val i1=pt(cx,cy,tr,a1);val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val mm=pt(cx,cy,cr,am);facet(c,poly(i0,m0,mm,i1),16+i*2,i+3,(a0+am)*.5f,1);facet(c,poly(i1,mm,m1),17+i*2,i+9,(am+a1)*.5f,1)};for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val o0=pt(cx,cy,gr,a0);val o1=pt(cx,cy,gr,a1);val om=pt(cx,cy,gr,am);facet(c,poly(m0,o0,om,m1),48+i*2,i+5,(a0+am)*.5f,2);facet(c,poly(m1,om,o1),49+i*2,i+12,(am+a1)*.5f,2)}}
+    private fun facet(c:Canvas,path:Path,id:Int,paletteIndex:Int,az:Float,ring:Int){val baseTilt=when(ring){0->11f;1->30f;else->47f};val cutVariation=(((paletteIndex*37+ring*53)%17)-8)*.46f;val azVariation=(((paletteIndex*29+ring*11)%13)-6)*.42f;val facetAz=az+azVariation;val facetTilt=baseTilt+cutVariation;val normal=facetNormal(facetAz,facetTilt);val sun=sunVectorInPhoneSpace(lightAngle,elevation,pitch,roll);val incidence=max(0f,dot(normal,sun));val view=max(.001f,normal[2]);val half=normalize3(floatArrayOf(sun[0],sun[1],sun[2]+1f));val spec=max(0f,dot(normal,half)).pow(if(night)70f else 150f)*intensity;val state=states[id]?:FacetState(diamondPalette()[paletteIndex%diamondPalette().size],referenceAlpha(id,ring,facetTilt)).also{states[id]=it};state.luminosity=(.72f+incidence*.55f*intensity).coerceIn(.68f,1.22f);state.reflection=(spec*.32f).coerceIn(0f,.25f);val base=state.color;val lum=state.luminosity;val lit=Color.rgb((Color.red(base)*lum).toInt().coerceIn(0,255),(Color.green(base)*lum).toInt().coerceIn(0,255),(Color.blue(base)*lum).toInt().coerceIn(0,255));val color=mix(lit,diamondHighlight(),state.reflection);val a=(state.alpha+incidence*7f-(1f-view)*4f).roundToInt().coerceIn(18,44);val deep=Color.rgb((Color.red(base)*.72f).toInt(),(Color.green(base)*.72f).toInt(),(Color.blue(base)*.72f).toInt());val q=Math.toRadians((facetAz+90f).toDouble());val gx=cos(q).toFloat()*width*.32f;val gy=sin(q).toFloat()*height*.32f;fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(color,a),alpha(deep,(a*1.12f).roundToInt()),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null;if(spec>.72f){fill.color=alpha(Color.WHITE,((spec-.72f)/.28f*26f).toInt().coerceIn(0,26));c.drawPath(path,fill)}}
+    private fun referenceAlpha(id:Int,ring:Int,tilt:Float):Int{val signature=((id*13+ring*17)%7)-3;val cut=(((tilt-35f)/35f)*3f).roundToInt();return(BASE_ALPHA+signature+cut).coerceIn(19,34)}
+    private fun sunVectorInPhoneSpace(azimuth:Float,elev:Float,pitchDeg:Float,rollDeg:Float):FloatArray{val az=Math.toRadians(azimuth.toDouble());val el=Math.toRadians(elev.toDouble());var x=(cos(az)*cos(el)).toFloat();var y=(sin(az)*cos(el)).toFloat();var z=sin(el).toFloat();val pr=Math.toRadians((-pitchDeg).toDouble());val cp=cos(pr).toFloat();val sp=sin(pr).toFloat();val y1=y*cp-z*sp;val z1=y*sp+z*cp;y=y1;z=z1;val rr=Math.toRadians((-rollDeg).toDouble());val cr=cos(rr).toFloat();val sr=sin(rr).toFloat();val x1=x*cr+z*sr;val z2=-x*sr+z*cr;x=x1;z=z2;return normalize3(floatArrayOf(x,y,z))}
+    private fun facetNormal(azimuth:Float,tilt:Float):FloatArray{val a=Math.toRadians(azimuth.toDouble());val t=Math.toRadians(tilt.toDouble());val s=sin(t).toFloat();return normalize3(floatArrayOf(cos(a).toFloat()*s,sin(a).toFloat()*s,cos(t).toFloat()))}
+    private fun drop(c:Canvas,cx:Float,cy:Float,r:Float){shadow.shader=RadialGradient(cx,cy+r*.08f,r*1.16f,intArrayOf(Color.TRANSPARENT,Color.argb(70,0,0,0),Color.TRANSPARENT),floatArrayOf(.67f,.88f,1f),Shader.TileMode.CLAMP);c.drawCircle(cx,cy+r*.08f,r*1.16f,shadow);shadow.shader=null}
+    private fun edges(c:Canvas,cx:Float,cy:Float,r:Float){edge.strokeWidth=max(1f,r*.007f);edge.color=alpha(diamondHighlight(),32);for(i in 0 until SEGMENTS){val a=angle(i);val p1=pt(cx,cy,r*.28f,a);val p2=pt(cx,cy,r*.63f,a);val p3=pt(cx,cy,r*.96f,a);c.drawLine(cx,cy,p1[0],p1[1],edge);c.drawLine(p1[0],p1[1],p2[0],p2[1],edge);c.drawLine(p2[0],p2[1],p3[0],p3[1],edge)}}
+    private fun girdle(c:Canvas,cx:Float,cy:Float,r:Float){edge.style=Paint.Style.STROKE;edge.strokeWidth=max(1.5f,r*.035f);edge.color=alpha(diamondTint(),105);c.drawCircle(cx,cy,r*.982f,edge);edge.strokeWidth=max(1f,r*.009f);edge.color=alpha(diamondHighlight(),70);c.drawCircle(cx,cy,r*.958f,edge)}
+    private fun dot(a:FloatArray,b:FloatArray)=a[0]*b[0]+a[1]*b[1]+a[2]*b[2];private fun normalize3(v:FloatArray):FloatArray{val l=sqrt((v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).coerceAtLeast(1e-8f));return floatArrayOf(v[0]/l,v[1]/l,v[2]/l)};private fun angle(i:Int)=-90f+i*(360f/SEGMENTS);private fun norm(v:Float)=((v%360f)+360f)%360f;private fun pt(cx:Float,cy:Float,r:Float,d:Float):FloatArray{val q=Math.toRadians(d.toDouble());return floatArrayOf(cx+cos(q).toFloat()*r,cy+sin(q).toFloat()*r)};private fun poly(vararg p:FloatArray)=Path().apply{moveTo(p[0][0],p[0][1]);for(i in 1 until p.size)lineTo(p[i][0],p[i][1]);close()};private fun center(cx:Float,cy:Float,vararg p:FloatArray)=Path().apply{moveTo(cx,cy);p.forEach{lineTo(it[0],it[1])};close()};private fun alpha(c:Int,a:Int)=Color.argb(a.coerceIn(0,255),Color.red(c),Color.green(c),Color.blue(c));private fun mix(a:Int,b:Int,t:Float):Int{val q=t.coerceIn(0f,1f);return Color.rgb((Color.red(a)+(Color.red(b)-Color.red(a))*q).toInt().coerceIn(0,255),(Color.green(a)+(Color.green(b)-Color.green(a))*q).toInt().coerceIn(0,255),(Color.blue(a)+(Color.blue(b)-Color.blue(a))*q).toInt().coerceIn(0,255))}
 }
