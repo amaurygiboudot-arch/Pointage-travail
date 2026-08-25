@@ -1,12 +1,15 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.location.LocationManager
 import org.json.JSONArray
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.UUID
 
-/** Outil privé de diagnostic : simule 3 jours consécutifs de présence >= 7 h. */
+/** Outil privé de diagnostic : simule 3 jours consécutifs de présence >= 7 h sans dépendre d'un SIRET. */
 object SmartWorkplaceTestHarness {
     private const val SMART_PREFS = "smart_setup"
     private const val GPS_PREFS = "gps_settings"
@@ -15,6 +18,7 @@ object SmartWorkplaceTestHarness {
         val gps = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
 
+        // Réutilise d'abord une vraie zone candidate si HoraTrack en a déjà appris une.
         var zoneId = ""
         var address = ""
         var companySlot = 1
@@ -27,8 +31,31 @@ object SmartWorkplaceTestHarness {
             if (zoneId.isNotBlank()) break
         }
 
+        // Aucun SIRET/aucune zone : le test crée une candidate temporaire autour de la dernière position connue.
         if (zoneId.isBlank()) {
-            return "Aucune zone candidate disponible. Renseigne d'abord un SIRET et laisse HoraTrack créer la zone GPS candidate."
+            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            val providers = runCatching { locationManager?.getProviders(true).orEmpty() }.getOrDefault(emptyList())
+            val location = providers.asSequence()
+                .mapNotNull { provider -> runCatching { locationManager?.getLastKnownLocation(provider) }.getOrNull() }
+                .maxByOrNull { it.time }
+                ?: return "Position GPS indisponible. Active la localisation puis réessaie : aucun SIRET n'est nécessaire."
+
+            zoneId = "smart_auto_test_${UUID.randomUUID()}"
+            address = "Position actuelle — détection automatique"
+            val radius = gps.getInt("radius", 150).coerceIn(50, 1000)
+            zones.put(
+                JSONObject()
+                    .put("id", zoneId)
+                    .put("address", address)
+                    .put("latitude", location.latitude)
+                    .put("longitude", location.longitude)
+                    .put("radius", radius)
+                    .put("pointSource", "smart_auto_test")
+                    .put("companySlot", companySlot)
+                    .put("smartCandidate", true)
+                    .put("testOnly", true)
+            )
+            gps.edit().putString("zones", zones.toString()).putBoolean("enabled", true).apply()
         }
 
         val formatter = SimpleDateFormat("yyyy-MM-dd", Locale.FRANCE)
@@ -50,6 +77,6 @@ object SmartWorkplaceTestHarness {
             .putInt("proposal_count_$zoneId", 0)
             .apply()
 
-        return "Simulation prête pour ${address.ifBlank { "la zone candidate" }} : 3 jours consécutifs de présence qualifiée ont été injectés."
+        return "Simulation prête : 3 jours consécutifs de présence qualifiée ont été injectés à $address. Aucun SIRET requis."
     }
 }
