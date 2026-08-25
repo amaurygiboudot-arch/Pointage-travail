@@ -15,6 +15,7 @@ import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.util.Calendar
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.sqrt
 
@@ -36,8 +37,14 @@ object LightDirectionController {
 
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
-    private const val MIN_RENDER_INTERVAL_MS = 50L
-    private const val MIN_ORIENTATION_DELTA = 0.5f
+
+    // Le magnétomètre/rotation-vector bouge naturellement de quelques dixièmes à
+    // quelques degrés même téléphone immobile. Une zone morte + un lissage évitent
+    // que le Soleil/Lune tremblent sans empêcher une vraie rotation du téléphone.
+    private const val MIN_RENDER_INTERVAL_MS = 90L
+    private const val MIN_ORIENTATION_DELTA = 0.8f
+    private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
+    private const val AZIMUTH_SMOOTHING = 0.35f
 
     private fun releaseRegistration(registration: Registration) {
         registration.manager.unregisterListener(registration.listener)
@@ -66,12 +73,25 @@ object LightDirectionController {
         var intensity = if (night) .24f else .78f
         var elevation = if (night) 25f else 45f
         var azimuth = 0f
+        var filteredAzimuth = Float.NaN
         var pitch = 0f
         var roll = 0f
         var lastEmitMs = 0L
         var lastEmittedAngle = Float.NaN
         var lastEmittedPitch = Float.NaN
         var lastEmittedRoll = Float.NaN
+
+        fun stabilizeAzimuth(raw: Float): Float {
+            val normalizedRaw = normalize(raw)
+            if (filteredAzimuth.isNaN()) {
+                filteredAzimuth = normalizedRaw
+                return filteredAzimuth
+            }
+            val delta = shortestDelta(filteredAzimuth, normalizedRaw)
+            if (abs(delta) < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuth
+            filteredAzimuth = normalize(filteredAzimuth + delta * AZIMUTH_SMOOTHING)
+            return filteredAzimuth
+        }
 
         fun state(angle: Float): LightingState {
             val diamondPitch = pitch.coerceIn(-55f, 55f)
@@ -96,15 +116,10 @@ object LightDirectionController {
 
         fun updateTargetFromOrientation() {
             if (locationBased && celestialAzimuth != null) {
-                // L'azimut astronomique est la source de vérité. On ne modifie plus
-                // la position visuelle Soleil/Lune avec pitch/roll : incliner le téléphone
-                // ne doit pas faire dériver l'astre sur l'écran.
                 val screen = screenAngle(azimuth, celestialAzimuth!!)
                 celestialAngle = screen
                 target = screen
             } else {
-                // Sans position GPS, on conserve uniquement une direction relative à
-                // l'orientation du téléphone, sans correction artificielle d'inclinaison.
                 celestialAngle = normalize(-azimuth)
                 target = celestialAngle!!
             }
@@ -139,9 +154,9 @@ object LightDirectionController {
         fun emit(force: Boolean = false) {
             updateTargetFromOrientation()
             val now = SystemClock.uptimeMillis()
-            val angleDelta = if (lastEmittedAngle.isNaN()) 360f else kotlin.math.abs(shortestDelta(lastEmittedAngle, target))
-            val pitchDelta = if (lastEmittedPitch.isNaN()) 180f else kotlin.math.abs(lastEmittedPitch - pitch)
-            val rollDelta = if (lastEmittedRoll.isNaN()) 180f else kotlin.math.abs(lastEmittedRoll - roll)
+            val angleDelta = if (lastEmittedAngle.isNaN()) 360f else abs(shortestDelta(lastEmittedAngle, target))
+            val pitchDelta = if (lastEmittedPitch.isNaN()) 180f else abs(lastEmittedPitch - pitch)
+            val rollDelta = if (lastEmittedRoll.isNaN()) 180f else abs(lastEmittedRoll - roll)
 
             if (!force) {
                 if (now - lastEmitMs < MIN_RENDER_INTERVAL_MS) return
@@ -164,7 +179,8 @@ object LightDirectionController {
                     Sensor.TYPE_ROTATION_VECTOR -> {
                         SensorManager.getRotationMatrixFromVector(rotation, event.values)
                         SensorManager.getOrientation(rotation, orientation)
-                        azimuth = normalize(Math.toDegrees(orientation[0].toDouble()).toFloat())
+                        val rawAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
+                        azimuth = stabilizeAzimuth(rawAzimuth)
                         pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
                         roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
                     }
@@ -228,8 +244,6 @@ object LightDirectionController {
         }.getOrNull()
     }
 
-    // 0° à l'écran = direction vers laquelle pointe le haut du téléphone.
-    // Le delta signé donne directement la position relative de l'astre autour du téléphone.
     private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) =
         normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()))
 
