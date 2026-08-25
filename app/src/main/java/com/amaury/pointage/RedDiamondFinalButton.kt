@@ -28,19 +28,21 @@ open class RedDiamondFinalButton @JvmOverloads constructor(context:Context,attrs
   val ringGain=when(ring){0->1f;1->.88f;else->.76f};val curvatureGain=(.82f+.18f*view).coerceIn(.82f,1f);val energy=(direct*.52f+internal*.92f).coerceIn(0f,1.35f);val depthEnergy=(energy*ringGain*curvatureGain).coerceIn(0f,1.35f)
   val solarLum=(.94f+depthEnergy*.48f*intensity+view*.05f).coerceIn(.92f,1.48f);val lit=Color.rgb((Color.red(base)*solarLum).roundToInt().coerceIn(0,255),(Color.green(base)*solarLum).roundToInt().coerceIn(0,255),(Color.blue(base)*solarLum).roundToInt().coerceIn(0,255))
   val reflected=mix(lit,base,(internal*.18f+spec*.08f).coerceIn(0f,.22f));val dynamicAlpha=(state.alpha+(depthEnergy-.45f)*8f).roundToInt().coerceIn(158,176)
-  val q=Math.toRadians((facetAz+90f).toDouble());val gx=cos(q).toFloat()*width*.32f;val gy=sin(q).toFloat()*height*.32f;val inner=mix(base,diamondHighlight(),(internal*.12f*ringGain).coerceIn(0f,.12f));fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(reflected,dynamicAlpha),alpha(inner,(dynamicAlpha*1.02f).roundToInt().coerceAtMost(180)),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null
+  // Chaque couronne descend radialement du centre vers l'extérieur. On réintroduit donc
+  // un dégradé propre à la pente de la facette : bord haut/intérieur plus clair, bord
+  // bas/extérieur plus sombre. L'inclinaison réelle du téléphone module cette pente.
+  val a=Math.toRadians(facetAz.toDouble());val radialX=cos(a).toFloat();val radialY=sin(a).toFloat();val phoneSlope=((pitch/55f)*radialY+(roll/55f)*radialX).coerceIn(-1f,1f)
+  val slopeStrength=(when(ring){0->.08f;1->.14f;else->.20f}+(1f-view)*.10f+abs(phoneSlope)*.05f).coerceIn(.06f,.30f)
+  val upper=mix(reflected,diamondHighlight(),(.05f+direct*.08f).coerceIn(.04f,.13f));val lower=mix(base,diamondDark(),slopeStrength)
+  val span=when(ring){0->width*.17f;1->width*.24f;else->width*.31f};val gx=radialX*span;val gy=radialY*span
+  fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(upper,dynamicAlpha),alpha(lower,(dynamicAlpha*1.02f).roundToInt().coerceAtMost(180)),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null
   val lightAlpha=((direct*.48f+internal*.92f)*intensity*ringGain*curvatureGain*LIGHT_ALPHA_MAX).roundToInt().coerceIn(LIGHT_ALPHA_MIN,LIGHT_ALPHA_MAX);val coloredLight=mix(base,diamondHighlight(),(.20f+internal*.10f).coerceIn(0f,.30f));fill.color=alpha(coloredLight,lightAlpha);c.drawPath(path,fill)
   if(spec>.48f){fill.color=alpha(Color.WHITE,((spec-.48f)/.52f*26f*ringGain).roundToInt().coerceIn(0,26));c.drawPath(path,fill)}
  }
  private fun referenceAlpha(id:Int,ring:Int,tilt:Float):Int{val signature=((id*13+ring*17)%7)-3;val cut=(((tilt-35f)/35f)*5f).roundToInt();return(BASE_ALPHA+signature+cut).coerceIn(158,174)}
  private fun sunVectorInPhoneSpace(azimuth:Float,elev:Float,pitchDeg:Float,rollDeg:Float):FloatArray{
-  // lightAngle arrive du contrôleur comme un angle écran : 0° = haut, 90° = droite,
-  // 180° = bas, 270° = gauche. Les facettes utilisent x vers la droite et y vers le bas.
-  // Le précédent cos/sin supposait 0° sur l'axe +X et décalait donc le Soleil de 90°.
   val az=Math.toRadians(norm(azimuth).toDouble());val el=Math.toRadians(elev.toDouble())
   var x=(sin(az)*cos(el)).toFloat();var y=(-cos(az)*cos(el)).toFloat();var z=sin(el).toFloat()
-  // L'azimut est déjà relatif à l'écran ; pitch/roll ne servent ici qu'à incliner le plan
-  // du téléphone par rapport à l'élévation réelle de l'astre.
   val pr=Math.toRadians((-pitchDeg).toDouble());val cp=cos(pr).toFloat();val sp=sin(pr).toFloat();val y1=y*cp-z*sp;val z1=y*sp+z*cp;y=y1;z=z1
   val rr=Math.toRadians((-rollDeg).toDouble());val cr=cos(rr).toFloat();val sr=sin(rr).toFloat();val x1=x*cr+z*sr;val z2=-x*sr+z*cr;x=x1;z=z2
   return normalize3(floatArrayOf(x,y,z))
