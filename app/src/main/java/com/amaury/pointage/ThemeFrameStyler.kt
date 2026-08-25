@@ -10,9 +10,9 @@ import android.widget.TextView
 
 /**
  * Applique les cadres des thèmes aux contrôles uniquement.
- * Les panneaux/conteneurs restent toujours totalement transparents :
- * aucune texture Carbone, Céleste ou autre ne doit y être appliquée.
- * Les boutons de pointage diamant restent totalement exclus.
+ * Les panneaux/conteneurs restent toujours totalement transparents.
+ * Le thème Carbone suit réellement le mode clair/sombre :
+ * sombre = texture originale, clair = texture polarisée.
  */
 object ThemeFrameStyler {
     private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
@@ -24,7 +24,7 @@ object ThemeFrameStyler {
         val theme = AppThemeCatalog.current(root.context)
         if (theme.id != "natural_carbon" && theme.id != "signature_gold") return
         val dark = AppThemeCatalog.useDarkPalette(root.context)
-        applyRecursive(root, theme, dark, inheritedDark = effectiveDark(theme, dark))
+        applyRecursive(root, theme, dark, inheritedDark = dark)
     }
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {
@@ -34,8 +34,7 @@ object ThemeFrameStyler {
         val framedContainer = view is ViewGroup && isFramedContainer(view, id)
         val localDark = when {
             framedContainer -> inheritedDark
-            theme.id == "natural_carbon" && hasThemedBackground(view) -> true
-            theme.id == "signature_gold" && hasThemedBackground(view) -> dark
+            hasThemedBackground(view) -> dark
             else -> inheritedDark
         }
 
@@ -52,9 +51,6 @@ object ThemeFrameStyler {
             for (i in 0 until view.childCount) applyRecursive(view.getChildAt(i), theme, dark, localDark)
         }
     }
-
-    private fun effectiveDark(theme: HpTheme, dark: Boolean): Boolean =
-        if (theme.id == "natural_carbon") true else dark
 
     private fun hasThemedBackground(view: View): Boolean =
         view.background is CarbonCompositeDrawable || view.background != null
@@ -77,8 +73,12 @@ object ThemeFrameStyler {
     private fun ensureBackground(view: View, theme: HpTheme) {
         view.backgroundTintList = null
         when (theme.id) {
-            "natural_carbon" -> if (view.background !is CarbonCompositeDrawable) {
-                view.background = CarbonCompositeDrawable(view.context)
+            "natural_carbon" -> {
+                val wantedLight = !AppThemeCatalog.useDarkPalette(view.context)
+                val current = view.background as? CarbonCompositeDrawable
+                if (current == null || current.lightMode != wantedLight) {
+                    view.background = CarbonCompositeDrawable(view.context, lightMode = wantedLight)
+                }
             }
             "signature_gold" -> if (view.background == null || view.background is CarbonCompositeDrawable) {
                 view.background = view.context.getDrawable(R.drawable.hp_panel)?.mutate()
