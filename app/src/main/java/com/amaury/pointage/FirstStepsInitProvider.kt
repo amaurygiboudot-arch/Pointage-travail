@@ -17,16 +17,19 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
         SmartSetupManager.init(app)
+        CompanyNameUiBinder.init(app)
         app.registerActivityLifecycleCallbacks(this)
         return true
     }
 
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
+        CompanyNameUiBinder.bind(activity)
         activity.window.decorView.post {
             installReplayButton(activity)
             FirstStepsTutorial.showIfNeeded(activity)
             WorkplaceProposalLimiter.showIfAllowed(activity)
+            CompanyNameUiBinder.bind(activity)
         }
     }
 
