@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
@@ -50,8 +51,6 @@ object AppThemeCatalog {
         val selected = visibleThemes.firstOrNull { it.id == id }
         if (selected != null) return selected
 
-        // Si un utilisateur avait déjà enregistré un thème désormais privé,
-        // on le ramène immédiatement sur Céleste au lieu de laisser ce thème actif.
         val fallback = visibleThemes.firstOrNull { it.id == DEFAULT_THEME } ?: visibleThemes.first()
         prefs.edit().putString(KEY_THEME, fallback.id).apply()
         return fallback
@@ -76,6 +75,12 @@ object AppThemeCatalog {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_CELESTIAL_NIGHT, !night) == night && prefs.contains(KEY_CELESTIAL_NIGHT)) return
         prefs.edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
+
+        // La polarisation automatique suit immédiatement la transition astronomique.
+        // Nuit = couleurs normales ; jour = polarisation inversée.
+        (context as? Activity)?.window?.decorView?.post {
+            AutoDayNightPolarity.apply(context.window.decorView)
+        }
     }
 
     fun set(context: Context, theme: HpTheme) {
@@ -97,10 +102,10 @@ object AppThemeCatalog {
             .remove("widget_accent")
             .apply()
 
-        // Une mise à jour partielle ne change que les textes du RemoteViews et
-        // conservait donc parfois l'ancien habillage (ex. Céleste). On force ici
-        // un vrai APPWIDGET_UPDATE afin que chaque provider reconstruise toute
-        // la vue et relise immédiatement le thème sélectionné, dont Carbone.
+        (context as? Activity)?.window?.decorView?.post {
+            AutoDayNightPolarity.apply(context.window.decorView)
+        }
+
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
         forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
     }
