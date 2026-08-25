@@ -9,7 +9,7 @@ import java.util.WeakHashMap
 import kotlin.math.*
 
 open class RedDiamondFinalButton @JvmOverloads constructor(context:Context,attrs:AttributeSet?=null,defStyleAttr:Int=android.R.attr.buttonStyle):Button(context,attrs,defStyleAttr){
- companion object{const val RENDER_NAME="Diamant solaire 3D";private const val SEGMENTS=16;private const val FACET_COUNT=80;private const val BASE_ALPHA=166;private val live=Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton,Boolean>());fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}}
+ companion object{const val RENDER_NAME="Diamant solaire 3D";private const val SEGMENTS=16;private const val FACET_COUNT=80;private const val BASE_ALPHA=166;private const val LIGHT_ALPHA_MAX=153;private val live=Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton,Boolean>());fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}}
  private data class FacetState(val color:Int,val alpha:Int,var lastIncidence:Float=0f,var lastSpecular:Float=0f,var lastInternal:Float=0f)
  private val fill=Paint(Paint.ANTI_ALIAS_FLAG);private val edge=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE};private val states=arrayOfNulls<FacetState>(FACET_COUNT)
  private var lightAngle=-55f;private var pitch=0f;private var roll=0f;private var intensity=.78f;private var night=false;private var elevation=45f;private var lensStrength=.50f
@@ -28,7 +28,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(context:Context,attrs
   val energy=(direct*.52f+internal*.92f).coerceIn(0f,1.35f);val solarLum=(.94f+energy*.48f*intensity+view*.05f).coerceIn(.92f,1.48f);val lit=Color.rgb((Color.red(base)*solarLum).roundToInt().coerceIn(0,255),(Color.green(base)*solarLum).roundToInt().coerceIn(0,255),(Color.blue(base)*solarLum).roundToInt().coerceIn(0,255))
   val reflected=mix(lit,diamondHighlight(),(internal*.28f+spec*.22f).coerceIn(0f,.34f));val dynamicAlpha=(state.alpha+(energy-.45f)*8f).roundToInt().coerceIn(158,176)
   val q=Math.toRadians((facetAz+90f).toDouble());val gx=cos(q).toFloat()*width*.32f;val gy=sin(q).toFloat()*height*.32f;val inner=mix(base,diamondHighlight(),(internal*.34f).coerceIn(0f,.34f));fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(reflected,dynamicAlpha),alpha(inner,(dynamicAlpha*1.02f).roundToInt().coerceAtMost(180)),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null
-  val lightAlpha=((direct*.48f+internal*.92f)*intensity*89f).roundToInt().coerceIn(0,89);if(lightAlpha>0){fill.color=alpha(mix(base,diamondHighlight(),(.58f+internal*.20f).coerceIn(0f,.78f)),lightAlpha);c.drawPath(path,fill)}
+  val lightAlpha=((direct*.48f+internal*.92f)*intensity*LIGHT_ALPHA_MAX).roundToInt().coerceIn(0,LIGHT_ALPHA_MAX);if(lightAlpha>0){fill.color=alpha(mix(base,diamondHighlight(),(.58f+internal*.20f).coerceIn(0f,.78f)),lightAlpha);c.drawPath(path,fill)}
   if(spec>.48f){fill.color=alpha(Color.WHITE,((spec-.48f)/.52f*42f).roundToInt().coerceIn(0,42));c.drawPath(path,fill)}
  }
  private fun referenceAlpha(id:Int,ring:Int,tilt:Float):Int{val signature=((id*13+ring*17)%7)-3;val cut=(((tilt-35f)/35f)*5f).roundToInt();return(BASE_ALPHA+signature+cut).coerceIn(158,174)}
