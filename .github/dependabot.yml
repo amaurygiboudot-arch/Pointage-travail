@@ -9,8 +9,14 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
+      - "security"
     groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
       android-dependencies:
+        applies-to: version-updates
         patterns:
           - "*"
 
@@ -23,3 +29,13 @@ updates:
     open-pull-requests-limit: 10
     labels:
       - "dependencies"
+      - "security"
+    groups:
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - "*"
+      actions-updates:
+        applies-to: version-updates
+        patterns:
+          - "*"
