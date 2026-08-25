@@ -56,10 +56,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    /**
-     * Entrée secrète du mode développeur : appui long sur l'onglet Paramètres.
-     * Aucun bouton Développeur n'est affiché dans l'interface normale.
-     */
+    /** Entrée secrète : appui long sur Paramètres, puis authentification biométrique. */
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
         settingsTab.setOnLongClickListener {
@@ -72,7 +69,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    /** Authentification biométrique avant chaque ouverture du menu privé. */
     private fun authenticateOwner(activity: MainActivity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             Toast.makeText(activity, "Authentification biométrique requise sur Android 9 ou plus.", Toast.LENGTH_LONG).show()
@@ -100,9 +96,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 super.onAuthenticationError(errorCode, errString)
+                // Le bouton négatif peut remonter un code dépendant de la version Android.
+                // On ignore uniquement les annulations standard et on affiche les vraies erreurs.
                 if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
-                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED &&
-                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_NEGATIVE_BUTTON
+                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
                 ) {
                     Toast.makeText(activity, errString ?: "Authentification impossible", Toast.LENGTH_SHORT).show()
                 }
@@ -119,8 +116,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { FirstStepsTutorial.restart(activity) }
-            // Cette ancienne porte secondaire est supprimée : l'unique accès caché
-            // est désormais l'appui long sur l'onglet Paramètres.
             setOnLongClickListener(null)
         }
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -149,5 +144,5 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?): Int = 0
+    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
 }
