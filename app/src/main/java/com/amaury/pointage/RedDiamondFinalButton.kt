@@ -9,7 +9,7 @@ import java.util.WeakHashMap
 import kotlin.math.*
 
 open class RedDiamondFinalButton @JvmOverloads constructor(context:Context,attrs:AttributeSet?=null,defStyleAttr:Int=android.R.attr.buttonStyle):Button(context,attrs,defStyleAttr){
- companion object{const val RENDER_NAME="Diamant solaire 3D";private const val SEGMENTS=16;private const val FACET_COUNT=80;private const val BASE_ALPHA=166;private const val LIGHT_ALPHA_MAX=153;private val live=Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton,Boolean>());fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}}
+ companion object{const val RENDER_NAME="Diamant solaire 3D";private const val SEGMENTS=16;private const val FACET_COUNT=80;private const val BASE_ALPHA=166;private const val LIGHT_ALPHA_MAX=255;private val live=Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton,Boolean>());fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}}
  private data class FacetState(val color:Int,val alpha:Int,var lastIncidence:Float=0f,var lastSpecular:Float=0f,var lastInternal:Float=0f)
  private val fill=Paint(Paint.ANTI_ALIAS_FLAG);private val edge=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE};private val states=arrayOfNulls<FacetState>(FACET_COUNT)
  private var lightAngle=-55f;private var pitch=0f;private var roll=0f;private var intensity=.78f;private var night=false;private var elevation=45f;private var lensStrength=.50f
