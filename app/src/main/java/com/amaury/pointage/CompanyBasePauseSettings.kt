@@ -14,10 +14,12 @@ import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
@@ -76,7 +78,7 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
     fun refresh() {
         removeAllViews()
         addView(TextView(context).apply { text = "PAUSES DE BASE ENTREPRISE"; textSize = 15f; setTypeface(typeface, Typeface.BOLD) })
-        addView(TextView(context).apply { text = "Tu peux définir 2 pauses fixes et une alarme personnalisée au début de chacune. Elles sont automatiquement retirées des heures travaillées ; les autres pauses restent en supplément."; textSize = 12f; setPadding(0, dp(4), 0, dp(6)) })
+        addView(TextView(context).apply { text = "Tu peux définir 2 pauses fixes et une alarme personnalisée au début de chacune. Les sons sont classés du plus discret au plus insistant et peuvent être pré-écoutés avant validation."; textSize = 12f; setPadding(0, dp(4), 0, dp(6)) })
         addCompany(1); if (companyExists(2)) addCompany(2)
     }
 
@@ -91,63 +93,110 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
     private data class PauseFields(val start: EditText, val end: EditText, val alarm: CheckBox, val sound: Button, var soundValue: String)
 
     private fun showDialog(slot: Int, name: String) {
+        PauseAlarmSoundCatalog.stopPreview()
         val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(14), dp(20), dp(8)) }
         box.addView(TextView(context).apply { text = "Pauses et alarmes • $name"; textSize = 16f; setTypeface(typeface, Typeface.BOLD) })
         fun timeInput(hintText: String, saved: Int) = EditText(context).apply { hint = hintText; inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME; isSingleLine = true; if (saved >= 0) setText(String.format(Locale.FRANCE, "%02d:%02d", saved / 60, saved % 60)) }
-        fun soundLabel(value: String) = when (value) { "ringtone" -> "Son : Sonnerie du téléphone"; "notification" -> "Son : Notification"; else -> "Son : Alarme système" }
         fun addPauseFields(index: Int): PauseFields {
             box.addView(TextView(context).apply { text = "Pause $index"; textSize = 14f; setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(if (index == 1) 10 else 16), 0, 0) })
             val start = timeInput("Début — ex. ${if (index == 1) "10:00" else "12:00"}", CompanyBasePauseSettings.startMinute(context, slot, index))
             val end = timeInput("Fin — ex. ${if (index == 1) "10:15" else "12:30"}", CompanyBasePauseSettings.endMinute(context, slot, index))
             val alarm = CheckBox(context).apply { text = "🔔 Sonner + notifier au début"; isChecked = CompanyBasePauseSettings.alarmEnabled(context, slot, index) }
-            var soundValue = CompanyBasePauseSettings.alarmSound(context, slot, index)
-            val sound = Button(context).apply { text = soundLabel(soundValue); isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
-            val fields = PauseFields(start, end, alarm, sound, soundValue)
-            sound.setOnClickListener {
-                fields.soundValue = when (fields.soundValue) { "alarm" -> "ringtone"; "ringtone" -> "notification"; else -> "alarm" }
-                sound.text = soundLabel(fields.soundValue)
-            }
-            box.addView(start); box.addView(end); box.addView(alarm); box.addView(sound, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
+            val savedSound = CompanyBasePauseSettings.alarmSound(context, slot, index)
+            val selected = PauseAlarmSoundCatalog.resolve(context, savedSound)
+            val sound = Button(context).apply { text = "Son : ${selected.label}"; isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
+            val fields = PauseFields(start, end, alarm, sound, selected.id)
+            sound.setOnClickListener { showSoundPicker(fields) }
+            box.addView(start); box.addView(end); box.addView(alarm); box.addView(sound, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
             return fields
         }
         val p1 = addPauseFields(1); val p2 = addPauseFields(2)
-        AlertDialog.Builder(context).setView(box).setPositiveButton("Enregistrer") { _, _ ->
-            val entries = listOf(1 to p1, 2 to p2); var invalid = false
-            entries.forEach { (index, f) ->
-                val rawStart = f.start.text.toString(); val rawEnd = f.end.text.toString(); val bothBlank = rawStart.isBlank() && rawEnd.isBlank(); val s = parse(rawStart); val e = parse(rawEnd)
-                when { bothBlank -> CompanyBasePauseSettings.clearPause(context, slot, index); s == null || e == null || s == e -> invalid = true; else -> { CompanyBasePauseSettings.savePause(context, slot, index, s, e); CompanyBasePauseSettings.saveAlarm(context, slot, index, f.alarm.isChecked, f.soundValue) } }
+        val dialog = AlertDialog.Builder(context).setView(box).setPositiveButton("Enregistrer", null).setNeutralButton("Tout supprimer", null).setNegativeButton("Annuler", null).create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val entries = listOf(1 to p1, 2 to p2); var invalid = false
+                entries.forEach { (index, f) ->
+                    val rawStart = f.start.text.toString(); val rawEnd = f.end.text.toString(); val bothBlank = rawStart.isBlank() && rawEnd.isBlank(); val s = parse(rawStart); val e = parse(rawEnd)
+                    when { bothBlank -> CompanyBasePauseSettings.clearPause(context, slot, index); s == null || e == null || s == e -> invalid = true; else -> { CompanyBasePauseSettings.savePause(context, slot, index, s, e); CompanyBasePauseSettings.saveAlarm(context, slot, index, f.alarm.isChecked, f.soundValue) } }
+                }
+                if (invalid) Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
+                else {
+                    PauseAlarmSoundCatalog.stopPreview()
+                    CompanyPauseAlarmManager.scheduleAll(context)
+                    if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
+                    refresh(); dialog.dismiss(); Toast.makeText(context, "Pauses, alarmes et sons enregistrés", Toast.LENGTH_SHORT).show()
+                }
             }
-            if (invalid) {
-                Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
-            } else {
-                CompanyPauseAlarmManager.scheduleAll(context)
-                if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
-                refresh()
-                Toast.makeText(context, "Pauses, alarmes et notifications enregistrées", Toast.LENGTH_SHORT).show()
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { PauseAlarmSoundCatalog.stopPreview(); CompanyBasePauseSettings.clear(context, slot); refresh(); dialog.dismiss() }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { PauseAlarmSoundCatalog.stopPreview(); dialog.dismiss() }
+        }
+        dialog.setOnCancelListener { PauseAlarmSoundCatalog.stopPreview() }
+        dialog.show()
+    }
+
+    private fun showSoundPicker(fields: PauseFields) {
+        PauseAlarmSoundCatalog.stopPreview()
+        val sounds = PauseAlarmSoundCatalog.sounds(context)
+        if (sounds.isEmpty()) {
+            Toast.makeText(context, "Aucun son système disponible sur ce téléphone", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        val box = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(12), dp(20), dp(8)) }
+        box.addView(TextView(context).apply {
+            text = "Du plus discret au moins discret"
+            textSize = 13f
+            setPadding(0, 0, 0, dp(8))
+        })
+        val spinner = Spinner(context)
+        val adapter = ArrayAdapter(context, android.R.layout.simple_spinner_item, sounds.map { it.label }).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        spinner.adapter = adapter
+        val current = sounds.indexOfFirst { it.id == fields.soundValue }.takeIf { it >= 0 } ?: 0
+        spinner.setSelection(current)
+        box.addView(spinner, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+
+        val previewButton = Button(context).apply {
+            text = "▶ PRÉ-ÉCOUTER"
+            isAllCaps = false
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener {
+                val selected = sounds.getOrNull(spinner.selectedItemPosition) ?: return@setOnClickListener
+                PauseAlarmSoundCatalog.preview(context, selected)
             }
-        }.setNeutralButton("Tout supprimer") { _, _ -> CompanyBasePauseSettings.clear(context, slot); refresh() }.setNegativeButton("Annuler", null).show()
+        }
+        box.addView(previewButton, LayoutParams(LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(10) })
+
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Choisir le son de l'alarme")
+            .setView(box)
+            .setPositiveButton("VALIDER", null)
+            .setNegativeButton("ANNULER", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val selected = sounds.getOrNull(spinner.selectedItemPosition) ?: return@setOnClickListener
+                PauseAlarmSoundCatalog.stopPreview()
+                fields.soundValue = selected.id
+                fields.sound.text = "Son : ${selected.label}"
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener { PauseAlarmSoundCatalog.stopPreview(); dialog.dismiss() }
+        }
+        dialog.setOnCancelListener { PauseAlarmSoundCatalog.stopPreview() }
+        dialog.show()
     }
 
     private fun requestAlarmPermissionsIfNeeded() {
         val activity = context as? Activity ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1301)
-        }
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1301)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             if (!alarm.canScheduleExactAlarms()) {
                 postDelayed({
                     Toast.makeText(context, "Autorise ‘Alarmes et rappels’ pour que les pauses sonnent exactement à l’heure.", Toast.LENGTH_LONG).show()
-                    runCatching {
-                        activity.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                                data = Uri.parse("package:${context.packageName}")
-                            }
-                        )
-                    }
+                    runCatching { activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:${context.packageName}") }) }
                 }, 700L)
             }
         }
