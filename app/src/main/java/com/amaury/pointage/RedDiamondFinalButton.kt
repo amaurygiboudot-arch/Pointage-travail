@@ -25,6 +25,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         private const val MIN_TILT_DELTA = 1.0f
         private const val MIN_INTENSITY_DELTA = .015f
         private const val MIN_ELEVATION_DELTA = .75f
+        private const val BASE_TRANSLUCENCY_ALPHA = 77 // ~70 % transparent / 30 % opaque
         private val live = Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton, Boolean>())
 
         fun updateGlobalNaturalLight(
@@ -285,6 +286,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     }
 
     private fun glass(c: Canvas, cx: Float, cy: Float, r: Float) {
+        // Couche de corps volontairement très légère : elle colore le cristal sans
+        // masquer le fond de l'application. La translucidité visible vient des facettes.
         val q = Math.toRadians(lightAngle.toDouble())
         val lx = cx + cos(q).toFloat() * r * .24f
         val ly = cy + sin(q).toFloat() * r * .24f
@@ -293,8 +296,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         fill.shader = RadialGradient(
             lx, ly, r * 1.28f,
             intArrayOf(
-                alpha(lighten(t, .26f), 218), alpha(t, 232), alpha(d, 238),
-                Color.argb(244, Color.red(d) / 7, Color.green(d) / 7, Color.blue(d) / 7)
+                alpha(lighten(t, .26f), 18), alpha(t, 22), alpha(d, 28),
+                Color.argb(34, Color.red(d) / 7, Color.green(d) / 7, Color.blue(d) / 7)
             ),
             floatArrayOf(0f, .34f, .72f, 1f), Shader.TileMode.CLAMP
         )
@@ -306,7 +309,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val d = diamondDark()
         fill.shader = RadialGradient(
             cx - roll * .012f, cy + pitch * .008f, r,
-            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, alpha(d, 28), alpha(Color.BLACK, 92)),
+            intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, alpha(d, 18), alpha(Color.BLACK, 42)),
             floatArrayOf(0f, .43f, .73f, 1f), Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy, r, fill)
@@ -398,8 +401,6 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             (bb * df).toInt().coerceIn(0, 255)
         )
 
-        // La coupe définit la translucidité de référence. L'inclinaison du téléphone
-        // modifie ensuite l'alpha indépendamment de la lumière et des reflets.
         val a = dynamicFacetAlpha(state.referenceAlpha, facetAzimuth, ndv)
         val ga = Math.toRadians((az + 90).toDouble())
         val gx = cos(ga).toFloat() * width * .42f
@@ -412,7 +413,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         c.drawPath(path, fill)
         fill.shader = null
         if (spec > .62f) {
-            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 64).toInt().coerceIn(0, 64))
+            fill.color = alpha(Color.WHITE, ((spec - .62f) / .38f * 48).toInt().coerceIn(0, 48))
             c.drawPath(path, fill)
         }
         fire(c, path, facetId, ring, ndh, trans, tir)
@@ -441,32 +442,32 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     }
 
     private fun facetReferenceAlpha(facetId: Int, ring: Int, az: Float, cutTilt: Float): Int {
-        val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 8f).toInt()
-        val cutShape = ((cutTilt.coerceIn(6f, 74f) - 6f) / 68f * 18f).toInt()
-        val signature = ((facetId * 13 + ring * 17) % 13) - 6
-        return (166 + ring * 5 + azimuthShape + cutShape + signature).coerceIn(160, 214)
+        // 70 % de translucidité comme référence (~30 % d'opacité = alpha 77),
+        // avec une petite signature stable propre à chaque coupe/facette.
+        val azimuthShape = ((sin(Math.toRadians((az + 37f).toDouble())).toFloat() + 1f) * 5f).toInt() - 5
+        val cutShape = (((cutTilt.coerceIn(6f, 74f) - 40f) / 34f) * 8f).roundToInt()
+        val signature = ((facetId * 13 + ring * 17) % 9) - 4
+        val ringShift = when (ring) { 0 -> -3; 1 -> 0; else -> 4 }
+        return (BASE_TRANSLUCENCY_ALPHA + azimuthShape + cutShape + signature + ringShift).coerceIn(55, 100)
     }
 
     private fun dynamicFacetAlpha(referenceAlpha: Int, facetAzimuth: Float, viewFacing: Float): Int {
         val tiltMagnitude = (hypot(pitch.toDouble(), roll.toDouble()).toFloat() / 70f).coerceIn(0f, 1f)
         if (tiltMagnitude < .01f) return referenceAlpha
 
-        // Direction vers laquelle le haut du téléphone est incliné.
         val tiltDirection = norm(
             Math.toDegrees(atan2(roll.toDouble(), -pitch.toDouble())).toFloat()
         )
         val delta = Math.toRadians(shortestDelta(tiltDirection, facetAzimuth).toDouble())
-        val alignment = cos(delta).toFloat() // +1 face à l'inclinaison, -1 à l'opposé
+        val alignment = cos(delta).toFloat()
 
-        // Une facette plus face à l'observateur devient plus transparente.
-        val facingTransparency = ((viewFacing.coerceIn(0f, 1f) - .5f) * 34f)
-        val orientationShift = alignment * tiltMagnitude * 30f
-
-        // Alpha faible = plus transparent. Les limites empêchent toute disparition
-        // ou opacité complète, même à forte inclinaison.
+        // Alpha faible = plus transparent. L'orientation du téléphone fait varier
+        // les facettes autour de la référence 70 %, sans jamais les rendre opaques.
+        val facingTransparency = ((viewFacing.coerceIn(0f, 1f) - .5f) * 20f)
+        val orientationShift = alignment * tiltMagnitude * 22f
         return (referenceAlpha - facingTransparency - orientationShift)
             .roundToInt()
-            .coerceIn(112, 220)
+            .coerceIn(38, 118)
     }
 
     private fun fire(c: Canvas, path: Path, index: Int, ring: Int, align: Float, trans: Float, tir: Float) {
@@ -501,13 +502,13 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         val hi = diamondHighlight()
         fill.shader = RadialGradient(
             hx, hy, tr * 1.12f,
-            intArrayOf(alpha(hi, if (night) 30 else 54), Color.TRANSPARENT, alpha(Color.BLACK, 28)),
+            intArrayOf(alpha(hi, if (night) 22 else 38), Color.TRANSPARENT, alpha(Color.BLACK, 16)),
             floatArrayOf(0f, .58f, 1f), Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy, tr, fill)
         fill.shader = null
         edge.strokeWidth = maxOf(1f, r * .014f)
-        edge.color = alpha(hi, if (night) 38 else 72)
+        edge.color = alpha(hi, if (night) 30 else 54)
         c.drawCircle(cx, cy, tr, edge)
     }
 
@@ -520,7 +521,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         fill.shader = LinearGradient(
             cx - ux * r * .72f, cy - uy * r * .72f,
             cx + ux * r * .72f, cy + uy * r * .72f,
-            intArrayOf(Color.TRANSPARENT, alpha(t, 16), alpha(hi, if (night) 28 else 58), alpha(t, 20), Color.TRANSPARENT),
+            intArrayOf(Color.TRANSPARENT, alpha(t, 12), alpha(hi, if (night) 20 else 40), alpha(t, 14), Color.TRANSPARENT),
             floatArrayOf(0f, .32f, .50f, .68f, 1f), Shader.TileMode.CLAMP
         )
         c.drawCircle(cx, cy, r * .78f, fill)
@@ -530,7 +531,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
     private fun edges(c: Canvas, cx: Float, cy: Float, r: Float) {
         val hi = diamondHighlight()
         edge.strokeWidth = maxOf(1f, r * .009f)
-        edge.color = alpha(hi, if (night) 38 else 62)
+        edge.color = alpha(hi, if (night) 30 else 48)
         for (i in 0 until FACETS) {
             val a = angle(i)
             val p1 = pt(cx, cy, r * .28f, a)
@@ -540,9 +541,9 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
             c.drawLine(p1[0], p1[1], p2[0], p2[1], edge)
             c.drawLine(p2[0], p2[1], p3[0], p3[1], edge)
         }
-        edge.alpha = 56
+        edge.alpha = 46
         c.drawCircle(cx, cy, r * .28f, edge)
-        edge.alpha = 42
+        edge.alpha = 34
         c.drawCircle(cx, cy, r * .63f, edge)
         edge.alpha = 255
     }
@@ -559,8 +560,8 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         glow.shader = RadialGradient(
             x, y, r * .17f,
             intArrayOf(
-                alpha(Color.WHITE, (170 * power).toInt().coerceIn(0, 170)),
-                alpha(hi, (84 * power).toInt().coerceIn(0, 84)),
+                alpha(Color.WHITE, (130 * power).toInt().coerceIn(0, 130)),
+                alpha(hi, (64 * power).toInt().coerceIn(0, 64)),
                 Color.TRANSPARENT
             ),
             floatArrayOf(0f, .10f, 1f), Shader.TileMode.CLAMP
@@ -569,7 +570,7 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         glow.shader = null
         if (!night && power > .60f) {
             edge.strokeWidth = maxOf(1f, r * .010f)
-            edge.color = alpha(Color.WHITE, (145 * power).toInt().coerceIn(0, 145))
+            edge.color = alpha(Color.WHITE, (110 * power).toInt().coerceIn(0, 110))
             val len = r * (.035f + .08f * power)
             c.drawLine(x - len, y, x + len, y, edge)
             c.drawLine(x, y - len, x, y + len, edge)
@@ -584,16 +585,16 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         edge.strokeWidth = maxOf(2.2f, r * .060f)
         edge.shader = SweepGradient(
             cx, cy,
-            intArrayOf(alpha(d, 255), alpha(t, 230), alpha(hi, 238), alpha(d, 255), alpha(t, 220), alpha(hi, 228), alpha(d, 255)),
+            intArrayOf(alpha(d, 210), alpha(t, 170), alpha(hi, 180), alpha(d, 210), alpha(t, 165), alpha(hi, 175), alpha(d, 210)),
             null
         )
         c.drawCircle(cx, cy, r * .982f, edge)
         edge.shader = null
         edge.strokeWidth = maxOf(1f, r * .015f)
-        edge.color = alpha(hi, if (night) 72 else 145)
+        edge.color = alpha(hi, if (night) 60 else 110)
         c.drawCircle(cx, cy, r * .952f, edge)
         edge.strokeWidth = maxOf(1f, r * .012f)
-        edge.color = alpha(Color.BLACK, 140)
+        edge.color = alpha(Color.BLACK, 110)
         c.drawCircle(cx, cy, r * 1.012f, edge)
     }
 
