@@ -2,11 +2,11 @@ name: Compiler test Diamant Carbone
 
 on:
   push:
-    branches: [ "diamond-facets-test" ]
+    branches: [ "diamond-facets-test", "rebuild/diamond-celestial-v2" ]
   workflow_dispatch:
 
 concurrency:
-  group: hp-travail-diamond-carbon-test
+  group: hp-travail-diamond-carbon-test-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
