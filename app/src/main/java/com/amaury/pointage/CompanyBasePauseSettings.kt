@@ -1,8 +1,16 @@
 package com.amaury.pointage
 
+import android.Manifest
+import android.app.Activity
+import android.app.AlarmManager
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -91,7 +99,7 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
             box.addView(TextView(context).apply { text = "Pause $index"; textSize = 14f; setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(if (index == 1) 10 else 16), 0, 0) })
             val start = timeInput("Début — ex. ${if (index == 1) "10:00" else "12:00"}", CompanyBasePauseSettings.startMinute(context, slot, index))
             val end = timeInput("Fin — ex. ${if (index == 1) "10:15" else "12:30"}", CompanyBasePauseSettings.endMinute(context, slot, index))
-            val alarm = CheckBox(context).apply { text = "🔔 Sonner au début de la pause"; isChecked = CompanyBasePauseSettings.alarmEnabled(context, slot, index) }
+            val alarm = CheckBox(context).apply { text = "🔔 Sonner + notifier au début"; isChecked = CompanyBasePauseSettings.alarmEnabled(context, slot, index) }
             var soundValue = CompanyBasePauseSettings.alarmSound(context, slot, index)
             val sound = Button(context).apply { text = soundLabel(soundValue); isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
             val fields = PauseFields(start, end, alarm, sound, soundValue)
@@ -109,8 +117,40 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
                 val rawStart = f.start.text.toString(); val rawEnd = f.end.text.toString(); val bothBlank = rawStart.isBlank() && rawEnd.isBlank(); val s = parse(rawStart); val e = parse(rawEnd)
                 when { bothBlank -> CompanyBasePauseSettings.clearPause(context, slot, index); s == null || e == null || s == e -> invalid = true; else -> { CompanyBasePauseSettings.savePause(context, slot, index, s, e); CompanyBasePauseSettings.saveAlarm(context, slot, index, f.alarm.isChecked, f.soundValue) } }
             }
-            if (invalid) Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show() else { CompanyPauseAlarmManager.scheduleAll(context); refresh(); Toast.makeText(context, "Pauses et alarmes enregistrées", Toast.LENGTH_SHORT).show() }
+            if (invalid) {
+                Toast.makeText(context, "Chaque pause renseignée doit avoir une heure de début et de fin valides", Toast.LENGTH_LONG).show()
+            } else {
+                CompanyPauseAlarmManager.scheduleAll(context)
+                if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
+                refresh()
+                Toast.makeText(context, "Pauses, alarmes et notifications enregistrées", Toast.LENGTH_SHORT).show()
+            }
         }.setNeutralButton("Tout supprimer") { _, _ -> CompanyBasePauseSettings.clear(context, slot); refresh() }.setNegativeButton("Annuler", null).show()
+    }
+
+    private fun requestAlarmPermissionsIfNeeded() {
+        val activity = context as? Activity ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1301)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (!alarm.canScheduleExactAlarms()) {
+                postDelayed({
+                    Toast.makeText(context, "Autorise ‘Alarmes et rappels’ pour que les pauses sonnent exactement à l’heure.", Toast.LENGTH_LONG).show()
+                    runCatching {
+                        activity.startActivity(
+                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                        )
+                    }
+                }, 700L)
+            }
+        }
     }
 
     private fun parse(value: String): Int? { val m = Regex("^\\s*(\\d{1,2})[:hH](\\d{2})\\s*$").matchEntire(value) ?: return null; val h = m.groupValues[1].toIntOrNull() ?: return null; val min = m.groupValues[2].toIntOrNull() ?: return null; if (h !in 0..23 || min !in 0..59) return null; return h * 60 + min }
