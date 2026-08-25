@@ -12,41 +12,61 @@ import android.graphics.drawable.Drawable
 import android.util.Base64
 
 /**
- * Rendu carbone volontairement minimal.
- * Aucune géométrie, aucun masque, aucun recadrage, aucun effet lumineux.
- * Ordre unique : fond Base64, puis cadre Base64.
+ * Fond + cadre carbone. Les bitmaps sont décodés une seule fois par processus :
+ * créer un nouveau drawable ne relit plus les gros Base64 à chaque restylage.
  */
 class CarbonCompositeDrawable(context: Context) : Drawable() {
+    companion object {
+        @Volatile private var cachedFill: Bitmap? = null
+        @Volatile private var cachedFrame: Bitmap? = null
+        private val cacheLock = Any()
+
+        private fun bitmap(context: Context, resId: Int, frame: Boolean): Bitmap? {
+            val cached = if (frame) cachedFrame else cachedFill
+            if (cached != null && !cached.isRecycled) return cached
+            synchronized(cacheLock) {
+                val second = if (frame) cachedFrame else cachedFill
+                if (second != null && !second.isRecycled) return second
+                val decoded = decodeRawBase64(context.applicationContext, resId)
+                if (frame) cachedFrame = decoded else cachedFill = decoded
+                return decoded
+            }
+        }
+
+        private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
+            val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+            val encoded = raw.substringAfter("base64,", raw).filterNot { it.isWhitespace() }
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val destination = RectF()
-    private val fillBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_fill_b64)
-    private val frameBitmap: Bitmap? = decodeRawBase64(context, R.raw.carbon_frame_b64)
+    private val fillBitmap: Bitmap? = bitmap(context, R.raw.carbon_fill_b64, frame = false)
+    private val frameBitmap: Bitmap? = bitmap(context, R.raw.carbon_frame_b64, frame = true)
     private var globalAlpha = 255
+    private var filter: ColorFilter? = null
 
     override fun draw(canvas: Canvas) {
         if (bounds.isEmpty) return
         destination.set(bounds)
         paint.alpha = globalAlpha
-        paint.colorFilter = null
-
-        fillBitmap?.let { canvas.drawBitmap(it, null, destination, paint) }
-        frameBitmap?.let { canvas.drawBitmap(it, null, destination, paint) }
+        paint.colorFilter = filter
+        fillBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
+        frameBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
     }
 
-    private fun decodeRawBase64(context: Context, resId: Int): Bitmap? = runCatching {
-        val raw = context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
-        val encoded = raw.substringAfter("base64,", raw).filterNot { it.isWhitespace() }
-        val bytes = Base64.decode(encoded, Base64.DEFAULT)
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-    }.getOrNull()
-
     override fun setAlpha(alpha: Int) {
-        globalAlpha = alpha.coerceIn(0, 255)
+        val value = alpha.coerceIn(0, 255)
+        if (value == globalAlpha) return
+        globalAlpha = value
         invalidateSelf()
     }
 
     override fun setColorFilter(colorFilter: ColorFilter?) {
-        paint.colorFilter = colorFilter
+        if (filter === colorFilter) return
+        filter = colorFilter
         invalidateSelf()
     }
 
