@@ -2,7 +2,6 @@ package com.amaury.pointage
 
 import android.app.Activity
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Typeface
 import android.text.SpannableString
 import android.text.Spanned
@@ -25,6 +24,8 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         private const val SALARY_PANEL_TAG = "integrated_salary_panel"
         private const val CONTROL_HEIGHT_DP = 54
     }
+
+    private var autoHidePosted = false
 
     init {
         isClickable = true
@@ -81,14 +82,36 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun installSalaryAutoHide() {
         val root = rootView ?: return
         val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
-        fun hide() {
-            val salary = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
-            val shift = root.findViewById<View>(R.id.shiftControlView)
-            val other = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
-            if (other) { salary?.visibility = View.GONE; shift?.visibility = View.GONE }
-            syncSelectedTabFromVisiblePanel(); normalizeFrameSizes()
+
+        fun scheduleCheck() {
+            if (autoHidePosted) return
+            autoHidePosted = true
+            post {
+                autoHidePosted = false
+                val salary = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
+                val shift = root.findViewById<View>(R.id.shiftControlView)
+                val other = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE ||
+                    root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE ||
+                    root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE ||
+                    root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
+                if (other) {
+                    salary?.visibility = View.GONE
+                    shift?.visibility = View.GONE
+                }
+                syncSelectedTabFromVisiblePanel()
+                // Important : aucun normalizeFrameSizes() ici. Un changement de layout
+                // ne doit plus retraverser/restyler toute l'application.
+            }
         }
-        listOf(root.findViewById<View>(R.id.pointageButtons), root.findViewById<View>(R.id.historyText), root.findViewById<View>(R.id.analyticsPdfPanel), root.findViewById<View>(R.id.gpsSettingsPanel)).forEach { view -> view?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> hide() } }
+
+        listOf(
+            root.findViewById<View>(R.id.pointageButtons),
+            root.findViewById<View>(R.id.historyText),
+            root.findViewById<View>(R.id.analyticsPdfPanel),
+            root.findViewById<View>(R.id.gpsSettingsPanel)
+        ).forEach { view ->
+            view?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> scheduleCheck() }
+        }
     }
 
     private fun applyTabTypography() {
@@ -101,9 +124,15 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
                 includeFontPadding = false
                 gravity = Gravity.CENTER
                 setPadding(dp(4), dp(3), dp(4), dp(3))
-                minimumWidth = 0; minWidth = 0
-                val raw = text.toString(); val br = raw.indexOf('\n')
-                if (br > 0 && text !is SpannableString) { val s = SpannableString(raw); s.setSpan(RelativeSizeSpan(1.45f), 0, br, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE); text = s }
+                minimumWidth = 0
+                minWidth = 0
+                val raw = text.toString()
+                val br = raw.indexOf('\n')
+                if (br > 0 && text !is SpannableString) {
+                    val s = SpannableString(raw)
+                    s.setSpan(RelativeSizeSpan(1.45f), 0, br, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    text = s
+                }
             }
         }
     }
@@ -111,7 +140,10 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun installTabButtonStyle() {
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
             val tab = rootView.findViewById<TextView>(id) ?: return@forEach
-            tab.setOnTouchListener { _, e -> if (e.actionMasked == MotionEvent.ACTION_UP) selectTab(id); false }
+            tab.setOnTouchListener { _, e ->
+                if (e.actionMasked == MotionEvent.ACTION_UP) selectTab(id)
+                false
+            }
         }
         syncSelectedTabFromVisiblePanel()
     }
@@ -131,8 +163,9 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     private fun selectTab(activeId: Int) {
         listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
             rootView.findViewById<TextView>(id)?.let {
-                it.isSelected = id == activeId
-                styleTab(it, id == activeId)
+                val selected = id == activeId
+                if (it.isSelected != selected) it.isSelected = selected
+                styleTab(it, selected)
             }
         }
     }
@@ -146,19 +179,24 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         tab.alpha = if (active) 1f else 0.78f
         tab.setTextColor(if (active) activeText else inactiveText)
         tab.backgroundTintList = null
-        tab.background = when (theme.id) {
-            "natural_carbon" -> CarbonCompositeDrawable(context)
-            "signature_gold" -> context.getDrawable(R.drawable.hp_panel)?.mutate()
-            else -> tab.background
+
+        when (theme.id) {
+            "natural_carbon" -> if (tab.background !is CarbonCompositeDrawable) {
+                tab.background = CarbonCompositeDrawable(context)
+            }
+            "signature_gold" -> if (tab.background is CarbonCompositeDrawable || tab.background == null) {
+                tab.background = context.getDrawable(R.drawable.hp_panel)?.mutate()
+            }
         }
     }
 
     private fun normalizeFrameSizes() {
         val root = rootView ?: return
         normalizeRecursive(root)
-        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id -> root.findViewById<TextView>(id)?.let { fitText(it, navigation = true) } }
+        listOf(R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings).forEach { id ->
+            root.findViewById<TextView>(id)?.let { fitText(it, navigation = true) }
+        }
         ThemeFrameStyler.apply(root)
-        AutoDayNightPolarity.apply(root)
     }
 
     private fun normalizeRecursive(view: View) {
@@ -166,15 +204,34 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val protected = id == "entryButton" || id == "pauseButton" || id == "exitButton" || id == "settingsButton"
         if (!protected && view.visibility != View.GONE) {
             when (view) {
-                is Button -> { view.layoutParams?.let { lp -> lp.height = dp(CONTROL_HEIGHT_DP); view.layoutParams = lp }; fitText(view, false) }
-                is Switch -> { view.layoutParams?.let { lp -> lp.height = dp(CONTROL_HEIGHT_DP); view.layoutParams = lp }; fitText(view, false) }
+                is Button -> {
+                    view.layoutParams?.let { lp ->
+                        if (lp.height != dp(CONTROL_HEIGHT_DP)) {
+                            lp.height = dp(CONTROL_HEIGHT_DP)
+                            view.layoutParams = lp
+                        }
+                    }
+                    fitText(view, false)
+                }
+                is Switch -> {
+                    view.layoutParams?.let { lp ->
+                        if (lp.height != dp(CONTROL_HEIGHT_DP)) {
+                            lp.height = dp(CONTROL_HEIGHT_DP)
+                            view.layoutParams = lp
+                        }
+                    }
+                    fitText(view, false)
+                }
             }
         }
         if (view is ViewGroup) for (i in 0 until view.childCount) normalizeRecursive(view.getChildAt(i))
     }
 
     private fun fitText(view: TextView, navigation: Boolean) {
-        view.gravity = Gravity.CENTER; view.includeFontPadding = false; view.maxLines = 2; view.ellipsize = TextUtils.TruncateAt.END
+        view.gravity = Gravity.CENTER
+        view.includeFontPadding = false
+        view.maxLines = 2
+        view.ellipsize = TextUtils.TruncateAt.END
         view.setPadding(dp(if (navigation) 4 else 14), dp(5), dp(if (navigation) 4 else 14), dp(5))
         if (!navigation) view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
     }
@@ -184,7 +241,11 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val panel = root.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         val addressList = root.findViewById<EditText>(R.id.workplaceAddress) ?: return
         if (panel.findViewWithTag<AddAddressButton>("add_address_button") != null) return
-        addressList.isFocusable = false; addressList.isFocusableInTouchMode = false; addressList.isCursorVisible = false; addressList.isLongClickable = false
+
+        addressList.isFocusable = false
+        addressList.isFocusableInTouchMode = false
+        addressList.isCursorVisible = false
+        addressList.isLongClickable = false
         addressList.hint = "Aucune adresse — utilise le bouton +"
         addressList.setPadding(dp(12), dp(10), dp(12), dp(10))
 
