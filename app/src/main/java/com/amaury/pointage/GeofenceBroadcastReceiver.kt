@@ -24,37 +24,41 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val event = GeofencingEvent.fromIntent(intent) ?: return
         if (event.hasError()) return
 
-        val activeZones = prefs.getStringSet("active_zones", emptySet())?.toMutableSet()
-            ?: mutableSetOf()
         val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
         if (triggeredIds.isEmpty()) return
 
+        val candidateIds = triggeredIds.filter { SmartSetupManager.isCandidateZone(context, it) }
+        val regularIds = triggeredIds.filterNot { it in candidateIds }
+
         when (event.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
+                candidateIds.forEach { SmartSetupManager.onCandidateEnter(context, it) }
+                if (regularIds.isEmpty()) return
+
+                val activeZones = prefs.getStringSet("active_zones", emptySet())?.toMutableSet() ?: mutableSetOf()
                 val wasOutsideAllZones = activeZones.isEmpty()
-                activeZones.addAll(triggeredIds)
+                activeZones.addAll(regularIds)
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
-                    val zoneId = triggeredIds.firstOrNull()
+                    val zoneId = regularIds.firstOrNull()
                     val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
-
                     if (PointageStore.entry(context, zoneId, zoneAddress)) {
                         updateWidgets(context)
-                        if (!zoneAddress.isNullOrBlank()) {
-                            showArrivalContactNotification(context, zoneAddress)
-                        }
+                        if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
                     }
                 }
             }
 
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
-                activeZones.removeAll(triggeredIds.toSet())
+                candidateIds.forEach { SmartSetupManager.onCandidateExit(context, it) }
+                if (regularIds.isEmpty()) return
+
+                val activeZones = prefs.getStringSet("active_zones", emptySet())?.toMutableSet() ?: mutableSetOf()
+                activeZones.removeAll(regularIds.toSet())
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
-                if (activeZones.isEmpty() && PointageStore.exit(context)) {
-                    updateWidgets(context)
-                }
+                if (activeZones.isEmpty() && PointageStore.exit(context)) updateWidgets(context)
             }
         }
     }
@@ -66,14 +70,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
     private fun findZoneAddress(zonesJson: String?, zoneId: String?): String? {
         if (zoneId.isNullOrBlank()) return null
-
         return try {
             val zones = JSONArray(zonesJson ?: "[]")
             for (i in 0 until zones.length()) {
                 val zone = zones.optJSONObject(i) ?: continue
-                if (zone.optString("id") == zoneId) {
-                    return zone.optString("address").takeIf { it.isNotBlank() }
-                }
+                if (zone.optString("id") == zoneId) return zone.optString("address").takeIf { it.isNotBlank() }
             }
             null
         } catch (_: Exception) {
@@ -116,11 +117,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val channelId = "arrival_contact"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
-                NotificationChannel(
-                    channelId,
-                    "Prévenir à l'arrivée",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
+                NotificationChannel(channelId, "Prévenir à l'arrivée", NotificationManager.IMPORTANCE_HIGH)
             )
         }
 
@@ -128,11 +125,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Arrivé à $placeName")
             .setContentText("Prévenir $contactName")
-            .setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    "Tu viens d'arriver à $placeName. Appuie ici pour prévenir $contactName par SMS."
-                )
-            )
+            .setStyle(NotificationCompat.BigTextStyle().bigText("Tu viens d'arriver à $placeName. Appuie ici pour prévenir $contactName par SMS."))
             .setContentIntent(pending)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
