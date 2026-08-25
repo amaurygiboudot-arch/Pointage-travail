@@ -23,6 +23,9 @@ object CompanyPauseAlarmManager {
     const val ACTION = "com.amaury.pointage.COMPANY_BASE_PAUSE_ALARM"
     private const val EXTRA_COMPANY = "companySlot"
     private const val EXTRA_PAUSE = "pauseIndex"
+    private const val EXTRA_EVENT = "pauseEvent"
+    private const val EVENT_START = "start"
+    private const val EVENT_END = "end"
     private const val CHANNEL_ID = "pause_reminders"
 
     fun scheduleAll(context: Context) {
@@ -30,17 +33,20 @@ object CompanyPauseAlarmManager {
         cancelAll(context)
         for (company in 1..2) for (pauseIndex in 1..2) {
             val pause = CompanyBasePauseSettings.pause(context, company, pauseIndex) ?: continue
-            if (!CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) continue
-            scheduleOne(context, company, pauseIndex, pause.startMinute)
+            scheduleOne(context, company, pauseIndex, EVENT_START, pause.startMinute)
+            scheduleOne(context, company, pauseIndex, EVENT_END, pause.endMinute)
         }
     }
 
     fun cancelAll(context: Context) {
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        for (company in 1..2) for (pauseIndex in 1..2) alarm.cancel(pending(context, company, pauseIndex))
+        for (company in 1..2) for (pauseIndex in 1..2) {
+            alarm.cancel(pending(context, company, pauseIndex, EVENT_START))
+            alarm.cancel(pending(context, company, pauseIndex, EVENT_END))
+        }
     }
 
-    private fun scheduleOne(context: Context, company: Int, pauseIndex: Int, minuteOfDay: Int) {
+    private fun scheduleOne(context: Context, company: Int, pauseIndex: Int, event: String, minuteOfDay: Int) {
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val whenCal = Calendar.getInstance(Locale.FRANCE).apply {
             set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
@@ -49,7 +55,7 @@ object CompanyPauseAlarmManager {
             set(Calendar.MILLISECOND, 0)
             if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
         }
-        val pi = pending(context, company, pauseIndex)
+        val pi = pending(context, company, pauseIndex, event)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
             alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -57,15 +63,26 @@ object CompanyPauseAlarmManager {
         } else alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
     }
 
-    private fun pending(context: Context, company: Int, pauseIndex: Int): PendingIntent = PendingIntent.getBroadcast(
-        context,
-        5200 + company * 10 + pauseIndex,
-        Intent(context, CompanyPauseAlarmReceiver::class.java).setAction(ACTION).putExtra(EXTRA_COMPANY, company).putExtra(EXTRA_PAUSE, pauseIndex),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-    )
+    private fun pending(context: Context, company: Int, pauseIndex: Int, event: String): PendingIntent {
+        val eventOffset = if (event == EVENT_END) 1 else 0
+        val requestCode = 5200 + company * 100 + pauseIndex * 10 + eventOffset
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, CompanyPauseAlarmReceiver::class.java)
+                .setAction(ACTION)
+                .putExtra(EXTRA_COMPANY, company)
+                .putExtra(EXTRA_PAUSE, pauseIndex)
+                .putExtra(EXTRA_EVENT, event),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
 
     internal fun company(intent: Intent) = intent.getIntExtra(EXTRA_COMPANY, 0)
     internal fun pauseIndex(intent: Intent) = intent.getIntExtra(EXTRA_PAUSE, 0)
+    internal fun event(intent: Intent) = intent.getStringExtra(EXTRA_EVENT).orEmpty()
+    internal fun isStart(event: String) = event == EVENT_START
+    internal fun isEnd(event: String) = event == EVENT_END
 
     internal fun activeCompanySlot(context: Context): Int? {
         val raw = context.getSharedPreferences("pointage", Context.MODE_PRIVATE).getString("data", "[]").orEmpty()
@@ -90,7 +107,11 @@ object CompanyPauseAlarmManager {
             .setSmallIcon(R.drawable.hp_icon_red)
             .setContentTitle("Début de la pause $pauseIndex")
             .setContentText(if (duration > 0) "$companyName • pause de $duration min" else companyName)
-            .setContentIntent(openApp).setAutoCancel(true).setCategory(Notification.CATEGORY_ALARM).setPriority(Notification.PRIORITY_HIGH).build()
+            .setContentIntent(openApp)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .build()
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(6200 + company * 10 + pauseIndex, notification)
     }
 
@@ -109,24 +130,48 @@ object CompanyPauseAlarmManager {
 class CompanyPauseAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != CompanyPauseAlarmManager.ACTION) return
+
         val company = CompanyPauseAlarmManager.company(intent)
         val pauseIndex = CompanyPauseAlarmManager.pauseIndex(intent)
-        if (company !in 1..2 || pauseIndex !in 1..2 || CompanyPauseAlarmManager.activeCompanySlot(context) != company || !CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
+        val event = CompanyPauseAlarmManager.event(intent)
+
+        if (company !in 1..2 || pauseIndex !in 1..2 || CompanyPauseAlarmManager.activeCompanySlot(context) != company) {
             CompanyPauseAlarmManager.scheduleAll(context)
             return
         }
 
-        CompanyPauseAlarmManager.showNotification(context, company, pauseIndex)
+        when {
+            CompanyPauseAlarmManager.isStart(event) -> {
+                if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
+                    PointageStore.startPause(context, automatic = true)
+                }
 
-        val selected = PauseAlarmSoundCatalog.resolve(context, CompanyBasePauseSettings.alarmSound(context, company, pauseIndex))
-        val ringtone = runCatching { RingtoneManager.getRingtone(context.applicationContext, selected.uri) }.getOrNull()
-        if (ringtone != null) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                ringtone.audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+                if (CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
+                    CompanyPauseAlarmManager.showNotification(context, company, pauseIndex)
+                    val selected = PauseAlarmSoundCatalog.resolve(context, CompanyBasePauseSettings.alarmSound(context, company, pauseIndex))
+                    val ringtone = runCatching { RingtoneManager.getRingtone(context.applicationContext, selected.uri) }.getOrNull()
+                    if (ringtone != null) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                            ringtone.audioAttributes = AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_ALARM)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        }
+                        runCatching { ringtone.play() }
+                        Handler(Looper.getMainLooper()).postDelayed({ runCatching { ringtone.stop() } }, 8_000L)
+                    }
+                }
             }
-            runCatching { ringtone.play() }
-            Handler(Looper.getMainLooper()).postDelayed({ runCatching { ringtone.stop() } }, 8_000L)
+
+            CompanyPauseAlarmManager.isEnd(event) -> {
+                if (PointageStore.isPausedAutomatically(context)) {
+                    PointageStore.resumePause(context, automaticOnly = true)
+                }
+            }
         }
+
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
         CompanyPauseAlarmManager.scheduleAll(context)
     }
 }
