@@ -19,6 +19,15 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val app = context?.applicationContext as? Application ?: return true
         SmartSetupManager.init(app)
         CompanyNameUiBinder.init(app)
+
+        // Le fond personnalisé doit survivre aux mises à jour APK.
+        // On restaure d'abord la copie principale si nécessaire, puis on maintient
+        // une copie interne de secours dès qu'un fond personnalisé est actif.
+        if (CustomBackgroundStore.isEnabled(app)) {
+            CustomBackgroundStore.resolve(app)
+            CustomBackgroundStore.saveBackup(app)
+        }
+
         app.registerActivityLifecycleCallbacks(this)
         return true
     }
