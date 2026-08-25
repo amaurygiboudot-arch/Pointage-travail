@@ -96,13 +96,17 @@ object LightDirectionController {
 
         fun updateTargetFromOrientation() {
             if (locationBased && celestialAzimuth != null) {
+                // L'azimut astronomique est la source de vérité. On ne modifie plus
+                // la position visuelle Soleil/Lune avec pitch/roll : incliner le téléphone
+                // ne doit pas faire dériver l'astre sur l'écran.
                 val screen = screenAngle(azimuth, celestialAzimuth!!)
                 celestialAngle = screen
-                val tilt = if (night) roll * .18f + pitch * .08f else roll * .30f + pitch * .12f
-                target = normalize(screen + tilt)
+                target = screen
             } else {
-                celestialAngle = normalize(-azimuth - 90f)
-                target = normalize(celestialAngle!! + roll * .24f + pitch * .10f)
+                // Sans position GPS, on conserve uniquement une direction relative à
+                // l'orientation du téléphone, sans correction artificielle d'inclinaison.
+                celestialAngle = normalize(-azimuth)
+                target = celestialAngle!!
             }
         }
 
@@ -187,9 +191,6 @@ object LightDirectionController {
             }
         }
 
-        // SENSOR_DELAY_UI suffit largement pour un déplacement de lumière visuel.
-        // Le mode GAME produisait beaucoup plus d'événements que le rendu ne pouvait
-        // utilement afficher et surchargeait le thread UI.
         if (rotationSensor != null) {
             sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
         } else if (accelSensor != null) {
@@ -227,7 +228,11 @@ object LightDirectionController {
         }.getOrNull()
     }
 
-    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) = normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()) - 90f)
+    // 0° à l'écran = direction vers laquelle pointe le haut du téléphone.
+    // Le delta signé donne directement la position relative de l'astre autour du téléphone.
+    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) =
+        normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()))
+
     private fun normalize(v: Float) = ((v % 360f) + 360f) % 360f
     private fun shortestDelta(from: Float, to: Float) = ((to - from + 540f) % 360f) - 180f
 }
