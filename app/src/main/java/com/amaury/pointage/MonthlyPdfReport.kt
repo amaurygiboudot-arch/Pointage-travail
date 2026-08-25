@@ -30,6 +30,9 @@ object MonthlyPdfReport {
         val cal = Calendar.getInstance(Locale.FRANCE)
         var grandTotal = 0L
         var completedSessions = 0
+        var recordedPauseTotal = 0L
+        var forfaitAdjustmentTotal = 0L
+        var deductedPauseTotal = 0L
 
         for (i in 0 until data.length()) {
             val item = data.optJSONObject(i) ?: continue
@@ -44,6 +47,10 @@ object MonthlyPdfReport {
             val (name, address) = resolvePlace(context, raw)
             val key = normalizeAddress(address)
             val duration = PointageStore.workedDuration(item, exit)
+            val breakdown = PauseDeductionBreakdown.forSession(item, exit)
+            recordedPauseTotal += breakdown.recordedMs
+            forfaitAdjustmentTotal += breakdown.forfaitAdjustmentMs
+            deductedPauseTotal += breakdown.deductedMs
             val place = totals.getOrPut(key) { PlaceTotal(name, address) }
             if (place.name.isNullOrBlank() && !name.isNullOrBlank()) {
                 totals[key] = place.copy(name = name)
@@ -98,6 +105,12 @@ object MonthlyPdfReport {
         canvas.drawText("Adresses", 400f, y + 17f, muted)
         canvas.drawText(totals.size.toString(), 400f, y + 38f, bold)
         y += 68f
+
+        canvas.drawText("PAUSES DÉDUITES", MARGIN, y + 12f, section)
+        y += 20f
+        canvas.drawText("Pauses réellement enregistrées : ${formatDuration(recordedPauseTotal)}", MARGIN + 6f, y + 12f, normal); y += 17f
+        canvas.drawText("Correction forfaitaire ajoutée : ${formatDuration(forfaitAdjustmentTotal)}", MARGIN + 6f, y + 12f, normal); y += 17f
+        canvas.drawText("Total de pause déduit : ${formatDuration(deductedPauseTotal)}", MARGIN + 6f, y + 12f, bold); y += 25f
 
         canvas.drawText("RÉCAPITULATIF PAR ADRESSE", MARGIN, y + 12f, section)
         y += 22f

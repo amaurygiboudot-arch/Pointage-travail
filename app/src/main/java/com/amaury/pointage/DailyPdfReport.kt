@@ -40,7 +40,7 @@ object DailyPdfReport {
             if (entry !in dayStart until dayEnd || item.isNull("exit")) continue
             val exit = item.optLong("exit", -1L)
             if (exit <= 0L) continue
-            val pauses = PointageStore.pauseDuration(item, exit)
+            val breakdown = PauseDeductionBreakdown.forSession(item, exit)
             val worked = PointageStore.workedDuration(item, exit)
             totalWorked += worked; sessionCount++
             val place = item.optString("zoneAddress").trim().ifBlank { "Pointage manuel" }
@@ -48,7 +48,14 @@ object DailyPdfReport {
             c.drawText("Lieu : $place", M, y + 12, text); y += 18
             c.drawText("Entrée : ${timeF.format(Date(entry))}", M, y + 12, text); y += 16
             c.drawText("Sortie : ${timeF.format(Date(exit))}", M, y + 12, text); y += 16
-            c.drawText("Pauses : ${format(pauses)}", M, y + 12, text); y += 16
+            c.drawText("Pauses enregistrées : ${format(breakdown.recordedMs)}", M, y + 12, text); y += 16
+            if (breakdown.minimumDeductedMs > 0L) {
+                c.drawText("Minimum forfaitaire de pause : ${format(breakdown.minimumDeductedMs)}", M, y + 12, text); y += 16
+            }
+            if (breakdown.forfaitAdjustmentMs > 0L) {
+                c.drawText("Correction forfaitaire ajoutée : ${format(breakdown.forfaitAdjustmentMs)}", M, y + 12, text); y += 16
+            }
+            c.drawText("Pause totale déduite : ${format(breakdown.deductedMs)}", M, y + 12, bold); y += 16
             c.drawText("Temps travaillé : ${format(worked)}", M, y + 12, bold); y += 22
 
             val pa = item.optJSONArray("pauses")
