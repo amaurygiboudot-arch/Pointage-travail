@@ -38,9 +38,6 @@ object LightDirectionController {
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // Le magnétomètre/rotation-vector bouge naturellement de quelques dixièmes à
-    // quelques degrés même téléphone immobile. Une zone morte + un lissage évitent
-    // que le Soleil/Lune tremblent sans empêcher une vraie rotation du téléphone.
     private const val MIN_RENDER_INTERVAL_MS = 90L
     private const val MIN_ORIENTATION_DELTA = 0.8f
     private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
@@ -96,11 +93,7 @@ object LightDirectionController {
         fun state(angle: Float): LightingState {
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
-            val diamondIntensity = if (night) {
-                (.62f + intensity.coerceIn(.18f, .42f) * .38f).coerceIn(.68f, .78f)
-            } else {
-                intensity.coerceIn(.72f, 1f)
-            }
+            val diamondIntensity = 1f
             val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
 
             RedDiamondFinalButton.updateGlobalNaturalLight(
