@@ -1,54 +1,348 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.graphics.*
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.RectF
+import android.graphics.Shader
 import android.util.AttributeSet
 import android.widget.Button
-import java.util.Collections
-import java.util.WeakHashMap
-import kotlin.math.*
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
-open class RedDiamondFinalButton @JvmOverloads constructor(context:Context,attrs:AttributeSet?=null,defStyleAttr:Int=android.R.attr.buttonStyle):Button(context,attrs,defStyleAttr){
- companion object{const val RENDER_NAME="Diamant solaire 3D";private const val SEGMENTS=16;private const val FACET_COUNT=80;private const val BASE_ALPHA=166;private const val LIGHT_ALPHA_MIN=51;private const val LIGHT_ALPHA_MAX=255;private val live=Collections.newSetFromMap(WeakHashMap<RedDiamondFinalButton,Boolean>());fun updateGlobalNaturalLight(angle:Float,pitch:Float,roll:Float,intensity:Float,night:Boolean,elevation:Float){live.forEach{it.setNaturalLight(angle,pitch,roll,intensity,night,elevation)}}}
- private data class FacetState(val color:Int,val alpha:Int,var lastIncidence:Float=0f,var lastSpecular:Float=0f,var lastInternal:Float=0f)
- private val fill=Paint(Paint.ANTI_ALIAS_FLAG);private val edge=Paint(Paint.ANTI_ALIAS_FLAG).apply{style=Paint.Style.STROKE};private val states=arrayOfNulls<FacetState>(FACET_COUNT)
- private var lightAngle=-55f;private var pitch=0f;private var roll=0f;private var intensity=.78f;private var night=false;private var elevation=45f;private var lensStrength=.50f
- open fun diamondPalette()=intArrayOf(Color.rgb(255,38,62),Color.rgb(255,0,34),Color.rgb(224,0,28),Color.rgb(255,68,86),Color.rgb(196,0,25),Color.rgb(255,12,44),Color.rgb(242,0,34),Color.rgb(255,94,108),Color.rgb(212,0,30),Color.rgb(255,24,50),Color.rgb(232,0,34),Color.rgb(255,54,74),Color.rgb(184,0,24),Color.rgb(255,6,40),Color.rgb(248,0,36),Color.rgb(255,78,96));open fun diamondTint()=Color.rgb(255,18,48);open fun diamondDark()=Color.rgb(150,0,22);open fun diamondHighlight()=Color.rgb(255,238,243)
- init{background=null;stateListAnimator=null;setPadding(0,0,0,0);isAllCaps=false}
- override fun onAttachedToWindow(){super.onAttachedToWindow();live.add(this)};override fun onDetachedFromWindow(){live.remove(this);super.onDetachedFromWindow()}
- fun setDiamondLightAngle(a:Float){setNaturalLight(a,pitch,roll,intensity,night,elevation)};fun setLensStrength(v:Float){lensStrength=v.coerceIn(0f,1f);invalidate()};private fun setNaturalLight(a:Float,p:Float,r:Float,i:Float,n:Boolean,e:Float){lightAngle=norm(a);pitch=p.coerceIn(-90f,90f);roll=r.coerceIn(-90f,90f);intensity=i.coerceIn(.12f,1f);night=n;elevation=e.coerceIn(-10f,90f);postInvalidateOnAnimation()}
- override fun onDraw(c:Canvas){val w=width.toFloat();val h=height.toFloat();if(w<=0||h<=0)return;val cx=w*.5f;val cy=h*.5f;val r=min(w,h)*.455f;val press=if(isPressed).93f else 1f;c.save();c.scale(press,press,cx,cy);facets(c,cx,cy,r);edges(c,cx,cy,r);c.restore();/* ceinture toujours désactivée pendant le test */}
- private fun facets(c:Canvas,cx:Float,cy:Float,r:Float){val tr=r*.28f;val cr=r*.63f;val gr=r*.96f;for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);facet(c,center(cx,cy,pt(cx,cy,tr,a0),pt(cx,cy,tr,a1)),i,i,(a0+a1)*.5f,0)};for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val i0=pt(cx,cy,tr,a0);val i1=pt(cx,cy,tr,a1);val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val mm=pt(cx,cy,cr,am);facet(c,poly(i0,m0,mm,i1),16+i*2,i+3,(a0+am)*.5f,1);facet(c,poly(i1,mm,m1),17+i*2,i+9,(am+a1)*.5f,1)};for(i in 0 until SEGMENTS){val a0=angle(i);val a1=angle(i+1);val am=(a0+a1)*.5f;val m0=pt(cx,cy,cr,a0);val m1=pt(cx,cy,cr,a1);val o0=pt(cx,cy,gr,a0);val o1=pt(cx,cy,gr,a1);val om=pt(cx,cy,gr,am);facet(c,poly(m0,o0,om,m1),48+i*2,i+5,(a0+am)*.5f,2);facet(c,poly(m1,om,o1),49+i*2,i+12,(am+a1)*.5f,2)}}
- private fun facet(c:Canvas,path:Path,id:Int,paletteIndex:Int,az:Float,ring:Int){
-  val baseTilt=when(ring){0->11f;1->30f;else->47f};val cutVariation=(((paletteIndex*37+ring*53)%17)-8)*.46f;val azVariation=(((paletteIndex*29+ring*11)%13)-6)*.42f;val facetAz=az+azVariation;val facetTilt=baseTilt+cutVariation
-  val rawColor=diamondPalette()[paletteIndex%diamondPalette().size];val facetColor=mix(diamondTint(),rawColor,.22f);val state=states[id]?:FacetState(facetColor,referenceAlpha(id,ring,facetTilt)).also{states[id]=it};val sun=sunVectorInPhoneSpace(lightAngle,elevation,pitch,roll);val normal=facetNormal(facetAz,facetTilt)
-  val direct=max(0f,dot(normal,sun));val oppositeNormal=facetNormal(facetAz+180f,facetTilt);val oppositeInput=max(0f,dot(oppositeNormal,sun));val centerReturn=(oppositeInput*.82f + direct*.18f).coerceIn(0f,1f);val internal=(centerReturn*(.78f+.22f*normal[2])).coerceIn(0f,1f)
-  val view=max(.001f,normal[2]);val half=normalize3(floatArrayOf(sun[0],sun[1],sun[2]+1f));val spec=max(0f,dot(normal,half)).pow(if(night)58f else 105f)*intensity
-  state.lastIncidence=direct;state.lastInternal=internal;state.lastSpecular=spec;val base=state.color
-  val ringGain=when(ring){0->1f;1->.88f;else->.76f};val curvatureGain=(.82f+.18f*view).coerceIn(.82f,1f);val energy=(direct*.52f+internal*.92f).coerceIn(0f,1.35f);val depthEnergy=(energy*ringGain*curvatureGain).coerceIn(0f,1.35f)
-  val solarLum=(.94f+depthEnergy*.48f*intensity+view*.05f).coerceIn(.92f,1.48f);val lit=Color.rgb((Color.red(base)*solarLum).roundToInt().coerceIn(0,255),(Color.green(base)*solarLum).roundToInt().coerceIn(0,255),(Color.blue(base)*solarLum).roundToInt().coerceIn(0,255))
-  val reflected=mix(lit,base,(internal*.18f+spec*.08f).coerceIn(0f,.22f));val dynamicAlpha=(state.alpha+(depthEnergy-.45f)*8f).roundToInt().coerceIn(158,176)
-  // Chaque couronne descend radialement du centre vers l'extérieur. On réintroduit donc
-  // un dégradé propre à la pente de la facette : bord haut/intérieur plus clair, bord
-  // bas/extérieur plus sombre. L'inclinaison réelle du téléphone module cette pente.
-  val a=Math.toRadians(facetAz.toDouble());val radialX=cos(a).toFloat();val radialY=sin(a).toFloat();val phoneSlope=((pitch/55f)*radialY+(roll/55f)*radialX).coerceIn(-1f,1f)
-  val slopeStrength=(when(ring){0->.08f;1->.14f;else->.20f}+(1f-view)*.10f+abs(phoneSlope)*.05f).coerceIn(.06f,.30f)
-  val upper=mix(reflected,diamondHighlight(),(.05f+direct*.08f).coerceIn(.04f,.13f));val lower=mix(base,diamondDark(),slopeStrength)
-  val span=when(ring){0->width*.17f;1->width*.24f;else->width*.31f};val gx=radialX*span;val gy=radialY*span
-  fill.shader=LinearGradient(width*.5f-gx,height*.5f-gy,width*.5f+gx,height*.5f+gy,alpha(upper,dynamicAlpha),alpha(lower,(dynamicAlpha*1.02f).roundToInt().coerceAtMost(180)),Shader.TileMode.CLAMP);c.drawPath(path,fill);fill.shader=null
-  val lightAlpha=((direct*.48f+internal*.92f)*intensity*ringGain*curvatureGain*LIGHT_ALPHA_MAX).roundToInt().coerceIn(LIGHT_ALPHA_MIN,LIGHT_ALPHA_MAX);val coloredLight=mix(base,diamondHighlight(),(.20f+internal*.10f).coerceIn(0f,.30f));fill.color=alpha(coloredLight,lightAlpha);c.drawPath(path,fill)
-  if(spec>.48f){fill.color=alpha(Color.WHITE,((spec-.48f)/.52f*26f*ringGain).roundToInt().coerceIn(0,26));c.drawPath(path,fill)}
- }
- private fun referenceAlpha(id:Int,ring:Int,tilt:Float):Int{val signature=((id*13+ring*17)%7)-3;val cut=(((tilt-35f)/35f)*5f).roundToInt();return(BASE_ALPHA+signature+cut).coerceIn(158,174)}
- private fun sunVectorInPhoneSpace(azimuth:Float,elev:Float,pitchDeg:Float,rollDeg:Float):FloatArray{
-  val az=Math.toRadians(norm(azimuth).toDouble());val el=Math.toRadians(elev.toDouble())
-  var x=(sin(az)*cos(el)).toFloat();var y=(-cos(az)*cos(el)).toFloat();var z=sin(el).toFloat()
-  val pr=Math.toRadians((-pitchDeg).toDouble());val cp=cos(pr).toFloat();val sp=sin(pr).toFloat();val y1=y*cp-z*sp;val z1=y*sp+z*cp;y=y1;z=z1
-  val rr=Math.toRadians((-rollDeg).toDouble());val cr=cos(rr).toFloat();val sr=sin(rr).toFloat();val x1=x*cr+z*sr;val z2=-x*sr+z*cr;x=x1;z=z2
-  return normalize3(floatArrayOf(x,y,z))
- }
- private fun facetNormal(azimuth:Float,tilt:Float):FloatArray{val a=Math.toRadians(azimuth.toDouble());val t=Math.toRadians(tilt.toDouble());val s=sin(t).toFloat();return normalize3(floatArrayOf(cos(a).toFloat()*s,sin(a).toFloat()*s,cos(t).toFloat()))}
- private fun edges(c:Canvas,cx:Float,cy:Float,r:Float){edge.strokeWidth=max(1f,r*.007f);edge.color=alpha(diamondHighlight(),32);for(i in 0 until SEGMENTS){val a=angle(i);val p1=pt(cx,cy,r*.28f,a);val p2=pt(cx,cy,r*.63f,a);val p3=pt(cx,cy,r*.96f,a);c.drawLine(cx,cy,p1[0],p1[1],edge);c.drawLine(p1[0],p1[1],p2[0],p2[1],edge);c.drawLine(p2[0],p2[1],p3[0],p3[1],edge)}}
- private fun girdle(c:Canvas,cx:Float,cy:Float,r:Float){edge.style=Paint.Style.STROKE;edge.strokeWidth=max(1.5f,r*.035f);edge.color=alpha(diamondTint(),105);c.drawCircle(cx,cy,r*.982f,edge);edge.strokeWidth=max(1f,r*.009f);edge.color=alpha(diamondHighlight(),70);c.drawCircle(cx,cy,r*.958f,edge)}
- private fun dot(a:FloatArray,b:FloatArray)=a[0]*b[0]+a[1]*b[1]+a[2]*b[2];private fun normalize3(v:FloatArray):FloatArray{val l=sqrt((v[0]*v[0]+v[1]*v[1]+v[2]*v[2]).coerceAtLeast(1e-8f));return floatArrayOf(v[0]/l,v[1]/l,v[2]/l)};private fun angle(i:Int)=-90f+i*(360f/SEGMENTS);private fun norm(v:Float)=((v%360f)+360f)%360f;private fun pt(cx:Float,cy:Float,r:Float,d:Float):FloatArray{val q=Math.toRadians(d.toDouble());return floatArrayOf(cx+cos(q).toFloat()*r,cy+sin(q).toFloat()*r)};private fun poly(vararg p:FloatArray)=Path().apply{moveTo(p[0][0],p[0][1]);for(i in 1 until p.size)lineTo(p[i][0],p[i][1]);close()};private fun center(cx:Float,cy:Float,vararg p:FloatArray)=Path().apply{moveTo(cx,cy);p.forEach{lineTo(it[0],it[1])};close()};private fun alpha(c:Int,a:Int)=Color.argb(a.coerceIn(0,255),Color.red(c),Color.green(c),Color.blue(c));private fun mix(a:Int,b:Int,t:Float):Int{val q=t.coerceIn(0f,1f);return Color.rgb((Color.red(a)+(Color.red(b)-Color.red(a))*q).roundToInt().coerceIn(0,255),(Color.green(a)+(Color.green(b)-Color.green(a))*q).roundToInt().coerceIn(0,255),(Color.blue(a)+(Color.blue(b)-Color.blue(a))*q).roundToInt().coerceIn(0,255))}
+/**
+ * Rendu Canvas du diamant 80 facettes.
+ *
+ * Architecture : géométrie -> snapshot céleste -> DiamondFacetEngine -> rendu.
+ * La vue ne recalcule ni l'astronomie, ni l'orientation du téléphone, ni la
+ * physique lumineuse. Rouge, vert et orange utilisent exactement ce même moteur.
+ */
+open class RedDiamondFinalButton @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = android.R.attr.buttonStyle
+) : Button(context, attrs, defStyleAttr) {
+
+    companion object {
+        const val RENDER_NAME = "Diamant céleste 80 facettes"
+
+        /**
+         * Pont binaire temporaire pour les anciens appelants. Le nouveau moteur
+         * consomme CelestialStateStore directement : aucune donnée physique n'est
+         * plus stockée globalement dans les boutons.
+         */
+        @Deprecated("Use CelestialStateStore")
+        fun updateGlobalNaturalLight(
+            angle: Float,
+            pitch: Float,
+            roll: Float,
+            intensity: Float,
+            night: Boolean,
+            elevation: Float
+        ) = Unit
+    }
+
+    private val engine = DiamondFacetEngine()
+    private val geometry = DiamondGeometry80.facets
+    private val facetPaths = arrayOfNulls<Path>(80)
+    private val facetBounds = Array(80) { RectF() }
+    private val facetCentroids = Array(80) { FloatArray(2) }
+
+    private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isDither = true }
+    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        isDither = true
+    }
+
+    private var centerX = 0f
+    private var centerY = 0f
+    private var diamondRadius = 0f
+
+    /** Anciennes palettes conservées seulement pour compatibilité des sous-classes. */
+    @Deprecated("The new engine uses one material color per diamond")
+    open fun diamondPalette() = intArrayOf(diamondTint())
+
+    open fun diamondTint() = Color.rgb(255, 18, 48)
+    open fun diamondDark() = Color.rgb(150, 0, 22)
+    open fun diamondHighlight() = Color.rgb(255, 238, 243)
+
+    init {
+        background = null
+        stateListAnimator = null
+        setPadding(0, 0, 0, 0)
+        isAllCaps = false
+    }
+
+    /** Compatibilité avec l'ancien laboratoire/installer. */
+    fun setDiamondLightAngle(angle: Float) {
+        postInvalidateOnAnimation()
+    }
+
+    /** La courbure est désormais intégrée à DiamondGeometry80, pas réglée ici. */
+    @Deprecated("Curvature is part of the canonical geometry")
+    fun setLensStrength(value: Float) {
+        postInvalidateOnAnimation()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w <= 0 || h <= 0) return
+        centerX = w * 0.5f
+        centerY = h * 0.5f
+        diamondRadius = min(w, h) * 0.455f
+        rebuildFacetPaths()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (width <= 0 || height <= 0 || diamondRadius <= 0f) return
+
+        val snapshot = CelestialStateStore.current()
+        val opticalFrame = engine.update(snapshot, System.nanoTime())
+        val pressScale = if (isPressed) 0.93f else 1f
+
+        canvas.save()
+        canvas.scale(pressScale, pressScale, centerX, centerY)
+        drawFacets(canvas, opticalFrame)
+        drawEdges(canvas, opticalFrame)
+        drawGirdle(canvas, opticalFrame)
+        canvas.restore()
+
+        // Tant que le téléphone bouge, l'état optique possède une micro-inertie.
+        // Le prochain frame permet à cette réponse de converger indépendamment du Hz.
+        if (isAttachedToWindow) postInvalidateOnAnimation()
+    }
+
+    private fun rebuildFacetPaths() {
+        facetPaths.fill(null)
+        val inner = diamondRadius * 0.28f
+        val middle = diamondRadius * 0.63f
+        val outer = diamondRadius * 0.96f
+        val segments = 16
+
+        repeat(segments) { i ->
+            val a0 = segmentAngle(i)
+            val a1 = segmentAngle(i + 1)
+            setFacetPath(
+                i,
+                polygon(
+                    floatArrayOf(centerX, centerY),
+                    point(inner, a0),
+                    point(inner, a1)
+                )
+            )
+        }
+
+        repeat(segments) { i ->
+            val a0 = segmentAngle(i)
+            val a1 = segmentAngle(i + 1)
+            val am = (a0 + a1) * 0.5f
+            val i0 = point(inner, a0)
+            val i1 = point(inner, a1)
+            val m0 = point(middle, a0)
+            val m1 = point(middle, a1)
+            val mm = point(middle, am)
+            setFacetPath(16 + i * 2, polygon(i0, m0, mm, i1))
+            setFacetPath(17 + i * 2, polygon(i1, mm, m1))
+        }
+
+        repeat(segments) { i ->
+            val a0 = segmentAngle(i)
+            val a1 = segmentAngle(i + 1)
+            val am = (a0 + a1) * 0.5f
+            val m0 = point(middle, a0)
+            val m1 = point(middle, a1)
+            val o0 = point(outer, a0)
+            val o1 = point(outer, a1)
+            val om = point(outer, am)
+            setFacetPath(48 + i * 2, polygon(m0, o0, om, m1))
+            setFacetPath(49 + i * 2, polygon(m1, om, o1))
+        }
+    }
+
+    private fun setFacetPath(id: Int, path: Path) {
+        facetPaths[id] = path
+        path.computeBounds(facetBounds[id], true)
+        val bounds = facetBounds[id]
+        facetCentroids[id][0] = bounds.centerX()
+        facetCentroids[id][1] = bounds.centerY()
+    }
+
+    private fun drawFacets(canvas: Canvas, frame: DiamondOpticalFrame) {
+        val material = diamondTint()
+        val dark = diamondDark()
+        val highlight = diamondHighlight()
+
+        geometry.forEach { facet ->
+            val path = facetPaths[facet.id] ?: return@forEach
+            val state = frame.facets[facet.id]
+            val radial = radialUnit(facet.azimuthDeg)
+            val span = when (facet.ring) {
+                DiamondRing.INNER -> diamondRadius * 0.17f
+                DiamondRing.MIDDLE -> diamondRadius * 0.24f
+                DiamondRing.OUTER -> diamondRadius * 0.31f
+            }
+
+            // Une seule couleur de matière. Les nuances viennent de l'optique.
+            val baseLit = scaleColor(material, state.luminance)
+            val slopeStrength = when (facet.ring) {
+                DiamondRing.INNER -> 0.08f
+                DiamondRing.MIDDLE -> 0.14f
+                DiamondRing.OUTER -> 0.20f
+            }
+            val upper = mix(baseLit, highlight, (state.directLight * 0.09f).coerceIn(0f, 0.09f))
+            val lower = mix(baseLit, dark, slopeStrength)
+            val alpha = (state.referenceTranslucency * 255f).roundToInt().coerceIn(0, 255)
+
+            val gx = radial[0] * span
+            val gy = radial[1] * span
+            fillPaint.shader = LinearGradient(
+                centerX - gx,
+                centerY - gy,
+                centerX + gx,
+                centerY + gy,
+                withAlpha(upper, alpha),
+                withAlpha(lower, alpha),
+                Shader.TileMode.CLAMP
+            )
+            canvas.drawPath(path, fillPaint)
+            fillPaint.shader = null
+
+            drawLocalizedSpecular(canvas, path, facet, state, frame, alpha)
+        }
+    }
+
+    /**
+     * Le spéculaire est localisé : jamais de couche blanche couvrant toute une facette.
+     */
+    private fun drawLocalizedSpecular(
+        canvas: Canvas,
+        path: Path,
+        facet: DiamondFacetGeometry,
+        state: DiamondFacetOpticalState,
+        frame: DiamondOpticalFrame,
+        materialAlpha: Int
+    ) {
+        if (state.specular < 0.025f) return
+        val bounds = facetBounds[facet.id]
+        if (bounds.isEmpty) return
+
+        val light = frame.sunDirectionDevice ?: frame.moonDirectionDevice ?: return
+        val cx = facetCentroids[facet.id][0] + light.x * bounds.width() * 0.18f
+        val cy = facetCentroids[facet.id][1] - light.y * bounds.height() * 0.18f
+        val radius = max(bounds.width(), bounds.height()).coerceAtLeast(4f) * 0.55f
+        val peakAlpha = (state.specular * 92f * materialAlpha / 255f).roundToInt().coerceIn(0, 92)
+
+        fillPaint.shader = RadialGradient(
+            cx,
+            cy,
+            radius,
+            intArrayOf(
+                Color.argb(peakAlpha, 255, 255, 255),
+                Color.argb((peakAlpha * 0.30f).roundToInt(), 255, 255, 255),
+                Color.TRANSPARENT
+            ),
+            floatArrayOf(0f, 0.30f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawPath(path, fillPaint)
+        fillPaint.shader = null
+    }
+
+    private fun drawEdges(canvas: Canvas, frame: DiamondOpticalFrame) {
+        val averageLuminance = frame.facets.map { it.luminance }.average().toFloat().coerceIn(0.2f, 1f)
+        edgePaint.strokeWidth = max(1f, diamondRadius * 0.0065f)
+        edgePaint.color = withAlpha(
+            diamondHighlight(),
+            (18f + averageLuminance * 20f).roundToInt().coerceIn(18, 38)
+        )
+
+        val inner = diamondRadius * 0.28f
+        val middle = diamondRadius * 0.63f
+        val outer = diamondRadius * 0.96f
+        repeat(16) { i ->
+            val angle = segmentAngle(i)
+            val p1 = point(inner, angle)
+            val p2 = point(middle, angle)
+            val p3 = point(outer, angle)
+            canvas.drawLine(centerX, centerY, p1[0], p1[1], edgePaint)
+            canvas.drawLine(p1[0], p1[1], p2[0], p2[1], edgePaint)
+            canvas.drawLine(p2[0], p2[1], p3[0], p3[1], edgePaint)
+        }
+    }
+
+    /** Ceinture réactivée comme matière, sans lumière propre. */
+    private fun drawGirdle(canvas: Canvas, frame: DiamondOpticalFrame) {
+        val averageLuminance = frame.facets
+            .filter { geometry[it.facetId].ring == DiamondRing.OUTER }
+            .map { it.luminance }
+            .average()
+            .toFloat()
+            .coerceIn(0.2f, 1f)
+
+        edgePaint.strokeWidth = max(1.3f, diamondRadius * 0.025f)
+        edgePaint.color = withAlpha(
+            scaleColor(diamondTint(), 0.55f + averageLuminance * 0.35f),
+            92
+        )
+        canvas.drawCircle(centerX, centerY, diamondRadius * 0.982f, edgePaint)
+
+        edgePaint.strokeWidth = max(1f, diamondRadius * 0.007f)
+        edgePaint.color = withAlpha(diamondHighlight(), 44)
+        canvas.drawCircle(centerX, centerY, diamondRadius * 0.958f, edgePaint)
+    }
+
+    private fun segmentAngle(index: Int): Float = -90f + index * (360f / 16f)
+
+    private fun point(radius: Float, degrees: Float): FloatArray {
+        val rad = Math.toRadians(degrees.toDouble())
+        return floatArrayOf(
+            centerX + cos(rad).toFloat() * radius,
+            centerY + sin(rad).toFloat() * radius
+        )
+    }
+
+    private fun polygon(vararg points: FloatArray): Path = Path().apply {
+        moveTo(points[0][0], points[0][1])
+        for (i in 1 until points.size) lineTo(points[i][0], points[i][1])
+        close()
+    }
+
+    private fun radialUnit(azimuthDeg: Float): FloatArray {
+        val rad = Math.toRadians(azimuthDeg.toDouble())
+        return floatArrayOf(cos(rad).toFloat(), sin(rad).toFloat())
+    }
+
+    private fun scaleColor(color: Int, luminance: Float): Int {
+        val l = luminance.coerceIn(0.20f, 1f)
+        return Color.rgb(
+            (Color.red(color) * l).roundToInt().coerceIn(0, 255),
+            (Color.green(color) * l).roundToInt().coerceIn(0, 255),
+            (Color.blue(color) * l).roundToInt().coerceIn(0, 255)
+        )
+    }
+
+    private fun mix(a: Int, b: Int, amount: Float): Int {
+        val t = amount.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(a) + (Color.red(b) - Color.red(a)) * t).roundToInt().coerceIn(0, 255),
+            (Color.green(a) + (Color.green(b) - Color.green(a)) * t).roundToInt().coerceIn(0, 255),
+            (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t).roundToInt().coerceIn(0, 255)
+        )
+    }
+
+    private fun withAlpha(color: Int, alpha: Int): Int = Color.argb(
+        alpha.coerceIn(0, 255),
+        Color.red(color),
+        Color.green(color),
+        Color.blue(color)
+    )
 }
