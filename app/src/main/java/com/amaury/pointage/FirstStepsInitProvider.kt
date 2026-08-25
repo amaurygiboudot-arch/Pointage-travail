@@ -20,9 +20,9 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         SmartSetupManager.init(app)
         CompanyNameUiBinder.init(app)
 
-        // Le fond personnalisé doit survivre aux mises à jour APK.
-        // On restaure d'abord la copie principale si nécessaire, puis on maintient
-        // une copie interne de secours dès qu'un fond personnalisé est actif.
+        // Le fond personnalisé doit survivre aux mises à jour APK et aux échecs
+        // temporaires de décodage au redémarrage.
+        CustomBackgroundStore.protectPreference(app)
         if (CustomBackgroundStore.isEnabled(app)) {
             CustomBackgroundStore.resolve(app)
             CustomBackgroundStore.saveBackup(app)
@@ -35,6 +35,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         if (activity !is MainActivity) return
         CompanyNameUiBinder.bind(activity)
+        if (CustomBackgroundStore.isEnabled(activity)) {
+            CustomBackgroundStore.resolve(activity)
+            CustomBackgroundStore.saveBackup(activity)
+        }
         activity.window.decorView.post {
             installReplayButton(activity)
             installGpsTestButton(activity)
