@@ -62,6 +62,7 @@ class CarbonCompositeDrawable(
         }.getOrNull()
     }
 
+    private val appContext = context.applicationContext
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val destination = RectF()
     private val fillBitmap: Bitmap? = bitmap(context, R.raw.carbon_fill_b64, frame = false)
@@ -73,7 +74,12 @@ class CarbonCompositeDrawable(
         if (bounds.isEmpty) return
         destination.set(bounds)
         paint.alpha = globalAlpha
-        paint.colorFilter = customFilter ?: if (lightMode) lightFilter else null
+
+        // Relit uniquement l'état clair/sombre au moment du dessin. Ainsi un changement
+        // dans les réglages est visible immédiatement, même si le drawable existait déjà.
+        val currentlyLight = !AppThemeCatalog.useDarkPalette(appContext)
+        paint.colorFilter = customFilter ?: if (currentlyLight) lightFilter else null
+
         fillBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
         frameBitmap?.takeIf { !it.isRecycled }?.let { canvas.drawBitmap(it, null, destination, paint) }
     }
