@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import android.content.Context
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
@@ -11,8 +10,8 @@ import android.widget.TextView
 
 /**
  * Applique les cadres des thèmes aux contrôles uniquement.
- * Quand une photo de fond personnalisée est active, aucun grand conteneur/panneau
- * ne reçoit de texture opaque : la photo doit rester visible derrière l'interface.
+ * Les panneaux/conteneurs restent toujours totalement transparents :
+ * aucune texture Carbone, Céleste ou autre ne doit y être appliquée.
  * Les boutons de pointage diamant restent totalement exclus.
  */
 object ThemeFrameStyler {
@@ -25,35 +24,32 @@ object ThemeFrameStyler {
         val theme = AppThemeCatalog.current(root.context)
         if (theme.id != "natural_carbon" && theme.id != "signature_gold") return
         val dark = AppThemeCatalog.useDarkPalette(root.context)
-        val customPhoto = root.context.getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
-            .getBoolean("custom_image_bg", false)
-        applyRecursive(root, theme, dark, inheritedDark = effectiveDark(theme, dark), customPhoto = customPhoto)
+        applyRecursive(root, theme, dark, inheritedDark = effectiveDark(theme, dark))
     }
 
-    private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean, customPhoto: Boolean) {
+    private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {
         val id = resourceName(view)
         if (id in protectedIds || id in visualIds || view is RedDiamondFinalButton) return
 
+        val framedContainer = view is ViewGroup && isFramedContainer(view, id)
         val localDark = when {
+            framedContainer -> inheritedDark
             theme.id == "natural_carbon" && hasThemedBackground(view) -> true
             theme.id == "signature_gold" && hasThemedBackground(view) -> dark
             else -> inheritedDark
         }
 
         when {
+            framedContainer -> clearContainerBackground(view)
             id in tabIds && view is TextView -> styleTab(view, theme, localDark)
             view is Button -> styleControl(view, theme, localDark)
             view is EditText -> styleControl(view, theme, localDark)
             view is Switch -> styleControl(view, theme, localDark)
-            view is ViewGroup && isFramedContainer(view, id) -> {
-                if (customPhoto) clearContainerBackground(view) else ensureBackground(view, theme)
-            }
             view is TextView -> styleText(view, theme, localDark)
         }
 
         if (view is ViewGroup && view !is True3DButtonHost) {
-            val childDark = if (!customPhoto && isFramedContainer(view, id)) effectiveDark(theme, dark) else localDark
-            for (i in 0 until view.childCount) applyRecursive(view.getChildAt(i), theme, dark, childDark, customPhoto)
+            for (i in 0 until view.childCount) applyRecursive(view.getChildAt(i), theme, dark, localDark)
         }
     }
 
@@ -73,9 +69,6 @@ object ThemeFrameStyler {
     }
 
     private fun clearContainerBackground(view: View) {
-        // Important : ne jamais mettre une texture Carbone/Céleste sur un grand panneau
-        // lorsqu'une photo personnalisée est active. Sinon elle forme le grand rectangle
-        // opaque visible sur la capture et masque la photo choisie par l'utilisateur.
         view.backgroundTintList = null
         view.background = null
         view.setBackgroundColor(Color.TRANSPARENT)
