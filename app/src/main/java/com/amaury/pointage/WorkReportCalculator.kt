@@ -35,8 +35,7 @@ object WorkReportCalculator {
             if (entry <= 0L || item.isNull("exit")) continue
             val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entry }
             if (c.get(Calendar.YEAR) != year || c.get(Calendar.MONTH) != month) continue
-            val key = dayStart(entry)
-            grouped.getOrPut(key) { mutableListOf() }.add(item)
+            grouped.getOrPut(dayStart(entry)) { mutableListOf() }.add(item)
         }
         return grouped.entries.sortedBy { it.key }.map { (day, sessions) -> buildDay(context, day, sessions) }
     }
@@ -69,20 +68,31 @@ object WorkReportCalculator {
             if (entry <= 0L || exit <= entry) return@forEach
             val rawPresence = exit - entry
             presence += rawPresence
-            val configured = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240) * 60_000L
+
+            val storedPauseMinutes = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240)
+            val fallbackPauseMinutes = ShiftProfileManager.pauseMinutes(context, shift).coerceIn(0, 240)
+            val configuredMinutes = when {
+                storedPauseMinutes > 0 -> storedPauseMinutes
+                shift == ShiftType.DAY -> fallbackPauseMinutes
+                else -> storedPauseMinutes
+            }
+            val configured = configuredMinutes * 60_000L
             val actualPause = actualPauseMs(item, entry, exit)
+
             if (teamShift) {
-                // La pause d'équipe est rémunérée : elle reste visible mais n'est jamais retirée du temps payé.
+                // Matin / Après-midi / Nuit : la pause d'équipe est rémunérée.
                 val paid = if (configured > 0L) configured else actualPause.coerceAtMost(30L * 60_000L)
                 paidTeamPause += paid
                 val extraUnpaid = (actualPause - paid).coerceAtLeast(0L)
                 unpaid += extraUnpaid
                 paidWork += (rawPresence - extraUnpaid).coerceAtLeast(0L)
             } else {
-                val toDeduct = maxOf(configured, actualPause)
-                unpaid += toDeduct.coerceAtMost(rawPresence)
+                // Journée normale : la pause configurée est non rémunérée et doit toujours être déduite.
+                val toDeduct = maxOf(configured, actualPause).coerceAtMost(rawPresence)
+                unpaid += toDeduct
                 paidWork += (rawPresence - toDeduct).coerceAtLeast(0L)
             }
+
             if (ShiftProfileManager.mealEnabled(context, shift)) meals++
             item.optString("zoneAddress").trim().takeIf { it.isNotBlank() }?.let { places += it }
             manual = manual || item.optBoolean("manual", false)
@@ -117,6 +127,7 @@ object WorkReportCalculator {
     }
 
     private fun dayStart(ms: Long): Long = Calendar.getInstance(Locale.FRANCE).apply {
-        timeInMillis = ms; set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0)
+        timeInMillis = ms
+        set(Calendar.HOUR_OF_DAY,0); set(Calendar.MINUTE,0); set(Calendar.SECOND,0); set(Calendar.MILLISECOND,0)
     }.timeInMillis
 }
