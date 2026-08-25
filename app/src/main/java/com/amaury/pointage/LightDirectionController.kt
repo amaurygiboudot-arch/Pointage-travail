@@ -37,8 +37,24 @@ object LightDirectionController {
     private val registrations = mutableMapOf<Int, Registration>()
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private fun releaseRegistration(registration: Registration) {
+        registration.manager.unregisterListener(registration.listener)
+        mainHandler.removeCallbacks(registration.ticker)
+    }
+
+    private fun detachOtherActivities(activeKey: Int) {
+        val obsoleteKeys = registrations.keys.filter { it != activeKey }
+        obsoleteKeys.forEach { key ->
+            registrations.remove(key)?.let(::releaseRegistration)
+        }
+    }
+
     fun attach(activity: Activity, onLightingChanged: (LightingState) -> Unit) {
         val key = System.identityHashCode(activity)
+
+        // Une seule activité doit pouvoir piloter l'éclairage des boutons primaires.
+        // Cela nettoie aussi les anciens capteurs/tickers après activity.recreate().
+        detachOtherActivities(key)
         if (registrations.containsKey(key)) return
 
         val sm = activity.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -63,14 +79,25 @@ object LightDirectionController {
         fun state(angle: Float): LightingState {
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
-            val diamondIntensity = if (night) intensity.coerceIn(.34f, .48f) else intensity.coerceIn(.72f, 1f)
+
+            // La nuit doit changer la direction et la douceur de la lumière, pas
+            // supprimer les effets artistiques du diamant. Le moteur Canvas utilise
+            // son flag night pour couper fire() et réduire fortement les glints :
+            // on conserve donc ici un état visuel complet tout en gardant l'état
+            // astronomique réel dans LightingState.night pour le reste de l'UI.
+            val diamondIntensity = if (night) {
+                (.62f + intensity.coerceIn(.18f, .42f) * .38f).coerceIn(.68f, .78f)
+            } else {
+                intensity.coerceIn(.72f, 1f)
+            }
             val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
+
             RedDiamondFinalButton.updateGlobalNaturalLight(
                 angle,
                 diamondPitch,
                 diamondRoll,
                 diamondIntensity,
-                night,
+                false,
                 diamondElevation
             )
             return LightingState(angle, celestialAngle, elevation, night, azimuth, pitch)
@@ -184,8 +211,7 @@ object LightDirectionController {
 
     fun detach(activity: Activity) {
         val r = registrations.remove(System.identityHashCode(activity)) ?: return
-        r.manager.unregisterListener(r.listener)
-        mainHandler.removeCallbacks(r.ticker)
+        releaseRegistration(r)
     }
 
     fun isNight(context: Context): Boolean {
