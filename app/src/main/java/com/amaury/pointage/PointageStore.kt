@@ -28,7 +28,6 @@ object PointageStore {
     }
 
     fun load(context: Context): JSONArray = synchronized(storageLock) { loadUnlocked(context) }
-
     fun save(context: Context, data: JSONArray) = synchronized(storageLock) { saveUnlocked(context, data) }
 
     internal fun <T> update(context: Context, block: (JSONArray) -> T): T = synchronized(storageLock) {
@@ -65,10 +64,21 @@ object PointageStore {
         val finalZoneAddress = rawAddress?.trim()?.takeIf { it.isNotBlank() }?.let { PlaceNames.display(context, it) }
         val now = System.currentTimeMillis()
         val shift = ShiftProfileManager.resolve(context, now)
+        val companySlot = resolveCompanySlot(context, rawAddress)
+        val companyPause = CompanyBasePauseSettings.baseMinutes(context, companySlot)
+        val fallbackShiftPause = ShiftProfileManager.pauseMinutes(context, shift)
+        val basePause = if (companyPause > 0) companyPause else fallbackShiftPause
+
         val changed = synchronized(storageLock) {
             val data = loadUnlocked(context)
             if (findOpenSession(data) != null) false else {
-                val item = JSONObject().put("entry", now).put("exit", JSONObject.NULL).put("pauses", JSONArray()).put("shiftType", shift.id).put("autoPauseMinutes", ShiftProfileManager.pauseMinutes(context, shift))
+                val item = JSONObject()
+                    .put("entry", now)
+                    .put("exit", JSONObject.NULL)
+                    .put("pauses", JSONArray())
+                    .put("shiftType", shift.id)
+                    .put("companySlot", companySlot)
+                    .put("autoPauseMinutes", basePause)
                 if (!finalZoneId.isNullOrBlank()) item.put("zoneId", finalZoneId)
                 if (!finalZoneAddress.isNullOrBlank()) item.put("zoneAddress", finalZoneAddress)
                 data.put(item)
@@ -154,11 +164,16 @@ object PointageStore {
         val sessionEnd = if (item.isNull("exit")) until else item.optLong("exit", until)
         if (sessionEnd <= entry) return 0L
         val rawDuration = sessionEnd - entry
+        val basePause = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240) * 60_000L
         val pauses = item.optJSONArray("pauses")
         val intervals = mutableListOf<Pair<Long, Long>>()
+
         if (pauses != null) {
             for (i in 0 until pauses.length()) {
                 val pause = pauses.optJSONObject(i) ?: continue
+                // Si une pause de base existe, les pauses automatiques programmées
+                // représentent cette même pause et ne doivent pas être déduites deux fois.
+                if (basePause > 0L && pause.optBoolean("automatic", false)) continue
                 val rawStart = pause.optLong("start", -1L)
                 val rawEnd = if (pause.isNull("end")) until else pause.optLong("end", -1L)
                 if (rawStart <= 0L || rawEnd <= rawStart) continue
@@ -167,7 +182,8 @@ object PointageStore {
                 if (end > start) intervals += start to end
             }
         }
-        var recorded = 0L
+
+        var additional = 0L
         if (intervals.isNotEmpty()) {
             intervals.sortBy { it.first }
             var currentStart = intervals.first().first
@@ -175,12 +191,16 @@ object PointageStore {
             for (i in 1 until intervals.size) {
                 val (start, end) = intervals[i]
                 if (start <= currentEnd) currentEnd = maxOf(currentEnd, end)
-                else { recorded += currentEnd - currentStart; currentStart = start; currentEnd = end }
+                else {
+                    additional += currentEnd - currentStart
+                    currentStart = start
+                    currentEnd = end
+                }
             }
-            recorded += currentEnd - currentStart
+            additional += currentEnd - currentStart
         }
-        val automatic = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240) * 60_000L
-        return maxOf(recorded, automatic).coerceIn(0L, rawDuration)
+
+        return (basePause + additional).coerceIn(0L, rawDuration)
     }
 
     fun workedDuration(item: JSONObject, until: Long = System.currentTimeMillis()): Long {
@@ -200,7 +220,10 @@ object PointageStore {
                 if (!item.isNull("exit")) continue
                 val entry = item.optLong("entry", -1L)
                 if (entry <= 0L || now < entry) continue
-                openPause(item)?.let { pause -> val start = pause.optLong("start", -1L); if (start > 0L && now >= start) pause.put("end", now) }
+                openPause(item)?.let { pause ->
+                    val start = pause.optLong("start", -1L)
+                    if (start > 0L && now >= start) pause.put("end", now)
+                }
                 if (item.optString("zoneId").isBlank() || item.optString("zoneAddress").isBlank()) {
                     currentActiveZone(context)?.let { (zoneId, rawAddress) ->
                         if (item.optString("zoneId").isBlank()) item.put("zoneId", zoneId)
@@ -268,6 +291,28 @@ object PointageStore {
             if (entry > 0L && item.isNull("exit")) return item
         }
         return null
+    }
+
+    private fun resolveCompanySlot(context: Context, rawAddress: String?): Int {
+        val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val address = rawAddress?.trim().orEmpty()
+        if (address.isNotBlank()) {
+            val map = runCatching { JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}") }.getOrNull()
+            val direct = map?.optInt(address, 0) ?: 0
+            if (direct in 1..2) return direct
+            val keys = map?.keys()
+            while (keys != null && keys.hasNext()) {
+                val key = keys.next()
+                if (key.equals(address, ignoreCase = true)) {
+                    val slot = map.optInt(key, 0)
+                    if (slot in 1..2) return slot
+                }
+            }
+        }
+        val company1Exists = salaryPrefs.getString("company_siret", "").orEmpty().isNotBlank() ||
+            salaryPrefs.getString("company_name", "").orEmpty().isNotBlank()
+        return if (company1Exists) 1 else 1
     }
 
     private fun currentActiveZone(context: Context): Pair<String, String>? {
