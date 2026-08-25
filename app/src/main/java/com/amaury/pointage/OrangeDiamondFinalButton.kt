@@ -1,7 +1,6 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.util.AttributeSet
 import android.widget.Toast
@@ -34,11 +33,13 @@ class OrangeDiamondFinalButton @JvmOverloads constructor(
 
             if (changed) {
                 DriveBackupManager.syncCurrentMonthAsync(context)
-                val refreshIntent = Intent(context, MainActivity::class.java).apply {
-                    putExtra("open_tab", "today")
-                    addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                context.startActivity(refreshIntent)
+                // Ne jamais relancer MainActivity depuis le bouton Pause : cela pouvait
+                // réveiller le flux de mise à jour/installation lors du retour d'activité.
+                // Les données sont déjà persistées dans PointageStore ; l'écran courant
+                // sera rafraîchi par les mécanismes normaux de l'activité/widgets.
+                PointageWidgetProvider.updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
+                invalidate()
             }
         }
     }
