@@ -4,9 +4,23 @@ plugins {
     id("com.google.gms.google-services")
 }
 
+// The launcher artwork is stored as Base64 text because the connected GitHub API only writes UTF-8 files.
+// Recreate the real WebP resource during Gradle configuration so local and CI builds use the same icon.
+val horaTrackIconSource = file("icon-source/horatrack_launcher.b64")
+val horaTrackGeneratedRes = layout.buildDirectory.dir("generated/horatrackIcon/res").get().asFile
+val horaTrackLauncherFile = file("${horaTrackGeneratedRes.path}/drawable-nodpi/horatrack_launcher.webp")
+if (horaTrackIconSource.exists()) {
+    val encoded = horaTrackIconSource.readText().filterNot { it.isWhitespace() }
+    val bytes = java.util.Base64.getDecoder().decode(encoded)
+    horaTrackLauncherFile.parentFile.mkdirs()
+    horaTrackLauncherFile.writeBytes(bytes)
+}
+
 android {
     namespace = "com.amaury.pointage"
     compileSdk = 36
+
+    sourceSets.getByName("main").res.srcDir(horaTrackGeneratedRes)
 
     signingConfigs {
         create("release") {
