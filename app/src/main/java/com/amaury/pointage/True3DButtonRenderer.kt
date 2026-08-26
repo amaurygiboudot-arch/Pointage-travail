@@ -292,8 +292,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
             Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
 
-            // The celestial controller already expresses the Sun/Moon direction in screen space.
-            // Device pitch/roll/yaw rotate the diamond facets, not the celestial light itself.
             val a = normalize(baseLightAngle)
             val rad = Math.toRadians(a.toDouble())
             drawFacets(mvp, model, cos(rad).toFloat(), sin(rad).toFloat())
@@ -477,7 +475,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     vec3 L = normalize(uLight);
                     vec3 V = normalize(vec3(0.0, -2.72, 4.30) - vW);
                     vec3 H = normalize(L + V);
-                    float diffuse = max(dot(N, L), 0.0);
+                    float rawDiffuse = max(dot(N, L), 0.0);
+                    float diffuse = rawDiffuse * mix(.20, 1.0, memoryBrightness);
                     float nv = max(dot(N, V), 0.0);
                     float viewFacing = abs(dot(N, V));
                     float fresnel = pow(1.0 - nv, 3.0);
@@ -498,7 +497,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float flash = (
                         specular * (2.2 + memoryReflection * 4.5) +
                         fresnel * (.8 + memoryReflection * 1.7)
-                    ) * mix(.55, 1.0, uEffects);
+                    ) * mix(.55, 1.0, uEffects) * mix(.28, 1.0, memoryBrightness);
                     vec3 fire = vec3(
                         1.0 + chroma * .22,
                         .88 - chroma * .12,
@@ -506,8 +505,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     ) * flash * (.10 + memoryReflection * .18);
                     vec3 rim = mix(facetColor, vec3(1.0), .72) * fresnel * (.35 + memoryReflection * .70);
 
-                    // This signal now comes only from computeInternalTransport() through
-                    // DiamondFacetState.internalReturn. Direct brightness/reflection cannot fake it.
                     float returnedFromPavilion = upperGate * internalReturn;
                     vec3 returnColor = mix(facetColor, vec3(1.0), .68)
                         * returnedFromPavilion
