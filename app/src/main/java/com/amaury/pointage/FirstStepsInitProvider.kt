@@ -18,11 +18,12 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
-/** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
+/** Branche le tutoriel de première utilisation sans activer de collecte GPS implicite. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
-        SmartSetupManager.init(app)
+        // SmartSetupManager n'est volontairement plus initialisé ici.
+        // Toute fonction d'apprentissage de lieu doit être activée explicitement par l'utilisateur.
         CompanyNameUiBinder.init(app)
 
         CustomBackgroundStore.protectPreference(app)
@@ -96,8 +97,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 super.onAuthenticationError(errorCode, errString)
-                // Le bouton négatif peut remonter un code dépendant de la version Android.
-                // On ignore uniquement les annulations standard et on affiche les vraies erreurs.
                 if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
                     errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
                 ) {
