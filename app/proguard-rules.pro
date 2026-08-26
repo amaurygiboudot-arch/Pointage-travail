@@ -19,6 +19,13 @@
     public <init>(android.content.Context, android.util.AttributeSet, int);
 }
 
+# La bibliothèque des réglages Live parcourt R.drawable au runtime.
+# En release minifiée, ces champs doivent rester présents sinon la bibliothèque devient vide.
+-keep class com.amaury.pointage.R$drawable { *; }
+-keepclassmembers class com.amaury.pointage.R$drawable {
+    public static <fields>;
+}
+
 # Réduire les informations utiles au reverse engineering dans les traces.
 -renamesourcefileattribute SourceFile
 -keepattributes *Annotation*
