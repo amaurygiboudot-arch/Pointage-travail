@@ -14,21 +14,26 @@ object DeveloperToolsDialog {
         if (!AdminDiagnosticsGate.isEnabled(activity)) return
 
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
+        val colors = PopupTheme.colors(activity)
         fun tool(label: String, action: () -> Unit) = Button(activity).apply {
             text = label
             isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
+            setTextColor(colors.text)
+            background = PopupTheme.panelDrawable(activity, 20f, true)
+            StandardButtonLiveStyle.markDeveloperControl(this)
             setOnClickListener { action() }
         }
 
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(10))
+            setBackgroundColor(colors.background)
         }
 
         box.addView(TextView(activity).apply {
             text = "Zone privée réservée aux essais. Ces outils ne sont pas affichés aux utilisateurs normaux."
             textSize = 13f
+            setTextColor(colors.secondary)
             setPadding(0, 0, 0, dp(10))
         })
 
@@ -78,6 +83,9 @@ object DeveloperToolsDialog {
             AlertDialog.Builder(activity).setTitle("Reconnaissance collègues").setMessage(status).setPositiveButton("OK", null).show()
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
+        developerDialog.setOnShowListener {
+            developerDialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(colors.accent)
+        }
         developerDialog.show()
     }
 }
