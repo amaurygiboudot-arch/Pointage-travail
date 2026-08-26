@@ -29,6 +29,8 @@ class FirebaseAccountActivity : Activity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
     private lateinit var signInButton: Button
+    private lateinit var saveButton: Button
+    private lateinit var restoreButton: Button
     private lateinit var signOutButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +90,7 @@ class FirebaseAccountActivity : Activity() {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
             addView(TextView(this@FirebaseAccountActivity).apply {
-                text = "COMPTE GOOGLE / iOS"
+                text = "COMPTE GOOGLE & SAUVEGARDE"
                 textSize = 22f
                 gravity = Gravity.CENTER
                 setTextColor(p.accent)
@@ -99,6 +101,32 @@ class FirebaseAccountActivity : Activity() {
 
             signInButton = themedButton("SE CONNECTER AVEC GOOGLE", p.text, p.accent, p.panel) { startGoogleSignIn() }
             addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()))
+
+            saveButton = themedButton("SAUVEGARDER L'HISTORIQUE MAINTENANT", p.text, p.accent, p.panel) {
+                setCloudButtonsEnabled(false)
+                CloudPointageBackup.saveAll(this@FirebaseAccountActivity) { ok, message ->
+                    runOnUiThread {
+                        setCloudButtonsEnabled(true)
+                        Toast.makeText(this@FirebaseAccountActivity, if (ok) "Sauvegarde réussie : $message" else "Sauvegarde impossible : $message", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            addView(saveButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
+                topMargin = (12 * density).toInt()
+            })
+
+            restoreButton = themedButton("RESTAURER L'HISTORIQUE", p.text, p.accent, p.panel) {
+                setCloudButtonsEnabled(false)
+                CloudPointageBackup.restoreAll(this@FirebaseAccountActivity) { ok, message ->
+                    runOnUiThread {
+                        setCloudButtonsEnabled(true)
+                        Toast.makeText(this@FirebaseAccountActivity, if (ok) "Restauration réussie : $message" else "Restauration impossible : $message", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            addView(restoreButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
+                topMargin = (12 * density).toInt()
+            })
 
             signOutButton = themedButton("SE DÉCONNECTER", p.text, p.accent, p.panel) {
                 auth.signOut()
@@ -183,9 +211,16 @@ class FirebaseAccountActivity : Activity() {
             .addOnFailureListener { error -> Toast.makeText(this,"Compte connecté, mais Firestore refuse encore l'écriture : ${error.localizedMessage ?: "règles à configurer"}",Toast.LENGTH_LONG).show() }
     }
 
+    private fun setCloudButtonsEnabled(enabled: Boolean) {
+        saveButton.isEnabled = enabled
+        restoreButton.isEnabled = enabled
+    }
+
     private fun refreshUi() {
         val connected = auth.currentUser != null
         signInButton.visibility = if (connected) View.GONE else View.VISIBLE
+        saveButton.visibility = if (connected) View.VISIBLE else View.GONE
+        restoreButton.visibility = if (connected) View.VISIBLE else View.GONE
         signOutButton.visibility = if (connected) View.VISIBLE else View.GONE
     }
 }
