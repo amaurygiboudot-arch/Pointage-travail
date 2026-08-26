@@ -34,6 +34,13 @@ service cloud.firestore {
       match /devices/{deviceId} {
         allow read, write: if isSignedIn() && request.auth.uid == userId;
       }
+
+      // Sauvegarde privée de l'historique de pointage.
+      // Un utilisateur ne peut lire/modifier/supprimer que ses propres données.
+      match /pointages/{pointageId} {
+        allow read, create, update, delete: if isSignedIn()
+          && request.auth.uid == userId;
+      }
     }
 
     match /{path=**}/feedback/{feedbackId} {
