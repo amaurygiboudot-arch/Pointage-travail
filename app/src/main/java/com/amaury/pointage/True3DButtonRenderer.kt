@@ -238,13 +238,11 @@ class True3DButtonTextureView @JvmOverloads constructor(
     }
 
     /**
-     * Taille brillante stylisée en 80 facettes :
-     * - 16 facettes de table
-     * - 32 facettes de couronne
-     * - 32 facettes basses (16 ceinture + 16 pavillon)
-     *
-     * La forme n'est plus une surface arrondie. Chaque triangle possède une
-     * normale plane indépendante, donc une arête franche avec ses voisines.
+     * Géométrie construite uniquement depuis le squelette visuel validé :
+     * table centrale polygonale, deux couronnes étoilées, ceinture fine et
+     * pavillon convergeant vers la pointe. Les triangles OpenGL ne sont pas
+     * assimilés aux facettes visuelles : un plan peut être composé de deux
+     * triangles qui partagent le même identifiant et la même normale.
      */
     private class CrystalMeshRenderer(private val quality: DiamondQuality) {
         var baseLightAngle = -55f
@@ -344,10 +342,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 Color.green(baseColor) / 255f,
                 Color.blue(baseColor) / 255f
             )
-            GLES20.glUniform1f(
-                alphaLoc,
-                (.90f - tuning.transparency * .22f).coerceIn(.62f, .94f)
-            )
+            GLES20.glUniform1f(alphaLoc, (.90f - tuning.transparency * .22f).coerceIn(.62f, .94f))
             GLES20.glUniform1f(effectsLoc, quality.effects)
             GLES20.glUniform1f(
                 colorRichnessLoc,
@@ -423,10 +418,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float diffuse = max(dot(N, L), 0.0);
                     float nv = max(dot(N, V), 0.0);
                     float fresnel = pow(1.0 - nv, 3.0);
-                    float specular = pow(
-                        max(dot(N, H), 0.0),
-                        mix(42.0, 128.0, uEffects)
-                    );
+                    float specular = pow(max(dot(N, H), 0.0), mix(42.0, 128.0, uEffects));
 
                     float facetSeed = fract(sin((vR + 1.0) * 12.9898) * 43758.5453);
                     float facetSeed2 = fract(sin((vR + 7.0) * 31.771) * 19427.173);
@@ -441,17 +433,12 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     vec3 deep = mix(warm * .42, warm, .34 + diffuse * .66);
                     vec3 body = deep * shade * (.74 + vO.z * .18);
 
-                    float flash = (
-                        specular * 4.8 +
-                        fresnel * 1.55
-                    ) * mix(.58, 1.0, uEffects);
-
+                    float flash = (specular * 4.8 + fresnel * 1.55) * mix(.58, 1.0, uEffects);
                     vec3 fire = vec3(
                         1.0 + chroma * .16,
                         .90 - chroma * .10,
                         .96 + chroma * .18
                     ) * flash * .16 * uEffects;
-
                     vec3 rim = mix(warm, vec3(1.0), .70) * fresnel * (.42 + uEffects * .58);
                     vec3 color = body + vec3(1.0) * flash + rim + fire;
                     color = color / (color + vec3(.62));
@@ -499,41 +486,42 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val hw = (hh * aspect).coerceIn(.92f, 7.2f)
             val depth = tuning.facetDepth.coerceIn(0f, 1f)
             val bevel = tuning.bevel.coerceIn(0f, 1f)
-            val seg = 16
 
+            val tableZ = .43f + bevel * .06f + depth * .04f
+            val innerCrownZ = .29f + bevel * .035f
+            val outerCrownZ = .17f + bevel * .02f
             val girdleTopZ = 0f
             val girdleBottomZ = -.055f - bevel * .025f
-            val tableZ = .43f + bevel * .06f + depth * .04f
-            val pavilionZ = -.72f - depth * .30f
+            val pavilionBreakZ = -.43f - depth * .16f
+            val culetZ = -.78f - depth * .30f
 
-            val girdleTop = cutRing(seg, hw, hh, girdleTopZ, 0.0)
-            val girdleBottom = cutRing(
-                seg,
-                hw * .985f,
-                hh * .985f,
-                girdleBottomZ,
-                Math.PI / 32.0
+            // Squelette vu du dessus : octogone central + deux anneaux étoilés + 16 points de ceinture.
+            val table = ringPoints(8, hw * .48f, hh * .45f, tableZ, Math.PI / 8.0)
+            val innerCrown = ringPoints(8, hw * .63f, hh * .60f, innerCrownZ, 0.0)
+            val outerCrown = ringPoints(8, hw * .76f, hh * .73f, outerCrownZ, Math.PI / 8.0)
+            val girdleTop = ringPoints(16, hw, hh, girdleTopZ, 0.0)
+            val girdleBottom = ringPoints(16, hw * .988f, hh * .988f, girdleBottomZ, 0.0)
+
+            // Squelette du pavillon : 8 points de rupture qui convergent vers une pointe unique.
+            val pavilionBreak = ringPoints(
+                8,
+                hw * (.53f - depth * .03f),
+                hh * (.50f - depth * .025f),
+                pavilionBreakZ,
+                Math.PI / 8.0
             )
-            val table = cutRing(
-                seg,
-                hw * (.53f - depth * .025f),
-                hh * (.50f - depth * .02f),
-                tableZ,
-                Math.PI / 16.0
-            )
-            val culet = floatArrayOf(0f, 0f, pavilionZ)
+            val culet = floatArrayOf(0f, 0f, culetZ)
 
-            val data = ArrayList<Float>(80 * 3 * 7)
-            var facetId = 0f
+            val data = ArrayList<Float>(1400)
+            var nextFacetId = 0f
 
-            fun tri(a: FloatArray, b: FloatArray, c: FloatArray) {
+            fun normal(a: FloatArray, b: FloatArray, c: FloatArray): FloatArray {
                 val ux = b[0] - a[0]
                 val uy = b[1] - a[1]
                 val uz = b[2] - a[2]
                 val vx = c[0] - a[0]
                 val vy = c[1] - a[1]
                 val vz = c[2] - a[2]
-
                 var nx = uy * vz - uz * vy
                 var ny = uz * vx - ux * vz
                 var nz = ux * vy - uy * vx
@@ -541,43 +529,100 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 nx /= len
                 ny /= len
                 nz /= len
-
-                arrayOf(a, b, c).forEach { v ->
-                    data.add(v[0])
-                    data.add(v[1])
-                    data.add(v[2])
-                    data.add(nx)
-                    data.add(ny)
-                    data.add(nz)
-                    data.add(facetId)
-                }
-                facetId += 1f
+                return floatArrayOf(nx, ny, nz)
             }
 
+            fun emitVertex(v: FloatArray, n: FloatArray, facetId: Float) {
+                data.add(v[0]); data.add(v[1]); data.add(v[2])
+                data.add(n[0]); data.add(n[1]); data.add(n[2])
+                data.add(facetId)
+            }
+
+            fun emitTriangle(
+                a: FloatArray,
+                b: FloatArray,
+                c: FloatArray,
+                facetId: Float,
+                forcedNormal: FloatArray? = null
+            ) {
+                val n = forcedNormal ?: normal(a, b, c)
+                emitVertex(a, n, facetId)
+                emitVertex(b, n, facetId)
+                emitVertex(c, n, facetId)
+            }
+
+            fun facetTriangle(a: FloatArray, b: FloatArray, c: FloatArray) {
+                emitTriangle(a, b, c, nextFacetId)
+                nextFacetId += 1f
+            }
+
+            fun facetQuad(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray) {
+                val n = normal(a, b, c)
+                emitTriangle(a, b, c, nextFacetId, n)
+                emitTriangle(a, c, d, nextFacetId, n)
+                nextFacetId += 1f
+            }
+
+            // Table : un seul plan visuel. Les 8 triangles OpenGL partagent le même ID et la même normale.
             val tableCenter = floatArrayOf(0f, 0f, tableZ)
-            for (i in 0 until seg) {
-                val n = (i + 1) % seg
-                tri(table[i], table[n], tableCenter)
+            val tableNormal = floatArrayOf(0f, 0f, 1f)
+            val tableFacetId = nextFacetId++
+            for (i in 0 until 8) {
+                val n = (i + 1) % 8
+                emitTriangle(table[i], table[n], tableCenter, tableFacetId, tableNormal)
             }
 
-            for (i in 0 until seg) {
-                val n = (i + 1) % seg
-                tri(table[i], girdleTop[i], girdleTop[n])
-                tri(table[i], girdleTop[n], table[n])
+            // Première étoile du squelette : 8 grands plans entre table et anneau intérieur.
+            for (i in 0 until 8) {
+                val n = (i + 1) % 8
+                facetQuad(table[i], table[n], innerCrown[n], innerCrown[i])
             }
 
-            for (i in 0 until seg) {
-                val n = (i + 1) % seg
-                tri(girdleTop[i], girdleBottom[i], girdleBottom[n])
+            // Deuxième étoile : 8 plans qui prolongent les branches vers l'extérieur.
+            for (i in 0 until 8) {
+                val n = (i + 1) % 8
+                facetQuad(innerCrown[i], innerCrown[n], outerCrown[n], outerCrown[i])
             }
 
-            for (i in 0 until seg) {
-                val n = (i + 1) % seg
-                tri(girdleBottom[i], culet, girdleBottom[n])
+            // Bord supérieur : 16 facettes visibles jusqu'à la ceinture, exactement selon les 16 rayons du squelette.
+            for (i in 0 until 8) {
+                val g0 = (2 * i) % 16
+                val g1 = (2 * i + 1) % 16
+                val g2 = (2 * i + 2) % 16
+                facetTriangle(outerCrown[i], girdleTop[g0], girdleTop[g1])
+                facetTriangle(outerCrown[i], girdleTop[g1], girdleTop[g2])
+            }
+
+            // Ceinture technique : visible en profil mais non comptée comme facette du squelette.
+            for (i in 0 until 16) {
+                val n = (i + 1) % 16
+                val technicalId = 1000f + i
+                val faceNormal = normal(girdleTop[i], girdleTop[n], girdleBottom[n])
+                emitTriangle(girdleTop[i], girdleTop[n], girdleBottom[n], technicalId, faceNormal)
+                emitTriangle(girdleTop[i], girdleBottom[n], girdleBottom[i], technicalId, faceNormal)
+            }
+
+            // Pavillon : 16 facettes depuis la ceinture vers la rupture intérieure.
+            for (i in 0 until 8) {
+                val g0 = (2 * i) % 16
+                val g1 = (2 * i + 1) % 16
+                val g2 = (2 * i + 2) % 16
+                facetTriangle(girdleBottom[g0], girdleBottom[g1], pavilionBreak[i])
+                facetTriangle(girdleBottom[g1], girdleBottom[g2], pavilionBreak[i])
+            }
+
+            // 8 grands plans finaux du pavillon vers la pointe.
+            for (i in 0 until 8) {
+                val n = (i + 1) % 8
+                facetTriangle(pavilionBreak[i], pavilionBreak[n], culet)
             }
 
             count = data.size / 7
-            check((count / 3) == 80) { "Diamond mesh must contain exactly 80 facets" }
+
+            // Le squelette possède 57 facettes visuelles. Les triangles techniques de la ceinture sont exclus.
+            check(nextFacetId.toInt() == 57) {
+                "Visual diamond skeleton must expose exactly 57 facet identities, got ${nextFacetId.toInt()}"
+            }
 
             vertices = ByteBuffer
                 .allocateDirect(data.size * 4)
@@ -589,14 +634,14 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 }
         }
 
-        private fun cutRing(
-            seg: Int,
+        private fun ringPoints(
+            count: Int,
             width: Float,
             height: Float,
             z: Float,
             angularOffset: Double
-        ) = Array(seg) { i ->
-            val angle = (Math.PI * 2.0 * i / seg) - Math.PI / 2.0 + angularOffset
+        ) = Array(count) { i ->
+            val angle = (Math.PI * 2.0 * i / count) - Math.PI / 2.0 + angularOffset
             floatArrayOf(
                 (cos(angle) * width).toFloat(),
                 (sin(angle) * height).toFloat(),
@@ -721,7 +766,7 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
 }
 
 object True3DButtonInstaller {
-    private const val TAG = "hp_true_3d_wrapped_v7_ideal_cut_80"
+    private const val TAG = "hp_true_3d_wrapped_v8_visual_skeleton_57"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
 
     fun install(root: View, lightAngle: Float) {
