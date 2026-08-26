@@ -225,6 +225,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
         private var vertices: FloatBuffer? = null
         private var count = 0
+        private var pavilionStartVertex = 0
+        private var pavilionVertexCount = 0
         private var edgeVertices: FloatBuffer? = null
         private var edgeVertexCount = 0
         private var meshW = -1
@@ -336,7 +338,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 Color.green(baseColor) / 255f,
                 Color.blue(baseColor) / 255f
             )
-            GLES20.glUniform1f(alphaLoc, (.90f - tuning.transparency * .22f).coerceIn(.62f, .94f))
+            GLES20.glUniform1f(alphaLoc, (.88f - tuning.transparency * .30f).coerceIn(.52f, .88f))
             GLES20.glUniform1f(effectsLoc, quality.effects)
             GLES20.glUniform1f(
                 colorRichnessLoc,
@@ -358,7 +360,22 @@ class True3DButtonTextureView @JvmOverloads constructor(
             buffer.position(6)
             GLES20.glEnableVertexAttribArray(rLoc)
             GLES20.glVertexAttribPointer(rLoc, 1, GLES20.GL_FLOAT, false, stride, buffer)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
+
+            // Optical pass 1: the pavilion is rendered into the depth buffer first.
+            // It can then remain visible through the upper transparent crystal.
+            if (pavilionVertexCount > 0) {
+                GLES20.glDepthMask(true)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, pavilionStartVertex, pavilionVertexCount)
+            }
+
+            // Optical pass 2: table/crown/girdle blend over the internal pavilion without
+            // overwriting its depth. This is transmission, not a geometry change.
+            GLES20.glDepthMask(false)
+            if (pavilionStartVertex > 0) {
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, pavilionStartVertex)
+            }
+            GLES20.glDepthMask(true)
+
             GLES20.glDisableVertexAttribArray(pLoc)
             GLES20.glDisableVertexAttribArray(nLoc)
             GLES20.glDisableVertexAttribArray(rLoc)
@@ -433,8 +450,15 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     vec3 H = normalize(L + V);
                     float diffuse = max(dot(N, L), 0.0);
                     float nv = max(dot(N, V), 0.0);
+                    float viewFacing = abs(dot(N, V));
                     float fresnel = pow(1.0 - nv, 3.0);
                     float specular = pow(max(dot(N, H), 0.0), mix(42.0, 128.0, uEffects));
+
+                    // Positive Z corresponds to table/crown. Those facets transmit most when
+                    // viewed close to their normal and become more reflective at grazing angles.
+                    float upperGate = smoothstep(-0.08, 0.14, vO.z);
+                    float transmissionAngle = (1.0 - fresnel) * smoothstep(0.08, 0.92, viewFacing);
+                    float opticalTransmission = upperGate * transmissionAngle * mix(.48, .88, transparencyRef);
 
                     float chroma = (tone - 0.5) * uColorRichness;
                     vec3 facetColor = vec3(
@@ -454,10 +478,24 @@ class True3DButtonTextureView @JvmOverloads constructor(
                         .96 + chroma * .24
                     ) * flash * (.10 + memoryReflection * .18);
                     vec3 rim = mix(facetColor, vec3(1.0), .72) * fresnel * (.35 + memoryReflection * .70);
-                    vec3 color = body + vec3(1.0) * flash + rim + fire;
+
+                    // Returned pavilion energy is already encoded by DiamondFacetMemory in
+                    // brightness/reflection. Here it is made visible as transmitted internal light,
+                    // instead of only increasing the surface highlight.
+                    float internalReturn = upperGate * memoryBrightness * (.18 + memoryReflection * .95);
+                    vec3 returnColor = mix(facetColor, vec3(1.0), .62) * internalReturn * (.52 + uColorRichness * .38);
+
+                    vec3 color = body + vec3(1.0) * flash + rim + fire + returnColor;
                     color = color / (color + vec3(.62));
-                    float facetAlpha = uAlpha * mix(.76, 1.0, transparencyRef);
-                    float alpha = clamp(facetAlpha + fresnel * .06 + memoryReflection * .05, .48, .98);
+
+                    // Real optical translucency: face-on upper facets open to the pavilion;
+                    // grazing facets regain opacity through Fresnel reflection.
+                    float facetAlpha = uAlpha * mix(.58, .82, transparencyRef);
+                    float alpha = facetAlpha
+                        - opticalTransmission * (.24 + memoryBrightness * .18)
+                        + fresnel * .14
+                        + memoryReflection * .06;
+                    alpha = clamp(alpha, .26, .90);
                     gl_FragColor = vec4(clamp(color, 0.0, 1.0), alpha);
                 }
             """.trimIndent())
@@ -628,7 +666,17 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 edgeData.add(b[0]); edgeData.add(b[1]); edgeData.add(b[2])
             }
 
+            var pavilionStarted = false
+            pavilionStartVertex = 0
             faces.forEachIndexed { id, face ->
+                if (!pavilionStarted && (
+                        face.region == DiamondFacetRegion.PAVILION_UPPER ||
+                        face.region == DiamondFacetRegion.PAVILION_LOWER
+                    )) {
+                    pavilionStartVertex = data.size / 7
+                    pavilionStarted = true
+                }
+
                 val n = opticalNormal(face.vertices)
                 facetMemory.defineFacet(id, face.region, n[0], n[1], n[2])
 
@@ -642,6 +690,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
             }
 
             count = data.size / 7
+            pavilionVertexCount = if (pavilionStarted) count - pavilionStartVertex else 0
             vertices = ByteBuffer.allocateDirect(data.size * 4)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
