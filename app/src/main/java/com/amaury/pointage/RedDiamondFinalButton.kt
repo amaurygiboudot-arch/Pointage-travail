@@ -314,12 +314,13 @@ open class RedDiamondFinalButton @JvmOverloads constructor(
         }
 
         if (arcAlpha > 0 && tuning.arcSpanDeg > 0f) {
-            val angle = Math.toDegrees(atan2(uy.toDouble(), ux.toDouble())).toFloat()
+            val lightAngle = Math.toDegrees(atan2(uy.toDouble(), ux.toDouble())).toFloat()
+            val angle = lightAngle + tuning.arcAngleOffsetDeg.coerceIn(-180f, 180f)
             overlayPaint.style = Paint.Style.STROKE
             overlayPaint.strokeCap = Paint.Cap.ROUND
             overlayPaint.strokeWidth = max(1f, diamondRadius * tuning.arcWidth.coerceIn(.001f, .2f))
             overlayPaint.color = withAlpha(lightColor, arcAlpha)
-            val rr = diamondRadius * .86f
+            val rr = diamondRadius * tuning.arcRadius.coerceIn(.55f, 1.10f)
             canvas.drawArc(RectF(centerX - rr, centerY - rr, centerX + rr, centerY + rr), angle - tuning.arcSpanDeg / 2f, tuning.arcSpanDeg, false, overlayPaint)
         }
     }
