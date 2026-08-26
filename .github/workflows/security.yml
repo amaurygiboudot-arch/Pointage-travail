@@ -79,4 +79,14 @@ jobs:
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
       - name: Android lint
-        run: gradle :app:lintDebug --stacktrace
+        shell: bash
+        run: |
+          set +e
+          gradle :app:lintDebug --stacktrace
+          status=$?
+          report="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ -f "$report" ]; then
+            echo "===== FULL ANDROID LINT REPORT ====="
+            cat "$report"
+          fi
+          exit $status
