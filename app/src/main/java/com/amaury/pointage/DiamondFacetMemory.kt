@@ -109,10 +109,19 @@ class DiamondFacetMemory {
         }
         val internalLight = computeInternalTransport(rotatedNormals, lightToSurface, refr)
         val viewerDirection = normalize3(0f, -2.72f, 4.30f)
+        val halfVector = normalize3(
+            lightToSurface[0] + viewerDirection[0],
+            lightToSurface[1] + viewerDirection[1],
+            lightToSurface[2] + viewerDirection[2]
+        )
 
         for (s in states) {
             val n = rotatedNormals[s.id]
-            val diffuse = max(0f, dot3(n, lightToSurface)) * sourceIntensity
+            val geometricFacing = max(0f, dot3(n, lightToSurface))
+            val diffuse = geometricFacing * sourceIntensity
+            val specularAlignment = max(0f, dot3(n, halfVector))
+            val sharpAlignment = ((specularAlignment - 0.78f) / 0.22f).coerceIn(0f, 1f)
+            val sparkleAlignment = sharpAlignment * sharpAlignment
             val returnedLight = internalLight[s.id]
 
             val internalReturnSpeed = if (returnedLight > s.internalReturn) 0.34f else 0.12f
@@ -123,7 +132,7 @@ class DiamondFacetMemory {
             } else {
                 0f
             }
-            val exitSpeed = if (targetExitTransmission > s.exitTransmission) 0.28f else 0.16f
+            val exitSpeed = if (targetExitTransmission > s.exitTransmission) 0.38f else 0.18f
             s.exitTransmission += (targetExitTransmission - s.exitTransmission) * exitSpeed
 
             val angularMemory = 1f -
@@ -141,21 +150,25 @@ class DiamondFacetMemory {
             }
 
             val targetBrightness = (
-                0.065f + regionDepth +
-                    diffuse * (0.49f + refr * 0.17f) +
+                0.055f + regionDepth +
+                    diffuse * (0.60f + refr * 0.18f) +
+                    sparkleAlignment * (0.18f + spark * 0.16f) +
                     returnedLight * (0.42f + refr * 0.34f) +
-                    (s.baseTone - 0.5f) * 0.16f +
-                    colorContrast * 0.030f
-                ).coerceIn(0.030f, 1f)
+                    (s.baseTone - 0.5f) * 0.10f +
+                    colorContrast * 0.025f
+                ).coerceIn(0.025f, 1f)
 
-            val directGate = ((diffuse - 0.70f) / 0.30f).coerceIn(0f, 1f)
-            val returnGate = ((returnedLight - 0.12f) / 0.68f).coerceIn(0f, 1f)
-            val highlightGate = max(directGate, returnGate * (0.72f + refr * 0.28f))
+            val directGate = ((diffuse - 0.42f) / 0.48f).coerceIn(0f, 1f)
+            val returnGate = ((returnedLight - 0.10f) / 0.62f).coerceIn(0f, 1f)
+            val highlightGate = max(
+                sparkleAlignment,
+                max(directGate * 0.74f, returnGate * (0.72f + refr * 0.28f))
+            )
             val targetReflection = (
                 highlightGate *
-                    (0.34f + spark * 0.66f) *
-                    (0.78f + angularMemory * 0.22f) *
-                    (0.88f + colorContrast * 0.12f)
+                    (0.46f + spark * 0.84f) *
+                    (0.90f + angularMemory * 0.10f) *
+                    (0.92f + colorContrast * 0.08f)
                 ).coerceIn(0f, 1f)
 
             val phase = Math.toRadians(
@@ -163,16 +176,16 @@ class DiamondFacetMemory {
             )
             val spectralWave = sin(phase).toFloat()
             val spectralGate = (
-                0.12f + targetReflection * 0.58f + returnedLight * 0.30f
+                0.08f + targetReflection * 0.68f + returnedLight * 0.24f
                 ).coerceIn(0f, 1f) * refr
-            val dispersionAmplitude = (0.018f + spark * 0.020f) * spectralGate
-            val celestialToneShift = sourceWarmth * (0.020f + returnedLight * 0.025f)
+            val dispersionAmplitude = (0.012f + spark * 0.018f) * spectralGate
+            val celestialToneShift = sourceWarmth * (0.012f + returnedLight * 0.018f)
             val targetDisplayTone =
-                (s.baseTone + spectralWave * dispersionAmplitude + celestialToneShift).coerceIn(0.04f, 0.96f)
+                (s.baseTone + spectralWave * dispersionAmplitude + celestialToneShift).coerceIn(0.05f, 0.95f)
 
-            val brightnessSpeed = if (targetBrightness > s.brightness) 0.25f else 0.115f
-            val reflectionSpeed = if (targetReflection > s.reflection) 0.31f else 0.095f
-            val toneSpeed = if (targetDisplayTone > s.displayTone) 0.27f else 0.12f
+            val brightnessSpeed = if (targetBrightness > s.brightness) 0.72f else 0.20f
+            val reflectionSpeed = if (targetReflection > s.reflection) 0.82f else 0.17f
+            val toneSpeed = if (targetDisplayTone > s.displayTone) 0.34f else 0.18f
             s.brightness += (targetBrightness - s.brightness) * brightnessSpeed
             s.reflection += (targetReflection - s.reflection) * reflectionSpeed
             s.displayTone += (targetDisplayTone - s.displayTone) * toneSpeed
