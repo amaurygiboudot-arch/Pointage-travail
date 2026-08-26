@@ -95,7 +95,9 @@ object DiamondMesh57 {
     private const val CULET_Z = -0.73f
 
     fun build(): Mesh {
-        val halfSectorRad = (PI / SECTORS).toFloat() / 2f
+        // Table/main rays are 45° apart; star/lower-half junctions are exactly
+        // halfway between them, therefore the projection angle is 22.5°.
+        val halfSectorRad = (PI / SECTORS).toFloat()
         val starProjectedRadius = STAR_RADIUS * cos(halfSectorRad)
         val starZ = interpolatePlaneHeight(
             innerRadius = TABLE_RADIUS,
@@ -114,8 +116,6 @@ object DiamondMesh57 {
             sampleRadius = pavilionProjectedRadius
         )
 
-        // Table corners align with main girdle points. Star tips sit halfway
-        // between neighbouring table corners, matching brilliant topology.
         val table = ring(SECTORS, TABLE_RADIUS, TABLE_Z, 0f)
         val starTips = ring(SECTORS, STAR_RADIUS, starZ, 22.5f)
         val girdle = ring(SECTORS * 2, GIRDLE_RADIUS, GIRDLE_Z, 0f)
@@ -134,11 +134,8 @@ object DiamondMesh57 {
             facets += Facet(facets.size, family, points, normal)
         }
 
-        // 1 table.
         add(Family.TABLE, table.toList())
 
-        // Crown. This topology is a closed annulus from the table to girdle:
-        // 8 stars + 8 bezel kites + 16 upper halves.
         for (i in 0 until SECTORS) {
             val prev = (i - 1 + SECTORS) % SECTORS
             val next = (i + 1) % SECTORS
@@ -152,8 +149,6 @@ object DiamondMesh57 {
             add(Family.UPPER_HALF, listOf(starTips[i], gMid, gNextMain))
         }
 
-        // Pavilion. Mirrored manifold topology:
-        // 8 pavilion mains + 16 lower halves converging to a pointed culet.
         for (i in 0 until SECTORS) {
             val prev = (i - 1 + SECTORS) % SECTORS
             val gMain = girdle[2 * i]
