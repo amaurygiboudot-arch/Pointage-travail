@@ -38,7 +38,7 @@ class UpdateVerificationWorker(
             notifyReady(context)
             Result.success()
         } catch (e: ApkUpdateVerifier.RetryableVerificationException) {
-            // L'APK est conservé et l'état pending reste à true pendant les retries.
+            prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, true).apply()
             Result.retry()
         } catch (e: Exception) {
             apk.delete()
@@ -67,7 +67,7 @@ class UpdateVerificationWorker(
         manager.notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.hp_icon_red)
+                .setSmallIcon(R.drawable.horatrack_notification)
                 .setContentTitle("Mise à jour HoraTrack prête")
                 .setContentText("La mise à jour a été vérifiée et peut être installée.")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -83,7 +83,7 @@ class UpdateVerificationWorker(
         manager.notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.hp_icon_red)
+                .setSmallIcon(R.drawable.horatrack_notification)
                 .setContentTitle("Mise à jour refusée")
                 .setContentText(reason.take(120))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
