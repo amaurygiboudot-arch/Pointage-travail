@@ -77,8 +77,13 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_6
-          disable-animations: true
+          # Sur les runners Linux sans KVM, l'emulateur peut etre lent et la
+          # commande automatique de desactivation des animations peut faire
+          # tomber adb juste apres le boot (Broken pipe / exit 224).
+          # Le test utile est l'installation + le lancement ci-dessous.
+          disable-animations: false
           script: |
+            adb wait-for-device
             adb install -r app/build/outputs/apk/release/app-release.apk
             adb shell am start -W -n com.amaury.pointage/.LaunchActivity
             sleep 3
