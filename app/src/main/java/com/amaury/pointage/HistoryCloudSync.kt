@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
 import com.google.android.gms.tasks.Tasks
@@ -21,12 +22,38 @@ import java.security.MessageDigest
  */
 object HistoryCloudSync {
     private const val PREFS = "history_cloud_sync"
+    private const val POINTAGE_PREFS = "pointage"
+    private const val POINTAGE_KEY = "data"
     private const val KEY_DIRTY = "dirty"
     private const val KEY_INITIALIZED_PREFIX = "initialized_"
     private const val SYNC_DELAY_MS = 1800L
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
+    private var pointageListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var authListener: FirebaseAuth.AuthStateListener? = null
     @Volatile private var syncing = false
+    @Volatile private var applyingRemote = false
+    @Volatile private var initialized = false
+
+    /** À appeler une seule fois au démarrage du processus. */
+    fun initialize(context: Context) {
+        if (initialized) return
+        synchronized(this) {
+            if (initialized) return
+            val app = context.applicationContext
+            val pointagePrefs = app.getSharedPreferences(POINTAGE_PREFS, Context.MODE_PRIVATE)
+            pointageListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == POINTAGE_KEY && !applyingRemote) onLocalChanged(app)
+            }.also(pointagePrefs::registerOnSharedPreferenceChangeListener)
+
+            val auth = FirebaseAuth.getInstance()
+            authListener = FirebaseAuth.AuthStateListener { state ->
+                if (state.currentUser != null) schedule(app)
+            }.also(auth::addAuthStateListener)
+            initialized = true
+            if (auth.currentUser != null) schedule(app)
+        }
+    }
 
     fun onLocalChanged(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_DIRTY, true).apply()
@@ -62,7 +89,7 @@ object HistoryCloudSync {
                 val mustUploadFirst = prefs.getBoolean(KEY_DIRTY, false) ||
                     (!prefs.getBoolean(initializedKey, false) && local.length() > 0)
 
-                if (mustUploadFirst) uploadAll(app, user.uid, local)
+                if (mustUploadFirst) uploadAll(user.uid, local)
                 downloadAndMerge(app, user.uid)
 
                 prefs.edit()
@@ -76,7 +103,7 @@ object HistoryCloudSync {
         }.start()
     }
 
-    private fun uploadAll(context: Context, uid: String, data: JSONArray) {
+    private fun uploadAll(uid: String, data: JSONArray) {
         if (data.length() == 0) return
         val db = FirebaseFirestore.getInstance()
         val collection = db.collection("users").document(uid).collection("pointages")
@@ -129,7 +156,13 @@ object HistoryCloudSync {
         }
         if (changed) {
             sortByEntry(local)
-            PointageStore.replaceFromCloud(context, local)
+            applyingRemote = true
+            try {
+                context.getSharedPreferences(POINTAGE_PREFS, Context.MODE_PRIVATE)
+                    .edit().putString(POINTAGE_KEY, local.toString()).commit()
+            } finally {
+                applyingRemote = false
+            }
             PointageWidgetProvider.updateAll(context)
             QuickActionsWidgetProvider.updateAll(context)
         }
