@@ -26,6 +26,7 @@ data class DiamondFacetState(
     var displayTone: Float,
     var brightness: Float,
     var reflection: Float,
+    var internalReturn: Float,
     var lastOrientation: Float,
     var normalX: Float = 0f,
     var normalY: Float = 0f,
@@ -52,6 +53,7 @@ class DiamondFacetMemory {
                 displayTone = tone,
                 brightness = facetInitialBrightness(id, region, tone),
                 reflection = 0f,
+                internalReturn = 0f,
                 lastOrientation = 0f
             )
         }
@@ -107,6 +109,12 @@ class DiamondFacetMemory {
             val n = rotatedNormals[s.id]
             val diffuse = max(0f, dot3(n, lightToSurface))
             val returnedLight = internalLight[s.id]
+
+            // Dedicated persistent optical channel. Its only source is the ray transport
+            // calculated above; it is no longer reconstructed from brightness/reflection.
+            val internalReturnSpeed = if (returnedLight > s.internalReturn) 0.34f else 0.12f
+            s.internalReturn += (returnedLight - s.internalReturn) * internalReturnSpeed
+
             val angularMemory = 1f -
                 (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
             val colorContrast = abs(s.baseTone - 0.5f) * 2f
@@ -372,6 +380,19 @@ class DiamondFacetMemory {
             out[p + 1] = unitByte(s.transparencyReference)
             out[p + 2] = unitByte(s.brightness)
             out[p + 3] = unitByte(s.reflection)
+        }
+        return out
+    }
+
+    fun toInternalReturnRgbaBytes(): ByteArray {
+        val out = ByteArray(states.size * 4)
+        states.forEachIndexed { index, s ->
+            val p = index * 4
+            val value = unitByte(s.internalReturn)
+            out[p] = value
+            out[p + 1] = value
+            out[p + 2] = value
+            out[p + 3] = 0xFF.toByte()
         }
         return out
     }
