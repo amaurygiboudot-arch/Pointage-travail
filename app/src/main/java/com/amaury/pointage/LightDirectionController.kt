@@ -93,8 +93,14 @@ object LightDirectionController {
         fun state(angle: Float): LightingState {
             val diamondPitch = pitch.coerceIn(-55f, 55f)
             val diamondRoll = roll.coerceIn(-55f, 55f)
-            val diamondIntensity = 1f
+            val diamondIntensity = intensity.coerceIn(.12f, 1f)
             val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
+
+            CelestialLightingState.updateOpticalLight(
+                intensity = diamondIntensity,
+                elevationDegrees = elevation,
+                night = night
+            )
 
             RedDiamondFinalButton.updateGlobalNaturalLight(
                 angle,
