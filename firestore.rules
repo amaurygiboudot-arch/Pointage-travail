@@ -11,28 +11,42 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.owner == true;
     }
 
-    match /users/{userId} {
-      allow read: if isSignedIn()
-        && (request.auth.uid == userId || isOwner());
+    function isOwnUser(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
 
-      allow create: if isSignedIn()
-        && request.auth.uid == userId
+    match /users/{userId} {
+      allow read: if isOwnUser(userId) || isOwner();
+
+      allow create: if isOwnUser(userId)
         && !request.resource.data.keys().hasAny(['owner']);
 
-      allow update: if isSignedIn()
-        && request.auth.uid == userId
+      allow update: if isOwnUser(userId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['owner']);
 
       allow delete: if false;
 
       match /feedback/{feedbackId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && request.auth.uid == userId;
+        allow read: if isOwnUser(userId);
+        allow create: if isOwnUser(userId);
         allow update, delete: if false;
       }
 
       match /devices/{deviceId} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if isOwnUser(userId);
+      }
+
+      // Historique HoraTrack : strictement privé au compte connecté.
+      // Le document doit rester sous users/{uid}/pointages/{id}; aucun accès croisé.
+      match /pointages/{pointageId} {
+        allow read, create, update, delete: if isOwnUser(userId);
+      }
+
+      // Sauvegarde complète des préférences et fichiers utilisateur.
+      // Ces documents peuvent contenir des réglages sensibles (GPS, salaire, etc.)
+      // et ne sont donc jamais lisibles par le mode propriétaire/admin.
+      match /appBackup/{backupId} {
+        allow read, create, update, delete: if isOwnUser(userId);
       }
     }
 
