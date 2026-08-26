@@ -43,7 +43,7 @@ class DiamondFacetMemory(
 
     fun state(id: Int): DiamondFacetState = states[id.coerceIn(0, states.lastIndex)]
 
-    /** Associe une normale géométrique permanente à l'ID de la facette. */
+    /** Associe la normale géométrique locale permanente à l'ID de la facette. */
     fun setNormal(id: Int, x: Float, y: Float, z: Float) {
         if (id !in states.indices) return
         val length = sqrt(x * x + y * y + z * z).coerceAtLeast(0.00001f)
@@ -54,8 +54,13 @@ class DiamondFacetMemory(
 
     /**
      * Fait évoluer chaque facette vers sa nouvelle réponse lumineuse sans
-     * repartir de zéro. Cela crée la continuité visuelle recherchée lors du
-     * mouvement du téléphone.
+     * repartir de zéro.
+     *
+     * Important : avant le calcul lumineux, la normale locale de chaque
+     * facette reçoit exactement les mêmes rotations que le modèle OpenGL :
+     * X(-8.2 + pitch*0.20), Y(2.4 - roll*0.24), Z(yaw*0.025).
+     * Android Matrix.rotateM post-multiplie les matrices ; avec des vecteurs
+     * colonnes, l'application effective est donc Z puis Y puis X.
      */
     fun update(
         lightAngleDegrees: Float,
@@ -74,11 +79,25 @@ class DiamondFacetMemory(
         val nly = ly / ll
         val nlz = lz / ll
 
+        val modelX = -8.2f + pitchDegrees * 0.20f
+        val modelY = 2.4f - rollDegrees * 0.24f
+        val modelZ = yawDegrees * 0.025f
+
         val orientation = normalizeDegrees(yawDegrees + rollDegrees * 0.55f - pitchDegrees * 0.22f)
 
         for (s in states) {
-            val diffuse = max(0f, s.normalX * nlx + s.normalY * nly + s.normalZ * nlz)
-            val angularMemory = 1f - (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
+            val rotated = rotateLikeOpenGlModel(
+                s.normalX,
+                s.normalY,
+                s.normalZ,
+                modelX,
+                modelY,
+                modelZ
+            )
+
+            val diffuse = max(0f, rotated[0] * nlx + rotated[1] * nly + rotated[2] * nlz)
+            val angularMemory = 1f -
+                (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
 
             val targetBrightness = (
                 0.10f +
@@ -99,6 +118,43 @@ class DiamondFacetMemory(
             s.reflection += (targetReflection - s.reflection) * reflectionSpeed
             s.lastOrientation = orientation
         }
+    }
+
+    /**
+     * Reproduit la rotation du modèle OpenGL pour une normale (sans translation).
+     * L'ordre effectif est Z -> Y -> X, correspondant aux appels rotateM X, Y, Z.
+     */
+    private fun rotateLikeOpenGlModel(
+        x: Float,
+        y: Float,
+        z: Float,
+        xDegrees: Float,
+        yDegrees: Float,
+        zDegrees: Float
+    ): FloatArray {
+        val rz = Math.toRadians(zDegrees.toDouble())
+        val cz = cos(rz).toFloat()
+        val sz = sin(rz).toFloat()
+        val zx = x * cz - y * sz
+        val zy = x * sz + y * cz
+        val zz = z
+
+        val ry = Math.toRadians(yDegrees.toDouble())
+        val cy = cos(ry).toFloat()
+        val sy = sin(ry).toFloat()
+        val yx = zx * cy + zz * sy
+        val yy = zy
+        val yz = -zx * sy + zz * cy
+
+        val rx = Math.toRadians(xDegrees.toDouble())
+        val cx = cos(rx).toFloat()
+        val sx = sin(rx).toFloat()
+        val xx = yx
+        val xy = yy * cx - yz * sx
+        val xz = yy * sx + yz * cx
+
+        val length = sqrt(xx * xx + xy * xy + xz * xz).coerceAtLeast(0.00001f)
+        return floatArrayOf(xx / length, xy / length, xz / length)
     }
 
     /**
