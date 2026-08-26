@@ -1,16 +1,9 @@
 package com.amaury.pointage
 
-import android.Manifest
 import android.app.Activity
-import android.app.AlarmManager
 import android.app.AlertDialog
 import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Typeface
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -123,7 +116,7 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
                 else {
                     PauseAlarmSoundCatalog.stopPreview()
                     CompanyPauseAlarmManager.scheduleAll(context)
-                    if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
+                    AutomaticPauseRuntime.ensurePermissions(context as? Activity, p1.alarm.isChecked || p2.alarm.isChecked)
                     refresh(); dialog.dismiss(); Toast.makeText(context, "Pauses, alarmes et sons enregistrés", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -186,20 +179,6 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
         }
         dialog.setOnCancelListener { PauseAlarmSoundCatalog.stopPreview() }
         dialog.show()
-    }
-
-    private fun requestAlarmPermissionsIfNeeded() {
-        val activity = context as? Activity ?: return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1301)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            if (!alarm.canScheduleExactAlarms()) {
-                postDelayed({
-                    Toast.makeText(context, "Autorise ‘Alarmes et rappels’ pour que les pauses sonnent exactement à l’heure.", Toast.LENGTH_LONG).show()
-                    runCatching { activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply { data = Uri.parse("package:${context.packageName}") }) }
-                }, 700L)
-            }
-        }
     }
 
     private fun parse(value: String): Int? { val m = Regex("^\\s*(\\d{1,2})[:hH](\\d{2})\\s*$").matchEntire(value) ?: return null; val h = m.groupValues[1].toIntOrNull() ?: return null; val min = m.groupValues[2].toIntOrNull() ?: return null; if (h !in 0..23 || min !in 0..59) return null; return h * 60 + min }
