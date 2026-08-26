@@ -87,6 +87,8 @@ class DiamondFacetMemory {
     ) {
         if (states.isEmpty()) return
 
+        val sourceIntensity = CelestialLightingState.opticalIntensity.coerceIn(0.12f, 1f)
+        val sourceWarmth = CelestialLightingState.opticalWarmth.coerceIn(-0.5f, 0.5f)
         val lightRad = Math.toRadians(lightAngleDegrees.toDouble())
         val lightToSurface = normalize3(
             cos(lightRad).toFloat(),
@@ -106,25 +108,16 @@ class DiamondFacetMemory {
             rotateLikeOpenGlModel(s.normalX, s.normalY, s.normalZ, modelX, modelY, modelZ)
         }
         val internalLight = computeInternalTransport(rotatedNormals, lightToSurface, refr)
-
-        // The renderer camera is far enough from the button that one normalized view direction
-        // is a stable per-facet approximation for the final diamond -> air interface.
         val viewerDirection = normalize3(0f, -2.72f, 4.30f)
 
         for (s in states) {
             val n = rotatedNormals[s.id]
-            val diffuse = max(0f, dot3(n, lightToSurface))
+            val diffuse = max(0f, dot3(n, lightToSurface)) * sourceIntensity
             val returnedLight = internalLight[s.id]
 
-            // Dedicated persistent internal channel. Its only source is computeInternalTransport().
             val internalReturnSpeed = if (returnedLight > s.internalReturn) 0.34f else 0.12f
             s.internalReturn += (returnedLight - s.internalReturn) * internalReturnSpeed
 
-            // Final optical interface: diamond (n=2.42) -> air (n=1.0).
-            // By optical reversibility, the ray that can reach the observer corresponds to the
-            // reverse air->diamond ray. We reconstruct its internal incidence angle with Snell,
-            // then apply the exact unpolarized dielectric Fresnel coefficients. At the critical
-            // cone boundary transmission tends to zero, matching total internal reflection.
             val targetExitTransmission = if (isEntryRegion(s.region)) {
                 diamondToAirTransmission(n, viewerDirection)
             } else {
@@ -173,8 +166,9 @@ class DiamondFacetMemory {
                 0.12f + targetReflection * 0.58f + returnedLight * 0.30f
                 ).coerceIn(0f, 1f) * refr
             val dispersionAmplitude = (0.018f + spark * 0.020f) * spectralGate
+            val celestialToneShift = sourceWarmth * (0.020f + returnedLight * 0.025f)
             val targetDisplayTone =
-                (s.baseTone + spectralWave * dispersionAmplitude).coerceIn(0.04f, 0.96f)
+                (s.baseTone + spectralWave * dispersionAmplitude + celestialToneShift).coerceIn(0.04f, 0.96f)
 
             val brightnessSpeed = if (targetBrightness > s.brightness) 0.25f else 0.115f
             val reflectionSpeed = if (targetReflection > s.reflection) 0.31f else 0.095f
@@ -189,27 +183,19 @@ class DiamondFacetMemory {
     private fun diamondToAirTransmission(normal: FloatArray, viewerDirection: FloatArray): Float {
         val diamondIor = 2.42f
         val airIor = 1f
-
         val cosAir = abs(dot3(normal, viewerDirection)).coerceIn(0f, 1f)
         val sinAir = sqrt(max(0f, 1f - cosAir * cosAir))
-
-        // Reverse Snell: nAir * sin(thetaAir) = nDiamond * sin(thetaDiamond).
         val sinInside = (airIor * sinAir / diamondIor).coerceIn(0f, 1f)
         val cosInside = sqrt(max(0f, 1f - sinInside * sinInside))
-
         val criticalSin = (airIor / diamondIor).coerceIn(0f, 1f)
         val criticalCos = sqrt(max(0f, 1f - criticalSin * criticalSin))
         if (cosInside <= criticalCos) return 0f
-
         val rsDen = diamondIor * cosInside + airIor * cosAir
         val rpDen = diamondIor * cosAir + airIor * cosInside
         if (abs(rsDen) < 0.00001f || abs(rpDen) < 0.00001f) return 0f
-
         val rs = ((diamondIor * cosInside - airIor * cosAir) / rsDen)
         val rp = ((diamondIor * cosAir - airIor * cosInside) / rpDen)
         val fresnelReflectance = ((rs * rs + rp * rp) * 0.5f).coerceIn(0f, 1f)
-
-        // Fade smoothly to zero at the escape-cone boundary instead of producing a hard pop.
         val escapeCone = ((cosInside - criticalCos) / (1f - criticalCos).coerceAtLeast(0.00001f))
             .coerceIn(0f, 1f)
         return ((1f - fresnelReflectance) * escapeCone).coerceIn(0f, 1f)
@@ -225,6 +211,7 @@ class DiamondFacetMemory {
         val pavilionIds = states.indices.filter { isPavilionRegion(states[it].region) }
         if (entryIds.isEmpty() || pavilionIds.isEmpty()) return out
 
+        val sourceIntensity = CelestialLightingState.opticalIntensity.coerceIn(0.12f, 1f)
         val diamondIor = 2.42f
         val criticalCos = cos(asin((1f / diamondIor).coerceIn(0f, 1f)))
         val incomingWorld = normalize3(
@@ -242,7 +229,7 @@ class DiamondFacetMemory {
                 1f / diamondIor
             ) ?: continue
 
-            val entryEnergy = entryFacing * (0.30f + refractionControl * 0.70f)
+            val entryEnergy = entryFacing * sourceIntensity * (0.30f + refractionControl * 0.70f)
             val entryAzimuth = azimuth(internalRay)
             val weights = FloatArray(pavilionIds.size)
             var weightSum = 0f
@@ -287,9 +274,7 @@ class DiamondFacetMemory {
         scatterPavilion(out, DiamondFacetRegion.PAVILION_LOWER, 0.070f)
 
         val pavilionAverage = pavilionIds.sumOf { out[it].toDouble() }.toFloat() / pavilionIds.size
-        if (pavilionAverage > 0f) {
-            pavilionIds.forEach { out[it] += pavilionAverage * 0.035f }
-        }
+        if (pavilionAverage > 0f) pavilionIds.forEach { out[it] += pavilionAverage * 0.035f }
 
         for (i in out.indices) {
             out[i] = (out[i] / (1f + out[i] * 0.72f)).coerceIn(0f, 1f)
@@ -435,8 +420,6 @@ class DiamondFacetMemory {
         val out = ByteArray(states.size * 4)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            // R = light that actually escapes toward the observer after the diamond->air interface.
-            // G = raw internalReturn kept for diagnostics. B = exitTransmission for diagnostics.
             out[p] = unitByte(s.internalReturn * s.exitTransmission)
             out[p + 1] = unitByte(s.internalReturn)
             out[p + 2] = unitByte(s.exitTransmission)
