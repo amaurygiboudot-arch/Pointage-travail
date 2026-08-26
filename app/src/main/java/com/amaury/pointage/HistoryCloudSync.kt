@@ -16,9 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Synchronisation bidirectionnelle de l'historique de pointage.
  *
- * Le JSON local reste la source utilisée hors connexion. Quand il change, la copie
- * Firestore du compte connecté est mise à jour. Quand le cloud contient une version
- * différente d'une même session, elle est aussi réellement réinjectée localement.
+ * Le JSON local reste disponible hors connexion. La fusion utilise un hash de référence
+ * issu du dernier sync, modifiedAt et des tombstones de suppression afin d'éviter qu'un
+ * appareil ancien écrase silencieusement des changements plus récents d'un autre appareil.
  */
 object HistoryCloudSync {
     private const val PREFS = "history_cloud_sync"
@@ -27,8 +27,16 @@ object HistoryCloudSync {
     private const val KEY_DIRTY = "dirty"
     private const val KEY_INITIALIZED_PREFIX = "initialized_"
     private const val KEY_SYNCED_IDS_PREFIX = "synced_ids_"
+    private const val KEY_BASELINE_PREFIX = "baseline_hashes_"
+    private const val KEY_TOMBSTONES_PREFIX = "tombstones_"
     private const val KEY_SUPPRESS_NEXT_LOCAL_EVENT = "suppress_next_local_event"
     private const val SYNC_DELAY_MS = 1800L
+
+    private data class RemoteRecord(
+        val id: String,
+        val item: JSONObject,
+        val serverUpdatedAt: Long
+    )
 
     private val handler = Handler(Looper.getMainLooper())
     private val syncRunning = AtomicBoolean(false)
@@ -37,7 +45,6 @@ object HistoryCloudSync {
     private var authListener: FirebaseAuth.AuthStateListener? = null
     @Volatile private var initialized = false
 
-    /** À appeler une seule fois au démarrage du processus. */
     fun initialize(context: Context) {
         if (initialized) return
         synchronized(this) {
@@ -66,9 +73,23 @@ object HistoryCloudSync {
     }
 
     fun onLocalChanged(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_DIRTY, true).apply()
-        schedule(context)
+        val app = context.applicationContext
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user != null) recordLocalDeletions(app, prefs, user.uid)
+        prefs.edit().putBoolean(KEY_DIRTY, true).apply()
+        schedule(app)
+    }
+
+    private fun recordLocalDeletions(context: Context, prefs: SharedPreferences, uid: String) {
+        val syncedIds = prefs.getStringSet(KEY_SYNCED_IDS_PREFIX + uid, emptySet()).orEmpty().toSet()
+        if (syncedIds.isEmpty()) return
+        val currentIds = idsOf(PointageStore.load(context))
+        val tombstones = readLongMap(prefs.getString(KEY_TOMBSTONES_PREFIX + uid, null))
+        val now = System.currentTimeMillis()
+        (syncedIds - currentIds).forEach { id -> if (!tombstones.containsKey(id)) tombstones[id] = now }
+        currentIds.forEach(tombstones::remove)
+        prefs.edit().putString(KEY_TOMBSTONES_PREFIX + uid, longMapJson(tombstones)).apply()
     }
 
     fun schedule(context: Context) {
@@ -95,41 +116,125 @@ object HistoryCloudSync {
         Thread {
             val result = runCatching { syncBlocking(app, user.uid) }
             syncRunning.set(false)
-            onDone?.let { cb ->
-                handler.post { cb(result.isSuccess, result.getOrElse { it.message ?: "Erreur de synchronisation" }) }
+            onDone?.let { callback ->
+                handler.post { callback(result.isSuccess, result.getOrElse { it.message ?: "Erreur de synchronisation" }) }
             }
         }.start()
     }
 
-    /** Exécute une synchronisation complète. À appeler uniquement hors du thread UI. */
+    /** Télécharge d'abord, fusionne, puis publie l'état convergé. */
     internal fun syncBlocking(context: Context, uid: String): String {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val initializedKey = KEY_INITIALIZED_PREFIX + uid
         val syncedIdsKey = KEY_SYNCED_IDS_PREFIX + uid
-        val local = PointageStore.load(context)
-        val localIds = idsOf(local)
-        val dirty = prefs.getBoolean(KEY_DIRTY, false)
+        val baselineKey = KEY_BASELINE_PREFIX + uid
+        val tombstonesKey = KEY_TOMBSTONES_PREFIX + uid
+
+        val localData = PointageStore.load(context)
+        val localById = indexItems(localData)
+        val baseline = readStringMap(prefs.getString(baselineKey, null))
+        val tombstones = readLongMap(prefs.getString(tombstonesKey, null))
         val wasInitialized = prefs.getBoolean(initializedKey, false)
         val previouslySynced = prefs.getStringSet(syncedIdsKey, emptySet()).orEmpty().toSet()
-        val mustUploadFirst = dirty || (!wasInitialized && local.length() > 0)
 
-        if (mustUploadFirst) {
-            uploadAll(uid, local)
-            // Une disparition par rapport au dernier état connu est une vraie suppression locale.
-            // Les nouveaux documents créés par un autre appareil ne figurent pas dans previouslySynced
-            // et ne sont donc jamais supprimés ici.
-            if (wasInitialized && previouslySynced.isNotEmpty()) {
-                deleteRemoved(uid, previouslySynced - localIds)
-            }
+        // Si une suppression s'est produite avant que le listener ne puisse l'enregistrer,
+        // on l'infère ici à partir du dernier état synchronisé.
+        if (wasInitialized) {
+            val now = System.currentTimeMillis()
+            (previouslySynced - localById.keys).forEach { id -> if (!tombstones.containsKey(id)) tombstones[id] = now }
         }
 
-        val remoteIds = downloadAndMerge(context, uid)
+        val remote = fetchRemote(uid)
+        val merged = linkedMapOf<String, JSONObject>()
+        localById.forEach { (id, item) -> merged[id] = JSONObject(item.toString()) }
+        val deleteFromCloud = linkedSetOf<String>()
+
+        remote.forEach { (id, record) ->
+            val localItem = merged[id]
+            if (localItem == null) {
+                val deletedAt = tombstones[id]
+                if (deletedAt != null) {
+                    if (record.serverUpdatedAt > deletedAt) {
+                        // Le cloud a changé après la suppression locale : on préserve la version récente.
+                        merged[id] = JSONObject(record.item.toString())
+                        tombstones.remove(id)
+                    } else {
+                        deleteFromCloud += id
+                    }
+                } else {
+                    merged[id] = JSONObject(record.item.toString())
+                }
+                return@forEach
+            }
+
+            val localHash = payloadHash(localItem)
+            val remoteHash = payloadHash(record.item)
+            if (localHash == remoteHash) {
+                tombstones.remove(id)
+                return@forEach
+            }
+
+            val baseHash = baseline[id]
+            val localChanged = baseHash == null || localHash != baseHash
+            val remoteChanged = baseHash == null || remoteHash != baseHash
+
+            val winner = when {
+                localChanged && !remoteChanged -> localItem
+                !localChanged && remoteChanged -> record.item
+                else -> {
+                    val localTime = effectiveModifiedAt(localItem)
+                    val remoteTime = effectiveModifiedAt(record.item)
+                    if (remoteTime > localTime) record.item else localItem
+                }
+            }
+            merged[id] = JSONObject(winner.toString())
+            tombstones.remove(id)
+        }
+
+        // Un document absent du cloud mais encore local doit être envoyé. Un tombstone ne
+        // peut jamais cohabiter avec un objet local du même ID.
+        merged.keys.forEach(tombstones::remove)
+
+        val mergedArray = JSONArray()
+        merged.values.sortedBy { it.optLong("entry", Long.MAX_VALUE) }.forEach(mergedArray::put)
+        if (!sameHistory(localData, mergedArray)) writeLocalMerged(context, mergedArray)
+
+        if (deleteFromCloud.isNotEmpty()) deleteRemote(uid, deleteFromCloud)
+        uploadAll(uid, mergedArray)
+
+        val finalIds = idsOf(mergedArray)
+        val newBaseline = linkedMapOf<String, String>()
+        for (i in 0 until mergedArray.length()) {
+            val item = mergedArray.optJSONObject(i) ?: continue
+            newBaseline[cloudId(item)] = payloadHash(item)
+        }
+        deleteFromCloud.forEach(tombstones::remove)
+
         prefs.edit()
             .putBoolean(KEY_DIRTY, false)
             .putBoolean(initializedKey, true)
-            .putStringSet(syncedIdsKey, remoteIds)
+            .putStringSet(syncedIdsKey, finalIds)
+            .putString(baselineKey, stringMapJson(newBaseline))
+            .putString(tombstonesKey, longMapJson(tombstones))
             .apply()
+
         return "historique Google à jour"
+    }
+
+    private fun fetchRemote(uid: String): Map<String, RemoteRecord> {
+        val snapshot = Tasks.await(
+            FirebaseFirestore.getInstance()
+                .collection("users").document(uid).collection("pointages").get()
+        )
+        val result = linkedMapOf<String, RemoteRecord>()
+        snapshot.documents.forEach { doc ->
+            val raw = doc.getString("payload").orEmpty()
+            if (raw.isBlank()) return@forEach
+            val item = runCatching { JSONObject(raw) }.getOrNull() ?: return@forEach
+            val serverTime = doc.getTimestamp("updatedAt")?.toDate()?.time ?: 0L
+            result[doc.id] = RemoteRecord(doc.id, item, serverTime)
+        }
+        return result
     }
 
     private fun uploadAll(uid: String, data: JSONArray) {
@@ -147,6 +252,8 @@ object HistoryCloudSync {
                 "arrivalTime" to item.optLong("arrivalTime", -1L),
                 "exit" to if (item.isNull("exit")) null else item.optLong("exit", -1L),
                 "manual" to item.optBoolean("manual", false),
+                "modifiedAt" to effectiveModifiedAt(item),
+                "payloadHash" to payloadHash(item),
                 "payload" to item.toString(),
                 "platform" to "android",
                 "updatedAt" to FieldValue.serverTimestamp()
@@ -162,13 +269,13 @@ object HistoryCloudSync {
         if (count > 0) Tasks.await(batch.commit())
     }
 
-    private fun deleteRemoved(uid: String, removedIds: Set<String>) {
-        if (removedIds.isEmpty()) return
+    private fun deleteRemote(uid: String, ids: Set<String>) {
+        if (ids.isEmpty()) return
         val db = FirebaseFirestore.getInstance()
         val collection = db.collection("users").document(uid).collection("pointages")
         var batch = db.batch()
         var count = 0
-        removedIds.forEach { id ->
+        ids.forEach { id ->
             batch.delete(collection.document(id))
             count++
             if (count >= 400) {
@@ -180,62 +287,37 @@ object HistoryCloudSync {
         if (count > 0) Tasks.await(batch.commit())
     }
 
-    /** Retourne l'ensemble réel des IDs présents dans le cloud après fusion. */
-    private fun downloadAndMerge(context: Context, uid: String): Set<String> {
-        val snapshot = Tasks.await(
-            FirebaseFirestore.getInstance()
-                .collection("users").document(uid).collection("pointages").get()
-        )
-        if (snapshot.isEmpty) return emptySet()
-
-        val local = PointageStore.load(context)
-        val localIndex = HashMap<String, Int>()
-        for (i in 0 until local.length()) {
-            local.optJSONObject(i)?.let { localIndex[cloudId(it)] = i }
+    private fun writeLocalMerged(context: Context, data: JSONArray) {
+        val syncPrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        syncPrefs.edit().putBoolean(KEY_SUPPRESS_NEXT_LOCAL_EVENT, true).commit()
+        val written = context.getSharedPreferences(POINTAGE_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(POINTAGE_KEY, data.toString()).commit()
+        if (!written) {
+            syncPrefs.edit().remove(KEY_SUPPRESS_NEXT_LOCAL_EVENT).apply()
+            error("Impossible d'écrire l'historique restauré")
         }
-
-        val remoteIds = linkedSetOf<String>()
-        var changed = false
-        for (doc in snapshot.documents) {
-            remoteIds += doc.id
-            val raw = doc.getString("payload").orEmpty()
-            if (raw.isBlank()) continue
-            val remoteItem = runCatching { JSONObject(raw) }.getOrNull() ?: continue
-            val index = localIndex[doc.id]
-            if (index == null) {
-                localIndex[doc.id] = local.length()
-                local.put(remoteItem)
-                changed = true
-            } else {
-                val localItem = local.optJSONObject(index)
-                if (localItem == null || localItem.toString() != remoteItem.toString()) {
-                    local.put(index, remoteItem)
-                    changed = true
-                }
-            }
-        }
-
-        if (changed) {
-            sortByEntry(local)
-            val syncPrefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            syncPrefs.edit().putBoolean(KEY_SUPPRESS_NEXT_LOCAL_EVENT, true).commit()
-            val written = context.getSharedPreferences(POINTAGE_PREFS, Context.MODE_PRIVATE)
-                .edit().putString(POINTAGE_KEY, local.toString()).commit()
-            if (!written) {
-                syncPrefs.edit().remove(KEY_SUPPRESS_NEXT_LOCAL_EVENT).apply()
-                error("Impossible d'écrire l'historique restauré")
-            }
-            PointageWidgetProvider.updateAll(context)
-            QuickActionsWidgetProvider.updateAll(context)
-        }
-        return remoteIds
+        PointageWidgetProvider.updateAll(context)
+        QuickActionsWidgetProvider.updateAll(context)
     }
 
-    private fun idsOf(data: JSONArray): Set<String> {
-        val ids = linkedSetOf<String>()
-        for (i in 0 until data.length()) data.optJSONObject(i)?.let { ids += cloudId(it) }
-        return ids
+    private fun sameHistory(a: JSONArray, b: JSONArray): Boolean {
+        if (a.length() != b.length()) return false
+        val aMap = indexItems(a)
+        val bMap = indexItems(b)
+        if (aMap.keys != bMap.keys) return false
+        return aMap.all { (id, item) -> payloadHash(item) == bMap[id]?.let(::payloadHash) }
     }
+
+    private fun indexItems(data: JSONArray): LinkedHashMap<String, JSONObject> {
+        val result = linkedMapOf<String, JSONObject>()
+        for (i in 0 until data.length()) {
+            val item = data.optJSONObject(i) ?: continue
+            result[cloudId(item)] = item
+        }
+        return result
+    }
+
+    private fun idsOf(data: JSONArray): Set<String> = indexItems(data).keys
 
     /** ID stable construit uniquement à partir des champs qui identifient la session. */
     private fun cloudId(item: JSONObject): String {
@@ -246,15 +328,62 @@ object HistoryCloudSync {
             append(item.optString("zoneId", "")); append('|')
             append(item.optString("zoneAddress", ""))
         }
-        val bytes = MessageDigest.getInstance("SHA-256").digest(seed.toByteArray(Charsets.UTF_8))
-        return bytes.joinToString("") { "%02x".format(it) }.take(40)
+        return sha256(seed).take(40)
     }
 
-    private fun sortByEntry(data: JSONArray) {
-        val items = ArrayList<JSONObject>(data.length())
-        for (i in 0 until data.length()) data.optJSONObject(i)?.let(items::add)
-        items.sortBy { it.optLong("entry", Long.MAX_VALUE) }
-        while (data.length() > 0) data.remove(data.length() - 1)
-        items.forEach(data::put)
+    private fun payloadHash(item: JSONObject): String = sha256(item.toString())
+
+    private fun sha256(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString("") { "%02x".format(it) }
     }
+
+    /** Compatibilité avec les anciennes sessions qui n'avaient pas encore modifiedAt. */
+    private fun effectiveModifiedAt(item: JSONObject): Long {
+        var best = item.optLong("modifiedAt", 0L)
+        best = maxOf(best, item.optLong("arrivalTime", 0L), item.optLong("entry", 0L))
+        if (!item.isNull("exit")) best = maxOf(best, item.optLong("exit", 0L))
+        val pauses = item.optJSONArray("pauses")
+        if (pauses != null) {
+            for (i in 0 until pauses.length()) {
+                val pause = pauses.optJSONObject(i) ?: continue
+                best = maxOf(best, pause.optLong("start", 0L))
+                if (!pause.isNull("end")) best = maxOf(best, pause.optLong("end", 0L))
+            }
+        }
+        return best
+    }
+
+    private fun readStringMap(raw: String?): MutableMap<String, String> {
+        if (raw.isNullOrBlank()) return linkedMapOf()
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return linkedMapOf()
+        val result = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            json.optString(key).takeIf { it.isNotBlank() }?.let { result[key] = it }
+        }
+        return result
+    }
+
+    private fun readLongMap(raw: String?): MutableMap<String, Long> {
+        if (raw.isNullOrBlank()) return linkedMapOf()
+        val json = runCatching { JSONObject(raw) }.getOrNull() ?: return linkedMapOf()
+        val result = linkedMapOf<String, Long>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val value = json.optLong(key, 0L)
+            if (value > 0L) result[key] = value
+        }
+        return result
+    }
+
+    private fun stringMapJson(map: Map<String, String>): String = JSONObject().apply {
+        map.forEach { (key, value) -> put(key, value) }
+    }.toString()
+
+    private fun longMapJson(map: Map<String, Long>): String = JSONObject().apply {
+        map.forEach { (key, value) -> put(key, value) }
+    }.toString()
 }
