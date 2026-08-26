@@ -42,6 +42,7 @@
         <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
         <provider android:name=".AutomaticPauseUiInitProvider" android:authorities="${applicationId}.automatic-pause-ui-init" android:exported="false" android:initOrder="45" />
         <provider android:name=".LibraryShortcutInitProvider" android:authorities="${applicationId}.library-shortcut-init" android:exported="false" android:initOrder="40" />
+        <provider android:name=".StandardButtonLiveRuntimeProvider" android:authorities="${applicationId}.standard-button-live-runtime" android:exported="false" android:initOrder="35" />
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
 
         <service android:name=".HpFirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
