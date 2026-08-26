@@ -44,22 +44,18 @@ enum class DiamondQuality(val fps: Int, val facetSegments: Int, val effects: Flo
 
 object DiamondDeviceProfile {
     private val cache = WeakHashMap<Context, DiamondQuality>()
-
     fun quality(context: Context): DiamondQuality {
         val app = context.applicationContext
         return cache[app] ?: detect(app).also { cache[app] = it }
     }
-
     private fun detect(context: Context): DiamondQuality {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mi = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
         val ramGb = mi.totalMem.toDouble() / (1024.0 * 1024.0 * 1024.0)
         val cores = Runtime.getRuntime().availableProcessors()
-        val low = am.isLowRamDevice
-        val sdk = Build.VERSION.SDK_INT
         return when {
-            low || ramGb < 3.0 || cores <= 4 -> DiamondQuality.ECO
-            ramGb < 5.0 || cores <= 6 || sdk < 29 -> DiamondQuality.BALANCED
+            am.isLowRamDevice || ramGb < 3.0 || cores <= 4 -> DiamondQuality.ECO
+            ramGb < 5.0 || cores <= 6 || Build.VERSION.SDK_INT < 29 -> DiamondQuality.BALANCED
             ramGb < 8.0 || cores <= 7 -> DiamondQuality.HIGH
             else -> DiamondQuality.ULTRA
         }
@@ -70,7 +66,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
-
     private val quality = DiamondDeviceProfile.quality(context)
     private val renderer = CrystalMeshRenderer(quality)
     private val renderThread = HandlerThread("hp-diamond-3d-${quality.name.lowercase()}").apply { start() }
@@ -89,26 +84,10 @@ class True3DButtonTextureView @JvmOverloads constructor(
         isFocusable = false
     }
 
-    fun setLightAngle(angle: Float) {
-        renderer.baseLightAngle = angle
-        requestRender()
-    }
-
-    fun setPressedDepth(pressed: Boolean) {
-        renderer.pressed = pressed
-        requestRender(true)
-    }
-
-    fun setCrystalTuning(value: DiamondTuning) {
-        renderer.tuning = value
-        requestRender(true)
-    }
-
-    fun setBaseColor(color: Int) {
-        renderer.baseColor = color
-        requestRender(true)
-    }
-
+    fun setLightAngle(angle: Float) { renderer.baseLightAngle = angle; requestRender() }
+    fun setPressedDepth(pressed: Boolean) { renderer.pressed = pressed; requestRender(true) }
+    fun setCrystalTuning(value: DiamondTuning) { renderer.tuning = value; requestRender(true) }
+    fun setBaseColor(color: Int) { renderer.baseColor = color; requestRender(true) }
     fun setDevicePose(pitch: Float, roll: Float, yaw: Float) {
         renderer.targetPitch = pitch.coerceIn(-38f, 38f)
         renderer.targetRoll = roll.coerceIn(-38f, 38f)
@@ -123,10 +102,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val now = SystemClock.uptimeMillis()
             val wait = if (force) 0L else (minFrameMs - (now - lastFrameMs)).coerceAtLeast(0L)
             if (wait > 0) {
-                renderHandler.postDelayed({
-                    renderQueued = false
-                    drawFrame()
-                }, wait)
+                renderHandler.postDelayed({ renderQueued = false; drawFrame() }, wait)
             } else {
                 renderQueued = false
                 drawFrame()
@@ -137,34 +113,19 @@ class True3DButtonTextureView @JvmOverloads constructor(
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
         surfaceWidth = width.coerceAtLeast(1)
         surfaceHeight = height.coerceAtLeast(1)
-        renderHandler.post {
-            releaseEgl()
-            egl = EglSession(surface, quality)
-            drawFrame()
-        }
+        renderHandler.post { releaseEgl(); egl = EglSession(surface, quality); drawFrame() }
     }
-
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-        surfaceWidth = width.coerceAtLeast(1)
-        surfaceHeight = height.coerceAtLeast(1)
-        requestRender(true)
+        surfaceWidth = width.coerceAtLeast(1); surfaceHeight = height.coerceAtLeast(1); requestRender(true)
     }
-
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        renderHandler.post { releaseEgl() }
-        return true
+        renderHandler.post { releaseEgl() }; return true
     }
-
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
-
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        renderHandler.post {
-            releaseEgl()
-            renderThread.quitSafely()
-        }
+        renderHandler.post { releaseEgl(); renderThread.quitSafely() }
     }
-
     private fun drawFrame() {
         val session = egl ?: return
         session.makeCurrent()
@@ -172,79 +133,44 @@ class True3DButtonTextureView @JvmOverloads constructor(
         session.swap()
         lastFrameMs = SystemClock.uptimeMillis()
     }
-
-    private fun releaseEgl() {
-        egl?.release()
-        egl = null
-    }
+    private fun releaseEgl() { egl?.release(); egl = null }
 
     private class EglSession(texture: SurfaceTexture, quality: DiamondQuality) {
         private val display: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
         private val context: EGLContext
         private val surface: EGLSurface
-
         init {
             val version = IntArray(2)
             check(EGL14.eglInitialize(display, version, 0, version, 1))
             val depth = if (quality == DiamondQuality.ECO) 16 else 24
             val attrs = intArrayOf(
                 EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                EGL14.EGL_RED_SIZE, 8,
-                EGL14.EGL_GREEN_SIZE, 8,
-                EGL14.EGL_BLUE_SIZE, 8,
-                EGL14.EGL_ALPHA_SIZE, 8,
-                EGL14.EGL_DEPTH_SIZE, depth,
-                EGL14.EGL_NONE
+                EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8,
+                EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
+                EGL14.EGL_DEPTH_SIZE, depth, EGL14.EGL_NONE
             )
             val configs = arrayOfNulls<EGLConfig>(1)
             val count = IntArray(1)
             check(EGL14.eglChooseConfig(display, attrs, 0, configs, 0, 1, count, 0) && count[0] > 0)
             context = EGL14.eglCreateContext(
-                display,
-                configs[0],
-                EGL14.EGL_NO_CONTEXT,
-                intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE),
-                0
+                display, configs[0], EGL14.EGL_NO_CONTEXT,
+                intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0
             )
             surface = EGL14.eglCreateWindowSurface(
-                display,
-                configs[0],
-                texture,
-                intArrayOf(EGL14.EGL_NONE),
-                0
+                display, configs[0], texture, intArrayOf(EGL14.EGL_NONE), 0
             )
             check(context != EGL14.EGL_NO_CONTEXT && surface != EGL14.EGL_NO_SURFACE)
         }
-
-        fun makeCurrent() {
-            EGL14.eglMakeCurrent(display, surface, surface, context)
-        }
-
-        fun swap() {
-            EGL14.eglSwapBuffers(display, surface)
-        }
-
+        fun makeCurrent() { EGL14.eglMakeCurrent(display, surface, surface, context) }
+        fun swap() { EGL14.eglSwapBuffers(display, surface) }
         fun release() {
-            EGL14.eglMakeCurrent(
-                display,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_CONTEXT
-            )
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
             if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
             if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
             EGL14.eglTerminate(display)
         }
     }
 
-    /**
-     * Maillage du squelette visuel validé.
-     *
-     * Règle importante :
-     * - un triangle OpenGL n'est PAS automatiquement une facette ;
-     * - une facette plane peut être triangulée sans créer de diagonale visible ;
-     * - seules les frontières réelles entre facettes sont envoyées au buffer d'arêtes.
-     */
     private class CrystalMeshRenderer(private val quality: DiamondQuality) {
         var baseLightAngle = -55f
         var targetPitch = 0f
@@ -254,6 +180,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
         var tuning = DiamondTuning()
         var baseColor = Color.rgb(40, 120, 210)
 
+        private val facetMemory = DiamondFacetMemory(57)
+        private var facetTexture = 0
         private var smoothPitch = 0f
         private var smoothRoll = 0f
         private var smoothYaw = 0f
@@ -269,6 +197,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var alphaLoc = 0
         private var effectsLoc = 0
         private var colorRichnessLoc = 0
+        private var facetTextureLoc = 0
 
         private var edgeProgram = 0
         private var edgePositionLoc = 0
@@ -279,7 +208,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var count = 0
         private var edgeVertices: FloatBuffer? = null
         private var edgeVertexCount = 0
-
         private var meshW = -1
         private var meshH = -1
         private var meshFacet = -1f
@@ -288,23 +216,27 @@ class True3DButtonTextureView @JvmOverloads constructor(
         fun draw(width: Int, height: Int) {
             if (program == 0) createProgram()
             if (edgeProgram == 0) createEdgeProgram()
+            if (facetTexture == 0) createFacetTexture()
 
             smoothPitch += (targetPitch - smoothPitch) * .20f
             smoothRoll += (targetRoll - smoothRoll) * .20f
             smoothYaw += shortestDelta(smoothYaw, targetYaw) * .14f
 
             if (
-                meshW != width ||
-                meshH != height ||
+                meshW != width || meshH != height ||
                 kotlin.math.abs(meshFacet - tuning.facetDepth) > .01f ||
                 kotlin.math.abs(meshBevel - tuning.bevel) > .01f
             ) {
                 buildMesh(width, height)
-                meshW = width
-                meshH = height
-                meshFacet = tuning.facetDepth
-                meshBevel = tuning.bevel
+                meshW = width; meshH = height
+                meshFacet = tuning.facetDepth; meshBevel = tuning.bevel
             }
+
+            facetMemory.update(
+                baseLightAngle, smoothPitch, smoothRoll, smoothYaw,
+                tuning.refraction, tuning.sparkle
+            )
+            uploadFacetTexture()
 
             GLES20.glViewport(0, 0, width, height)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -320,17 +252,10 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val model = FloatArray(16)
             val vp = FloatArray(16)
             val mvp = FloatArray(16)
-
             Matrix.perspectiveM(proj, 0, 24f, aspect, .1f, 20f)
             Matrix.setLookAtM(view, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
             Matrix.setIdentityM(model, 0)
-            Matrix.translateM(
-                model,
-                0,
-                0f,
-                if (pressed) .035f else 0f,
-                if (pressed) -.16f else .18f
-            )
+            Matrix.translateM(model, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
             Matrix.rotateM(model, 0, -8.2f + smoothPitch * .20f, 1f, 0f, 0f)
             Matrix.rotateM(model, 0, 2.4f - smoothRoll * .24f, 0f, 1f, 0f)
             Matrix.rotateM(model, 0, smoothYaw * .025f, 0f, 0f, 1f)
@@ -339,11 +264,35 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
             val a = normalize(baseLightAngle + smoothYaw * .42f + smoothRoll * .55f - smoothPitch * .22f)
             val rad = Math.toRadians(a.toDouble())
-            val lx = cos(rad).toFloat()
-            val ly = sin(rad).toFloat()
-
-            drawFacets(mvp, model, lx, ly)
+            drawFacets(mvp, model, cos(rad).toFloat(), sin(rad).toFloat())
             drawTrueEdges(mvp)
+        }
+
+        private fun createFacetTexture() {
+            val ids = IntArray(1)
+            GLES20.glGenTextures(1, ids, 0)
+            facetTexture = ids[0]
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            val empty = ByteBuffer.allocateDirect(57 * 4)
+            GLES20.glTexImage2D(
+                GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 57, 1, 0,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, empty
+            )
+        }
+
+        private fun uploadFacetTexture() {
+            val bytes = facetMemory.toRgbaBytes()
+            val buffer = ByteBuffer.allocateDirect(bytes.size).apply { put(bytes); position(0) }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
+            GLES20.glTexSubImage2D(
+                GLES20.GL_TEXTURE_2D, 0, 0, 0, 57, 1,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer
+            )
         }
 
         private fun drawFacets(mvp: FloatArray, model: FloatArray, lx: Float, ly: Float) {
@@ -363,24 +312,22 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 colorRichnessLoc,
                 (.45f + tuning.iceBlue * .18f + tuning.refraction * .30f).coerceIn(.35f, .92f)
             )
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
+            GLES20.glUniform1i(facetTextureLoc, 0)
 
             val buffer = vertices ?: return
             val stride = 7 * 4
-
             buffer.position(0)
             GLES20.glEnableVertexAttribArray(pLoc)
             GLES20.glVertexAttribPointer(pLoc, 3, GLES20.GL_FLOAT, false, stride, buffer)
-
             buffer.position(3)
             GLES20.glEnableVertexAttribArray(nLoc)
             GLES20.glVertexAttribPointer(nLoc, 3, GLES20.GL_FLOAT, false, stride, buffer)
-
             buffer.position(6)
             GLES20.glEnableVertexAttribArray(rLoc)
             GLES20.glVertexAttribPointer(rLoc, 1, GLES20.GL_FLOAT, false, stride, buffer)
-
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
-
             GLES20.glDisableVertexAttribArray(pLoc)
             GLES20.glDisableVertexAttribArray(nLoc)
             GLES20.glDisableVertexAttribArray(rLoc)
@@ -389,35 +336,27 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private fun drawTrueEdges(mvp: FloatArray) {
             val buffer = edgeVertices ?: return
             if (edgeVertexCount <= 0) return
-
             GLES20.glUseProgram(edgeProgram)
             GLES20.glUniformMatrix4fv(edgeMvpLoc, 1, false, mvp, 0)
-
             val red = Color.red(baseColor) / 255f
             val green = Color.green(baseColor) / 255f
             val blue = Color.blue(baseColor) / 255f
-
-            val edgeR = red * .42f + .58f
-            val edgeG = green * .42f + .58f
-            val edgeB = blue * .42f + .58f
-            GLES20.glUniform4f(edgeColorLoc, edgeR, edgeG, edgeB, .46f)
-
+            GLES20.glUniform4f(
+                edgeColorLoc,
+                red * .42f + .58f, green * .42f + .58f, blue * .42f + .58f, .46f
+            )
             buffer.position(0)
             GLES20.glEnableVertexAttribArray(edgePositionLoc)
-            GLES20.glVertexAttribPointer(edgePositionLoc, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
-
+            GLES20.glVertexAttribPointer(edgePositionLoc, 3, GLES20.GL_FLOAT, false, 12, buffer)
             GLES20.glDepthMask(false)
-            GLES20.glLineWidth(1.0f)
+            GLES20.glLineWidth(1f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, edgeVertexCount)
             GLES20.glDepthMask(true)
-
             GLES20.glDisableVertexAttribArray(edgePositionLoc)
         }
 
         private fun createProgram() {
-            val vertexShader = compile(
-                GLES20.GL_VERTEX_SHADER,
-                """
+            val vs = compile(GLES20.GL_VERTEX_SHADER, """
                 uniform mat4 uMvp;
                 uniform mat4 uModel;
                 attribute vec3 aPosition;
@@ -435,73 +374,81 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     vR = aRegion;
                     gl_Position = uMvp * vec4(aPosition, 1.0);
                 }
-                """.trimIndent()
-            )
-
-            val fragmentShader = compile(
-                GLES20.GL_FRAGMENT_SHADER,
-                """
+            """.trimIndent())
+            val fs = compile(GLES20.GL_FRAGMENT_SHADER, """
                 precision mediump float;
                 uniform vec3 uLight;
                 uniform vec3 uColor;
                 uniform float uAlpha;
                 uniform float uEffects;
                 uniform float uColorRichness;
+                uniform sampler2D uFacetState;
                 varying vec3 vN;
                 varying vec3 vW;
                 varying vec3 vO;
                 varying float vR;
 
                 void main() {
+                    vec4 state;
+                    if (vR > 56.5) {
+                        state = vec4(0.5, 0.92, 0.62, 0.08);
+                    } else {
+                        float facetIndex = floor(vR + 0.5);
+                        float tx = (facetIndex + 0.5) / 57.0;
+                        state = texture2D(uFacetState, vec2(tx, 0.5));
+                    }
+
+                    float tone = state.r;
+                    float transparencyRef = state.g;
+                    float memoryBrightness = state.b;
+                    float memoryReflection = state.a;
+
                     vec3 N = normalize(vN);
                     vec3 L = normalize(uLight);
                     vec3 V = normalize(vec3(0.0, -2.72, 4.30) - vW);
                     vec3 H = normalize(L + V);
-
                     float diffuse = max(dot(N, L), 0.0);
                     float nv = max(dot(N, V), 0.0);
                     float fresnel = pow(1.0 - nv, 3.0);
                     float specular = pow(max(dot(N, H), 0.0), mix(42.0, 128.0, uEffects));
 
-                    float facetSeed = fract(sin((vR + 1.0) * 12.9898) * 43758.5453);
-                    float facetSeed2 = fract(sin((vR + 7.0) * 31.771) * 19427.173);
-                    float shade = mix(.64, 1.28, facetSeed);
-                    float chroma = (facetSeed2 - .5) * uColorRichness;
-
-                    vec3 warm = vec3(
-                        uColor.r * (1.0 + chroma * .20),
-                        uColor.g * (1.0 - chroma * .10),
-                        uColor.b * (1.0 + chroma * .14)
+                    float chroma = (tone - 0.5) * uColorRichness;
+                    vec3 facetColor = vec3(
+                        uColor.r * (1.0 + chroma * .34),
+                        uColor.g * (1.0 - chroma * .16),
+                        uColor.b * (1.0 + chroma * .24)
                     );
-                    vec3 deep = mix(warm * .42, warm, .34 + diffuse * .66);
-                    vec3 body = deep * shade * (.74 + vO.z * .18);
+                    vec3 deep = mix(facetColor * .30, facetColor, .22 + diffuse * .48 + memoryBrightness * .42);
+                    vec3 body = deep * (.72 + memoryBrightness * .58) * (.78 + vO.z * .16);
 
-                    float flash = (specular * 4.8 + fresnel * 1.55) * mix(.58, 1.0, uEffects);
+                    float flash = (
+                        specular * (2.2 + memoryReflection * 4.5) +
+                        fresnel * (0.8 + memoryReflection * 1.7)
+                    ) * mix(.55, 1.0, uEffects);
                     vec3 fire = vec3(
-                        1.0 + chroma * .16,
-                        .90 - chroma * .10,
-                        .96 + chroma * .18
-                    ) * flash * .16 * uEffects;
-
-                    vec3 rim = mix(warm, vec3(1.0), .70) * fresnel * (.42 + uEffects * .58);
+                        1.0 + chroma * .22,
+                        .88 - chroma * .12,
+                        .96 + chroma * .24
+                    ) * flash * (.10 + memoryReflection * .18);
+                    vec3 rim = mix(facetColor, vec3(1.0), .72) * fresnel * (.35 + memoryReflection * .70);
                     vec3 color = body + vec3(1.0) * flash + rim + fire;
                     color = color / (color + vec3(.62));
 
-                    float alpha = clamp(uAlpha + fresnel * .08 + specular * .04, .58, .98);
+                    float facetAlpha = uAlpha * mix(.76, 1.0, transparencyRef);
+                    float alpha = clamp(
+                        facetAlpha + fresnel * .06 + memoryReflection * .05,
+                        .48, .98
+                    );
                     gl_FragColor = vec4(clamp(color, 0.0, 1.0), alpha);
                 }
-                """.trimIndent()
-            )
-
+            """.trimIndent())
             program = GLES20.glCreateProgram()
-            GLES20.glAttachShader(program, vertexShader)
-            GLES20.glAttachShader(program, fragmentShader)
+            GLES20.glAttachShader(program, vs)
+            GLES20.glAttachShader(program, fs)
             GLES20.glLinkProgram(program)
-
             val ok = IntArray(1)
             GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, ok, 0)
             check(ok[0] == GLES20.GL_TRUE) { GLES20.glGetProgramInfoLog(program) }
-
             pLoc = GLES20.glGetAttribLocation(program, "aPosition")
             nLoc = GLES20.glGetAttribLocation(program, "aNormal")
             rLoc = GLES20.glGetAttribLocation(program, "aRegion")
@@ -512,39 +459,27 @@ class True3DButtonTextureView @JvmOverloads constructor(
             alphaLoc = GLES20.glGetUniformLocation(program, "uAlpha")
             effectsLoc = GLES20.glGetUniformLocation(program, "uEffects")
             colorRichnessLoc = GLES20.glGetUniformLocation(program, "uColorRichness")
+            facetTextureLoc = GLES20.glGetUniformLocation(program, "uFacetState")
         }
 
         private fun createEdgeProgram() {
-            val vertexShader = compile(
-                GLES20.GL_VERTEX_SHADER,
-                """
+            val vs = compile(GLES20.GL_VERTEX_SHADER, """
                 uniform mat4 uMvp;
                 attribute vec3 aPosition;
-                void main() {
-                    gl_Position = uMvp * vec4(aPosition, 1.0);
-                }
-                """.trimIndent()
-            )
-            val fragmentShader = compile(
-                GLES20.GL_FRAGMENT_SHADER,
-                """
+                void main() { gl_Position = uMvp * vec4(aPosition, 1.0); }
+            """.trimIndent())
+            val fs = compile(GLES20.GL_FRAGMENT_SHADER, """
                 precision mediump float;
                 uniform vec4 uEdgeColor;
-                void main() {
-                    gl_FragColor = uEdgeColor;
-                }
-                """.trimIndent()
-            )
-
+                void main() { gl_FragColor = uEdgeColor; }
+            """.trimIndent())
             edgeProgram = GLES20.glCreateProgram()
-            GLES20.glAttachShader(edgeProgram, vertexShader)
-            GLES20.glAttachShader(edgeProgram, fragmentShader)
+            GLES20.glAttachShader(edgeProgram, vs)
+            GLES20.glAttachShader(edgeProgram, fs)
             GLES20.glLinkProgram(edgeProgram)
-
             val ok = IntArray(1)
             GLES20.glGetProgramiv(edgeProgram, GLES20.GL_LINK_STATUS, ok, 0)
             check(ok[0] == GLES20.GL_TRUE) { GLES20.glGetProgramInfoLog(edgeProgram) }
-
             edgePositionLoc = GLES20.glGetAttribLocation(edgeProgram, "aPosition")
             edgeMvpLoc = GLES20.glGetUniformLocation(edgeProgram, "uMvp")
             edgeColorLoc = GLES20.glGetUniformLocation(edgeProgram, "uEdgeColor")
@@ -566,7 +501,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val hw = (hh * aspect).coerceIn(.92f, 7.2f)
             val depth = tuning.facetDepth.coerceIn(0f, 1f)
             val bevel = tuning.bevel.coerceIn(0f, 1f)
-
             val tableZ = .43f + bevel * .06f + depth * .04f
             val innerCrownZ = .29f + bevel * .035f
             val outerCrownZ = .17f + bevel * .02f
@@ -581,349 +515,210 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val girdleTop = ringPoints(16, hw, hh, girdleTopZ, 0.0)
             val girdleBottom = ringPoints(16, hw * .988f, hh * .988f, girdleBottomZ, 0.0)
             val pavilionBreak = ringPoints(
-                8,
-                hw * (.53f - depth * .03f),
-                hh * (.50f - depth * .025f),
-                pavilionBreakZ,
-                Math.PI / 8.0
+                8, hw * (.53f - depth * .03f), hh * (.50f - depth * .025f),
+                pavilionBreakZ, Math.PI / 8.0
             )
             val culet = floatArrayOf(0f, 0f, culetZ)
 
             val data = ArrayList<Float>(1600)
             val edgeData = ArrayList<Float>(900)
             val edgeKeys = HashSet<String>()
-            var nextFacetId = 0f
+            var nextFacetId = 0
 
             fun normal(a: FloatArray, b: FloatArray, c: FloatArray): FloatArray {
-                val ux = b[0] - a[0]
-                val uy = b[1] - a[1]
-                val uz = b[2] - a[2]
-                val vx = c[0] - a[0]
-                val vy = c[1] - a[1]
-                val vz = c[2] - a[2]
-                var nx = uy * vz - uz * vy
-                var ny = uz * vx - ux * vz
-                var nz = ux * vy - uy * vx
-                val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(.00001f)
-                nx /= len
-                ny /= len
-                nz /= len
+                val ux = b[0]-a[0]; val uy = b[1]-a[1]; val uz = b[2]-a[2]
+                val vx = c[0]-a[0]; val vy = c[1]-a[1]; val vz = c[2]-a[2]
+                var nx = uy*vz-uz*vy; var ny = uz*vx-ux*vz; var nz = ux*vy-uy*vx
+                val len = sqrt(nx*nx+ny*ny+nz*nz).coerceAtLeast(.00001f)
+                nx/=len; ny/=len; nz/=len
                 return floatArrayOf(nx, ny, nz)
             }
-
-            fun emitVertex(v: FloatArray, n: FloatArray, facetId: Float) {
+            fun emitVertex(v: FloatArray, n: FloatArray, id: Float) {
                 data.add(v[0]); data.add(v[1]); data.add(v[2])
-                data.add(n[0]); data.add(n[1]); data.add(n[2])
-                data.add(facetId)
+                data.add(n[0]); data.add(n[1]); data.add(n[2]); data.add(id)
             }
-
-            fun emitTriangle(
-                a: FloatArray,
-                b: FloatArray,
-                c: FloatArray,
-                facetId: Float,
-                forcedNormal: FloatArray? = null
-            ) {
-                val n = forcedNormal ?: normal(a, b, c)
-                emitVertex(a, n, facetId)
-                emitVertex(b, n, facetId)
-                emitVertex(c, n, facetId)
+            fun emitTriangle(a: FloatArray, b: FloatArray, c: FloatArray, id: Float, forced: FloatArray? = null) {
+                val n = forced ?: normal(a,b,c)
+                emitVertex(a,n,id); emitVertex(b,n,id); emitVertex(c,n,id)
             }
-
+            fun setFacetNormal(id: Int, n: FloatArray) {
+                facetMemory.setNormal(id, n[0], n[1], n[2])
+            }
             fun facetTriangle(a: FloatArray, b: FloatArray, c: FloatArray) {
-                emitTriangle(a, b, c, nextFacetId)
-                nextFacetId += 1f
+                val id = nextFacetId++
+                val n = normal(a,b,c)
+                setFacetNormal(id,n)
+                emitTriangle(a,b,c,id.toFloat(),n)
             }
-
             fun facetQuad(a: FloatArray, b: FloatArray, c: FloatArray, d: FloatArray) {
-                val n = normal(a, b, c)
-                emitTriangle(a, b, c, nextFacetId, n)
-                emitTriangle(a, c, d, nextFacetId, n)
-                nextFacetId += 1f
+                val id = nextFacetId++
+                val n = normal(a,b,c)
+                setFacetNormal(id,n)
+                emitTriangle(a,b,c,id.toFloat(),n)
+                emitTriangle(a,c,d,id.toFloat(),n)
             }
-
-            fun vertexKey(v: FloatArray): String =
-                "${v[0].toBits()}:${v[1].toBits()}:${v[2].toBits()}"
-
+            fun vertexKey(v: FloatArray) = "${v[0].toBits()}:${v[1].toBits()}:${v[2].toBits()}"
             fun trueEdge(a: FloatArray, b: FloatArray) {
-                val ka = vertexKey(a)
-                val kb = vertexKey(b)
-                val key = if (ka < kb) "$ka|$kb" else "$kb|$ka"
-                if (!edgeKeys.add(key)) return
+                val ka=vertexKey(a); val kb=vertexKey(b)
+                val key=if(ka<kb)"$ka|$kb" else "$kb|$ka"
+                if(!edgeKeys.add(key)) return
                 edgeData.add(a[0]); edgeData.add(a[1]); edgeData.add(a[2])
                 edgeData.add(b[0]); edgeData.add(b[1]); edgeData.add(b[2])
             }
 
-            val tableCenter = floatArrayOf(0f, 0f, tableZ)
-            val tableNormal = floatArrayOf(0f, 0f, 1f)
-            val tableFacetId = nextFacetId++
-            for (i in 0 until 8) {
-                val n = (i + 1) % 8
-                emitTriangle(table[i], table[n], tableCenter, tableFacetId, tableNormal)
-                trueEdge(table[i], table[n])
+            val tableCenter=floatArrayOf(0f,0f,tableZ)
+            val tableNormal=floatArrayOf(0f,0f,1f)
+            val tableId=nextFacetId++
+            setFacetNormal(tableId,tableNormal)
+            for(i in 0 until 8){
+                val n=(i+1)%8
+                emitTriangle(table[i],table[n],tableCenter,tableId.toFloat(),tableNormal)
+                trueEdge(table[i],table[n])
             }
-
-            for (i in 0 until 8) {
-                val n = (i + 1) % 8
-                facetQuad(table[i], table[n], innerCrown[n], innerCrown[i])
-                trueEdge(table[i], innerCrown[i])
-                trueEdge(innerCrown[i], innerCrown[n])
+            for(i in 0 until 8){
+                val n=(i+1)%8
+                facetQuad(table[i],table[n],innerCrown[n],innerCrown[i])
+                trueEdge(table[i],innerCrown[i]); trueEdge(innerCrown[i],innerCrown[n])
             }
-
-            for (i in 0 until 8) {
-                val n = (i + 1) % 8
-                facetQuad(innerCrown[i], innerCrown[n], outerCrown[n], outerCrown[i])
-                trueEdge(innerCrown[i], outerCrown[i])
-                trueEdge(outerCrown[i], outerCrown[n])
+            for(i in 0 until 8){
+                val n=(i+1)%8
+                facetQuad(innerCrown[i],innerCrown[n],outerCrown[n],outerCrown[i])
+                trueEdge(innerCrown[i],outerCrown[i]); trueEdge(outerCrown[i],outerCrown[n])
             }
-
-            for (i in 0 until 8) {
-                val g0 = (2 * i) % 16
-                val g1 = (2 * i + 1) % 16
-                val g2 = (2 * i + 2) % 16
-                facetTriangle(outerCrown[i], girdleTop[g0], girdleTop[g1])
-                facetTriangle(outerCrown[i], girdleTop[g1], girdleTop[g2])
-
-                trueEdge(outerCrown[i], girdleTop[g0])
-                trueEdge(outerCrown[i], girdleTop[g1])
-                trueEdge(outerCrown[i], girdleTop[g2])
-                trueEdge(girdleTop[g0], girdleTop[g1])
-                trueEdge(girdleTop[g1], girdleTop[g2])
+            for(i in 0 until 8){
+                val g0=2*i; val g1=2*i+1; val g2=(2*i+2)%16
+                facetTriangle(outerCrown[i],girdleTop[g0],girdleTop[g1])
+                facetTriangle(outerCrown[i],girdleTop[g1],girdleTop[g2])
+                trueEdge(outerCrown[i],girdleTop[g0]); trueEdge(outerCrown[i],girdleTop[g1])
+                trueEdge(outerCrown[i],girdleTop[g2]); trueEdge(girdleTop[g0],girdleTop[g1]); trueEdge(girdleTop[g1],girdleTop[g2])
             }
-
-            for (i in 0 until 16) {
-                val n = (i + 1) % 16
-                val technicalId = 1000f + i
-                val faceNormal = normal(girdleTop[i], girdleTop[n], girdleBottom[n])
-                emitTriangle(girdleTop[i], girdleTop[n], girdleBottom[n], technicalId, faceNormal)
-                emitTriangle(girdleTop[i], girdleBottom[n], girdleBottom[i], technicalId, faceNormal)
-
-                trueEdge(girdleTop[i], girdleBottom[i])
-                trueEdge(girdleBottom[i], girdleBottom[n])
+            for(i in 0 until 16){
+                val n=(i+1)%16
+                val faceNormal=normal(girdleTop[i],girdleTop[n],girdleBottom[n])
+                val technicalId=(1000+i).toFloat()
+                emitTriangle(girdleTop[i],girdleTop[n],girdleBottom[n],technicalId,faceNormal)
+                emitTriangle(girdleTop[i],girdleBottom[n],girdleBottom[i],technicalId,faceNormal)
+                trueEdge(girdleTop[i],girdleBottom[i]); trueEdge(girdleBottom[i],girdleBottom[n])
             }
-
-            for (i in 0 until 8) {
-                val g0 = (2 * i) % 16
-                val g1 = (2 * i + 1) % 16
-                val g2 = (2 * i + 2) % 16
-                facetTriangle(girdleBottom[g0], girdleBottom[g1], pavilionBreak[i])
-                facetTriangle(girdleBottom[g1], girdleBottom[g2], pavilionBreak[i])
-
-                trueEdge(girdleBottom[g0], pavilionBreak[i])
-                trueEdge(girdleBottom[g1], pavilionBreak[i])
-                trueEdge(girdleBottom[g2], pavilionBreak[i])
+            for(i in 0 until 8){
+                val g0=2*i; val g1=2*i+1; val g2=(2*i+2)%16
+                facetTriangle(girdleBottom[g0],girdleBottom[g1],pavilionBreak[i])
+                facetTriangle(girdleBottom[g1],girdleBottom[g2],pavilionBreak[i])
+                trueEdge(girdleBottom[g0],pavilionBreak[i]); trueEdge(girdleBottom[g1],pavilionBreak[i]); trueEdge(girdleBottom[g2],pavilionBreak[i])
             }
-
-            for (i in 0 until 8) {
-                val n = (i + 1) % 8
-                facetTriangle(pavilionBreak[i], pavilionBreak[n], culet)
-                trueEdge(pavilionBreak[i], pavilionBreak[n])
-                trueEdge(pavilionBreak[i], culet)
+            for(i in 0 until 8){
+                val n=(i+1)%8
+                facetTriangle(pavilionBreak[i],pavilionBreak[n],culet)
+                trueEdge(pavilionBreak[i],pavilionBreak[n]); trueEdge(pavilionBreak[i],culet)
             }
+            check(nextFacetId == 57) { "Expected 57 visual facet IDs, got $nextFacetId" }
 
-            count = data.size / 7
-            vertices = ByteBuffer
-                .allocateDirect(data.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-                .apply {
-                    data.forEach { put(it) }
-                    position(0)
-                }
-
-            edgeVertexCount = edgeData.size / 3
-            edgeVertices = ByteBuffer
-                .allocateDirect(edgeData.size * 4)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-                .apply {
-                    edgeData.forEach { put(it) }
-                    position(0)
-                }
+            count=data.size/7
+            vertices=ByteBuffer.allocateDirect(data.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                data.forEach { put(it) }; position(0)
+            }
+            edgeVertexCount=edgeData.size/3
+            edgeVertices=ByteBuffer.allocateDirect(edgeData.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply {
+                edgeData.forEach { put(it) }; position(0)
+            }
         }
 
-        private fun ringPoints(
-            count: Int,
-            width: Float,
-            height: Float,
-            z: Float,
-            angularOffset: Double
-        ) = Array(count) { i ->
-            val angle = (Math.PI * 2.0 * i / count) - Math.PI / 2.0 + angularOffset
-            floatArrayOf(
-                (cos(angle) * width).toFloat(),
-                (sin(angle) * height).toFloat(),
-                z
-            )
+        private fun ringPoints(count:Int,width:Float,height:Float,z:Float,offset:Double)=Array(count){i->
+            val a=(Math.PI*2.0*i/count)-Math.PI/2.0+offset
+            floatArrayOf((cos(a)*width).toFloat(),(sin(a)*height).toFloat(),z)
         }
-
-        private fun normalize(v: Float) = ((v % 360f) + 360f) % 360f
-        private fun shortestDelta(a: Float, b: Float) = ((b - a + 540f) % 360f) - 180f
+        private fun normalize(v:Float)=((v%360f)+360f)%360f
+        private fun shortestDelta(a:Float,b:Float)=((b-a+540f)%360f)-180f
     }
 }
 
 private object DiamondMotionHub : SensorEventListener {
-    private val listeners = WeakHashMap<True3DButtonHost, Unit>()
-    private var manager: SensorManager? = null
-    private var sensor: Sensor? = null
-    private val rot = FloatArray(9)
-    private val ori = FloatArray(3)
-    private var accelX = 0f
-    private var accelY = 0f
-    private var accelZ = 0f
+    private val listeners=WeakHashMap<True3DButtonHost,Unit>()
+    private var manager:SensorManager?=null
+    private var sensor:Sensor?=null
+    private val rot=FloatArray(9)
+    private val ori=FloatArray(3)
+    private var accelX=0f; private var accelY=0f; private var accelZ=0f
 
-    fun attach(host: True3DButtonHost) {
-        listeners[host] = Unit
-        if (manager != null) return
-        val sm = host.context.applicationContext
-            .getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        manager = sm
-        sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-            ?: sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        sensor?.let {
-            sm.registerListener(
-                this,
-                it,
-                DiamondDeviceProfile.quality(host.context).sensorDelay
-            )
-        }
+    fun attach(host:True3DButtonHost){
+        listeners[host]=Unit
+        if(manager!=null)return
+        val sm=host.context.applicationContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        manager=sm
+        sensor=sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?:sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        sensor?.let{sm.registerListener(this,it,DiamondDeviceProfile.quality(host.context).sensorDelay)}
     }
-
-    fun detach(host: True3DButtonHost) {
+    fun detach(host:True3DButtonHost){
         listeners.remove(host)
-        if (listeners.isEmpty()) {
-            manager?.unregisterListener(this)
-            manager = null
-            sensor = null
-        }
+        if(listeners.isEmpty()){manager?.unregisterListener(this);manager=null;sensor=null}
     }
-
-    override fun onSensorChanged(e: SensorEvent) {
-        var pitch = 0f
-        var roll = 0f
-        var yaw = 0f
-
-        if (e.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-            SensorManager.getRotationMatrixFromVector(rot, e.values)
-            SensorManager.getOrientation(rot, ori)
-            yaw = Math.toDegrees(ori[0].toDouble()).toFloat()
-            pitch = Math.toDegrees(ori[1].toDouble()).toFloat()
-            roll = Math.toDegrees(ori[2].toDouble()).toFloat()
-        } else {
-            val k = .15f
-            accelX += (e.values[0] - accelX) * k
-            accelY += (e.values[1] - accelY) * k
-            accelZ += (e.values[2] - accelZ) * k
-            pitch = Math.toDegrees(
-                atan2(-accelY, sqrt(accelX * accelX + accelZ * accelZ).toDouble())
-            ).toFloat()
-            roll = Math.toDegrees(atan2(accelX, accelZ.toDouble())).toFloat()
+    override fun onSensorChanged(e:SensorEvent){
+        var pitch=0f; var roll=0f; var yaw=0f
+        if(e.sensor.type==Sensor.TYPE_ROTATION_VECTOR){
+            SensorManager.getRotationMatrixFromVector(rot,e.values)
+            SensorManager.getOrientation(rot,ori)
+            yaw=Math.toDegrees(ori[0].toDouble()).toFloat()
+            pitch=Math.toDegrees(ori[1].toDouble()).toFloat()
+            roll=Math.toDegrees(ori[2].toDouble()).toFloat()
+        }else{
+            val k=.15f
+            accelX+=(e.values[0]-accelX)*k; accelY+=(e.values[1]-accelY)*k; accelZ+=(e.values[2]-accelZ)*k
+            pitch=Math.toDegrees(atan2(-accelY,sqrt(accelX*accelX+accelZ*accelZ).toDouble())).toFloat()
+            roll=Math.toDegrees(atan2(accelX,accelZ.toDouble())).toFloat()
         }
-
-        listeners.keys.toList().forEach { it.onDevicePose(pitch, roll, yaw) }
+        listeners.keys.toList().forEach{it.onDevicePose(pitch,roll,yaw)}
     }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+    override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int)=Unit
 }
 
-class True3DButtonHost(context: Context) : FrameLayout(context) {
-    private val surface = True3DButtonTextureView(context)
-    lateinit var button: Button
+class True3DButtonHost(context:Context):FrameLayout(context){
+    private val surface=True3DButtonTextureView(context)
+    lateinit var button:Button
         private set
-
-    init {
-        clipChildren = false
-        clipToPadding = false
-        addView(surface, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+    init{
+        clipChildren=false;clipToPadding=false
+        addView(surface,LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT))
     }
-
-    fun attachButton(value: Button, tuning: DiamondTuning, lightAngle: Float) {
-        button = value
-        surface.setCrystalTuning(tuning)
-        surface.setLightAngle(lightAngle)
-        addView(value, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        value.background = null
-        value.backgroundTintList = null
-        value.stateListAnimator = null
-        value.elevation = 0f
-        value.translationZ = 0f
+    fun attachButton(value:Button,tuning:DiamondTuning,lightAngle:Float){
+        button=value
+        surface.setCrystalTuning(tuning);surface.setLightAngle(lightAngle)
+        addView(value,LayoutParams(LayoutParams.MATCH_PARENT,LayoutParams.MATCH_PARENT))
+        value.background=null;value.backgroundTintList=null;value.stateListAnimator=null;value.elevation=0f;value.translationZ=0f
     }
-
-    fun setLightAngle(angle: Float) = surface.setLightAngle(angle)
-    fun setBaseColor(color: Int) = surface.setBaseColor(color)
-    fun onDevicePose(pitch: Float, roll: Float, yaw: Float) =
-        surface.setDevicePose(pitch, roll, yaw)
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        DiamondMotionHub.attach(this)
-    }
-
-    override fun onDetachedFromWindow() {
-        DiamondMotionHub.detach(this)
-        super.onDetachedFromWindow()
-    }
-
-    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> surface.setPressedDepth(true)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> surface.setPressedDepth(false)
+    fun setLightAngle(angle:Float)=surface.setLightAngle(angle)
+    fun setBaseColor(color:Int)=surface.setBaseColor(color)
+    fun onDevicePose(pitch:Float,roll:Float,yaw:Float)=surface.setDevicePose(pitch,roll,yaw)
+    override fun onAttachedToWindow(){super.onAttachedToWindow();DiamondMotionHub.attach(this)}
+    override fun onDetachedFromWindow(){DiamondMotionHub.detach(this);super.onDetachedFromWindow()}
+    override fun dispatchTouchEvent(ev:MotionEvent):Boolean{
+        when(ev.actionMasked){
+            MotionEvent.ACTION_DOWN->surface.setPressedDepth(true)
+            MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->surface.setPressedDepth(false)
         }
         return super.dispatchTouchEvent(ev)
     }
 }
 
-object True3DButtonInstaller {
-    private const val TAG = "hp_true_3d_wrapped_v9_true_edges"
-    private val hosts = WeakHashMap<Button, True3DButtonHost>()
-
-    fun install(root: View, lightAngle: Float) {
-        val list = ArrayList<Button>()
-        collect(root, list)
-        list.forEach { wrap(it, lightAngle) }
+object True3DButtonInstaller{
+    private const val TAG="hp_true_3d_wrapped_v10_facet_memory_texture"
+    private val hosts=WeakHashMap<Button,True3DButtonHost>()
+    fun install(root:View,lightAngle:Float){val list=ArrayList<Button>();collect(root,list);list.forEach{wrap(it,lightAngle)}}
+    fun updateLight(root:View,lightAngle:Float){hosts.entries.toList().forEach{(b,h)->if(b.rootView===root.rootView)h.setLightAngle(lightAngle)}}
+    private fun collect(v:View,out:MutableList<Button>){
+        if(v is Button&&v.getTag(R.id.true3d_internal_tag)!=TAG&&!isPrimaryPointageButton(v))out.add(v)
+        if(v is ViewGroup&&v !is True3DButtonHost)for(i in 0 until v.childCount)collect(v.getChildAt(i),out)
     }
-
-    fun updateLight(root: View, lightAngle: Float) {
-        hosts.entries.toList().forEach { (button, host) ->
-            if (button.rootView === root.rootView) host.setLightAngle(lightAngle)
-        }
+    private fun isPrimaryPointageButton(button:Button):Boolean{
+        val name=runCatching{button.resources.getResourceEntryName(button.id)}.getOrNull().orEmpty()
+        return name=="entryButton"||name=="pauseButton"||name=="exitButton"
     }
-
-    private fun collect(v: View, out: MutableList<Button>) {
-        if (
-            v is Button &&
-            v.getTag(R.id.true3d_internal_tag) != TAG &&
-            !isPrimaryPointageButton(v)
-        ) {
-            out.add(v)
-        }
-        if (v is ViewGroup && v !is True3DButtonHost) {
-            for (i in 0 until v.childCount) collect(v.getChildAt(i), out)
-        }
-    }
-
-    private fun isPrimaryPointageButton(button: Button): Boolean {
-        val name = runCatching {
-            button.resources.getResourceEntryName(button.id)
-        }.getOrNull().orEmpty()
-        return name == "entryButton" || name == "pauseButton" || name == "exitButton"
-    }
-
-    private fun wrap(button: Button, lightAngle: Float) {
-        if (hosts.containsKey(button)) return
-        val parent = button.parent as? ViewGroup ?: return
-        if (parent is True3DButtonHost) return
-
-        val index = parent.indexOfChild(button)
-        val lp = button.layoutParams
-        parent.removeViewAt(index)
-
-        val host = True3DButtonHost(button.context)
-        host.layoutParams = lp
-        host.setTag(R.id.true3d_internal_tag, TAG)
-        parent.addView(host, index)
-        host.attachButton(button, DiamondTuningStore.load(button.context), lightAngle)
-        button.setTag(R.id.true3d_internal_tag, TAG)
-        hosts[button] = host
+    private fun wrap(button:Button,lightAngle:Float){
+        if(hosts.containsKey(button))return
+        val parent=button.parent as? ViewGroup?:return
+        if(parent is True3DButtonHost)return
+        val i=parent.indexOfChild(button);val lp=button.layoutParams;parent.removeViewAt(i)
+        val host=True3DButtonHost(button.context);host.layoutParams=lp;host.setTag(R.id.true3d_internal_tag,TAG)
+        parent.addView(host,i);host.attachButton(button,DiamondTuningStore.load(button.context),lightAngle)
+        button.setTag(R.id.true3d_internal_tag,TAG);hosts[button]=host
     }
 }
