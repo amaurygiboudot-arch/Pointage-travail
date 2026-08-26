@@ -42,9 +42,6 @@ jobs:
 
       - name: Preparer version monotone
         run: |
-          # Un seul espace de version pour TOUS les workflows HoraTrack.
-          # Minutes depuis epoch UTC : monotone entre builds test et production,
-          # très inférieur à la limite Android 2 100 000 000.
           VERSION_CODE=$(( $(date -u +%s) / 60 ))
           VERSION_NAME="1.9-rebuild.${GITHUB_RUN_NUMBER}"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
@@ -62,8 +59,7 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
-        run: |
-          gradle :app:assembleRelease --stacktrace
+        run: gradle :app:assembleRelease --stacktrace
 
       - name: Verifier APK Android
         run: |
@@ -73,6 +69,20 @@ jobs:
           echo "Build-tools: $BUILD_TOOLS_DIR"
           "$BUILD_TOOLS_DIR/zipalign" -c -v 4 "$APK"
           "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK"
+          "$BUILD_TOOLS_DIR/aapt" dump badging "$APK" | grep "package: name='com.amaury.pointage'"
+
+      - name: Installer et lancer sur emulateur Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/release/app-release.apk
+            adb shell am start -W -n com.amaury.pointage/.LaunchActivity
+            sleep 3
+            adb shell pidof com.amaury.pointage
 
       - name: Preparer APK test
         run: |
