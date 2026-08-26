@@ -60,7 +60,7 @@ jobs:
           category: '/language:java-kotlin'
 
   gradle-security-build:
-    name: Security update build check
+    name: Build, tests and Android lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -76,5 +76,7 @@ jobs:
           gradle-version: '8.13'
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
       - name: Android lint
         run: gradle :app:lintDebug --stacktrace
