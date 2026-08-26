@@ -66,7 +66,7 @@ object SalaryCalculator {
             val entry = item.optLong("entry", -1L)
             val exit = item.optLong("exit", -1L)
             if (entry > 0L && exit > entry) {
-                val paid = PointageStore.workedDuration(item, exit).coerceIn(0L, exit - entry)
+                val paid = WorkTimeMath.workedDuration(item, exit).coerceIn(0L, exit - entry)
                 sessions += Session(i, entry, exit, paid)
             }
         }
@@ -133,9 +133,6 @@ object SalaryCalculator {
                         }
                     }
 
-                    // Le segment ne traverse pas minuit. On calcule l'overlap réel de nuit,
-                    // puis on le rapporte au temps payé de ce segment afin qu'une pause de base
-                    // non horodatée ne puisse créer davantage d'heures majorées que d'heures payées.
                     val raw = segment.end - segment.start
                     val rawNight = nightOverlap(segment.start, segment.end, 21 * 60, 6 * 60)
                     val paidNight = if (raw <= 0L) 0L else
@@ -182,11 +179,6 @@ object SalaryCalculator {
         )
     }
 
-    /**
-     * Découpe une session à chaque minuit local. Le temps réellement payé est réparti
-     * proportionnellement aux durées brutes. Cela permet de traiter correctement les
-     * changements de jour/semaine/mois, même lorsque la pause forfaitaire n'a pas d'heure.
-     */
     private fun splitAtMidnights(session: Session): List<Segment> {
         val rawTotal = session.exit - session.entry
         if (rawTotal <= 0L || session.workedDuration <= 0L) return emptyList()
