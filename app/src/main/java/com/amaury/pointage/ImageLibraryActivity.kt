@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
@@ -8,9 +9,13 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -22,15 +27,11 @@ class ImageLibraryActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (!AdminDiagnosticsGate.isEnabled(this)) {
-            finish()
-            return
-        }
+        if (!AdminDiagnosticsGate.isEnabled(this)) { finish(); return }
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (!km.isDeviceSecure) {
             Toast.makeText(this, "Configure un verrouillage Android pour protéger la bibliothèque.", Toast.LENGTH_LONG).show()
-            finish()
-            return
+            finish(); return
         }
         val unlock = AdminDiagnosticsGate.deviceCredentialIntent(this, "Bibliothèque HoraTrack")
         if (unlock == null) finish() else startActivityForResult(unlock, requestUnlock)
@@ -57,15 +58,15 @@ class ImageLibraryActivity : Activity() {
             setTextColor(Color.BLACK)
         })
         root.addView(TextView(this).apply {
-            text = "Bibliothèque privée des ressources visuelles. Export canonique : PNG RGBA."
+            text = "Liste privée des visuels. Les aperçus ne sont chargés qu'à la demande. Format canonique : PNG RGBA."
             gravity = Gravity.CENTER
             textSize = 13f
             setTextColor(Color.DKGRAY)
-            setPadding(0, dp(4), 0, dp(12))
+            setPadding(0, dp(4), 0, dp(10))
         })
 
         val exportAll = Button(this).apply {
-            text = "EXPORTER TOUT DANS PICTURES/HoraTrack/Bibliotheque"
+            text = "EXPORTER TOUT EN PNG"
             isAllCaps = false
             setOnClickListener {
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
@@ -74,55 +75,95 @@ class ImageLibraryActivity : Activity() {
                 }
                 isEnabled = false
                 val (ok, total) = CanonicalImageLibrary.exportAll(this@ImageLibraryActivity)
-                Toast.makeText(this@ImageLibraryActivity, "$ok/$total images exportées en PNG", Toast.LENGTH_LONG).show()
+                Toast.makeText(this@ImageLibraryActivity, "$ok/$total visuels exportés dans ${CanonicalImageLibrary.RELATIVE_DIR}", Toast.LENGTH_LONG).show()
                 isEnabled = true
             }
         }
-        root.addView(exportAll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { bottomMargin = dp(12) })
+        root.addView(exportAll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
 
-        CanonicalImageLibrary.items(this).forEach { item ->
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-                setBackgroundColor(Color.WHITE)
+        val search = EditText(this).apply {
+            hint = "Rechercher un nom ou un type…"
+            setTextColor(Color.BLACK)
+            setHintTextColor(Color.GRAY)
+            isSingleLine = true
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8); bottomMargin = dp(8) })
+
+        val listHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(listHost)
+        val all = CanonicalImageLibrary.items(this)
+
+        fun renderList(query: String) {
+            listHost.removeAllViews()
+            val q = query.trim().lowercase()
+            val filtered = all.filter { q.isBlank() || it.name.lowercase().contains(q) || it.sourceType.lowercase().contains(q) }
+            if (filtered.isEmpty()) {
+                listHost.addView(TextView(this).apply { text = "Aucun visuel trouvé"; setTextColor(Color.DKGRAY); gravity = Gravity.CENTER; setPadding(0, dp(20), 0, dp(20)) })
+                return
             }
-            val preview = ImageView(this).apply {
-                setImageResource(item.resId)
-                scaleType = ImageView.ScaleType.CENTER_INSIDE
-                adjustViewBounds = true
-            }
-            card.addView(preview, LinearLayout.LayoutParams(dp(82), dp(70)))
-            val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            info.addView(TextView(this).apply {
-                text = item.name
-                textSize = 14f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.BLACK)
-            })
-            info.addView(TextView(this).apply {
-                text = "${item.sourceType} • ${item.width}×${item.height} • export PNG RGBA"
-                textSize = 11f
-                setTextColor(Color.DKGRAY)
-            })
-            val export = Button(this).apply {
-                text = "Exporter PNG"
-                isAllCaps = false
-                textSize = 11f
-                setOnClickListener {
-                    val ok = CanonicalImageLibrary.exportOne(this@ImageLibraryActivity, item)
-                    Toast.makeText(this@ImageLibraryActivity, if (ok) "${item.name}.png exporté" else "Échec export", Toast.LENGTH_SHORT).show()
+            filtered.forEach { item ->
+                val line = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(12), dp(8), dp(8), dp(8))
+                    setBackgroundColor(Color.WHITE)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener { showItem(item) }
                 }
+                val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                info.addView(TextView(this).apply {
+                    text = item.name
+                    textSize = 14f
+                    setTypeface(typeface, Typeface.BOLD)
+                    setTextColor(Color.BLACK)
+                })
+                info.addView(TextView(this).apply {
+                    text = "${item.sourceType} • ${item.width}×${item.height} • PNG RGBA"
+                    textSize = 11f
+                    setTextColor(Color.DKGRAY)
+                })
+                line.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                line.addView(TextView(this).apply { text = "›"; textSize = 26f; setTextColor(Color.DKGRAY); gravity = Gravity.CENTER }, LinearLayout.LayoutParams(dp(32), dp(44)))
+                listHost.addView(line, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) })
             }
-            info.addView(export, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
-            card.addView(info, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(8) })
-            root.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
         }
 
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            addView(root)
-        }
+        search.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = renderList(s?.toString().orEmpty())
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        renderList("")
+
+        val scroll = ScrollView(this).apply { isFillViewport = true; addView(root) }
         setContentView(scroll)
+    }
+
+    private fun showItem(item: CanonicalImageLibrary.Item) {
+        fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(10)) }
+        box.addView(ImageView(this).apply {
+            setImageResource(item.resId)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            adjustViewBounds = true
+            setBackgroundColor(Color.rgb(238, 238, 238))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(240)))
+        box.addView(TextView(this).apply {
+            text = "Nom : ${item.name}\nOrigine Android : ${item.sourceType}\nDimensions source : ${item.width}×${item.height}\nSortie maître : PNG RGBA transparent\nDossier : ${CanonicalImageLibrary.RELATIVE_DIR}"
+            setTextColor(Color.BLACK)
+            textSize = 13f
+            setPadding(0, dp(8), 0, 0)
+        })
+        AlertDialog.Builder(this)
+            .setTitle("Détail du visuel")
+            .setView(box)
+            .setPositiveButton("EXPORTER PNG") { _, _ ->
+                val ok = CanonicalImageLibrary.exportOne(this, item)
+                Toast.makeText(this, if (ok) "${item.name}.png exporté" else "Échec export", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("FERMER", null)
+            .show()
     }
 }
