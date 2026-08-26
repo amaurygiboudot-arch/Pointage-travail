@@ -483,13 +483,11 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float viewFacing = abs(dot(N, V));
                     float nh = max(dot(N, H), 0.0);
 
-                    // Diamond-air Fresnel. F0 is derived from n=2.42 rather than an artistic rim constant.
                     float f0 = 0.1724;
                     float fresnel = f0 + (1.0 - f0) * pow(1.0 - nv, 5.0);
                     float crystalEnergy = mix(.18, 1.0, memoryBrightness);
                     float diffuse = nl * crystalEnergy;
 
-                    // A diamond has a very narrow primary reflection with a weaker shoulder.
                     float broadSpecular = pow(nh, mix(24.0, 46.0, uEffects));
                     float sharpSpecular = pow(nh, mix(92.0, 220.0, uEffects));
                     float reflectionEnergy = memoryReflection * crystalEnergy;
@@ -508,14 +506,12 @@ class True3DButtonTextureView @JvmOverloads constructor(
                         uColor.b * (1.0 + chroma * .22)
                     );
 
-                    // Keep the colored crystal body but expose more of the pavilion through face-on crown facets.
                     float facetContrast = .82 + abs(tone - .5) * .36;
                     float depthAttenuation = mix(1.0, .62, pavilionGate);
                     vec3 absorbed = facetColor * (.20 + .80 * depthAttenuation);
                     vec3 litBody = mix(absorbed * .34, facetColor, .12 + diffuse * .52 + memoryBrightness * .32);
                     vec3 body = litBody * facetContrast * mix(1.0, .76, opticalTransmission);
 
-                    // The pavilion can be visible through the crown, but only from already-computed internal energy.
                     float interiorDepth = upperGate * rawInternalReturn * (.22 + exitTransmission * .58);
                     vec3 interiorColor = mix(facetColor * .52, vec3(1.0), .34)
                         * interiorDepth
@@ -527,8 +523,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                         * fresnel
                         * (.10 + reflectionEnergy * .72);
 
-                    // Subtle RGB separation: it is gated by a real specular/internal-return event,
-                    // so stationary unlit facets do not generate rainbow colors on their own.
                     float dispersionGate = clamp(
                         escapedReturn * .82 + sharpSpecular * reflectionEnergy * .58,
                         0.0, 1.0
@@ -540,14 +534,12 @@ class True3DButtonTextureView @JvmOverloads constructor(
                         .95 + .25 * (1.0 - spectralPhase)
                     ) * dispersionGate * .22;
 
-                    // Only the portion that passed the validated diamond->air interface is shown as return light.
                     vec3 returnColor = mix(facetColor, vec3(1.0), .60)
                         * upperGate
                         * escapedReturn
                         * (.62 + uColorRichness * .42);
 
                     vec3 color = body + interiorColor + neutralFlash + rim + dispersion + returnColor;
-                    // Softer photographic shoulder: bright flashes stay crisp without turning the whole facet white.
                     color = color / (color + vec3(.72));
                     color = pow(clamp(color, 0.0, 1.0), vec3(.92));
 
@@ -850,7 +842,7 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
     fun onDevicePose(pitch: Float, roll: Float, yaw: Float) = surface.setDevicePose(pitch, roll, yaw)
 
     override fun onAttachedToWindow() {
-        super.onAttachedFromWindow()
+        super.onAttachedToWindow()
         DiamondMotionHub.attach(this)
     }
 
