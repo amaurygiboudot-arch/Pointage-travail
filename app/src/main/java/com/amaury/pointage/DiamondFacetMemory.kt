@@ -27,6 +27,7 @@ data class DiamondFacetState(
     var brightness: Float,
     var reflection: Float,
     var internalReturn: Float,
+    var exitTransmission: Float,
     var lastOrientation: Float,
     var normalX: Float = 0f,
     var normalY: Float = 0f,
@@ -54,6 +55,7 @@ class DiamondFacetMemory {
                 brightness = facetInitialBrightness(id, region, tone),
                 reflection = 0f,
                 internalReturn = 0f,
+                exitTransmission = 0f,
                 lastOrientation = 0f
             )
         }
@@ -105,15 +107,31 @@ class DiamondFacetMemory {
         }
         val internalLight = computeInternalTransport(rotatedNormals, lightToSurface, refr)
 
+        // The renderer camera is far enough from the button that one normalized view direction
+        // is a stable per-facet approximation for the final diamond -> air interface.
+        val viewerDirection = normalize3(0f, -2.72f, 4.30f)
+
         for (s in states) {
             val n = rotatedNormals[s.id]
             val diffuse = max(0f, dot3(n, lightToSurface))
             val returnedLight = internalLight[s.id]
 
-            // Dedicated persistent optical channel. Its only source is the ray transport
-            // calculated above; it is no longer reconstructed from brightness/reflection.
+            // Dedicated persistent internal channel. Its only source is computeInternalTransport().
             val internalReturnSpeed = if (returnedLight > s.internalReturn) 0.34f else 0.12f
             s.internalReturn += (returnedLight - s.internalReturn) * internalReturnSpeed
+
+            // Final optical interface: diamond (n=2.42) -> air (n=1.0).
+            // By optical reversibility, the ray that can reach the observer corresponds to the
+            // reverse air->diamond ray. We reconstruct its internal incidence angle with Snell,
+            // then apply the exact unpolarized dielectric Fresnel coefficients. At the critical
+            // cone boundary transmission tends to zero, matching total internal reflection.
+            val targetExitTransmission = if (isEntryRegion(s.region)) {
+                diamondToAirTransmission(n, viewerDirection)
+            } else {
+                0f
+            }
+            val exitSpeed = if (targetExitTransmission > s.exitTransmission) 0.28f else 0.16f
+            s.exitTransmission += (targetExitTransmission - s.exitTransmission) * exitSpeed
 
             val angularMemory = 1f -
                 (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
@@ -166,6 +184,35 @@ class DiamondFacetMemory {
             s.displayTone += (targetDisplayTone - s.displayTone) * toneSpeed
             s.lastOrientation = orientation
         }
+    }
+
+    private fun diamondToAirTransmission(normal: FloatArray, viewerDirection: FloatArray): Float {
+        val diamondIor = 2.42f
+        val airIor = 1f
+
+        val cosAir = abs(dot3(normal, viewerDirection)).coerceIn(0f, 1f)
+        val sinAir = sqrt(max(0f, 1f - cosAir * cosAir))
+
+        // Reverse Snell: nAir * sin(thetaAir) = nDiamond * sin(thetaDiamond).
+        val sinInside = (airIor * sinAir / diamondIor).coerceIn(0f, 1f)
+        val cosInside = sqrt(max(0f, 1f - sinInside * sinInside))
+
+        val criticalSin = (airIor / diamondIor).coerceIn(0f, 1f)
+        val criticalCos = sqrt(max(0f, 1f - criticalSin * criticalSin))
+        if (cosInside <= criticalCos) return 0f
+
+        val rsDen = diamondIor * cosInside + airIor * cosAir
+        val rpDen = diamondIor * cosAir + airIor * cosInside
+        if (abs(rsDen) < 0.00001f || abs(rpDen) < 0.00001f) return 0f
+
+        val rs = ((diamondIor * cosInside - airIor * cosAir) / rsDen)
+        val rp = ((diamondIor * cosAir - airIor * cosInside) / rpDen)
+        val fresnelReflectance = ((rs * rs + rp * rp) * 0.5f).coerceIn(0f, 1f)
+
+        // Fade smoothly to zero at the escape-cone boundary instead of producing a hard pop.
+        val escapeCone = ((cosInside - criticalCos) / (1f - criticalCos).coerceAtLeast(0.00001f))
+            .coerceIn(0f, 1f)
+        return ((1f - fresnelReflectance) * escapeCone).coerceIn(0f, 1f)
     }
 
     private fun computeInternalTransport(
@@ -388,10 +435,11 @@ class DiamondFacetMemory {
         val out = ByteArray(states.size * 4)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            val value = unitByte(s.internalReturn)
-            out[p] = value
-            out[p + 1] = value
-            out[p + 2] = value
+            // R = light that actually escapes toward the observer after the diamond->air interface.
+            // G = raw internalReturn kept for diagnostics. B = exitTransmission for diagnostics.
+            out[p] = unitByte(s.internalReturn * s.exitTransmission)
+            out[p + 1] = unitByte(s.internalReturn)
+            out[p + 2] = unitByte(s.exitTransmission)
             out[p + 3] = 0xFF.toByte()
         }
         return out
