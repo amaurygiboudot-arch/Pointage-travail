@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
@@ -44,14 +45,19 @@ object StandardButtonLiveStyle {
 object DeveloperStandardButtonPanel {
  private data class Spec(val tab:String,val label:String,val key:String,val min:Float,val max:Float,val integer:Boolean=false,val get:(StandardButtonLiveConfig)->Float)
  private val tabs=listOf("FOND","CADRE","TEXTE","IMAGES")
+ private fun isNight(c:Context)=((c.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES)
+ private fun primaryText(c:Context)=if(isNight(c)) Color.WHITE else Color.rgb(28,28,28)
+ private fun secondaryText(c:Context)=if(isNight(c)) Color.rgb(205,216,232) else Color.rgb(70,70,70)
+ private fun panelColor(c:Context)=if(isNight(c)) Color.argb(246,8,10,14) else Color.argb(252,248,244,234)
+ private fun controlBackground(c:Context)=GradientDrawable().apply{cornerRadius=22f*c.resources.displayMetrics.density;setColor(if(isNight(c))Color.rgb(24,26,30) else Color.rgb(255,252,245));setStroke((2f*c.resources.displayMetrics.density).roundToInt(),Color.rgb(190,145,55))}
  fun show(a:MainActivity){
   if(!AdminDiagnosticsGate.isEnabled(a))return; fun dp(v:Int)=(v*a.resources.displayMetrics.density).roundToInt()
-  val root=LinearLayout(a).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(Color.argb(246,8,10,14))}
-  fun txt(s:String,size:Float=12f)=TextView(a).apply{text=s;textSize=size;setTextColor(Color.WHITE)}
-  root.addView(txt("🎛 RÉGLAGES LIVE — BOUTONS STANDARDS",15f).apply{gravity=Gravity.CENTER});root.addView(txt("Une seule source maître pour cadre, fond et texte",11f).apply{setTextColor(Color.LTGRAY);gravity=Gravity.CENTER})
+  val root=LinearLayout(a).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(8));setBackgroundColor(panelColor(a))}
+  fun txt(s:String,size:Float=12f)=TextView(a).apply{text=s;textSize=size;setTextColor(primaryText(a))}
+  root.addView(txt("🎛 RÉGLAGES LIVE — BOUTONS STANDARDS",15f).apply{gravity=Gravity.CENTER});root.addView(txt("Une seule source maître pour cadre, fond et texte",11f).apply{setTextColor(secondaryText(a));gravity=Gravity.CENTER})
   val row=LinearLayout(a);root.addView(row);val host=FrameLayout(a);root.addView(host,LinearLayout.LayoutParams(-1,0,1f));val pages=linkedMapOf<String,ScrollView>();val tabBtns=linkedMapOf<String,Button>()
-  fun devButton(label:String)=Button(a).apply{text=label;isAllCaps=false;setTextColor(Color.WHITE);StandardButtonLiveStyle.markDeveloperControl(this)}
-  fun showTab(n:String){pages.forEach{(k,v)->v.visibility=if(k==n)View.VISIBLE else View.GONE};tabBtns.forEach{(k,b)->b.alpha=if(k==n)1f else .72f;b.setTextColor(Color.WHITE)}}
+  fun devButton(label:String)=Button(a).apply{text=label;isAllCaps=false;setTextColor(primaryText(a));background=controlBackground(a);backgroundTintList=null;StandardButtonLiveStyle.markDeveloperControl(this)}
+  fun showTab(n:String){pages.forEach{(k,v)->v.visibility=if(k==n)View.VISIBLE else View.GONE};tabBtns.forEach{(k,b)->b.alpha=if(k==n)1f else .72f;b.setTextColor(primaryText(a))}}
   val specs=listOf(
    Spec("FOND","Rouge","backgroundR",0f,255f,true){it.backgroundR.toFloat()},Spec("FOND","Vert","backgroundG",0f,255f,true){it.backgroundG.toFloat()},Spec("FOND","Bleu","backgroundB",0f,255f,true){it.backgroundB.toFloat()},Spec("FOND","Opacité","backgroundAlpha",0f,255f,true){it.backgroundAlpha.toFloat()},
    Spec("CADRE","Rouge","frameR",0f,255f,true){it.frameR.toFloat()},Spec("CADRE","Vert","frameG",0f,255f,true){it.frameG.toFloat()},Spec("CADRE","Bleu","frameB",0f,255f,true){it.frameB.toFloat()},Spec("CADRE","Opacité","frameAlpha",0f,255f,true){it.frameAlpha.toFloat()},Spec("CADRE","Épaisseur dp","frameWidthDp",0f,12f){it.frameWidthDp},Spec("CADRE","Arrondi dp","cornerRadiusDp",0f,48f){it.cornerRadiusDp},
@@ -61,7 +67,7 @@ object DeveloperStandardButtonPanel {
   val actions=LinearLayout(a);val report=devButton("PARTAGER RAPPORT");val reset=devButton("RÉINITIALISER");val close=devButton("FERMER");actions.addView(report,LinearLayout.LayoutParams(0,dp(44),1f));actions.addView(reset,LinearLayout.LayoutParams(0,dp(44),1f));actions.addView(close,LinearLayout.LayoutParams(0,dp(44),1f));root.addView(actions)
   val dialog=AlertDialog.Builder(a).setView(root).create();report.setOnClickListener{StandardButtonDeveloperReport.share(a)};reset.setOnClickListener{StandardButtonLiveStyle.reset(a);applyNow(a);dialog.dismiss();show(a)};close.setOnClickListener{dialog.dismiss()};dialog.setOnShowListener{dialog.window?.apply{setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);setGravity(Gravity.TOP);setLayout(-1,(a.resources.displayMetrics.heightPixels*.46f).roundToInt())};showTab("FOND");applyNow(a)};dialog.show()
  }
- private fun addControl(a:MainActivity,p:LinearLayout,s:Spec){val l=TextView(a).apply{setTextColor(Color.WHITE);textSize=12f};val b=SeekBar(a).apply{max=1000};fun value(x:Int)=s.min+(s.max-s.min)*x/1000f;fun prog(v:Float)=(((v-s.min)/(s.max-s.min))*1000).roundToInt().coerceIn(0,1000);fun show(v:Float){l.text=if(s.integer)"${s.label} : ${v.roundToInt()}" else String.format(Locale.FRANCE,"%s : %.2f",s.label,v)};val init=s.get(StandardButtonLiveStyle.current(a));b.progress=prog(init);show(init);b.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onProgressChanged(x:SeekBar?,q:Int,u:Boolean){if(!u)return;val v=value(q);if(s.integer)StandardButtonLiveStyle.setInt(a,s.key,v.roundToInt())else StandardButtonLiveStyle.setFloat(a,s.key,v);show(v);applyNow(a)};override fun onStartTrackingTouch(x:SeekBar?){};override fun onStopTrackingTouch(x:SeekBar?){}});p.addView(l);p.addView(b)}
+ private fun addControl(a:MainActivity,p:LinearLayout,s:Spec){val l=TextView(a).apply{setTextColor(primaryText(a));textSize=12f};val b=SeekBar(a).apply{max=1000};fun value(x:Int)=s.min+(s.max-s.min)*x/1000f;fun prog(v:Float)=(((v-s.min)/(s.max-s.min))*1000).roundToInt().coerceIn(0,1000);fun show(v:Float){l.text=if(s.integer)"${s.label} : ${v.roundToInt()}" else String.format(Locale.FRANCE,"%s : %.2f",s.label,v)};val init=s.get(StandardButtonLiveStyle.current(a));b.progress=prog(init);show(init);b.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onProgressChanged(x:SeekBar?,q:Int,u:Boolean){if(!u)return;val v=value(q);if(s.integer)StandardButtonLiveStyle.setInt(a,s.key,v.roundToInt())else StandardButtonLiveStyle.setFloat(a,s.key,v);show(v);applyNow(a)};override fun onStartTrackingTouch(x:SeekBar?){};override fun onStopTrackingTouch(x:SeekBar?){}});p.addView(l);p.addView(b)}
  private fun applyNow(a:MainActivity){StandardButtonLiveStyle.applyTree(a,a.window.decorView);a.window.decorView.invalidate()}
 }
 
