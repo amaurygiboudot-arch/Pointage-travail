@@ -10,25 +10,33 @@ import android.os.Looper
 import android.util.Base64
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Sauvegarde/restauration des préférences et fichiers utilisateur de HoraTrack.
  *
- * L'historique de pointage est volontairement géré uniquement par HistoryCloudSync :
- * aucun appel doublon n'est effectué ici.
+ * L'historique de pointage est volontairement géré uniquement par HistoryCloudSync.
+ * Les instantanés de préférences et de fond personnalisé utilisent des générations
+ * immuables : la métadonnée active n'est changée qu'après l'écriture complète et
+ * vérifiable de tous les morceaux.
  */
 object AppCloudBackup {
     private const val LOCAL_PREFS = "app_cloud_backup"
     private const val INITIALIZED_PREFIX = "initialized_"
     private const val BACKUP_DOC = "main"
-    private const val IMAGE_CHUNK_SIZE = 500_000
+    private const val CURRENT_SCHEMA = 2L
+    private const val CHUNK_SIZE = 500_000
     private const val MAX_IMAGE_BYTES = 25L * 1024L * 1024L
+    private const val MAX_PREFS_BYTES = 10L * 1024L * 1024L
+    private const val MAX_CHUNKS = 256
     private const val BACKUP_DELAY_MS = 1200L
 
     private val initialized = AtomicBoolean(false)
@@ -62,10 +70,6 @@ object AppCloudBackup {
         }
     }
 
-    /**
-     * Première connexion après installation : restaurer avant toute nouvelle sauvegarde.
-     * Une erreur réseau ne doit jamais être interprétée comme "aucune sauvegarde".
-     */
     private fun ensureAccountInitialized(context: Context, uid: String) {
         if (isReady(context, uid)) return
         if (!initRunning.compareAndSet(false, true)) return
@@ -100,7 +104,6 @@ object AppCloudBackup {
         handler.postDelayed(task, BACKUP_DELAY_MS)
     }
 
-    /** Sauvegarde uniquement les réglages/fichiers utilisateur, pas l'historique. */
     fun backupNow(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -122,11 +125,12 @@ object AppCloudBackup {
                 "réglages et fichiers utilisateur sauvegardés"
             }
             backupRunning.set(false)
-            onDone?.let { cb -> handler.post { cb(result.isSuccess, result.getOrElse { it.message ?: "Erreur de sauvegarde" }) } }
+            onDone?.let { callback ->
+                handler.post { callback(result.isSuccess, result.getOrElse { it.message ?: "Erreur de sauvegarde" }) }
+            }
         }.start()
     }
 
-    /** Restaure uniquement les réglages/fichiers utilisateur, pas l'historique. */
     fun restoreNow(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -146,32 +150,76 @@ object AppCloudBackup {
                 "réglages et fichiers utilisateur restaurés"
             }
             restoreRunning.set(false)
-            onDone?.let { cb -> handler.post { cb(result.isSuccess, result.getOrElse { it.message ?: "Erreur de restauration" }) } }
+            onDone?.let { callback ->
+                handler.post { callback(result.isSuccess, result.getOrElse { it.message ?: "Erreur de restauration" }) }
+            }
         }.start()
     }
 
     private fun backupNowBlocking(context: Context, uid: String) {
-        // Le fichier est sauvegardé d'abord : si son écriture échoue, on n'annonce pas
-        // qu'un instantané de réglages complet a été créé.
+        registerPreferenceListeners(context)
         backupCustomBackground(context, uid)
-        val prefsJson = collectPreferences(context).toString()
-        val doc = FirebaseFirestore.getInstance()
-            .collection("users").document(uid).collection("appBackup").document(BACKUP_DOC)
-        Tasks.await(doc.set(mapOf(
-            "schema" to 1,
-            "preferencesJson" to prefsJson,
-            "updatedAt" to FieldValue.serverTimestamp(),
-            "platform" to "android"
-        )))
+
+        val rawPrefs = collectPreferences(context).toString().toByteArray(Charsets.UTF_8)
+        if (rawPrefs.size.toLong() > MAX_PREFS_BYTES) error("Réglages trop volumineux pour la sauvegarde cloud")
+
+        val base = backupCollection(uid)
+        val mainRef = base.document(BACKUP_DOC)
+        val previous = Tasks.await(mainRef.get())
+        val oldGeneration = previous.getString("prefsGeneration")
+        val oldChunks = (previous.getLong("prefsChunks") ?: 0L).toInt().coerceIn(0, MAX_CHUNKS)
+
+        val generation = generationId()
+        val encoded = Base64.encodeToString(rawPrefs, Base64.NO_WRAP)
+        val chunks = encoded.chunked(CHUNK_SIZE)
+        if (chunks.size > MAX_CHUNKS) error("Sauvegarde des réglages trop fragmentée")
+
+        try {
+            writeGeneration(base, "prefs", generation, chunks)
+            Tasks.await(mainRef.set(mapOf(
+                "schema" to CURRENT_SCHEMA,
+                "prefsGeneration" to generation,
+                "prefsChunks" to chunks.size,
+                "prefsBytes" to rawPrefs.size.toLong(),
+                "prefsSha256" to sha256(rawPrefs),
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "platform" to "android"
+            )))
+        } catch (t: Throwable) {
+            deleteGenerationQuietly(base, "prefs", generation, chunks.size)
+            throw t
+        }
+
+        if (!oldGeneration.isNullOrBlank() && oldGeneration != generation) {
+            deleteGeneration(base, "prefs", oldGeneration, oldChunks)
+        }
     }
 
     private fun restoreSettings(context: Context, uid: String): Boolean {
-        val db = FirebaseFirestore.getInstance()
-        val doc = Tasks.await(db.collection("users").document(uid).collection("appBackup").document(BACKUP_DOC).get())
+        val base = backupCollection(uid)
+        val doc = Tasks.await(base.document(BACKUP_DOC).get())
         if (!doc.exists()) return false
-        val raw = doc.getString("preferencesJson").orEmpty()
-        if (raw.isNotBlank()) restorePreferences(context, JSONObject(raw))
+
+        val schema = doc.getLong("schema") ?: 1L
+        if (schema > CURRENT_SCHEMA) error("Sauvegarde créée par une version plus récente de HoraTrack")
+
+        val root = if (schema >= 2L && !doc.getString("prefsGeneration").isNullOrBlank()) {
+            val generation = requireNotNull(doc.getString("prefsGeneration"))
+            val count = (doc.getLong("prefsChunks") ?: 0L).toInt().coerceIn(0, MAX_CHUNKS)
+            if (count <= 0) error("Sauvegarde des réglages incomplète")
+            val encoded = readGeneration(base, "prefs", generation, count)
+            val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+            verifyBytes(bytes, doc.getLong("prefsBytes"), doc.getString("prefsSha256"), "réglages")
+            JSONObject(bytes.toString(Charsets.UTF_8))
+        } else {
+            // Compatibilité avec les sauvegardes schema 1 déjà créées.
+            val raw = doc.getString("preferencesJson").orEmpty()
+            if (raw.isBlank()) JSONObject() else JSONObject(raw)
+        }
+
+        restorePreferences(context, root)
         restoreCustomBackground(context, uid)
+        registerPreferenceListeners(context)
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
         return true
@@ -180,12 +228,12 @@ object AppCloudBackup {
     private fun collectPreferences(context: Context): JSONObject {
         val root = JSONObject()
         val dir = File(context.applicationInfo.dataDir, "shared_prefs")
-        dir.listFiles()?.filter { it.isFile && it.name.endsWith(".xml") }?.forEach { file ->
+        dir.listFiles()?.filter { it.isFile && it.name.endsWith(".xml") }?.sortedBy { it.name }?.forEach { file ->
             val name = file.name.removeSuffix(".xml")
             if (!shouldBackupPreferenceFile(name)) return@forEach
             val prefs = context.getSharedPreferences(name, Context.MODE_PRIVATE)
             val values = JSONObject()
-            prefs.all.forEach { (key, value) ->
+            prefs.all.toSortedMap().forEach { (key, value) ->
                 val item = JSONObject()
                 when (value) {
                     is String -> { item.put("t", "s"); item.put("v", value) }
@@ -195,9 +243,9 @@ object AppCloudBackup {
                     is Boolean -> { item.put("t", "b"); item.put("v", value) }
                     is Set<*> -> {
                         item.put("t", "ss")
-                        val arr = JSONArray()
-                        value.filterIsInstance<String>().forEach(arr::put)
-                        item.put("v", arr)
+                        val array = JSONArray()
+                        value.filterIsInstance<String>().sorted().forEach(array::put)
+                        item.put("v", array)
                     }
                     else -> return@forEach
                 }
@@ -226,25 +274,25 @@ object AppCloudBackup {
                     "f" -> editor.putFloat(key, item.optDouble("v").toFloat())
                     "b" -> editor.putBoolean(key, item.optBoolean("v"))
                     "ss" -> {
-                        val arr = item.optJSONArray("v") ?: JSONArray()
+                        val array = item.optJSONArray("v") ?: JSONArray()
                         val set = linkedSetOf<String>()
-                        for (i in 0 until arr.length()) set += arr.optString(i)
+                        for (i in 0 until array.length()) set += array.optString(i)
                         editor.putStringSet(key, set)
                     }
                 }
             }
-            editor.apply()
+            if (!editor.commit()) error("Impossible de restaurer les réglages $name")
         }
     }
 
     private fun shouldBackupPreferenceFile(name: String): Boolean {
-        val n = name.lowercase()
-        if (n == "pointage" || n == "drive_backup" || n == LOCAL_PREFS || n == "history_cloud_sync") return false
+        val normalized = name.lowercase()
+        if (normalized == "pointage" || normalized == "drive_backup" || normalized == LOCAL_PREFS || normalized == "history_cloud_sync") return false
         val blocked = listOf(
             "firebase", "google", "gms", "sentry", "workmanager", "appcheck", "app_check",
             "device_registry", "telemetry", "security", "recovery", "crash", "update_", "com.google"
         )
-        return blocked.none { n.contains(it) }
+        return blocked.none { normalized.contains(it) }
     }
 
     private fun registerPreferenceListeners(context: Context) {
@@ -261,73 +309,147 @@ object AppCloudBackup {
 
     private fun backupCustomBackground(context: Context, uid: String) {
         val file = CustomBackgroundStore.resolve(context)
-        val base = FirebaseFirestore.getInstance().collection("users").document(uid).collection("appBackup")
+        val base = backupCollection(uid)
         val metaRef = base.document("background")
-        val previousMeta = Tasks.await(metaRef.get())
-        val previousChunks = (previousMeta.getLong("chunks") ?: 0L).toInt().coerceIn(0, 256)
+        val previous = Tasks.await(metaRef.get())
+        val oldGeneration = previous.getString("generation")
+        val oldChunks = (previous.getLong("chunks") ?: 0L).toInt().coerceIn(0, MAX_CHUNKS)
+        val oldLegacy = oldGeneration.isNullOrBlank() && oldChunks > 0
 
         if (file == null || !file.exists() || file.length() <= 0L) {
-            Tasks.await(metaRef.set(mapOf("present" to false, "chunks" to 0, "updatedAt" to FieldValue.serverTimestamp())))
-            deleteBackgroundChunks(base, 0, previousChunks)
+            Tasks.await(metaRef.set(mapOf(
+                "schema" to CURRENT_SCHEMA,
+                "present" to false,
+                "chunks" to 0,
+                "updatedAt" to FieldValue.serverTimestamp()
+            )))
+            if (!oldGeneration.isNullOrBlank()) deleteGeneration(base, "background", oldGeneration, oldChunks)
+            if (oldLegacy) deleteLegacyBackgroundChunks(base, oldChunks)
             return
         }
-        if (file.length() > MAX_IMAGE_BYTES) {
-            error("Fond personnalisé trop volumineux pour la sauvegarde cloud")
+        if (file.length() > MAX_IMAGE_BYTES) error("Fond personnalisé trop volumineux pour la sauvegarde cloud")
+
+        val bytes = file.readBytes()
+        val generation = generationId()
+        val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        val chunks = encoded.chunked(CHUNK_SIZE)
+        if (chunks.size > MAX_CHUNKS) error("Fond personnalisé trop fragmenté")
+
+        try {
+            writeGeneration(base, "background", generation, chunks)
+            Tasks.await(metaRef.set(mapOf(
+                "schema" to CURRENT_SCHEMA,
+                "present" to true,
+                "generation" to generation,
+                "chunks" to chunks.size,
+                "bytes" to bytes.size.toLong(),
+                "sha256" to sha256(bytes),
+                "updatedAt" to FieldValue.serverTimestamp()
+            )))
+        } catch (t: Throwable) {
+            deleteGenerationQuietly(base, "background", generation, chunks.size)
+            throw t
         }
 
-        val encoded = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
-        val chunks = encoded.chunked(IMAGE_CHUNK_SIZE)
-        chunks.forEachIndexed { index, chunk ->
-            Tasks.await(base.document("background_$index").set(mapOf("data" to chunk)))
+        if (!oldGeneration.isNullOrBlank() && oldGeneration != generation) {
+            deleteGeneration(base, "background", oldGeneration, oldChunks)
         }
-        Tasks.await(metaRef.set(mapOf(
-            "present" to true,
-            "chunks" to chunks.size,
-            "bytes" to file.length(),
-            "updatedAt" to FieldValue.serverTimestamp()
-        )))
-        deleteBackgroundChunks(base, chunks.size, previousChunks)
-    }
-
-    private fun deleteBackgroundChunks(
-        base: com.google.firebase.firestore.CollectionReference,
-        keepCount: Int,
-        previousCount: Int
-    ) {
-        if (previousCount <= keepCount) return
-        for (i in keepCount until previousCount) {
-            Tasks.await(base.document("background_$i").delete())
-        }
+        if (oldLegacy) deleteLegacyBackgroundChunks(base, oldChunks)
     }
 
     private fun restoreCustomBackground(context: Context, uid: String) {
-        val base = FirebaseFirestore.getInstance().collection("users").document(uid).collection("appBackup")
+        val base = backupCollection(uid)
         val meta = Tasks.await(base.document("background").get())
         if (!meta.exists()) return
         if (meta.getBoolean("present") != true) {
             CustomBackgroundStore.clear(context)
             return
         }
-        val count = (meta.getLong("chunks") ?: 0L).toInt().coerceIn(0, 256)
-        if (count == 0) error("Sauvegarde du fond personnalisée incomplète")
 
-        val encoded = buildString {
-            for (i in 0 until count) {
-                val part = Tasks.await(base.document("background_$i").get()).getString("data").orEmpty()
-                if (part.isBlank()) error("Morceau $i du fond personnalisé manquant")
-                append(part)
+        val count = (meta.getLong("chunks") ?: 0L).toInt().coerceIn(0, MAX_CHUNKS)
+        if (count <= 0) error("Sauvegarde du fond personnalisé incomplète")
+        val generation = meta.getString("generation")
+        val encoded = if (!generation.isNullOrBlank()) {
+            readGeneration(base, "background", generation, count)
+        } else {
+            // Compatibilité schema 1.
+            buildString {
+                for (i in 0 until count) {
+                    val part = Tasks.await(base.document("background_$i").get()).getString("data").orEmpty()
+                    if (part.isBlank()) error("Morceau $i du fond personnalisé manquant")
+                    append(part)
+                }
             }
         }
+
         val bytes = Base64.decode(encoded, Base64.NO_WRAP)
-        val expectedBytes = meta.getLong("bytes")
-        if (expectedBytes != null && bytes.size.toLong() != expectedBytes) {
-            error("Fond personnalisé restauré avec une taille incorrecte")
-        }
+        verifyBytes(bytes, meta.getLong("bytes"), meta.getString("sha256"), "fond personnalisé")
+
         val target = CustomBackgroundStore.primary(context)
         target.parentFile?.mkdirs()
-        target.writeBytes(bytes)
+        val temp = File(target.parentFile, target.name + ".restore.tmp")
+        temp.writeBytes(bytes)
+        if (target.exists() && !target.delete()) {
+            temp.delete()
+            error("Impossible de remplacer le fond personnalisé")
+        }
+        if (!temp.renameTo(target)) {
+            target.writeBytes(bytes)
+            temp.delete()
+        }
         CustomBackgroundStore.saveBackup(context)
         context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
             .edit().putBoolean("custom_image_bg", true).apply()
     }
+
+    private fun backupCollection(uid: String): CollectionReference =
+        FirebaseFirestore.getInstance().collection("users").document(uid).collection("appBackup")
+
+    private fun writeGeneration(base: CollectionReference, prefix: String, generation: String, chunks: List<String>) {
+        chunks.forEachIndexed { index, chunk ->
+            Tasks.await(base.document("${prefix}_${generation}_$index").set(mapOf(
+                "generation" to generation,
+                "index" to index,
+                "data" to chunk
+            )))
+        }
+    }
+
+    private fun readGeneration(base: CollectionReference, prefix: String, generation: String, count: Int): String = buildString {
+        for (i in 0 until count) {
+            val doc = Tasks.await(base.document("${prefix}_${generation}_$i").get())
+            if (doc.getString("generation") != generation) error("Génération de sauvegarde incohérente")
+            val part = doc.getString("data").orEmpty()
+            if (part.isBlank()) error("Morceau $i de $prefix manquant")
+            append(part)
+        }
+    }
+
+    private fun deleteGeneration(base: CollectionReference, prefix: String, generation: String, count: Int) {
+        for (i in 0 until count.coerceIn(0, MAX_CHUNKS)) {
+            Tasks.await(base.document("${prefix}_${generation}_$i").delete())
+        }
+    }
+
+    private fun deleteGenerationQuietly(base: CollectionReference, prefix: String, generation: String, count: Int) {
+        for (i in 0 until count.coerceIn(0, MAX_CHUNKS)) {
+            runCatching { Tasks.await(base.document("${prefix}_${generation}_$i").delete()) }
+        }
+    }
+
+    private fun deleteLegacyBackgroundChunks(base: CollectionReference, count: Int) {
+        for (i in 0 until count.coerceIn(0, MAX_CHUNKS)) {
+            Tasks.await(base.document("background_$i").delete())
+        }
+    }
+
+    private fun verifyBytes(bytes: ByteArray, expectedSize: Long?, expectedSha: String?, label: String) {
+        if (expectedSize != null && bytes.size.toLong() != expectedSize) error("$label restauré avec une taille incorrecte")
+        if (!expectedSha.isNullOrBlank() && sha256(bytes) != expectedSha) error("Contrôle d'intégrité SHA-256 invalide pour $label")
+    }
+
+    private fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+
+    private fun generationId(): String = UUID.randomUUID().toString().replace("-", "")
 }
