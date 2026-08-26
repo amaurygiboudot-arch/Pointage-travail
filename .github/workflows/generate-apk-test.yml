@@ -5,10 +5,15 @@ on:
   push:
     branches: [ "rebuild/diamond-celestial-v2" ]
     paths:
+      - "app/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
       - ".github/workflows/generate-apk-test.yml"
+      - ".github/apk-test-trigger.txt"
 
 # APK test : pré-vérification Kotlin puis compilation complète.
-# Déclenchement après correction de la bibliothèque d'images des réglages Live.
+# Se déclenche sur les changements applicatifs et sur le fichier de trigger manuel.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
