@@ -21,8 +21,6 @@ object DeveloperToolsDialog {
             setOnClickListener { action() }
         }
 
-        lateinit var dialog: AlertDialog
-
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -34,31 +32,31 @@ object DeveloperToolsDialog {
             setPadding(0, 0, 0, dp(10))
         })
 
+        val developerDialog = AlertDialog.Builder(activity)
+            .setTitle("Développeur")
+            .setView(box)
+            .setNegativeButton("Fermer", null)
+            .create()
+
         box.addView(tool("💎 RÉGLAGES LIVE DES BOUTONS") {
-            // Le laboratoire doit toujours s'ouvrir au-dessus des vrais boutons de pointage,
-            // jamais au-dessus du menu développeur ou de la page Réglages.
-            dialog.dismiss()
+            developerDialog.dismiss()
             activity.findViewById<TextView>(R.id.tabToday)?.performClick()
-            activity.window.decorView.post {
-                if (!activity.isFinishing && !activity.isDestroyed) {
-                    DeveloperDiamondLivePanel.show(activity)
-                }
-            }
+            activity.window.decorView.postDelayed({ DeveloperDiamondLivePanel.show(activity) }, 180L)
         }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        box.addView(tool("📋 PARTAGER LE RAPPORT DES BOUTONS") {
+            DiamondDeveloperReport.share(activity)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
         box.addView(tool("🧪 TEST GPS — SIMULER 3 JOURS") {
             val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(activity)
             Toast.makeText(activity, result, Toast.LENGTH_LONG).show()
             WorkplaceProposalLimiter.showIfAllowed(activity)
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8)
-        })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
         box.addView(tool("🔐 DIAGNOSTIC DÉVELOPPEUR") {
             activity.startActivity(Intent(activity, AdminDiagnosticsActivity::class.java))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8)
-        })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
         box.addView(tool("👥 RECONNAISSANCE COLLÈGUES — TEST PRIVÉ") {
             val workplace = ColleagueRecognitionStore.currentWorkplace(activity)
@@ -67,20 +65,9 @@ object DeveloperToolsDialog {
             } else {
                 "Fonction expérimentale active pour : ${workplace.displayName}. Les données restent réservées au mode propriétaire."
             }
-            AlertDialog.Builder(activity)
-                .setTitle("Reconnaissance collègues")
-                .setMessage(status)
-                .setPositiveButton("OK", null)
-                .show()
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8)
-        })
+            AlertDialog.Builder(activity).setTitle("Reconnaissance collègues").setMessage(status).setPositiveButton("OK", null).show()
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
-        dialog = AlertDialog.Builder(activity)
-            .setTitle("Développeur")
-            .setView(box)
-            .setNegativeButton("Fermer", null)
-            .create()
-        dialog.show()
+        developerDialog.show()
     }
 }
