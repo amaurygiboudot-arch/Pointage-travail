@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/generate-apk-test.yml"
 
-# Déclenchement APK test : bibliothèque images live + bouton enregistrer + corrections UI/icône.
+# Déclenchement APK test : correction génération icône Base64 + bibliothèque images live + bouton enregistrer + corrections UI/icône.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
