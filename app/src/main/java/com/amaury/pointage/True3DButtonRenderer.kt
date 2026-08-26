@@ -200,6 +200,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private val facetMemory = DiamondFacetMemory()
         private var facetTexture = 0
         private var facetTextureWidth = 0
+        private var internalReturnTexture = 0
+        private var internalReturnTextureWidth = 0
         private var smoothPitch = 0f
         private var smoothRoll = 0f
         private var smoothYaw = 0f
@@ -216,6 +218,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var effectsLoc = 0
         private var colorRichnessLoc = 0
         private var facetTextureLoc = 0
+        private var internalReturnTextureLoc = 0
         private var facetCountLoc = 0
 
         private var edgeProgram = 0
@@ -254,7 +257,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 meshBevel = tuning.bevel
             }
 
-            ensureFacetTexture()
+            ensureFacetTextures()
             facetMemory.update(
                 baseLightAngle,
                 smoothPitch,
@@ -263,7 +266,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 tuning.refraction,
                 tuning.sparkle
             )
-            uploadFacetTexture()
+            uploadFacetTextures()
 
             GLES20.glViewport(0, 0, width, height)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -295,16 +298,28 @@ class True3DButtonTextureView @JvmOverloads constructor(
             drawTrueEdges(mvp)
         }
 
-        private fun ensureFacetTexture() {
+        private fun ensureFacetTextures() {
             val width = facetMemory.size().coerceAtLeast(1)
-            if (facetTexture != 0 && facetTextureWidth == width) return
-            if (facetTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(facetTexture), 0)
+            if (facetTexture == 0 || facetTextureWidth != width) {
+                if (facetTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(facetTexture), 0)
+                val ids = IntArray(1)
+                GLES20.glGenTextures(1, ids, 0)
+                facetTexture = ids[0]
+                facetTextureWidth = width
+                configureFacetTexture(facetTexture, width)
+            }
+            if (internalReturnTexture == 0 || internalReturnTextureWidth != width) {
+                if (internalReturnTexture != 0) GLES20.glDeleteTextures(1, intArrayOf(internalReturnTexture), 0)
+                val ids = IntArray(1)
+                GLES20.glGenTextures(1, ids, 0)
+                internalReturnTexture = ids[0]
+                internalReturnTextureWidth = width
+                configureFacetTexture(internalReturnTexture, width)
+            }
+        }
 
-            val ids = IntArray(1)
-            GLES20.glGenTextures(1, ids, 0)
-            facetTexture = ids[0]
-            facetTextureWidth = width
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
+        private fun configureFacetTexture(texture: Int, width: Int) {
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
@@ -315,15 +330,25 @@ class True3DButtonTextureView @JvmOverloads constructor(
             )
         }
 
-        private fun uploadFacetTexture() {
-            val bytes = facetMemory.toRgbaBytes()
-            if (bytes.isEmpty()) return
-            val buffer = ByteBuffer.allocateDirect(bytes.size).apply { put(bytes); position(0) }
+        private fun uploadFacetTextures() {
+            val stateBytes = facetMemory.toRgbaBytes()
+            val internalBytes = facetMemory.toInternalReturnRgbaBytes()
+            if (stateBytes.isEmpty() || internalBytes.isEmpty()) return
+
+            val stateBuffer = ByteBuffer.allocateDirect(stateBytes.size).apply { put(stateBytes); position(0) }
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
             GLES20.glTexSubImage2D(
                 GLES20.GL_TEXTURE_2D, 0, 0, 0, facetMemory.size(), 1,
-                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buffer
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, stateBuffer
+            )
+
+            val internalBuffer = ByteBuffer.allocateDirect(internalBytes.size).apply { put(internalBytes); position(0) }
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, internalReturnTexture)
+            GLES20.glTexSubImage2D(
+                GLES20.GL_TEXTURE_2D, 0, 0, 0, facetMemory.size(), 1,
+                GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, internalBuffer
             )
         }
 
@@ -345,9 +370,13 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 (.45f + tuning.iceBlue * .18f + tuning.refraction * .30f).coerceIn(.35f, .92f)
             )
             GLES20.glUniform1f(facetCountLoc, facetMemory.size().coerceAtLeast(1).toFloat())
+
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
             GLES20.glUniform1i(facetTextureLoc, 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, internalReturnTexture)
+            GLES20.glUniform1i(internalReturnTextureLoc, 1)
 
             val buffer = vertices ?: return
             val stride = 7 * 4
@@ -361,15 +390,11 @@ class True3DButtonTextureView @JvmOverloads constructor(
             GLES20.glEnableVertexAttribArray(rLoc)
             GLES20.glVertexAttribPointer(rLoc, 1, GLES20.GL_FLOAT, false, stride, buffer)
 
-            // Optical pass 1: the pavilion is rendered into the depth buffer first.
-            // It can then remain visible through the upper transparent crystal.
             if (pavilionVertexCount > 0) {
                 GLES20.glDepthMask(true)
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, pavilionStartVertex, pavilionVertexCount)
             }
 
-            // Optical pass 2: table/crown/girdle blend over the internal pavilion without
-            // overwriting its depth. This is transmission, not a geometry change.
             GLES20.glDepthMask(false)
             if (pavilionStartVertex > 0) {
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, pavilionStartVertex)
@@ -430,6 +455,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 uniform float uColorRichness;
                 uniform float uFacetCount;
                 uniform sampler2D uFacetState;
+                uniform sampler2D uInternalReturnState;
                 varying vec3 vN;
                 varying vec3 vW;
                 varying vec3 vO;
@@ -443,6 +469,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float transparencyRef = state.g;
                     float memoryBrightness = state.b;
                     float memoryReflection = state.a;
+                    float internalReturn = texture2D(uInternalReturnState, vec2(tx, 0.5)).r;
 
                     vec3 N = normalize(vN);
                     vec3 L = normalize(uLight);
@@ -454,8 +481,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float fresnel = pow(1.0 - nv, 3.0);
                     float specular = pow(max(dot(N, H), 0.0), mix(42.0, 128.0, uEffects));
 
-                    // Positive Z corresponds to table/crown. Those facets transmit most when
-                    // viewed close to their normal and become more reflective at grazing angles.
                     float upperGate = smoothstep(-0.08, 0.14, vO.z);
                     float transmissionAngle = (1.0 - fresnel) * smoothstep(0.08, 0.92, viewFacing);
                     float opticalTransmission = upperGate * transmissionAngle * mix(.48, .88, transparencyRef);
@@ -479,20 +504,19 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     ) * flash * (.10 + memoryReflection * .18);
                     vec3 rim = mix(facetColor, vec3(1.0), .72) * fresnel * (.35 + memoryReflection * .70);
 
-                    // Returned pavilion energy is already encoded by DiamondFacetMemory in
-                    // brightness/reflection. Here it is made visible as transmitted internal light,
-                    // instead of only increasing the surface highlight.
-                    float internalReturn = upperGate * memoryBrightness * (.18 + memoryReflection * .95);
-                    vec3 returnColor = mix(facetColor, vec3(1.0), .62) * internalReturn * (.52 + uColorRichness * .38);
+                    // This signal now comes only from computeInternalTransport() through
+                    // DiamondFacetState.internalReturn. Direct brightness/reflection cannot fake it.
+                    float returnedFromPavilion = upperGate * internalReturn;
+                    vec3 returnColor = mix(facetColor, vec3(1.0), .68)
+                        * returnedFromPavilion
+                        * (.72 + uColorRichness * .48);
 
                     vec3 color = body + vec3(1.0) * flash + rim + fire + returnColor;
                     color = color / (color + vec3(.62));
 
-                    // Real optical translucency: face-on upper facets open to the pavilion;
-                    // grazing facets regain opacity through Fresnel reflection.
                     float facetAlpha = uAlpha * mix(.58, .82, transparencyRef);
                     float alpha = facetAlpha
-                        - opticalTransmission * (.24 + memoryBrightness * .18)
+                        - opticalTransmission * (.24 + internalReturn * .20)
                         + fresnel * .14
                         + memoryReflection * .06;
                     alpha = clamp(alpha, .26, .90);
@@ -518,6 +542,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
             effectsLoc = GLES20.glGetUniformLocation(program, "uEffects")
             colorRichnessLoc = GLES20.glGetUniformLocation(program, "uColorRichness")
             facetTextureLoc = GLES20.glGetUniformLocation(program, "uFacetState")
+            internalReturnTextureLoc = GLES20.glGetUniformLocation(program, "uInternalReturnState")
             facetCountLoc = GLES20.glGetUniformLocation(program, "uFacetCount")
         }
 
@@ -579,24 +604,16 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val pb = ringPoints(8, hw * (.53f - depth * .03f), hh * (.50f - depth * .025f), pbZ, Math.PI / 8.0)
             val culet = floatArrayOf(0f, 0f, culetZ)
 
-            // One entry is one optical facet. Quads may still be triangulated by the GPU,
-            // but every triangle in the polygon keeps this single ID and single normal.
             val faces = ArrayList<TopologyFace>(73)
             faces += TopologyFace(DiamondFacetRegion.TABLE, table.toList())
 
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
-                faces += TopologyFace(
-                    DiamondFacetRegion.CROWN_INNER,
-                    listOf(table[i], table[n], inner[n], inner[i])
-                )
+                faces += TopologyFace(DiamondFacetRegion.CROWN_INNER, listOf(table[i], table[n], inner[n], inner[i]))
             }
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
-                faces += TopologyFace(
-                    DiamondFacetRegion.CROWN_MIDDLE,
-                    listOf(inner[i], inner[n], outer[n], outer[i])
-                )
+                faces += TopologyFace(DiamondFacetRegion.CROWN_MIDDLE, listOf(inner[i], inner[n], outer[n], outer[i]))
             }
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
@@ -680,7 +697,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 val n = opticalNormal(face.vertices)
                 facetMemory.defineFacet(id, face.region, n[0], n[1], n[2])
 
-                // GPU triangulation only. No extra facet ID, no extra normal and no visible diagonal.
                 for (i in 1 until face.vertices.lastIndex) {
                     emitTriangle(face.vertices[0], face.vertices[i], face.vertices[i + 1], n, id.toFloat())
                 }
