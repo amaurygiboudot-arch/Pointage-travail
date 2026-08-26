@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
-import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -58,7 +57,7 @@ class ImageLibraryActivity : Activity() {
             setTextColor(Color.BLACK)
         })
         root.addView(TextView(this).apply {
-            text = "Liste privée des visuels. Les aperçus ne sont chargés qu'à la demande. Format canonique : PNG RGBA."
+            text = "Liste privée : drawables Android + anciens Base64. Aperçu à la demande. Format maître : PNG RGBA."
             gravity = Gravity.CENTER
             textSize = 13f
             setTextColor(Color.DKGRAY)
@@ -92,7 +91,7 @@ class ImageLibraryActivity : Activity() {
 
         val listHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(listHost)
-        val all = CanonicalImageLibrary.items(this)
+        val all = CanonicalImageLibrary.allItems(this)
 
         fun renderList(query: String) {
             listHost.removeAllViews()
@@ -143,20 +142,21 @@ class ImageLibraryActivity : Activity() {
 
     private fun showItem(item: CanonicalImageLibrary.Item) {
         fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+        val bitmap = CanonicalImageLibrary.renderPngBitmap(this, item)
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(10)) }
         box.addView(ImageView(this).apply {
-            setImageResource(item.resId)
+            bitmap?.let { setImageBitmap(it) }
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             adjustViewBounds = true
             setBackgroundColor(Color.rgb(238, 238, 238))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(240)))
         box.addView(TextView(this).apply {
-            text = "Nom : ${item.name}\nOrigine Android : ${item.sourceType}\nDimensions source : ${item.width}×${item.height}\nSortie maître : PNG RGBA transparent\nDossier : ${CanonicalImageLibrary.RELATIVE_DIR}"
+            text = "Nom : ${item.name}\nOrigine : ${item.sourceType}\nDimensions : ${item.width}×${item.height}\nSortie maître : PNG RGBA transparent\nLive direct : ${if (item.selectableInLive) "oui" else "après conversion PNG"}\nDossier : ${CanonicalImageLibrary.RELATIVE_DIR}"
             setTextColor(Color.BLACK)
             textSize = 13f
             setPadding(0, dp(8), 0, 0)
         })
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Détail du visuel")
             .setView(box)
             .setPositiveButton("EXPORTER PNG") { _, _ ->
@@ -164,6 +164,8 @@ class ImageLibraryActivity : Activity() {
                 Toast.makeText(this, if (ok) "${item.name}.png exporté" else "Échec export", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("FERMER", null)
-            .show()
+            .create()
+        dialog.setOnDismissListener { bitmap?.recycle() }
+        dialog.show()
     }
 }
