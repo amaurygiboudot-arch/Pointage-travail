@@ -465,60 +465,100 @@ class True3DButtonTextureView @JvmOverloads constructor(
                     float facetIndex = floor(vR + 0.5);
                     float tx = (facetIndex + 0.5) / max(uFacetCount, 1.0);
                     vec4 state = texture2D(uFacetState, vec2(tx, 0.5));
+                    vec4 internalState = texture2D(uInternalReturnState, vec2(tx, 0.5));
                     float tone = state.r;
                     float transparencyRef = state.g;
                     float memoryBrightness = state.b;
                     float memoryReflection = state.a;
-                    float internalReturn = texture2D(uInternalReturnState, vec2(tx, 0.5)).r;
+                    float escapedReturn = internalState.r;
+                    float rawInternalReturn = internalState.g;
+                    float exitTransmission = internalState.b;
 
                     vec3 N = normalize(vN);
                     vec3 L = normalize(uLight);
                     vec3 V = normalize(vec3(0.0, -2.72, 4.30) - vW);
                     vec3 H = normalize(L + V);
-                    float rawDiffuse = max(dot(N, L), 0.0);
-                    float diffuse = rawDiffuse * mix(.20, 1.0, memoryBrightness);
+                    float nl = max(dot(N, L), 0.0);
                     float nv = max(dot(N, V), 0.0);
                     float viewFacing = abs(dot(N, V));
-                    float fresnel = pow(1.0 - nv, 3.0);
-                    float specular = pow(max(dot(N, H), 0.0), mix(42.0, 128.0, uEffects));
+                    float nh = max(dot(N, H), 0.0);
+
+                    // Diamond-air Fresnel. F0 is derived from n=2.42 rather than an artistic rim constant.
+                    float f0 = 0.1724;
+                    float fresnel = f0 + (1.0 - f0) * pow(1.0 - nv, 5.0);
+                    float crystalEnergy = mix(.18, 1.0, memoryBrightness);
+                    float diffuse = nl * crystalEnergy;
+
+                    // A diamond has a very narrow primary reflection with a weaker shoulder.
+                    float broadSpecular = pow(nh, mix(24.0, 46.0, uEffects));
+                    float sharpSpecular = pow(nh, mix(92.0, 220.0, uEffects));
+                    float reflectionEnergy = memoryReflection * crystalEnergy;
+                    float specular = broadSpecular * (.10 + reflectionEnergy * .28)
+                        + sharpSpecular * (.24 + reflectionEnergy * 1.85);
 
                     float upperGate = smoothstep(-0.08, 0.14, vO.z);
-                    float transmissionAngle = (1.0 - fresnel) * smoothstep(0.08, 0.92, viewFacing);
-                    float opticalTransmission = upperGate * transmissionAngle * mix(.48, .88, transparencyRef);
+                    float pavilionGate = 1.0 - smoothstep(-0.22, 0.04, vO.z);
+                    float transmissionAngle = (1.0 - fresnel) * smoothstep(0.06, 0.96, viewFacing);
+                    float opticalTransmission = upperGate * transmissionAngle * mix(.55, .94, transparencyRef);
 
                     float chroma = (tone - 0.5) * uColorRichness;
                     vec3 facetColor = vec3(
-                        uColor.r * (1.0 + chroma * .34),
-                        uColor.g * (1.0 - chroma * .16),
-                        uColor.b * (1.0 + chroma * .24)
+                        uColor.r * (1.0 + chroma * .30),
+                        uColor.g * (1.0 - chroma * .13),
+                        uColor.b * (1.0 + chroma * .22)
                     );
-                    vec3 deep = mix(facetColor * .30, facetColor, .22 + diffuse * .48 + memoryBrightness * .42);
-                    vec3 body = deep * (.72 + memoryBrightness * .58) * (.78 + vO.z * .16);
-                    float flash = (
-                        specular * (2.2 + memoryReflection * 4.5) +
-                        fresnel * (.8 + memoryReflection * 1.7)
-                    ) * mix(.55, 1.0, uEffects) * mix(.28, 1.0, memoryBrightness);
-                    vec3 fire = vec3(
-                        1.0 + chroma * .22,
-                        .88 - chroma * .12,
-                        .96 + chroma * .24
-                    ) * flash * (.10 + memoryReflection * .18);
-                    vec3 rim = mix(facetColor, vec3(1.0), .72) * fresnel * (.35 + memoryReflection * .70);
 
-                    float returnedFromPavilion = upperGate * internalReturn;
-                    vec3 returnColor = mix(facetColor, vec3(1.0), .68)
-                        * returnedFromPavilion
-                        * (.72 + uColorRichness * .48);
+                    // Keep the colored crystal body but expose more of the pavilion through face-on crown facets.
+                    float facetContrast = .82 + abs(tone - .5) * .36;
+                    float depthAttenuation = mix(1.0, .62, pavilionGate);
+                    vec3 absorbed = facetColor * (.20 + .80 * depthAttenuation);
+                    vec3 litBody = mix(absorbed * .34, facetColor, .12 + diffuse * .52 + memoryBrightness * .32);
+                    vec3 body = litBody * facetContrast * mix(1.0, .76, opticalTransmission);
 
-                    vec3 color = body + vec3(1.0) * flash + rim + fire + returnColor;
-                    color = color / (color + vec3(.62));
+                    // The pavilion can be visible through the crown, but only from already-computed internal energy.
+                    float interiorDepth = upperGate * rawInternalReturn * (.22 + exitTransmission * .58);
+                    vec3 interiorColor = mix(facetColor * .52, vec3(1.0), .34)
+                        * interiorDepth
+                        * (.34 + uColorRichness * .32);
 
-                    float facetAlpha = uAlpha * mix(.58, .82, transparencyRef);
+                    float flash = specular * mix(.55, 1.0, uEffects);
+                    vec3 neutralFlash = vec3(1.0) * flash;
+                    vec3 rim = mix(facetColor, vec3(1.0), .78)
+                        * fresnel
+                        * (.10 + reflectionEnergy * .72);
+
+                    // Subtle RGB separation: it is gated by a real specular/internal-return event,
+                    // so stationary unlit facets do not generate rainbow colors on their own.
+                    float dispersionGate = clamp(
+                        escapedReturn * .82 + sharpSpecular * reflectionEnergy * .58,
+                        0.0, 1.0
+                    ) * uColorRichness;
+                    float spectralPhase = fract((facetIndex + 1.0) * .6180339 + tone * .73);
+                    vec3 dispersion = vec3(
+                        .92 + .22 * spectralPhase,
+                        .94 + .12 * (1.0 - abs(spectralPhase - .5) * 2.0),
+                        .95 + .25 * (1.0 - spectralPhase)
+                    ) * dispersionGate * .22;
+
+                    // Only the portion that passed the validated diamond->air interface is shown as return light.
+                    vec3 returnColor = mix(facetColor, vec3(1.0), .60)
+                        * upperGate
+                        * escapedReturn
+                        * (.62 + uColorRichness * .42);
+
+                    vec3 color = body + interiorColor + neutralFlash + rim + dispersion + returnColor;
+                    // Softer photographic shoulder: bright flashes stay crisp without turning the whole facet white.
+                    color = color / (color + vec3(.72));
+                    color = pow(clamp(color, 0.0, 1.0), vec3(.92));
+
+                    float facetAlpha = uAlpha * mix(.48, .76, transparencyRef);
+                    float faceOnCrystal = opticalTransmission * (.30 + exitTransmission * .16);
                     float alpha = facetAlpha
-                        - opticalTransmission * (.24 + internalReturn * .20)
-                        + fresnel * .14
-                        + memoryReflection * .06;
-                    alpha = clamp(alpha, .26, .90);
+                        - faceOnCrystal
+                        - escapedReturn * upperGate * .08
+                        + fresnel * .18
+                        + memoryReflection * .035;
+                    alpha = clamp(alpha, .18, .88);
                     gl_FragColor = vec4(clamp(color, 0.0, 1.0), alpha);
                 }
             """.trimIndent())
@@ -810,7 +850,7 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
     fun onDevicePose(pitch: Float, roll: Float, yaw: Float) = surface.setDevicePose(pitch, roll, yaw)
 
     override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
+        super.onAttachedFromWindow()
         DiamondMotionHub.attach(this)
     }
 
