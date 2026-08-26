@@ -71,6 +71,9 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("io.sentry:sentry-android:8.43.0")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }
 
 kotlin { jvmToolchain(17) }
