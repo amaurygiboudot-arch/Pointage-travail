@@ -619,7 +619,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val hw = (hh * aspect).coerceIn(.92f, 7.2f)
             val depth = tuning.facetDepth.coerceIn(0f, 1f)
             val bevel = tuning.bevel.coerceIn(0f, 1f)
-            val tableZ = .43f + bevel * .06f + depth * .04f
+            val tableZ = .405f + bevel * .06f + depth * .04f
             val innerZ = .29f + bevel * .035f
             val outerZ = .17f + bevel * .02f
             val gtZ = 0f
@@ -627,7 +627,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val pbZ = -.43f - depth * .16f
             val culetZ = -.78f - depth * .30f
 
-            val table = ringPoints(8, hw * .48f, hh * .45f, tableZ, Math.PI / 8.0)
+            val table = ringPoints(8, hw * .43f, hh * .40f, tableZ, Math.PI / 8.0)
             val inner = ringPoints(8, hw * .63f, hh * .60f, innerZ, 0.0)
             val outer = ringPoints(8, hw * .76f, hh * .73f, outerZ, Math.PI / 8.0)
             val gt = ringPoints(16, hw, hh, gtZ, 0.0)
