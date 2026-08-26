@@ -292,7 +292,9 @@ class True3DButtonTextureView @JvmOverloads constructor(
             Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
             Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
 
-            val a = normalize(baseLightAngle + smoothYaw * .42f + smoothRoll * .55f - smoothPitch * .22f)
+            // The celestial controller already expresses the Sun/Moon direction in screen space.
+            // Device pitch/roll/yaw rotate the diamond facets, not the celestial light itself.
+            val a = normalize(baseLightAngle)
             val rad = Math.toRadians(a.toDouble())
             drawFacets(mvp, model, cos(rad).toFloat(), sin(rad).toFloat())
             drawTrueEdges(mvp)
