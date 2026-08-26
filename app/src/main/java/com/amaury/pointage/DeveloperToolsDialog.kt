@@ -32,11 +32,17 @@ object DeveloperToolsDialog {
             setPadding(0, 0, 0, dp(10))
         })
 
+        box.addView(tool("💎 RÉGLAGES LIVE DES BOUTONS") {
+            DeveloperDiamondLivePanel.show(activity)
+        }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         box.addView(tool("🧪 TEST GPS — SIMULER 3 JOURS") {
             val result = SmartWorkplaceTestHarness.simulateThreeQualifiedDays(activity)
             Toast.makeText(activity, result, Toast.LENGTH_LONG).show()
             WorkplaceProposalLimiter.showIfAllowed(activity)
-        }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
 
         box.addView(tool("🔐 DIAGNOSTIC DÉVELOPPEUR") {
             activity.startActivity(Intent(activity, AdminDiagnosticsActivity::class.java))

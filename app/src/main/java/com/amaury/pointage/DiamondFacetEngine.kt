@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
@@ -28,11 +27,6 @@ data class Vec3(val x: Float, val y: Float, val z: Float) {
     }
 }
 
-/**
- * Identité géométrique immuable d'une facette.
- * La couleur n'intervient jamais dans la géométrie : rouge, vert et orange
- * utilisent exactement la même taille.
- */
 data class DiamondFacetGeometry(
     val id: Int,
     val ring: DiamondRing,
@@ -44,10 +38,6 @@ data class DiamondFacetGeometry(
     val oppositeFacetId: Int
 )
 
-/**
- * Etat optique persistant d'une facette. Les valeurs évoluent dans le temps mais
- * son identité, sa coupe et sa translucidité de référence restent immuables.
- */
 data class DiamondFacetOpticalState(
     val facetId: Int,
     val referenceTranslucency: Float,
@@ -65,13 +55,6 @@ data class DiamondOpticalFrame(
     val moonDirectionDevice: Vec3?
 )
 
-/**
- * Géométrie canonique des 80 facettes.
- *
- * La déformation bombée radiale est non linéaire : la pente supplémentaire
- * croît avec radialPosition^1.65. Elle est donc intégrée à la normale de chaque
- * facette avant tout calcul lumineux, au lieu d'être ajoutée comme effet 2D.
- */
 object DiamondGeometry80 {
     val facets: List<DiamondFacetGeometry> by lazy { buildGeometry() }
 
@@ -85,7 +68,6 @@ object DiamondGeometry80 {
             val bulge = 6.0f * ring.radialPosition.toDouble().pow(1.65).toFloat()
             repeat(count) { index ->
                 val azimuth = normalizeDeg(-90f + index * step + if (halfStep) step * 0.5f else 0f)
-                // Micro-variation déterministe de coupe, indépendante de la couleur.
                 val cutSignature = (((id * 37 + ring.ordinal * 53) % 17) - 8) * 0.32f
                 val tilt = (baseTilt + bulge + cutSignature).coerceIn(4f, 68f)
                 val translucencySignature = (((id * 13 + ring.ordinal * 19) % 9) - 4) * 0.006f
@@ -108,13 +90,11 @@ object DiamondGeometry80 {
         addRing(DiamondRing.INNER, baseTilt = 11f, halfStep = false)
         addRing(DiamondRing.MIDDLE, baseTilt = 30f, halfStep = true)
         addRing(DiamondRing.OUTER, baseTilt = 47f, halfStep = true)
-
         require(result.size == 80) { "Diamond geometry must contain exactly 80 facets" }
 
         return result.map { facet ->
             val targetAzimuth = normalizeDeg(facet.azimuthDeg + 180f)
-            val opposite = result
-                .asSequence()
+            val opposite = result.asSequence()
                 .filter { it.ring == facet.ring }
                 .minByOrNull { angularDistanceDeg(it.azimuthDeg, targetAzimuth) }
                 ?: facet
@@ -134,16 +114,10 @@ object DiamondGeometry80 {
     }
 
     private fun normalizeDeg(value: Float): Float = ((value % 360f) + 360f) % 360f
-
-    private fun angularDistanceDeg(a: Float, b: Float): Float =
-        abs(((b - a + 540f) % 360f) - 180f)
+    private fun angularDistanceDeg(a: Float, b: Float): Float = abs(((b - a + 540f) % 360f) - 180f)
 }
 
-/**
- * Moteur optique CPU commun aux trois matériaux. Il ne dessine rien : il produit
- * uniquement l'état physique des 80 facettes. Le rendu Canvas consommera ensuite
- * ces valeurs sans recalculer la lumière.
- */
+/** Moteur optique des 80 facettes, paramétrable en direct par le mode développeur. */
 class DiamondFacetEngine(
     private val geometry: List<DiamondFacetGeometry> = DiamondGeometry80.facets
 ) {
@@ -156,7 +130,11 @@ class DiamondFacetEngine(
 
     private var lastFrameNanos: Long = 0L
 
-    fun update(snapshot: CelestialSnapshot, frameTimeNanos: Long): DiamondOpticalFrame {
+    fun update(
+        snapshot: CelestialSnapshot,
+        frameTimeNanos: Long,
+        tuning: PrimaryDiamondLiveTuningConfig = PrimaryDiamondLiveTuningConfig()
+    ): DiamondOpticalFrame {
         val dtSeconds = if (lastFrameNanos == 0L) {
             1f / 60f
         } else {
@@ -170,8 +148,8 @@ class DiamondFacetEngine(
         val moonDirection = snapshot.moon.takeIf { it.available && it.opticalIntensity > 0f }
             ?.let { celestialDirectionInDevice(it, snapshot.orientation) }
 
-        val sunEnergy = snapshot.sun.opticalIntensity.coerceIn(0f, 1f)
-        val moonEnergy = snapshot.moon.opticalIntensity.coerceIn(0f, 1f)
+        val sunEnergy = (snapshot.sun.opticalIntensity * tuning.sunIntensityScale).coerceIn(0f, 2f)
+        val moonEnergy = (snapshot.moon.opticalIntensity * tuning.moonIntensityScale).coerceIn(0f, 2f)
 
         val incoming = FloatArray(geometry.size)
         val specularTarget = FloatArray(geometry.size)
@@ -180,51 +158,48 @@ class DiamondFacetEngine(
             val normal = facet.normal
             val sunDirect = sunDirection?.let { max(0f, normal.dot(it)) * sunEnergy } ?: 0f
             val moonDirect = moonDirection?.let { max(0f, normal.dot(it)) * moonEnergy } ?: 0f
-            val direct = (sunDirect + moonDirect).coerceIn(0f, 1f)
+            val direct = (sunDirect + moonDirect).coerceIn(0f, 1.5f)
             incoming[facet.id] = direct
 
-            // Vue perpendiculaire à l'écran. Le spéculaire est calculé séparément
-            // de la luminance de matière et ne blanchira pas toute la facette.
             val view = Vec3(0f, 0f, 1f)
             val dominantLight = when {
                 sunDirection != null && sunEnergy >= moonEnergy -> sunDirection
                 moonDirection != null -> moonDirection
                 else -> null
             }
+            val exponent = if (snapshot.isNight) tuning.nightSpecularPower else tuning.daySpecularPower
             specularTarget[facet.id] = dominantLight?.let { light ->
                 val half = (light + view).normalized()
-                max(0f, normal.dot(half)).pow(if (snapshot.isNight) 58f else 105f) *
-                    max(sunEnergy, moonEnergy)
+                max(0f, normal.dot(half)).pow(exponent.coerceIn(4f, 300f)) * max(sunEnergy, moonEnergy)
             } ?: 0f
         }
 
-        // Transport interne conservatif simplifié : seule la part transmise entre
-        // dans le cristal, puis elle est redistribuée vers la vraie facette opposée.
         val internalTarget = FloatArray(geometry.size)
         geometry.forEach { source ->
-            val transmitted = incoming[source.id] * source.referenceTranslucency
-            val retained = transmitted * 0.86f // pertes internes contrôlées
+            val transmitted = incoming[source.id] *
+                (source.referenceTranslucency * tuning.translucencyScale).coerceIn(0f, 1.5f)
+            val retained = transmitted * tuning.internalRetention.coerceIn(0f, 1f)
             internalTarget[source.oppositeFacetId] += retained
         }
 
-        val response = responseFactor(dtSeconds, tauSeconds = 0.055f)
+        val response = responseFactor(dtSeconds, tuning.responseTau.coerceIn(0.005f, 1f))
         geometry.forEach { facet ->
             val state = states[facet.id]
             val directTarget = incoming[facet.id]
-            val internal = internalTarget[facet.id].coerceIn(0f, 1f)
-            val specular = specularTarget[facet.id].coerceIn(0f, 1f)
+            val internal = internalTarget[facet.id].coerceIn(0f, 1.5f)
+            val specular = specularTarget[facet.id].coerceIn(0f, 1.5f)
 
             state.directLight += (directTarget - state.directLight) * response
             state.internalLight += (internal - state.internalLight) * response
             state.specular += (specular - state.specular) * response
             state.lastNormalDotLight = directTarget
 
-            // La matière reste toujours visible : 20 % minimum, 100 % maximum.
+            val minimum = tuning.baseLuminance.coerceIn(0.02f, 0.95f)
             val targetLuminance = (
-                0.20f +
-                    state.directLight * 0.42f +
-                    state.internalLight * 0.38f
-                ).coerceIn(0.20f, 1.0f)
+                minimum +
+                    state.directLight * tuning.directWeight.coerceIn(0f, 2f) +
+                    state.internalLight * tuning.internalWeight.coerceIn(0f, 2f)
+                ).coerceIn(minimum, 1.25f)
             state.luminance += (targetLuminance - state.luminance) * response
         }
 
@@ -236,21 +211,15 @@ class DiamondFacetEngine(
         )
     }
 
-    /** Convertit azimut/altitude monde en espace téléphone via R^T. */
-    private fun celestialDirectionInDevice(
-        body: CelestialBodyState,
-        orientation: DeviceOrientationState
-    ): Vec3 {
+    private fun celestialDirectionInDevice(body: CelestialBodyState, orientation: DeviceOrientationState): Vec3 {
         val az = Math.toRadians(body.azimuthDeg)
         val alt = Math.toRadians(body.altitudeDeg)
         val world = Vec3(
-            (sin(az) * cos(alt)).toFloat(), // Est
-            (cos(az) * cos(alt)).toFloat(), // Nord
-            sin(alt).toFloat()              // Haut
+            (sin(az) * cos(alt)).toFloat(),
+            (cos(az) * cos(alt)).toFloat(),
+            sin(alt).toFloat()
         ).normalized()
 
-        // SensorManager fournit une matrice device -> monde ; la transposée
-        // transforme donc le vecteur monde vers le repère du téléphone.
         return Vec3(
             orientation.r00 * world.x + orientation.r10 * world.y + orientation.r20 * world.z,
             orientation.r01 * world.x + orientation.r11 * world.y + orientation.r21 * world.z,
