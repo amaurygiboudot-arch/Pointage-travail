@@ -11,6 +11,7 @@ class FirebaseUpdateInitProvider : ContentProvider() {
         context?.applicationContext?.let { app ->
             FirebaseUpdatePush.initialize(app)
             HistoryCloudSync.initialize(app)
+            AppCloudBackup.initialize(app)
             // Chaque démarrage vérifie la table centrale. En cas d'échec réseau,
             // PayrollRatesFirebase conserve automatiquement la dernière table locale valide.
             PayrollRatesFirebase.refresh(app)
