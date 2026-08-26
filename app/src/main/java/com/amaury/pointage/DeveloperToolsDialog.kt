@@ -38,14 +38,24 @@ object DeveloperToolsDialog {
             .setNegativeButton("Fermer", null)
             .create()
 
-        box.addView(tool("💎 RÉGLAGES LIVE DES BOUTONS") {
+        box.addView(tool("💎 RÉGLAGES LIVE DES BOUTONS DE POINTAGE") {
             developerDialog.dismiss()
             activity.findViewById<TextView>(R.id.tabToday)?.performClick()
             activity.window.decorView.postDelayed({ DeveloperDiamondLivePanel.show(activity) }, 180L)
         }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        box.addView(tool("📋 PARTAGER LE RAPPORT DES BOUTONS") {
+        box.addView(tool("🎛 RÉGLAGES LIVE CADRE / FOND / TEXTE") {
+            developerDialog.dismiss()
+            activity.findViewById<TextView>(R.id.tabToday)?.performClick()
+            activity.window.decorView.postDelayed({ DeveloperStandardButtonPanel.show(activity) }, 180L)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+
+        box.addView(tool("📋 RAPPORT BOUTONS DE POINTAGE") {
             DiamondDeveloperReport.share(activity)
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+
+        box.addView(tool("📋 RAPPORT CADRE / FOND / TEXTE") {
+            StandardButtonDeveloperReport.share(activity)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
 
         box.addView(tool("🧪 TEST GPS — SIMULER 3 JOURS") {
