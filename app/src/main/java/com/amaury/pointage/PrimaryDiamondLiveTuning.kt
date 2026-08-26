@@ -41,6 +41,8 @@ data class PrimaryDiamondLiveTuningConfig(
     val moonArcAlpha: Float = 115f,
     val arcWidth: Float = 0.035f,
     val arcSpanDeg: Float = 54f,
+    val arcRadius: Float = 0.86f,
+    val arcAngleOffsetDeg: Float = 0f,
     val edgeWidth: Float = 0.0065f,
     val edgeBaseAlpha: Float = 18f,
     val edgeLightAlpha: Float = 20f,
@@ -77,6 +79,7 @@ object PrimaryDiamondLiveTuning {
         "sunHaloAlpha" to "RENDU CANVAS", "moonHaloAlpha" to "RENDU CANVAS", "haloRadius" to "RENDU CANVAS", "haloOffset" to "RENDU CANVAS",
         "sunShadowAlpha" to "RENDU CANVAS", "moonShadowAlpha" to "RENDU CANVAS", "shadowRadius" to "RENDU CANVAS", "shadowOffset" to "RENDU CANVAS",
         "sunArcAlpha" to "RENDU CANVAS", "moonArcAlpha" to "RENDU CANVAS", "arcWidth" to "RENDU CANVAS", "arcSpanDeg" to "RENDU CANVAS",
+        "arcRadius" to "RENDU CANVAS", "arcAngleOffsetDeg" to "RENDU CANVAS",
         "edgeWidth" to "RENDU CANVAS", "edgeBaseAlpha" to "RENDU CANVAS", "edgeLightAlpha" to "RENDU CANVAS",
         "girdleWidth" to "RENDU CANVAS", "girdleAlpha" to "RENDU CANVAS", "girdleInnerWidth" to "RENDU CANVAS",
         "girdleInnerAlpha" to "RENDU CANVAS", "girdleRadius" to "RENDU CANVAS", "girdleInnerRadius" to "RENDU CANVAS"
@@ -121,8 +124,8 @@ object PrimaryDiamondLiveTuning {
         "innerSlope" to c.innerSlope, "middleSlope" to c.middleSlope, "outerSlope" to c.outerSlope, "sunHaloAlpha" to c.sunHaloAlpha,
         "moonHaloAlpha" to c.moonHaloAlpha, "haloRadius" to c.haloRadius, "haloOffset" to c.haloOffset, "sunShadowAlpha" to c.sunShadowAlpha,
         "moonShadowAlpha" to c.moonShadowAlpha, "shadowRadius" to c.shadowRadius, "shadowOffset" to c.shadowOffset, "sunArcAlpha" to c.sunArcAlpha,
-        "moonArcAlpha" to c.moonArcAlpha, "arcWidth" to c.arcWidth, "arcSpanDeg" to c.arcSpanDeg, "edgeWidth" to c.edgeWidth,
-        "edgeBaseAlpha" to c.edgeBaseAlpha, "edgeLightAlpha" to c.edgeLightAlpha, "girdleWidth" to c.girdleWidth, "girdleAlpha" to c.girdleAlpha,
+        "moonArcAlpha" to c.moonArcAlpha, "arcWidth" to c.arcWidth, "arcSpanDeg" to c.arcSpanDeg, "arcRadius" to c.arcRadius, "arcAngleOffsetDeg" to c.arcAngleOffsetDeg,
+        "edgeWidth" to c.edgeWidth, "edgeBaseAlpha" to c.edgeBaseAlpha, "edgeLightAlpha" to c.edgeLightAlpha, "girdleWidth" to c.girdleWidth, "girdleAlpha" to c.girdleAlpha,
         "girdleInnerWidth" to c.girdleInnerWidth, "girdleInnerAlpha" to c.girdleInnerAlpha, "girdleRadius" to c.girdleRadius, "girdleInnerRadius" to c.girdleInnerRadius
     )
 
@@ -142,6 +145,7 @@ object PrimaryDiamondLiveTuning {
             f("sunIntensityScale",defaults.sunIntensityScale),f("moonIntensityScale",defaults.moonIntensityScale),f("daySpecularPower",defaults.daySpecularPower),f("nightSpecularPower",defaults.nightSpecularPower),f("specularAlpha",defaults.specularAlpha),f("specularRadius",defaults.specularRadius),f("specularOffset",defaults.specularOffset),
             f("highlightMix",defaults.highlightMix),f("innerSlope",defaults.innerSlope),f("middleSlope",defaults.middleSlope),f("outerSlope",defaults.outerSlope),f("sunHaloAlpha",defaults.sunHaloAlpha),f("moonHaloAlpha",defaults.moonHaloAlpha),f("haloRadius",defaults.haloRadius),f("haloOffset",defaults.haloOffset),
             f("sunShadowAlpha",defaults.sunShadowAlpha),f("moonShadowAlpha",defaults.moonShadowAlpha),f("shadowRadius",defaults.shadowRadius),f("shadowOffset",defaults.shadowOffset),f("sunArcAlpha",defaults.sunArcAlpha),f("moonArcAlpha",defaults.moonArcAlpha),f("arcWidth",defaults.arcWidth),f("arcSpanDeg",defaults.arcSpanDeg),
+            f("arcRadius",defaults.arcRadius),f("arcAngleOffsetDeg",defaults.arcAngleOffsetDeg),
             f("edgeWidth",defaults.edgeWidth),f("edgeBaseAlpha",defaults.edgeBaseAlpha),f("edgeLightAlpha",defaults.edgeLightAlpha),f("girdleWidth",defaults.girdleWidth),f("girdleAlpha",defaults.girdleAlpha),f("girdleInnerWidth",defaults.girdleInnerWidth),f("girdleInnerAlpha",defaults.girdleInnerAlpha),f("girdleRadius",defaults.girdleRadius),f("girdleInnerRadius",defaults.girdleInnerRadius)
         )
     }
