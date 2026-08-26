@@ -29,11 +29,12 @@ class DiamondFacetMemory(
     private val facetCount: Int = 57
 ) {
     private val states = Array(facetCount) { id ->
+        val tone = facetTone(id)
         DiamondFacetState(
             id = id,
-            baseTone = stable(id, 17),
-            transparencyReference = 0.82f + stable(id, 43) * 0.16f,
-            brightness = 0.20f + stable(id, 71) * 0.18f,
+            baseTone = tone,
+            transparencyReference = facetTransparency(id),
+            brightness = facetInitialBrightness(id, tone),
             reflection = 0f,
             lastOrientation = 0f
         )
@@ -99,16 +100,23 @@ class DiamondFacetMemory(
             val angularMemory = 1f -
                 (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
 
+            // Les tons extrêmes reçoivent volontairement davantage de contraste :
+            // les facettes profondes restent colorées dans l'ombre et les facettes
+            // claires peuvent monter franchement sans toutes devenir blanches.
+            val colorContrast = abs(s.baseTone - 0.5f) * 2f
             val targetBrightness = (
-                0.10f +
-                    diffuse * (0.56f + refraction.coerceIn(0f, 1f) * 0.18f) +
-                    (s.baseTone - 0.5f) * 0.12f
-                ).coerceIn(0.04f, 1f)
+                0.075f +
+                    diffuse * (0.54f + refraction.coerceIn(0f, 1f) * 0.20f) +
+                    (s.baseTone - 0.5f) * 0.18f +
+                    colorContrast * 0.035f
+                ).coerceIn(0.035f, 1f)
 
-            val highlightGate = ((diffuse - 0.72f) / 0.28f).coerceIn(0f, 1f)
+            val highlightGate = ((diffuse - 0.70f) / 0.30f).coerceIn(0f, 1f)
             val targetReflection = (
-                highlightGate * (0.40f + sparkle.coerceIn(0f, 1f) * 0.60f) *
-                    (0.80f + angularMemory * 0.20f)
+                highlightGate *
+                    (0.36f + sparkle.coerceIn(0f, 1f) * 0.64f) *
+                    (0.78f + angularMemory * 0.22f) *
+                    (0.88f + colorContrast * 0.12f)
                 ).coerceIn(0f, 1f)
 
             // Lissage asymétrique : un reflet apparaît vite mais disparaît plus lentement.
@@ -118,6 +126,83 @@ class DiamondFacetMemory(
             s.reflection += (targetReflection - s.reflection) * reflectionSpeed
             s.lastOrientation = orientation
         }
+    }
+
+    /**
+     * Palette chromatique structurée selon les vraies familles du squelette :
+     * 0 table, 1..8 première couronne, 9..16 deuxième couronne,
+     * 17..32 couronne extérieure, 33..48 pavillon supérieur,
+     * 49..56 grandes facettes finales du pavillon.
+     *
+     * La valeur ne remplace jamais la couleur principale du bouton : elle sert
+     * seulement de variation stable au shader pour créer des rouges/verts/oranges
+     * plus profonds et plus riches sans effet arc-en-ciel.
+     */
+    private fun facetTone(id: Int): Float {
+        val noise = stable(id, 17) - 0.5f
+        return when (id) {
+            0 -> 0.54f
+            in 1..8 -> {
+                val i = id - 1
+                (if (i % 2 == 0) 0.34f else 0.70f) + noise * 0.08f
+            }
+            in 9..16 -> {
+                val i = id - 9
+                (if (i % 2 == 0) 0.24f else 0.79f) + noise * 0.10f
+            }
+            in 17..32 -> {
+                val i = id - 17
+                val pattern = when (i % 4) {
+                    0 -> 0.16f
+                    1 -> 0.40f
+                    2 -> 0.86f
+                    else -> 0.64f
+                }
+                pattern + noise * 0.08f
+            }
+            in 33..48 -> {
+                val i = id - 33
+                val pattern = when (i % 4) {
+                    0 -> 0.12f
+                    1 -> 0.31f
+                    2 -> 0.76f
+                    else -> 0.91f
+                }
+                pattern + noise * 0.06f
+            }
+            else -> {
+                val i = id - 49
+                (if (i % 2 == 0) 0.20f else 0.82f) + noise * 0.07f
+            }
+        }.coerceIn(0.06f, 0.94f)
+    }
+
+    /**
+     * Les facettes du pavillon sont volontairement un peu plus denses : elles
+     * gardent davantage de couleur dans les zones sombres au lieu de devenir
+     * uniformément transparentes.
+     */
+    private fun facetTransparency(id: Int): Float {
+        val noise = stable(id, 43)
+        val base = when (id) {
+            0 -> 0.94f
+            in 1..16 -> 0.88f
+            in 17..32 -> 0.84f
+            in 33..48 -> 0.80f
+            else -> 0.82f
+        }
+        return (base + (noise - 0.5f) * 0.10f).coerceIn(0.74f, 0.97f)
+    }
+
+    private fun facetInitialBrightness(id: Int, tone: Float): Float {
+        val regionBase = when (id) {
+            0 -> 0.34f
+            in 1..16 -> 0.28f
+            in 17..32 -> 0.24f
+            else -> 0.18f
+        }
+        return (regionBase + (tone - 0.5f) * 0.10f + stable(id, 71) * 0.06f)
+            .coerceIn(0.12f, 0.42f)
     }
 
     /**
