@@ -126,7 +126,7 @@ object CompanyPauseAlarmManager {
         } else {
             @Suppress("DEPRECATION") Notification.Builder(context)
         })
-            .setSmallIcon(R.drawable.hp_icon_red)
+            .setSmallIcon(R.drawable.horatrack_notification)
             .setContentTitle("Début de la pause $pauseIndex")
             .setContentText(if (duration > 0) "$companyName • pause de $duration min" else companyName)
             .setContentIntent(openApp)
