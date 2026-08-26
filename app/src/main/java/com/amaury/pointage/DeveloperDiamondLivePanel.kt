@@ -79,7 +79,7 @@ object DeveloperDiamondLivePanel {
             gravity = Gravity.CENTER
         }
         val targetButtons = linkedMapOf<PreviewTarget, Button>()
-        lateinit var sendPreview: Button
+        var sendPreview: Button? = null
 
         fun refreshTargets() {
             targetButtons.forEach { (target, button) ->
@@ -87,9 +87,7 @@ object DeveloperDiamondLivePanel {
                 button.alpha = if (selected) 1f else .55f
                 button.setTextColor(if (selected) Color.WHITE else Color.rgb(165, 175, 190))
             }
-            if (::sendPreview.isInitialized) {
-                sendPreview.text = "➤ ENVOYER L’APERÇU SUR ${previewTarget.label}"
-            }
+            sendPreview?.text = "➤ ENVOYER L’APERÇU SUR ${previewTarget.label}"
         }
 
         PreviewTarget.entries.forEach { target ->
@@ -111,7 +109,7 @@ object DeveloperDiamondLivePanel {
         }
         root.addView(targetRow)
 
-        sendPreview = Button(activity).apply {
+        val previewButton = Button(activity).apply {
             text = "➤ ENVOYER L’APERÇU SUR LES 3"
             isAllCaps = false
             textSize = 12f
@@ -125,7 +123,8 @@ object DeveloperDiamondLivePanel {
                 ).show()
             }
         }
-        root.addView(sendPreview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply {
+        sendPreview = previewButton
+        root.addView(previewButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply {
             topMargin = dp(4)
             bottomMargin = dp(4)
         })
