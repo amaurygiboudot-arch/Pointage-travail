@@ -4,6 +4,7 @@
     </style>
 
     <style name="PointageButtonStyle" parent="@android:style/Widget.Material.Button">
+        <item name="android:background">@drawable/hp_panel</item>
         <item name="android:minHeight">48dp</item>
         <item name="android:minWidth">0dp</item>
         <item name="android:textSize">14sp</item>
@@ -23,6 +24,7 @@
         <item name="android:textColorPrimary">#17130D</item>
         <item name="android:textColorSecondary">#625B50</item>
         <item name="android:textColorHint">#7A7165</item>
+        <item name="android:buttonStyle">@style/PointageButtonStyle</item>
     </style>
 
     <style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar">

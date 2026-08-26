@@ -148,6 +148,14 @@ object StandardButtonLayers {
         applyRecursive(root, panel, text)
     }
 
+    fun applyToRoot(context: Context, root: View) {
+        val theme = AppThemeCatalog.current(context)
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        val text = if (dark) theme.darkText else theme.lightText
+        applyRecursive(root, panel, text)
+    }
+
     private fun applyRecursive(view: View, panel: Int, text: Int) {
         if (view is Button && !isProtectedButton(view)) {
             view.setBackgroundResource(R.drawable.hp_panel)
@@ -163,7 +171,7 @@ object StandardButtonLayers {
     private fun isProtectedButton(button: Button): Boolean {
         if (button is RedDiamondFinalButton || button is LightReactiveJewelButton) return true
         val idName = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
-        return idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
+        return idName == "entryButton" || idName == "pauseButton" || idName == "exitButton"
     }
 }
 
