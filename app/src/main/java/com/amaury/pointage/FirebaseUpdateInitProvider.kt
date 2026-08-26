@@ -5,11 +5,12 @@ import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
 
-/** Initialise Firebase et synchronise les paramètres centraux sans ralentir MainActivity. */
+/** Initialise Firebase et les synchronisations sans ralentir MainActivity. */
 class FirebaseUpdateInitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         context?.applicationContext?.let { app ->
             FirebaseUpdatePush.initialize(app)
+            HistoryCloudSync.initialize(app)
             // Chaque démarrage vérifie la table centrale. En cas d'échec réseau,
             // PayrollRatesFirebase conserve automatiquement la dernière table locale valide.
             PayrollRatesFirebase.refresh(app)
