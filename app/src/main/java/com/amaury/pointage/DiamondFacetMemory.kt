@@ -8,10 +8,21 @@ import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+enum class DiamondFacetRegion {
+    TABLE,
+    CROWN_INNER,
+    CROWN_MIDDLE,
+    CROWN_OUTER,
+    GIRDLE,
+    PAVILION_UPPER,
+    PAVILION_LOWER
+}
+
 data class DiamondFacetState(
     val id: Int,
-    val baseTone: Float,
-    val transparencyReference: Float,
+    var region: DiamondFacetRegion,
+    var baseTone: Float,
+    var transparencyReference: Float,
     var displayTone: Float,
     var brightness: Float,
     var reflection: Float,
@@ -21,30 +32,46 @@ data class DiamondFacetState(
     var normalZ: Float = 1f
 )
 
-class DiamondFacetMemory(private val facetCount: Int = 57) {
-    private val states = Array(facetCount) { id ->
-        val tone = facetTone(id)
-        DiamondFacetState(
-            id = id,
-            baseTone = tone,
-            transparencyReference = facetTransparency(id),
-            displayTone = tone,
-            brightness = facetInitialBrightness(id, tone),
-            reflection = 0f,
-            lastOrientation = 0f
-        )
-    }
+class DiamondFacetMemory {
+    private val states = ArrayList<DiamondFacetState>()
 
     fun size(): Int = states.size
-    fun state(id: Int): DiamondFacetState = states[id.coerceIn(0, states.lastIndex)]
 
-    fun setNormal(id: Int, x: Float, y: Float, z: Float) {
-        if (id !in states.indices) return
-        val n = normalize3(x, y, z)
-        states[id].normalX = n[0]
-        states[id].normalY = n[1]
-        states[id].normalZ = n[2]
+    fun resetTopology(facetCount: Int) {
+        val wanted = facetCount.coerceAtLeast(0)
+        if (states.size == wanted) return
+        states.clear()
+        repeat(wanted) { id ->
+            val region = DiamondFacetRegion.CROWN_OUTER
+            val tone = facetTone(id, region)
+            states += DiamondFacetState(
+                id = id,
+                region = region,
+                baseTone = tone,
+                transparencyReference = facetTransparency(id, region),
+                displayTone = tone,
+                brightness = facetInitialBrightness(id, region, tone),
+                reflection = 0f,
+                lastOrientation = 0f
+            )
+        }
     }
+
+    fun defineFacet(id: Int, region: DiamondFacetRegion, x: Float, y: Float, z: Float) {
+        if (id !in states.indices) return
+        val s = states[id]
+        val tone = facetTone(id, region)
+        s.region = region
+        s.baseTone = tone
+        s.transparencyReference = facetTransparency(id, region)
+        if (s.displayTone !in 0f..1f) s.displayTone = tone
+        val n = normalize3(x, y, z)
+        s.normalX = n[0]
+        s.normalY = n[1]
+        s.normalZ = n[2]
+    }
+
+    fun state(id: Int): DiamondFacetState = states[id.coerceIn(0, states.lastIndex)]
 
     fun update(
         lightAngleDegrees: Float,
@@ -54,11 +81,14 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
         refraction: Float,
         sparkle: Float
     ) {
+        if (states.isEmpty()) return
+
         val lightRad = Math.toRadians(lightAngleDegrees.toDouble())
-        val lx = cos(lightRad).toFloat()
-        val ly = sin(lightRad).toFloat()
-        val lz = 1.35f
-        val lightToSurface = normalize3(lx, ly, lz)
+        val lightToSurface = normalize3(
+            cos(lightRad).toFloat(),
+            sin(lightRad).toFloat(),
+            1.35f
+        )
 
         val modelX = -8.2f + pitchDegrees * 0.20f
         val modelY = 2.4f - rollDegrees * 0.24f
@@ -71,7 +101,6 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
             val s = states[id]
             rotateLikeOpenGlModel(s.normalX, s.normalY, s.normalZ, modelX, modelY, modelZ)
         }
-
         val internalLight = computeInternalTransport(rotatedNormals, lightToSurface, refr)
 
         for (s in states) {
@@ -82,8 +111,18 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
                 (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
             val colorContrast = abs(s.baseTone - 0.5f) * 2f
 
+            val regionDepth = when (s.region) {
+                DiamondFacetRegion.TABLE -> 0.04f
+                DiamondFacetRegion.CROWN_INNER -> 0.02f
+                DiamondFacetRegion.CROWN_MIDDLE -> 0f
+                DiamondFacetRegion.CROWN_OUTER -> -0.01f
+                DiamondFacetRegion.GIRDLE -> -0.03f
+                DiamondFacetRegion.PAVILION_UPPER -> -0.04f
+                DiamondFacetRegion.PAVILION_LOWER -> -0.055f
+            }
+
             val targetBrightness = (
-                0.065f +
+                0.065f + regionDepth +
                     diffuse * (0.49f + refr * 0.17f) +
                     returnedLight * (0.42f + refr * 0.34f) +
                     (s.baseTone - 0.5f) * 0.16f +
@@ -113,7 +152,7 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
 
             val brightnessSpeed = if (targetBrightness > s.brightness) 0.25f else 0.115f
             val reflectionSpeed = if (targetReflection > s.reflection) 0.31f else 0.095f
-            val toneSpeed = if (targetReflection > s.reflection) 0.27f else 0.12f
+            val toneSpeed = if (targetDisplayTone > s.displayTone) 0.27f else 0.12f
             s.brightness += (targetBrightness - s.brightness) * brightnessSpeed
             s.reflection += (targetReflection - s.reflection) * reflectionSpeed
             s.displayTone += (targetDisplayTone - s.displayTone) * toneSpeed
@@ -121,27 +160,23 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
         }
     }
 
-    /**
-     * Transport interne léger : chaque facette d'entrée distribue son énergie
-     * sur les 24 facettes du pavillon selon l'incidence et l'azimut. Il n'y a
-     * plus de sélection binaire qui pouvait laisser certaines facettes mortes.
-     */
     private fun computeInternalTransport(
         rotatedNormals: Array<FloatArray>,
         lightToSurface: FloatArray,
         refractionControl: Float
     ): FloatArray {
         val out = FloatArray(states.size)
-        if (states.size < 57) return out
+        val entryIds = states.indices.filter { isEntryRegion(states[it].region) }
+        val pavilionIds = states.indices.filter { isPavilionRegion(states[it].region) }
+        if (entryIds.isEmpty() || pavilionIds.isEmpty()) return out
 
         val diamondIor = 2.42f
-        val criticalAngle = asin((1f / diamondIor).coerceIn(0f, 1f))
-        val criticalCos = cos(criticalAngle)
+        val criticalCos = cos(asin((1f / diamondIor).coerceIn(0f, 1f)))
         val incomingWorld = normalize3(
             -lightToSurface[0], -lightToSurface[1], -lightToSurface[2]
         )
 
-        for (entryId in 0..32) {
+        for (entryId in entryIds) {
             val entryN = rotatedNormals[entryId]
             val entryFacing = max(0f, dot3(entryN, lightToSurface))
             if (entryFacing < 0.025f) continue
@@ -154,44 +189,35 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
 
             val entryEnergy = entryFacing * (0.30f + refractionControl * 0.70f)
             val entryAzimuth = azimuth(internalRay)
-
-            // Pondération de TOUTES les facettes du pavillon.
-            val weights = FloatArray(24)
+            val weights = FloatArray(pavilionIds.size)
             var weightSum = 0f
-            for (pavilionId in 33..56) {
+
+            pavilionIds.forEachIndexed { index, pavilionId ->
                 val pavilionN = orientAgainst(rotatedNormals[pavilionId], internalRay)
                 val approach = max(0f, -dot3(internalRay, pavilionN))
-                val pavilionAzimuth = azimuth(pavilionN)
-
-                // Une petite composante diffuse maintient les facettes voisines
-                // optiquement actives ; l'alignement exact reste dominant.
-                val sector = angularMatch(entryAzimuth, pavilionAzimuth, 150f)
-                val softSector = 0.035f + sector * 0.965f
-                val softApproach = 0.025f + approach * 0.975f
-                val w = softSector * softApproach
-                weights[pavilionId - 33] = w
+                val sector = angularMatch(entryAzimuth, azimuth(pavilionN), 150f)
+                val w = (0.035f + sector * 0.965f) * (0.025f + approach * 0.975f)
+                weights[index] = w
                 weightSum += w
             }
             if (weightSum <= 0.00001f) continue
 
-            for (pavilionId in 33..56) {
+            pavilionIds.forEachIndexed { index, pavilionId ->
                 val pavilionN = orientAgainst(rotatedNormals[pavilionId], internalRay)
-                val normalizedWeight = weights[pavilionId - 33] / weightSum
+                val normalizedWeight = weights[index] / weightSum
                 val cosIncidence = abs(dot3(internalRay, pavilionN)).coerceIn(0f, 1f)
                 val tir = ((criticalCos - cosIncidence) / criticalCos).coerceIn(0f, 1f)
                 val reflectivity =
                     (0.22f + tir * 0.70f + refractionControl * 0.08f).coerceIn(0f, 1f)
                 val hitEnergy = entryEnergy * normalizedWeight * reflectivity * 5.4f
-
-                // Chaque facette compatible reçoit réellement une part d'énergie.
                 out[pavilionId] += hitEnergy * 0.82f
 
                 val reflected = reflect3(internalRay, pavilionN)
                 val upward = reflected[2].coerceIn(0f, 1f)
-                if (upward <= 0.01f) continue
+                if (upward <= 0.01f) return@forEachIndexed
 
                 val returnAzimuth = azimuth(reflected)
-                for (exitId in 0..32) {
+                for (exitId in entryIds) {
                     val exitN = rotatedNormals[exitId]
                     val directionMatch = angularMatch(returnAzimuth, azimuth(exitN), 105f)
                     if (directionMatch <= 0f) continue
@@ -202,31 +228,12 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
             }
         }
 
-        // Diffusion courte entre facettes voisines du pavillon. Elle représente
-        // les multiples rebonds internes que notre modèle temps-réel ne trace pas
-        // explicitement, sans rendre toutes les facettes identiques.
-        val beforeScatter = out.copyOf()
-        for (id in 33..48) {
-            val local = id - 33
-            val prev = 33 + (local + 15) % 16
-            val next = 33 + (local + 1) % 16
-            out[id] += (beforeScatter[prev] + beforeScatter[next]) * 0.055f
-        }
-        for (id in 49..56) {
-            val local = id - 49
-            val prev = 49 + (local + 7) % 8
-            val next = 49 + (local + 1) % 8
-            out[id] += (beforeScatter[prev] + beforeScatter[next]) * 0.070f
-        }
+        scatterPavilion(out, DiamondFacetRegion.PAVILION_UPPER, 0.055f)
+        scatterPavilion(out, DiamondFacetRegion.PAVILION_LOWER, 0.070f)
 
-        // Très faible plancher optique uniquement pour le pavillon : une facette
-        // peut être sombre, mais elle ne doit pas être morte si de la lumière est
-        // présente dans la pierre.
-        val pavilionAverage = (33..56).sumOf { out[it].toDouble() }.toFloat() / 24f
+        val pavilionAverage = pavilionIds.sumOf { out[it].toDouble() }.toFloat() / pavilionIds.size
         if (pavilionAverage > 0f) {
-            for (id in 33..56) {
-                out[id] += pavilionAverage * 0.035f
-            }
+            pavilionIds.forEach { out[it] += pavilionAverage * 0.035f }
         }
 
         for (i in out.indices) {
@@ -235,55 +242,67 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
         return out
     }
 
-    private fun facetTone(id: Int): Float {
-        val noise = stable(id, 17) - 0.5f
-        return when (id) {
-            0 -> 0.54f
-            in 1..8 -> (if ((id - 1) % 2 == 0) 0.34f else 0.70f) + noise * 0.08f
-            in 9..16 -> (if ((id - 9) % 2 == 0) 0.24f else 0.79f) + noise * 0.10f
-            in 17..32 -> {
-                val pattern = when ((id - 17) % 4) {
-                    0 -> 0.16f
-                    1 -> 0.40f
-                    2 -> 0.86f
-                    else -> 0.64f
-                }
-                pattern + noise * 0.08f
-            }
-            in 33..48 -> {
-                val pattern = when ((id - 33) % 4) {
-                    0 -> 0.12f
-                    1 -> 0.31f
-                    2 -> 0.76f
-                    else -> 0.91f
-                }
-                pattern + noise * 0.06f
-            }
-            else -> (if ((id - 49) % 2 == 0) 0.20f else 0.82f) + noise * 0.07f
-        }.coerceIn(0.06f, 0.94f)
-    }
-
-    private fun facetTransparency(id: Int): Float {
-        val noise = stable(id, 43)
-        val base = when (id) {
-            0 -> 0.94f
-            in 1..16 -> 0.88f
-            in 17..32 -> 0.84f
-            in 33..48 -> 0.80f
-            else -> 0.82f
+    private fun scatterPavilion(out: FloatArray, region: DiamondFacetRegion, amount: Float) {
+        val ids = states.indices.filter { states[it].region == region }
+        if (ids.size < 2) return
+        val before = out.copyOf()
+        ids.forEachIndexed { index, id ->
+            val prev = ids[(index - 1 + ids.size) % ids.size]
+            val next = ids[(index + 1) % ids.size]
+            out[id] += (before[prev] + before[next]) * amount
         }
-        return (base + (noise - 0.5f) * 0.10f).coerceIn(0.74f, 0.97f)
     }
 
-    private fun facetInitialBrightness(id: Int, tone: Float): Float {
-        val regionBase = when (id) {
-            0 -> 0.34f
-            in 1..16 -> 0.28f
-            in 17..32 -> 0.24f
-            else -> 0.18f
+    private fun isEntryRegion(region: DiamondFacetRegion): Boolean = when (region) {
+        DiamondFacetRegion.TABLE,
+        DiamondFacetRegion.CROWN_INNER,
+        DiamondFacetRegion.CROWN_MIDDLE,
+        DiamondFacetRegion.CROWN_OUTER -> true
+        else -> false
+    }
+
+    private fun isPavilionRegion(region: DiamondFacetRegion): Boolean =
+        region == DiamondFacetRegion.PAVILION_UPPER || region == DiamondFacetRegion.PAVILION_LOWER
+
+    private fun facetTone(id: Int, region: DiamondFacetRegion): Float {
+        val noise = stable(id, 17) - 0.5f
+        val base = when (region) {
+            DiamondFacetRegion.TABLE -> 0.54f
+            DiamondFacetRegion.CROWN_INNER -> if (id % 2 == 0) 0.34f else 0.70f
+            DiamondFacetRegion.CROWN_MIDDLE -> if (id % 2 == 0) 0.24f else 0.79f
+            DiamondFacetRegion.CROWN_OUTER -> listOf(0.16f, 0.40f, 0.86f, 0.64f)[id % 4]
+            DiamondFacetRegion.GIRDLE -> if (id % 2 == 0) 0.46f else 0.58f
+            DiamondFacetRegion.PAVILION_UPPER -> listOf(0.12f, 0.31f, 0.76f, 0.91f)[id % 4]
+            DiamondFacetRegion.PAVILION_LOWER -> if (id % 2 == 0) 0.20f else 0.82f
+        }
+        return (base + noise * 0.08f).coerceIn(0.06f, 0.94f)
+    }
+
+    private fun facetTransparency(id: Int, region: DiamondFacetRegion): Float {
+        val base = when (region) {
+            DiamondFacetRegion.TABLE -> 0.94f
+            DiamondFacetRegion.CROWN_INNER -> 0.90f
+            DiamondFacetRegion.CROWN_MIDDLE -> 0.87f
+            DiamondFacetRegion.CROWN_OUTER -> 0.84f
+            DiamondFacetRegion.GIRDLE -> 0.86f
+            DiamondFacetRegion.PAVILION_UPPER -> 0.80f
+            DiamondFacetRegion.PAVILION_LOWER -> 0.82f
+        }
+        return (base + (stable(id, 43) - 0.5f) * 0.10f).coerceIn(0.74f, 0.97f)
+    }
+
+    private fun facetInitialBrightness(id: Int, region: DiamondFacetRegion, tone: Float): Float {
+        val regionBase = when (region) {
+            DiamondFacetRegion.TABLE -> 0.34f
+            DiamondFacetRegion.CROWN_INNER -> 0.29f
+            DiamondFacetRegion.CROWN_MIDDLE -> 0.27f
+            DiamondFacetRegion.CROWN_OUTER -> 0.24f
+            DiamondFacetRegion.GIRDLE -> 0.20f
+            DiamondFacetRegion.PAVILION_UPPER -> 0.18f
+            DiamondFacetRegion.PAVILION_LOWER -> 0.16f
         }
         return (regionBase + (tone - 0.5f) * 0.10f + stable(id, 71) * 0.06f)
-            .coerceIn(0.12f, 0.42f)
+            .coerceIn(0.10f, 0.42f)
     }
 
     private fun rotateLikeOpenGlModel(
@@ -295,27 +314,16 @@ class DiamondFacetMemory(private val facetCount: Int = 57) {
         zDegrees: Float
     ): FloatArray {
         val rz = Math.toRadians(zDegrees.toDouble())
-        val cz = cos(rz).toFloat()
-        val sz = sin(rz).toFloat()
-        val zx = x * cz - y * sz
-        val zy = x * sz + y * cz
-        val zz = z
+        val cz = cos(rz).toFloat(); val sz = sin(rz).toFloat()
+        val zx = x * cz - y * sz; val zy = x * sz + y * cz; val zz = z
 
         val ry = Math.toRadians(yDegrees.toDouble())
-        val cy = cos(ry).toFloat()
-        val sy = sin(ry).toFloat()
-        val yx = zx * cy + zz * sy
-        val yy = zy
-        val yz = -zx * sy + zz * cy
+        val cy = cos(ry).toFloat(); val sy = sin(ry).toFloat()
+        val yx = zx * cy + zz * sy; val yy = zy; val yz = -zx * sy + zz * cy
 
         val rx = Math.toRadians(xDegrees.toDouble())
-        val cx = cos(rx).toFloat()
-        val sx = sin(rx).toFloat()
-        val xx = yx
-        val xy = yy * cx - yz * sx
-        val xz = yy * sx + yz * cx
-
-        return normalize3(xx, xy, xz)
+        val cx = cos(rx).toFloat(); val sx = sin(rx).toFloat()
+        return normalize3(yx, yy * cx - yz * sx, yy * sx + yz * cx)
     }
 
     private fun refract3(i: FloatArray, n: FloatArray, eta: Float): FloatArray? {
