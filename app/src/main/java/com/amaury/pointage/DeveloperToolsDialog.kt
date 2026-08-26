@@ -21,6 +21,8 @@ object DeveloperToolsDialog {
             setOnClickListener { action() }
         }
 
+        lateinit var dialog: AlertDialog
+
         val box = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(10), dp(16), dp(10))
@@ -33,7 +35,15 @@ object DeveloperToolsDialog {
         })
 
         box.addView(tool("💎 RÉGLAGES LIVE DES BOUTONS") {
-            DeveloperDiamondLivePanel.show(activity)
+            // Le laboratoire doit toujours s'ouvrir au-dessus des vrais boutons de pointage,
+            // jamais au-dessus du menu développeur ou de la page Réglages.
+            dialog.dismiss()
+            activity.findViewById<TextView>(R.id.tabToday)?.performClick()
+            activity.window.decorView.post {
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    DeveloperDiamondLivePanel.show(activity)
+                }
+            }
         }, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         box.addView(tool("🧪 TEST GPS — SIMULER 3 JOURS") {
@@ -66,10 +76,11 @@ object DeveloperToolsDialog {
             topMargin = dp(8)
         })
 
-        AlertDialog.Builder(activity)
+        dialog = AlertDialog.Builder(activity)
             .setTitle("Développeur")
             .setView(box)
             .setNegativeButton("Fermer", null)
-            .show()
+            .create()
+        dialog.show()
     }
 }
