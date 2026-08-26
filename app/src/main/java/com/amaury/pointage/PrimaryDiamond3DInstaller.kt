@@ -65,10 +65,10 @@ object PrimaryDiamond3DInstaller {
     private fun colorFor(button: Button): Int {
         val name = runCatching { button.resources.getResourceEntryName(button.id) }.getOrNull().orEmpty()
         return when (name) {
-            "entryButton" -> Color.rgb(18, 205, 75)
-            "pauseButton" -> Color.rgb(244, 126, 20)
-            "exitButton" -> Color.rgb(224, 28, 52)
-            else -> Color.rgb(60, 125, 210)
+            "entryButton" -> Color.rgb(5, 230, 78)
+            "pauseButton" -> Color.rgb(255, 124, 0)
+            "exitButton" -> Color.rgb(235, 10, 45)
+            else -> Color.rgb(45, 135, 235)
         }
     }
 
