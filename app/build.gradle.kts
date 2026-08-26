@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -11,7 +13,7 @@ val horaTrackGeneratedRes = layout.buildDirectory.dir("generated/horatrackIcon/r
 val horaTrackLauncherFile = file("${horaTrackGeneratedRes.path}/drawable-nodpi/horatrack_launcher.webp")
 if (horaTrackIconSource.exists()) {
     val encoded = horaTrackIconSource.readText().filterNot { it.isWhitespace() }
-    val bytes = java.util.Base64.getDecoder().decode(encoded)
+    val bytes = Base64.getDecoder().decode(encoded)
     horaTrackLauncherFile.parentFile.mkdirs()
     horaTrackLauncherFile.writeBytes(bytes)
 }
