@@ -7,7 +7,6 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.LayerDrawable
 import android.net.Uri
 import android.view.Gravity
 import android.view.View
@@ -18,6 +17,7 @@ import androidx.appcompat.content.res.AppCompatResources
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 data class StandardButtonLiveConfig(
@@ -31,6 +31,7 @@ data class StandardButtonLiveConfig(
     val frameAlpha: Int = 255,
     val frameWidthDp: Float = 2f,
     val cornerRadiusDp: Float = 24f,
+    val buttonShape: String = "ROUNDED",
     val textR: Int = 255,
     val textG: Int = 255,
     val textB: Int = 255,
@@ -43,44 +44,66 @@ data class StandardButtonLiveConfig(
     val backgroundImageUri: String = "",
     val frameImageUri: String = "",
     val backgroundImageResName: String = "",
-    val frameImageResName: String = ""
+    val frameImageResName: String = "",
+    val imageWidthPercent: Float = 100f,
+    val imageHeightPercent: Float = 100f,
+    val imageOffsetXPercent: Float = 0f,
+    val imageOffsetYPercent: Float = 0f,
+    val keepImageAspect: Boolean = true,
+    val imageScaleMode: String = "FIT",
+    val imageShape: String = "BUTTON",
+    val imageCornerRadiusDp: Float = 18f,
+    val nightImageDimPercent: Int = 35
 )
 
 object StandardButtonLiveStyle {
     private const val PREFS = "developer_standard_button_live_v1"
     private const val DEV_TAG = "horatrack_dev_live_control"
+    private val managedButtons = WeakHashMap<Button, Boolean>()
 
     fun current(c: Context): StandardButtonLiveConfig {
         val p = c.getSharedPreferences(PREFS, 0)
         return StandardButtonLiveConfig(
-            p.getInt("backgroundR", 35),
-            p.getInt("backgroundG", 35),
-            p.getInt("backgroundB", 35),
-            p.getInt("backgroundAlpha", 255),
-            p.getInt("frameR", 214),
-            p.getInt("frameG", 168),
-            p.getInt("frameB", 75),
-            p.getInt("frameAlpha", 255),
-            p.getFloat("frameWidthDp", 2f),
-            p.getFloat("cornerRadiusDp", 24f),
-            p.getInt("textR", 255),
-            p.getInt("textG", 255),
-            p.getInt("textB", 255),
-            p.getInt("textAlpha", 255),
-            p.getFloat("textSizeSp", 14f),
-            p.getFloat("horizontalPaddingDp", 14f),
-            p.getFloat("verticalPaddingDp", 4f),
-            p.getInt("backgroundImageAlpha", 255),
-            p.getInt("frameImageAlpha", 255),
-            p.getString("backgroundImageUri", "").orEmpty(),
-            p.getString("frameImageUri", "").orEmpty(),
-            p.getString("backgroundImageResName", "").orEmpty(),
-            p.getString("frameImageResName", "").orEmpty()
+            backgroundR = p.getInt("backgroundR", 35),
+            backgroundG = p.getInt("backgroundG", 35),
+            backgroundB = p.getInt("backgroundB", 35),
+            backgroundAlpha = p.getInt("backgroundAlpha", 255),
+            frameR = p.getInt("frameR", 214),
+            frameG = p.getInt("frameG", 168),
+            frameB = p.getInt("frameB", 75),
+            frameAlpha = p.getInt("frameAlpha", 255),
+            frameWidthDp = p.getFloat("frameWidthDp", 2f),
+            cornerRadiusDp = p.getFloat("cornerRadiusDp", 24f),
+            buttonShape = p.getString("buttonShape", "ROUNDED").orEmpty(),
+            textR = p.getInt("textR", 255),
+            textG = p.getInt("textG", 255),
+            textB = p.getInt("textB", 255),
+            textAlpha = p.getInt("textAlpha", 255),
+            textSizeSp = p.getFloat("textSizeSp", 14f),
+            horizontalPaddingDp = p.getFloat("horizontalPaddingDp", 14f),
+            verticalPaddingDp = p.getFloat("verticalPaddingDp", 4f),
+            backgroundImageAlpha = p.getInt("backgroundImageAlpha", 255),
+            frameImageAlpha = p.getInt("frameImageAlpha", 255),
+            backgroundImageUri = p.getString("backgroundImageUri", "").orEmpty(),
+            frameImageUri = p.getString("frameImageUri", "").orEmpty(),
+            backgroundImageResName = p.getString("backgroundImageResName", "").orEmpty(),
+            frameImageResName = p.getString("frameImageResName", "").orEmpty(),
+            imageWidthPercent = p.getFloat("imageWidthPercent", 100f),
+            imageHeightPercent = p.getFloat("imageHeightPercent", 100f),
+            imageOffsetXPercent = p.getFloat("imageOffsetXPercent", 0f),
+            imageOffsetYPercent = p.getFloat("imageOffsetYPercent", 0f),
+            keepImageAspect = p.getBoolean("keepImageAspect", true),
+            imageScaleMode = p.getString("imageScaleMode", "FIT").orEmpty(),
+            imageShape = p.getString("imageShape", "BUTTON").orEmpty(),
+            imageCornerRadiusDp = p.getFloat("imageCornerRadiusDp", 18f),
+            nightImageDimPercent = p.getInt("nightImageDimPercent", 35)
         )
     }
 
     fun setInt(c: Context, k: String, v: Int) = c.getSharedPreferences(PREFS, 0).edit().putInt(k, v).commit()
     fun setFloat(c: Context, k: String, v: Float) = c.getSharedPreferences(PREFS, 0).edit().putFloat(k, v).commit()
+    fun setBoolean(c: Context, k: String, v: Boolean) = c.getSharedPreferences(PREFS, 0).edit().putBoolean(k, v).commit()
+    fun setString(c: Context, k: String, v: String) = c.getSharedPreferences(PREFS, 0).edit().putString(k, v).commit()
 
     fun setImage(c: Context, frame: Boolean, uri: Uri?): Boolean = c.getSharedPreferences(PREFS, 0).edit()
         .putString(if (frame) "frameImageUri" else "backgroundImageUri", uri?.toString().orEmpty())
@@ -92,35 +115,9 @@ object StandardButtonLiveStyle {
         .putString(if (frame) "frameImageUri" else "backgroundImageUri", "")
         .commit()
 
-    fun saveCurrent(c: Context): Boolean {
-        val x = current(c)
-        return c.getSharedPreferences(PREFS, 0).edit()
-            .putInt("backgroundR", x.backgroundR)
-            .putInt("backgroundG", x.backgroundG)
-            .putInt("backgroundB", x.backgroundB)
-            .putInt("backgroundAlpha", x.backgroundAlpha)
-            .putInt("frameR", x.frameR)
-            .putInt("frameG", x.frameG)
-            .putInt("frameB", x.frameB)
-            .putInt("frameAlpha", x.frameAlpha)
-            .putFloat("frameWidthDp", x.frameWidthDp)
-            .putFloat("cornerRadiusDp", x.cornerRadiusDp)
-            .putInt("textR", x.textR)
-            .putInt("textG", x.textG)
-            .putInt("textB", x.textB)
-            .putInt("textAlpha", x.textAlpha)
-            .putFloat("textSizeSp", x.textSizeSp)
-            .putFloat("horizontalPaddingDp", x.horizontalPaddingDp)
-            .putFloat("verticalPaddingDp", x.verticalPaddingDp)
-            .putInt("backgroundImageAlpha", x.backgroundImageAlpha)
-            .putInt("frameImageAlpha", x.frameImageAlpha)
-            .putString("backgroundImageUri", x.backgroundImageUri)
-            .putString("frameImageUri", x.frameImageUri)
-            .putString("backgroundImageResName", x.backgroundImageResName)
-            .putString("frameImageResName", x.frameImageResName)
-            .putLong("lastExplicitSaveAt", System.currentTimeMillis())
-            .commit()
-    }
+    fun saveCurrent(c: Context): Boolean = c.getSharedPreferences(PREFS, 0).edit()
+        .putLong("lastExplicitSaveAt", System.currentTimeMillis())
+        .commit()
 
     fun reset(c: Context) = c.getSharedPreferences(PREFS, 0).edit().clear().commit()
     fun markDeveloperControl(v: View) { v.tag = DEV_TAG }
@@ -130,6 +127,8 @@ object StandardButtonLiveStyle {
         val n = runCatching { b.resources.getResourceEntryName(b.id) }.getOrNull().orEmpty()
         return n == "entryButton" || n == "pauseButton" || n == "exitButton"
     }
+
+    fun isLiveManaged(v: View): Boolean = v is Button && v.background is LiveButtonCompositeDrawable
 
     private fun drawableByName(c: Context, name: String): Drawable? {
         if (name.isBlank()) return null
@@ -150,24 +149,17 @@ object StandardButtonLiveStyle {
         if (isProtected(b)) return
         val x = current(c)
         val d = c.resources.displayMetrics.density
-        val base = GradientDrawable().apply {
-            cornerRadius = x.cornerRadiusDp * d
-            setColor(Color.argb(x.backgroundAlpha, x.backgroundR, x.backgroundG, x.backgroundB))
-            setStroke((x.frameWidthDp * d).roundToInt(), Color.argb(x.frameAlpha, x.frameR, x.frameG, x.frameB))
-        }
-        val layers = mutableListOf<Drawable>(base)
-        (drawableByName(c, x.backgroundImageResName) ?: drawableByUri(c, x.backgroundImageUri))?.also {
-            it.alpha = x.backgroundImageAlpha.coerceIn(0, 255)
-            layers.add(it)
-        }
-        (drawableByName(c, x.frameImageResName) ?: drawableByUri(c, x.frameImageUri))?.also {
-            it.alpha = x.frameImageAlpha.coerceIn(0, 255)
-            layers.add(it)
-        }
-        b.background = LayerDrawable(layers.toTypedArray()).apply {
-            for (i in 0 until numberOfLayers) setLayerGravity(i, Gravity.FILL)
-        }
+        val bgImage = drawableByName(c, x.backgroundImageResName) ?: drawableByUri(c, x.backgroundImageUri)
+        val frameImage = drawableByName(c, x.frameImageResName) ?: drawableByUri(c, x.frameImageUri)
         b.backgroundTintList = null
+        b.setLayerType(View.LAYER_TYPE_NONE, null)
+        b.background = LiveButtonCompositeDrawable(
+            config = x,
+            density = d,
+            night = AppThemeCatalog.useDarkPalette(c),
+            backgroundImage = bgImage,
+            frameImage = frameImage
+        )
         b.setTextColor(Color.argb(x.textAlpha, x.textR, x.textG, x.textB))
         b.textSize = x.textSizeSp
         b.isAllCaps = false
@@ -177,13 +169,20 @@ object StandardButtonLiveStyle {
             (x.horizontalPaddingDp * d).roundToInt(),
             (x.verticalPaddingDp * d).roundToInt()
         )
+
+        if (managedButtons.put(b, true) != true) {
+            b.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+                val button = view as? Button ?: return@addOnLayoutChangeListener
+                if (!isProtected(button) && button.background !is LiveButtonCompositeDrawable) {
+                    button.post { applyToButton(button.context, button) }
+                }
+            }
+        }
     }
 
     fun applyTree(c: Context, v: View) {
         if (v is Button) applyToButton(c, v)
-        if (v is ViewGroup) {
-            for (i in 0 until v.childCount) applyTree(c, v.getChildAt(i))
-        }
+        if (v is ViewGroup) for (i in 0 until v.childCount) applyTree(c, v.getChildAt(i))
     }
 
     fun imageName(c: Context, u: String) = if (u.isBlank()) "Aucune" else Uri.parse(u).lastPathSegment ?: u
@@ -230,26 +229,11 @@ object DeveloperStandardButtonPanel {
             setPadding(dp(12), dp(8), dp(12), dp(8))
             setBackgroundColor(panelColor(a))
         }
-
         fun txt(s: String, size: Float = 12f) = TextView(a).apply {
             text = s
             textSize = size
             setTextColor(primaryText(a))
         }
-
-        root.addView(txt("🎛 RÉGLAGES LIVE — BOUTONS STANDARDS", 15f).apply { gravity = Gravity.CENTER })
-        root.addView(txt("Une seule source maître pour cadre, fond, texte et images", 11f).apply {
-            setTextColor(secondaryText(a))
-            gravity = Gravity.CENTER
-        })
-
-        val row = LinearLayout(a)
-        root.addView(row)
-        val host = FrameLayout(a)
-        root.addView(host, LinearLayout.LayoutParams(-1, 0, 1f))
-        val pages = linkedMapOf<String, ScrollView>()
-        val tabBtns = linkedMapOf<String, Button>()
-
         fun devButton(label: String) = Button(a).apply {
             text = label
             isAllCaps = false
@@ -259,19 +243,49 @@ object DeveloperStandardButtonPanel {
             StandardButtonLiveStyle.markDeveloperControl(this)
         }
 
+        root.addView(txt("🎛 RÉGLAGES LIVE — BOUTONS STANDARDS", 15f).apply { gravity = Gravity.CENTER })
+        root.addView(txt("Moteur maître : fond → image → cadre → texte", 11f).apply {
+            setTextColor(secondaryText(a)); gravity = Gravity.CENTER
+        })
+
+        val row = LinearLayout(a)
+        root.addView(row)
+        val host = FrameLayout(a)
+        root.addView(host, LinearLayout.LayoutParams(-1, 0, 1f))
+        val pages = linkedMapOf<String, ScrollView>()
+        val tabBtns = linkedMapOf<String, Button>()
+
         fun showTab(n: String) {
             pages.forEach { (k, v) -> v.visibility = if (k == n) View.VISIBLE else View.GONE }
-            tabBtns.forEach { (k, b) ->
-                b.alpha = if (k == n) 1f else .72f
-                b.setTextColor(primaryText(a))
-            }
+            tabBtns.forEach { (k, b) -> b.alpha = if (k == n) 1f else .72f }
         }
 
         val specs = listOf(
-            Spec("FOND","Rouge","backgroundR",0f,255f,true){it.backgroundR.toFloat()},Spec("FOND","Vert","backgroundG",0f,255f,true){it.backgroundG.toFloat()},Spec("FOND","Bleu","backgroundB",0f,255f,true){it.backgroundB.toFloat()},Spec("FOND","Opacité","backgroundAlpha",0f,255f,true){it.backgroundAlpha.toFloat()},
-            Spec("CADRE","Rouge","frameR",0f,255f,true){it.frameR.toFloat()},Spec("CADRE","Vert","frameG",0f,255f,true){it.frameG.toFloat()},Spec("CADRE","Bleu","frameB",0f,255f,true){it.frameB.toFloat()},Spec("CADRE","Opacité","frameAlpha",0f,255f,true){it.frameAlpha.toFloat()},Spec("CADRE","Épaisseur dp","frameWidthDp",0f,12f){it.frameWidthDp},Spec("CADRE","Arrondi dp","cornerRadiusDp",0f,48f){it.cornerRadiusDp},
-            Spec("TEXTE","Rouge","textR",0f,255f,true){it.textR.toFloat()},Spec("TEXTE","Vert","textG",0f,255f,true){it.textG.toFloat()},Spec("TEXTE","Bleu","textB",0f,255f,true){it.textB.toFloat()},Spec("TEXTE","Opacité","textAlpha",0f,255f,true){it.textAlpha.toFloat()},Spec("TEXTE","Taille sp","textSizeSp",9f,26f){it.textSizeSp},Spec("TEXTE","Padding horizontal","horizontalPaddingDp",0f,30f){it.horizontalPaddingDp},Spec("TEXTE","Padding vertical","verticalPaddingDp",0f,20f){it.verticalPaddingDp},
-            Spec("IMAGES","Opacité image fond","backgroundImageAlpha",0f,255f,true){it.backgroundImageAlpha.toFloat()},Spec("IMAGES","Opacité image cadre","frameImageAlpha",0f,255f,true){it.frameImageAlpha.toFloat()}
+            Spec("FOND","Rouge","backgroundR",0f,255f,true){it.backgroundR.toFloat()},
+            Spec("FOND","Vert","backgroundG",0f,255f,true){it.backgroundG.toFloat()},
+            Spec("FOND","Bleu","backgroundB",0f,255f,true){it.backgroundB.toFloat()},
+            Spec("FOND","Opacité","backgroundAlpha",0f,255f,true){it.backgroundAlpha.toFloat()},
+            Spec("CADRE","Rouge","frameR",0f,255f,true){it.frameR.toFloat()},
+            Spec("CADRE","Vert","frameG",0f,255f,true){it.frameG.toFloat()},
+            Spec("CADRE","Bleu","frameB",0f,255f,true){it.frameB.toFloat()},
+            Spec("CADRE","Opacité","frameAlpha",0f,255f,true){it.frameAlpha.toFloat()},
+            Spec("CADRE","Épaisseur dp","frameWidthDp",0f,12f){it.frameWidthDp},
+            Spec("CADRE","Arrondi bouton dp","cornerRadiusDp",0f,60f){it.cornerRadiusDp},
+            Spec("TEXTE","Rouge","textR",0f,255f,true){it.textR.toFloat()},
+            Spec("TEXTE","Vert","textG",0f,255f,true){it.textG.toFloat()},
+            Spec("TEXTE","Bleu","textB",0f,255f,true){it.textB.toFloat()},
+            Spec("TEXTE","Opacité","textAlpha",0f,255f,true){it.textAlpha.toFloat()},
+            Spec("TEXTE","Taille sp","textSizeSp",9f,26f){it.textSizeSp},
+            Spec("TEXTE","Padding horizontal","horizontalPaddingDp",0f,30f){it.horizontalPaddingDp},
+            Spec("TEXTE","Padding vertical","verticalPaddingDp",0f,20f){it.verticalPaddingDp},
+            Spec("IMAGES","Opacité image fond","backgroundImageAlpha",0f,255f,true){it.backgroundImageAlpha.toFloat()},
+            Spec("IMAGES","Opacité image cadre","frameImageAlpha",0f,255f,true){it.frameImageAlpha.toFloat()},
+            Spec("IMAGES","Largeur image %","imageWidthPercent",5f,200f){it.imageWidthPercent},
+            Spec("IMAGES","Hauteur image %","imageHeightPercent",5f,200f){it.imageHeightPercent},
+            Spec("IMAGES","Position X %","imageOffsetXPercent",-100f,100f){it.imageOffsetXPercent},
+            Spec("IMAGES","Position Y %","imageOffsetYPercent",-100f,100f){it.imageOffsetYPercent},
+            Spec("IMAGES","Arrondi image dp","imageCornerRadiusDp",0f,80f){it.imageCornerRadiusDp},
+            Spec("IMAGES","Assombrissement nuit %","nightImageDimPercent",0f,90f,true){it.nightImageDimPercent.toFloat()}
         )
 
         tabs.forEach { tab ->
@@ -283,108 +297,69 @@ object DeveloperStandardButtonPanel {
             val col = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL }
             specs.filter { it.tab == tab }.forEach { addControl(a, col, it) }
 
-            if (tab == "IMAGES") {
-                val selected = txt("", 11f).apply {
-                    setTextColor(secondaryText(a))
-                    setPadding(0, dp(4), 0, dp(8))
-                }
+            if (tab == "CADRE") {
+                col.addView(cycleButton(a, "Forme bouton", listOf("ROUNDED","RECT","CAPSULE","CIRCLE"), { StandardButtonLiveStyle.current(a).buttonShape }) {
+                    StandardButtonLiveStyle.setString(a, "buttonShape", it); applyNow(a)
+                })
+            }
 
+            if (tab == "IMAGES") {
+                val ratio = CheckBox(a).apply {
+                    text = "Conserver le ratio de l'image"
+                    setTextColor(primaryText(a))
+                    isChecked = StandardButtonLiveStyle.current(a).keepImageAspect
+                    setOnCheckedChangeListener { _, checked ->
+                        StandardButtonLiveStyle.setBoolean(a, "keepImageAspect", checked)
+                        applyNow(a)
+                    }
+                }
+                col.addView(ratio)
+                col.addView(cycleButton(a, "Mode image", listOf("FIT","FILL","STRETCH"), { StandardButtonLiveStyle.current(a).imageScaleMode }) {
+                    StandardButtonLiveStyle.setString(a, "imageScaleMode", it); applyNow(a)
+                })
+                col.addView(cycleButton(a, "Forme image", listOf("BUTTON","RECT","ROUNDED","CAPSULE","CIRCLE"), { StandardButtonLiveStyle.current(a).imageShape }) {
+                    StandardButtonLiveStyle.setString(a, "imageShape", it); applyNow(a)
+                })
+
+                val selected = txt("", 11f).apply { setTextColor(secondaryText(a)); setPadding(0, dp(6), 0, dp(6)) }
                 fun refreshSelected() {
                     val c = StandardButtonLiveStyle.current(a)
                     val bg = c.backgroundImageResName.ifBlank { StandardButtonLiveStyle.imageName(a, c.backgroundImageUri) }
                     val frame = c.frameImageResName.ifBlank { StandardButtonLiveStyle.imageName(a, c.frameImageUri) }
                     selected.text = "Fond : $bg\nCadre : $frame"
                 }
-
                 refreshSelected()
                 col.addView(selected)
-                col.addView(txt("BIBLIOTHÈQUE DU DÉPÔT — touche FOND ou CADRE sous une vignette pour l'appliquer immédiatement.", 11f).apply {
-                    setTextColor(secondaryText(a))
-                    setPadding(0, 0, 0, dp(6))
-                })
+                col.addView(txt("BIBLIOTHÈQUE — liste compacte. Touche un nom pour l'aperçu et les actions.", 11f).apply { setTextColor(secondaryText(a)) })
 
-                val grid = GridLayout(a).apply {
-                    columnCount = 3
-                    alignmentMode = GridLayout.ALIGN_BOUNDS
-                    useDefaultMargins = true
+                CanonicalImageLibrary.items(a).forEach { item ->
+                    val line = devButton("${item.name}   •   ${item.sourceType}").apply {
+                        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                        textSize = 11f
+                        setOnClickListener { showImageChoice(a, item, refreshSelected = { refreshSelected(); applyNow(a) }) }
+                    }
+                    col.addView(line, LinearLayout.LayoutParams(-1, dp(42)).apply { topMargin = dp(3) })
                 }
-
-                StandardButtonLiveStyle.bundledDrawableNames().forEach { name ->
-                    val id = a.resources.getIdentifier(name, "drawable", a.packageName)
-                    if (id == 0) return@forEach
-
-                    val card = LinearLayout(a).apply {
-                        orientation = LinearLayout.VERTICAL
-                        gravity = Gravity.CENTER
-                        setPadding(dp(3), dp(3), dp(3), dp(5))
-                        background = controlBackground(a)
-                    }
-                    val preview = ImageView(a).apply {
-                        setImageResource(id)
-                        scaleType = ImageView.ScaleType.CENTER_INSIDE
-                        adjustViewBounds = true
-                        contentDescription = name
-                    }
-                    card.addView(preview, LinearLayout.LayoutParams(-1, dp(64)))
-                    card.addView(txt(name, 9f).apply {
-                        gravity = Gravity.CENTER
-                        maxLines = 2
-                    }, LinearLayout.LayoutParams(-1, dp(34)))
-
-                    val choose = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
-                    val asBg = devButton("FOND").apply {
-                        textSize = 9f
-                        setOnClickListener {
-                            StandardButtonLiveStyle.setBundledImage(a, false, name)
-                            applyNow(a)
-                            refreshSelected()
-                            Toast.makeText(a, "$name appliqué au fond", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    val asFrame = devButton("CADRE").apply {
-                        textSize = 9f
-                        setOnClickListener {
-                            StandardButtonLiveStyle.setBundledImage(a, true, name)
-                            applyNow(a)
-                            refreshSelected()
-                            Toast.makeText(a, "$name appliqué au cadre", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                    choose.addView(asBg, LinearLayout.LayoutParams(0, dp(34), 1f))
-                    choose.addView(asFrame, LinearLayout.LayoutParams(0, dp(34), 1f))
-                    card.addView(choose)
-                    grid.addView(card, GridLayout.LayoutParams().apply {
-                        width = 0
-                        height = GridLayout.LayoutParams.WRAP_CONTENT
-                        columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    })
-                }
-                col.addView(grid)
 
                 val clearRow = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
                 clearRow.addView(devButton("RETIRER FOND").apply {
                     setOnClickListener {
                         StandardButtonLiveStyle.setBundledImage(a, false, null)
                         StandardButtonLiveStyle.setImage(a, false, null)
-                        applyNow(a)
-                        refreshSelected()
+                        applyNow(a); refreshSelected()
                     }
                 }, LinearLayout.LayoutParams(0, dp(42), 1f))
                 clearRow.addView(devButton("RETIRER CADRE").apply {
                     setOnClickListener {
                         StandardButtonLiveStyle.setBundledImage(a, true, null)
                         StandardButtonLiveStyle.setImage(a, true, null)
-                        applyNow(a)
-                        refreshSelected()
+                        applyNow(a); refreshSelected()
                     }
                 }, LinearLayout.LayoutParams(0, dp(42), 1f))
                 col.addView(clearRow)
             }
 
-            val p = ScrollView(a).apply {
-                addView(col)
-                visibility = View.GONE
-            }
+            val p = ScrollView(a).apply { addView(col); visibility = View.GONE }
             pages[tab] = p
             host.addView(p)
         }
@@ -403,71 +378,82 @@ object DeveloperStandardButtonPanel {
         val dialog = AlertDialog.Builder(a).setView(root).create()
         save.setOnClickListener {
             if (StandardButtonLiveStyle.saveCurrent(a)) {
-                applyNow(a)
-                Toast.makeText(a, "Réglages live enregistrés", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(a, "Échec de l'enregistrement", Toast.LENGTH_LONG).show()
-            }
+                applyNow(a); Toast.makeText(a, "Réglages live enregistrés", Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(a, "Échec de l'enregistrement", Toast.LENGTH_LONG).show()
         }
         report.setOnClickListener { StandardButtonDeveloperReport.share(a) }
-        reset.setOnClickListener {
-            StandardButtonLiveStyle.reset(a)
-            applyNow(a)
-            dialog.dismiss()
-            show(a)
-        }
+        reset.setOnClickListener { StandardButtonLiveStyle.reset(a); applyNow(a); dialog.dismiss(); show(a) }
         close.setOnClickListener { dialog.dismiss() }
         dialog.setOnShowListener {
             dialog.window?.apply {
                 setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
                 clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
                 setGravity(Gravity.TOP)
-                setLayout(-1, (a.resources.displayMetrics.heightPixels * .56f).roundToInt())
+                setLayout(-1, (a.resources.displayMetrics.heightPixels * .62f).roundToInt())
             }
-            showTab("FOND")
-            applyNow(a)
+            showTab("FOND"); applyNow(a)
         }
         dialog.show()
     }
 
-    private fun addControl(a: MainActivity, p: LinearLayout, s: Spec) {
-        val label = TextView(a).apply {
+    private fun cycleButton(a: MainActivity, label: String, values: List<String>, current: () -> String, onChange: (String) -> Unit): Button {
+        fun redraw(b: Button) { b.text = "$label : ${current()}" }
+        return Button(a).apply {
+            isAllCaps = false
             setTextColor(primaryText(a))
-            textSize = 12f
-        }
-        val bar = SeekBar(a).apply { max = 1000 }
-
-        fun value(progress: Int): Float = s.min + (s.max - s.min) * progress / 1000f
-        fun progress(v: Float): Int = (((v - s.min) / (s.max - s.min)) * 1000f).roundToInt().coerceIn(0, 1000)
-        fun showValue(v: Float) {
-            label.text = if (s.integer) {
-                "${s.label} : ${v.roundToInt()}"
-            } else {
-                String.format(Locale.FRANCE, "%s : %.2f", s.label, v)
+            background = controlBackground(a)
+            backgroundTintList = null
+            StandardButtonLiveStyle.markDeveloperControl(this)
+            redraw(this)
+            setOnClickListener {
+                val now = current()
+                val next = values[(values.indexOf(now).takeIf { it >= 0 } ?: 0).let { (it + 1) % values.size }]
+                onChange(next); redraw(this)
             }
         }
+    }
 
+    private fun showImageChoice(a: MainActivity, item: CanonicalImageLibrary.Item, refreshSelected: () -> Unit) {
+        fun dp(v: Int) = (v * a.resources.displayMetrics.density).roundToInt()
+        val box = LinearLayout(a).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(10)) }
+        box.addView(ImageView(a).apply {
+            setImageResource(item.resId)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            adjustViewBounds = true
+        }, LinearLayout.LayoutParams(-1, dp(160)))
+        box.addView(TextView(a).apply {
+            text = "${item.name}\nOrigine : ${item.sourceType}\n${item.width}×${item.height} → PNG RGBA canonique à l'export"
+            setTextColor(primaryText(a)); gravity = Gravity.CENTER
+        })
+        val d = AlertDialog.Builder(a)
+            .setTitle("Bibliothèque")
+            .setView(box)
+            .setPositiveButton("FOND") { _, _ -> StandardButtonLiveStyle.setBundledImage(a, false, item.name); refreshSelected() }
+            .setNeutralButton("CADRE") { _, _ -> StandardButtonLiveStyle.setBundledImage(a, true, item.name); refreshSelected() }
+            .setNegativeButton("FERMER", null)
+            .create()
+        d.show()
+    }
+
+    private fun addControl(a: MainActivity, p: LinearLayout, s: Spec) {
+        val label = TextView(a).apply { setTextColor(primaryText(a)); textSize = 12f }
+        val bar = SeekBar(a).apply { max = 1000 }
+        fun value(progress: Int): Float = s.min + (s.max - s.min) * progress / 1000f
+        fun progress(v: Float): Int = (((v - s.min) / (s.max - s.min)) * 1000f).roundToInt().coerceIn(0, 1000)
+        fun showValue(v: Float) { label.text = if (s.integer) "${s.label} : ${v.roundToInt()}" else String.format(Locale.FRANCE, "%s : %.2f", s.label, v) }
         val initial = s.get(StandardButtonLiveStyle.current(a))
-        bar.progress = progress(initial)
-        showValue(initial)
+        bar.progress = progress(initial); showValue(initial)
         bar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (!fromUser) return
                 val v = value(progress)
-                if (s.integer) {
-                    StandardButtonLiveStyle.setInt(a, s.key, v.roundToInt())
-                } else {
-                    StandardButtonLiveStyle.setFloat(a, s.key, v)
-                }
-                showValue(v)
-                applyNow(a)
+                if (s.integer) StandardButtonLiveStyle.setInt(a, s.key, v.roundToInt()) else StandardButtonLiveStyle.setFloat(a, s.key, v)
+                showValue(v); applyNow(a)
             }
-
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
             override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
         })
-        p.addView(label)
-        p.addView(bar)
+        p.addView(label); p.addView(bar)
     }
 
     private fun applyNow(a: MainActivity) {
@@ -485,10 +471,13 @@ object StandardButtonDeveloperReport {
             appendLine("HORATRACK — RAPPORT STYLE BOUTONS STANDARDS")
             appendLine("Généré : ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.FRANCE).format(Date())}")
             appendLine("FOND RGBA=${c.backgroundR},${c.backgroundG},${c.backgroundB},${c.backgroundAlpha}")
-            appendLine("CADRE RGBA=${c.frameR},${c.frameG},${c.frameB},${c.frameAlpha} largeur=${c.frameWidthDp}dp arrondi=${c.cornerRadiusDp}dp")
+            appendLine("CADRE RGBA=${c.frameR},${c.frameG},${c.frameB},${c.frameAlpha} largeur=${c.frameWidthDp}dp arrondi=${c.cornerRadiusDp}dp forme=${c.buttonShape}")
             appendLine("TEXTE RGBA=${c.textR},${c.textG},${c.textB},${c.textAlpha} taille=${c.textSizeSp}sp padding=${c.horizontalPaddingDp}/${c.verticalPaddingDp}dp")
-            appendLine("Image fond=$bg")
-            append("Image cadre=$frame")
+            appendLine("Image fond=$bg alpha=${c.backgroundImageAlpha}")
+            appendLine("Image cadre=$frame alpha=${c.frameImageAlpha}")
+            appendLine("Image taille=${c.imageWidthPercent}% x ${c.imageHeightPercent}% position=${c.imageOffsetXPercent}/${c.imageOffsetYPercent}%")
+            appendLine("Image ratio=${c.keepImageAspect} mode=${c.imageScaleMode} forme=${c.imageShape} rayon=${c.imageCornerRadiusDp}dp")
+            append("Image nuit assombrissement=${c.nightImageDimPercent}%")
         }
     }
 
