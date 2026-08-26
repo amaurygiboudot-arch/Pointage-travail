@@ -238,11 +238,12 @@ class True3DButtonTextureView @JvmOverloads constructor(
     }
 
     /**
-     * Géométrie construite uniquement depuis le squelette visuel validé :
-     * table centrale polygonale, deux couronnes étoilées, ceinture fine et
-     * pavillon convergeant vers la pointe. Les triangles OpenGL ne sont pas
-     * assimilés aux facettes visuelles : un plan peut être composé de deux
-     * triangles qui partagent le même identifiant et la même normale.
+     * Maillage du squelette visuel validé.
+     *
+     * Règle importante :
+     * - un triangle OpenGL n'est PAS automatiquement une facette ;
+     * - une facette plane peut être triangulée sans créer de diagonale visible ;
+     * - seules les frontières réelles entre facettes sont envoyées au buffer d'arêtes.
      */
     private class CrystalMeshRenderer(private val quality: DiamondQuality) {
         var baseLightAngle = -55f
@@ -256,8 +257,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var smoothPitch = 0f
         private var smoothRoll = 0f
         private var smoothYaw = 0f
-        private var program = 0
 
+        private var program = 0
         private var pLoc = 0
         private var nLoc = 0
         private var rLoc = 0
@@ -269,8 +270,16 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var effectsLoc = 0
         private var colorRichnessLoc = 0
 
+        private var edgeProgram = 0
+        private var edgePositionLoc = 0
+        private var edgeMvpLoc = 0
+        private var edgeColorLoc = 0
+
         private var vertices: FloatBuffer? = null
         private var count = 0
+        private var edgeVertices: FloatBuffer? = null
+        private var edgeVertexCount = 0
+
         private var meshW = -1
         private var meshH = -1
         private var meshFacet = -1f
@@ -278,6 +287,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
         fun draw(width: Int, height: Int) {
             if (program == 0) createProgram()
+            if (edgeProgram == 0) createEdgeProgram()
 
             smoothPitch += (targetPitch - smoothPitch) * .20f
             smoothRoll += (targetRoll - smoothRoll) * .20f
@@ -332,6 +342,11 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val lx = cos(rad).toFloat()
             val ly = sin(rad).toFloat()
 
+            drawFacets(mvp, model, lx, ly)
+            drawTrueEdges(mvp)
+        }
+
+        private fun drawFacets(mvp: FloatArray, model: FloatArray, lx: Float, ly: Float) {
             GLES20.glUseProgram(program)
             GLES20.glUniformMatrix4fv(mvpLoc, 1, false, mvp, 0)
             GLES20.glUniformMatrix4fv(modelLoc, 1, false, model, 0)
@@ -369,6 +384,34 @@ class True3DButtonTextureView @JvmOverloads constructor(
             GLES20.glDisableVertexAttribArray(pLoc)
             GLES20.glDisableVertexAttribArray(nLoc)
             GLES20.glDisableVertexAttribArray(rLoc)
+        }
+
+        private fun drawTrueEdges(mvp: FloatArray) {
+            val buffer = edgeVertices ?: return
+            if (edgeVertexCount <= 0) return
+
+            GLES20.glUseProgram(edgeProgram)
+            GLES20.glUniformMatrix4fv(edgeMvpLoc, 1, false, mvp, 0)
+
+            val red = Color.red(baseColor) / 255f
+            val green = Color.green(baseColor) / 255f
+            val blue = Color.blue(baseColor) / 255f
+
+            val edgeR = red * .42f + .58f
+            val edgeG = green * .42f + .58f
+            val edgeB = blue * .42f + .58f
+            GLES20.glUniform4f(edgeColorLoc, edgeR, edgeG, edgeB, .46f)
+
+            buffer.position(0)
+            GLES20.glEnableVertexAttribArray(edgePositionLoc)
+            GLES20.glVertexAttribPointer(edgePositionLoc, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
+
+            GLES20.glDepthMask(false)
+            GLES20.glLineWidth(1.0f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, edgeVertexCount)
+            GLES20.glDepthMask(true)
+
+            GLES20.glDisableVertexAttribArray(edgePositionLoc)
         }
 
         private fun createProgram() {
@@ -439,6 +482,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
                         .90 - chroma * .10,
                         .96 + chroma * .18
                     ) * flash * .16 * uEffects;
+
                     vec3 rim = mix(warm, vec3(1.0), .70) * fresnel * (.42 + uEffects * .58);
                     vec3 color = body + vec3(1.0) * flash + rim + fire;
                     color = color / (color + vec3(.62));
@@ -470,6 +514,42 @@ class True3DButtonTextureView @JvmOverloads constructor(
             colorRichnessLoc = GLES20.glGetUniformLocation(program, "uColorRichness")
         }
 
+        private fun createEdgeProgram() {
+            val vertexShader = compile(
+                GLES20.GL_VERTEX_SHADER,
+                """
+                uniform mat4 uMvp;
+                attribute vec3 aPosition;
+                void main() {
+                    gl_Position = uMvp * vec4(aPosition, 1.0);
+                }
+                """.trimIndent()
+            )
+            val fragmentShader = compile(
+                GLES20.GL_FRAGMENT_SHADER,
+                """
+                precision mediump float;
+                uniform vec4 uEdgeColor;
+                void main() {
+                    gl_FragColor = uEdgeColor;
+                }
+                """.trimIndent()
+            )
+
+            edgeProgram = GLES20.glCreateProgram()
+            GLES20.glAttachShader(edgeProgram, vertexShader)
+            GLES20.glAttachShader(edgeProgram, fragmentShader)
+            GLES20.glLinkProgram(edgeProgram)
+
+            val ok = IntArray(1)
+            GLES20.glGetProgramiv(edgeProgram, GLES20.GL_LINK_STATUS, ok, 0)
+            check(ok[0] == GLES20.GL_TRUE) { GLES20.glGetProgramInfoLog(edgeProgram) }
+
+            edgePositionLoc = GLES20.glGetAttribLocation(edgeProgram, "aPosition")
+            edgeMvpLoc = GLES20.glGetUniformLocation(edgeProgram, "uMvp")
+            edgeColorLoc = GLES20.glGetUniformLocation(edgeProgram, "uEdgeColor")
+        }
+
         private fun compile(type: Int, source: String): Int {
             val shader = GLES20.glCreateShader(type)
             GLES20.glShaderSource(shader, source)
@@ -495,14 +575,11 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val pavilionBreakZ = -.43f - depth * .16f
             val culetZ = -.78f - depth * .30f
 
-            // Squelette vu du dessus : octogone central + deux anneaux étoilés + 16 points de ceinture.
             val table = ringPoints(8, hw * .48f, hh * .45f, tableZ, Math.PI / 8.0)
             val innerCrown = ringPoints(8, hw * .63f, hh * .60f, innerCrownZ, 0.0)
             val outerCrown = ringPoints(8, hw * .76f, hh * .73f, outerCrownZ, Math.PI / 8.0)
             val girdleTop = ringPoints(16, hw, hh, girdleTopZ, 0.0)
             val girdleBottom = ringPoints(16, hw * .988f, hh * .988f, girdleBottomZ, 0.0)
-
-            // Squelette du pavillon : 8 points de rupture qui convergent vers une pointe unique.
             val pavilionBreak = ringPoints(
                 8,
                 hw * (.53f - depth * .03f),
@@ -512,7 +589,9 @@ class True3DButtonTextureView @JvmOverloads constructor(
             )
             val culet = floatArrayOf(0f, 0f, culetZ)
 
-            val data = ArrayList<Float>(1400)
+            val data = ArrayList<Float>(1600)
+            val edgeData = ArrayList<Float>(900)
+            val edgeKeys = HashSet<String>()
             var nextFacetId = 0f
 
             fun normal(a: FloatArray, b: FloatArray, c: FloatArray): FloatArray {
@@ -563,73 +642,102 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 nextFacetId += 1f
             }
 
-            // Table : un seul plan visuel. Les 8 triangles OpenGL partagent le même ID et la même normale.
+            fun vertexKey(v: FloatArray): String =
+                "${v[0].toBits()}:${v[1].toBits()}:${v[2].toBits()}"
+
+            fun trueEdge(a: FloatArray, b: FloatArray) {
+                val ka = vertexKey(a)
+                val kb = vertexKey(b)
+                val key = if (ka < kb) "$ka|$kb" else "$kb|$ka"
+                if (!edgeKeys.add(key)) return
+                edgeData.add(a[0]); edgeData.add(a[1]); edgeData.add(a[2])
+                edgeData.add(b[0]); edgeData.add(b[1]); edgeData.add(b[2])
+            }
+
             val tableCenter = floatArrayOf(0f, 0f, tableZ)
             val tableNormal = floatArrayOf(0f, 0f, 1f)
             val tableFacetId = nextFacetId++
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
                 emitTriangle(table[i], table[n], tableCenter, tableFacetId, tableNormal)
+                trueEdge(table[i], table[n])
             }
 
-            // Première étoile du squelette : 8 grands plans entre table et anneau intérieur.
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
                 facetQuad(table[i], table[n], innerCrown[n], innerCrown[i])
+                trueEdge(table[i], innerCrown[i])
+                trueEdge(innerCrown[i], innerCrown[n])
             }
 
-            // Deuxième étoile : 8 plans qui prolongent les branches vers l'extérieur.
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
                 facetQuad(innerCrown[i], innerCrown[n], outerCrown[n], outerCrown[i])
+                trueEdge(innerCrown[i], outerCrown[i])
+                trueEdge(outerCrown[i], outerCrown[n])
             }
 
-            // Bord supérieur : 16 facettes visibles jusqu'à la ceinture, exactement selon les 16 rayons du squelette.
             for (i in 0 until 8) {
                 val g0 = (2 * i) % 16
                 val g1 = (2 * i + 1) % 16
                 val g2 = (2 * i + 2) % 16
                 facetTriangle(outerCrown[i], girdleTop[g0], girdleTop[g1])
                 facetTriangle(outerCrown[i], girdleTop[g1], girdleTop[g2])
+
+                trueEdge(outerCrown[i], girdleTop[g0])
+                trueEdge(outerCrown[i], girdleTop[g1])
+                trueEdge(outerCrown[i], girdleTop[g2])
+                trueEdge(girdleTop[g0], girdleTop[g1])
+                trueEdge(girdleTop[g1], girdleTop[g2])
             }
 
-            // Ceinture technique : visible en profil mais non comptée comme facette du squelette.
             for (i in 0 until 16) {
                 val n = (i + 1) % 16
                 val technicalId = 1000f + i
                 val faceNormal = normal(girdleTop[i], girdleTop[n], girdleBottom[n])
                 emitTriangle(girdleTop[i], girdleTop[n], girdleBottom[n], technicalId, faceNormal)
                 emitTriangle(girdleTop[i], girdleBottom[n], girdleBottom[i], technicalId, faceNormal)
+
+                trueEdge(girdleTop[i], girdleBottom[i])
+                trueEdge(girdleBottom[i], girdleBottom[n])
             }
 
-            // Pavillon : 16 facettes depuis la ceinture vers la rupture intérieure.
             for (i in 0 until 8) {
                 val g0 = (2 * i) % 16
                 val g1 = (2 * i + 1) % 16
                 val g2 = (2 * i + 2) % 16
                 facetTriangle(girdleBottom[g0], girdleBottom[g1], pavilionBreak[i])
                 facetTriangle(girdleBottom[g1], girdleBottom[g2], pavilionBreak[i])
+
+                trueEdge(girdleBottom[g0], pavilionBreak[i])
+                trueEdge(girdleBottom[g1], pavilionBreak[i])
+                trueEdge(girdleBottom[g2], pavilionBreak[i])
             }
 
-            // 8 grands plans finaux du pavillon vers la pointe.
             for (i in 0 until 8) {
                 val n = (i + 1) % 8
                 facetTriangle(pavilionBreak[i], pavilionBreak[n], culet)
+                trueEdge(pavilionBreak[i], pavilionBreak[n])
+                trueEdge(pavilionBreak[i], culet)
             }
 
             count = data.size / 7
-
-            // Le squelette possède 57 facettes visuelles. Les triangles techniques de la ceinture sont exclus.
-            check(nextFacetId.toInt() == 57) {
-                "Visual diamond skeleton must expose exactly 57 facet identities, got ${nextFacetId.toInt()}"
-            }
-
             vertices = ByteBuffer
                 .allocateDirect(data.size * 4)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
                 .apply {
                     data.forEach { put(it) }
+                    position(0)
+                }
+
+            edgeVertexCount = edgeData.size / 3
+            edgeVertices = ByteBuffer
+                .allocateDirect(edgeData.size * 4)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+                .apply {
+                    edgeData.forEach { put(it) }
                     position(0)
                 }
         }
@@ -766,7 +874,7 @@ class True3DButtonHost(context: Context) : FrameLayout(context) {
 }
 
 object True3DButtonInstaller {
-    private const val TAG = "hp_true_3d_wrapped_v8_visual_skeleton_57"
+    private const val TAG = "hp_true_3d_wrapped_v9_true_edges"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
 
     fun install(root: View, lightAngle: Float) {
