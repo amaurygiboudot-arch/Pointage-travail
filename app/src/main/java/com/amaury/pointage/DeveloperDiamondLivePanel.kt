@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -29,11 +30,20 @@ object DeveloperDiamondLivePanel {
         val value: (PrimaryDiamondLiveTuningConfig) -> Float
     )
 
+    private enum class PreviewTarget(val label: String, val id: Int?) {
+        ENTRY("ENTRÉE", R.id.entryButton),
+        PAUSE("PAUSE", R.id.pauseButton),
+        EXIT("SORTIE", R.id.exitButton),
+        ALL("LES 3", null)
+    }
+
     private val tabs = listOf("MATIÈRE", "FACETTES", "SOLEIL / LUNE", "EFFETS", "CADRE")
 
     fun show(activity: MainActivity) {
         if (!AdminDiagnosticsGate.isEnabled(activity)) return
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
+
+        var previewTarget = PreviewTarget.ALL
 
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -56,12 +66,73 @@ object DeveloperDiamondLivePanel {
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, dp(2))
         })
-        root.addView(TextView(activity).apply {
-            text = "Chaque curseur modifie directement Entrée, Pause et Sortie. Aucun aperçu séparé."
-            setTextColor(Color.rgb(190, 200, 214))
+
+        val targetTitle = TextView(activity).apply {
+            text = "APERÇU CIBLÉ — choisir le bouton puis envoyer"
+            setTextColor(Color.rgb(205, 216, 232))
             textSize = 11f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(6))
+            setPadding(0, dp(1), 0, dp(3))
+        }
+        root.addView(targetTitle)
+
+        val targetRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val targetButtons = linkedMapOf<PreviewTarget, Button>()
+        fun refreshTargets() {
+            targetButtons.forEach { (target, button) ->
+                val selected = target == previewTarget
+                button.alpha = if (selected) 1f else .55f
+                button.setTextColor(if (selected) Color.WHITE else Color.rgb(165, 175, 190))
+            }
+        }
+        PreviewTarget.entries.forEach { target ->
+            val b = Button(activity).apply {
+                text = target.label
+                isAllCaps = false
+                textSize = 10f
+                minHeight = 0
+                minimumHeight = 0
+                setPadding(dp(4), 0, dp(4), 0)
+                setBackgroundResource(R.drawable.hp_panel)
+                setOnClickListener {
+                    previewTarget = target
+                    refreshTargets()
+                }
+            }
+            targetButtons[target] = b
+            targetRow.addView(b, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(2) })
+        }
+        root.addView(targetRow)
+        refreshTargets()
+
+        val sendPreview = Button(activity).apply {
+            text = "➤ ENVOYER L’APERÇU SUR LES 3"
+            isAllCaps = false
+            textSize = 12f
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener {
+                val ok = applyPreview(activity, previewTarget)
+                text = "➤ ENVOYER L’APERÇU SUR ${previewTarget.label}"
+                Toast.makeText(
+                    activity,
+                    if (ok) "Aperçu envoyé sur ${previewTarget.label}" else "Bouton ${previewTarget.label} introuvable",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        targetButtons.forEach { (target, button) ->
+            button.setOnClickListener {
+                previewTarget = target
+                refreshTargets()
+                sendPreview.text = "➤ ENVOYER L’APERÇU SUR ${target.label}"
+            }
+        }
+        root.addView(sendPreview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply {
+            topMargin = dp(4)
+            bottomMargin = dp(4)
         })
 
         val strip = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
@@ -138,7 +209,8 @@ object DeveloperDiamondLivePanel {
                 setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
                 clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
                 setGravity(Gravity.BOTTOM)
-                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (activity.resources.displayMetrics.heightPixels * .48f).toInt())
+                // Laisse volontairement davantage de place en haut pour observer les vrais boutons.
+                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (activity.resources.displayMetrics.heightPixels * .42f).toInt())
             }
             showTab(tabs.first())
         }
@@ -170,6 +242,7 @@ object DeveloperDiamondLivePanel {
                 val value = valueOf(progress)
                 PrimaryDiamondLiveTuning.set(activity, spec.key, value)
                 setLabel(value)
+                // Le moteur lit les valeurs en direct ; on garde aussi ce rafraîchissement pour un retour instantané.
                 invalidateRealButtons(activity)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -184,6 +257,21 @@ object DeveloperDiamondLivePanel {
         intArrayOf(R.id.entryButton, R.id.pauseButton, R.id.exitButton).mapNotNull { id ->
             activity.findViewById<View>(id) as? RedDiamondFinalButton
         }
+
+    private fun applyPreview(activity: MainActivity, target: PreviewTarget): Boolean {
+        val targets = if (target.id == null) {
+            primaryButtons(activity)
+        } else {
+            listOfNotNull(activity.findViewById<View>(target.id) as? RedDiamondFinalButton)
+        }
+        targets.forEach { button ->
+            button.applyLiveDeveloperTuning()
+            button.requestLayout()
+            button.postInvalidateOnAnimation()
+        }
+        activity.window.decorView.postInvalidateOnAnimation()
+        return targets.isNotEmpty() && (target.id != null || targets.size == 3)
+    }
 
     private fun invalidateRealButtons(activity: MainActivity) {
         primaryButtons(activity).forEach { it.applyLiveDeveloperTuning() }
