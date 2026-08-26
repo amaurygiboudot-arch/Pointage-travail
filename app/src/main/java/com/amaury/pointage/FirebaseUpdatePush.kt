@@ -40,21 +40,15 @@ object FirebaseUpdatePush {
         }
 
         createChannel(context)
-        runCatching {
-            FirebaseMessaging.getInstance().subscribeToTopic(TOPIC)
-        }
+        runCatching { FirebaseMessaging.getInstance().subscribeToTopic(TOPIC) }
     }
 
     private fun createChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel(
-                CHANNEL_ID,
-                "Mises à jour HP Travail",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Avertit lorsqu'une nouvelle version de HP Travail est disponible"
+            NotificationChannel(CHANNEL_ID, "Mises à jour HoraTrack", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Avertit lorsqu'une nouvelle version de HoraTrack est disponible"
             }
         )
     }
@@ -77,17 +71,16 @@ object FirebaseUpdatePush {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.hp_icon_red)
-            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HP Travail")
+            .setSmallIcon(R.drawable.horatrack_notification)
+            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HoraTrack")
             .setContentText(body?.takeIf { it.isNotBlank() } ?: "Une nouvelle version est disponible. Appuie ici pour la mettre à jour.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HP Travail est disponible. Ouvre l'application pour l'installer."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HoraTrack est disponible. Ouvre l'application pour l'installer."))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
 
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(9401, notification)
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(9401, notification)
     }
 }
 
