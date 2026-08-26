@@ -13,19 +13,21 @@ permissions:
   contents: read
 
 jobs:
-  dependency-review:
-    if: github.event_name == 'pull_request'
+  dependency-scan:
+    name: Dependency vulnerability scan
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Dependency review
-        uses: actions/dependency-review-action@v4
+      - name: Scan repository dependencies with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          fail-on-severity: high
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
 
   codeql:
     name: CodeQL Android
@@ -58,7 +60,7 @@ jobs:
           category: '/language:java-kotlin'
 
   gradle-security-build:
-    name: Security update build check
+    name: Build, tests and Android lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -74,3 +76,17 @@ jobs:
           gradle-version: '8.13'
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+      - name: Android lint
+        shell: bash
+        run: |
+          set +e
+          gradle :app:lintDebug --stacktrace
+          status=$?
+          report="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ -f "$report" ]; then
+            echo "===== FULL ANDROID LINT REPORT ====="
+            cat "$report"
+          fi
+          exit $status

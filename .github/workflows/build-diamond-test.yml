@@ -1,22 +1,22 @@
-name: Compiler test Diamant Carbone
+name: Controle rapide Diamant
 
 on:
   push:
-    branches: [ "diamond-facets-test" ]
+    branches: [ "diamond-facets-test", "rebuild/diamond-celestial-v2" ]
   workflow_dispatch:
 
 concurrency:
-  group: hp-travail-diamond-carbon-test
+  group: hp-travail-diamond-fast-check-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-test:
+  compile-check:
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - name: Recuperer la branche de test
+      - name: Recuperer la branche
         uses: actions/checkout@v4
 
       - name: Installer Java 17
@@ -30,40 +30,20 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      - name: Restaurer la cle de signature
+      - name: Verifier ressources Android
         env:
-          KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_B64" || (echo "Secret POINTAGE_KEYSTORE_B64 manquant" && exit 1)
-          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
-
-      - name: Compiler APK test signe
-        env:
-          POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
-          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
-          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
-          POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
-        run: gradle :app:assembleRelease --stacktrace
+        run: gradle :app:processDebugResources --stacktrace
 
-      - name: Preparer APK test
-        run: |
-          cp app/build/outputs/apk/release/app-release.apk HP-Travail-Diamant-Carbone-Test.apk
-          sha256sum HP-Travail-Diamant-Carbone-Test.apk > SHA256-test.txt
-
-      - name: Publier artefact de test uniquement
-        uses: actions/upload-artifact@v4
-        with:
-          name: HP-Travail-Diamant-Carbone-Test
-          path: |
-            HP-Travail-Diamant-Carbone-Test.apk
-            SHA256-test.txt
-          if-no-files-found: error
-          retention-days: 14
+      - name: Compiler le code Kotlin
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
+        run: gradle :app:compileDebugKotlin --stacktrace

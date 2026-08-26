@@ -1,7 +1,10 @@
 package com.amaury.pointage
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -33,10 +36,20 @@ object SmartWorkplaceTestHarness {
 
         // Aucun SIRET/aucune zone : le test crée une candidate temporaire autour de la dernière position connue.
         if (zoneId.isBlank()) {
+            if (!hasLocationPermission(context)) {
+                return "Autorisation de localisation requise pour cette simulation."
+            }
+
             val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             val providers = runCatching { locationManager?.getProviders(true).orEmpty() }.getOrDefault(emptyList())
             val location = providers.asSequence()
-                .mapNotNull { provider -> runCatching { locationManager?.getLastKnownLocation(provider) }.getOrNull() }
+                .mapNotNull { provider ->
+                    try {
+                        locationManager?.getLastKnownLocation(provider)
+                    } catch (_: SecurityException) {
+                        null
+                    }
+                }
                 .maxByOrNull { it.time }
                 ?: return "Position GPS indisponible. Active la localisation puis réessaie : aucun SIRET n'est nécessaire."
 
@@ -78,5 +91,11 @@ object SmartWorkplaceTestHarness {
             .apply()
 
         return "Simulation prête : 3 jours consécutifs de présence qualifiée ont été injectés à $address. Aucun SIRET requis."
+    }
+
+    private fun hasLocationPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+        return context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 }

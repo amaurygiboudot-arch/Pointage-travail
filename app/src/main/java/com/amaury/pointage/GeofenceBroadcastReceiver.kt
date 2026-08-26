@@ -44,6 +44,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     val zoneId = regularIds.firstOrNull()
                     val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
                     if (PointageStore.entry(context, zoneId, zoneAddress)) {
+                        markGpsOwnedSession(context, zoneId)
                         updateWidgets(context)
                         if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
                     }
@@ -58,9 +59,48 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 activeZones.removeAll(regularIds.toSet())
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
-                if (activeZones.isEmpty() && PointageStore.exit(context)) updateWidgets(context)
+                if (activeZones.isEmpty() && isGpsOwnedOpenSession(context)) {
+                    if (PointageStore.exit(context)) {
+                        clearGpsOwnedSession(context)
+                        updateWidgets(context)
+                    }
+                }
             }
         }
+    }
+
+    /**
+     * Une sortie de géofence ne doit jamais clôturer un pointage démarré à la main
+     * ou depuis un widget. On garde donc un marqueur séparé pour la session que ce
+     * receiver a réellement ouverte.
+     */
+    private fun markGpsOwnedSession(context: Context, zoneId: String?) {
+        val latestEntry = latestOpenEntry(context)
+        context.getSharedPreferences(GPS_SESSION_PREFS, Context.MODE_PRIVATE).edit()
+            .putLong(KEY_ENTRY, latestEntry)
+            .putString(KEY_ZONE_ID, zoneId.orEmpty())
+            .apply()
+    }
+
+    private fun isGpsOwnedOpenSession(context: Context): Boolean {
+        val marker = context.getSharedPreferences(GPS_SESSION_PREFS, Context.MODE_PRIVATE)
+        val markedEntry = marker.getLong(KEY_ENTRY, -1L)
+        if (markedEntry <= 0L) return false
+        return latestOpenEntry(context) == markedEntry
+    }
+
+    private fun clearGpsOwnedSession(context: Context) {
+        context.getSharedPreferences(GPS_SESSION_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
+    private fun latestOpenEntry(context: Context): Long {
+        val data = PointageStore.load(context)
+        for (i in data.length() - 1 downTo 0) {
+            val item = data.optJSONObject(i) ?: continue
+            val entry = item.optLong("entry", -1L)
+            if (entry > 0L && item.isNull("exit")) return entry
+        }
+        return -1L
     }
 
     private fun updateWidgets(context: Context) {
@@ -132,5 +172,11 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .build()
 
         manager.notify(address.hashCode(), notification)
+    }
+
+    companion object {
+        private const val GPS_SESSION_PREFS = "gps_owned_session"
+        private const val KEY_ENTRY = "entry"
+        private const val KEY_ZONE_ID = "zone_id"
     }
 }

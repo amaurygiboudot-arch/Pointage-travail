@@ -19,14 +19,6 @@
             android:layout_width="match_parent"
             android:layout_height="210dp">
 
-            <ImageView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:src="@drawable/luxury_hero"
-                android:scaleType="fitCenter"
-                android:adjustViewBounds="true"
-                android:contentDescription="Décor HP Travail" />
-
             <com.amaury.pointage.HpAnalogClockView
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -87,7 +79,7 @@
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:text="CONVENTION COLLECTIVE" android:textColor="@color/hp_gold" android:textSize="15sp" android:textStyle="bold"/>
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:gravity="center_vertical" android:orientation="horizontal">
                 <TextView android:id="@+id/selectedConventionText" android:layout_width="0dp" android:layout_height="56dp" android:layout_weight="1" android:background="@drawable/hp_panel" android:gravity="center_vertical" android:paddingStart="12dp" android:paddingEnd="8dp" android:text="Plasturgie — IDCC 0292" android:textColor="@color/hp_white" android:textSize="15sp"/>
-                <Button android:id="@+id/searchConventionButton" android:layout_width="60dp" android:layout_height="56dp" android:layout_marginStart="8dp" android:background="@drawable/hp_panel" android:text="🔎" android:textColor="@color/hp_gold_light" android:textSize="22sp"/>
+                <Button android:id="@+id/searchConventionButton" android:layout_width="60dp" android:layout_height="56dp" android:layout_marginStart="8dp" android:background="@drawable/hp_panel" android:text="🔎" android:textColor="@color/hp_gold_light" android:textSize="22sp" android:contentDescription="Rechercher une convention collective"/>
             </LinearLayout>
             <TextView android:id="@+id/conventionRuleStatusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="7dp" android:text="Règles Plasturgie intégrées" android:textColor="@color/hp_grey" android:textSize="12sp"/>
 

@@ -43,10 +43,6 @@ object ButtonReliefInstaller {
         refresh(activity, decor)
         configureSolarLighting(activity, decor)
 
-        // Avant, un OnGlobalLayoutListener permanent rappelait refresh() à chaque
-        // modification de layout. Cela retraversait tout l'écran plusieurs fois
-        // par frame et recréait des drawables/animations. On attend maintenant
-        // uniquement l'installation de la section Paramètres, puis on retire le listener.
         val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 if (activity.isFinishing || activity.isDestroyed) {
@@ -71,6 +67,12 @@ object ButtonReliefInstaller {
             indicator?.setSunVisible(false)
             LightDirectionController.attach(activity) { state ->
                 if (!isSolarEnabled(activity)) return@attach
+
+                // Le contrôleur publie le vrai Soleil/Lune dès qu'une position est disponible.
+                // Sans permission/localisation, on conserve tout de même une lumière mondiale
+                // de secours afin que les facettes restent colorées et réagissent au téléphone.
+                ensureFallbackCelestial(state)
+
                 currentLightAngle = state.lightAngle
                 currentNight = state.night
                 AppThemeCatalog.setCelestialNight(activity, state.night)
@@ -90,10 +92,42 @@ object ButtonReliefInstaller {
         }
     }
 
+    /**
+     * Si Android ne donne pas encore de position, le moteur céleste n'a ni Soleil ni Lune.
+     * Dans ce cas seulement, on publie une source lumineuse de secours fixe dans le monde.
+     * La matrice d'orientation continue donc à faire bouger la lumière sur les 80 facettes.
+     * Dès qu'une vraie position astronomique est disponible, ce fallback n'est plus utilisé.
+     */
+    private fun ensureFallbackCelestial(state: LightDirectionController.LightingState) {
+        val snapshot = CelestialStateStore.current()
+        if (snapshot.sun.available || snapshot.moon.available) return
+
+        val worldAzimuth = normalizeDegrees(snapshot.orientation.azimuthDeg + state.lightAngle)
+        val intensity = if (state.night) 0.32f else 0.74f
+        val fallbackBody = CelestialBodyState(
+            azimuthDeg = worldAzimuth.toDouble(),
+            altitudeDeg = state.celestialElevation.toDouble().coerceIn(12.0, 75.0),
+            apparentScale = 1.0,
+            opticalIntensity = intensity,
+            available = true
+        )
+
+        CelestialStateStore.publish(
+            if (state.night) snapshot.copy(
+                moon = fallbackBody,
+                isNight = true
+            ) else snapshot.copy(
+                sun = fallbackBody,
+                isNight = false
+            )
+        )
+    }
+
     private fun updateDynamicLight(decor: View, angle: Float, night: Boolean) {
         dynamicDrawables.entries.toList().forEach { (b, d) -> if (b.rootView === decor) d.setLightAngle(angle) }
         True3DButtonInstaller.updateLight(decor, angle)
         updateJewelLights(decor, angle, night)
+        invalidatePointageDiamonds(decor)
     }
 
     private fun updateJewelLights(view: View, angle: Float, night: Boolean) {
@@ -104,7 +138,19 @@ object ButtonReliefInstaller {
         if (view is ViewGroup) for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle, night)
     }
 
-    private fun isSolarEnabled(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
+    private fun invalidatePointageDiamonds(view: View) {
+        if (view is RedDiamondFinalButton) view.postInvalidateOnAnimation()
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) invalidatePointageDiamonds(view.getChildAt(i))
+        }
+    }
+
+    // Le suivi céleste est actif par défaut. Un utilisateur qui l'a explicitement
+    // désactivé conserve son choix car SharedPreferences contient alors false.
+    private fun isSolarEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return if (prefs.contains(PREF_SOLAR)) prefs.getBoolean(PREF_SOLAR, true) else true
+    }
 
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
         activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
@@ -177,12 +223,11 @@ object ButtonReliefInstaller {
 
     private fun installDiamondLabIfPossible(activity: Activity) {
         if (activity !is MainActivity) return
-        if (AppThemeCatalog.current(activity).id != "diamond_crystal") return
         val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
             tag = TAG_DIAMOND_LAB
-            text = "💎 LABORATOIRE DIAMANT"
+            text = "💎 RÉGLAGES DES BOUTONS DIAMANT"
             isAllCaps = false
             textSize = 13f
             minHeight = 0
@@ -204,7 +249,7 @@ object ButtonReliefInstaller {
         if (section.findViewWithTag<View>(TAG_SOLAR_SWITCH) != null) return
         val toggle = Switch(activity).apply {
             tag = TAG_SOLAR_SWITCH
-            text = "Éclairage soleil / lune dynamique"
+            text = "Éclairage dynamique : Soleil / Lune + mouvement du téléphone"
             textSize = 14f
             isChecked = isSolarEnabled(activity)
             setOnCheckedChangeListener { _, checked -> setSolarEnabled(activity, checked) }
@@ -341,6 +386,8 @@ object ButtonReliefInstaller {
             dynamicDrawables[button] = d
             button.setTag(TAG_KEY, styleKey)
         } else if (protected && button.getTag(TAG_KEY) == null) {
+            // Les trois boutons de pointage gardent leur couleur matière propre.
+            button.alpha = 1f
             button.setTag(TAG_KEY, "protected")
         }
         installPressAnimator(button)
@@ -372,5 +419,8 @@ object ButtonReliefInstaller {
         val a = lum(f); val z = lum(b)
         return (maxOf(a,z)+.05)/(minOf(a,z)+.05)
     }
+
+    private fun normalizeDegrees(value: Float): Float = ((value % 360f) + 360f) % 360f
+
     private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
 }

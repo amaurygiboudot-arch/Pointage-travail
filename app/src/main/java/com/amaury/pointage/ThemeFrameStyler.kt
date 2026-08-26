@@ -8,12 +8,6 @@ import android.widget.EditText
 import android.widget.Switch
 import android.widget.TextView
 
-/**
- * Applique les cadres des thèmes aux contrôles uniquement.
- * Les panneaux/conteneurs restent toujours totalement transparents.
- * Le thème Carbone suit réellement le mode clair/sombre :
- * sombre = texture originale, clair = texture polarisée.
- */
 object ThemeFrameStyler {
     private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
     private val tabIds = setOf("tabToday", "tabHistory", "tabAnalytics", "tabSalary", "tabSettings")
@@ -29,7 +23,7 @@ object ThemeFrameStyler {
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {
         val id = resourceName(view)
-        if (id in protectedIds || id in visualIds || view is RedDiamondFinalButton) return
+        if (id in protectedIds || id in visualIds || view is RedDiamondFinalButton || StandardButtonLiveStyle.isLiveManaged(view)) return
 
         val framedContainer = view is ViewGroup && isFramedContainer(view, id)
         val localDark = when {
@@ -52,16 +46,14 @@ object ThemeFrameStyler {
         }
     }
 
-    private fun hasThemedBackground(view: View): Boolean =
-        view.background is CarbonCompositeDrawable || view.background != null
+    private fun hasThemedBackground(view: View): Boolean = view.background is CarbonCompositeDrawable || view.background != null
 
     private fun isFramedContainer(view: ViewGroup, id: String): Boolean {
         if (id == "navigationTabs" || id == "pointageButtons") return false
         if (id == "contentPanel" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel") return true
-        if (id.contains("panel", ignoreCase = true) || id.contains("card", ignoreCase = true)) return true
+        if (id.contains("panel", true) || id.contains("card", true)) return true
         val tag = view.tag?.toString().orEmpty()
-        return tag == "settings_personalization_installed" ||
-            tag.contains("panel", ignoreCase = true) || tag.contains("card", ignoreCase = true)
+        return tag == "settings_personalization_installed" || tag.contains("panel", true) || tag.contains("card", true)
     }
 
     private fun clearContainerBackground(view: View) {
@@ -71,14 +63,13 @@ object ThemeFrameStyler {
     }
 
     private fun ensureBackground(view: View, theme: HpTheme) {
+        if (StandardButtonLiveStyle.isLiveManaged(view)) return
         view.backgroundTintList = null
         when (theme.id) {
             "natural_carbon" -> {
                 val wantedLight = !AppThemeCatalog.useDarkPalette(view.context)
                 val current = view.background as? CarbonCompositeDrawable
-                if (current == null || current.lightMode != wantedLight) {
-                    view.background = CarbonCompositeDrawable(view.context, lightMode = wantedLight)
-                }
+                if (current == null || current.lightMode != wantedLight) view.background = CarbonCompositeDrawable(view.context, lightMode = wantedLight)
             }
             "signature_gold" -> if (view.background == null || view.background is CarbonCompositeDrawable) {
                 view.background = view.context.getDrawable(R.drawable.hp_panel)?.mutate()
@@ -87,15 +78,13 @@ object ThemeFrameStyler {
     }
 
     private fun styleControl(view: View, theme: HpTheme, dark: Boolean) {
+        if (StandardButtonLiveStyle.isLiveManaged(view)) return
         ensureBackground(view, theme)
         val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
         val hintColor = if (dark) Color.parseColor("#D8D8D8") else Color.parseColor("#555555")
         when (view) {
             is Button -> if (view.currentTextColor != textColor) view.setTextColor(textColor)
-            is EditText -> {
-                if (view.currentTextColor != textColor) view.setTextColor(textColor)
-                view.setHintTextColor(hintColor)
-            }
+            is EditText -> { if (view.currentTextColor != textColor) view.setTextColor(textColor); view.setHintTextColor(hintColor) }
             is Switch -> if (view.currentTextColor != textColor) view.setTextColor(textColor)
         }
     }
@@ -104,8 +93,7 @@ object ThemeFrameStyler {
         val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
         val accent = if (dark) theme.accentLight else theme.accent
         val current = view.currentTextColor
-        val shouldKeepAccent = contrastRatio(current, if (dark) Color.BLACK else Color.WHITE) >= 4.5 &&
-            (current == theme.accent || current == theme.accentLight)
+        val shouldKeepAccent = contrastRatio(current, if (dark) Color.BLACK else Color.WHITE) >= 4.5 && (current == theme.accent || current == theme.accentLight)
         val target = if (shouldKeepAccent) accent else textColor
         if (current != target) view.setTextColor(target)
     }
@@ -113,31 +101,20 @@ object ThemeFrameStyler {
     private fun styleTab(tab: TextView, theme: HpTheme, dark: Boolean) {
         ensureBackground(tab, theme)
         val active = tab.isSelected
-        val alpha = if (active) 1f else 0.78f
-        if (tab.alpha != alpha) tab.alpha = alpha
-        val elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
-        if (tab.elevation != elevation) tab.elevation = elevation
-        val target = if (dark) {
-            if (active) Color.WHITE else Color.parseColor("#D0D0D0")
-        } else {
-            if (active) Color.parseColor("#111111") else Color.parseColor("#555555")
-        }
+        tab.alpha = if (active) 1f else 0.78f
+        tab.elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
+        val target = if (dark) { if (active) Color.WHITE else Color.parseColor("#D0D0D0") } else { if (active) Color.parseColor("#111111") else Color.parseColor("#555555") }
         if (tab.currentTextColor != target) tab.setTextColor(target)
     }
 
     private fun contrastRatio(foreground: Int, background: Int): Double {
         fun lum(c: Int): Double {
-            fun channel(v: Int): Double {
-                val s = v / 255.0
-                return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4)
-            }
+            fun channel(v: Int): Double { val s = v / 255.0; return if (s <= 0.03928) s / 12.92 else Math.pow((s + 0.055) / 1.055, 2.4) }
             return 0.2126 * channel(Color.red(c)) + 0.7152 * channel(Color.green(c)) + 0.0722 * channel(Color.blue(c))
         }
-        val l1 = lum(foreground)
-        val l2 = lum(background)
+        val l1 = lum(foreground); val l2 = lum(background)
         return (maxOf(l1, l2) + 0.05) / (minOf(l1, l2) + 0.05)
     }
 
-    private fun resourceName(view: View): String =
-        runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
+    private fun resourceName(view: View): String = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
 }

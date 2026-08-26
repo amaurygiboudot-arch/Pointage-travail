@@ -14,8 +14,10 @@ object ManualPauseBatchStore {
         val valid = ranges.filter { (start, end) -> start > 0L && end > start }
         if (valid.isEmpty()) return 0
 
+        val now = System.currentTimeMillis()
         val added = PointageStore.update(context) { data ->
             var count = 0
+            val changedSessions = linkedSetOf<JSONObject>()
             valid.forEach { (pauseStart, pauseEnd) ->
                 val target = findContainingSession(data, pauseStart, pauseEnd) ?: return@forEach
                 val pauses = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
@@ -35,9 +37,11 @@ object ManualPauseBatchStore {
                             .put("end", pauseEnd)
                             .put("manual", true)
                     )
+                    changedSessions += target
                     count++
                 }
             }
+            changedSessions.forEach { it.put("modifiedAt", now) }
             count
         }
 
@@ -57,7 +61,7 @@ object ManualPauseBatchStore {
             if (entry <= 0L || pauseStart < entry) continue
 
             if (item.isNull("exit")) {
-                if (pauseStart <= now) return item
+                if (pauseStart <= now && pauseEnd <= now) return item
             } else {
                 val sessionEnd = item.optLong("exit", -1L)
                 if (sessionEnd >= entry && pauseEnd <= sessionEnd) return item

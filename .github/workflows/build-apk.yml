@@ -48,8 +48,12 @@ jobs:
 
       - name: Preparer la version
         run: |
-          echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
-          echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
+          # Espace unique partagé avec les builds de test pour éviter tout downgrade.
+          VERSION_CODE=$(( $(date -u +%s) / 60 ))
+          VERSION_NAME="1.${{ github.run_number }}"
+          echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "versionCode=$VERSION_CODE versionName=$VERSION_NAME"
 
       - name: Compiler APK et AAB release signes
         id: gradle_build
@@ -99,6 +103,7 @@ jobs:
           sha256sum HoraTrack.aab > HoraTrack-AAB-SHA256.txt
           cp HP-Travail-SHA256.txt SHA256.txt
           printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
+          printf '%s\n' "$VERSION_CODE" > HP-Travail-version-code.txt
           test -s HP-Travail.apk
           test -s HoraTrack.aab
           test -s HP-Travail-SHA256.txt
@@ -116,6 +121,7 @@ jobs:
             HoraTrack-AAB-SHA256.txt
             SHA256.txt
             HP-Travail-version.txt
+            HP-Travail-version-code.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -150,6 +156,7 @@ jobs:
             HoraTrack-AAB-SHA256.txt \
             SHA256.txt \
             HP-Travail-version.txt \
+            HP-Travail-version-code.txt \
             --target "${GITHUB_SHA}" \
             --title "HoraTrack ${VERSION_NAME}" \
             --notes "Mise à jour automatique HoraTrack - APK + AAB Google Play" \

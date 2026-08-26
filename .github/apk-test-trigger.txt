@@ -1,0 +1,2 @@
+Trigger APK test after external HoraTrack image library and PNG canonicalization work.
+Date: 2026-08-26
