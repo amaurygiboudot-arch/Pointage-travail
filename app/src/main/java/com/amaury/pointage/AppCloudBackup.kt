@@ -5,6 +5,8 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.auth.FirebaseAuth
@@ -16,28 +18,26 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Sauvegarde/restauration complète des DONNÉES UTILISATEUR de HoraTrack.
+ * Sauvegarde/restauration des préférences et fichiers utilisateur de HoraTrack.
  *
- * Sont sauvegardés : préférences fonctionnelles de l'application + fond personnalisé.
- * L'historique de pointage est sauvegardé séparément par HistoryCloudSync afin de ne
- * pas dépasser la taille maximale d'un document Firestore.
- *
- * Sont volontairement exclus : jetons Firebase/Google, données de sécurité/diagnostic,
- * identifiants propres à l'installation et autorisation SAF du dossier Drive.
+ * L'historique de pointage est volontairement géré uniquement par HistoryCloudSync :
+ * aucun appel doublon n'est effectué ici.
  */
 object AppCloudBackup {
     private const val LOCAL_PREFS = "app_cloud_backup"
     private const val INITIALIZED_PREFIX = "initialized_"
     private const val BACKUP_DOC = "main"
-    private const val IMAGE_CHUNK_SIZE = 550_000
-    private const val MAX_IMAGE_BYTES = 8L * 1024L * 1024L
+    private const val IMAGE_CHUNK_SIZE = 500_000
+    private const val MAX_IMAGE_BYTES = 25L * 1024L * 1024L
+    private const val BACKUP_DELAY_MS = 1200L
 
     private val initialized = AtomicBoolean(false)
+    private val initRunning = AtomicBoolean(false)
     private val backupRunning = AtomicBoolean(false)
     private val restoreRunning = AtomicBoolean(false)
     private val listeners = mutableMapOf<String, SharedPreferences.OnSharedPreferenceChangeListener>()
-
-    @Volatile private var pendingBackup = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var pendingBackup: Runnable? = null
 
     fun initialize(context: Context) {
         if (!initialized.compareAndSet(false, true)) return
@@ -57,78 +57,112 @@ object AppCloudBackup {
 
         FirebaseAuth.getInstance().addAuthStateListener { auth ->
             val user = auth.currentUser ?: return@addAuthStateListener
-            Thread {
-                val local = app.getSharedPreferences(LOCAL_PREFS, Context.MODE_PRIVATE)
-                val initializedKey = INITIALIZED_PREFIX + user.uid
-                if (!local.getBoolean(initializedKey, false)) {
-                    val restored = runCatching { restoreSettings(app, user.uid) }.getOrDefault(false)
-                    runCatching { HistoryCloudSync.syncNow(app) }
-                    local.edit().putBoolean(initializedKey, true).apply()
-                    if (!restored) runCatching { backupNowBlocking(app, user.uid) }
-                }
-                registerPreferenceListeners(app)
-            }.start()
+            registerPreferenceListeners(app)
+            ensureAccountInitialized(app, user.uid)
         }
     }
 
-    fun scheduleBackup(context: Context) {
-        if (FirebaseAuth.getInstance().currentUser == null) return
-        pendingBackup = true
+    /**
+     * Première connexion après installation : restaurer avant toute nouvelle sauvegarde.
+     * Une erreur réseau ne doit jamais être interprétée comme "aucune sauvegarde".
+     */
+    private fun ensureAccountInitialized(context: Context, uid: String) {
+        if (isReady(context, uid)) return
+        if (!initRunning.compareAndSet(false, true)) return
         Thread {
-            Thread.sleep(1200)
-            if (!pendingBackup) return@Thread
-            pendingBackup = false
-            backupNow(context.applicationContext)
+            val completed = runCatching {
+                val restored = restoreSettings(context, uid)
+                if (!restored) backupNowBlocking(context, uid)
+                true
+            }.getOrDefault(false)
+            if (completed) {
+                context.getSharedPreferences(LOCAL_PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(INITIALIZED_PREFIX + uid, true).apply()
+            }
+            initRunning.set(false)
         }.start()
     }
 
+    private fun isReady(context: Context, uid: String): Boolean =
+        context.getSharedPreferences(LOCAL_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(INITIALIZED_PREFIX + uid, false)
+
+    fun scheduleBackup(context: Context) {
+        val user = FirebaseAuth.getInstance().currentUser ?: return
+        val app = context.applicationContext
+        if (!isReady(app, user.uid)) {
+            ensureAccountInitialized(app, user.uid)
+            return
+        }
+        pendingBackup?.let(handler::removeCallbacks)
+        val task = Runnable { backupNow(app) }
+        pendingBackup = task
+        handler.postDelayed(task, BACKUP_DELAY_MS)
+    }
+
+    /** Sauvegarde uniquement les réglages/fichiers utilisateur, pas l'historique. */
     fun backupNow(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             onDone?.invoke(false, "Aucun compte Google connecté")
             return
         }
-        if (!backupRunning.compareAndSet(false, true)) return
+        if (!isReady(context.applicationContext, user.uid)) {
+            ensureAccountInitialized(context.applicationContext, user.uid)
+            onDone?.invoke(false, "Restauration initiale en cours")
+            return
+        }
+        if (!backupRunning.compareAndSet(false, true)) {
+            onDone?.invoke(true, "Sauvegarde des réglages déjà en cours")
+            return
+        }
         Thread {
             val result = runCatching {
                 backupNowBlocking(context.applicationContext, user.uid)
-                HistoryCloudSync.syncNow(context.applicationContext)
-                "sauvegarde complète à jour"
+                "réglages et fichiers utilisateur sauvegardés"
             }
             backupRunning.set(false)
-            onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur de sauvegarde" })
+            onDone?.let { cb -> handler.post { cb(result.isSuccess, result.getOrElse { it.message ?: "Erreur de sauvegarde" }) } }
         }.start()
     }
 
+    /** Restaure uniquement les réglages/fichiers utilisateur, pas l'historique. */
     fun restoreNow(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
             onDone?.invoke(false, "Aucun compte Google connecté")
             return
         }
-        if (!restoreRunning.compareAndSet(false, true)) return
+        if (!restoreRunning.compareAndSet(false, true)) {
+            onDone?.invoke(true, "Restauration des réglages déjà en cours")
+            return
+        }
         Thread {
             val result = runCatching {
-                restoreSettings(context.applicationContext, user.uid)
-                HistoryCloudSync.syncNow(context.applicationContext)
-                "données HoraTrack restaurées"
+                val restored = restoreSettings(context.applicationContext, user.uid)
+                if (!restored) error("Aucune sauvegarde de réglages trouvée")
+                context.applicationContext.getSharedPreferences(LOCAL_PREFS, Context.MODE_PRIVATE)
+                    .edit().putBoolean(INITIALIZED_PREFIX + user.uid, true).apply()
+                "réglages et fichiers utilisateur restaurés"
             }
             restoreRunning.set(false)
-            onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur de restauration" })
+            onDone?.let { cb -> handler.post { cb(result.isSuccess, result.getOrElse { it.message ?: "Erreur de restauration" }) } }
         }.start()
     }
 
     private fun backupNowBlocking(context: Context, uid: String) {
-        val db = FirebaseFirestore.getInstance()
+        // Le fichier est sauvegardé d'abord : si son écriture échoue, on n'annonce pas
+        // qu'un instantané de réglages complet a été créé.
+        backupCustomBackground(context, uid)
         val prefsJson = collectPreferences(context).toString()
-        val doc = db.collection("users").document(uid).collection("appBackup").document(BACKUP_DOC)
+        val doc = FirebaseFirestore.getInstance()
+            .collection("users").document(uid).collection("appBackup").document(BACKUP_DOC)
         Tasks.await(doc.set(mapOf(
             "schema" to 1,
             "preferencesJson" to prefsJson,
             "updatedAt" to FieldValue.serverTimestamp(),
             "platform" to "android"
         )))
-        backupCustomBackground(context, uid)
     }
 
     private fun restoreSettings(context: Context, uid: String): Boolean {
@@ -161,7 +195,8 @@ object AppCloudBackup {
                     is Boolean -> { item.put("t", "b"); item.put("v", value) }
                     is Set<*> -> {
                         item.put("t", "ss")
-                        val arr = JSONArray(); value.filterIsInstance<String>().forEach(arr::put)
+                        val arr = JSONArray()
+                        value.filterIsInstance<String>().forEach(arr::put)
                         item.put("v", arr)
                     }
                     else -> return@forEach
@@ -227,37 +262,72 @@ object AppCloudBackup {
     private fun backupCustomBackground(context: Context, uid: String) {
         val file = CustomBackgroundStore.resolve(context)
         val base = FirebaseFirestore.getInstance().collection("users").document(uid).collection("appBackup")
-        val meta = base.document("background")
-        if (file == null || !file.exists() || file.length() <= 0L || file.length() > MAX_IMAGE_BYTES) {
-            Tasks.await(meta.set(mapOf("present" to false, "updatedAt" to FieldValue.serverTimestamp())))
+        val metaRef = base.document("background")
+        val previousMeta = Tasks.await(metaRef.get())
+        val previousChunks = (previousMeta.getLong("chunks") ?: 0L).toInt().coerceIn(0, 256)
+
+        if (file == null || !file.exists() || file.length() <= 0L) {
+            Tasks.await(metaRef.set(mapOf("present" to false, "chunks" to 0, "updatedAt" to FieldValue.serverTimestamp())))
+            deleteBackgroundChunks(base, 0, previousChunks)
             return
         }
+        if (file.length() > MAX_IMAGE_BYTES) {
+            error("Fond personnalisé trop volumineux pour la sauvegarde cloud")
+        }
+
         val encoded = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
         val chunks = encoded.chunked(IMAGE_CHUNK_SIZE)
-        Tasks.await(meta.set(mapOf("present" to true, "chunks" to chunks.size, "updatedAt" to FieldValue.serverTimestamp())))
         chunks.forEachIndexed { index, chunk ->
             Tasks.await(base.document("background_$index").set(mapOf("data" to chunk)))
+        }
+        Tasks.await(metaRef.set(mapOf(
+            "present" to true,
+            "chunks" to chunks.size,
+            "bytes" to file.length(),
+            "updatedAt" to FieldValue.serverTimestamp()
+        )))
+        deleteBackgroundChunks(base, chunks.size, previousChunks)
+    }
+
+    private fun deleteBackgroundChunks(
+        base: com.google.firebase.firestore.CollectionReference,
+        keepCount: Int,
+        previousCount: Int
+    ) {
+        if (previousCount <= keepCount) return
+        for (i in keepCount until previousCount) {
+            Tasks.await(base.document("background_$i").delete())
         }
     }
 
     private fun restoreCustomBackground(context: Context, uid: String) {
         val base = FirebaseFirestore.getInstance().collection("users").document(uid).collection("appBackup")
         val meta = Tasks.await(base.document("background").get())
-        if (meta.getBoolean("present") != true) return
-        val count = (meta.getLong("chunks") ?: 0L).toInt().coerceIn(0, 64)
-        if (count == 0) return
+        if (!meta.exists()) return
+        if (meta.getBoolean("present") != true) {
+            CustomBackgroundStore.clear(context)
+            return
+        }
+        val count = (meta.getLong("chunks") ?: 0L).toInt().coerceIn(0, 256)
+        if (count == 0) error("Sauvegarde du fond personnalisée incomplète")
+
         val encoded = buildString {
             for (i in 0 until count) {
                 val part = Tasks.await(base.document("background_$i").get()).getString("data").orEmpty()
+                if (part.isBlank()) error("Morceau $i du fond personnalisé manquant")
                 append(part)
             }
         }
-        if (encoded.isBlank()) return
         val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+        val expectedBytes = meta.getLong("bytes")
+        if (expectedBytes != null && bytes.size.toLong() != expectedBytes) {
+            error("Fond personnalisé restauré avec une taille incorrecte")
+        }
         val target = CustomBackgroundStore.primary(context)
         target.parentFile?.mkdirs()
         target.writeBytes(bytes)
         CustomBackgroundStore.saveBackup(context)
-        context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putBoolean("custom_image_bg", true).apply()
+        context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
+            .edit().putBoolean("custom_image_bg", true).apply()
     }
 }
