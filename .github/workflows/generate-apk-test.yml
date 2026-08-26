@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/generate-apk-test.yml"
 
-# Déclenchement APK test : asset icône Base64 valide + bibliothèque images live + bouton enregistrer + corrections UI/icône.
+# APK test : pré-vérification Kotlin puis compilation complète.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
@@ -54,6 +54,19 @@ jobs:
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "versionCode=$VERSION_CODE versionName=$VERSION_NAME"
+
+      - name: Pré-vérifier Kotlin release
+        env:
+          POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
+          POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
+          POINTAGE_KEY_ALIAS: ${{ secrets.POINTAGE_KEY_ALIAS }}
+          POINTAGE_KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
+        run: gradle :app:compileReleaseKotlin --build-cache --parallel --stacktrace
 
       - name: Compiler APK test signé
         env:
