@@ -74,8 +74,12 @@ object PointageStore {
         mainHandler.postDelayed(task, ICON_SYNC_DELAY_MS)
     }
 
-    /** L'heure d'arrivée réelle définit l'heure d'embauche comptée, par tranche de 30 min inférieure. */
-    private fun hiringTimeFromArrival(arrival: Long): Long = arrival - Math.floorMod(arrival, ENTRY_SLOT_MS)
+    /** Arrondit l'arrivée au créneau de 30 minutes le plus proche. À 15 minutes pile, on arrondit au créneau supérieur. */
+    private fun hiringTimeFromArrival(arrival: Long): Long {
+        val remainder = Math.floorMod(arrival, ENTRY_SLOT_MS)
+        val lower = arrival - remainder
+        return if (remainder >= ENTRY_SLOT_MS / 2L) lower + ENTRY_SLOT_MS else lower
+    }
 
     fun entry(context: Context, zoneId: String? = null, zoneAddress: String? = null): Boolean {
         val now = System.currentTimeMillis()
@@ -158,10 +162,6 @@ object PointageStore {
         return true
     }
 
-    /**
-     * expectedOrigin protège les moteurs automatiques les uns des autres.
-     * Une valeur non nulle interdit de fermer une pause créée par une autre origine.
-     */
     fun resumePause(context: Context, automaticOnly: Boolean = false, expectedOrigin: String? = null): Boolean {
         val now = System.currentTimeMillis()
         val changed = synchronized(storageLock) {
