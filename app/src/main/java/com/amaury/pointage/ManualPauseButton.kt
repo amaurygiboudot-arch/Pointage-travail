@@ -85,7 +85,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setBackgroundColor(background)
         }
         body.addView(TextView(context).apply {
-            text = "⏸  SAISIE MANUELLE D'UNE PAUSE"
+            text = "⏸  PAUSES MANUELLES DE LA JOURNÉE"
             gravity = Gravity.CENTER
             textSize = 17f
             setTypeface(typeface, Typeface.BOLD)
@@ -93,7 +93,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setPadding(0, dp(4), 0, dp(8))
         })
         body.addView(TextView(context).apply {
-            text = "Ajoute jusqu'à 5 pauses à une même journée. Le créneau suivant apparaît seulement quand le précédent est correctement renseigné."
+            text = "Ces créneaux concernent uniquement la journée sélectionnée. Tu peux enregistrer jusqu'à 5 pauses manuelles."
             textSize = 14f
             setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
@@ -118,7 +118,7 @@ class ManualPauseButton @JvmOverloads constructor(
         }
 
         body.addView(TextView(context).apply {
-            text = "JOURNÉE"
+            text = "JOURNÉE À MODIFIER"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(accent)
@@ -126,7 +126,7 @@ class ManualPauseButton @JvmOverloads constructor(
         })
         body.addView(dateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         body.addView(TextView(context).apply {
-            text = "HEURES DE PAUSE"
+            text = "CRÉNEAUX MANUELS — 1 À 5"
             textSize = 14f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(accent)
@@ -235,16 +235,29 @@ class ManualPauseButton @JvmOverloads constructor(
         }
         reloadPausesForSelectedDate?.invoke()
 
+        body.addView(TextView(context).apply {
+            text = "PLANNING AUTOMATIQUE QUOTIDIEN"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(accent)
+            setPadding(0, dp(20), 0, dp(6))
+        })
+        body.addView(TextView(context).apply {
+            text = "Fonction distincte des pauses manuelles ci-dessus. Elle répète uniquement le créneau 1 chaque jour."
+            textSize = 14f
+            setTextColor(hintColor)
+            setPadding(0, 0, 0, dp(4))
+        })
         val automatic = Switch(context).apply {
-            text = "Programmer automatiquement tous les jours avec le 1er créneau"
+            text = "Répéter automatiquement le créneau 1 tous les jours"
             textSize = 14f
             setTextColor(textColor)
             isChecked = schedule.enabled
-            setPadding(0, dp(12), 0, dp(4))
+            setPadding(0, dp(8), 0, dp(4))
         }
         body.addView(automatic)
         body.addView(TextView(context).apply {
-            text = "La programmation automatique utilise uniquement le premier créneau. Les créneaux 2 à 5 servent à la saisie manuelle de la journée sélectionnée."
+            text = "Les créneaux 2 à 5 ne sont jamais programmés automatiquement : ils servent uniquement à la journée sélectionnée."
             textSize = 14f
             setTextColor(hintColor)
             setPadding(0, 0, 0, dp(10))
