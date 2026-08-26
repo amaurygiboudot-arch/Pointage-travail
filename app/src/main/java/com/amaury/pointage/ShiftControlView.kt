@@ -33,7 +33,7 @@ class ShiftControlView @JvmOverloads constructor(
         addView(TextView(context).apply {
             text = "Poste du jour"
             textSize = 12f
-            setTextColor(Color.parseColor("#B8B0A2"))
+            setTextColor(PopupTheme.colors(context).secondary)
             gravity = Gravity.CENTER_HORIZONTAL
             alpha = 0.88f
         })
@@ -54,7 +54,7 @@ class ShiftControlView @JvmOverloads constructor(
         stateText.apply {
             textSize = 11f
             gravity = Gravity.CENTER_HORIZONTAL
-            setTextColor(Color.parseColor("#A9A39A"))
+            setTextColor(PopupTheme.colors(context).secondary)
             setPadding(0, dp(3), 0, 0)
             alpha = 0.88f
         }
@@ -115,12 +115,15 @@ class ShiftControlView @JvmOverloads constructor(
     }
 
     private fun showProfilesDialog() {
+        val colors = PopupTheme.colors(context)
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(14))
+            setBackgroundColor(colors.background)
         }
         val scroll = ScrollView(context).apply {
             isFillViewport = true
+            setBackgroundColor(colors.background)
             addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
@@ -131,15 +134,15 @@ class ShiftControlView @JvmOverloads constructor(
             box.addView(TextView(context).apply {
                 text = shift.label.uppercase(Locale.FRANCE)
                 textSize = 15f
-                setTextColor(Color.parseColor("#D6A84B"))
+                setTextColor(colors.accent)
                 setPadding(0, dp(14), 0, dp(6))
             })
 
             val fieldBackground = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = dp(24).toFloat()
-                setColor(Color.parseColor("#0B0B0B"))
-                setStroke(dp(2), Color.parseColor("#D6A84B"))
+                setColor(colors.panel)
+                setStroke(dp(2), colors.accent)
             }
 
             val pause = EditText(context).apply {
@@ -147,8 +150,8 @@ class ShiftControlView @JvmOverloads constructor(
                 inputType = InputType.TYPE_CLASS_NUMBER
                 isSingleLine = true
                 setText(ShiftProfileManager.pauseMinutes(context, shift).toString())
-                setTextColor(Color.WHITE)
-                setHintTextColor(Color.parseColor("#B0B0B0"))
+                setTextColor(colors.text)
+                setHintTextColor(colors.secondary)
                 textSize = 16f
                 gravity = Gravity.CENTER_VERTICAL
                 background = fieldBackground
@@ -162,7 +165,7 @@ class ShiftControlView @JvmOverloads constructor(
             val meal = Switch(context).apply {
                 text = "Panier pour ce poste"
                 textSize = 14f
-                setTextColor(Color.parseColor("#111111"))
+                setTextColor(colors.text)
                 gravity = Gravity.CENTER_VERTICAL
                 minHeight = dp(54)
                 setPadding(0, dp(4), 0, dp(4))
@@ -188,8 +191,8 @@ class ShiftControlView @JvmOverloads constructor(
             .create()
 
         dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(Color.parseColor("#D6A84B"))
-            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(Color.parseColor("#D6A84B"))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(colors.accent)
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(colors.accent)
             val maxHeight = (resources.displayMetrics.heightPixels * 0.68f).toInt()
             scroll.layoutParams = scroll.layoutParams.apply { height = maxHeight }
         }
