@@ -2,18 +2,12 @@ package com.amaury.pointage
 
 import kotlin.math.abs
 import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/**
- * Mémoire visuelle indépendante de chaque vraie facette du squelette diamant.
- *
- * Une facette garde son identité et son état d'une frame à l'autre. Les
- * triangles OpenGL utilisés pour dessiner une même facette ne créent jamais
- * de nouvel état : ils réutilisent l'identifiant de la facette réelle.
- */
 data class DiamondFacetState(
     val id: Int,
     val baseTone: Float,
@@ -27,9 +21,7 @@ data class DiamondFacetState(
     var normalZ: Float = 1f
 )
 
-class DiamondFacetMemory(
-    private val facetCount: Int = 57
-) {
+class DiamondFacetMemory(private val facetCount: Int = 57) {
     private val states = Array(facetCount) { id ->
         val tone = facetTone(id)
         DiamondFacetState(
@@ -48,21 +40,12 @@ class DiamondFacetMemory(
 
     fun setNormal(id: Int, x: Float, y: Float, z: Float) {
         if (id !in states.indices) return
-        val length = sqrt(x * x + y * y + z * z).coerceAtLeast(0.00001f)
-        states[id].normalX = x / length
-        states[id].normalY = y / length
-        states[id].normalZ = z / length
+        val n = normalize3(x, y, z)
+        states[id].normalX = n[0]
+        states[id].normalY = n[1]
+        states[id].normalZ = n[2]
     }
 
-    /**
-     * Lumière directe + transport interne simplifié.
-     *
-     * Le transport interne suit cette chaîne :
-     * couronne/table -> réfraction air/diamant -> pavillon -> réflexion interne
-     * -> remontée vers la couronne. Il ne s'agit pas encore d'un ray tracer avec
-     * intersection géométrique exacte, mais les 24 facettes du pavillon
-     * participent réellement au calcul et réinjectent de l'énergie vers le haut.
-     */
     fun update(
         lightAngleDegrees: Float,
         pitchDegrees: Float,
@@ -75,10 +58,7 @@ class DiamondFacetMemory(
         val lx = cos(lightRad).toFloat()
         val ly = sin(lightRad).toFloat()
         val lz = 1.35f
-        val ll = sqrt(lx * lx + ly * ly + lz * lz)
-        val nlx = lx / ll
-        val nly = ly / ll
-        val nlz = lz / ll
+        val lightToSurface = normalize3(lx, ly, lz)
 
         val modelX = -8.2f + pitchDegrees * 0.20f
         val modelY = 2.4f - rollDegrees * 0.24f
@@ -92,22 +72,16 @@ class DiamondFacetMemory(
             rotateLikeOpenGlModel(s.normalX, s.normalY, s.normalZ, modelX, modelY, modelZ)
         }
 
-        // Eclairage renvoyé par l'intérieur du diamant. Chaque case correspond
-        // à une vraie facette et s'ajoute ensuite au calcul direct de cette facette.
-        val internalLight = computeInternalTransport(
-            rotatedNormals = rotatedNormals,
-            lightToSurface = floatArrayOf(nlx, nly, nlz),
-            refractionControl = refr
-        )
+        val internalLight = computeInternalTransport(rotatedNormals, lightToSurface, refr)
 
         for (s in states) {
-            val rotated = rotatedNormals[s.id]
-            val diffuse = max(0f, rotated[0] * nlx + rotated[1] * nly + rotated[2] * nlz)
+            val n = rotatedNormals[s.id]
+            val diffuse = max(0f, dot3(n, lightToSurface))
             val returnedLight = internalLight[s.id]
             val angularMemory = 1f -
                 (abs(shortestDelta(s.lastOrientation, orientation)) / 180f).coerceIn(0f, 1f)
-
             val colorContrast = abs(s.baseTone - 0.5f) * 2f
+
             val targetBrightness = (
                 0.065f +
                     diffuse * (0.49f + refr * 0.17f) +
@@ -116,10 +90,8 @@ class DiamondFacetMemory(
                     colorContrast * 0.030f
                 ).coerceIn(0.030f, 1f)
 
-            // Un reflet peut maintenant venir de la lumière directe OU d'une
-            // remontée interne depuis le pavillon.
             val directGate = ((diffuse - 0.70f) / 0.30f).coerceIn(0f, 1f)
-            val returnGate = ((returnedLight - 0.18f) / 0.62f).coerceIn(0f, 1f)
+            val returnGate = ((returnedLight - 0.12f) / 0.68f).coerceIn(0f, 1f)
             val highlightGate = max(directGate, returnGate * (0.72f + refr * 0.28f))
             val targetReflection = (
                 highlightGate *
@@ -129,17 +101,15 @@ class DiamondFacetMemory(
                 ).coerceIn(0f, 1f)
 
             val phase = Math.toRadians(
-                (orientation * 1.65f + s.id * 47.0f + lightAngleDegrees * 0.72f).toDouble()
+                (orientation * 1.65f + s.id * 47f + lightAngleDegrees * 0.72f).toDouble()
             )
             val spectralWave = sin(phase).toFloat()
-            // Le feu coloré augmente aussi lorsqu'une lumière remonte du pavillon.
             val spectralGate = (
                 0.12f + targetReflection * 0.58f + returnedLight * 0.30f
                 ).coerceIn(0f, 1f) * refr
             val dispersionAmplitude = (0.018f + spark * 0.020f) * spectralGate
-            val targetDisplayTone = (
-                s.baseTone + spectralWave * dispersionAmplitude
-                ).coerceIn(0.04f, 0.96f)
+            val targetDisplayTone =
+                (s.baseTone + spectralWave * dispersionAmplitude).coerceIn(0.04f, 0.96f)
 
             val brightnessSpeed = if (targetBrightness > s.brightness) 0.25f else 0.115f
             val reflectionSpeed = if (targetReflection > s.reflection) 0.31f else 0.095f
@@ -152,12 +122,9 @@ class DiamondFacetMemory(
     }
 
     /**
-     * Approximation optique légère compatible avec un calcul par frame :
-     * - IDs 0..32 : table/couronne = facettes d'entrée et de sortie ;
-     * - IDs 33..56 : pavillon/culasse = facettes de réflexion interne.
-     *
-     * L'indice du diamant est fixé à 2.42. La réflexion totale interne est
-     * favorisée au-delà de l'angle critique air/diamant (~24.4 degrés).
+     * Transport interne léger : chaque facette d'entrée distribue son énergie
+     * sur les 24 facettes du pavillon selon l'incidence et l'azimut. Il n'y a
+     * plus de sélection binaire qui pouvait laisser certaines facettes mortes.
      */
     private fun computeInternalTransport(
         rotatedNormals: Array<FloatArray>,
@@ -171,21 +138,13 @@ class DiamondFacetMemory(
         val criticalAngle = asin((1f / diamondIor).coerceIn(0f, 1f))
         val criticalCos = cos(criticalAngle)
         val incomingWorld = normalize3(
-            -lightToSurface[0],
-            -lightToSurface[1],
-            -lightToSurface[2]
+            -lightToSurface[0], -lightToSurface[1], -lightToSurface[2]
         )
 
-        // Chaque facette supérieure peut faire entrer une partie de la lumière.
         for (entryId in 0..32) {
             val entryN = rotatedNormals[entryId]
-            val entryFacing = max(
-                0f,
-                entryN[0] * lightToSurface[0] +
-                    entryN[1] * lightToSurface[1] +
-                    entryN[2] * lightToSurface[2]
-            )
-            if (entryFacing < 0.05f) continue
+            val entryFacing = max(0f, dot3(entryN, lightToSurface))
+            if (entryFacing < 0.025f) continue
 
             val internalRay = refract3(
                 incomingWorld,
@@ -193,59 +152,83 @@ class DiamondFacetMemory(
                 1f / diamondIor
             ) ?: continue
 
-            val entryEnergy = entryFacing * (0.32f + refractionControl * 0.68f)
+            val entryEnergy = entryFacing * (0.30f + refractionControl * 0.70f)
             val entryAzimuth = azimuth(internalRay)
 
-            // Le rayon réfracté cherche les facettes de culasse qui se trouvent
-            // dans sa direction angulaire. Sans intersection X/Y exacte, cette
-            // sélection par azimut + incidence garde un coût très faible.
+            // Pondération de TOUTES les facettes du pavillon.
+            val weights = FloatArray(24)
+            var weightSum = 0f
             for (pavilionId in 33..56) {
-                val pavilionN0 = rotatedNormals[pavilionId]
-                val pavilionN = orientAgainst(pavilionN0, internalRay)
-                val approach = max(0f, -(dot3(internalRay, pavilionN)))
-                if (approach < 0.08f) continue
-
+                val pavilionN = orientAgainst(rotatedNormals[pavilionId], internalRay)
+                val approach = max(0f, -dot3(internalRay, pavilionN))
                 val pavilionAzimuth = azimuth(pavilionN)
-                val sectorMatch = angularMatch(entryAzimuth, pavilionAzimuth, 92f)
-                if (sectorMatch <= 0f) continue
 
-                // Incidence mesurée à l'intérieur. Si l'angle est supérieur à
-                // l'angle critique, la réflexion interne devient très efficace.
+                // Une petite composante diffuse maintient les facettes voisines
+                // optiquement actives ; l'alignement exact reste dominant.
+                val sector = angularMatch(entryAzimuth, pavilionAzimuth, 150f)
+                val softSector = 0.035f + sector * 0.965f
+                val softApproach = 0.025f + approach * 0.975f
+                val w = softSector * softApproach
+                weights[pavilionId - 33] = w
+                weightSum += w
+            }
+            if (weightSum <= 0.00001f) continue
+
+            for (pavilionId in 33..56) {
+                val pavilionN = orientAgainst(rotatedNormals[pavilionId], internalRay)
+                val normalizedWeight = weights[pavilionId - 33] / weightSum
                 val cosIncidence = abs(dot3(internalRay, pavilionN)).coerceIn(0f, 1f)
                 val tir = ((criticalCos - cosIncidence) / criticalCos).coerceIn(0f, 1f)
-                val reflectivity = (0.24f + tir * 0.70f + refractionControl * 0.06f)
-                    .coerceIn(0f, 1f)
-                val hitEnergy = entryEnergy * approach * sectorMatch * reflectivity
-                if (hitEnergy < 0.002f) continue
+                val reflectivity =
+                    (0.22f + tir * 0.70f + refractionControl * 0.08f).coerceIn(0f, 1f)
+                val hitEnergy = entryEnergy * normalizedWeight * reflectivity * 5.4f
 
-                // La facette du pavillon elle-même devient lumineuse : c'est ce
-                // qui manquait visuellement dans la simulation précédente.
-                out[pavilionId] += hitEnergy * 0.78f
+                // Chaque facette compatible reçoit réellement une part d'énergie.
+                out[pavilionId] += hitEnergy * 0.82f
 
                 val reflected = reflect3(internalRay, pavilionN)
-                if (reflected[2] <= -0.15f) continue
+                val upward = reflected[2].coerceIn(0f, 1f)
+                if (upward <= 0.01f) continue
 
                 val returnAzimuth = azimuth(reflected)
-                val upward = reflected[2].coerceIn(0f, 1f)
-
-                // Le rayon remonte et alimente les facettes supérieures orientées
-                // dans la direction de sortie. Plusieurs peuvent recevoir une
-                // fraction du même trajet, comme dans un cristal réel vu en petit.
                 for (exitId in 0..32) {
                     val exitN = rotatedNormals[exitId]
-                    val exitAzimuth = azimuth(exitN)
-                    val directionMatch = angularMatch(returnAzimuth, exitAzimuth, 78f)
+                    val directionMatch = angularMatch(returnAzimuth, azimuth(exitN), 105f)
                     if (directionMatch <= 0f) continue
                     val exitFacing = max(0f, dot3(reflected, exitN))
-                    val exitEnergy = hitEnergy * upward * directionMatch *
-                        (0.28f + exitFacing * 0.72f)
-                    out[exitId] += exitEnergy
+                    out[exitId] += hitEnergy * upward * directionMatch *
+                        (0.20f + exitFacing * 0.80f)
                 }
             }
         }
 
-        // Normalisation douce : plusieurs rayons peuvent converger vers la même
-        // facette sans provoquer une saturation immédiate à 1.
+        // Diffusion courte entre facettes voisines du pavillon. Elle représente
+        // les multiples rebonds internes que notre modèle temps-réel ne trace pas
+        // explicitement, sans rendre toutes les facettes identiques.
+        val beforeScatter = out.copyOf()
+        for (id in 33..48) {
+            val local = id - 33
+            val prev = 33 + (local + 15) % 16
+            val next = 33 + (local + 1) % 16
+            out[id] += (beforeScatter[prev] + beforeScatter[next]) * 0.055f
+        }
+        for (id in 49..56) {
+            val local = id - 49
+            val prev = 49 + (local + 7) % 8
+            val next = 49 + (local + 1) % 8
+            out[id] += (beforeScatter[prev] + beforeScatter[next]) * 0.070f
+        }
+
+        // Très faible plancher optique uniquement pour le pavillon : une facette
+        // peut être sombre, mais elle ne doit pas être morte si de la lumière est
+        // présente dans la pierre.
+        val pavilionAverage = (33..56).sumOf { out[it].toDouble() }.toFloat() / 24f
+        if (pavilionAverage > 0f) {
+            for (id in 33..56) {
+                out[id] += pavilionAverage * 0.035f
+            }
+        }
+
         for (i in out.indices) {
             out[i] = (out[i] / (1f + out[i] * 0.72f)).coerceIn(0f, 1f)
         }
@@ -339,12 +322,11 @@ class DiamondFacetMemory(
         val cosI = (-dot3(i, n)).coerceIn(-1f, 1f)
         val k = 1f - eta * eta * (1f - cosI * cosI)
         if (k < 0f) return null
-        val a = eta
         val b = eta * cosI - sqrt(k)
         return normalize3(
-            a * i[0] + b * n[0],
-            a * i[1] + b * n[1],
-            a * i[2] + b * n[2]
+            eta * i[0] + b * n[0],
+            eta * i[1] + b * n[1],
+            eta * i[2] + b * n[2]
         )
     }
 
@@ -358,8 +340,7 @@ class DiamondFacetMemory(
     }
 
     private fun orientAgainst(n: FloatArray, direction: FloatArray): FloatArray =
-        if (dot3(n, direction) <= 0f) n
-        else floatArrayOf(-n[0], -n[1], -n[2])
+        if (dot3(n, direction) <= 0f) n else floatArrayOf(-n[0], -n[1], -n[2])
 
     private fun dot3(a: FloatArray, b: FloatArray): Float =
         a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -370,7 +351,7 @@ class DiamondFacetMemory(
     }
 
     private fun azimuth(v: FloatArray): Float =
-        normalizeDegrees(Math.toDegrees(kotlin.math.atan2(v[1], v[0]).toDouble()).toFloat())
+        normalizeDegrees(Math.toDegrees(atan2(v[1], v[0]).toDouble()).toFloat())
 
     private fun angularMatch(a: Float, b: Float, width: Float): Float =
         (1f - abs(shortestDelta(a, b)) / width).coerceIn(0f, 1f)
