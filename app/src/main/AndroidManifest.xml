@@ -39,7 +39,6 @@
         <provider android:name=".SecurityUiInitProvider" android:authorities="${applicationId}.security-ui-init" android:exported="false" android:initOrder="80" />
         <provider android:name=".DeviceRegistryInitProvider" android:authorities="${applicationId}.device-registry-init" android:exported="false" android:initOrder="70" />
         <provider android:name=".GoogleAccountPromptProvider" android:authorities="${applicationId}.google-account-prompt" android:exported="false" android:initOrder="60" />
-        <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
         <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
 
