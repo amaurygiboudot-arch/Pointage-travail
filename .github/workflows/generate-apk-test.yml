@@ -8,6 +8,7 @@ on:
       - ".github/workflows/generate-apk-test.yml"
 
 # APK test : pré-vérification Kotlin puis compilation complète.
+# Déclenchement après correction de la bibliothèque d'images des réglages Live.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
