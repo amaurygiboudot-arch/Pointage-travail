@@ -17,6 +17,7 @@ data class DiamondFacetState(
     val id: Int,
     val baseTone: Float,
     val transparencyReference: Float,
+    var displayTone: Float,
     var brightness: Float,
     var reflection: Float,
     var lastOrientation: Float,
@@ -34,6 +35,7 @@ class DiamondFacetMemory(
             id = id,
             baseTone = tone,
             transparencyReference = facetTransparency(id),
+            displayTone = tone,
             brightness = facetInitialBrightness(id, tone),
             reflection = 0f,
             lastOrientation = 0f
@@ -85,6 +87,8 @@ class DiamondFacetMemory(
         val modelZ = yawDegrees * 0.025f
 
         val orientation = normalizeDegrees(yawDegrees + rollDegrees * 0.55f - pitchDegrees * 0.22f)
+        val refr = refraction.coerceIn(0f, 1f)
+        val spark = sparkle.coerceIn(0f, 1f)
 
         for (s in states) {
             val rotated = rotateLikeOpenGlModel(
@@ -106,7 +110,7 @@ class DiamondFacetMemory(
             val colorContrast = abs(s.baseTone - 0.5f) * 2f
             val targetBrightness = (
                 0.075f +
-                    diffuse * (0.54f + refraction.coerceIn(0f, 1f) * 0.20f) +
+                    diffuse * (0.54f + refr * 0.20f) +
                     (s.baseTone - 0.5f) * 0.18f +
                     colorContrast * 0.035f
                 ).coerceIn(0.035f, 1f)
@@ -114,16 +118,32 @@ class DiamondFacetMemory(
             val highlightGate = ((diffuse - 0.70f) / 0.30f).coerceIn(0f, 1f)
             val targetReflection = (
                 highlightGate *
-                    (0.36f + sparkle.coerceIn(0f, 1f) * 0.64f) *
+                    (0.36f + spark * 0.64f) *
                     (0.78f + angularMemory * 0.22f) *
                     (0.88f + colorContrast * 0.12f)
                 ).coerceIn(0f, 1f)
 
+            // Dispersion chromatique : la teinte visible d'une facette se décale
+            // légèrement quand elle accroche la lumière. Le décalage dépend de son
+            // orientation, de son ID et de la réfraction, mais reste centré autour
+            // de sa couleur de base afin d'éviter un effet arc-en-ciel permanent.
+            val phase = Math.toRadians(
+                (orientation * 1.65f + s.id * 47.0f + lightAngleDegrees * 0.72f).toDouble()
+            )
+            val spectralWave = sin(phase).toFloat()
+            val spectralGate = (0.18f + targetReflection * 0.82f) * refr
+            val dispersionAmplitude = (0.018f + spark * 0.018f) * spectralGate
+            val targetDisplayTone = (
+                s.baseTone + spectralWave * dispersionAmplitude
+                ).coerceIn(0.04f, 0.96f)
+
             // Lissage asymétrique : un reflet apparaît vite mais disparaît plus lentement.
             val brightnessSpeed = if (targetBrightness > s.brightness) 0.24f else 0.12f
             val reflectionSpeed = if (targetReflection > s.reflection) 0.30f else 0.10f
+            val toneSpeed = if (targetReflection > s.reflection) 0.26f else 0.13f
             s.brightness += (targetBrightness - s.brightness) * brightnessSpeed
             s.reflection += (targetReflection - s.reflection) * reflectionSpeed
+            s.displayTone += (targetDisplayTone - s.displayTone) * toneSpeed
             s.lastOrientation = orientation
         }
     }
@@ -244,7 +264,7 @@ class DiamondFacetMemory(
 
     /**
      * RGBA compact pour une texture d'état 57x1 :
-     * R = variation chromatique stable
+     * R = teinte visible (base + dispersion chromatique mémorisée)
      * G = transparence de référence
      * B = luminosité mémorisée
      * A = reflet mémorisé
@@ -253,7 +273,7 @@ class DiamondFacetMemory(
         val out = ByteArray(states.size * 4)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            out[p] = unitByte(s.baseTone)
+            out[p] = unitByte(s.displayTone)
             out[p + 1] = unitByte(s.transparencyReference)
             out[p + 2] = unitByte(s.brightness)
             out[p + 3] = unitByte(s.reflection)
