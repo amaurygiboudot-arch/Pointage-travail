@@ -28,6 +28,8 @@ object CompanyPauseAlarmManager {
     private const val EVENT_END = "end"
     private const val CHANNEL_ID = "pause_reminders"
 
+    private fun origin(company: Int, pauseIndex: Int) = "company:$company:$pauseIndex"
+
     fun scheduleAll(context: Context) {
         ensureNotificationChannel(context)
         cancelAll(context)
@@ -60,7 +62,9 @@ object CompanyPauseAlarmManager {
             alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
-        } else alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+        } else {
+            alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+        }
     }
 
     private fun pending(context: Context, company: Int, pauseIndex: Int, event: String): PendingIntent {
@@ -83,27 +87,45 @@ object CompanyPauseAlarmManager {
     internal fun event(intent: Intent) = intent.getStringExtra(EXTRA_EVENT).orEmpty()
     internal fun isStart(event: String) = event == EVENT_START
     internal fun isEnd(event: String) = event == EVENT_END
+    internal fun pauseOrigin(company: Int, pauseIndex: Int) = origin(company, pauseIndex)
 
     internal fun activeCompanySlot(context: Context): Int? {
         val raw = context.getSharedPreferences("pointage", Context.MODE_PRIVATE).getString("data", "[]").orEmpty()
         val data = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
         for (i in data.length() - 1 downTo 0) {
             val item = data.optJSONObject(i) ?: continue
-            if (item.optLong("entry", -1L) > 0L && item.isNull("exit")) return item.optInt("companySlot", 1).coerceIn(1, 2)
+            if (item.optLong("entry", -1L) <= 0L || !item.isNull("exit")) continue
+            val slot = item.optInt("companySlot", 0)
+            return slot.takeIf { it in 1..2 }
         }
         return null
     }
 
     internal fun showNotification(context: Context, company: Int, pauseIndex: Int) {
         ensureNotificationChannel(context)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
+
         val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val prefix = if (company == 2) "company2_" else "company_"
-        val companyName = salaryPrefs.getString(prefix + "name", "").orEmpty().ifBlank { if (company == 1) "Entreprise 1" else "Entreprise 2" }
+        val companyName = salaryPrefs.getString(prefix + "name", "").orEmpty()
+            .ifBlank { if (company == 1) "Entreprise 1" else "Entreprise 2" }
         val pause = CompanyBasePauseSettings.pause(context, company, pauseIndex)
         val duration = pause?.durationMinutes ?: 0
-        val openApp = PendingIntent.getActivity(context, 6100 + company * 10 + pauseIndex, Intent(context, LaunchActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(context, CHANNEL_ID) else @Suppress("DEPRECATION") Notification.Builder(context))
+        val openApp = PendingIntent.getActivity(
+            context,
+            6100 + company * 10 + pauseIndex,
+            Intent(context, LaunchActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION") Notification.Builder(context)
+        })
             .setSmallIcon(R.drawable.hp_icon_red)
             .setContentTitle("Début de la pause $pauseIndex")
             .setContentText(if (duration > 0) "$companyName • pause de $duration min" else companyName)
@@ -112,18 +134,21 @@ object CompanyPauseAlarmManager {
             .setCategory(Notification.CATEGORY_ALARM)
             .setPriority(Notification.PRIORITY_HIGH)
             .build()
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(6200 + company * 10 + pauseIndex, notification)
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+            .notify(6200 + company * 10 + pauseIndex, notification)
     }
 
     private fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "Rappels de pause", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Notifications affichées au début des pauses de base"
-            setSound(null, null)
-            enableVibration(true)
-        })
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "Rappels de pause", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Notifications affichées au début des pauses de base"
+                setSound(null, null)
+                enableVibration(true)
+            }
+        )
     }
 }
 
@@ -140,16 +165,22 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             return
         }
 
+        val origin = CompanyPauseAlarmManager.pauseOrigin(company, pauseIndex)
         when {
             CompanyPauseAlarmManager.isStart(event) -> {
                 if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
-                    PointageStore.startPause(context, automatic = true)
+                    PointageStore.startPause(context, automatic = true, origin = origin)
                 }
 
                 if (CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
                     CompanyPauseAlarmManager.showNotification(context, company, pauseIndex)
-                    val selected = PauseAlarmSoundCatalog.resolve(context, CompanyBasePauseSettings.alarmSound(context, company, pauseIndex))
-                    val ringtone = runCatching { RingtoneManager.getRingtone(context.applicationContext, selected.uri) }.getOrNull()
+                    val selected = PauseAlarmSoundCatalog.resolve(
+                        context,
+                        CompanyBasePauseSettings.alarmSound(context, company, pauseIndex)
+                    )
+                    val ringtone = runCatching {
+                        RingtoneManager.getRingtone(context.applicationContext, selected.uri)
+                    }.getOrNull()
                     if (ringtone != null) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                             ringtone.audioAttributes = AudioAttributes.Builder()
@@ -164,9 +195,7 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             }
 
             CompanyPauseAlarmManager.isEnd(event) -> {
-                if (PointageStore.isPausedAutomatically(context)) {
-                    PointageStore.resumePause(context, automaticOnly = true)
-                }
+                PointageStore.resumePause(context, automaticOnly = true, expectedOrigin = origin)
             }
         }
 
