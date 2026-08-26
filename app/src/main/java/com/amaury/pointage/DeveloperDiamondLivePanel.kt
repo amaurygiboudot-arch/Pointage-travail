@@ -44,7 +44,6 @@ object DeveloperDiamondLivePanel {
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
 
         var previewTarget = PreviewTarget.ALL
-
         val root = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(8), dp(12), dp(10))
@@ -67,29 +66,34 @@ object DeveloperDiamondLivePanel {
             setPadding(0, dp(2), 0, dp(2))
         })
 
-        val targetTitle = TextView(activity).apply {
+        root.addView(TextView(activity).apply {
             text = "APERÇU CIBLÉ — choisir le bouton puis envoyer"
             setTextColor(Color.rgb(205, 216, 232))
             textSize = 11f
             gravity = Gravity.CENTER
             setPadding(0, dp(1), 0, dp(3))
-        }
-        root.addView(targetTitle)
+        })
 
         val targetRow = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
         }
         val targetButtons = linkedMapOf<PreviewTarget, Button>()
+        lateinit var sendPreview: Button
+
         fun refreshTargets() {
             targetButtons.forEach { (target, button) ->
                 val selected = target == previewTarget
                 button.alpha = if (selected) 1f else .55f
                 button.setTextColor(if (selected) Color.WHITE else Color.rgb(165, 175, 190))
             }
+            if (::sendPreview.isInitialized) {
+                sendPreview.text = "➤ ENVOYER L’APERÇU SUR ${previewTarget.label}"
+            }
         }
+
         PreviewTarget.entries.forEach { target ->
-            val b = Button(activity).apply {
+            val button = Button(activity).apply {
                 text = target.label
                 isAllCaps = false
                 textSize = 10f
@@ -102,20 +106,18 @@ object DeveloperDiamondLivePanel {
                     refreshTargets()
                 }
             }
-            targetButtons[target] = b
-            targetRow.addView(b, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(2) })
+            targetButtons[target] = button
+            targetRow.addView(button, LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginEnd = dp(2) })
         }
         root.addView(targetRow)
-        refreshTargets()
 
-        val sendPreview = Button(activity).apply {
+        sendPreview = Button(activity).apply {
             text = "➤ ENVOYER L’APERÇU SUR LES 3"
             isAllCaps = false
             textSize = 12f
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener {
                 val ok = applyPreview(activity, previewTarget)
-                text = "➤ ENVOYER L’APERÇU SUR ${previewTarget.label}"
                 Toast.makeText(
                     activity,
                     if (ok) "Aperçu envoyé sur ${previewTarget.label}" else "Bouton ${previewTarget.label} introuvable",
@@ -123,17 +125,11 @@ object DeveloperDiamondLivePanel {
                 ).show()
             }
         }
-        targetButtons.forEach { (target, button) ->
-            button.setOnClickListener {
-                previewTarget = target
-                refreshTargets()
-                sendPreview.text = "➤ ENVOYER L’APERÇU SUR ${target.label}"
-            }
-        }
         root.addView(sendPreview, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply {
             topMargin = dp(4)
             bottomMargin = dp(4)
         })
+        refreshTargets()
 
         val strip = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
         val stripScroll = HorizontalScrollView(activity).apply {
@@ -145,7 +141,7 @@ object DeveloperDiamondLivePanel {
         val host = FrameLayout(activity)
         root.addView(host, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
-        val specs = specs()
+        val allSpecs = specs()
         val pages = linkedMapOf<String, ScrollView>()
         val tabButtons = linkedMapOf<String, Button>()
 
@@ -176,7 +172,7 @@ object DeveloperDiamondLivePanel {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, dp(4), 0, dp(4))
             }
-            specs.filter { it.tab == tabName }.forEach { addControl(activity, content, it) }
+            allSpecs.filter { it.tab == tabName }.forEach { addControl(activity, content, it) }
             val page = ScrollView(activity).apply {
                 addView(content)
                 visibility = View.GONE
@@ -208,9 +204,11 @@ object DeveloperDiamondLivePanel {
             dialog.window?.apply {
                 setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
                 clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                setGravity(Gravity.BOTTOM)
-                // Laisse volontairement davantage de place en haut pour observer les vrais boutons.
-                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, (activity.resources.displayMetrics.heightPixels * .42f).toInt())
+                setGravity(Gravity.TOP)
+                setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    (activity.resources.displayMetrics.heightPixels * .42f).toInt()
+                )
             }
             showTab(tabs.first())
         }
@@ -219,7 +217,10 @@ object DeveloperDiamondLivePanel {
 
     private fun addControl(activity: MainActivity, parent: LinearLayout, spec: Spec) {
         fun dp(v: Int) = (v * activity.resources.displayMetrics.density).toInt()
-        val row = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(2), 0, dp(2)) }
+        val row = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(2), 0, dp(2))
+        }
         val label = TextView(activity).apply { setTextColor(Color.WHITE); textSize = 12f }
         val bar = SeekBar(activity).apply { max = 1000 }
 
@@ -242,7 +243,6 @@ object DeveloperDiamondLivePanel {
                 val value = valueOf(progress)
                 PrimaryDiamondLiveTuning.set(activity, spec.key, value)
                 setLabel(value)
-                // Le moteur lit les valeurs en direct ; on garde aussi ce rafraîchissement pour un retour instantané.
                 invalidateRealButtons(activity)
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
@@ -253,16 +253,22 @@ object DeveloperDiamondLivePanel {
         parent.addView(row)
     }
 
-    private fun primaryButtons(activity: MainActivity): List<RedDiamondFinalButton> =
-        intArrayOf(R.id.entryButton, R.id.pauseButton, R.id.exitButton).mapNotNull { id ->
-            activity.findViewById<View>(id) as? RedDiamondFinalButton
+    private fun primaryButtons(activity: MainActivity): List<RedDiamondFinalButton> {
+        val result = ArrayList<RedDiamondFinalButton>(3)
+        val ids = intArrayOf(R.id.entryButton, R.id.pauseButton, R.id.exitButton)
+        for (id in ids) {
+            val button = activity.findViewById<View>(id) as? RedDiamondFinalButton
+            if (button != null) result.add(button)
         }
+        return result
+    }
 
     private fun applyPreview(activity: MainActivity, target: PreviewTarget): Boolean {
         val targets = if (target.id == null) {
             primaryButtons(activity)
         } else {
-            listOfNotNull(activity.findViewById<View>(target.id) as? RedDiamondFinalButton)
+            val button = activity.findViewById<View>(target.id) as? RedDiamondFinalButton
+            if (button == null) emptyList() else listOf(button)
         }
         targets.forEach { button ->
             button.applyLiveDeveloperTuning()
