@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/generate-apk-test.yml"
 
-# Déclenchement APK test avec réglages live des bandes blanches.
+# Déclenchement APK test : bibliothèque images live + bouton enregistrer + corrections UI/icône.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
