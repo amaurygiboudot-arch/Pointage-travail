@@ -7,7 +7,7 @@ on:
     paths:
       - ".github/workflows/generate-apk-test.yml"
 
-# Déclenchement APK test avec panneau de réglages live en haut.
+# Déclenchement APK test après correction de la boucle de mise à jour HoraTrack.
 concurrency:
   group: horatrack-manual-apk-test-${{ github.ref }}
   cancel-in-progress: true
