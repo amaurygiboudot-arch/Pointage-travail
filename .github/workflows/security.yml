@@ -13,19 +13,21 @@ permissions:
   contents: read
 
 jobs:
-  dependency-review:
-    if: github.event_name == 'pull_request'
+  dependency-scan:
+    name: Dependency vulnerability scan
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Dependency review
-        uses: actions/dependency-review-action@v4
+      - name: Scan repository dependencies with Trivy
+        uses: aquasecurity/trivy-action@0.32.0
         with:
-          fail-on-severity: high
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
 
   codeql:
     name: CodeQL Android
@@ -74,3 +76,5 @@ jobs:
           gradle-version: '8.13'
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
+      - name: Android lint
+        run: gradle :app:lintDebug --stacktrace
