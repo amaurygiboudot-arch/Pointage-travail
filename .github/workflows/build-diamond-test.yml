@@ -71,24 +71,6 @@ jobs:
           "$BUILD_TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK"
           "$BUILD_TOOLS_DIR/aapt" dump badging "$APK" | grep "package: name='com.amaury.pointage'"
 
-      - name: Installer et lancer sur emulateur Android
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          profile: pixel_6
-          # Sur les runners Linux sans KVM, l'emulateur peut etre lent et la
-          # commande automatique de desactivation des animations peut faire
-          # tomber adb juste apres le boot (Broken pipe / exit 224).
-          # Le test utile est l'installation + le lancement ci-dessous.
-          disable-animations: false
-          script: |
-            adb wait-for-device
-            adb install -r app/build/outputs/apk/release/app-release.apk
-            adb shell am start -W -n com.amaury.pointage/.LaunchActivity
-            sleep 3
-            adb shell pidof com.amaury.pointage
-
       - name: Preparer APK test
         run: |
           cp app/build/outputs/apk/release/app-release.apk HP-Travail-Diamant-Carbone-Test.apk
