@@ -43,10 +43,6 @@ object ButtonReliefInstaller {
         refresh(activity, decor)
         configureSolarLighting(activity, decor)
 
-        // Avant, un OnGlobalLayoutListener permanent rappelait refresh() à chaque
-        // modification de layout. Cela retraversait tout l'écran plusieurs fois
-        // par frame et recréait des drawables/animations. On attend maintenant
-        // uniquement l'installation de la section Paramètres, puis on retire le listener.
         val listener = object : ViewTreeObserver.OnGlobalLayoutListener {
             override fun onGlobalLayout() {
                 if (activity.isFinishing || activity.isDestroyed) {
@@ -92,7 +88,7 @@ object ButtonReliefInstaller {
 
     private fun updateDynamicLight(decor: View, angle: Float, night: Boolean) {
         dynamicDrawables.entries.toList().forEach { (b, d) -> if (b.rootView === decor) d.setLightAngle(angle) }
-        True3DButtonInstaller.updateLight(decor, angle)
+        PrimaryDiamond3DInstaller.updateLight(decor, angle)
         updateJewelLights(decor, angle, night)
     }
 
@@ -143,11 +139,6 @@ object ButtonReliefInstaller {
                     }
                     .setNegativeButton("Annuler", null)
                     .create()
-                dialog.setOnShowListener {
-                    if (AppThemeCatalog.current(activity).id == "diamond_crystal") {
-                        True3DButtonInstaller.install(dialog.window?.decorView ?: return@setOnShowListener, currentLightAngle)
-                    }
-                }
                 dialog.show()
             }
         }
@@ -165,7 +156,7 @@ object ButtonReliefInstaller {
                     "la profondeur, les reflets et la réaction à l’inclinaison du téléphone.\n\n" +
                     "Ce moteur demande plus de ressources graphiques et peut consommer davantage de batterie " +
                     "que les autres thèmes.\n\n" +
-                    "En continuant, l’application bascule sur le moteur Diamant 3D uniquement tant que ce thème est actif."
+                    "Le moteur 3D est réservé aux trois boutons de pointage : Entrée, Pause et Sortie."
             )
             .setPositiveButton("ACTIVER LE DIAMANT 3D") { _, _ ->
                 AppThemeCatalog.set(activity, targetTheme)
@@ -235,7 +226,7 @@ object ButtonReliefInstaller {
         installDiamondLabIfPossible(activity)
         installSolarToggleIfPossible(activity)
         if (theme.id == "diamond_crystal") {
-            True3DButtonInstaller.install(decor, currentLightAngle)
+            PrimaryDiamond3DInstaller.install(decor, currentLightAngle)
         }
     }
 
@@ -300,17 +291,36 @@ object ButtonReliefInstaller {
     private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
         val id = resourceName(button)
         val protected = isProtectedButton(id)
-        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v9"
+        val primaryPointage = id == "entryButton" || id == "pauseButton" || id == "exitButton"
+        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v10"
 
         if (theme.id == "diamond_crystal") {
-            button.backgroundTintList = null
-            button.background = null
-            button.setTextColor(Color.parseColor("#F7FCFF"))
-            dynamicDrawables.remove(button)
-            if (button is LightReactiveJewelButton) {
-                button.alpha = 0f
+            if (primaryPointage) {
+                button.backgroundTintList = null
+                button.background = null
+                button.setTextColor(Color.parseColor("#F7FCFF"))
+                dynamicDrawables.remove(button)
+                if (button is LightReactiveJewelButton) button.alpha = 0f
+                button.setTag(TAG_KEY, styleKey)
+                return
             }
-            button.setTag(TAG_KEY, styleKey)
+
+            if (button is LightReactiveJewelButton) {
+                button.alpha = 1f
+                button.setJewelAccent(theme.accent, theme.accentLight)
+                button.setLightAngle(currentLightAngle)
+                button.setNightLight(currentNight)
+                button.setTag(TAG_KEY, "jewel_${theme.id}_classic")
+            } else if (button.getTag(TAG_KEY) != styleKey || button.background == null) {
+                button.alpha = 1f
+                button.backgroundTintList = null
+                val d = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density, theme.accent, theme.accentLight).apply { setLightAngle(currentLightAngle) }
+                button.background = d
+                dynamicDrawables[button] = d
+                button.setTextColor(Color.parseColor("#F7FCFF"))
+                button.setTag(TAG_KEY, styleKey)
+            }
+            installPressAnimator(button)
             return
         }
 
