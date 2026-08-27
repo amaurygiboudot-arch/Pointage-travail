@@ -15,11 +15,12 @@ import kotlin.math.sqrt
 
 /**
  * Branche les trois boutons de pointage permanents sur le moteur OpenGL.
- * Les couleurs sont envoyées directement au shader : aucun filtre n'est posé
- * sur la TextureView, donc le fond reste transparent.
+ * Le bouton historique reste présent uniquement comme cible logique (onClick,
+ * enabled, contenu métier), mais son rendu est totalement masqué : seul le
+ * nouveau diamant 3D est visible.
  */
 object PrimaryDiamond3DInstaller {
-    private const val TAG = "hp_primary_diamond_3d_v3_tilt"
+    private const val TAG = "hp_primary_diamond_3d_v4_new_only"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
     private var currentLightAngle = -55f
 
@@ -30,7 +31,7 @@ object PrimaryDiamond3DInstaller {
         buttons.forEach { button ->
             val existing = hosts[button]
             if (existing != null) {
-                button.alpha = 0f
+                hideLegacyVisual(button, existing)
                 existing.setLightAngle(currentLightAngle)
                 existing.setBaseColor(colorFor(button))
                 PrimaryDiamondTiltHub.attach(existing)
@@ -44,6 +45,7 @@ object PrimaryDiamond3DInstaller {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
             if (button.rootView === root.rootView) {
+                hideLegacyVisual(button, host)
                 host.setBaseColor(colorFor(button))
                 host.setLightAngle(lightAngle)
             }
@@ -53,6 +55,7 @@ object PrimaryDiamond3DInstaller {
     fun updateAllLight(lightAngle: Float) {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
+            hideLegacyVisual(button, host)
             host.setBaseColor(colorFor(button))
             host.setLightAngle(lightAngle)
         }
@@ -80,6 +83,26 @@ object PrimaryDiamond3DInstaller {
         }
     }
 
+    private fun hideLegacyVisual(button: Button, host: True3DButtonHost) {
+        // INVISIBLE (et non seulement alpha=0) garantit que le drawable custom
+        // Green/Orange/RedDiamondFinalButton ne dessine plus aucune ancienne facette.
+        button.visibility = View.INVISIBLE
+        button.alpha = 0f
+        button.background = null
+        button.backgroundTintList = null
+
+        // L'hôte 3D reprend la zone tactile et délègue l'action au bouton métier.
+        host.isClickable = true
+        host.isFocusable = button.isFocusable
+        host.contentDescription = button.contentDescription
+        host.setOnClickListener {
+            if (button.isEnabled) button.performClick()
+        }
+        host.setOnLongClickListener {
+            button.isEnabled && button.performLongClick()
+        }
+    }
+
     private fun wrap(button: Button, lightAngle: Float) {
         val parent = button.parent as? ViewGroup ?: return
         if (parent is True3DButtonHost) return
@@ -101,8 +124,8 @@ object PrimaryDiamond3DInstaller {
         host.attachButton(button, DiamondTuningStore.load(button.context), lightAngle)
         host.setBaseColor(colorFor(button))
         button.setTag(R.id.true3d_internal_tag, TAG)
-        button.alpha = 0f
         hosts[button] = host
+        hideLegacyVisual(button, host)
 
         host.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = PrimaryDiamondTiltHub.attach(host)
@@ -183,7 +206,6 @@ private object PrimaryDiamondTiltHub : SensorEventListener {
             val pitchDelta = angleDelta(state.refPitch ?: pitch, pitch).coerceIn(-32f, 32f)
             val rollDelta = angleDelta(state.refRoll ?: roll, roll).coerceIn(-32f, 32f)
 
-            // Réponse volontairement visible : ~22° maximum sur chaque axe.
             val targetX = (-pitchDelta * .70f).coerceIn(-22f, 22f)
             val targetY = (rollDelta * .70f).coerceIn(-22f, 22f)
             state.smoothPitch += (targetX - state.smoothPitch) * .28f
