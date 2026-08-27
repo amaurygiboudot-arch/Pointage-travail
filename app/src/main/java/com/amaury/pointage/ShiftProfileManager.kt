@@ -23,17 +23,16 @@ object ShiftProfileManager {
     }
 
     /**
-     * Détection par heure de prise de poste :
-     * 04:00–07:59 matin, 08:00–12:59 journée,
-     * 13:00–20:59 après-midi, 21:00–03:59 nuit.
-     * Le choix manuel permet toujours de remplacer cette détection.
+     * Détection automatique indicative par heure d'embauche.
+     * Le choix manuel du poste reste prioritaire, car les plages autorisées
+     * des équipes peuvent se chevaucher (notamment matin / journée / après-midi).
      */
     fun detect(entryMs: Long): ShiftType {
         val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
         return when (cal.get(Calendar.HOUR_OF_DAY)) {
-            in 4..7 -> ShiftType.MORNING
-            in 8..12 -> ShiftType.DAY
-            in 13..20 -> ShiftType.AFTERNOON
+            in 6..7 -> ShiftType.MORNING
+            in 8..11 -> ShiftType.DAY
+            in 12..20 -> ShiftType.AFTERNOON
             else -> ShiftType.NIGHT
         }
     }
@@ -48,9 +47,15 @@ object ShiftProfileManager {
         }
     }
 
-    fun pauseMinutes(context: Context, shift: ShiftType): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getInt("pause_${shift.id}", 0).coerceIn(0, 240)
+    fun pauseMinutes(context: Context, shift: ShiftType): Int {
+        val defaultMinutes = when (shift) {
+            ShiftType.DAY -> 60
+            ShiftType.NIGHT -> 30
+            else -> 0
+        }
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt("pause_${shift.id}", defaultMinutes).coerceIn(0, 240)
+    }
 
     fun setPauseMinutes(context: Context, shift: ShiftType, minutes: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
