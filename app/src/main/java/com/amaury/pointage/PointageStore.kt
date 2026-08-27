@@ -11,6 +11,7 @@ object PointageStore {
     private const val KEY = "data"
     private const val ICON_SYNC_DELAY_MS = 1500L
     private const val ENTRY_SLOT_MS = 30L * 60L * 1000L
+    private const val ENTRY_GRACE_MS = 10L * 60L * 1000L
     private val storageLock = Any()
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingIconSync: Runnable? = null
@@ -37,10 +38,12 @@ object PointageStore {
     fun isPausedAutomatically(context: Context):Boolean{val o=findOpenSession(load(context))?:return false;return currentPause(o)?.optBoolean("automatic",false)==true}
     private fun scheduleIconSync(context:Context){pendingIconSync?.let(mainHandler::removeCallbacks);val app=context.applicationContext;val task=Runnable{IconSwitcher.sync(app)};pendingIconSync=task;mainHandler.postDelayed(task,ICON_SYNC_DELAY_MS)}
 
-    /** Étape 1 : l'arrivée réelle et l'embauche comptée sont deux données distinctes. */
+    /** Étape 2 : créneaux de 30 min avec 10 min de tolérance après le créneau. */
     private fun hiringTimeFromArrival(arrival:Long):Long {
         val remainder = Math.floorMod(arrival, ENTRY_SLOT_MS)
-        return if (remainder == 0L) arrival else arrival + (ENTRY_SLOT_MS - remainder)
+        val currentSlot = arrival - remainder
+        if (remainder == 0L) return currentSlot
+        return if (remainder <= ENTRY_GRACE_MS) currentSlot else currentSlot + ENTRY_SLOT_MS
     }
 
     fun entry(context:Context,zoneId:String?=null,zoneAddress:String?=null):Boolean{
