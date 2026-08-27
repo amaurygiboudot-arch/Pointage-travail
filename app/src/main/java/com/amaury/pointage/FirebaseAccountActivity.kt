@@ -102,28 +102,12 @@ class FirebaseAccountActivity : Activity() {
             signInButton = themedButton("SE CONNECTER AVEC GOOGLE", p.text, p.accent, p.panel) { startGoogleSignIn() }
             addView(signInButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()))
 
-            saveButton = themedButton("SAUVEGARDER L'HISTORIQUE MAINTENANT", p.text, p.accent, p.panel) {
-                setCloudButtonsEnabled(false)
-                CloudPointageBackup.saveAll(this@FirebaseAccountActivity) { ok, message ->
-                    runOnUiThread {
-                        setCloudButtonsEnabled(true)
-                        Toast.makeText(this@FirebaseAccountActivity, if (ok) "Sauvegarde réussie : $message" else "Sauvegarde impossible : $message", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
+            saveButton = themedButton("SAUVEGARDER TOUT MAINTENANT", p.text, p.accent, p.panel) { saveEverything() }
             addView(saveButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
                 topMargin = (12 * density).toInt()
             })
 
-            restoreButton = themedButton("RESTAURER L'HISTORIQUE", p.text, p.accent, p.panel) {
-                setCloudButtonsEnabled(false)
-                CloudPointageBackup.restoreAll(this@FirebaseAccountActivity) { ok, message ->
-                    runOnUiThread {
-                        setCloudButtonsEnabled(true)
-                        Toast.makeText(this@FirebaseAccountActivity, if (ok) "Restauration réussie : $message" else "Restauration impossible : $message", Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
+            restoreButton = themedButton("RESTAURER TOUT MAINTENANT", p.text, p.accent, p.panel) { restoreEverything() }
             addView(restoreButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (62 * density).toInt()).apply {
                 topMargin = (12 * density).toInt()
             })
@@ -156,6 +140,50 @@ class FirebaseAccountActivity : Activity() {
             }
             clipToOutline = true
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+    }
+
+    private fun saveEverything() {
+        setCloudButtonsEnabled(false)
+        CloudPointageBackup.saveAll(this) { historyOk, historyMessage ->
+            if (!historyOk) {
+                runOnUiThread {
+                    setCloudButtonsEnabled(true)
+                    Toast.makeText(this, "Sauvegarde impossible : $historyMessage", Toast.LENGTH_LONG).show()
+                }
+                return@saveAll
+            }
+            CloudSettingsBackup.saveAll(this) { settingsOk, settingsMessage ->
+                runOnUiThread {
+                    setCloudButtonsEnabled(true)
+                    val message = if (settingsOk) {
+                        "Sauvegarde complète : $historyMessage, $settingsMessage"
+                    } else {
+                        "Historique sauvegardé, mais réglages non sauvegardés : $settingsMessage"
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun restoreEverything() {
+        setCloudButtonsEnabled(false)
+        // Les réglages sont restaurés d'abord. On ne remplace jamais l'historique local
+        // si sa sauvegarde cloud est illisible.
+        CloudSettingsBackup.restoreAll(this) { settingsOk, settingsMessage ->
+            CloudPointageBackup.restoreAll(this) { historyOk, historyMessage ->
+                runOnUiThread {
+                    setCloudButtonsEnabled(true)
+                    val message = when {
+                        settingsOk && historyOk -> "Restauration complète : $historyMessage, $settingsMessage"
+                        historyOk -> "Historique restauré, mais réglages non restaurés : $settingsMessage"
+                        settingsOk -> "Réglages restaurés, mais historique non restauré : $historyMessage"
+                        else -> "Restauration impossible : $historyMessage ; $settingsMessage"
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
