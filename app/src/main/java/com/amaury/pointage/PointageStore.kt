@@ -37,7 +37,7 @@ object PointageStore {
     fun isPausedAutomatically(context: Context):Boolean{val o=findOpenSession(load(context))?:return false;return currentPause(o)?.optBoolean("automatic",false)==true}
     private fun scheduleIconSync(context:Context){pendingIconSync?.let(mainHandler::removeCallbacks);val app=context.applicationContext;val task=Runnable{IconSwitcher.sync(app)};pendingIconSync=task;mainHandler.postDelayed(task,ICON_SYNC_DELAY_MS)}
 
-    /** L'heure d'arrivée réelle est conservée séparément. L'embauche comptée est arrondie à la prochaine tranche de 30 min. */
+    /** Étape 1 : l'arrivée réelle et l'embauche comptée sont deux données distinctes. */
     private fun hiringTimeFromArrival(arrival:Long):Long {
         val remainder = Math.floorMod(arrival, ENTRY_SLOT_MS)
         return if (remainder == 0L) arrival else arrival + (ENTRY_SLOT_MS - remainder)
@@ -60,7 +60,14 @@ object PointageStore {
         val countedEntry=hiringTimeFromArrival(now)
 
         val changed=synchronized(storageLock){val d=loadUnlocked(context);if(findOpenSession(d)!=null)false else{
-            val item=JSONObject().put("entry",countedEntry).put("arrivalTime",now).put("exit",JSONObject.NULL).put("pauses",JSONArray()).put("shiftType",shift.id).put("companySlot",slot).put("autoPauseMinutes",base)
+            val item=JSONObject()
+                .put("arrivalTime",now)
+                .put("countedEntryTime",countedEntry)
+                .put("entry",countedEntry) // compatibilité temporaire avec les anciens lecteurs
+                .put("countedExitTime",JSONObject.NULL)
+                .put("exitTime",JSONObject.NULL)
+                .put("exit",JSONObject.NULL) // compatibilité temporaire avec les anciens lecteurs
+                .put("pauses",JSONArray()).put("shiftType",shift.id).put("companySlot",slot).put("autoPauseMinutes",base)
             if(!finalId.isNullOrBlank())item.put("zoneId",finalId)
             if(!finalAddress.isNullOrBlank())item.put("zoneAddress",finalAddress)
             d.put(item);saveUnlocked(context,d);true}}
@@ -74,7 +81,9 @@ object PointageStore {
     fun addManualPause(context:Context,pauseStart:Long,pauseEnd:Long):Boolean{if(pauseStart<=0L||pauseEnd<=pauseStart)return false;val changed=synchronized(storageLock){val d=loadUnlocked(context);var target:JSONObject?=null;for(i in d.length()-1 downTo 0){val item=d.optJSONObject(i)?:continue;val e=item.optLong("entry",-1L);if(e<=0L)continue;val end=if(item.isNull("exit"))System.currentTimeMillis() else item.optLong("exit",-1L);if(end>=e&&pauseStart>=e&&pauseEnd<=end){target=item;break}};val item=target?:return@synchronized false;val ps=item.optJSONArray("pauses")?:JSONArray().also{item.put("pauses",it)};ps.put(JSONObject().put("start",pauseStart).put("end",pauseEnd).put("manual",true));saveUnlocked(context,d);true};if(!changed)return false;updateWidgets(context);DriveBackupManager.syncCurrentMonthAsync(context);return true}
     fun pauseDuration(item:JSONObject,until:Long=System.currentTimeMillis()):Long{val entry=item.optLong("entry",-1L);if(entry<=0L)return 0L;val sessionEnd=if(item.isNull("exit"))until else item.optLong("exit",until);if(sessionEnd<=entry)return 0L;val raw=sessionEnd-entry;val base=item.optInt("autoPauseMinutes",0).coerceIn(0,240)*60000L;val ps=item.optJSONArray("pauses");val intervals=mutableListOf<Pair<Long,Long>>();if(ps!=null)for(i in 0 until ps.length()){val p=ps.optJSONObject(i)?:continue;if(base>0&&p.optBoolean("automatic",false))continue;val s=p.optLong("start",-1L);val e=if(p.isNull("end"))until else p.optLong("end",-1L);if(s<=0L||e<=s)continue;val a=s.coerceAtLeast(entry);val b=e.coerceAtMost(sessionEnd);if(b>a)intervals+=a to b};var additional=0L;if(intervals.isNotEmpty()){intervals.sortBy{it.first};var s=intervals.first().first;var e=intervals.first().second;for(i in 1 until intervals.size){val(a,b)=intervals[i];if(a<=e)e=maxOf(e,b) else{additional+=e-s;s=a;e=b}};additional+=e-s};return(base+additional).coerceIn(0L,raw)}
     fun workedDuration(item:JSONObject,until:Long=System.currentTimeMillis()):Long{val e=item.optLong("entry",-1L);if(e<=0L)return 0L;val end=if(item.isNull("exit"))until else item.optLong("exit",until);if(end<=e)return 0L;return((end-e)-pauseDuration(item,end)).coerceAtLeast(0L)}
-    fun exit(context:Context):Boolean{val now=System.currentTimeMillis();val changed=synchronized(storageLock){val d=loadUnlocked(context);for(i in d.length()-1 downTo 0){val item=d.optJSONObject(i)?:continue;if(!item.isNull("exit"))continue;val entry=item.optLong("entry",-1L);if(entry<=0L||now<entry)continue;openPause(item)?.let{p->if(p.optLong("start",-1L)>0L)p.put("end",now)};item.put("exit",now);saveUnlocked(context,d);return@synchronized true};false};if(!changed)return false;updateWidgets(context);scheduleIconSync(context);DriveBackupManager.syncCurrentMonthAsync(context);return true}
+
+    /** Étape 1 : la sortie réelle est enregistrée séparément de la future débauche comptée. */
+    fun exit(context:Context):Boolean{val now=System.currentTimeMillis();val changed=synchronized(storageLock){val d=loadUnlocked(context);for(i in d.length()-1 downTo 0){val item=d.optJSONObject(i)?:continue;if(!item.isNull("exit"))continue;val entry=item.optLong("entry",-1L);if(entry<=0L||now<entry)continue;openPause(item)?.let{p->if(p.optLong("start",-1L)>0L)p.put("end",now)};item.put("exitTime",now);item.put("countedExitTime",now);item.put("exit",now);saveUnlocked(context,d);return@synchronized true};false};if(!changed)return false;updateWidgets(context);scheduleIconSync(context);DriveBackupManager.syncCurrentMonthAsync(context);return true}
     fun manualPausesForDay(context:Context,dayStart:Long,dayEnd:Long):List<Pair<Long,Long>>{if(dayStart<=0L||dayEnd<=dayStart)return emptyList();val result=mutableListOf<Pair<Long,Long>>();val d=load(context);for(i in 0 until d.length()){val ps=d.optJSONObject(i)?.optJSONArray("pauses")?:continue;for(j in 0 until ps.length()){val p=ps.optJSONObject(j)?:continue;if(!p.optBoolean("manual",false))continue;val s=p.optLong("start",-1L);val e=p.optLong("end",-1L);if(s>=dayStart&&s<dayEnd&&e>s)result+=s to e}};return result.distinct().sortedBy{it.first}.take(5)}
     private fun currentPause(item:JSONObject,now:Long=System.currentTimeMillis()):JSONObject?{val ps=item.optJSONArray("pauses")?:return null;for(i in ps.length()-1 downTo 0){val p=ps.optJSONObject(i)?:continue;val s=p.optLong("start",-1L);if(s<=0L||now<s)continue;if(p.isNull("end"))return p;val e=p.optLong("end",-1L);if(e>s&&now<e)return p};return null}
     private fun openPause(item:JSONObject):JSONObject?{val ps=item.optJSONArray("pauses")?:return null;for(i in ps.length()-1 downTo 0){val p=ps.optJSONObject(i)?:continue;if(p.optLong("start",-1L)>0L&&p.isNull("end"))return p};return null}
