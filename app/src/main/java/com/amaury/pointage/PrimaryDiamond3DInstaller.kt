@@ -15,12 +15,17 @@ import kotlin.math.sqrt
 
 /**
  * Branche les trois boutons de pointage permanents sur le moteur OpenGL.
- * Le bouton historique reste présent uniquement comme cible logique (onClick,
- * enabled, contenu métier), mais son rendu est totalement masqué : seul le
- * nouveau diamant 3D est visible.
+ *
+ * IMPORTANT : quand le moteur 3D est actif, l'ancien bouton diamant n'est plus
+ * caché sous le nouveau rendu. Il est retiré de l'arbre des vues et conservé
+ * uniquement comme objet logique (onClick, enabled, contenu métier). Ainsi il
+ * ne peut plus être dessiné, mesuré ou recevoir des événements tactiles.
+ *
+ * Quand l'utilisateur choisit l'ancien rendu, ce moteur n'est pas installé et
+ * le layout Android recréé utilise normalement les boutons historiques.
  */
 object PrimaryDiamond3DInstaller {
-    private const val TAG = "hp_primary_diamond_3d_v4_new_only"
+    private const val TAG = "hp_primary_diamond_3d_v5_legacy_detached"
     private val hosts = WeakHashMap<Button, True3DButtonHost>()
     private var currentLightAngle = -55f
 
@@ -31,7 +36,7 @@ object PrimaryDiamond3DInstaller {
         buttons.forEach { button ->
             val existing = hosts[button]
             if (existing != null) {
-                hideLegacyVisual(button, existing)
+                disableLegacyView(button, existing)
                 existing.setLightAngle(currentLightAngle)
                 existing.setBaseColor(colorFor(button))
                 PrimaryDiamondTiltHub.attach(existing)
@@ -44,8 +49,8 @@ object PrimaryDiamond3DInstaller {
     fun updateLight(root: View, lightAngle: Float) {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
-            if (button.rootView === root.rootView) {
-                hideLegacyVisual(button, host)
+            if (host.rootView === root.rootView) {
+                disableLegacyView(button, host)
                 host.setBaseColor(colorFor(button))
                 host.setLightAngle(lightAngle)
             }
@@ -55,7 +60,7 @@ object PrimaryDiamond3DInstaller {
     fun updateAllLight(lightAngle: Float) {
         currentLightAngle = lightAngle
         hosts.entries.toList().forEach { (button, host) ->
-            hideLegacyVisual(button, host)
+            disableLegacyView(button, host)
             host.setBaseColor(colorFor(button))
             host.setLightAngle(lightAngle)
         }
@@ -83,17 +88,19 @@ object PrimaryDiamond3DInstaller {
         }
     }
 
-    private fun hideLegacyVisual(button: Button, host: True3DButtonHost) {
-        // INVISIBLE (et non seulement alpha=0) garantit que le drawable custom
-        // Green/Orange/RedDiamondFinalButton ne dessine plus aucune ancienne facette.
-        button.visibility = View.INVISIBLE
-        button.alpha = 0f
-        button.background = null
-        button.backgroundTintList = null
+    /**
+     * Désactive réellement l'ancien rendu : le Button historique reste en
+     * mémoire pour sa logique métier mais n'est plus enfant d'aucun ViewGroup.
+     */
+    private fun disableLegacyView(button: Button, host: True3DButtonHost) {
+        (button.parent as? ViewGroup)?.removeView(button)
 
-        // L'hôte 3D reprend la zone tactile et délègue l'action au bouton métier.
+        // L'hôte 3D est la seule vue visible et la seule cible tactile.
+        host.visibility = View.VISIBLE
+        host.alpha = 1f
         host.isClickable = true
         host.isFocusable = button.isFocusable
+        host.isEnabled = button.isEnabled
         host.contentDescription = button.contentDescription
         host.setOnClickListener {
             if (button.isEnabled) button.performClick()
@@ -121,11 +128,15 @@ object PrimaryDiamond3DInstaller {
         host.scaleY = .97f
         parent.addView(host, index)
 
+        // attachButton initialise le moteur et garde la référence métier.
+        // Il ajoute temporairement l'ancien Button dans le host ; on le retire
+        // immédiatement afin qu'il soit réellement désactivé visuellement.
         host.attachButton(button, DiamondTuningStore.load(button.context), lightAngle)
+        host.removeView(button)
         host.setBaseColor(colorFor(button))
         button.setTag(R.id.true3d_internal_tag, TAG)
         hosts[button] = host
-        hideLegacyVisual(button, host)
+        disableLegacyView(button, host)
 
         host.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) = PrimaryDiamondTiltHub.attach(host)
