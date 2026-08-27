@@ -37,8 +37,11 @@ object PointageStore {
     fun isPausedAutomatically(context: Context):Boolean{val o=findOpenSession(load(context))?:return false;return currentPause(o)?.optBoolean("automatic",false)==true}
     private fun scheduleIconSync(context:Context){pendingIconSync?.let(mainHandler::removeCallbacks);val app=context.applicationContext;val task=Runnable{IconSwitcher.sync(app)};pendingIconSync=task;mainHandler.postDelayed(task,ICON_SYNC_DELAY_MS)}
 
-    /** L'heure d'arrivée réelle définit l'heure d'embauche comptée, par tranche de 30 min inférieure. */
-    private fun hiringTimeFromArrival(arrival:Long):Long = arrival - Math.floorMod(arrival, ENTRY_SLOT_MS)
+    /** L'heure d'arrivée réelle est conservée séparément. L'embauche comptée est arrondie à la prochaine tranche de 30 min. */
+    private fun hiringTimeFromArrival(arrival:Long):Long {
+        val remainder = Math.floorMod(arrival, ENTRY_SLOT_MS)
+        return if (remainder == 0L) arrival else arrival + (ENTRY_SLOT_MS - remainder)
+    }
 
     fun entry(context:Context,zoneId:String?=null,zoneAddress:String?=null):Boolean{
         val now=System.currentTimeMillis()
