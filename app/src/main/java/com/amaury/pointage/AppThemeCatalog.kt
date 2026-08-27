@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
@@ -56,30 +55,26 @@ object AppThemeCatalog {
         return fallback
     }
 
+    /**
+     * Le mode automatique suit uniquement le mode jour/nuit Android.
+     * L'état soleil/lune est conservé séparément pour l'éclairage dynamique
+     * des objets graphiques et ne doit plus figer toute la palette de l'app.
+     */
     fun useDarkPalette(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return when (prefs.getString("mode", "auto") ?: "auto") {
             "light" -> false
             "dark" -> true
-            else -> {
-                if (prefs.contains(KEY_CELESTIAL_NIGHT)) {
-                    prefs.getBoolean(KEY_CELESTIAL_NIGHT, false)
-                } else {
-                    (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-                }
-            }
+            else -> (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         }
     }
 
     fun setCelestialNight(context: Context, night: Boolean) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_CELESTIAL_NIGHT, !night) == night && prefs.contains(KEY_CELESTIAL_NIGHT)) return
+        // Cet état sert aux effets soleil/lune uniquement. Il ne pilote plus
+        // la palette générale de l'application.
         prefs.edit().putBoolean(KEY_CELESTIAL_NIGHT, night).apply()
-
-        val activity = context as? Activity
-        activity?.window?.decorView?.post {
-            AutoDayNightPolarity.apply(activity.window.decorView)
-        }
     }
 
     fun set(context: Context, theme: HpTheme) {
@@ -100,11 +95,6 @@ object AppThemeCatalog {
             .remove("widget_bg")
             .remove("widget_accent")
             .apply()
-
-        val activity = context as? Activity
-        activity?.window?.decorView?.post {
-            AutoDayNightPolarity.apply(activity.window.decorView)
-        }
 
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
         forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
