@@ -23,15 +23,16 @@ object ShiftProfileManager {
     }
 
     /**
-     * Détection automatique indicative par heure d'embauche.
-     * Le choix manuel du poste reste prioritaire, car les plages autorisées
-     * des équipes peuvent se chevaucher (notamment matin / journée / après-midi).
+     * Détection automatique indicative par heure d'embauche comptée.
+     * L'embauche est arrondie à la prochaine tranche de 30 minutes avant cette détection :
+     * par exemple 06:58 -> 07:00 -> Journée, et 07:58 -> 08:00 -> Journée.
+     * Les plages de sortie servent ensuite à confirmer le profil de poste.
      */
     fun detect(entryMs: Long): ShiftType {
         val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
         return when (cal.get(Calendar.HOUR_OF_DAY)) {
-            in 6..7 -> ShiftType.MORNING
-            in 8..11 -> ShiftType.DAY
+            6 -> ShiftType.MORNING
+            in 7..11 -> ShiftType.DAY
             in 12..20 -> ShiftType.AFTERNOON
             else -> ShiftType.NIGHT
         }
