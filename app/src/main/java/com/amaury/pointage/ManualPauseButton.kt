@@ -3,20 +3,17 @@ package com.amaury.pointage
 import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
-import android.text.Editable
-import android.text.InputType
-import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
@@ -33,8 +30,10 @@ class ManualPauseButton @JvmOverloads constructor(
 
     private data class PauseSlot(
         val container: LinearLayout,
-        val start: EditText,
-        val end: EditText
+        val start: Button,
+        val end: Button,
+        var startMinutes: Int? = null,
+        var endMinutes: Int? = null
     )
 
     init { setOnClickListener { showDialog() } }
@@ -42,7 +41,6 @@ class ManualPauseButton @JvmOverloads constructor(
     private fun showDialog() {
         val selectedDate = Calendar.getInstance(Locale.FRANCE)
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
         val schedule = PauseScheduleManager.load(context)
         val theme = AppThemeCatalog.current(context)
         val appearance = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
@@ -67,18 +65,6 @@ class ManualPauseButton @JvmOverloads constructor(
             minimumHeight = 0
         }
 
-        fun styledInput(hintText: String) = EditText(context).apply {
-            hint = hintText
-            textSize = 14f
-            setTextColor(textColor)
-            setHintTextColor(hintColor)
-            setBackgroundResource(R.drawable.hp_panel)
-            backgroundTintList = ColorStateList.valueOf(panel)
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            isSingleLine = true
-            inputType = InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME
-        }
-
         val body = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(16), dp(18), dp(12))
@@ -93,7 +79,7 @@ class ManualPauseButton @JvmOverloads constructor(
             setPadding(0, dp(4), 0, dp(8))
         })
         body.addView(TextView(context).apply {
-            text = "Ajoute jusqu'à 5 pauses à une même journée. Le créneau suivant apparaît seulement quand le précédent est correctement renseigné."
+            text = "Ajoute jusqu'à 5 pauses à une même journée. Appuie sur Début ou Fin pour choisir l'heure sans clavier."
             textSize = 14f
             setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
@@ -134,10 +120,68 @@ class ManualPauseButton @JvmOverloads constructor(
         })
 
         val slots = mutableListOf<PauseSlot>()
+        val totalPauseText = TextView(context).apply {
+            text = "TOTAL HEURES DE PAUSE : 00h 00m"
+            textSize = 15f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(orange)
+            setPadding(0, dp(14), 0, dp(8))
+        }
+
+        fun updateTotalPause() {
+            val ranges = slots.mapNotNull { slot ->
+                val s = slot.startMinutes
+                val e = slot.endMinutes
+                if (s != null && e != null && e > s) {
+                    minutesToMillis(selectedDate, s) to minutesToMillis(selectedDate, e)
+                } else null
+            }
+            totalPauseText.text = "TOTAL HEURES DE PAUSE : ${formatMergedDuration(ranges)}"
+        }
+
+        fun refreshSlotVisibility() {
+            slots.forEachIndexed { index, slot ->
+                slot.container.visibility = if (index == 0) {
+                    View.VISIBLE
+                } else {
+                    val previous = slots[index - 1]
+                    if (previous.startMinutes != null && previous.endMinutes != null && previous.endMinutes!! > previous.startMinutes!!) View.VISIBLE else View.GONE
+                }
+            }
+        }
+
+        fun openTimePicker(slot: PauseSlot, isStart: Boolean, label: String) {
+            val currentMinutes = if (isStart) slot.startMinutes else slot.endMinutes
+            val fallbackMinutes = if (isStart) {
+                slot.endMinutes?.minus(15) ?: (schedule.startHour * 60 + schedule.startMinute)
+            } else {
+                slot.startMinutes?.plus(15) ?: (schedule.endHour * 60 + schedule.endMinute)
+            }
+            val initial = currentMinutes ?: fallbackMinutes.coerceIn(0, 23 * 60 + 59)
+            TimePickerDialog(
+                context,
+                { _, hour, minute ->
+                    val value = hour * 60 + minute
+                    if (isStart) {
+                        slot.startMinutes = value
+                        slot.start.text = "$label : ${formatTime(value)}"
+                    } else {
+                        slot.endMinutes = value
+                        slot.end.text = "$label : ${formatTime(value)}"
+                    }
+                    refreshSlotVisibility()
+                    updateTotalPause()
+                },
+                initial / 60,
+                initial % 60,
+                true
+            ).show()
+        }
+
         repeat(5) { index ->
             val slotNumber = index + 1
-            val start = styledInput("Début $slotNumber — ex. 10:00")
-            val end = styledInput("Fin $slotNumber — ex. 10:15")
+            val start = styledButton("DÉBUT $slotNumber : choisir")
+            val end = styledButton("FIN $slotNumber : choisir")
             val container = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = if (index == 0) View.VISIBLE else View.GONE
@@ -154,48 +198,13 @@ class ManualPauseButton @JvmOverloads constructor(
                 addView(end, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
             }
             body.addView(container)
-            slots += PauseSlot(container, start, end)
+            val slot = PauseSlot(container, start, end)
+            start.setOnClickListener { openTimePicker(slot, true, "DÉBUT $slotNumber") }
+            end.setOnClickListener { openTimePicker(slot, false, "FIN $slotNumber") }
+            slots += slot
         }
 
-        val totalPauseText = TextView(context).apply {
-            text = "TOTAL HEURES DE PAUSE : 00h 00m"
-            textSize = 15f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(orange)
-            setPadding(0, dp(14), 0, dp(8))
-        }
         body.addView(totalPauseText)
-
-        fun slotIsComplete(slot: PauseSlot): Boolean {
-            val startMs = parseTime(selectedDate, slot.start.text.toString()) ?: return false
-            val endMs = parseTime(selectedDate, slot.end.text.toString()) ?: return false
-            return endMs > startMs
-        }
-
-        fun updateTotalPause() {
-            val ranges = mutableListOf<Pair<Long, Long>>()
-            slots.forEach { slot ->
-                val s = parseTime(selectedDate, slot.start.text.toString())
-                val e = parseTime(selectedDate, slot.end.text.toString())
-                if (s != null && e != null && e > s) ranges += s to e
-            }
-            totalPauseText.text = "TOTAL HEURES DE PAUSE : ${formatMergedDuration(ranges)}"
-        }
-
-        for (i in slots.indices) {
-            val current = slots[i]
-            val next = slots.getOrNull(i + 1)
-            val watcher = object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
-                override fun afterTextChanged(s: Editable?) {
-                    if (next != null && slotIsComplete(current)) next.container.visibility = View.VISIBLE
-                    updateTotalPause()
-                }
-            }
-            current.start.addTextChangedListener(watcher)
-            current.end.addTextChangedListener(watcher)
-        }
 
         reloadPausesForSelectedDate = {
             val dayStartCalendar = (selectedDate.clone() as Calendar).apply {
@@ -209,28 +218,30 @@ class ManualPauseButton @JvmOverloads constructor(
             val saved = PointageStore.manualPausesForDay(context, dayStart, dayEnd)
 
             slots.forEachIndexed { index, slot ->
-                slot.start.error = null
-                slot.end.error = null
-                slot.start.setText("")
-                slot.end.setText("")
+                slot.startMinutes = null
+                slot.endMinutes = null
+                slot.start.text = "DÉBUT ${index + 1} : choisir"
+                slot.end.text = "FIN ${index + 1} : choisir"
                 slot.container.visibility = if (index == 0) View.VISIBLE else View.GONE
             }
 
             if (saved.isNotEmpty()) {
                 saved.take(5).forEachIndexed { index, range ->
                     val slot = slots[index]
-                    slot.start.setText(timeFormat.format(range.first))
-                    slot.end.setText(timeFormat.format(range.second))
-                }
-                val visibleThrough = saved.size.coerceAtMost(4)
-                slots.forEachIndexed { index, slot ->
-                    slot.container.visibility = if (index <= visibleThrough) View.VISIBLE else View.GONE
+                    val startCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = range.first }
+                    val endCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = range.second }
+                    slot.startMinutes = startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE)
+                    slot.endMinutes = endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
+                    slot.start.text = "DÉBUT ${index + 1} : ${formatTime(slot.startMinutes!!)}"
+                    slot.end.text = "FIN ${index + 1} : ${formatTime(slot.endMinutes!!)}"
                 }
             } else {
-                slots[0].start.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.startHour, schedule.startMinute))
-                slots[0].end.setText(String.format(Locale.FRANCE, "%02d:%02d", schedule.endHour, schedule.endMinute))
-                slots[0].container.visibility = View.VISIBLE
+                slots[0].startMinutes = schedule.startHour * 60 + schedule.startMinute
+                slots[0].endMinutes = schedule.endHour * 60 + schedule.endMinute
+                slots[0].start.text = "DÉBUT 1 : ${formatTime(slots[0].startMinutes!!)}"
+                slots[0].end.text = "FIN 1 : ${formatTime(slots[0].endMinutes!!)}"
             }
+            refreshSlotVisibility()
             updateTotalPause()
         }
         reloadPausesForSelectedDate?.invoke()
@@ -279,15 +290,22 @@ class ManualPauseButton @JvmOverloads constructor(
         save.setOnClickListener {
             val ranges = mutableListOf<Pair<Long, Long>>()
             for ((index, slot) in slots.withIndex()) {
-                val startText = slot.start.text.toString().trim()
-                val endText = slot.end.text.toString().trim()
-                if (index > 0 && startText.isBlank() && endText.isBlank()) break
-                val startMs = parseTime(selectedDate, startText)
-                val endMs = parseTime(selectedDate, endText)
-                if (startMs == null) { slot.start.error = "Format attendu : HH:mm"; return@setOnClickListener }
-                if (endMs == null) { slot.end.error = "Format attendu : HH:mm"; return@setOnClickListener }
-                if (endMs <= startMs) { slot.end.error = "La fin doit être après le début"; return@setOnClickListener }
-                ranges += startMs to endMs
+                val startMinutes = slot.startMinutes
+                val endMinutes = slot.endMinutes
+                if (index > 0 && startMinutes == null && endMinutes == null) break
+                if (startMinutes == null) {
+                    Toast.makeText(context, "Choisis l'heure de début du créneau ${index + 1}", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                if (endMinutes == null) {
+                    Toast.makeText(context, "Choisis l'heure de fin du créneau ${index + 1}", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                if (endMinutes <= startMinutes) {
+                    Toast.makeText(context, "La fin du créneau ${index + 1} doit être après le début", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                ranges += minutesToMillis(selectedDate, startMinutes) to minutesToMillis(selectedDate, endMinutes)
             }
             if (ranges.isEmpty()) return@setOnClickListener
 
@@ -320,18 +338,16 @@ class ManualPauseButton @JvmOverloads constructor(
         dialog.show()
     }
 
-    private fun parseTime(day: Calendar, value: String): Long? {
-        val match = Regex("^\\s*(\\d{1,2})[:hH](\\d{2})\\s*$").matchEntire(value) ?: return null
-        val hour = match.groupValues[1].toIntOrNull() ?: return null
-        val minute = match.groupValues[2].toIntOrNull() ?: return null
-        if (hour !in 0..23 || minute !in 0..59) return null
-        return (day.clone() as Calendar).apply {
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
+    private fun minutesToMillis(day: Calendar, minutes: Int): Long =
+        (day.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, minutes / 60)
+            set(Calendar.MINUTE, minutes % 60)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
-    }
+
+    private fun formatTime(minutes: Int): String =
+        String.format(Locale.FRANCE, "%02d:%02d", minutes / 60, minutes % 60)
 
     private fun formatMergedDuration(ranges: List<Pair<Long, Long>>): String {
         if (ranges.isEmpty()) return "00h 00m"
