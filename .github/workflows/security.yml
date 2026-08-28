@@ -27,6 +27,24 @@ jobs:
         with:
           fail-on-severity: high
 
+  v2-unit-tests:
+    name: V2 unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Run V2 unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
   codeql:
     name: CodeQL Android
     runs-on: ubuntu-latest
