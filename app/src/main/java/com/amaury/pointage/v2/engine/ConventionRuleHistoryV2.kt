@@ -56,7 +56,7 @@ class ConventionRuleHistoryV2(
                 val previous = ascending[index - 1]
                 val current = ascending[index]
                 val previousEnd = previous.effectiveToEpochDay
-                require(previousEnd == null || previousEnd < current.effectiveFromEpochDay) {
+                require(previousEnd != null && previousEnd < current.effectiveFromEpochDay) {
                     "Versions conventionnelles qui se chevauchent pour IDCC $idcc"
                 }
             }
