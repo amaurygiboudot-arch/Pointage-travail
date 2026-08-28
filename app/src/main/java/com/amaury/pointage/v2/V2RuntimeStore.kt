@@ -36,6 +36,7 @@ object V2RuntimeStore {
         boundContext = context.applicationContext
         V2ProfileStore.bind(context)
     }
+
     fun snapshotBound(nowMs: Long = System.currentTimeMillis()): Snapshot? = boundContext?.let { snapshot(it, nowMs) }
     fun allSessionsBound(nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> = boundContext?.let { allSessions(it, nowMs) }.orEmpty()
 
@@ -73,7 +74,6 @@ object V2RuntimeStore {
         return true
     }
 
-    /** Enregistre uniquement une fin prévue explicitement connue. */
     fun setExpectedEnd(context: Context, expectedEndMs: Long?): Boolean {
         bind(context)
         val prefs = prefs(context)
@@ -103,10 +103,7 @@ object V2RuntimeStore {
         if (safeLong(prefs.all[KEY_REAL_ENTRY]) <= 0L || safeLong(prefs.all[KEY_REAL_EXIT]) > 0L) return false
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
-            prefs.edit()
-                .putLong(KEY_PAUSE_START, nowMs)
-                .putString(KEY_PAUSE_SOURCE, source.name)
-                .apply()
+            prefs.edit().putLong(KEY_PAUSE_START, nowMs).putString(KEY_PAUSE_SOURCE, source.name).apply()
         } else {
             val storedSource = parseSource(prefs.getString(KEY_PAUSE_SOURCE, null))
             prefs.edit()
@@ -149,13 +146,7 @@ object V2RuntimeStore {
         val pauseStart = safeLong(prefs.all[KEY_PAUSE_START])
         var pauses = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseStart > 0L) {
-            pauses = appendPause(
-                pauses,
-                pauseStart,
-                nowMs,
-                parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)),
-                false
-            )
+            pauses = appendPause(pauses, pauseStart, nowMs, parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)), false)
         }
 
         val knownExpectedEnd = expectedEndMs
@@ -192,7 +183,7 @@ object V2RuntimeStore {
         safeLong(prefs.all[KEY_PAUSE_START]).takeIf { it > 0L }?.let {
             pauses += PauseV2(it, null, paid = false, source = parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)))
         }
-        val slot = prefs.getInt(KEY_COMPANY_SLOT, V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
+        val slot = safeInt(prefs.all[KEY_COMPANY_SLOT], V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
         val employerId = prefs.getString(KEY_EMPLOYER_ID, null) ?: V2ProfileStore.load(context, slot).employer?.id
         val session = WorkSessionV2(
             id = prefs.getString(KEY_ID, null) ?: "v2-runtime",
@@ -221,7 +212,7 @@ object V2RuntimeStore {
         val prefs = prefs(context)
         val a = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
         for (i in 0 until a.length()) if (a.optJSONObject(i)?.optString("id") == session.id) return
-        val slot = prefs.getInt(KEY_COMPANY_SLOT, V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
+        val slot = safeInt(prefs.all[KEY_COMPANY_SLOT], V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
         a.put(sessionToJson(session, slot))
         prefs.edit().putString(KEY_HISTORY, a.toString()).apply()
     }
@@ -234,6 +225,7 @@ object V2RuntimeStore {
         .put("countedEntry", session.countedEntryMs ?: JSONObject.NULL)
         .put("realExit", session.realExitMs ?: JSONObject.NULL)
         .put("countedExit", session.countedExitMs ?: JSONObject.NULL)
+        .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
         .put("pauses", pausesToJson(session.pauses))
 
     private fun parseHistory(context: Context, raw: String): List<WorkSessionV2> {
@@ -255,7 +247,8 @@ object V2RuntimeStore {
                         countedExitMs = positive(o, "countedExit"),
                         realExitMs = realExit,
                         pauses = parsePauses(o.optJSONArray("pauses")?.toString() ?: "[]"),
-                        status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED
+                        status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
+                        legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs")
                     )
                 )
             }
@@ -271,25 +264,13 @@ object V2RuntimeStore {
             val o = array.optJSONObject(i) ?: continue
             if (o.optLong("start") == start && o.optLong("end") == end) return array.toString()
         }
-        array.put(
-            JSONObject()
-                .put("start", start)
-                .put("end", end)
-                .put("source", source.name)
-                .put("paid", paid)
-        )
+        array.put(JSONObject().put("start", start).put("end", end).put("source", source.name).put("paid", paid))
         return array.toString()
     }
 
     private fun pausesToJson(pauses: List<PauseV2>) = JSONArray().apply {
         pauses.filter { it.endMs != null && it.endMs!! > it.startMs }.forEach { p ->
-            put(
-                JSONObject()
-                    .put("start", p.startMs)
-                    .put("end", p.endMs)
-                    .put("source", p.source.name)
-                    .put("paid", p.paid ?: false)
-            )
+            put(JSONObject().put("start", p.startMs).put("end", p.endMs).put("source", p.source.name).put("paid", p.paid ?: false))
         }
     }
 
@@ -326,9 +307,21 @@ object V2RuntimeStore {
         else -> 0L
     }
 
+    private fun safeInt(value: Any?, fallback: Int): Int = when (value) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull() ?: fallback
+        else -> fallback
+    }
+
     private fun positive(o: JSONObject, key: String): Long? = when (val value = o.opt(key)) {
         is Number -> value.toLong().takeIf { it > 0L }
         is String -> value.toLongOrNull()?.takeIf { it > 0L }
         else -> null
+    }
+
+    private fun positiveOrZero(o: JSONObject, key: String): Long = when (val value = o.opt(key)) {
+        is Number -> value.toLong().coerceAtLeast(0L)
+        is String -> value.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        else -> 0L
     }
 }
