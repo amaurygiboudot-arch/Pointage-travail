@@ -45,28 +45,44 @@ class LaunchActivity : Activity() {
         finish()
     }
 
-    private fun shouldShowWelcomeForCurrentVersion(): Boolean {
-        val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) {
-            packageManager.getPackageInfo(packageName, 0).longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).versionCode.toLong()
-        }
+    /**
+     * Compatibilité avec les anciennes versions qui ont pu enregistrer le
+     * versionCode en Int. SharedPreferences#getLong lance un ClassCastException
+     * dans ce cas ; on lit donc la valeur brute puis on la normalise en Long.
+     */
+    private fun readLastShownVersion(): Long {
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val lastShown = prefs.getLong(KEY_LAST_VERSION_SHOWN, -1L)
-        return lastShown != versionCode
+        val raw = prefs.all[KEY_LAST_VERSION_SHOWN] ?: return -1L
+        val value = when (raw) {
+            is Long -> raw
+            is Int -> raw.toLong()
+            is Short -> raw.toLong()
+            is Byte -> raw.toLong()
+            is String -> raw.toLongOrNull() ?: -1L
+            is Number -> raw.toLong()
+            else -> -1L
+        }
+        if (value >= 0L && raw !is Long) {
+            prefs.edit().putLong(KEY_LAST_VERSION_SHOWN, value).apply()
+        }
+        return value
+    }
+
+    private fun currentVersionCode(): Long = if (android.os.Build.VERSION.SDK_INT >= 28) {
+        packageManager.getPackageInfo(packageName, 0).longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        packageManager.getPackageInfo(packageName, 0).versionCode.toLong()
+    }
+
+    private fun shouldShowWelcomeForCurrentVersion(): Boolean {
+        return readLastShownVersion() != currentVersionCode()
     }
 
     private fun markWelcomeShown() {
-        val versionCode = if (android.os.Build.VERSION.SDK_INT >= 28) {
-            packageManager.getPackageInfo(packageName, 0).longVersionCode
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.getPackageInfo(packageName, 0).versionCode.toLong()
-        }
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putLong(KEY_LAST_VERSION_SHOWN, versionCode)
+            .putLong(KEY_LAST_VERSION_SHOWN, currentVersionCode())
             .apply()
     }
 
