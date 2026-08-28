@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -127,33 +130,23 @@ object DriveBackupManager {
     fun syncMonth(context: Context, year: Int, month: Int) {
         val treeUri = savedTreeUri(context) ?: return
         val all = PointageStore.load(context)
-        val groups = linkedMapOf<String, JSONArray>()
-        val cal = Calendar.getInstance(Locale.FRANCE)
-        for (i in 0 until all.length()) {
-            val item = all.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
-            cal.timeInMillis = entry
-            if (cal.get(Calendar.YEAR) != year || cal.get(Calendar.MONTH) != month) continue
-            val place = item.optString("zoneAddress").trim().takeIf { it.isNotBlank() } ?: "Pointage manuel"
-            groups.getOrPut(place) { JSONArray() }.put(item)
-        }
-        if (groups.isEmpty()) return
-
+        if (all.length() == 0) return
         val root = ensureDirectory(context, treeRootDocumentUri(treeUri), ROOT_FOLDER)
         val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(
             Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
         ).replaceFirstChar { it.uppercase() }
-
-        groups.forEach { (place, data) ->
-            val placeFolder = ensureDirectory(context, root, safeName(folderNameForPlace(place)))
-            val yearFolder = ensureDirectory(context, placeFolder, year.toString())
-            val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
-            val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
-            val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
-            context.contentResolver.openOutputStream(pdfUri, "w")?.use { MonthlyPdfReport.write(context, data, year, month, it) }
-                ?: error("Impossible d'écrire $fileName")
-        }
+        val placeFolder = ensureDirectory(context, root, "HoraTrack")
+        val yearFolder = ensureDirectory(context, placeFolder, year.toString())
+        val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
+        val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
+        val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
+        context.contentResolver.openOutputStream(pdfUri, "w")?.use { out ->
+            if (HoraTrackV2.ENABLED) {
+                MonthlyPdfReportV2.write(V2RuntimeStore.allSessions(context), year, month, out)
+            } else {
+                MonthlyPdfReport.write(context, all, year, month, out)
+            }
+        } ?: error("Impossible d'écrire $fileName")
     }
 
     private fun startOfDay(time: Long): Long = Calendar.getInstance(Locale.FRANCE).apply {
@@ -209,7 +202,7 @@ class DriveFolderPickerActivity : Activity() {
                 runCatching { DriveBackupManager.saveTreeUri(this, uri) }
                     .onSuccess {
                         Toast.makeText(this, "Dossier Drive mémorisé. Sauvegarde automatique activée.", Toast.LENGTH_LONG).show()
-                        DriveBackupManager.syncAllAsync(this) { ok, message -> runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() } }
+                        DriveBackupManager.syncAllAsync(this) { _, message -> runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() } }
                     }
                     .onFailure { Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show() }
             }
