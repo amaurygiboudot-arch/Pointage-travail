@@ -15,6 +15,7 @@ object GpsWorkStateCoordinatorV2 {
     private const val KEY_PENDING_AT = "pending_at"
     private const val KEY_PENDING_PLACE = "pending_place"
     private const val KEY_PENDING_TYPE = "pending_type"
+    private const val KEY_PENDING_TRANSITION = "pending_transition"
     private const val KEY_PROMPTED_ID = "prompted_id"
     private const val RETURN_WINDOW_MS = 2L * 60_000L
 
@@ -38,6 +39,7 @@ object GpsWorkStateCoordinatorV2 {
         val atMs: Long,
         val placeId: String,
         val pointType: GpsPointTypeV2,
+        val transition: GpsTransitionV2,
         val kind: Kind
     ) {
         enum class Kind { EXIT_WORKSITE, AMBIGUOUS }
@@ -93,7 +95,10 @@ object GpsWorkStateCoordinatorV2 {
         val parts = raw.split(':')
         val pointType = runCatching { GpsPointTypeV2.valueOf(parts.first()) }.getOrNull() ?: return null
         val kind = runCatching { Pending.Kind.valueOf(parts.getOrNull(1) ?: "") }.getOrNull() ?: return null
-        return Pending(id, at, place, pointType, kind)
+        val transition = runCatching {
+            GpsTransitionV2.valueOf(prefs.getString(KEY_PENDING_TRANSITION, null).orEmpty())
+        }.getOrNull() ?: return null
+        return Pending(id, at, place, pointType, transition, kind)
     }
 
     fun shouldPrompt(context: Context, pending: Pending): Boolean {
@@ -130,6 +135,7 @@ object GpsWorkStateCoordinatorV2 {
             .putLong(KEY_PENDING_AT, event.atMs)
             .putString(KEY_PENDING_PLACE, event.placeId)
             .putString(KEY_PENDING_TYPE, "${event.pointType.name}:${kind.name}")
+            .putString(KEY_PENDING_TRANSITION, event.transition.name)
             .remove(KEY_PROMPTED_ID)
             .apply()
     }
