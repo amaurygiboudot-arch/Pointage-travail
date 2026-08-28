@@ -9,16 +9,9 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
 
-        if (intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            runCatching {
-                val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-                if (launch != null) {
-                    launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    context.startActivity(launch)
-                }
-            }
-        }
-
+        // Après un redémarrage ou une mise à jour, HoraTrack restaure uniquement
+        // ses tâches de fond. Android reste maître de l'ouverture de l'interface :
+        // aucune Activity n'est lancée automatiquement depuis ce receiver.
         PauseScheduleManager.schedule(context)
         PauseScheduleManager.applyCurrentWindow(context)
         CompanyPauseAlarmManager.scheduleAll(context)
