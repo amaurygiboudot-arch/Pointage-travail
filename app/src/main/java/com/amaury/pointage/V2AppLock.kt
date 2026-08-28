@@ -11,7 +11,6 @@ import android.os.CancellationSignal
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.Toast
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,10 +29,11 @@ object V2AppLock {
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
-                if (activity !is MainActivity) return
+                if (!shouldProtect(activity)) return
                 if (!needsUnlock(activity) || !promptVisible.compareAndSet(false, true)) return
                 activity.window.decorView.post {
-                    authenticate(activity,
+                    authenticate(
+                        activity,
                         onSuccess = { markUnlocked(activity); promptVisible.set(false) },
                         onCancel = { promptVisible.set(false); activity.moveTaskToBack(true) }
                     )
@@ -46,6 +46,12 @@ object V2AppLock {
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
+    }
+
+    private fun shouldProtect(activity: Activity): Boolean = when (activity) {
+        is LaunchActivity -> false
+        is OwnerEnrollmentActivity -> false
+        else -> activity.packageName == "com.amaury.pointage"
     }
 
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
@@ -159,9 +165,7 @@ object V2AppLock {
                     dialog.setOnCancelListener(null)
                     dialog.dismiss()
                     onSuccess()
-                } else {
-                    input.error = "PIN incorrect"
-                }
+                } else input.error = "PIN incorrect"
             }
         }
         dialog.show()
