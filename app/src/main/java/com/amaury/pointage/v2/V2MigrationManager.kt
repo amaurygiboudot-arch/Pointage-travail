@@ -13,7 +13,7 @@ object V2MigrationManager {
     private const val LEGACY_PREFS = "pointage"
     private const val LEGACY_KEY = "data"
     private const val HISTORY_KEY = "history"
-    private const val VERSION = 3
+    private const val VERSION = 4
 
     data class Result(val imported: Int, val skipped: Int, val legacyCount: Int, val v2Count: Int)
 
@@ -24,10 +24,6 @@ object V2MigrationManager {
         return importLegacyArray(context, runCatching { JSONArray(raw) }.getOrElse { JSONArray() })
     }
 
-    /**
-     * Importe directement un tableau legacy (par exemple venant du cloud) vers
-     * l'historique V2. Aucun SharedPreferences legacy n'est modifié, même temporairement.
-     */
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
         if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
         val app = context.applicationContext
@@ -52,6 +48,7 @@ object V2MigrationManager {
             }
 
             val basePauseMinutes = old.optInt("autoPauseMinutes", 0).coerceIn(0, 480)
+            val placeLabel = legacyPlace(old)
             history.put(
                 JSONObject()
                     .put("id", old.optString("id").ifBlank { "legacy-${UUID.randomUUID()}" })
@@ -63,6 +60,8 @@ object V2MigrationManager {
                     .put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
                     .put("migratedFromLegacy", true)
                     .put("companySlot", old.optInt("companySlot", 1).coerceIn(1, 2))
+                    .put("placeId", JSONObject.NULL)
+                    .put("placeLabel", placeLabel ?: JSONObject.NULL)
             )
             signatures += sig
             imported++
@@ -100,10 +99,16 @@ object V2MigrationManager {
             if (!item.has("legacyFixedUnpaidPauseMs")) item.put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
             val existingPauses = item.optJSONArray("pauses") ?: JSONArray()
             if (existingPauses.length() == 0) item.put("pauses", migratePauses(old, basePauseMinutes))
+            if (item.optString("placeLabel").isBlank()) legacyPlace(old)?.let { item.put("placeLabel", it) }
             item.put("migratedFromLegacy", true)
             return
         }
     }
+
+    private fun legacyPlace(old: JSONObject): String? = listOf("zoneAddress", "placeLabel", "place", "address")
+        .asSequence()
+        .map { old.optString(it).trim() }
+        .firstOrNull { it.isNotBlank() && it != "null" }
 
     private fun positive(o: JSONObject, key: String): Long? {
         if (!o.has(key) || o.isNull(key)) return null

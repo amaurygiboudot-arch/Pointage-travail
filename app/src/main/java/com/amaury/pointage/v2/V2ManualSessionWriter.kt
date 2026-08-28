@@ -25,6 +25,7 @@ object V2ManualSessionWriter {
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
         val expectedEnd = V2ScheduleStore.expectedEnd(context, realStartMs, realEndMs)
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
+        val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val history = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
@@ -46,7 +47,9 @@ object V2ManualSessionWriter {
                 .put("countedExit", countedExit)
                 .put("pauses", JSONArray())
                 .put("source", "MANUAL")
-                .put("place", place?.takeIf { it.isNotBlank() } ?: JSONObject.NULL)
+                .put("placeId", JSONObject.NULL)
+                .put("placeLabel", placeLabel ?: JSONObject.NULL)
+                .put("place", placeLabel ?: JSONObject.NULL)
         )
         prefs.edit().putString(KEY_HISTORY, history.toString()).apply()
         return true
