@@ -4,13 +4,16 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.widget.TextView
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.V2RuntimeStore
 import java.util.LinkedHashMap
 import java.util.Locale
 
 /**
  * Garde l'onglet Analyses à jour pendant qu'une session est encore ouverte.
- * Tous les totaux utilisent le temps réellement travaillé, pauses déduites,
- * comme le salaire et les rapports PDF.
+ * Les totaux utilisent directement les sessions et le moteur HoraTrack V2 :
+ * une pause payée reste donc comptée comme temps payé partout.
  */
 class LiveAnalyticsTextView @JvmOverloads constructor(
     context: Context,
@@ -48,48 +51,49 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
     }
 
     private fun buildLiveAnalyticsText(): String {
-        val data = PointageStore.load(context)
-        val totals = LinkedHashMap<String, Long>()
         val now = System.currentTimeMillis()
+        val sessions = V2RuntimeStore.allSessions(context, now)
+        val totals = LinkedHashMap<String, Long>()
+        val employerNames = (1..2).mapNotNull { slot ->
+            V2ProfileStore.load(context, slot).employer?.let { it.id to it.name }
+        }.toMap()
+
         var totalWorked = 0L
         var totalPause = 0L
         var completedSessions = 0
         var openSessions = 0
 
-        for (i in 0 until data.length()) {
-            val item = data.optJSONObject(i) ?: continue
-            val entry = item.optLong("entry", -1L)
-            if (entry <= 0L) continue
+        sessions.forEach { session ->
+            val result = HoraTrackV2.time.calculate(session, now)
+            val worked = result.paidWorkMs.coerceAtLeast(0L)
+            val unpaidPause = result.unpaidPauseMs.coerceAtLeast(0L)
+            val employer = session.employerId
+                ?.let { employerNames[it] }
+                ?.takeIf { it.isNotBlank() }
+                ?: "Employeur à confirmer"
 
-            val exit = if (item.isNull("exit")) null else item.optLong("exit").takeIf { it > 0L }
-            val effectiveEnd = exit ?: now
-            if (effectiveEnd < entry) continue
-
-            val place = item.optString("zoneAddress").ifBlank { "Pointage manuel / ancien pointage" }
-            val pause = PointageStore.pauseDuration(item, effectiveEnd)
-            val worked = PointageStore.workedDuration(item, effectiveEnd)
-            totals[place] = (totals[place] ?: 0L) + worked
+            totals[employer] = (totals[employer] ?: 0L) + worked
             totalWorked += worked
-            totalPause += pause
+            totalPause += unpaidPause
 
-            if (exit == null) openSessions++ else completedSessions++
+            if (session.realExitMs == null) openSessions++ else completedSessions++
         }
 
         return buildString {
-            append("⏱ TOTAL TRAVAILLÉ : ").append(formatDuration(totalWorked)).append('\n')
-            append("⏸ TOTAL HEURES DE PAUSE : ").append(formatDuration(totalPause)).append('\n')
+            append("⏱ TOTAL TEMPS PAYÉ V2 : ").append(formatDuration(totalWorked)).append('\n')
+            append("⏸ PAUSES NON PAYÉES DÉDUITES : ").append(formatDuration(totalPause)).append('\n')
             append("✅ Sessions terminées : ").append(completedSessions).append('\n')
             if (openSessions > 0) {
                 append("🟢 En cours : ").append(openSessions)
-                    .append(" — pauses déduites, temps actualisé automatiquement\n")
+                    .append(" — calcul V2 actualisé automatiquement\n")
             }
-            append("\nHEURES PAR ADRESSE\n\n")
+            append("\nHEURES PAR EMPLOYEUR\n\n")
 
             if (totals.isEmpty()) {
                 append("Aucune donnée.")
             } else {
-                totals.forEach { (place, duration) ->
-                    append("📍 ").append(place).append('\n')
+                totals.forEach { (employer, duration) ->
+                    append("🏢 ").append(employer).append('\n')
                     append("⏱ ").append(formatDuration(duration)).append('\n').append('\n')
                 }
             }
