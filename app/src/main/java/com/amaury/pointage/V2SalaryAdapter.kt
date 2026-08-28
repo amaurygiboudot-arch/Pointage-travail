@@ -2,17 +2,16 @@ package com.amaury.pointage
 
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
-import com.amaury.pointage.v2.model.ContractTypeV2
-import com.amaury.pointage.v2.model.ContractV2
 import java.util.Calendar
 import java.util.Locale
 
-/** Adaptateur V2 pour conserver l'interface salaire existante sans SalaryCalculator. */
+/** Adaptateur V2 : la fiche Salaire devient la source du contrat et de l'employeur. */
 object V2SalaryAdapter {
     data class TierDuration(val label: String, val durationMs: Long)
     data class Result(
@@ -33,7 +32,13 @@ object V2SalaryAdapter {
         convention: ConventionCatalog.Convention
     ): Result {
         require(HoraTrackV2.ENABLED) { "V2SalaryAdapter réservé au moteur V2" }
-        require(hourlyRate > 0.0)
+
+        val profile = V2ProfileStore.load(context, 1)
+        val contract = profile.contract
+        val effectiveRate = contract?.grossHourlyRate ?: hourlyRate.takeIf { it > 0.0 }
+        if (contract == null || effectiveRate == null) {
+            return Result(0L, emptyList(), 0L, 0.0, 0.0, 0, profile.missing.map { "Fiche Salaire à compléter : $it" })
+        }
 
         val sessions = V2RuntimeStore.allSessions(context)
             .filter { s ->
@@ -43,17 +48,15 @@ object V2SalaryAdapter {
                 end > anchor && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month
             }
 
-        if (sessions.isEmpty()) {
-            return Result(0L, emptyList(), 0L, 0.0, 0.0, 0, emptyList())
-        }
+        if (sessions.isEmpty()) return Result(0L, emptyList(), 0L, 0.0, 0.0, 0, emptyList())
 
         val warnings = mutableListOf<String>()
         val integratedTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
-        if (!convention.rulesIntegrated) {
-            warnings += "Paliers d'heures supplémentaires non confirmés pour cette convention"
-        }
+        if (!convention.rulesIntegrated) warnings += "Paliers d'heures supplémentaires non confirmés pour cette convention"
 
-        val regularLimitMinutes = integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.toInt()
+        val contractualRegular = contract.contractualWeeklyMinutes
+        val legalOrConventionRegular = integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.toInt()
+        val regularLimitMinutes = contractualRegular ?: legalOrConventionRegular
         if (regularLimitMinutes == null || regularLimitMinutes <= 0) {
             val total = sessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }
             return Result(
@@ -61,9 +64,9 @@ object V2SalaryAdapter {
                 overtimeTiers = emptyList(),
                 totalWorkedMs = total,
                 overtimeGross = 0.0,
-                monthlyEstimatedGross = total / 3_600_000.0 * hourlyRate,
+                monthlyEstimatedGross = total / 3_600_000.0 * effectiveRate,
                 completedSessions = sessions.size,
-                warnings = warnings + "Durée hebdomadaire de référence manquante : aucune majoration appliquée"
+                warnings = warnings + "Durée hebdomadaire de référence absente : aucune majoration inventée"
             )
         }
 
@@ -91,15 +94,7 @@ object V2SalaryAdapter {
                 )
             }
         )
-        val contract = ContractV2(
-            id = "ui-v2",
-            employerId = "principal",
-            type = ContractTypeV2.FULL_TIME,
-            contractualWeeklyMinutes = regularLimitMinutes,
-            grossHourlyRate = hourlyRate,
-            hireDateEpochDay = null
-        )
-        val payroll = PayrollEngineV2.calculate(contract, payrollWeeks, rules)
+        val payroll = PayrollEngineV2.calculate(contract.copy(grossHourlyRate = effectiveRate), payrollWeeks, rules)
 
         var regularMinutes = 0
         val tierMinutes = LongArray(integratedTiers.size)
