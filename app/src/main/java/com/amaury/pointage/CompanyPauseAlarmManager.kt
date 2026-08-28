@@ -18,6 +18,7 @@ import android.os.Looper
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.model.EventSourceV2
 import java.util.Calendar
 import java.util.Locale
 
@@ -159,7 +160,9 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             CompanyPauseAlarmManager.isStart(event) -> {
                 val started = if (HoraTrackV2.ENABLED) {
                     val snap = V2RuntimeStore.snapshot(context).session
-                    if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) V2RuntimeStore.togglePause(context) else false
+                    if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) {
+                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                    } else false
                 } else false
                 if (started) CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, true)
 
