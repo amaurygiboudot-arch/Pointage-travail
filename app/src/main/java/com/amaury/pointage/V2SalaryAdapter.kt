@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
@@ -49,6 +50,7 @@ object V2SalaryAdapter {
         require(HoraTrackV2.ENABLED) { "V2SalaryAdapter réservé au moteur V2" }
         val slot = companySlot.coerceIn(1, 2)
         val profile = V2ProfileStore.load(context, slot)
+        val history = ruleHistory ?: V2ConventionRuleStore.history(context)
         return calculateCore(
             contract = profile.contract,
             missing = profile.missing,
@@ -57,7 +59,7 @@ object V2SalaryAdapter {
             month = month,
             fallbackRate = hourlyRate,
             convention = convention,
-            ruleHistory = ruleHistory
+            ruleHistory = history
         )
     }
 
@@ -133,9 +135,9 @@ object V2SalaryAdapter {
         }
 
         val contractualRegular = contract.contractualWeeklyMinutes
-        val conventionRegular = historicalRules?.weeklyRegularMinutes
-            ?: integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.roundToInt()
-        val regularLimit = contractualRegular ?: conventionRegular
+        val historicalRegular = historicalRules?.weeklyRegularMinutes
+        val conventionRegular = integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.roundToInt()
+        val regularLimit = historicalRegular ?: contractualRegular ?: conventionRegular
         if (regularLimit == null || regularLimit <= 0) {
             val total = selected.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }
             return Result(
@@ -198,35 +200,35 @@ object V2SalaryAdapter {
         val payrollWeeks = weeks.values.map {
             PayrollWeekV2(it.paid, it.night, it.saturday, it.sunday)
         }
-        val rules = historicalRules ?: PayrollRulesV2(
-            weeklyRegularMinutes = regularLimit,
-            overtimeTiers = integratedTiers.map { tier ->
-                OvertimeTierV2(
-                    fromMinutes = (tier.fromHour * 60.0).roundToInt(),
-                    toMinutes = tier.toHour?.let { (it * 60.0).roundToInt() },
-                    multiplier = tier.multiplier
-                )
-            },
-            nightMultiplier = nightRule?.premiumMultiplier
-        )
-        val safeRules = if (historicalMode && historicalSnapshot == null) {
-            PayrollRulesV2(weeklyRegularMinutes = regularLimit)
-        } else rules
-        val payroll = PayrollEngineV2.calculate(contract.copy(grossHourlyRate = effectiveRate), payrollWeeks, safeRules)
+        val rules = if (historicalRules != null) {
+            historicalRules.copy(weeklyRegularMinutes = historicalRules.weeklyRegularMinutes ?: regularLimit)
+        } else {
+            PayrollRulesV2(
+                weeklyRegularMinutes = regularLimit,
+                overtimeTiers = integratedTiers.map { tier ->
+                    OvertimeTierV2(
+                        fromMinutes = (tier.fromHour * 60.0).roundToInt(),
+                        toMinutes = tier.toHour?.let { (it * 60.0).roundToInt() },
+                        multiplier = tier.multiplier
+                    )
+                },
+                nightMultiplier = nightRule?.premiumMultiplier
+            )
+        }
+        val payroll = PayrollEngineV2.calculate(contract.copy(grossHourlyRate = effectiveRate), payrollWeeks, rules)
 
         var regularMinutes = 0
-        val tierMinutes = LongArray(integratedTiers.size)
+        val tierMinutes = LongArray(rules.overtimeTiers.size)
         weeks.values.forEach { stats ->
             val paid = stats.paid
             regularMinutes += minOf(paid, regularLimit)
-            integratedTiers.forEachIndexed { index, tier ->
-                val from = (tier.fromHour * 60.0).roundToInt()
-                val to = tier.toHour?.let { (it * 60.0).roundToInt() } ?: Int.MAX_VALUE
-                tierMinutes[index] += (minOf(paid, to) - maxOf(regularLimit, from)).coerceAtLeast(0).toLong()
+            rules.overtimeTiers.forEachIndexed { index, tier ->
+                val to = tier.toMinutes ?: Int.MAX_VALUE
+                tierMinutes[index] += (minOf(paid, to) - maxOf(regularLimit, tier.fromMinutes)).coerceAtLeast(0).toLong()
             }
         }
 
-        val tiers = integratedTiers.mapIndexed { index, tier ->
+        val tiers = rules.overtimeTiers.mapIndexed { index, tier ->
             TierDuration(
                 label = "Heures sup. +${((tier.multiplier - 1.0) * 100.0).roundToInt()} %",
                 durationMs = tierMinutes[index] * 60_000L,
@@ -246,9 +248,9 @@ object V2SalaryAdapter {
             saturdayMs = saturdayTotalMs,
             sundayMs = sundayTotalMs,
             completedSessions = selected.size,
-            warnings = warnings + payroll.traces + historicalSnapshot?.let {
-                listOf("Règles historiques ${it.versionId} — source ${it.sourceId}")
-            }.orEmpty()
+            warnings = warnings + payroll.traces + listOfNotNull(historicalSnapshot?.let {
+                "Règles historiques ${it.versionId} — source ${it.sourceId}"
+            })
         )
     }
 
