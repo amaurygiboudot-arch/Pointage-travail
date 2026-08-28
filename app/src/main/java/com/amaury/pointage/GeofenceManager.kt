@@ -23,6 +23,7 @@ data class WorkZone(
 object GeofenceManager {
     private const val GPS_PREFS = "gps_settings"
     private const val LAST_GOOD_ZONES = "zones_last_good"
+    private const val MAX_ZONES = 10
 
     private fun pendingIntent(context: Context): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -86,7 +87,12 @@ object GeofenceManager {
             return
         }
 
-        val geofences = zones.take(10).map { zone ->
+        if (zones.size > MAX_ZONES) {
+            onResult(false, "Trop de zones GPS : $MAX_ZONES maximum")
+            return
+        }
+
+        val geofences = zones.map { zone ->
             Geofence.Builder()
                 .setRequestId(zone.id)
                 .setCircularRegion(zone.latitude, zone.longitude, zone.radius)
