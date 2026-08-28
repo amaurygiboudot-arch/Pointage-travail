@@ -49,7 +49,7 @@ object DailyPdfReport {
 
         fun finishPage() {
             page?.let {
-                it.canvas.drawText("© HoraTrack — Rapport généré par le moteur V2.  •  Page $pageNo", M, H - 20f, muted)
+                it.canvas.drawText("© HoraTrack — Rapport généré par HoraTrack.  •  Page $pageNo", M, H - 20f, muted)
                 pdf.finishPage(it)
             }
             page = null
