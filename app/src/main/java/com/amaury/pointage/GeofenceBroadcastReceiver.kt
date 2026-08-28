@@ -34,6 +34,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         val candidateIds = triggeredIds.filter { SmartSetupManager.isCandidateZone(context, it) }
         val regularIds = triggeredIds.filterNot { it in candidateIds }
+        val zonesRaw = prefs.getString("zones", "[]")
 
         when (event.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
@@ -47,27 +48,17 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
                     val zoneId = regularIds.firstOrNull() ?: return
-                    val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
+                    val zoneAddress = findZoneAddress(zonesRaw, zoneId)
+                    val zoneType = findZoneType(zonesRaw, zoneId)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         val now = System.currentTimeMillis()
-                        val gpsEvent = GpsEventV2(
-                            "gps-enter-$zoneId-$now",
-                            now,
-                            zoneId,
-                            GpsPointTypeV2.POSTE,
-                            GpsTransitionV2.ENTER
-                        )
+                        val gpsEvent = GpsEventV2("gps-enter-$zoneId-$now", now, zoneId, zoneType, GpsTransitionV2.ENTER)
                         val decision = HoraTrackV2.gps.ingest(gpsEvent)
                         val outcome = GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
-                        if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED ||
-                            outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE
-                        ) {
+                        if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED || outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE) {
                             updateWidgets(context)
                             if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
-                        }
-                    } else if (PointageStore.entry(context, zoneId, zoneAddress)) {
-                        updateWidgets(context)
-                        if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
+                        } else updateWidgets(context)
                     }
                 }
             }
@@ -82,21 +73,12 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
                 if (activeZones.isEmpty()) {
                     val zoneId = regularIds.firstOrNull() ?: "unknown"
+                    val zoneType = findZoneType(zonesRaw, zoneId)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         val now = System.currentTimeMillis()
-                        val gpsEvent = GpsEventV2(
-                            "gps-exit-$zoneId-$now",
-                            now,
-                            zoneId,
-                            GpsPointTypeV2.POSTE,
-                            GpsTransitionV2.EXIT
-                        )
+                        val gpsEvent = GpsEventV2("gps-exit-$zoneId-$now", now, zoneId, zoneType, GpsTransitionV2.EXIT)
                         val decision = HoraTrackV2.gps.ingest(gpsEvent)
                         GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
-                        // La sortie n'est jamais pointée directement ici : elle attend
-                        // la confirmation de la couche UI/état V2.
-                        updateWidgets(context)
-                    } else if (PointageStore.exit(context)) {
                         updateWidgets(context)
                     }
                 }
@@ -110,17 +92,36 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     }
 
     private fun findZoneAddress(zonesJson: String?, zoneId: String?): String? {
+        val zone = findZone(zonesJson, zoneId) ?: return null
+        return zone.optString("address").takeIf { it.isNotBlank() }
+    }
+
+    /** Accepte les nouvelles clés V2 tout en restant compatible avec les zones déjà enregistrées. */
+    private fun findZoneType(zonesJson: String?, zoneId: String?): GpsPointTypeV2 {
+        val zone = findZone(zonesJson, zoneId)
+        val raw = listOf(
+            zone?.optString("pointType"),
+            zone?.optString("zoneType"),
+            zone?.optString("type"),
+            zoneId
+        ).firstOrNull { !it.isNullOrBlank() }.orEmpty().uppercase()
+        return when {
+            raw.contains("PARK") -> GpsPointTypeV2.PARKING
+            raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER
+            else -> GpsPointTypeV2.POSTE
+        }
+    }
+
+    private fun findZone(zonesJson: String?, zoneId: String?): JSONObject? {
         if (zoneId.isNullOrBlank()) return null
         return try {
             val zones = JSONArray(zonesJson ?: "[]")
             for (i in 0 until zones.length()) {
                 val zone = zones.optJSONObject(i) ?: continue
-                if (zone.optString("id") == zoneId) return zone.optString("address").takeIf { it.isNotBlank() }
+                if (zone.optString("id") == zoneId) return zone
             }
             null
-        } catch (_: Exception) {
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
     private fun showArrivalContactNotification(context: Context, address: String) {
@@ -129,39 +130,23 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             val contacts = JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
             contacts.optJSONObject(address)
         }.getOrNull() ?: return
-
         if (!contact.optBoolean("enabled", false)) return
         val phone = contact.optString("phone").trim()
         if (phone.isBlank()) return
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
 
         val placeName = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: address
         val contactName = contact.optString("contactName").trim().takeIf { it.isNotBlank() } ?: phone
         val message = "Bonjour, je viens d'arriver à $placeName."
-
         val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
             data = Uri.parse("smsto:${Uri.encode(phone)}")
             putExtra("sms_body", message)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-        val pending = PendingIntent.getActivity(
-            context,
-            address.hashCode(),
-            smsIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
+        val pending = PendingIntent.getActivity(context, address.hashCode(), smsIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "arrival_contact"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.createNotificationChannel(
-                NotificationChannel(channelId, "Prévenir à l'arrivée", NotificationManager.IMPORTANCE_HIGH)
-            )
-        }
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) manager.createNotificationChannel(NotificationChannel(channelId, "Prévenir à l'arrivée", NotificationManager.IMPORTANCE_HIGH))
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_email)
             .setContentTitle("Arrivé à $placeName")
@@ -171,7 +156,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-
         manager.notify(address.hashCode(), notification)
     }
 }
