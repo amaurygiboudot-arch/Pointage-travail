@@ -495,6 +495,7 @@ class MainActivity : Activity() {
             sessions.forEach { s ->
                 append("🟢 ").append(fullDateFormat.format(Date(s.realArrivalMs ?: 0L))).append("  ENTRÉE RÉELLE\n")
                 append("⏱ ").append(s.countedEntryMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  ENTRÉE COMPTÉE\n")
+                s.placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { append("📍 ").append(it).append('\n') }
                 s.pauses.forEachIndexed { index, p -> append("⏸ Pause ").append(index + 1).append(" : ").append(dateFormat.format(Date(p.startMs))).append(" → ").append(p.endMs?.let { dateFormat.format(Date(it)) } ?: "EN COURS").append('\n') }
                 if (s.realExitMs != null) {
                     append("🔴 ").append(fullDateFormat.format(Date(s.realExitMs))).append("  SORTIE RÉELLE\n")
