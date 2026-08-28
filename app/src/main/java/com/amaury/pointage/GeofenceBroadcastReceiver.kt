@@ -51,7 +51,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
                     val zoneId = regularIds.firstOrNull() ?: return
                     val zoneAddress = findZoneAddress(zonesRaw, zoneId)
-                    val zoneLabel = zoneAddress?.let { PlaceNames.get(context, it)?.takeIf(String::isNotBlank) } ?: zoneAddress
+                    val zoneLabel = findZoneLabel(context, zonesRaw, zoneId, zoneAddress)
                     val zoneType = findZoneType(zonesRaw, zoneId)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         resolveCompanySlot(context, prefs, zonesRaw, zoneId, zoneAddress)?.let {
@@ -62,7 +62,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         val decision = HoraTrackV2.gps.ingest(gpsEvent)
                         val outcome = GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
                         if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED || outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE) {
-                            V2SessionPlaceStore.setCurrent(context, zoneId, zoneLabel ?: zoneAddress ?: zoneId)
+                            V2SessionPlaceStore.setCurrent(context, zoneId, zoneLabel)
                             updateWidgets(context)
                             if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
                         } else updateWidgets(context)
@@ -125,6 +125,17 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     }
 
     private fun findZoneAddress(zonesJson: String?, zoneId: String?): String? = findZone(zonesJson, zoneId)?.optString("address")?.takeIf { it.isNotBlank() }
+
+    /** Nom court uniquement : jamais l'adresse complète dans l'état V2 ou le widget. */
+    private fun findZoneLabel(context: Context, zonesJson: String?, zoneId: String, zoneAddress: String?): String? {
+        val zone = findZone(zonesJson, zoneId)
+        val configured = listOf("name", "label", "placeName", "zoneName")
+            .asSequence()
+            .mapNotNull { key -> zone?.optString(key)?.trim()?.takeIf { it.isNotBlank() } }
+            .firstOrNull()
+        if (!configured.isNullOrBlank()) return configured
+        return zoneAddress?.let { PlaceNames.get(context, it)?.trim()?.takeIf(String::isNotBlank) }
+    }
 
     private fun findZoneType(zonesJson: String?, zoneId: String?): GpsPointTypeV2 {
         val zone = findZone(zonesJson, zoneId)
