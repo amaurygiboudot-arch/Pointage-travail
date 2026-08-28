@@ -1,22 +1,21 @@
 package com.amaury.pointage
 
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
-import com.amaury.pointage.v2.engine.OvertimeTierV2
-import com.amaury.pointage.v2.engine.PayrollEngineV2
-import com.amaury.pointage.v2.engine.PayrollRulesV2
-import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.model.ContractTypeV2
-import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** Façade de compatibilité : en mode V2, aucun calcul métier legacy n'est exécuté. */
+/**
+ * Façade historique de l'écran Salaire.
+ * Quand V2 est actif, tous les résultats viennent des sessions V2 et du contrat
+ * renseigné dans la fiche Salaire. Aucun contrat ou seuil caché n'est créé.
+ */
 object SalaryCalculator {
-
     data class TierResult(val label:String,val durationMs:Long,val multiplier:Double)
 
     data class Result(
@@ -36,204 +35,197 @@ object SalaryCalculator {
         val completedSessions:Int
     )
 
-    private data class Session(val entry:Long,val exit:Long,val workedDuration:Long)
     private data class WeekKey(val year:Int,val week:Int)
 
-    fun calculate(data:JSONArray,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention):Result {
-        if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.PAYROLL)) {
-            return calculateV2(year, month, hourlyRate, convention)
+    fun calculate(data:JSONArray, year:Int, month:Int, hourlyRate:Double, convention:ConventionCatalog.Convention):Result {
+        return if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.PAYROLL)) {
+            calculateV2(year, month, hourlyRate, convention)
+        } else {
+            calculateLegacy(data, year, month, hourlyRate, convention)
         }
-        return calculateLegacy(data, year, month, hourlyRate, convention)
     }
 
-    private fun calculateV2(year:Int, month:Int, hourlyRate:Double, convention:ConventionCatalog.Convention):Result {
+    private fun calculateV2(year:Int, month:Int, fallbackRate:Double, convention:ConventionCatalog.Convention):Result {
+        val profile = V2ProfileStore.loadBound(1)
+        val contract = profile?.contract ?: return emptyResult(convention)
+        val hourlyRate = contract.grossHourlyRate ?: fallbackRate.takeIf { it > 0.0 } ?: return emptyResult(convention)
+
         val sessions = V2RuntimeStore.allSessionsBound()
-            .filter { s ->
-                val entry = s.realArrivalMs ?: return@filter false
-                val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entry }
-                c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month
+            .filter { session ->
+                val entry = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
+                val exit = session.realExitMs ?: return@filter false
+                if (exit <= entry) return@filter false
+                val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entry }
+                cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month
             }
-        if (sessions.isEmpty() || hourlyRate <= 0.0) return emptyResult(convention)
+        if (sessions.isEmpty()) return emptyResult(convention)
 
-        val totalPaidMs = sessions.sumOf { s -> HoraTrackV2.time.calculate(s).paidWorkMs }
-        val sourceTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
-        val firstTier = sourceTiers.firstOrNull()
-
-        // Sans seuil confirmé, on valorise uniquement le temps payé au taux de base.
-        // Aucune durée hebdomadaire ni majoration n'est inventée.
-        if (firstTier == null || firstTier.fromHour <= 0.0) {
-            val baseGross = totalPaidMs / 3_600_000.0 * hourlyRate
-            return Result(
-                regularMs = totalPaidMs,
-                overtimeTiers = emptyList(),
-                totalWorkedMs = totalPaidMs,
-                workedGross = baseGross,
-                monthlyBaseGross = baseGross,
-                overtimeGross = 0.0,
-                nightMs = 0L,
-                nightPremiumGross = 0.0,
-                saturdayMs = 0L,
-                saturdayPremiumGross = 0.0,
-                sundayMs = 0L,
-                sundayPremiumGross = 0.0,
-                monthlyEstimatedGross = baseGross,
-                completedSessions = sessions.count { it.status == SessionStatusV2.CLOSED }
-            )
-        }
-
-        val weeklyRegular = (firstTier.fromHour * 60.0).roundToInt()
-        val weekly = linkedMapOf<WeekKey, Int>()
-        sessions.forEach { s ->
-            val entry = s.realArrivalMs ?: return@forEach
-            val paidMinutes = (HoraTrackV2.time.calculate(s).paidWorkMs / 60_000L).toInt()
-            val c = Calendar.getInstance(Locale.FRANCE).apply {
+        val weekly = linkedMapOf<WeekKey, Long>()
+        sessions.forEach { session ->
+            val entry = session.countedEntryMs ?: session.realArrivalMs ?: return@forEach
+            val cal = Calendar.getInstance(Locale.FRANCE).apply {
                 firstDayOfWeek = Calendar.MONDAY
                 minimalDaysInFirstWeek = 4
                 timeInMillis = entry
             }
-            val key = WeekKey(c.getWeekYear(), c.get(Calendar.WEEK_OF_YEAR))
-            weekly[key] = (weekly[key] ?: 0) + paidMinutes
+            val key = WeekKey(cal.getWeekYear(), cal.get(Calendar.WEEK_OF_YEAR))
+            weekly[key] = (weekly[key] ?: 0L) + HoraTrackV2.time.calculate(session).paidWorkMs
         }
 
-        val v2Tiers = sourceTiers.map {
-            OvertimeTierV2(
-                (it.fromHour * 60.0).roundToInt(),
-                it.toHour?.let { h -> (h * 60.0).roundToInt() },
-                it.multiplier
+        val totalPaid = weekly.values.sum()
+        val contractualMinutes = contract.contractualWeeklyMinutes
+        val sourceTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
+
+        // Les heures supplémentaires sont appliquées seulement si leur premier
+        // seuil correspond explicitement à la durée hebdomadaire de ce contrat.
+        // Pour un temps partiel, on n'invente pas les règles d'heures complémentaires.
+        val overtimeConfirmed = contract.type == ContractTypeV2.FULL_TIME &&
+            contractualMinutes != null &&
+            sourceTiers.firstOrNull()?.let { (it.fromHour * 60.0).roundToInt() == contractualMinutes } == true
+
+        val tiers = if (overtimeConfirmed) sourceTiers else emptyList()
+        val tierDurations = LongArray(tiers.size)
+        var regularMs = 0L
+
+        if (overtimeConfirmed && contractualMinutes != null) {
+            val regularLimitMs = contractualMinutes * 60_000L
+            weekly.values.forEach { paidMs ->
+                regularMs += minOf(paidMs, regularLimitMs)
+                tiers.forEachIndexed { index, tier ->
+                    val from = (tier.fromHour * 3_600_000.0).toLong()
+                    val to = tier.toHour?.let { (it * 3_600_000.0).toLong() } ?: Long.MAX_VALUE
+                    tierDurations[index] += overlap(0L, paidMs, from, to)
+                }
+            }
+        } else {
+            // Sans règle complète confirmée, tout le temps payé reste valorisé
+            // au taux de base plutôt que de perdre des heures ou inventer une prime.
+            regularMs = totalPaid
+        }
+
+        val tierResults = tiers.mapIndexed { index, tier ->
+            TierResult(
+                label = "Heures sup. +${((tier.multiplier - 1.0) * 100.0).roundToInt()} %",
+                durationMs = tierDurations[index],
+                multiplier = tier.multiplier
             )
         }
-        val rules = PayrollRulesV2(
-            weeklyRegularMinutes = weeklyRegular,
-            overtimeTiers = v2Tiers
-        )
-        val payroll = PayrollEngineV2.calculate(
-            ContractV2(
-                "v2-salary",
-                "v2-employer",
-                ContractTypeV2.OTHER,
-                weeklyRegular,
-                hourlyRate,
-                null
-            ),
-            weekly.values.map { PayrollWeekV2(it) },
-            rules
-        )
+        val overtimeGross = tierResults.sumOf { it.durationMs / 3_600_000.0 * hourlyRate * it.multiplier }
+        val regularGross = regularMs / 3_600_000.0 * hourlyRate
 
-        val tierMinutes = LongArray(v2Tiers.size)
-        weekly.values.forEach { paid ->
-            v2Tiers.forEachIndexed { index, tier ->
-                val end = tier.toMinutes ?: Int.MAX_VALUE
-                val minutes = (minOf(paid, end) - maxOf(weeklyRegular, tier.fromMinutes)).coerceAtLeast(0)
-                tierMinutes[index] += minutes.toLong()
+        val nightRule = ConventionNightRules.forIdcc(convention.idcc)
+        var nightMs = 0L
+        var saturdayMs = 0L
+        var sundayMs = 0L
+        sessions.forEach { session ->
+            val start = session.countedEntryMs ?: session.realArrivalMs ?: return@forEach
+            val end = session.countedExitMs ?: session.realExitMs ?: return@forEach
+            if (end <= start) return@forEach
+            val paid = HoraTrackV2.time.calculate(session).paidWorkMs
+            val raw = (end - start).coerceAtLeast(1L)
+            val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = start }
+            when (cal.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.SATURDAY -> saturdayMs += paid
+                Calendar.SUNDAY -> sundayMs += paid
+            }
+            nightRule?.let { rule ->
+                val rawNight = nightOverlap(start, end, rule.startMinute, rule.endMinute)
+                nightMs += ((rawNight.toDouble() / raw.toDouble()) * paid).toLong().coerceIn(0L, paid)
             }
         }
-        val tiers = v2Tiers.mapIndexed { index, tier ->
-            TierResult(
-                "Heures sup. +${((tier.multiplier - 1.0) * 100).roundToInt()} %",
-                tierMinutes[index] * 60_000L,
-                tier.multiplier
-            )
-        }
-        val overtimeMs = tierMinutes.sum() * 60_000L
-        val regularMs = (totalPaidMs - overtimeMs).coerceAtLeast(0L)
+
+        // Seule la majoration de nuit connue et intégrée est calculée ici.
+        // Samedi/dimanche restent à zéro sans règle V2 confirmée dédiée.
+        val nightPremium = nightRule?.let { nightMs / 3_600_000.0 * hourlyRate * (it.premiumMultiplier - 1.0) } ?: 0.0
+        val monthlyBaseGross = regularGross
+        val totalGross = regularGross + overtimeGross + nightPremium
 
         return Result(
             regularMs = regularMs,
-            overtimeTiers = tiers,
-            totalWorkedMs = totalPaidMs,
-            workedGross = payroll.grossEstimate,
-            monthlyBaseGross = payroll.regularGross,
-            overtimeGross = payroll.overtimeGross,
-            nightMs = 0L,
-            nightPremiumGross = 0.0,
-            saturdayMs = 0L,
+            overtimeTiers = tierResults,
+            totalWorkedMs = totalPaid,
+            workedGross = totalGross,
+            monthlyBaseGross = monthlyBaseGross,
+            overtimeGross = overtimeGross,
+            nightMs = nightMs,
+            nightPremiumGross = nightPremium,
+            saturdayMs = saturdayMs,
             saturdayPremiumGross = 0.0,
-            sundayMs = 0L,
+            sundayMs = sundayMs,
             sundayPremiumGross = 0.0,
-            monthlyEstimatedGross = payroll.grossEstimate,
+            monthlyEstimatedGross = totalGross,
             completedSessions = sessions.count { it.status == SessionStatusV2.CLOSED }
         )
     }
 
-    private fun emptyResult(convention:ConventionCatalog.Convention):Result = Result(
-        0L,
-        if (convention.rulesIntegrated) convention.overtimeTiers.map {
-            TierResult("Heures sup. +${((it.multiplier-1.0)*100).roundToInt()} %",0L,it.multiplier)
-        } else emptyList(),
-        0L,0.0,0.0,0.0,0L,0.0,0L,0.0,0L,0.0,0.0,0
-    )
-
-    private fun calculateLegacy(data:JSONArray,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention):Result {
-        val sessions=mutableListOf<Session>()
-        for(i in 0 until data.length()){
-            val item=data.optJSONObject(i)?:continue
-            if(item.isNull("exit"))continue
-            val entry=item.optLong("entry",-1L);val exit=item.optLong("exit",-1L)
-            if(entry>0L&&exit>entry) sessions+=Session(entry,exit,PointageStore.workedDuration(item,exit))
+    /** Rollback uniquement : jamais appelé lorsque V2 est actif. */
+    private fun calculateLegacy(data:JSONArray, year:Int, month:Int, hourlyRate:Double, convention:ConventionCatalog.Convention):Result {
+        var total = 0L
+        var completed = 0
+        for (i in 0 until data.length()) {
+            val item = data.optJSONObject(i) ?: continue
+            if (item.isNull("exit")) continue
+            val entry = item.optLong("entry", -1L)
+            val exit = item.optLong("exit", -1L)
+            if (entry <= 0L || exit <= entry) continue
+            val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entry }
+            if (c.get(Calendar.YEAR) != year || c.get(Calendar.MONTH) != month) continue
+            total += PointageStore.workedDuration(item, exit)
+            completed++
         }
-        sessions.sortBy{it.entry}
-
-        val weeks=linkedMapOf<WeekKey,MutableList<Session>>()
-        sessions.forEach{s->val c=Calendar.getInstance(Locale.FRANCE).apply{firstDayOfWeek=Calendar.MONDAY;minimalDaysInFirstWeek=4;timeInMillis=s.entry};weeks.getOrPut(WeekKey(c.getWeekYear(),c.get(Calendar.WEEK_OF_YEAR))){mutableListOf()}.add(s)}
-
-        val hourMs=3_600_000L;val normalLimit=35L*hourMs
-        var regularMs=0L;var completed=0;val overtime=LongArray(convention.overtimeTiers.size)
-        var nightMs=0L;var saturdayMs=0L;var sundayMs=0L
-        var saturdayPremium=0.0;var sundayPremium=0.0;var nightPremium=0.0
-
-        weeks.values.forEach{weekSessions->
-            var cumulative=0L
-            weekSessions.sortedBy{it.entry}.forEach{s->
-                val duration=s.workedDuration
-                if(duration<=0L){return@forEach}
-                val startCum=cumulative;val endCum=cumulative+duration
-                val cal=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=s.entry}
-                val inMonth=cal.get(Calendar.YEAR)==year&&cal.get(Calendar.MONTH)==month
-                if(inMonth){
-                    val regularPart=overlap(startCum,endCum,0L,normalLimit)
-                    regularMs+=regularPart
-                    var sessionValue=(regularPart/hourMs.toDouble())*hourlyRate
-                    convention.overtimeTiers.forEachIndexed{idx,tier->
-                        val from=(tier.fromHour*hourMs).toLong();val to=tier.toHour?.let{(it*hourMs).toLong()}?:Long.MAX_VALUE
-                        val d=overlap(startCum,endCum,from,to);overtime[idx]+=d;sessionValue+=(d/hourMs.toDouble())*hourlyRate*tier.multiplier
-                    }
-                    val dayFactor=when(cal.get(Calendar.DAY_OF_WEEK)){Calendar.SATURDAY->1.25;Calendar.SUNDAY->1.50;else->1.0}
-                    when(cal.get(Calendar.DAY_OF_WEEK)){
-                        Calendar.SATURDAY->{saturdayMs+=duration;saturdayPremium+=sessionValue*.25}
-                        Calendar.SUNDAY->{sundayMs+=duration;sundayPremium+=sessionValue*.50}
-                    }
-                    val raw=s.exit-s.entry
-                    val rawNight=nightOverlap(s.entry,s.exit,21*60,6*60)
-                    val paidNight=if(raw<=0L)0L else ((rawNight.toDouble()/raw.toDouble())*duration).toLong().coerceIn(0L,duration)
-                    nightMs+=paidNight
-                    val nightShare=paidNight/duration.toDouble()
-                    nightPremium+=sessionValue*dayFactor*nightShare*.25
-                    completed++
-                }
-                cumulative=endCum
-            }
-        }
-
-        val tiers=convention.overtimeTiers.mapIndexed{idx,t->TierResult("Heures sup. +${((t.multiplier-1.0)*100).toInt()} %",overtime[idx],t.multiplier)}
-        val overtimeGross=tiers.sumOf{(it.durationMs/hourMs.toDouble())*hourlyRate*it.multiplier}
-        val totalOvertime=tiers.sumOf{it.durationMs}
-        val workedGross=(regularMs/hourMs.toDouble())*hourlyRate+overtimeGross+saturdayPremium+sundayPremium+nightPremium
-        val monthlyBaseGross=hourlyRate*151.67
-        val monthlyEstimatedGross=monthlyBaseGross+overtimeGross+saturdayPremium+sundayPremium+nightPremium
-        return Result(regularMs,tiers,regularMs+totalOvertime,workedGross,monthlyBaseGross,overtimeGross,nightMs,nightPremium,saturdayMs,saturdayPremium,sundayMs,sundayPremium,monthlyEstimatedGross,completed)
+        val gross = total / 3_600_000.0 * hourlyRate.coerceAtLeast(0.0)
+        return Result(total, emptyList(), total, gross, gross, 0.0, 0L, 0.0, 0L, 0.0, 0L, 0.0, gross, completed)
     }
 
-    private fun nightOverlap(entry:Long,exit:Long,startMinute:Int,endMinute:Int):Long{
-        if(exit<=entry)return 0L;var total=0L
-        val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)}
-        val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)}
-        while(day.timeInMillis<=last.timeInMillis){val start=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val end=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};total+=overlap(entry,exit,start.timeInMillis,end.timeInMillis);day.add(Calendar.DAY_OF_YEAR,1)}
+    private fun emptyResult(convention:ConventionCatalog.Convention):Result = Result(
+        regularMs = 0L,
+        overtimeTiers = if (convention.rulesIntegrated) convention.overtimeTiers.map {
+            TierResult("Heures sup. +${((it.multiplier - 1.0) * 100).roundToInt()} %", 0L, it.multiplier)
+        } else emptyList(),
+        totalWorkedMs = 0L,
+        workedGross = 0.0,
+        monthlyBaseGross = 0.0,
+        overtimeGross = 0.0,
+        nightMs = 0L,
+        nightPremiumGross = 0.0,
+        saturdayMs = 0L,
+        saturdayPremiumGross = 0.0,
+        sundayMs = 0L,
+        sundayPremiumGross = 0.0,
+        monthlyEstimatedGross = 0.0,
+        completedSessions = 0
+    )
+
+    private fun nightOverlap(entry:Long, exit:Long, startMinute:Int, endMinute:Int):Long {
+        if (exit <= entry) return 0L
+        var total = 0L
+        val day = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = entry
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, -1)
+        }
+        val last = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = exit
+            set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, 1)
+        }
+        while (day.timeInMillis <= last.timeInMillis) {
+            val start = (day.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, startMinute / 60); set(Calendar.MINUTE, startMinute % 60)
+            }
+            val end = (day.clone() as Calendar).apply {
+                set(Calendar.HOUR_OF_DAY, endMinute / 60); set(Calendar.MINUTE, endMinute % 60)
+                if (endMinute <= startMinute) add(Calendar.DAY_OF_YEAR, 1)
+            }
+            total += overlap(entry, exit, start.timeInMillis, end.timeInMillis)
+            day.add(Calendar.DAY_OF_YEAR, 1)
+        }
         return total
     }
 
-    private fun overlap(start:Long,end:Long,rangeStart:Long,rangeEnd:Long):Long{
-        val from=maxOf(start,rangeStart)
-        val to=minOf(end,rangeEnd)
-        return(to-from).coerceAtLeast(0L)
+    private fun overlap(start:Long, end:Long, rangeStart:Long, rangeEnd:Long):Long {
+        val from = maxOf(start, rangeStart)
+        val to = minOf(end, rangeEnd)
+        return (to - from).coerceAtLeast(0L)
     }
 }
