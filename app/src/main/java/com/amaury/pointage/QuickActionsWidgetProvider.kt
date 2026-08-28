@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.util.TypedValue
 import android.widget.RemoteViews
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
 
 class QuickActionsWidgetProvider : AppWidgetProvider() {
     companion object {
@@ -52,9 +54,14 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun v2Paused(context: Context): Boolean {
+            val session = V2RuntimeStore.snapshot(context).session ?: return false
+            return session.realExitMs == null && session.pauses.any { it.endMs == null }
+        }
+
         private fun updateDynamicState(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
-            val paused = PointageStore.isPaused(context)
+            val paused = if (HoraTrackV2.ENABLED) v2Paused(context) else PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
             manager.partiallyUpdateAppWidget(widgetId, views)
         }
@@ -105,7 +112,7 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
             views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
 
-            val paused = PointageStore.isPaused(context)
+            val paused = if (HoraTrackV2.ENABLED) v2Paused(context) else PointageStore.isPaused(context)
             views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
             manager.updateAppWidget(widgetId, views)
         }
@@ -127,21 +134,32 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 handledAction = true
-                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                Toast.makeText(context, if (ok) "Entrée enregistrée" else "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                if (HoraTrackV2.ENABLED) {
+                    val snap = V2RuntimeStore.snapshot(context)
+                    if (snap.session == null || snap.session.realExitMs != null) {
+                        Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val wasPaused = snap.session.pauses.any { it.endMs == null }
+                        V2RuntimeStore.togglePause(context)
+                        Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    when {
+                        !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                        PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                        else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                    }
                 }
             }
             ACTION_EXIT -> {
                 handledAction = true
-                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                Toast.makeText(context, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             }
             Intent.ACTION_CONFIGURATION_CHANGED -> needsFullRebuild = true
         }
@@ -152,15 +170,11 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
         } else if (handledAction) {
             val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                // Le petit widget n'a rien à redessiner pour Entrée/Sortie.
-                // On ne touche à son RemoteViews que lorsque le libellé Pause/Reprendre change.
                 if (intent.action == ACTION_PAUSE) {
                     val manager = AppWidgetManager.getInstance(context)
                     if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)
                     else updateAll(context)
                 }
-                // Le grand widget affiche l'état, les heures et les durées : mise à jour différée
-                // pour laisser le launcher terminer l'animation du clic avant le RemoteViews.
                 PointageWidgetProvider.updateAll(context)
             }, 260L)
         }
