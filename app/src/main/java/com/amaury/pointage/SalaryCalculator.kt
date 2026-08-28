@@ -12,8 +12,8 @@ import kotlin.math.roundToInt
 
 /**
  * Façade historique de l'écran Salaire.
- * Quand V2 est actif, tous les résultats viennent des sessions V2 et du contrat
- * renseigné dans la fiche Salaire. Aucun contrat ou seuil caché n'est créé.
+ * Quand V2 est actif, tous les résultats viennent des sessions V2 du contrat
+ * demandé. Aucun autre employeur n'est mélangé au calcul.
  */
 object SalaryCalculator {
     data class TierResult(val label:String,val durationMs:Long,val multiplier:Double)
@@ -37,21 +37,35 @@ object SalaryCalculator {
 
     private data class WeekKey(val year:Int,val week:Int)
 
-    fun calculate(data:JSONArray, year:Int, month:Int, hourlyRate:Double, convention:ConventionCatalog.Convention):Result {
+    fun calculate(
+        data: JSONArray,
+        year: Int,
+        month: Int,
+        hourlyRate: Double,
+        convention: ConventionCatalog.Convention,
+        companySlot: Int = 1
+    ): Result {
         return if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.PAYROLL)) {
-            calculateV2(year, month, hourlyRate, convention)
+            calculateV2(year, month, hourlyRate, convention, companySlot.coerceIn(1, 2))
         } else {
             calculateLegacy(data, year, month, hourlyRate, convention)
         }
     }
 
-    private fun calculateV2(year:Int, month:Int, fallbackRate:Double, convention:ConventionCatalog.Convention):Result {
-        val profile = V2ProfileStore.loadBound(1)
+    private fun calculateV2(
+        year: Int,
+        month: Int,
+        fallbackRate: Double,
+        convention: ConventionCatalog.Convention,
+        companySlot: Int
+    ): Result {
+        val profile = V2ProfileStore.loadBound(companySlot)
         val contract = profile?.contract ?: return emptyResult(convention)
         val hourlyRate = contract.grossHourlyRate ?: fallbackRate.takeIf { it > 0.0 } ?: return emptyResult(convention)
 
         val sessions = V2RuntimeStore.allSessionsBound()
             .filter { session ->
+                if (session.employerId != contract.employerId) return@filter false
                 val entry = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
                 val exit = session.realExitMs ?: return@filter false
                 if (exit <= entry) return@filter false
@@ -75,10 +89,6 @@ object SalaryCalculator {
         val totalPaid = weekly.values.sum()
         val contractualMinutes = contract.contractualWeeklyMinutes
         val sourceTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
-
-        // Les heures supplémentaires sont appliquées seulement si leur premier
-        // seuil correspond explicitement à la durée hebdomadaire de ce contrat.
-        // Pour un temps partiel, on n'invente pas les règles d'heures complémentaires.
         val overtimeConfirmed = contract.type == ContractTypeV2.FULL_TIME &&
             contractualMinutes != null &&
             sourceTiers.firstOrNull()?.let { (it.fromHour * 60.0).roundToInt() == contractualMinutes } == true
@@ -98,8 +108,6 @@ object SalaryCalculator {
                 }
             }
         } else {
-            // Sans règle complète confirmée, tout le temps payé reste valorisé
-            // au taux de base plutôt que de perdre des heures ou inventer une prime.
             regularMs = totalPaid
         }
 
@@ -134,8 +142,6 @@ object SalaryCalculator {
             }
         }
 
-        // Seule la majoration de nuit connue et intégrée est calculée ici.
-        // Samedi/dimanche restent à zéro sans règle V2 confirmée dédiée.
         val nightPremium = nightRule?.let { nightMs / 3_600_000.0 * hourlyRate * (it.premiumMultiplier - 1.0) } ?: 0.0
         val monthlyBaseGross = regularGross
         val totalGross = regularGross + overtimeGross + nightPremium
