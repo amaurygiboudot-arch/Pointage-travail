@@ -85,12 +85,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         val now = System.currentTimeMillis()
                         val gpsEvent = GpsEventV2("gps-exit-$zoneId-$now", now, zoneId, zoneType, GpsTransitionV2.EXIT)
                         val decision = HoraTrackV2.gps.ingest(gpsEvent)
-                        val outcome = GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
-                        if (outcome.action == GpsWorkStateCoordinatorV2.Action.EXIT_RECORDED) {
-                            // Conserve le dernier lieu jusqu'au prochain pointage : V2RuntimeStore.entry()
-                            // efface les clés de lieu avant de créer une nouvelle session.
-                            V2SessionPlaceStore.enrichLatestHistory(context)
-                        }
+                        // La sortie GPS crée une demande de confirmation ; elle ne clôt pas la session ici.
+                        // Le lieu courant est donc conservé jusqu'à la confirmation ou au prochain pointage.
+                        GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
                         updateWidgets(context)
                     }
                 }
