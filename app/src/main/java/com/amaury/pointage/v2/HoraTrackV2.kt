@@ -4,7 +4,7 @@ import com.amaury.pointage.v2.engine.*
 
 /** Point d'entrée unique du moteur HoraTrack V2. */
 object HoraTrackV2 {
-    /** Activé uniquement pour la phase de test utilisateur. */
+    /** V2 possède les calculs métier. Le mode test n'ajoute que les diagnostics. */
     const val ENABLED = true
     const val TEST_MODE = true
     const val SCHEMA_VERSION = 2
@@ -16,8 +16,8 @@ object HoraTrackV2 {
 
     fun activeLayers():Set<Layer> = if(ENABLED) Layer.entries.toSet() else emptySet()
 
-    /** Quand V2 est actif, l'ancien moteur n'a plus le droit d'écrire/calculer cette couche. */
-    fun legacyDisabledFor(layer: Layer): Boolean = ENABLED && TEST_MODE && layer in activeLayers()
+    /** V2 reste propriétaire de la couche même si le mode diagnostic est coupé. */
+    fun legacyDisabledFor(layer: Layer): Boolean = ENABLED && layer in activeLayers()
 
     fun assertTestIsolation() {
         check(TEST_MODE && ENABLED) { "Le mode de test V2 doit être explicitement actif" }
