@@ -1,6 +1,5 @@
 package com.amaury.pointage
 
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
@@ -10,13 +9,13 @@ import android.widget.Switch
 import android.widget.TextView
 
 /**
- * Uniformise les contrôles standards de HoraTrack.
+ * Source de vérité unique pour l'apparence des contrôles standards HoraTrack.
  *
- * Référence visuelle : bouton "Saisie manuelle d'une pause" :
- * - cadre/fond hp_panel ;
- * - texte orange ;
+ * Référence visuelle exacte : bouton "Saisie manuelle d'une pause" :
+ * - drawable hp_panel brut, sans teinte ajoutée par un ancien thème ;
+ * - texte orange #F3A64A ;
  * - pas de transformation automatique en majuscules ;
- * - retour tactile/élévation laissé au moteur de boutons existant.
+ * - animation tactile laissée au moteur de relief, mais pas son ancien fond.
  *
  * Les trois boutons de pointage diamant et le bouton paramètres restent protégés.
  */
@@ -48,7 +47,7 @@ object ThemeFrameStyler {
         when {
             framedContainer -> clearContainerBackground(view)
             id in tabIds && view is TextView -> styleTab(view, theme, localDark)
-            view is Button -> styleButton(view, theme, localDark)
+            view is Button -> styleButton(view)
             view is EditText -> styleInput(view, localDark)
             view is Switch -> styleSwitch(view, localDark)
             view is TextView -> styleText(view, theme, localDark)
@@ -59,11 +58,14 @@ object ThemeFrameStyler {
         }
     }
 
-    private fun styleButton(button: Button, theme: HpTheme, dark: Boolean) {
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
+    /**
+     * Important : aucun CarbonCompositeDrawable, DynamicDiamondDrawable ou tint de thème
+     * n'est conservé ici. Le fond est remplacé par la référence hp_panel à chaque passage.
+     */
+    private fun styleButton(button: Button) {
         button.backgroundTintList = null
         button.setBackgroundResource(R.drawable.hp_panel)
-        button.backgroundTintList = ColorStateList.valueOf(panel)
+        button.backgroundTintList = null
         button.setTextColor(referenceOrange)
         button.isAllCaps = false
         button.alpha = 1f
@@ -82,7 +84,7 @@ object ThemeFrameStyler {
     }
 
     private fun hasThemedBackground(view: View): Boolean =
-        view.background is CarbonCompositeDrawable || view.background != null
+        view.background is CarbonCompositeDrawable || view.background is DynamicDiamondDrawable || view.background != null
 
     private fun isFramedContainer(view: ViewGroup, id: String): Boolean {
         if (id == "navigationTabs" || id == "pointageButtons") return false
