@@ -11,6 +11,9 @@ data class WorkSessionV2(
     val pauses: List<PauseV2> = emptyList(),
     val travels: List<TravelV2> = emptyList(),
     val status: SessionStatusV2 = SessionStatusV2.TO_CONFIRM,
+    /** Lieu de travail confirmé/enregistré pour cette session. Aucune inférence sensible. */
+    val placeId: String? = null,
+    val placeLabel: String? = null,
     /** Déduction fixe importée de l'ancien moteur. Utilisée uniquement pour préserver les historiques. */
     val legacyFixedUnpaidPauseMs: Long = 0L
 )
