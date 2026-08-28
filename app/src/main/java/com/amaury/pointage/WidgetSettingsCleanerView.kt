@@ -7,13 +7,14 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.amaury.pointage.v2.ui.V2GpsPromptController
+import com.amaury.pointage.v2.ui.V2PauseEndPromptController
 import com.amaury.pointage.v2.ui.V2TestUiInstaller
 
 /**
  * Nettoie uniquement les anciens réglages visuels du widget.
  * En V2, il ne réécrit plus l'historique ni le statut : les écrans normaux sont
  * alimentés directement par MainActivity. Le polling léger reste uniquement
- * pour afficher une confirmation GPS reçue pendant que l'activité est ouverte.
+ * pour afficher les confirmations reçues pendant que l'activité est ouverte.
  */
 class WidgetSettingsCleanerView @JvmOverloads constructor(
     context: Context,
@@ -24,7 +25,10 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
         override fun run() {
             if (!isAttachedToWindow) return
             hideLegacyWidgetControls(rootView)
-            (context as? Activity)?.let { V2GpsPromptController.maybeShow(it) }
+            (context as? Activity)?.let { activity ->
+                V2PauseEndPromptController.maybeShow(activity)
+                V2GpsPromptController.maybeShow(activity)
+            }
             postDelayed(this, 1000L)
         }
     }
@@ -40,6 +44,7 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
         (context as? Activity)?.let { activity ->
             post {
                 V2TestUiInstaller.install(activity)
+                V2PauseEndPromptController.maybeShow(activity)
                 V2GpsPromptController.maybeShow(activity)
             }
         }

@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.ui
 import android.app.Activity
 import android.app.AlertDialog
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import java.util.WeakHashMap
 
@@ -38,14 +39,25 @@ object V2GpsPromptController {
             }
 
             GpsWorkStateCoordinatorV2.Pending.Kind.AMBIGUOUS -> {
+                val entering = pending.transition == GpsTransitionV2.ENTER
+                val title = if (entering) "Tu es en pause ?" else "Tu reprends le travail ?"
+                val message = if (entering) {
+                    "HoraTrack a détecté ton arrivée dans cette zone. Confirme si ce déplacement correspond au début d'une pause."
+                } else {
+                    "HoraTrack a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
+                }
+
                 AlertDialog.Builder(activity)
-                    .setTitle("Tu es en pause ?")
-                    .setMessage(
-                        "HoraTrack te pose cette question pour savoir si ce moment doit être compté comme une pause " +
-                            "ou rester simplement un déplacement GPS à confirmer."
-                    )
+                    .setTitle(title)
+                    .setMessage(message)
                     .setPositiveButton("OUI") { _, _ ->
-                        V2RuntimeStore.togglePause(activity, pending.atMs)
+                        val paused = V2RuntimeStore.snapshot(activity, pending.atMs).session
+                            ?.pauses?.any { it.endMs == null } == true
+                        if (entering && !paused) {
+                            V2RuntimeStore.togglePause(activity, pending.atMs)
+                        } else if (!entering && paused) {
+                            V2RuntimeStore.togglePause(activity, pending.atMs)
+                        }
                         GpsWorkStateCoordinatorV2.cancelPending(activity)
                     }
                     .setNegativeButton("NON") { _, _ -> GpsWorkStateCoordinatorV2.cancelPending(activity) }
