@@ -15,9 +15,11 @@ class V2InitProvider : ContentProvider() {
             V2RuntimeStore.bind(app)
             V2TestDataPolicy.ensurePreservation(app)
             V2ProfileStore.bind(app)
+            V2BackupManager.restoreFreshInstallIfConfiguredAsync(app)
             V2MigrationManager.ensureMigrated(app)
             V2LegalSourceUpdater.checkIfDue(app)
             V2AppLock.install(app)
+            V2AutoBackupCoordinator.install(app)
         }
         return true
     }
