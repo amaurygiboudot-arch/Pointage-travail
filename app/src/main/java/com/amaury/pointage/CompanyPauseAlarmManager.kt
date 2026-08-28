@@ -15,7 +15,9 @@ import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import org.json.JSONArray
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.V2RuntimeStore
 import java.util.Calendar
 import java.util.Locale
 
@@ -27,6 +29,7 @@ object CompanyPauseAlarmManager {
     private const val EVENT_START = "start"
     private const val EVENT_END = "end"
     private const val CHANNEL_ID = "pause_reminders"
+    private const val STATE_PREFS = "horatrack_v2_company_pause"
 
     fun scheduleAll(context: Context) {
         ensureNotificationChannel(context)
@@ -85,13 +88,25 @@ object CompanyPauseAlarmManager {
     internal fun isEnd(event: String) = event == EVENT_END
 
     internal fun activeCompanySlot(context: Context): Int? {
-        val raw = context.getSharedPreferences("pointage", Context.MODE_PRIVATE).getString("data", "[]").orEmpty()
-        val data = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        for (i in data.length() - 1 downTo 0) {
-            val item = data.optJSONObject(i) ?: continue
-            if (item.optLong("entry", -1L) > 0L && item.isNull("exit")) return item.optInt("companySlot", 1).coerceIn(1, 2)
+        if (HoraTrackV2.ENABLED) {
+            val session = V2RuntimeStore.snapshot(context).session ?: return null
+            if (session.realExitMs != null) return null
+            return V2ProfileStore.activeCompanySlot(context)
         }
         return null
+    }
+
+    internal fun markAutomaticPause(context: Context, company: Int, pauseIndex: Int, active: Boolean) {
+        context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("active", active)
+            .putInt("company", company)
+            .putInt("pause", pauseIndex)
+            .apply()
+    }
+
+    internal fun isAutomaticPause(context: Context, company: Int, pauseIndex: Int): Boolean {
+        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        return prefs.getBoolean("active", false) && prefs.getInt("company", 0) == company && prefs.getInt("pause", 0) == pauseIndex
     }
 
     internal fun showNotification(context: Context, company: Int, pauseIndex: Int) {
@@ -142,9 +157,11 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
 
         when {
             CompanyPauseAlarmManager.isStart(event) -> {
-                if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
-                    PointageStore.startPause(context, automatic = true)
-                }
+                val started = if (HoraTrackV2.ENABLED) {
+                    val snap = V2RuntimeStore.snapshot(context).session
+                    if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) V2RuntimeStore.togglePause(context) else false
+                } else false
+                if (started) CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, true)
 
                 if (CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
                     CompanyPauseAlarmManager.showNotification(context, company, pauseIndex)
@@ -164,8 +181,10 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             }
 
             CompanyPauseAlarmManager.isEnd(event) -> {
-                if (PointageStore.isPausedAutomatically(context)) {
-                    PointageStore.resumePause(context, automaticOnly = true)
+                if (HoraTrackV2.ENABLED && CompanyPauseAlarmManager.isAutomaticPause(context, company, pauseIndex)) {
+                    val snap = V2RuntimeStore.snapshot(context).session
+                    if (snap?.pauses?.any { it.endMs == null } == true) V2RuntimeStore.togglePause(context)
+                    CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, false)
                 }
             }
         }
