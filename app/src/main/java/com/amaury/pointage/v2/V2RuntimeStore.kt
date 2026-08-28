@@ -23,6 +23,8 @@ object V2RuntimeStore {
     private const val KEY_PAUSE_START = "pause_start"
     private const val KEY_PAUSE_SOURCE = "pause_source"
     private const val KEY_PAUSES = "pauses"
+    private const val KEY_PLACE_ID = "place_id"
+    private const val KEY_PLACE_LABEL = "place_label"
     private const val KEY_HISTORY = "history"
 
     @Volatile private var boundContext: Context? = null
@@ -63,6 +65,7 @@ object V2RuntimeStore {
             .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY)
             .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
             .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSES)
+            .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .putString(KEY_ID, UUID.randomUUID().toString())
             .putInt(KEY_COMPANY_SLOT, slot)
             .putLong(KEY_REAL_ENTRY, nowMs)
@@ -185,6 +188,8 @@ object V2RuntimeStore {
         }
         val slot = safeInt(prefs.all[KEY_COMPANY_SLOT], V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
         val employerId = prefs.getString(KEY_EMPLOYER_ID, null) ?: V2ProfileStore.load(context, slot).employer?.id
+        val placeId = prefs.getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
+        val placeLabel = prefs.getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
         val session = WorkSessionV2(
             id = prefs.getString(KEY_ID, null) ?: "v2-runtime",
             employerId = employerId,
@@ -193,7 +198,9 @@ object V2RuntimeStore {
             countedExitMs = countedExit,
             realExitMs = realExit,
             pauses = pauses,
-            status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED
+            status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
+            placeId = placeId,
+            placeLabel = placeLabel
         )
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
@@ -225,6 +232,8 @@ object V2RuntimeStore {
         .put("countedEntry", session.countedEntryMs ?: JSONObject.NULL)
         .put("realExit", session.realExitMs ?: JSONObject.NULL)
         .put("countedExit", session.countedExitMs ?: JSONObject.NULL)
+        .put("placeId", session.placeId ?: JSONObject.NULL)
+        .put("placeLabel", session.placeLabel ?: JSONObject.NULL)
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
         .put("pauses", pausesToJson(session.pauses))
 
@@ -238,6 +247,8 @@ object V2RuntimeStore {
                 val slot = o.optInt("companySlot", 1).coerceIn(1, 2)
                 val employerId = o.optString("employerId").takeIf { it.isNotBlank() && it != "null" }
                     ?: V2ProfileStore.load(context, slot).employer?.id
+                val placeId = o.optString("placeId").trim().takeIf { it.isNotBlank() && it != "null" }
+                val placeLabel = o.optString("placeLabel").trim().takeIf { it.isNotBlank() && it != "null" }
                 add(
                     WorkSessionV2(
                         id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
@@ -248,6 +259,8 @@ object V2RuntimeStore {
                         realExitMs = realExit,
                         pauses = parsePauses(o.optJSONArray("pauses")?.toString() ?: "[]"),
                         status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
+                        placeId = placeId,
+                        placeLabel = placeLabel,
                         legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs")
                     )
                 )
