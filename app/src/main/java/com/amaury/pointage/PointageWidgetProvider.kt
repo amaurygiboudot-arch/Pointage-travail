@@ -14,6 +14,8 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,40 +99,67 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var pauseText = "00h 00m"
             var stateText = "PRÊT"
             var stateColor = adaptiveText
-            var locationText = "📍 Aucune zone"
+            var locationText = "📍   …"
             var entryLocation = ""
             var exitLocation = ""
-            val paused = PointageStore.isPaused(context)
-            views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            var paused = false
 
-            val data = PointageStore.load(context)
-            if (data.length() > 0) {
-                data.optJSONObject(data.length() - 1)?.let { last ->
-                    val entry = last.optLong("entry", -1L)
-                    if (entry > 0L) {
-                        val zoneAddress = last.optString("zoneAddress").trim()
-                        entryText = formatTime(entry)
-                        val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else "Pointage manuel"
-                        entryLocation = place
-                        locationText = "📍 ${shortLocation(if (zoneAddress.isNotEmpty()) zoneAddress else place, 54)}"
-                        val effectiveEnd: Long
-                        if (last.isNull("exit")) {
-                            effectiveEnd = System.currentTimeMillis()
-                            stateText = if (paused) "EN PAUSE" else "EN COURS"
-                            stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
-                        } else {
-                            effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
-                            exitText = formatTime(effectiveEnd)
-                            exitLocation = place
-                            stateText = "TERMINÉ"
-                            stateColor = Color.parseColor("#D93630")
+            if (HoraTrackV2.ENABLED) {
+                val snapshot = V2RuntimeStore.snapshot(context)
+                val session = snapshot.session
+                val result = snapshot.result
+                if (session != null) {
+                    paused = session.pauses.any { it.endMs == null }
+                    session.realArrivalMs?.let { entryText = formatTime(it) }
+                    session.realExitMs?.let { exitText = formatTime(it) }
+                    durationText = formatDuration(result?.paidWorkMs ?: 0L)
+                    pauseText = formatDuration(result?.unpaidPauseMs ?: 0L)
+                    val placeName = session.placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { shortLocation(it, 30) }
+                    if (placeName != null) {
+                        locationText = "📍 $placeName"
+                        entryLocation = placeName
+                        if (session.realExitMs != null) exitLocation = placeName
+                    }
+                    if (session.realExitMs == null) {
+                        stateText = if (paused) "EN PAUSE" else "EN COURS"
+                        stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
+                    } else {
+                        stateText = "TERMINÉ"
+                        stateColor = Color.parseColor("#D93630")
+                    }
+                }
+            } else {
+                paused = PointageStore.isPaused(context)
+                val data = PointageStore.load(context)
+                if (data.length() > 0) {
+                    data.optJSONObject(data.length() - 1)?.let { last ->
+                        val entry = last.optLong("entry", -1L)
+                        if (entry > 0L) {
+                            val zoneAddress = last.optString("zoneAddress").trim()
+                            entryText = formatTime(entry)
+                            val place = if (zoneAddress.isNotEmpty()) shortLocation(zoneAddress, 30) else ""
+                            entryLocation = place
+                            if (place.isNotEmpty()) locationText = "📍 $place"
+                            val effectiveEnd: Long
+                            if (last.isNull("exit")) {
+                                effectiveEnd = System.currentTimeMillis()
+                                stateText = if (paused) "EN PAUSE" else "EN COURS"
+                                stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
+                            } else {
+                                effectiveEnd = last.optLong("exit", entry).coerceAtLeast(entry)
+                                exitText = formatTime(effectiveEnd)
+                                exitLocation = place
+                                stateText = "TERMINÉ"
+                                stateColor = Color.parseColor("#D93630")
+                            }
+                            pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
+                            durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
                         }
-                        pauseText = formatDuration(PointageStore.pauseDuration(last, effectiveEnd))
-                        durationText = formatDuration(PointageStore.workedDuration(last, effectiveEnd))
                     }
                 }
             }
 
+            views.setTextViewText(R.id.widget_pause_label, if (paused) "REPRENDRE" else "PAUSE")
             views.setTextViewText(R.id.widget_entry_time, entryText)
             views.setTextViewText(R.id.widget_exit_time, exitText)
             views.setTextViewText(R.id.widget_entry_location, entryLocation)
@@ -243,20 +272,34 @@ class PointageWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 handledAction = true
-                if (PointageStore.entry(context)) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                if (ok) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
             }
             ACTION_PAUSE -> {
                 handledAction = true
-                when {
-                    !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
-                    PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
-                    else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                if (HoraTrackV2.ENABLED) {
+                    val session = V2RuntimeStore.snapshot(context).session
+                    if (session == null || session.realExitMs != null) {
+                        Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val wasPaused = session.pauses.any { it.endMs == null }
+                        if (V2RuntimeStore.togglePause(context)) {
+                            Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    when {
+                        !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                        PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                        else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                    }
                 }
             }
             ACTION_EXIT -> {
                 handledAction = true
-                if (PointageStore.exit(context)) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                if (ok) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
                 else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
             }
             Intent.ACTION_CONFIGURATION_CHANGED, Intent.ACTION_WALLPAPER_CHANGED -> needsFullRebuild = true
@@ -270,8 +313,6 @@ class PointageWidgetProvider : AppWidgetProvider() {
                 val manager = AppWidgetManager.getInstance(context)
                 if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicWidget(context, manager, clickedId)
                 else updateAll(context)
-
-                // Le petit widget n'a besoin d'être modifié que si Pause devient Reprendre (ou inversement).
                 if (intent.action == ACTION_PAUSE) QuickActionsWidgetProvider.updateAll(context)
             }, 260L)
         }
