@@ -23,6 +23,7 @@ import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -221,15 +222,15 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != REQUEST_CREATE_MONTHLY_PDF || resultCode != RESULT_OK) return
-        if (HoraTrackV2.ENABLED) {
-            Toast.makeText(this, "PDF mensuel V2 : génération momentanément bloquée plutôt que d'utiliser l'ancien calcul", Toast.LENGTH_LONG).show()
-            return
-        }
         val uri = data?.data ?: return
         try {
             contentResolver.openOutputStream(uri)?.use { output ->
-                V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
-                MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
+                if (HoraTrackV2.ENABLED) {
+                    MonthlyPdfReportV2.write(V2RuntimeStore.allSessions(this), pendingPdfYear, pendingPdfMonth, output)
+                } else {
+                    V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
+                    MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
+                }
             } ?: throw IllegalStateException("Impossible d'ouvrir le fichier")
             Toast.makeText(this, "PDF mensuel enregistré", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
