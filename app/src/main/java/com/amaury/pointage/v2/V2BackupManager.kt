@@ -30,23 +30,9 @@ object V2BackupManager {
         V2ProfileStore.bind(context);V2MigrationManager.ensureMigrated(context);RestoreResult(restored,merged)
     }
 
-    /** Importe un ancien cloud sans jamais réactiver l'écriture PointageStore. */
-    fun importLegacyPointageJson(context:Context,legacy:JSONArray):Int {
-        if(legacy.length()==0)return 0
-        val prefs=context.applicationContext.getSharedPreferences("pointage",Context.MODE_PRIVATE)
-        val before=prefs.getString("data","[]")
-        return try {
-            prefs.edit().putString("data",legacy.toString()).commit()
-            val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE)
-            val oldHistory=runCatching{JSONArray(runtime.getString("history","[]")?:"[]")}.getOrElse{JSONArray()}.length()
-            context.getSharedPreferences("horatrack_v2_migration",Context.MODE_PRIVATE).edit().remove("legacy_migrated").apply()
-            V2MigrationManager.ensureMigrated(context)
-            val newHistory=runCatching{JSONArray(runtime.getString("history","[]")?:"[]")}.getOrElse{JSONArray()}.length()
-            (newHistory-oldHistory).coerceAtLeast(0)
-        } finally {
-            val e=prefs.edit();if(before==null)e.remove("data") else e.putString("data",before);e.apply()
-        }
-    }
+    /** Importe un ancien cloud directement dans V2, sans toucher au stockage legacy local. */
+    fun importLegacyPointageJson(context:Context,legacy:JSONArray):Int =
+        V2MigrationManager.importLegacyArray(context.applicationContext, legacy).imported
 
     fun snapshot(context:Context):JSONObject { val all=JSONObject();preferenceFiles.forEach{all.put(it,encodePreferences(context,it))};return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all) }
     private fun isFreshInstall(context:Context):Boolean { val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE);val legacy=context.getSharedPreferences("pointage",Context.MODE_PRIVATE).getString("data","[]").orEmpty();val salary=context.getSharedPreferences("salary_settings",Context.MODE_PRIVATE);val hasRuntime=numeric(runtime.all["real_entry"])>0L||runCatching{JSONArray(runtime.getString("history","[]")?:"[]").length()>0}.getOrDefault(false);val hasLegacy=runCatching{JSONArray(legacy.ifBlank{"[]"}).length()>0}.getOrDefault(false);return !hasRuntime&&!hasLegacy&&salary.all.isEmpty() }
