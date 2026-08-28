@@ -6,6 +6,7 @@ import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
+import android.os.Looper
 
 /**
  * Socle EGL partagé destiné à tous les boutons OpenGL de HoraTrack.
@@ -14,10 +15,9 @@ import android.opengl.EGLSurface
  * bouton conserve sa propre EGLSurface, ce qui permet de mutualiser le contexte
  * sans mélanger les états visuels, textures ou matériaux propres à chaque bouton.
  *
- * La destruction d'une surface accepte maintenant un nettoyage GPU explicite :
- * il est exécuté pendant que le contexte partagé est encore courant. Cela évite
- * de laisser textures, programmes ou autres ressources OpenGL dans le contexte
- * lorsque le bouton disparaît.
+ * La destruction d'une surface accepte un nettoyage GPU explicite : il est
+ * exécuté pendant que le contexte partagé est encore courant. Toutes les
+ * opérations EGL sont volontairement confinées au thread de rendu partagé.
  */
 internal object OpenGlButtonEgl {
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
@@ -26,6 +26,7 @@ internal object OpenGlButtonEgl {
     private var configuredDepth = -1
 
     fun createSurface(texture: SurfaceTexture, depthBits: Int): EGLSurface {
+        checkRenderThread()
         ensureInitialized(depthBits)
         val eglConfig = checkNotNull(config)
         val surface = EGL14.eglCreateWindowSurface(
@@ -40,6 +41,7 @@ internal object OpenGlButtonEgl {
     }
 
     fun makeCurrent(surface: EGLSurface) {
+        checkRenderThread()
         check(display != EGL14.EGL_NO_DISPLAY && context != EGL14.EGL_NO_CONTEXT)
         check(EGL14.eglMakeCurrent(display, surface, surface, context)) {
             "Impossible d'activer le contexte EGL partagé"
@@ -47,14 +49,18 @@ internal object OpenGlButtonEgl {
     }
 
     fun swap(surface: EGLSurface) {
+        checkRenderThread()
         if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
-        EGL14.eglSwapBuffers(display, surface)
+        check(EGL14.eglSwapBuffers(display, surface)) {
+            "Impossible de présenter la surface EGL du bouton OpenGL"
+        }
     }
 
     fun destroySurface(
         surface: EGLSurface,
         releaseGpuResources: (() -> Unit)? = null
     ) {
+        checkRenderThread()
         if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
 
         if (releaseGpuResources != null) {
@@ -74,6 +80,7 @@ internal object OpenGlButtonEgl {
     }
 
     private fun ensureInitialized(depthBits: Int) {
+        checkRenderThread()
         if (display != EGL14.EGL_NO_DISPLAY && context != EGL14.EGL_NO_CONTEXT) return
 
         display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
@@ -105,5 +112,11 @@ internal object OpenGlButtonEgl {
             0
         )
         check(context != EGL14.EGL_NO_CONTEXT) { "Impossible de créer le contexte EGL partagé" }
+    }
+
+    private fun checkRenderThread() {
+        check(Looper.myLooper() === DiamondRenderThread.handler.looper) {
+            "Opération EGL hors du thread de rendu OpenGL partagé"
+        }
     }
 }
