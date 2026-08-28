@@ -18,12 +18,17 @@ import android.os.Looper
  * La destruction d'une surface accepte un nettoyage GPU explicite : il est
  * exécuté pendant que le contexte partagé est encore courant. Toutes les
  * opérations EGL sont volontairement confinées au thread de rendu partagé.
+ *
+ * Les surfaces créées sont suivies explicitement afin qu'une destruction répétée
+ * ou une tentative de rendu sur une surface déjà détruite ne puisse pas perturber
+ * les autres boutons qui utilisent le même contexte EGL.
  */
 internal object OpenGlButtonEgl {
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var context: EGLContext = EGL14.EGL_NO_CONTEXT
     private var config: EGLConfig? = null
     private var configuredDepth = -1
+    private val liveSurfaces = HashSet<EGLSurface>()
 
     fun createSurface(texture: SurfaceTexture, depthBits: Int): EGLSurface {
         checkRenderThread()
@@ -37,12 +42,14 @@ internal object OpenGlButtonEgl {
             0
         )
         check(surface != EGL14.EGL_NO_SURFACE) { "Impossible de créer la surface EGL du bouton OpenGL" }
+        check(liveSurfaces.add(surface)) { "Surface EGL du bouton déjà enregistrée" }
         return surface
     }
 
     fun makeCurrent(surface: EGLSurface) {
         checkRenderThread()
         check(display != EGL14.EGL_NO_DISPLAY && context != EGL14.EGL_NO_CONTEXT)
+        check(surface in liveSurfaces) { "Tentative d'utiliser une surface EGL déjà détruite" }
         check(EGL14.eglMakeCurrent(display, surface, surface, context)) {
             "Impossible d'activer le contexte EGL partagé"
         }
@@ -51,6 +58,7 @@ internal object OpenGlButtonEgl {
     fun swap(surface: EGLSurface) {
         checkRenderThread()
         if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
+        check(surface in liveSurfaces) { "Tentative de présenter une surface EGL déjà détruite" }
         check(EGL14.eglSwapBuffers(display, surface)) {
             "Impossible de présenter la surface EGL du bouton OpenGL"
         }
@@ -62,6 +70,7 @@ internal object OpenGlButtonEgl {
     ) {
         checkRenderThread()
         if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
+        if (surface !in liveSurfaces) return
 
         if (releaseGpuResources != null) {
             makeCurrent(surface)
@@ -69,14 +78,20 @@ internal object OpenGlButtonEgl {
         }
 
         if (EGL14.eglGetCurrentSurface(EGL14.EGL_DRAW) == surface) {
-            EGL14.eglMakeCurrent(
-                display,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_CONTEXT
-            )
+            check(
+                EGL14.eglMakeCurrent(
+                    display,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_SURFACE,
+                    EGL14.EGL_NO_CONTEXT
+                )
+            ) { "Impossible de détacher la surface EGL du bouton OpenGL" }
         }
-        EGL14.eglDestroySurface(display, surface)
+
+        check(EGL14.eglDestroySurface(display, surface)) {
+            "Impossible de détruire la surface EGL du bouton OpenGL"
+        }
+        liveSurfaces.remove(surface)
     }
 
     private fun ensureInitialized(depthBits: Int) {
