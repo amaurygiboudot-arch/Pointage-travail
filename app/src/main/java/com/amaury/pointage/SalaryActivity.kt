@@ -38,9 +38,9 @@ class SalaryActivity : Activity() {
         hourlyRateInput.setText(profile.contract?.grossHourlyRate?.toString() ?: textPref("hourly_rate"))
         val all = ConventionCatalog.all(this)
         val idcc = profile.employer?.collectiveAgreementId.orEmpty()
-        selectedConvention = if (idcc.isNotBlank()) {
-            ConventionCatalog.findByIdcc(this, idcc) ?: all.firstOrNull { it.idcc.isBlank() }
-        } else all.firstOrNull { it.idcc.isBlank() }
+        selectedConvention = (
+            if (idcc.isNotBlank()) ConventionCatalog.findByIdcc(this, idcc) else null
+        ) ?: all.firstOrNull { it.idcc.isBlank() }
             ?: error("Régime légal HoraTrack indisponible")
 
         findViewById<Button>(R.id.salaryBackButton).setOnClickListener { finish() }
