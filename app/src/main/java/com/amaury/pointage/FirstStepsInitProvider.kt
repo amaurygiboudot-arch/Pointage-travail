@@ -17,6 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 
 /** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
@@ -47,6 +48,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             PrimaryButtonIsolation.install(activity)
             installOwnerShortcut(activity)
             installGpsZoneTypeSelector(activity)
+            installV2PdfExport(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
             removeVisibleDeveloperButton(activity)
@@ -109,8 +111,15 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     private fun installGpsZoneTypeSelector(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) != null) return
-        val selector = GpsZoneTypeView(activity)
-        panel.addView(selector, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panel.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    /** Empêche le bouton visible d'ouvrir l'ancien flux PDF bloqué en V2. */
+    private fun installV2PdfExport(activity: MainActivity) {
+        if (!HoraTrackV2.ENABLED) return
+        activity.findViewById<Button>(R.id.generateMonthlyPdfButton)?.setOnClickListener {
+            activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java))
+        }
     }
 
     private fun installReplayButton(activity: MainActivity) {
