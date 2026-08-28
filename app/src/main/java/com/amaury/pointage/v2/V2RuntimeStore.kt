@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.WidgetLocationExpiryScheduler
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -166,6 +167,7 @@ object V2RuntimeStore {
             .apply()
 
         snapshot(context, nowMs).session?.let { persistClosed(context, it) }
+        WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
     }
 
