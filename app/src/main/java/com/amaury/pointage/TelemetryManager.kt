@@ -37,7 +37,6 @@ object TelemetryManager {
                 if (!voluntaryFeedback) {
                     event.throwable?.let { event.throwable = DiagnosticSanitizer.safeThrowable(it) }
                     event.breadcrumbs?.clear()
-                    event.contexts.clear()
                 }
                 event
             })
