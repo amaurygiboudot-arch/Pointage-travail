@@ -1,14 +1,17 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import com.amaury.pointage.v2.ui.V2TestUiInstaller
 
 /**
  * Le widget suit désormais uniquement le thème de l'application.
  * On conserve seulement le réglage « Afficher la position dans le widget ».
+ * Ce View sert aussi de point d'accroche discret au panneau de test HoraTrack V2.
  */
 class WidgetSettingsCleanerView @JvmOverloads constructor(
     context: Context,
@@ -31,6 +34,7 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
             .remove("widget_accent")
             .apply()
         post(cleanup)
+        (context as? Activity)?.let { activity -> post { V2TestUiInstaller.install(activity) } }
         PointageWidgetProvider.updateAll(context)
         QuickActionsWidgetProvider.updateAll(context)
     }

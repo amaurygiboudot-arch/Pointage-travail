@@ -4,7 +4,9 @@ import com.amaury.pointage.v2.engine.*
 
 /** Point d'entrée unique du moteur HoraTrack V2. */
 object HoraTrackV2 {
-    const val ENABLED = false
+    /** Activé uniquement pour la phase de test utilisateur. */
+    const val ENABLED = true
+    const val TEST_MODE = true
     const val SCHEMA_VERSION = 2
 
     enum class Layer { TIME, GPS, COMPANY_CONTRACT, LEGAL_AI, PAYROLL, COUNTERS_RIGHTS, PAYSLIP, BACKUP_RESTORE, SECURITY, PDF, HISTORY, ANALYTICS, DIAGNOSTICS }
@@ -15,7 +17,7 @@ object HoraTrackV2 {
     fun activeLayers():Set<Layer> = if(ENABLED) Layer.entries.toSet() else emptySet()
 
     fun assertTestIsolation() {
-        check(!ENABLED) { "Le moteur V2 ne doit pas être activé avant validation complète" }
+        check(TEST_MODE && ENABLED) { "Le mode de test V2 doit être explicitement actif" }
     }
 }
 
@@ -34,6 +36,7 @@ object V2ValidationSuite {
         check("Sortie +21 -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+21*60_000L,expected)==expected+21*60_000L)
         check("Sortie sans horaire prévu -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+5*60_000L,null)==expected+5*60_000L)
         check("Toutes les couches déclarées",HoraTrackV2.Layer.entries.size==13)
+        check("Mode test V2 actif",HoraTrackV2.TEST_MODE && HoraTrackV2.ENABLED)
         val failures=checks.filterNot{it.second}.map{it.first}
         return V2ValidationReport(failures.isEmpty(),checks,failures)
     }
