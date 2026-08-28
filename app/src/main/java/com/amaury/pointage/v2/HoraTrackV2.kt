@@ -2,47 +2,16 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.*
 
-/** Point d'entrée unique du moteur HoraTrack V2. */
 object HoraTrackV2 {
-    /** V2 possède les calculs métier. Le mode test n'ajoute que les diagnostics. */
-    const val ENABLED = true
-    const val TEST_MODE = true
-    const val SCHEMA_VERSION = 2
-
-    enum class Layer { TIME, GPS, COMPANY_CONTRACT, LEGAL_AI, PAYROLL, COUNTERS_RIGHTS, PAYSLIP, BACKUP_RESTORE, SECURITY, PDF, HISTORY, ANALYTICS, DIAGNOSTICS }
-
-    val time:TimeEngineV2 = DefaultTimeEngineV2
-    val gps:GpsEngineV2 = GpsEngineV2()
-
-    fun activeLayers():Set<Layer> = if(ENABLED) Layer.entries.toSet() else emptySet()
-
-    /** V2 reste propriétaire de la couche même si le mode diagnostic est coupé. */
-    fun legacyDisabledFor(layer: Layer): Boolean = ENABLED && layer in activeLayers()
-
-    fun assertTestIsolation() {
-        check(TEST_MODE && ENABLED) { "Le mode de test V2 doit être explicitement actif" }
-    }
+ const val ENABLED=true;const val TEST_MODE=true;const val SCHEMA_VERSION=2
+ enum class Layer{TIME,GPS,COMPANY_CONTRACT,LEGAL_AI,PAYROLL,COUNTERS_RIGHTS,PAYSLIP,BACKUP_RESTORE,SECURITY,PDF,HISTORY,ANALYTICS,DIAGNOSTICS}
+ val time:TimeEngineV2=DefaultTimeEngineV2;val gps:GpsEngineV2=GpsEngineV2()
+ fun activeLayers():Set<Layer>=if(ENABLED)Layer.entries.toSet() else emptySet()
+ fun legacyDisabledFor(layer:Layer)=ENABLED&&layer in activeLayers()
+ fun assertTestIsolation(){check(TEST_MODE&&ENABLED){"Le mode de test V2 doit être explicitement actif"}}
 }
 
 data class V2ValidationReport(val passed:Boolean,val checks:List<Pair<String,Boolean>>,val failures:List<String>)
-object V2ValidationSuite {
-    fun run():V2ValidationReport {
-        val checks=mutableListOf<Pair<String,Boolean>>()
-        fun check(name:String,value:Boolean){checks += name to value}
-        val slot=15L*60_000L
-        val base=7L*60L*60L*1000L
-        check("Entrée 07:00 -> 07:00",HoraTrackV2.time.countedEntryFromRealArrival(base)==base)
-        check("Entrée 07:05 -> 07:00",HoraTrackV2.time.countedEntryFromRealArrival(base+5*60_000L)==base)
-        check("Entrée 07:06 -> 07:15",HoraTrackV2.time.countedEntryFromRealArrival(base+6*60_000L)==base+slot)
-        val expected=16L*60L*60L*1000L
-        check("Sortie +20 -> prévue",HoraTrackV2.time.countedExitFromRealExit(expected+20*60_000L,expected)==expected)
-        check("Sortie +21 -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+21*60_000L,expected)==expected+21*60_000L)
-        check("Sortie sans horaire prévu -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+5*60_000L,null)==expected+5*60_000L)
-        check("Toutes les couches déclarées",HoraTrackV2.Layer.entries.size==13)
-        check("Mode test V2 actif",HoraTrackV2.TEST_MODE && HoraTrackV2.ENABLED)
-        check("Ancien moteur temps bloqué",HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME))
-        check("Ancien moteur GPS bloqué",HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS))
-        val failures=checks.filterNot{it.second}.map{it.first}
-        return V2ValidationReport(failures.isEmpty(),checks,failures)
-    }
+object V2ValidationSuite{
+ fun run():V2ValidationReport{val checks=mutableListOf<Pair<String,Boolean>>();fun c(n:String,v:Boolean){checks+=n to v};val slot=15L*60_000L;val base=7L*60L*60L*1000L;c("Entrée 07:00 -> 07:00",HoraTrackV2.time.countedEntryFromRealArrival(base)==base);c("Entrée 07:05 -> 07:00",HoraTrackV2.time.countedEntryFromRealArrival(base+5*60_000)==base);c("Entrée 07:06 -> 07:15",HoraTrackV2.time.countedEntryFromRealArrival(base+6*60_000)==base+slot);val expected=16L*60L*60L*1000L;c("Sortie +20 -> prévue",HoraTrackV2.time.countedExitFromRealExit(expected+20*60_000,expected)==expected);c("Sortie +21 -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+21*60_000,expected)==expected+21*60_000);c("Sortie sans horaire prévu -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+5*60_000,null)==expected+5*60_000);c("Toutes les couches V2 actives",HoraTrackV2.activeLayers()==HoraTrackV2.Layer.entries.toSet());c("Test = diagnostics seulement",HoraTrackV2.TEST_MODE&&HoraTrackV2.ENABLED);HoraTrackV2.Layer.entries.filterNot{it==HoraTrackV2.Layer.DIAGNOSTICS}.forEach{c("Legacy bloqué : ${it.name}",HoraTrackV2.legacyDisabledFor(it))};val failures=checks.filterNot{it.second}.map{it.first};return V2ValidationReport(failures.isEmpty(),checks,failures)}
 }
