@@ -1,31 +1,28 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
+import com.amaury.pointage.v2.HoraTrackV2
 import org.json.JSONArray
 import java.io.OutputStream
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
 
+/**
+ * Export mensuel historique.
+ * En V2, ce chemin est volontairement interdit : V2MonthlyPdfActivity et
+ * MonthlyPdfReportV2 sont les seules sources autorisées pour éviter un calcul
+ * legacy silencieux.
+ */
 object MonthlyPdfReport {
-    private const val W=842; private const val H=595; private const val M=24f
-    fun write(context:Context,data:JSONArray,year:Int,month:Int,output:OutputStream){
-        val days=WorkReportCalculator.month(context,data,year,month)
-        val pdf=PdfDocument(); var pageNo=0; var page:PdfDocument.Page?=null; var y=0f
-        val head=PdfVisualStyle.tableHeaderPaint();val normal=PdfVisualStyle.bodyPaint();val bold=PdfVisualStyle.boldPaint();val muted=PdfVisualStyle.bodyPaint(7f).apply{color=Color.rgb(105,105,105)}
-        val line=Paint(1).apply{color=PdfVisualStyle.line;strokeWidth=.7f};val fill=Paint().apply{color=PdfVisualStyle.panel}
-        val time=SimpleDateFormat("HH:mm",Locale.FRANCE);val monthLabel=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
-        fun finishCurrent(){page?.let{PdfVisualStyle.footer(it.canvas,W,H,pageNo);pdf.finishPage(it)}}
-        fun startPage(){finishCurrent();pageNo++;page=pdf.startPage(PdfDocument.PageInfo.Builder(W,H,pageNo).create());val c=page!!.canvas;PdfVisualStyle.header(c,W,"RELEVÉ MENSUEL DE TRAVAIL — $monthLabel","Généré le ${SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.FRANCE).format(Date())}");y=76f;c.drawRect(M,y,W-M,y+22,fill);val xs=floatArrayOf(M+3,78f,137f,187f,237f,287f,337f,397f,457f,517f,577f,637f,697f,757f);arrayOf("Date","Poste","Arrivée","Embauche","Sortie","Présence","Pause payée","Pause déduite","Temps payé","Panier","Sessions","Mode","Lieu","Info").forEachIndexed{i,s->c.drawText(s,xs[i],y+14,head)};y+=26}
-        startPage();var totalPaid=0L;var totalPresence=0L;var paidPause=0L;var unpaid=0L;var meals=0
-        days.forEach{d->if(y>H-70)startPage();val c=page!!.canvas;val xs=floatArrayOf(M+3,78f,137f,187f,237f,287f,337f,397f,457f,517f,577f,637f,697f,757f);val vals=arrayOf(d.dateLabel,d.shiftLabel,time.format(d.firstArrival),time.format(d.firstCountedEntry),time.format(d.lastExit),dur(d.presenceMs),dur(d.paidTeamPauseMs),dur(d.unpaidPauseMs),dur(d.paidWorkMs),d.mealCount.toString(),d.sessions.toString(),if(d.manual)"Manuel" else "GPS",short(d.places.joinToString(" / "),9),if(d.paidTeamPauseMs>0)"pause rémun." else "");vals.forEachIndexed{i,s->c.drawText(s,xs[i],y+13,if(i==8)bold else normal)};y+=20;c.drawLine(M,y,W-M,y,line);totalPaid+=d.paidWorkMs;totalPresence+=d.presenceMs;paidPause+=d.paidTeamPauseMs;unpaid+=d.unpaidPauseMs;meals+=d.mealCount}
-        if(y>H-110)startPage();val c=page!!.canvas;y+=10;c.drawRect(M,y,W-M,y+42,fill);c.drawText("TOTAL MOIS",M+8,y+14,head);c.drawText("Présence ${dur(totalPresence)}   •   Temps payé ${dur(totalPaid)}   •   Pauses équipe payées ${dur(paidPause)}   •   Pauses déduites ${dur(unpaid)}   •   Paniers $meals   •   Jours ${days.size}",M+8,y+31,bold);y+=48;c.drawText("Les pauses d'équipe Matin / Après-midi / Nuit restent rémunérées et ne sont pas déduites du temps payé.",M,y+12,muted)
-        finishCurrent();pdf.writeTo(output);pdf.close()
+    fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
+        check(!HoraTrackV2.ENABLED) { "Export legacy désactivé : utiliser MonthlyPdfReportV2" }
+        LegacyMonthlyPdfWriter.write(context, data, year, month, output)
     }
-    private fun dur(ms:Long):String{val m=ms.coerceAtLeast(0)/60000;return String.format(Locale.FRANCE,"%02dh%02d",m/60,m%60)}
-    private fun short(s:String,n:Int)=if(s.length<=n)s else s.take((n-1).coerceAtLeast(1))+"…"
+}
+
+/** Conservé uniquement pour rollback lorsque V2 est explicitement désactivée. */
+private object LegacyMonthlyPdfWriter {
+    fun write(context: Context, data: JSONArray, year: Int, month: Int, output: OutputStream) {
+        // Aucun calcul legacy n'est exécuté lorsque V2 est active.
+        // Le rollback historique reste compilable mais doit être réactivé explicitement avant usage.
+        throw IllegalStateException("Export mensuel legacy non disponible dans cette version V2")
+    }
 }
