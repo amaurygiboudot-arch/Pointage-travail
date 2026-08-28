@@ -21,11 +21,13 @@ import com.amaury.pointage.v2.V2ManualSessionWriter
 import com.amaury.pointage.v2.V2ProfileStore
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Collections
 import java.util.Locale
+import java.util.WeakHashMap
 
 /** Remplace le vieux flux de saisie manuelle par une écriture directe V2. */
 object V2ManualEntryInstaller {
-    private const val TAG_WIRED = "v2_manual_entry_wired"
+    private val wired = Collections.newSetFromMap(WeakHashMap<ManualHoursButton, Boolean>())
 
     fun install(activity: Activity) {
         if (!HoraTrackV2.ENABLED) return
@@ -33,8 +35,7 @@ object V2ManualEntryInstaller {
     }
 
     private fun wireRecursive(view: View, activity: Activity) {
-        if (view is ManualHoursButton && view.getTag(R.id.tag_v2_manual_entry_marker) != TAG_WIRED) {
-            view.setTag(R.id.tag_v2_manual_entry_marker, TAG_WIRED)
+        if (view is ManualHoursButton && wired.add(view)) {
             view.setOnClickListener { showDialog(activity) }
         }
         if (view is ViewGroup) for (i in 0 until view.childCount) wireRecursive(view.getChildAt(i), activity)
