@@ -11,6 +11,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.GpsEventV2
+import com.amaury.pointage.v2.engine.GpsPointTypeV2
+import com.amaury.pointage.v2.engine.GpsTransitionV2
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import org.json.JSONArray
@@ -41,9 +46,18 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
-                    val zoneId = regularIds.firstOrNull()
+                    val zoneId = regularIds.firstOrNull() ?: return
                     val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
-                    if (PointageStore.entry(context, zoneId, zoneAddress)) {
+                    val recorded = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                        val now = System.currentTimeMillis()
+                        val decision = HoraTrackV2.gps.ingest(
+                            GpsEventV2("gps-enter-$zoneId-$now", now, zoneId, GpsPointTypeV2.POSTE, GpsTransitionV2.ENTER)
+                        )
+                        decision.accepted && !decision.duplicate && V2RuntimeStore.entry(context, now)
+                    } else {
+                        PointageStore.entry(context, zoneId, zoneAddress)
+                    }
+                    if (recorded) {
                         updateWidgets(context)
                         if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
                     }
@@ -58,7 +72,19 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 activeZones.removeAll(regularIds.toSet())
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
-                if (activeZones.isEmpty() && PointageStore.exit(context)) updateWidgets(context)
+                if (activeZones.isEmpty()) {
+                    val zoneId = regularIds.firstOrNull() ?: "unknown"
+                    val recorded = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                        val now = System.currentTimeMillis()
+                        val decision = HoraTrackV2.gps.ingest(
+                            GpsEventV2("gps-exit-$zoneId-$now", now, zoneId, GpsPointTypeV2.POSTE, GpsTransitionV2.EXIT)
+                        )
+                        decision.accepted && !decision.duplicate && V2RuntimeStore.exit(context, now)
+                    } else {
+                        PointageStore.exit(context)
+                    }
+                    if (recorded) updateWidgets(context)
+                }
             }
         }
     }

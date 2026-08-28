@@ -16,6 +16,9 @@ object HoraTrackV2 {
 
     fun activeLayers():Set<Layer> = if(ENABLED) Layer.entries.toSet() else emptySet()
 
+    /** Quand V2 est actif, l'ancien moteur n'a plus le droit d'écrire/calculer cette couche. */
+    fun legacyDisabledFor(layer: Layer): Boolean = ENABLED && TEST_MODE && layer in activeLayers()
+
     fun assertTestIsolation() {
         check(TEST_MODE && ENABLED) { "Le mode de test V2 doit être explicitement actif" }
     }
@@ -37,6 +40,8 @@ object V2ValidationSuite {
         check("Sortie sans horaire prévu -> réelle",HoraTrackV2.time.countedExitFromRealExit(expected+5*60_000L,null)==expected+5*60_000L)
         check("Toutes les couches déclarées",HoraTrackV2.Layer.entries.size==13)
         check("Mode test V2 actif",HoraTrackV2.TEST_MODE && HoraTrackV2.ENABLED)
+        check("Ancien moteur temps bloqué",HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME))
+        check("Ancien moteur GPS bloqué",HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS))
         val failures=checks.filterNot{it.second}.map{it.first}
         return V2ValidationReport(failures.isEmpty(),checks,failures)
     }

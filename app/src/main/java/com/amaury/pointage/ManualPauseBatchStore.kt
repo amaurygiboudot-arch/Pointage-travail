@@ -1,25 +1,31 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * Enregistre plusieurs pauses manuelles sous le même verrou que toutes les
- * autres mutations de pointage afin qu'un widget, une géofence ou une alarme
- * ne puisse pas écraser silencieusement la saisie en cours.
- */
+/** Enregistre les pauses manuelles dans le moteur actif sans modifier l'interface. */
 object ManualPauseBatchStore {
     fun addAll(context: Context, ranges: List<Pair<Long, Long>>): Int {
         val valid = ranges.filter { (start, end) -> start > 0L && end > start }
         if (valid.isEmpty()) return 0
+
+        if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)) {
+            val added = V2RuntimeStore.addManualPauses(context, valid)
+            if (added > 0) {
+                PointageWidgetProvider.updateAll(context)
+                QuickActionsWidgetProvider.updateAll(context)
+            }
+            return added
+        }
 
         val added = PointageStore.update(context) { data ->
             var count = 0
             valid.forEach { (pauseStart, pauseEnd) ->
                 val target = findContainingSession(data, pauseStart, pauseEnd) ?: return@forEach
                 val pauses = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
-
                 var duplicate = false
                 for (i in 0 until pauses.length()) {
                     val existing = pauses.optJSONObject(i) ?: continue
@@ -29,12 +35,7 @@ object ManualPauseBatchStore {
                     }
                 }
                 if (!duplicate) {
-                    pauses.put(
-                        JSONObject()
-                            .put("start", pauseStart)
-                            .put("end", pauseEnd)
-                            .put("manual", true)
-                    )
+                    pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
                     count++
                 }
             }
@@ -55,7 +56,6 @@ object ManualPauseBatchStore {
             val item = data.optJSONObject(i) ?: continue
             val entry = item.optLong("entry", -1L)
             if (entry <= 0L || pauseStart < entry) continue
-
             if (item.isNull("exit")) {
                 if (pauseStart <= now) return item
             } else {

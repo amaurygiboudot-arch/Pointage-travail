@@ -9,7 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** Petit stockage isolé réservé aux essais du moteur V2. */
+/** Stockage de test V2 isolé de PointageStore. */
 object V2RuntimeStore {
     private const val PREFS = "horatrack_v2_test_runtime"
     private const val KEY_ID = "session_id"
@@ -19,17 +19,27 @@ object V2RuntimeStore {
     private const val KEY_COUNTED_EXIT = "counted_exit"
     private const val KEY_PAUSE_START = "pause_start"
     private const val KEY_PAUSES = "pauses"
+    private const val KEY_HISTORY = "history"
+
+    @Volatile private var boundContext: Context? = null
 
     data class Snapshot(
         val session: WorkSessionV2?,
         val result: com.amaury.pointage.v2.engine.TimeResultV2?
     )
 
+    fun bind(context: Context) { boundContext = context.applicationContext }
+    fun snapshotBound(nowMs: Long = System.currentTimeMillis()): Snapshot? = boundContext?.let { snapshot(it, nowMs) }
+    fun allSessionsBound(nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> = boundContext?.let { allSessions(it, nowMs) }.orEmpty()
+
     fun entry(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+        bind(context)
         val prefs = prefs(context)
         val open = prefs.getLong(KEY_REAL_ENTRY, 0L) > 0L && prefs.getLong(KEY_REAL_EXIT, 0L) == 0L
         if (open) return false
-        prefs.edit().clear()
+        prefs.edit()
+            .remove(KEY_ID).remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY)
+            .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_PAUSE_START).remove(KEY_PAUSES)
             .putString(KEY_ID, UUID.randomUUID().toString())
             .putLong(KEY_REAL_ENTRY, nowMs)
             .putLong(KEY_COUNTED_ENTRY, HoraTrackV2.time.countedEntryFromRealArrival(nowMs))
@@ -39,20 +49,37 @@ object V2RuntimeStore {
     }
 
     fun togglePause(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+        bind(context)
         val prefs = prefs(context)
         if (prefs.getLong(KEY_REAL_ENTRY, 0L) <= 0L || prefs.getLong(KEY_REAL_EXIT, 0L) > 0L) return false
         val start = prefs.getLong(KEY_PAUSE_START, 0L)
         if (start <= 0L) {
             prefs.edit().putLong(KEY_PAUSE_START, nowMs).apply()
         } else {
-            appendPause(prefs.getString(KEY_PAUSES, "[]").orEmpty(), start, nowMs).also {
-                prefs.edit().putString(KEY_PAUSES, it).remove(KEY_PAUSE_START).apply()
-            }
+            prefs.edit().putString(KEY_PAUSES, appendPause(prefs.getString(KEY_PAUSES, "[]").orEmpty(), start, nowMs)).remove(KEY_PAUSE_START).apply()
         }
         return true
     }
 
-    fun exit(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun addManualPauses(context: Context, ranges: List<Pair<Long, Long>>): Int {
+        bind(context)
+        val prefs = prefs(context)
+        val entry = prefs.getLong(KEY_REAL_ENTRY, 0L)
+        if (entry <= 0L) return 0
+        val realExit = prefs.getLong(KEY_REAL_EXIT, 0L).takeIf { it > 0L }
+        var raw = prefs.getString(KEY_PAUSES, "[]").orEmpty()
+        var added = 0
+        ranges.filter { (s, e) -> s > 0L && e > s && s >= entry && (realExit == null || e <= realExit) }.forEach { (s, e) ->
+            val before = JSONArray(raw).length()
+            raw = appendPause(raw, s, e)
+            if (JSONArray(raw).length() > before) added++
+        }
+        if (added > 0) prefs.edit().putString(KEY_PAUSES, raw).apply()
+        return added
+    }
+
+    fun exit(context: Context, nowMs: Long = System.currentTimeMillis(), expectedEndMs: Long? = null): Boolean {
+        bind(context)
         val prefs = prefs(context)
         if (prefs.getLong(KEY_REAL_ENTRY, 0L) <= 0L || prefs.getLong(KEY_REAL_EXIT, 0L) > 0L) return false
         val pauseStart = prefs.getLong(KEY_PAUSE_START, 0L)
@@ -62,14 +89,19 @@ object V2RuntimeStore {
             .putString(KEY_PAUSES, pauses)
             .remove(KEY_PAUSE_START)
             .putLong(KEY_REAL_EXIT, nowMs)
-            .putLong(KEY_COUNTED_EXIT, HoraTrackV2.time.countedExitFromRealExit(nowMs, null))
+            .putLong(KEY_COUNTED_EXIT, HoraTrackV2.time.countedExitFromRealExit(nowMs, expectedEndMs))
             .apply()
+        snapshot(context, nowMs).session?.let { persistClosed(context, it) }
         return true
     }
 
-    fun reset(context: Context) = prefs(context).edit().clear().apply()
+    fun reset(context: Context) {
+        bind(context)
+        prefs(context).edit().clear().apply()
+    }
 
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
+        bind(context)
         val prefs = prefs(context)
         val realEntry = prefs.getLong(KEY_REAL_ENTRY, 0L).takeIf { it > 0L } ?: return Snapshot(null, null)
         val realExit = prefs.getLong(KEY_REAL_EXIT, 0L).takeIf { it > 0L }
@@ -92,12 +124,67 @@ object V2RuntimeStore {
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
 
-    private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> {
+        bind(context)
+        val history = parseHistory(prefs(context).getString(KEY_HISTORY, "[]").orEmpty()).toMutableList()
+        val current = snapshot(context, nowMs).session
+        if (current != null && history.none { it.id == current.id }) history += current
+        return history.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
+    }
+
+    private fun persistClosed(context: Context, session: WorkSessionV2) {
+        if (session.status != SessionStatusV2.CLOSED) return
+        val prefs = prefs(context)
+        val a = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+        for (i in 0 until a.length()) if (a.optJSONObject(i)?.optString("id") == session.id) return
+        a.put(sessionToJson(session))
+        prefs.edit().putString(KEY_HISTORY, a.toString()).apply()
+    }
+
+    private fun sessionToJson(session: WorkSessionV2) = JSONObject()
+        .put("id", session.id)
+        .put("realEntry", session.realArrivalMs ?: JSONObject.NULL)
+        .put("countedEntry", session.countedEntryMs ?: JSONObject.NULL)
+        .put("realExit", session.realExitMs ?: JSONObject.NULL)
+        .put("countedExit", session.countedExitMs ?: JSONObject.NULL)
+        .put("pauses", pausesToJson(session.pauses))
+
+    private fun parseHistory(raw: String): List<WorkSessionV2> {
+        val a = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return buildList {
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                val realEntry = o.optLong("realEntry", 0L).takeIf { it > 0L } ?: continue
+                val realExit = o.optLong("realExit", 0L).takeIf { it > 0L }
+                add(WorkSessionV2(
+                    id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                    employerId = null,
+                    realArrivalMs = realEntry,
+                    countedEntryMs = o.optLong("countedEntry", 0L).takeIf { it > 0L },
+                    countedExitMs = o.optLong("countedExit", 0L).takeIf { it > 0L },
+                    realExitMs = realExit,
+                    pauses = parsePauses(o.optJSONArray("pauses")?.toString() ?: "[]"),
+                    status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED
+                ))
+            }
+        }
+    }
+
+    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private fun appendPause(raw: String, start: Long, end: Long): String {
         val array = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        if (end > start) array.put(JSONObject().put("start", start).put("end", end))
+        if (end <= start) return array.toString()
+        for (i in 0 until array.length()) {
+            val o = array.optJSONObject(i) ?: continue
+            if (o.optLong("start") == start && o.optLong("end") == end) return array.toString()
+        }
+        array.put(JSONObject().put("start", start).put("end", end))
         return array.toString()
+    }
+
+    private fun pausesToJson(pauses: List<PauseV2>) = JSONArray().apply {
+        pauses.filter { it.endMs != null && it.endMs!! > it.startMs }.forEach { p -> put(JSONObject().put("start", p.startMs).put("end", p.endMs)) }
     }
 
     private fun parsePauses(raw: String): List<PauseV2> {
