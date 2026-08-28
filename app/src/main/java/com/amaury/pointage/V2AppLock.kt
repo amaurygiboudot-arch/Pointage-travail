@@ -14,9 +14,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import java.security.MessageDigest
 import java.security.SecureRandom
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** Verrouillage local : aucun PIN brut n'est stocké. */
 object V2AppLock {
@@ -195,19 +195,14 @@ object V2AppLock {
         val saltBytes = ByteArray(SALT_BYTES).also(secureRandom::nextBytes)
         val salt = Base64.encodeToString(saltBytes, Base64.NO_WRAP)
         val preferredScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) SCHEME_PBKDF2_SHA256 else SCHEME_PBKDF2_SHA1
-        val hash = runCatching { pbkdf2Hash(preferredScheme, salt, cleanPin) }.getOrElse {
+        val derived = runCatching { preferredScheme to pbkdf2Hash(preferredScheme, salt, cleanPin) }.getOrElse {
             if (preferredScheme == SCHEME_PBKDF2_SHA1) return false
-            runCatching { pbkdf2Hash(SCHEME_PBKDF2_SHA1, salt, cleanPin) }.getOrNull() ?: return false
-        }
-        val actualScheme = if (preferredScheme == SCHEME_PBKDF2_SHA256 && runCatching { pbkdf2Hash(preferredScheme, salt, cleanPin) }.isSuccess) {
-            preferredScheme
-        } else {
-            SCHEME_PBKDF2_SHA1
+            runCatching { SCHEME_PBKDF2_SHA1 to pbkdf2Hash(SCHEME_PBKDF2_SHA1, salt, cleanPin) }.getOrNull() ?: return false
         }
         prefs(context).edit()
             .putString(KEY_PIN_SALT, salt)
-            .putString(KEY_PIN_HASH, hash)
-            .putString(KEY_PIN_SCHEME, actualScheme)
+            .putString(KEY_PIN_HASH, derived.second)
+            .putString(KEY_PIN_SCHEME, derived.first)
             .apply()
         return true
     }
