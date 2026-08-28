@@ -45,6 +45,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
             V2ManualEntryInstaller.install(activity)
+            installEmployerSelector(activity)
             installOwnerShortcut(activity)
             installSalaryExtrasWatcher(activity)
             installGpsZoneTypeSelector(activity)
@@ -59,7 +60,21 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             CompanyNameUiBinder.bind(activity)
             PrimaryButtonIsolation.install(activity)
             V2ManualEntryInstaller.install(activity)
+            installEmployerSelector(activity)
         }
+    }
+
+    private fun installEmployerSelector(activity: MainActivity) {
+        if (!HoraTrackV2.ENABLED) return
+        val panel = activity.findViewById<LinearLayout>(R.id.pointageButtons) ?: return
+        val existing = panel.findViewWithTag<V2EmployerSelectorView>(V2EmployerSelectorView.TAG)
+        if (existing == null) {
+            panel.addView(
+                V2EmployerSelectorView(activity),
+                0,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+        } else existing.refresh()
     }
 
     private fun installOwnerShortcut(activity: MainActivity) {
