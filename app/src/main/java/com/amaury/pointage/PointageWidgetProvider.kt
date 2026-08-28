@@ -26,6 +26,7 @@ class PointageWidgetProvider : AppWidgetProvider() {
         const val ACTION_ENTRY = "com.amaury.pointage.ACTION_ENTRY"
         const val ACTION_PAUSE = "com.amaury.pointage.ACTION_PAUSE"
         const val ACTION_EXIT = "com.amaury.pointage.ACTION_EXIT"
+        private const val LOCATION_AFTER_EXIT_MS = 5L * 60L * 1000L
 
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
@@ -115,12 +116,14 @@ class PointageWidgetProvider : AppWidgetProvider() {
                     durationText = formatDuration(result?.paidWorkMs ?: 0L)
                     pauseText = formatDuration(result?.unpaidPauseMs ?: 0L)
                     val placeName = session.placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { shortLocation(it, 30) }
+                    val exitMs = session.realExitMs
+                    val showMainLocation = exitMs == null || System.currentTimeMillis() - exitMs < LOCATION_AFTER_EXIT_MS
                     if (placeName != null) {
-                        locationText = "📍 $placeName"
+                        if (showMainLocation) locationText = "📍 $placeName"
                         entryLocation = placeName
-                        if (session.realExitMs != null) exitLocation = placeName
+                        if (exitMs != null) exitLocation = placeName
                     }
-                    if (session.realExitMs == null) {
+                    if (exitMs == null) {
                         stateText = if (paused) "EN PAUSE" else "EN COURS"
                         stateColor = if (paused) Color.parseColor("#E38B20") else Color.parseColor("#2AA63B")
                     } else {
