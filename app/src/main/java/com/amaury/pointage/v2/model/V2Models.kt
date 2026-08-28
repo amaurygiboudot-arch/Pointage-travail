@@ -10,7 +10,9 @@ data class WorkSessionV2(
     val realExitMs: Long?,
     val pauses: List<PauseV2> = emptyList(),
     val travels: List<TravelV2> = emptyList(),
-    val status: SessionStatusV2 = SessionStatusV2.TO_CONFIRM
+    val status: SessionStatusV2 = SessionStatusV2.TO_CONFIRM,
+    /** Déduction fixe importée de l'ancien moteur. Utilisée uniquement pour préserver les historiques. */
+    val legacyFixedUnpaidPauseMs: Long = 0L
 )
 
 data class PauseV2(val startMs:Long,val endMs:Long?,val paid:Boolean?,val source:EventSourceV2,val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED)
