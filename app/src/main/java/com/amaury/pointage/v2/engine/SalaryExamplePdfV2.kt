@@ -26,9 +26,8 @@ object SalaryExamplePdfV2 {
         val employer = profile.employer
         val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val rate = contract?.grossHourlyRate
-        val idcc = employer?.collectiveAgreementId.orEmpty()
-        val convention = ConventionCatalog.findByIdcc(context, idcc)
-            ?: ConventionCatalog.all(context).firstOrNull { it.idcc.isBlank() }
+        val idcc = employer?.collectiveAgreementId?.trim().orEmpty()
+        val convention = idcc.takeIf { it.isNotBlank() }?.let { ConventionCatalog.findByIdcc(context, it) }?.takeIf { it.idcc.isNotBlank() }
         val salary = if (rate != null && convention != null) {
             V2SalaryAdapter.calculate(context, year, month, rate, convention)
         } else null
@@ -76,11 +75,7 @@ object SalaryExamplePdfV2 {
             section("EMPLOYEUR", listOf(
                 "Entreprise" to (employer?.name?.takeIf { it.isNotBlank() } ?: "À compléter"),
                 "SIRET" to (employer?.siret ?: "À compléter"),
-                "Convention / régime" to when {
-                    idcc.isNotBlank() && convention != null -> convention.displayName
-                    convention != null -> "Régime légal — convention non renseignée"
-                    else -> "À confirmer"
-                }
+                "Convention / régime" to if (convention != null) convention.displayName else "À confirmer"
             ))
         }
 
@@ -134,7 +129,7 @@ object SalaryExamplePdfV2 {
             val warnings = salary?.warnings.orEmpty()
             section("SOURCES & CONTRÔLES", listOf(
                 "Source des heures" to "Moteur HoraTrack V2",
-                "Convention" to if (idcc.isNotBlank()) "IDCC $idcc" else "À confirmer",
+                "Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer",
                 "Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • ")
             ))
         }
