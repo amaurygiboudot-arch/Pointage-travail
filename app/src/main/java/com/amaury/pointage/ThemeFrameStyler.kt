@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.view.View
 import android.view.ViewGroup
@@ -9,22 +10,28 @@ import android.widget.Switch
 import android.widget.TextView
 
 /**
- * Applique les cadres des thèmes aux contrôles uniquement.
- * Les panneaux/conteneurs restent toujours totalement transparents.
- * Le thème Carbone suit réellement le mode clair/sombre :
- * sombre = texture originale, clair = texture polarisée.
+ * Uniformise les contrôles standards de HoraTrack.
+ *
+ * Référence visuelle : bouton "Saisie manuelle d'une pause" :
+ * - cadre/fond hp_panel ;
+ * - texte orange ;
+ * - pas de transformation automatique en majuscules ;
+ * - retour tactile/élévation laissé au moteur de boutons existant.
+ *
+ * Les trois boutons de pointage diamant et le bouton paramètres restent protégés.
  */
 object ThemeFrameStyler {
     private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
     private val tabIds = setOf("tabToday", "tabHistory", "tabAnalytics", "tabSalary", "tabSettings")
     private val visualIds = setOf("clockDigital", "heroClockHands", "sunIndicator")
+    private val referenceOrange = Color.parseColor("#F3A64A")
 
     fun apply(root: View) {
-        AutoDayNightPolarity.apply(root)
-        val theme = AppThemeCatalog.current(root.context)
-        if (theme.id != "natural_carbon" && theme.id != "signature_gold") return
-        val dark = AppThemeCatalog.useDarkPalette(root.context)
-        applyRecursive(root, theme, dark, inheritedDark = dark)
+        val actualRoot = root.rootView ?: root
+        AutoDayNightPolarity.apply(actualRoot)
+        val theme = AppThemeCatalog.current(actualRoot.context)
+        val dark = AppThemeCatalog.useDarkPalette(actualRoot.context)
+        applyRecursive(actualRoot, theme, dark, inheritedDark = dark)
     }
 
     private fun applyRecursive(view: View, theme: HpTheme, dark: Boolean, inheritedDark: Boolean) {
@@ -41,15 +48,37 @@ object ThemeFrameStyler {
         when {
             framedContainer -> clearContainerBackground(view)
             id in tabIds && view is TextView -> styleTab(view, theme, localDark)
-            view is Button -> styleControl(view, theme, localDark)
-            view is EditText -> styleControl(view, theme, localDark)
-            view is Switch -> styleControl(view, theme, localDark)
+            view is Button -> styleButton(view, theme, localDark)
+            view is EditText -> styleInput(view, localDark)
+            view is Switch -> styleSwitch(view, localDark)
             view is TextView -> styleText(view, theme, localDark)
         }
 
         if (view is ViewGroup && view !is True3DButtonHost) {
             for (i in 0 until view.childCount) applyRecursive(view.getChildAt(i), theme, dark, localDark)
         }
+    }
+
+    private fun styleButton(button: Button, theme: HpTheme, dark: Boolean) {
+        val panel = if (dark) theme.darkPanel else theme.lightPanel
+        button.backgroundTintList = null
+        button.setBackgroundResource(R.drawable.hp_panel)
+        button.backgroundTintList = ColorStateList.valueOf(panel)
+        button.setTextColor(referenceOrange)
+        button.isAllCaps = false
+        button.alpha = 1f
+    }
+
+    private fun styleInput(view: EditText, dark: Boolean) {
+        val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
+        val hintColor = if (dark) Color.parseColor("#D8D8D8") else Color.parseColor("#555555")
+        view.setTextColor(textColor)
+        view.setHintTextColor(hintColor)
+    }
+
+    private fun styleSwitch(view: Switch, dark: Boolean) {
+        val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
+        view.setTextColor(textColor)
     }
 
     private fun hasThemedBackground(view: View): Boolean =
@@ -70,48 +99,19 @@ object ThemeFrameStyler {
         view.setBackgroundColor(Color.TRANSPARENT)
     }
 
-    private fun ensureBackground(view: View, theme: HpTheme) {
-        view.backgroundTintList = null
-        when (theme.id) {
-            "natural_carbon" -> {
-                val wantedLight = !AppThemeCatalog.useDarkPalette(view.context)
-                val current = view.background as? CarbonCompositeDrawable
-                if (current == null || current.lightMode != wantedLight) {
-                    view.background = CarbonCompositeDrawable(view.context, lightMode = wantedLight)
-                }
-            }
-            "signature_gold" -> if (view.background == null || view.background is CarbonCompositeDrawable) {
-                view.background = view.context.getDrawable(R.drawable.hp_panel)?.mutate()
-            }
-        }
-    }
-
-    private fun styleControl(view: View, theme: HpTheme, dark: Boolean) {
-        ensureBackground(view, theme)
-        val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
-        val hintColor = if (dark) Color.parseColor("#D8D8D8") else Color.parseColor("#555555")
-        when (view) {
-            is Button -> if (view.currentTextColor != textColor) view.setTextColor(textColor)
-            is EditText -> {
-                if (view.currentTextColor != textColor) view.setTextColor(textColor)
-                view.setHintTextColor(hintColor)
-            }
-            is Switch -> if (view.currentTextColor != textColor) view.setTextColor(textColor)
-        }
-    }
-
     private fun styleText(view: TextView, theme: HpTheme, dark: Boolean) {
         val textColor = if (dark) Color.WHITE else Color.parseColor("#111111")
         val accent = if (dark) theme.accentLight else theme.accent
         val current = view.currentTextColor
         val shouldKeepAccent = contrastRatio(current, if (dark) Color.BLACK else Color.WHITE) >= 4.5 &&
-            (current == theme.accent || current == theme.accentLight)
-        val target = if (shouldKeepAccent) accent else textColor
+            (current == theme.accent || current == theme.accentLight || current == referenceOrange)
+        val target = if (shouldKeepAccent) {
+            if (current == referenceOrange) referenceOrange else accent
+        } else textColor
         if (current != target) view.setTextColor(target)
     }
 
     private fun styleTab(tab: TextView, theme: HpTheme, dark: Boolean) {
-        ensureBackground(tab, theme)
         val active = tab.isSelected
         val alpha = if (active) 1f else 0.78f
         if (tab.alpha != alpha) tab.alpha = alpha
