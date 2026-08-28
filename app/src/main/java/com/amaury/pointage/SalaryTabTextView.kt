@@ -22,6 +22,7 @@ import android.widget.TextView
 class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) : TextView(context, attrs, defStyleAttr) {
     companion object {
         private const val SALARY_PANEL_TAG = "integrated_salary_panel"
+        private const val INFO_SHEET_TAG = SalaryInformationSheetView.TAG
         private const val CONTROL_HEIGHT_DP = 54
     }
 
@@ -57,6 +58,21 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val pointageButtons = root.findViewById<View>(R.id.pointageButtons)
         val shiftControl = root.findViewById<ShiftControlView>(R.id.shiftControlView)
 
+        var infoSheet = contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG)
+        if (infoSheet == null) {
+            infoSheet = SalaryInformationSheetView(context).apply {
+                tag = INFO_SHEET_TAG
+                visibility = View.GONE
+            }
+            contentPanel.addView(
+                infoSheet,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                    bottomMargin = dp(6)
+                }
+            )
+        }
+
         var salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
         if (salaryPanel == null) {
             salaryPanel = SalaryPanelView(context).apply { tag = SALARY_PANEL_TAG; visibility = View.GONE }
@@ -73,6 +89,8 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         shiftControl?.refresh()
         contentTitle?.visibility = View.VISIBLE
         contentTitle?.text = "S A L A I R E"
+        infoSheet.visibility = View.VISIBLE
+        infoSheet.refresh()
         salaryPanel.visibility = View.VISIBLE
         salaryPanel.refresh()
         selectTab(R.id.tabSalary)
@@ -89,6 +107,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
             post {
                 autoHidePosted = false
                 val salary = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
+                val info = contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG)
                 val shift = root.findViewById<View>(R.id.shiftControlView)
                 val other = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE ||
                     root.findViewById<View>(R.id.historyText)?.visibility == View.VISIBLE ||
@@ -96,11 +115,10 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
                     root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
                 if (other) {
                     salary?.visibility = View.GONE
+                    info?.visibility = View.GONE
                     shift?.visibility = View.GONE
                 }
                 syncSelectedTabFromVisiblePanel()
-                // Important : aucun normalizeFrameSizes() ici. Un changement de layout
-                // ne doit plus retraverser/restyler toute l'application.
             }
         }
 
