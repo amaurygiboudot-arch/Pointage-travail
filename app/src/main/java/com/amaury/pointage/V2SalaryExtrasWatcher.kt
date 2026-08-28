@@ -32,12 +32,21 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     private fun installIfPresent() {
         val content = rootView.findViewById<LinearLayout>(R.id.contentPanel) ?: return
         val salary = content.findViewWithTag<SalaryPanelView>("integrated_salary_panel") ?: return
-        val existing = salary.findViewWithTag<V2PayslipControlView>(V2PayslipControlView.TAG)
-        if (existing == null) {
+
+        val payslip = salary.findViewWithTag<V2PayslipControlView>(V2PayslipControlView.TAG)
+        if (payslip == null) {
             salary.addView(
                 V2PayslipControlView(context),
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             )
-        } else existing.refresh()
+        } else payslip.refresh()
+
+        val rights = salary.findViewWithTag<V2RightsRestView>(V2RightsRestView.TAG)
+        if (rights == null) {
+            salary.addView(
+                V2RightsRestView(context),
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+        } else rights.refresh()
     }
 }
