@@ -6,6 +6,7 @@ import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import com.amaury.pointage.v2.ui.V2GpsPromptController
 import com.amaury.pointage.v2.ui.V2LegacyIsolationUi
 import com.amaury.pointage.v2.ui.V2TestUiInstaller
 
@@ -23,7 +24,10 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
         override fun run() {
             if (!isAttachedToWindow) return
             hideLegacyWidgetControls(rootView)
-            (context as? Activity)?.let { V2LegacyIsolationUi.refresh(it) }
+            (context as? Activity)?.let {
+                V2LegacyIsolationUi.refresh(it)
+                V2GpsPromptController.maybeShow(it)
+            }
             postDelayed(this, 600L)
         }
     }
@@ -40,6 +44,7 @@ class WidgetSettingsCleanerView @JvmOverloads constructor(
             post {
                 V2TestUiInstaller.install(activity)
                 V2LegacyIsolationUi.refresh(activity)
+                V2GpsPromptController.maybeShow(activity)
             }
         }
         PointageWidgetProvider.updateAll(context)
