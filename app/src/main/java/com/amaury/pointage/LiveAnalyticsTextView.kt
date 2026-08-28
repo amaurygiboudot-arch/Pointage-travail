@@ -23,9 +23,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
 
     private val updater = object : Runnable {
         override fun run() {
-            if (isAttachedToWindow && isAnalyticsVisible()) {
-                text = buildLiveAnalyticsText()
-            }
+            if (isAttachedToWindow && isAnalyticsVisible()) text = buildLiveAnalyticsText()
             postDelayed(this, 10_000L)
         }
     }
@@ -46,8 +44,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val root = rootView ?: return false
         val analyticsPanel = root.findViewById<View>(R.id.analyticsPdfPanel)
         val title = root.findViewById<TextView>(R.id.contentTitle)?.text?.toString().orEmpty()
-        return analyticsPanel?.visibility == View.VISIBLE &&
-            title.contains("HEURES PAR LIEU", ignoreCase = true)
+        return analyticsPanel?.visibility == View.VISIBLE && title.contains("HEURES PAR LIEU", ignoreCase = true)
     }
 
     private fun buildLiveAnalyticsText(): String {
@@ -67,12 +64,12 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             val result = HoraTrackV2.time.calculate(session, now)
             val worked = result.paidWorkMs.coerceAtLeast(0L)
             val unpaidPause = result.unpaidPauseMs.coerceAtLeast(0L)
-            val employer = session.employerId
-                ?.let { employerNames[it] }
-                ?.takeIf { it.isNotBlank() }
-                ?: "Employeur à confirmer"
+            val place = session.placeLabel?.takeIf { it.isNotBlank() }
+                ?: session.placeId?.takeIf { it.isNotBlank() }
+                ?: session.employerId?.let { employerNames[it] }?.takeIf { it.isNotBlank() }
+                ?: "Lieu à confirmer"
 
-            totals[employer] = (totals[employer] ?: 0L) + worked
+            totals[place] = (totals[place] ?: 0L) + worked
             totalWorked += worked
             totalPause += unpaidPause
 
@@ -87,13 +84,13 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
                 append("🟢 En cours : ").append(openSessions)
                     .append(" — calcul V2 actualisé automatiquement\n")
             }
-            append("\nHEURES PAR EMPLOYEUR\n\n")
+            append("\nHEURES PAR LIEU\n\n")
 
             if (totals.isEmpty()) {
                 append("Aucune donnée.")
             } else {
-                totals.forEach { (employer, duration) ->
-                    append("🏢 ").append(employer).append('\n')
+                totals.forEach { (place, duration) ->
+                    append("📍 ").append(place).append('\n')
                     append("⏱ ").append(formatDuration(duration)).append('\n').append('\n')
                 }
             }

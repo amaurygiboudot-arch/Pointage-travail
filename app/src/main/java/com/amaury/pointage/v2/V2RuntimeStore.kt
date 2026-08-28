@@ -15,6 +15,8 @@ object V2RuntimeStore {
     private const val KEY_ID = "session_id"
     private const val KEY_EMPLOYER_ID = "employer_id"
     private const val KEY_COMPANY_SLOT = "company_slot"
+    private const val KEY_PLACE_ID = "place_id"
+    private const val KEY_PLACE_LABEL = "place_label"
     private const val KEY_REAL_ENTRY = "real_entry"
     private const val KEY_COUNTED_ENTRY = "counted_entry"
     private const val KEY_REAL_EXIT = "real_exit"
@@ -44,7 +46,9 @@ object V2RuntimeStore {
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null,
-        companySlot: Int? = null
+        companySlot: Int? = null,
+        placeId: String? = null,
+        placeLabel: String? = null
     ): Boolean {
         bind(context)
         V2MigrationManager.ensureMigrated(context)
@@ -60,6 +64,7 @@ object V2RuntimeStore {
 
         val editor = prefs.edit()
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
+            .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY)
             .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
             .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSES)
@@ -69,6 +74,8 @@ object V2RuntimeStore {
             .putLong(KEY_COUNTED_ENTRY, HoraTrackV2.time.countedEntryFromRealArrival(nowMs))
             .putString(KEY_PAUSES, "[]")
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
+        placeId?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_ID, it) }
+        placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_LABEL, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
         editor.apply()
         return true
@@ -193,7 +200,9 @@ object V2RuntimeStore {
             countedExitMs = countedExit,
             realExitMs = realExit,
             pauses = pauses,
-            status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED
+            status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
+            placeId = prefs.getString(KEY_PLACE_ID, null)?.takeIf { it.isNotBlank() },
+            placeLabel = prefs.getString(KEY_PLACE_LABEL, null)?.takeIf { it.isNotBlank() }
         )
         return Snapshot(session, HoraTrackV2.time.calculate(session, nowMs))
     }
@@ -225,6 +234,8 @@ object V2RuntimeStore {
         .put("countedEntry", session.countedEntryMs ?: JSONObject.NULL)
         .put("realExit", session.realExitMs ?: JSONObject.NULL)
         .put("countedExit", session.countedExitMs ?: JSONObject.NULL)
+        .put("placeId", session.placeId ?: JSONObject.NULL)
+        .put("placeLabel", session.placeLabel ?: JSONObject.NULL)
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
         .put("pauses", pausesToJson(session.pauses))
 
@@ -248,6 +259,8 @@ object V2RuntimeStore {
                         realExitMs = realExit,
                         pauses = parsePauses(o.optJSONArray("pauses")?.toString() ?: "[]"),
                         status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
+                        placeId = text(o, "placeId"),
+                        placeLabel = text(o, "placeLabel") ?: text(o, "place"),
                         legacyFixedUnpaidPauseMs = positiveOrZero(o, "legacyFixedUnpaidPauseMs")
                     )
                 )
@@ -282,46 +295,16 @@ object V2RuntimeStore {
                 val start = positive(item, "start") ?: continue
                 val end = positive(item, "end") ?: continue
                 if (end > start) {
-                    add(
-                        PauseV2(
-                            startMs = start,
-                            endMs = end,
-                            paid = item.optBoolean("paid", false),
-                            source = parseSource(item.optString("source"))
-                        )
-                    )
+                    add(PauseV2(startMs = start, endMs = end, paid = item.optBoolean("paid", false), source = parseSource(item.optString("source"))))
                 }
             }
         }
     }
 
-    private fun parseSource(raw: String?): EventSourceV2 = runCatching {
-        EventSourceV2.valueOf(raw.orEmpty())
-    }.getOrDefault(EventSourceV2.MANUAL)
-
-    private fun safeLong(value: Any?): Long = when (value) {
-        is Long -> value
-        is Int -> value.toLong()
-        is Number -> value.toLong()
-        is String -> value.toLongOrNull() ?: 0L
-        else -> 0L
-    }
-
-    private fun safeInt(value: Any?, fallback: Int): Int = when (value) {
-        is Number -> value.toInt()
-        is String -> value.toIntOrNull() ?: fallback
-        else -> fallback
-    }
-
-    private fun positive(o: JSONObject, key: String): Long? = when (val value = o.opt(key)) {
-        is Number -> value.toLong().takeIf { it > 0L }
-        is String -> value.toLongOrNull()?.takeIf { it > 0L }
-        else -> null
-    }
-
-    private fun positiveOrZero(o: JSONObject, key: String): Long = when (val value = o.opt(key)) {
-        is Number -> value.toLong().coerceAtLeast(0L)
-        is String -> value.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        else -> 0L
-    }
+    private fun parseSource(raw: String?): EventSourceV2 = runCatching { EventSourceV2.valueOf(raw.orEmpty()) }.getOrDefault(EventSourceV2.MANUAL)
+    private fun safeLong(value: Any?): Long = when (value) { is Long -> value; is Int -> value.toLong(); is Number -> value.toLong(); is String -> value.toLongOrNull() ?: 0L; else -> 0L }
+    private fun safeInt(value: Any?, fallback: Int): Int = when (value) { is Number -> value.toInt(); is String -> value.toIntOrNull() ?: fallback; else -> fallback }
+    private fun positive(o: JSONObject, key: String): Long? = when (val value = o.opt(key)) { is Number -> value.toLong().takeIf { it > 0L }; is String -> value.toLongOrNull()?.takeIf { it > 0L }; else -> null }
+    private fun positiveOrZero(o: JSONObject, key: String): Long = when (val value = o.opt(key)) { is Number -> value.toLong().coerceAtLeast(0L); is String -> value.toLongOrNull()?.coerceAtLeast(0L) ?: 0L; else -> 0L }
+    private fun text(o: JSONObject, key: String): String? = o.optString(key).trim().takeIf { it.isNotBlank() && it != "null" }
 }
