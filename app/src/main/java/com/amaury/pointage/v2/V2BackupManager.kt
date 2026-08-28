@@ -14,212 +14,51 @@ object V2BackupManager {
     private const val ROOT_FOLDER = "Pointage Travail"
     private const val FILE_NAME = "HoraTrack_V2_backup.json"
     private val executor = Executors.newSingleThreadExecutor()
+    private val preferenceFiles = listOf("horatrack_v2_test_runtime","horatrack_v2_integration","horatrack_v2_migration","horatrack_v2_legal_sources","horatrack_v2_rights","horatrack_v2_payslips","horatrack_v2_company_pause","horatrack_v2_gps_state","v2_app_lock","salary_settings","gps_settings","shift_profiles","appearance_settings","widget_style","place_names","smart_setup","welcome_preview")
+    data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
 
-    private val preferenceFiles = listOf(
-        "horatrack_v2_test_runtime",
-        "horatrack_v2_integration",
-        "horatrack_v2_migration",
-        "horatrack_v2_legal_sources",
-        "horatrack_v2_rights",
-        "horatrack_v2_payslips",
-        "horatrack_v2_company_pause",
-        "horatrack_v2_gps_state",
-        "v2_app_lock",
-        "salary_settings",
-        "gps_settings",
-        "shift_profiles",
-        "appearance_settings",
-        "widget_style",
-        "place_names",
-        "smart_setup",
-        "welcome_preview"
-    )
+    fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
+    fun restoreFreshInstallIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null||!isFreshInstall(app))return;executor.execute{runCatching{val uri=configuredBackupUri(app)?:return@runCatching;restoreFromUri(app,uri).getOrThrow()}} }
+    fun backupToConfiguredDrive(context:Context):Result<Uri> = runCatching { val tree=DriveBackupManager.savedTreeUri(context)?:error("Choisis d'abord un dossier Google Drive");val root=treeRootDocumentUri(tree);val folder=ensureDirectory(context,root,ROOT_FOLDER);val file=ensureFile(context,folder,FILE_NAME,"application/json");context.contentResolver.openOutputStream(file,"w")?.bufferedWriter(Charsets.UTF_8)?.use{it.write(snapshot(context).toString(2))}?:error("Impossible d'écrire la sauvegarde");context.getSharedPreferences("horatrack_v2_backup",Context.MODE_PRIVATE).edit().putLong("last_backup_ms",System.currentTimeMillis()).apply();file }
+    fun restoreFromUri(context:Context,uri:Uri):Result<RestoreResult> = runCatching { val raw=context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use{it.readText()}?:error("Impossible de lire la sauvegarde");restoreFromJson(context,raw).getOrThrow() }
 
-    data class RestoreResult(val restoredFiles:Int, val mergedSessions:Int)
-
-    fun backupIfConfiguredAsync(context: Context) {
-        val app = context.applicationContext
-        if (DriveBackupManager.savedTreeUri(app) == null) return
-        executor.execute { backupToConfiguredDrive(app) }
+    /** Même restauration conservatrice pour Drive et Firestore. */
+    fun restoreFromJson(context:Context,raw:String):Result<RestoreResult> = runCatching {
+        val root=JSONObject(raw);require(root.optInt("formatVersion",0) in 1..FORMAT_VERSION){"Format de sauvegarde non reconnu"};val files=root.optJSONObject("preferences")?:error("Sauvegarde incomplète")
+        var restored=0;var merged=0
+        preferenceFiles.forEach{name->val saved=files.optJSONObject(name)?:return@forEach;if(name=="horatrack_v2_test_runtime")merged+=restoreRuntime(context,saved) else mergePreferences(context,name,saved);restored++}
+        V2ProfileStore.bind(context);V2MigrationManager.ensureMigrated(context);RestoreResult(restored,merged)
     }
 
-    /**
-     * Restauration automatique conservatrice : uniquement sur une installation
-     * réellement vide. Une installation déjà utilisée n'est jamais écrasée.
-     */
-    fun restoreFreshInstallIfConfiguredAsync(context: Context) {
-        val app = context.applicationContext
-        if (DriveBackupManager.savedTreeUri(app) == null || !isFreshInstall(app)) return
-        executor.execute {
-            runCatching {
-                val uri = configuredBackupUri(app) ?: return@runCatching
-                restoreFromUri(app, uri).getOrThrow()
-            }
+    /** Importe un ancien cloud sans jamais réactiver l'écriture PointageStore. */
+    fun importLegacyPointageJson(context:Context,legacy:JSONArray):Int {
+        if(legacy.length()==0)return 0
+        val prefs=context.applicationContext.getSharedPreferences("pointage",Context.MODE_PRIVATE)
+        val before=prefs.getString("data","[]")
+        return try {
+            prefs.edit().putString("data",legacy.toString()).commit()
+            val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE)
+            val oldHistory=runCatching{JSONArray(runtime.getString("history","[]")?:"[]")}.getOrElse{JSONArray()}.length()
+            context.getSharedPreferences("horatrack_v2_migration",Context.MODE_PRIVATE).edit().remove("legacy_migrated").apply()
+            V2MigrationManager.ensureMigrated(context)
+            val newHistory=runCatching{JSONArray(runtime.getString("history","[]")?:"[]")}.getOrElse{JSONArray()}.length()
+            (newHistory-oldHistory).coerceAtLeast(0)
+        } finally {
+            val e=prefs.edit();if(before==null)e.remove("data") else e.putString("data",before);e.apply()
         }
     }
 
-    fun backupToConfiguredDrive(context: Context): Result<Uri> = runCatching {
-        val tree = DriveBackupManager.savedTreeUri(context) ?: error("Choisis d'abord un dossier Google Drive")
-        val root = treeRootDocumentUri(tree)
-        val appFolder = ensureDirectory(context, root, ROOT_FOLDER)
-        val file = ensureFile(context, appFolder, FILE_NAME, "application/json")
-        val payload = snapshot(context).toString(2)
-        context.contentResolver.openOutputStream(file, "w")?.bufferedWriter(Charsets.UTF_8)?.use { it.write(payload) }
-            ?: error("Impossible d'écrire la sauvegarde")
-        context.getSharedPreferences("horatrack_v2_backup", Context.MODE_PRIVATE).edit()
-            .putLong("last_backup_ms", System.currentTimeMillis()).apply()
-        file
-    }
-
-    fun restoreFromUri(context: Context, uri: Uri): Result<RestoreResult> = runCatching {
-        val raw = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-            ?: error("Impossible de lire la sauvegarde")
-        val root = JSONObject(raw)
-        require(root.optInt("formatVersion", 0) in 1..FORMAT_VERSION) { "Format de sauvegarde non reconnu" }
-        val files = root.optJSONObject("preferences") ?: error("Sauvegarde incomplète")
-        var restoredFiles = 0
-        var mergedSessions = 0
-
-        preferenceFiles.forEach { name ->
-            val saved = files.optJSONObject(name) ?: return@forEach
-            if (name == "horatrack_v2_test_runtime") mergedSessions += restoreRuntime(context, saved)
-            else mergePreferences(context, name, saved)
-            restoredFiles++
-        }
-        V2ProfileStore.bind(context)
-        V2MigrationManager.ensureMigrated(context)
-        RestoreResult(restoredFiles, mergedSessions)
-    }
-
-    fun snapshot(context: Context): JSONObject {
-        val all = JSONObject()
-        preferenceFiles.forEach { name -> all.put(name, encodePreferences(context, name)) }
-        return JSONObject()
-            .put("formatVersion", FORMAT_VERSION)
-            .put("schemaVersion", HoraTrackV2.SCHEMA_VERSION)
-            .put("createdAtMs", System.currentTimeMillis())
-            .put("preferences", all)
-    }
-
-    private fun isFreshInstall(context: Context): Boolean {
-        val runtime = context.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
-        val legacy = context.getSharedPreferences("pointage", Context.MODE_PRIVATE).getString("data", "[]").orEmpty()
-        val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        val hasRuntime = numeric(runtime.all["real_entry"]) > 0L ||
-            runCatching { JSONArray(runtime.getString("history", "[]") ?: "[]").length() > 0 }.getOrDefault(false)
-        val hasLegacy = runCatching { JSONArray(legacy.ifBlank { "[]" }).length() > 0 }.getOrDefault(false)
-        val hasProfile = salary.all.isNotEmpty()
-        return !hasRuntime && !hasLegacy && !hasProfile
-    }
-
-    private fun configuredBackupUri(context: Context): Uri? {
-        val tree = DriveBackupManager.savedTreeUri(context) ?: return null
-        val root = treeRootDocumentUri(tree)
-        val folder = findChild(context, root, ROOT_FOLDER, DocumentsContract.Document.MIME_TYPE_DIR) ?: return null
-        return findChild(context, folder, FILE_NAME, "application/json")
-    }
-
-    private fun encodePreferences(context: Context, name: String): JSONObject {
-        val out = JSONObject()
-        context.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE).all.forEach { (key, value) ->
-            when (value) {
-                is String -> out.put(key, JSONObject().put("t", "s").put("v", value))
-                is Boolean -> out.put(key, JSONObject().put("t", "b").put("v", value))
-                is Int -> out.put(key, JSONObject().put("t", "i").put("v", value))
-                is Long -> out.put(key, JSONObject().put("t", "l").put("v", value))
-                is Float -> out.put(key, JSONObject().put("t", "f").put("v", value.toDouble()))
-                is Set<*> -> out.put(key, JSONObject().put("t", "set").put("v", JSONArray(value.filterIsInstance<String>())))
-            }
-        }
-        return out
-    }
-
-    private fun mergePreferences(context: Context, name: String, saved: JSONObject) {
-        val editor = context.applicationContext.getSharedPreferences(name, Context.MODE_PRIVATE).edit()
-        val keys = saved.keys()
-        while (keys.hasNext()) {
-            val key = keys.next()
-            val item = saved.optJSONObject(key) ?: continue
-            when (item.optString("t")) {
-                "s" -> editor.putString(key, item.optString("v"))
-                "b" -> editor.putBoolean(key, item.optBoolean("v"))
-                "i" -> editor.putInt(key, item.optInt("v"))
-                "l" -> editor.putLong(key, item.optLong("v"))
-                "f" -> editor.putFloat(key, item.optDouble("v").toFloat())
-                "set" -> {
-                    val a = item.optJSONArray("v") ?: JSONArray()
-                    val set = buildSet {
-                        for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let(::add)
-                    }
-                    editor.putStringSet(key, set)
-                }
-            }
-        }
-        editor.apply()
-    }
-
-    private fun restoreRuntime(context: Context, saved: JSONObject): Int {
-        val prefs = context.applicationContext.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
-        val currentOpen = numeric(prefs.all["real_entry"]) > 0L && numeric(prefs.all["real_exit"]) == 0L
-        val savedHistory = decodeTypedString(saved.optJSONObject("history"))
-            ?.let { runCatching { JSONArray(it) }.getOrNull() } ?: JSONArray()
-        val currentHistory = runCatching { JSONArray(prefs.getString("history", "[]") ?: "[]") }.getOrElse { JSONArray() }
-        val seen = mutableSetOf<String>()
-        for (i in 0 until currentHistory.length()) currentHistory.optJSONObject(i)?.let { seen += historySignature(it) }
-        var merged = 0
-        for (i in 0 until savedHistory.length()) {
-            val item = savedHistory.optJSONObject(i) ?: continue
-            val sig = historySignature(item)
-            if (sig !in seen) {
-                currentHistory.put(item)
-                seen += sig
-                merged++
-            }
-        }
-        prefs.edit().putString("history", currentHistory.toString()).apply()
-        if (!currentOpen && numeric(prefs.all["real_entry"]) == 0L) {
-            val withoutHistory = JSONObject(saved.toString()).apply { remove("history") }
-            mergePreferences(context, "horatrack_v2_test_runtime", withoutHistory)
-            prefs.edit().putString("history", currentHistory.toString()).apply()
-        }
-        return merged
-    }
-
-    private fun decodeTypedString(item:JSONObject?):String? = item?.takeIf { it.optString("t") == "s" }?.optString("v")
-    private fun historySignature(o:JSONObject) = listOf(
-        o.optString("id"), o.optLong("realEntry", 0L), o.optLong("realExit", 0L),
-        o.optLong("countedEntry", 0L), o.optLong("countedExit", 0L)
-    ).joinToString(":")
-    private fun numeric(value:Any?):Long = when(value) {
-        is Number -> value.toLong()
-        is String -> value.toLongOrNull() ?: 0L
-        else -> 0L
-    }
-    private fun treeRootDocumentUri(treeUri:Uri):Uri = DocumentsContract.buildDocumentUriUsingTree(treeUri, DocumentsContract.getTreeDocumentId(treeUri))
-    private fun ensureDirectory(context:Context,parent:Uri,name:String):Uri = findChild(context,parent,name,DocumentsContract.Document.MIME_TYPE_DIR)
-        ?: DocumentsContract.createDocument(context.contentResolver,parent,DocumentsContract.Document.MIME_TYPE_DIR,name)
-        ?: error("Impossible de créer $name")
-    private fun ensureFile(context:Context,parent:Uri,name:String,mime:String):Uri = findChild(context,parent,name,mime)
-        ?: DocumentsContract.createDocument(context.contentResolver,parent,mime,name)
-        ?: error("Impossible de créer $name")
-    private fun findChild(context:Context,parent:Uri,name:String,mime:String):Uri? {
-        val parentId = DocumentsContract.getDocumentId(parent)
-        val children = DocumentsContract.buildChildDocumentsUriUsingTree(parent,parentId)
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        )
-        context.contentResolver.query(children,projection,null,null,null)?.use { cursor ->
-            val id = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val n = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
-            val m = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-            while(cursor.moveToNext()) {
-                if(cursor.getString(n) == name && cursor.getString(m) == mime) {
-                    return DocumentsContract.buildDocumentUriUsingTree(parent,cursor.getString(id))
-                }
-            }
-        }
-        return null
-    }
+    fun snapshot(context:Context):JSONObject { val all=JSONObject();preferenceFiles.forEach{all.put(it,encodePreferences(context,it))};return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all) }
+    private fun isFreshInstall(context:Context):Boolean { val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE);val legacy=context.getSharedPreferences("pointage",Context.MODE_PRIVATE).getString("data","[]").orEmpty();val salary=context.getSharedPreferences("salary_settings",Context.MODE_PRIVATE);val hasRuntime=numeric(runtime.all["real_entry"])>0L||runCatching{JSONArray(runtime.getString("history","[]")?:"[]").length()>0}.getOrDefault(false);val hasLegacy=runCatching{JSONArray(legacy.ifBlank{"[]"}).length()>0}.getOrDefault(false);return !hasRuntime&&!hasLegacy&&salary.all.isEmpty() }
+    private fun configuredBackupUri(context:Context):Uri? { val tree=DriveBackupManager.savedTreeUri(context)?:return null;val root=treeRootDocumentUri(tree);val folder=findChild(context,root,ROOT_FOLDER,DocumentsContract.Document.MIME_TYPE_DIR)?:return null;return findChild(context,folder,FILE_NAME,"application/json") }
+    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
+    private fun mergePreferences(context:Context,name:String,saved:JSONObject){val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit();val keys=saved.keys();while(keys.hasNext()){val k=keys.next();val i=saved.optJSONObject(k)?:continue;when(i.optString("t")){"s"->editor.putString(k,i.optString("v"));"b"->editor.putBoolean(k,i.optBoolean("v"));"i"->editor.putInt(k,i.optInt("v"));"l"->editor.putLong(k,i.optLong("v"));"f"->editor.putFloat(k,i.optDouble("v").toFloat());"set"->{val a=i.optJSONArray("v")?:JSONArray();val set=buildSet{for(x in 0 until a.length())a.optString(x).takeIf{it.isNotBlank()}?.let(::add)};editor.putStringSet(k,set)}}};editor.apply()}
+    private fun restoreRuntime(context:Context,saved:JSONObject):Int { val prefs=context.applicationContext.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE);val currentOpen=numeric(prefs.all["real_entry"])>0L&&numeric(prefs.all["real_exit"])==0L;val savedHistory=decodeTypedString(saved.optJSONObject("history"))?.let{runCatching{JSONArray(it)}.getOrNull()}?:JSONArray();val current=runCatching{JSONArray(prefs.getString("history","[]")?:"[]")}.getOrElse{JSONArray()};val seen=mutableSetOf<String>();for(i in 0 until current.length())current.optJSONObject(i)?.let{seen+=historySignature(it)};var merged=0;for(i in 0 until savedHistory.length()){val item=savedHistory.optJSONObject(i)?:continue;val sig=historySignature(item);if(sig !in seen){current.put(item);seen+=sig;merged++}};prefs.edit().putString("history",current.toString()).apply();if(!currentOpen&&numeric(prefs.all["real_entry"])==0L){val rest=JSONObject(saved.toString()).apply{remove("history")};mergePreferences(context,"horatrack_v2_test_runtime",rest);prefs.edit().putString("history",current.toString()).apply()};return merged }
+    private fun decodeTypedString(i:JSONObject?):String?=i?.takeIf{it.optString("t")=="s"}?.optString("v")
+    private fun historySignature(o:JSONObject)=listOf(o.optString("id"),o.optLong("realEntry",0L),o.optLong("realExit",0L),o.optLong("countedEntry",0L),o.optLong("countedExit",0L)).joinToString(":")
+    private fun numeric(v:Any?):Long=when(v){is Number->v.toLong();is String->v.toLongOrNull()?:0L;else->0L}
+    private fun treeRootDocumentUri(u:Uri):Uri=DocumentsContract.buildDocumentUriUsingTree(u,DocumentsContract.getTreeDocumentId(u))
+    private fun ensureDirectory(c:Context,p:Uri,n:String):Uri=findChild(c,p,n,DocumentsContract.Document.MIME_TYPE_DIR)?:DocumentsContract.createDocument(c.contentResolver,p,DocumentsContract.Document.MIME_TYPE_DIR,n)?:error("Impossible de créer $n")
+    private fun ensureFile(c:Context,p:Uri,n:String,m:String):Uri=findChild(c,p,n,m)?:DocumentsContract.createDocument(c.contentResolver,p,m,n)?:error("Impossible de créer $n")
+    private fun findChild(c:Context,p:Uri,n:String,m:String):Uri?{val id=DocumentsContract.getDocumentId(p);val children=DocumentsContract.buildChildDocumentsUriUsingTree(p,id);val projection=arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE);c.contentResolver.query(children,projection,null,null,null)?.use{cur->val ci=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);val cn=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);val cm=cur.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);while(cur.moveToNext())if(cur.getString(cn)==n&&cur.getString(cm)==m)return DocumentsContract.buildDocumentUriUsingTree(p,cur.getString(ci))};return null}
 }
