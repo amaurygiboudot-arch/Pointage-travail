@@ -22,10 +22,35 @@ object V2LegalSourceUpdater {
         prefs.edit().putLong(KEY_LAST_ATTEMPT, nowMs).apply()
         ConventionCatalog.refreshAsync(app) { count ->
             if (count > 0) {
+                val checkedAt = System.currentTimeMillis()
                 app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                    .putLong(KEY_LAST_SUCCESS, System.currentTimeMillis())
+                    .putLong(KEY_LAST_SUCCESS, checkedAt)
                     .putInt(KEY_LAST_COUNT, count)
                     .apply()
+
+                // On mémorise ce qui est observé dans le catalogue officiel sans lui inventer
+                // une date d'effet. Seuls des snapshots explicitement confirmés deviennent applicables.
+                ConventionCatalog.all(app)
+                    .filter { it.idcc.isNotBlank() && it.rulesIntegrated }
+                    .forEach { convention ->
+                        val fingerprint = buildString {
+                            append(convention.idcc.padStart(4, '0'))
+                            append('|')
+                            convention.overtimeTiers.forEach { tier ->
+                                append(tier.fromHour).append(':')
+                                append(tier.toHour ?: "*").append(':')
+                                append(tier.multiplier).append(';')
+                            }
+                            append('|').append(convention.nightMultiplier ?: "")
+                            append('|').append(convention.sundayHolidayMultiplier ?: "")
+                        }
+                        V2ConventionRuleStore.recordOfficialCatalogObservation(
+                            app,
+                            convention.idcc,
+                            checkedAt,
+                            fingerprint
+                        )
+                    }
             }
         }
     }
