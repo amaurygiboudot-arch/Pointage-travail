@@ -48,6 +48,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             PrimaryButtonIsolation.install(activity)
             installOwnerShortcut(activity)
             installGpsZoneTypeSelector(activity)
+            installBackupRestore(activity)
             installV2PdfExport(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
@@ -77,7 +78,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             Toast.makeText(activity, "Authentification biométrique requise sur Android 9 ou plus.", Toast.LENGTH_LONG).show()
             return
         }
-
         val cancellationSignal = CancellationSignal()
         val prompt = BiometricPrompt.Builder(activity)
             .setTitle("Développeur")
@@ -85,23 +85,18 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             .setDescription("Accès réservé au propriétaire de HoraTrack")
             .setNegativeButton("Annuler", activity.mainExecutor) { _, _ -> cancellationSignal.cancel() }
             .build()
-
         prompt.authenticate(cancellationSignal, activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
                 super.onAuthenticationSucceeded(result)
                 DeveloperToolsDialog.show(activity)
             }
-
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
                 Toast.makeText(activity, "Empreinte non reconnue", Toast.LENGTH_SHORT).show()
             }
-
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 super.onAuthenticationError(errorCode, errString)
-                if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
-                    errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
-                ) {
+                if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED && errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED) {
                     Toast.makeText(activity, errString ?: "Authentification impossible", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -112,6 +107,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) != null) return
         panel.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun installBackupRestore(activity: MainActivity) {
+        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        if (panel.findViewWithTag<View>(V2BackupRestoreView.TAG) != null) return
+        panel.addView(V2BackupRestoreView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     /** Empêche le bouton visible d'ouvrir l'ancien flux PDF bloqué en V2. */
@@ -136,13 +137,11 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    /** Le test GPS est disponible uniquement dans le menu Développeur. */
     private fun removeLegacyGpsTestButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
     }
 
-    /** Supprime toute ancienne version visible du bouton Développeur. */
     private fun removeVisibleDeveloperButton(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
