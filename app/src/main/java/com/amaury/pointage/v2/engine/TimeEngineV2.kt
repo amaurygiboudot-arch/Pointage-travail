@@ -4,13 +4,7 @@ import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
-/**
- * Moteur Temps HoraTrack V2.
- *
- * Ce moteur est volontairement indépendant de PointageStore et n'est pas encore
- * branché sur l'application. Il peut donc être testé sans faire exécuter
- * l'ancien moteur en parallèle.
- */
+/** Moteur Temps HoraTrack V2 : source unique des calculs de présence et de temps payé. */
 interface TimeEngineV2 {
     fun countedEntryFromRealArrival(realArrivalMs: Long): Long
     fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long
@@ -18,11 +12,8 @@ interface TimeEngineV2 {
 }
 
 data class TimeResultV2(
-    /** Présence physique réelle : arrivée GPS/manuelle -> sortie réelle. */
     val presenceMs: Long,
-    /** Intervalle retenu pour le calcul avant retrait des pauses non payées. */
     val countedSpanMs: Long,
-    /** Temps finalement payé après retrait des pauses non payées. */
     val paidWorkMs: Long,
     val unpaidPauseMs: Long,
     val paidPauseMs: Long,
@@ -34,11 +25,6 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
     private const val ENTRY_GRACE_MS = 5L * 60L * 1000L
     private const val EXIT_GRACE_MS = 20L * 60L * 1000L
 
-    /**
-     * Règle validée : créneaux de 15 minutes avec 5 minutes de tolérance.
-     * Exemples : 07:00 -> 07:00, 07:05 -> 07:00, 07:06 -> 07:15,
-     * 07:15 -> 07:15, 07:20 -> 07:15, 07:21 -> 07:30.
-     */
     override fun countedEntryFromRealArrival(realArrivalMs: Long): Long {
         require(realArrivalMs > 0L) { "realArrivalMs doit être positif" }
         val remainder = Math.floorMod(realArrivalMs, ENTRY_SLOT_MS)
@@ -46,14 +32,6 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         return if (remainder == 0L || remainder <= ENTRY_GRACE_MS) currentSlot else currentSlot + ENTRY_SLOT_MS
     }
 
-    /**
-     * Une sortie comprise entre l'heure de fin prévue et +20 minutes reste
-     * comptée à l'heure prévue. À partir de +21 minutes, la sortie réelle est
-     * conservée afin de ne pas supprimer un travail supplémentaire potentiel.
-     *
-     * Si aucune fin prévue fiable n'existe, HoraTrack n'en invente pas : la
-     * sortie comptée reste la sortie réelle.
-     */
     override fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long {
         require(realExitMs > 0L) { "realExitMs doit être positif" }
         if (expectedEndMs == null || expectedEndMs <= 0L) return realExitMs
@@ -79,14 +57,7 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         }
 
         if (countedStart == null || countedEnd == null || countedEnd <= countedStart) {
-            return TimeResultV2(
-                presenceMs = presenceMs,
-                countedSpanMs = 0L,
-                paidWorkMs = 0L,
-                unpaidPauseMs = 0L,
-                paidPauseMs = 0L,
-                warnings = warnings.distinct()
-            )
+            return TimeResultV2(presenceMs, 0L, 0L, 0L, 0L, warnings.distinct())
         }
 
         val confirmed = session.pauses.filter { it.status == DecisionStatusV2.CONFIRMED }
@@ -100,9 +71,11 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
             confirmed.filter { it.paid == true }.mapNotNull { clippedPause(it, countedStart, countedEnd, nowMs) }
         )
 
-        val unpaidPauseMs = duration(unpaidIntervals).coerceAtMost(countedSpanMs)
-        // Une même minute ne peut pas être simultanément payée et non payée.
-        // En cas de chevauchement de données, la pause non payée prend priorité.
+        val explicitUnpaidMs = duration(unpaidIntervals)
+        val importedFixedMs = session.legacyFixedUnpaidPauseMs.coerceAtLeast(0L)
+        if (importedFixedMs > 0L) warnings += "Déduction fixe historique importée"
+        val unpaidPauseMs = (explicitUnpaidMs + importedFixedMs).coerceAtMost(countedSpanMs)
+
         val paidPauseMs = (duration(paidIntervals) - overlapDuration(paidIntervals, unpaidIntervals))
             .coerceAtLeast(0L)
             .coerceAtMost(countedSpanMs - unpaidPauseMs)
@@ -133,15 +106,13 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         if (input.isEmpty()) return emptyList()
         val sorted = input.filter { it.second > it.first }.sortedBy { it.first }
         if (sorted.isEmpty()) return emptyList()
-
         val out = mutableListOf<Pair<Long, Long>>()
         var start = sorted.first().first
         var end = sorted.first().second
         for (i in 1 until sorted.size) {
             val (nextStart, nextEnd) = sorted[i]
-            if (nextStart <= end) {
-                end = maxOf(end, nextEnd)
-            } else {
+            if (nextStart <= end) end = maxOf(end, nextEnd)
+            else {
                 out += start to end
                 start = nextStart
                 end = nextEnd
