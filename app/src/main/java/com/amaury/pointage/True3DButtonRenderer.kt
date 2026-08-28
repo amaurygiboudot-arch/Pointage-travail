@@ -16,8 +16,6 @@ import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.opengl.Matrix
 import android.os.Build
-import android.os.Handler
-import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -70,8 +68,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
     private val quality = DiamondDeviceProfile.quality(context)
     private val renderer = CrystalMeshRenderer(quality)
-    private val renderThread = HandlerThread("hp-diamond-3d-${quality.name.lowercase()}").apply { start() }
-    private val renderHandler = Handler(renderThread.looper)
+    private val renderHandler = DiamondRenderThread.handler
     private var egl: EglSession? = null
     private var surfaceWidth = 1
     private var surfaceHeight = 1
@@ -133,7 +130,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        renderHandler.post { releaseEgl(); renderThread.quitSafely() }
+        renderHandler.post { releaseEgl() }
     }
 
     private fun drawFrame() {
