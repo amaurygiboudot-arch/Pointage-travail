@@ -14,6 +14,7 @@ class V2InitProvider : ContentProvider() {
             V2TestDataPolicy.ensurePreservation(app)
             V2ProfileStore.bind(app)
             V2MigrationManager.ensureMigrated(app)
+            V2LegalSourceUpdater.checkIfDue(app)
         }
         return true
     }
