@@ -6,7 +6,7 @@ import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import java.util.WeakHashMap
 
-/** Affiche au maximum une question par événement GPS réellement ambigu. */
+/** Affiche au maximum une question à la fois, sans perdre les événements sans réponse. */
 object V2GpsPromptController {
     private val showing = WeakHashMap<Activity, Boolean>()
 
@@ -29,11 +29,9 @@ object V2GpsPromptController {
                     .setPositiveButton("OUI") { _, _ ->
                         GpsWorkStateCoordinatorV2.confirmExit(activity, V2RuntimeStore.expectedEnd(activity))
                     }
-                    .setNegativeButton("NON") { _, _ ->
-                        GpsWorkStateCoordinatorV2.cancelPending(activity)
-                    }
+                    .setNegativeButton("NON") { _, _ -> GpsWorkStateCoordinatorV2.cancelPending(activity) }
                     .setOnCancelListener {
-                        // Sans réponse, l'événement reste à confirmer et rien n'est inventé.
+                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
                     .setOnDismissListener { showing.remove(activity) }
                     .show()
@@ -50,11 +48,9 @@ object V2GpsPromptController {
                         V2RuntimeStore.togglePause(activity, pending.atMs)
                         GpsWorkStateCoordinatorV2.cancelPending(activity)
                     }
-                    .setNegativeButton("NON") { _, _ ->
-                        GpsWorkStateCoordinatorV2.cancelPending(activity)
-                    }
+                    .setNegativeButton("NON") { _, _ -> GpsWorkStateCoordinatorV2.cancelPending(activity) }
                     .setOnCancelListener {
-                        // L'événement reste à confirmer.
+                        GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
                     .setOnDismissListener { showing.remove(activity) }
                     .show()
