@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.engine.GpsEventV2
 import com.amaury.pointage.v2.engine.GpsPointTypeV2
 import com.amaury.pointage.v2.engine.GpsTransitionV2
@@ -51,6 +52,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     val zoneAddress = findZoneAddress(zonesRaw, zoneId)
                     val zoneType = findZoneType(zonesRaw, zoneId)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                        resolveCompanySlot(context, prefs, zonesRaw, zoneId, zoneAddress)?.let {
+                            V2ProfileStore.setActiveCompanySlot(context, it)
+                        }
                         val now = System.currentTimeMillis()
                         val gpsEvent = GpsEventV2("gps-enter-$zoneId-$now", now, zoneId, zoneType, GpsTransitionV2.ENTER)
                         val decision = HoraTrackV2.gps.ingest(gpsEvent)
@@ -84,6 +88,35 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 }
             }
         }
+    }
+
+    private fun resolveCompanySlot(
+        context: Context,
+        prefs: android.content.SharedPreferences,
+        zonesJson: String?,
+        zoneId: String,
+        zoneAddress: String?
+    ): Int? {
+        val zone = findZone(zonesJson, zoneId)
+        val explicit = zone?.optInt("companySlot", 0) ?: 0
+        if (explicit in 1..2) return explicit
+
+        val map = runCatching { JSONObject(prefs.getString("address_company_slots", "{}") ?: "{}") }.getOrElse { JSONObject() }
+        val candidates = listOfNotNull(zoneAddress, zone?.optString("address"), zoneId).map { it.trim() }.filter { it.isNotBlank() }
+        candidates.forEach { key ->
+            val slot = map.optInt(key, 0)
+            if (slot in 1..2) return slot
+            val keys = map.keys()
+            while (keys.hasNext()) {
+                val saved = keys.next()
+                if (saved.equals(key, ignoreCase = true)) {
+                    val s = map.optInt(saved, 0)
+                    if (s in 1..2) return s
+                }
+            }
+        }
+        val current = V2ProfileStore.activeCompanySlot(context)
+        return current.takeIf { it in 1..2 }
     }
 
     private fun updateWidgets(context: Context) {
