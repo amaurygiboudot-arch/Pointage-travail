@@ -202,6 +202,13 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var facetTextureWidth = 0
         private var internalReturnTexture = 0
         private var internalReturnTextureWidth = 0
+        private var stateUploadBuffer: ByteBuffer? = null
+        private var internalUploadBuffer: ByteBuffer? = null
+        private val projectionMatrix = FloatArray(16)
+        private val viewMatrix = FloatArray(16)
+        private val modelMatrix = FloatArray(16)
+        private val viewProjectionMatrix = FloatArray(16)
+        private val mvpMatrix = FloatArray(16)
         private var smoothPitch = 0f
         private var smoothRoll = 0f
         private var smoothYaw = 0f
@@ -277,25 +284,20 @@ class True3DButtonTextureView @JvmOverloads constructor(
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
             val aspect = width.toFloat() / height.coerceAtLeast(1)
-            val proj = FloatArray(16)
-            val view = FloatArray(16)
-            val model = FloatArray(16)
-            val vp = FloatArray(16)
-            val mvp = FloatArray(16)
-            Matrix.perspectiveM(proj, 0, 24f, aspect, .1f, 20f)
-            Matrix.setLookAtM(view, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
-            Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
-            Matrix.rotateM(model, 0, -8.2f + smoothPitch * .20f, 1f, 0f, 0f)
-            Matrix.rotateM(model, 0, 2.4f - smoothRoll * .24f, 0f, 1f, 0f)
-            Matrix.rotateM(model, 0, smoothYaw * .025f, 0f, 0f, 1f)
-            Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
-            Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+            Matrix.perspectiveM(projectionMatrix, 0, 24f, aspect, .1f, 20f)
+            Matrix.setLookAtM(viewMatrix, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.setIdentityM(modelMatrix, 0)
+            Matrix.translateM(modelMatrix, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
+            Matrix.rotateM(modelMatrix, 0, -8.2f + smoothPitch * .20f, 1f, 0f, 0f)
+            Matrix.rotateM(modelMatrix, 0, 2.4f - smoothRoll * .24f, 0f, 1f, 0f)
+            Matrix.rotateM(modelMatrix, 0, smoothYaw * .025f, 0f, 0f, 1f)
+            Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+            Matrix.multiplyMM(mvpMatrix, 0, viewProjectionMatrix, 0, modelMatrix, 0)
 
             val a = normalize(baseLightAngle)
             val rad = Math.toRadians(a.toDouble())
-            drawFacets(mvp, model, cos(rad).toFloat(), sin(rad).toFloat())
-            drawTrueEdges(mvp)
+            drawFacets(mvpMatrix, modelMatrix, cos(rad).toFloat(), sin(rad).toFloat())
+            drawTrueEdges(mvpMatrix)
         }
 
         private fun ensureFacetTextures() {
@@ -335,7 +337,10 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val internalBytes = facetMemory.toInternalReturnRgbaBytes()
             if (stateBytes.isEmpty() || internalBytes.isEmpty()) return
 
-            val stateBuffer = ByteBuffer.allocateDirect(stateBytes.size).apply { put(stateBytes); position(0) }
+            val stateBuffer = reusableUploadBuffer(stateUploadBuffer, stateBytes.size).also { stateUploadBuffer = it }
+            stateBuffer.clear()
+            stateBuffer.put(stateBytes)
+            stateBuffer.flip()
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
             GLES20.glTexSubImage2D(
@@ -343,13 +348,21 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, stateBuffer
             )
 
-            val internalBuffer = ByteBuffer.allocateDirect(internalBytes.size).apply { put(internalBytes); position(0) }
+            val internalBuffer = reusableUploadBuffer(internalUploadBuffer, internalBytes.size).also { internalUploadBuffer = it }
+            internalBuffer.clear()
+            internalBuffer.put(internalBytes)
+            internalBuffer.flip()
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, internalReturnTexture)
             GLES20.glTexSubImage2D(
                 GLES20.GL_TEXTURE_2D, 0, 0, 0, facetMemory.size(), 1,
                 GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, internalBuffer
             )
+        }
+
+        private fun reusableUploadBuffer(current: ByteBuffer?, requiredSize: Int): ByteBuffer {
+            if (current != null && current.capacity() >= requiredSize) return current
+            return ByteBuffer.allocateDirect(requiredSize).order(ByteOrder.nativeOrder())
         }
 
         private fun drawFacets(mvp: FloatArray, model: FloatArray, lx: Float, ly: Float) {
