@@ -10,22 +10,20 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.R
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2MigrationManager
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2TestDataPolicy
 import com.amaury.pointage.v2.V2ValidationSuite
 
-/**
- * Indicateur de phase de test V2.
- *
- * Le mode test n'est plus un bac à sable avec des fonctions parallèles :
- * l'utilisateur emploie les vrais écrans et les vraies fonctions V2. Ce bloc
- * ajoute seulement l'état/diagnostic de test et ne modifie aucune donnée.
- */
+/** Le mode test ajoute uniquement diagnostics et contrôles, jamais un moteur parallèle. */
 object V2TestUiInstaller {
     private const val TAG = "horatrack_v2_test_panel"
 
     fun install(activity: Activity) {
         if (!HoraTrackV2.ENABLED || !HoraTrackV2.TEST_MODE) return
         V2TestDataPolicy.ensurePreservation(activity)
+        val migration = V2MigrationManager.ensureMigrated(activity)
+        val profile = V2ProfileStore.load(activity, 1)
 
         val root = activity.window.decorView
         val content = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
@@ -48,10 +46,12 @@ object V2TestUiInstaller {
             gravity = Gravity.CENTER
             setPadding(0, dp(activity, 6), 0, 0)
             val report = V2ValidationSuite.run()
-            text = if (report.passed) {
-                "Application complète V2 • données existantes conservées • diagnostic OK"
-            } else {
-                "Application complète V2 • données conservées • ${report.failures.size} contrôle(s) à vérifier"
+            text = buildString {
+                append(if (report.passed) "Diagnostic OK" else "${report.failures.size} contrôle(s) à vérifier")
+                append(" • historique V2 ").append(migration.v2Count)
+                if (migration.imported > 0) append(" (+").append(migration.imported).append(" migrés)")
+                if (profile.missing.isNotEmpty()) append(" • fiche Salaire à compléter")
+                else append(" • fiche Salaire reliée V2")
             }
             setOnClickListener {
                 val current = V2ValidationSuite.run()
