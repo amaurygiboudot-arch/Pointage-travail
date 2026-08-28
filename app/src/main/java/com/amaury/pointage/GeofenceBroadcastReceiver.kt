@@ -12,10 +12,10 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.GpsEventV2
 import com.amaury.pointage.v2.engine.GpsPointTypeV2
 import com.amaury.pointage.v2.engine.GpsTransitionV2
+import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import com.google.android.gms.location.Geofence
 import com.google.android.gms.location.GeofencingEvent
 import org.json.JSONArray
@@ -48,16 +48,24 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
                     val zoneId = regularIds.firstOrNull() ?: return
                     val zoneAddress = findZoneAddress(prefs.getString("zones", "[]"), zoneId)
-                    val recorded = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                    if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         val now = System.currentTimeMillis()
-                        val decision = HoraTrackV2.gps.ingest(
-                            GpsEventV2("gps-enter-$zoneId-$now", now, zoneId, GpsPointTypeV2.POSTE, GpsTransitionV2.ENTER)
+                        val gpsEvent = GpsEventV2(
+                            "gps-enter-$zoneId-$now",
+                            now,
+                            zoneId,
+                            GpsPointTypeV2.POSTE,
+                            GpsTransitionV2.ENTER
                         )
-                        decision.accepted && !decision.duplicate && V2RuntimeStore.entry(context, now)
-                    } else {
-                        PointageStore.entry(context, zoneId, zoneAddress)
-                    }
-                    if (recorded) {
+                        val decision = HoraTrackV2.gps.ingest(gpsEvent)
+                        val outcome = GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
+                        if (outcome.action == GpsWorkStateCoordinatorV2.Action.ENTRY_STARTED ||
+                            outcome.action == GpsWorkStateCoordinatorV2.Action.RETURNED_TO_POSTE
+                        ) {
+                            updateWidgets(context)
+                            if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
+                        }
+                    } else if (PointageStore.entry(context, zoneId, zoneAddress)) {
                         updateWidgets(context)
                         if (!zoneAddress.isNullOrBlank()) showArrivalContactNotification(context, zoneAddress)
                     }
@@ -74,16 +82,23 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
                 if (activeZones.isEmpty()) {
                     val zoneId = regularIds.firstOrNull() ?: "unknown"
-                    val recorded = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
+                    if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         val now = System.currentTimeMillis()
-                        val decision = HoraTrackV2.gps.ingest(
-                            GpsEventV2("gps-exit-$zoneId-$now", now, zoneId, GpsPointTypeV2.POSTE, GpsTransitionV2.EXIT)
+                        val gpsEvent = GpsEventV2(
+                            "gps-exit-$zoneId-$now",
+                            now,
+                            zoneId,
+                            GpsPointTypeV2.POSTE,
+                            GpsTransitionV2.EXIT
                         )
-                        decision.accepted && !decision.duplicate && V2RuntimeStore.exit(context, now)
-                    } else {
-                        PointageStore.exit(context)
+                        val decision = HoraTrackV2.gps.ingest(gpsEvent)
+                        GpsWorkStateCoordinatorV2.route(context, gpsEvent, decision)
+                        // La sortie n'est jamais pointée directement ici : elle attend
+                        // la confirmation de la couche UI/état V2.
+                        updateWidgets(context)
+                    } else if (PointageStore.exit(context)) {
+                        updateWidgets(context)
                     }
-                    if (recorded) updateWidgets(context)
                 }
             }
         }
