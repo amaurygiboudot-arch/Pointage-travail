@@ -4,16 +4,13 @@ import android.content.Context
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.EmployerV2
-import java.time.Instant
-import java.time.ZoneId
+import java.util.Calendar
+import java.util.Locale
 
-/**
- * Source unique V2 pour l'employeur et le contrat.
- * Lit les réglages déjà utilisés par l'onglet Salaire afin de rester
- * non destructif et d'éviter une seconde base de renseignements.
- */
+/** Source unique V2 pour l'employeur et le contrat, basée sur les données Salaire existantes. */
 object V2ProfileStore {
     private const val PREFS = "salary_settings"
+    @Volatile private var boundContext: Context? = null
 
     data class Profile(
         val employer: EmployerV2?,
@@ -22,7 +19,11 @@ object V2ProfileStore {
         val missing: List<String>
     )
 
+    fun bind(context: Context) { boundContext = context.applicationContext }
+    fun loadBound(companySlot: Int = 1): Profile? = boundContext?.let { load(it, companySlot) }
+
     fun load(context: Context, companySlot: Int = 1): Profile {
+        bind(context)
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val prefix = if (companySlot == 2) "company2_" else "company_"
         val name = prefs.getString(prefix + "name", "").orEmpty().trim()
@@ -45,9 +46,7 @@ object V2ProfileStore {
         val rate = rateRaw.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
         val type = parseContractType(contractTypeRaw)
         val hireDateMs = if (companySlot == 1) safeLong(prefs.all["employment_start_date"]) else safeLong(prefs.all["company2_employment_start_date"])
-        val hireEpochDay = hireDateMs?.takeIf { it > 0L }?.let {
-            Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay()
-        }
+        val hireEpochDay = hireDateMs?.takeIf { it > 0L }?.let(::localEpochDay)
 
         val missing = mutableListOf<String>()
         if (employer == null) missing += "employeur"
@@ -71,16 +70,18 @@ object V2ProfileStore {
     fun primaryEmployerId(context: Context): String? = load(context, 1).employer?.id
 
     fun activeCompanySlot(context: Context): Int {
-        val runtime = context.applicationContext.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
-        return runtime.getInt("active_company_slot", 1).coerceIn(1, 2)
+        bind(context)
+        return context.applicationContext.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
+            .getInt("active_company_slot", 1).coerceIn(1, 2)
     }
 
     fun setActiveCompanySlot(context: Context, slot: Int) {
+        bind(context)
         context.applicationContext.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
             .edit().putInt("active_company_slot", slot.coerceIn(1, 2)).apply()
     }
 
-    private fun parseContractType(value: String): ContractTypeV2? = when (value.trim().uppercase()) {
+    private fun parseContractType(value: String): ContractTypeV2? = when (value.trim().uppercase(Locale.ROOT)) {
         "FULL_TIME" -> ContractTypeV2.FULL_TIME
         "PART_TIME" -> ContractTypeV2.PART_TIME
         "FORFAIT" -> ContractTypeV2.FORFAIT
@@ -94,5 +95,18 @@ object V2ProfileStore {
         is Number -> value.toLong()
         is String -> value.toLongOrNull()
         else -> null
+    }
+
+    /** Calcul d'un epoch-day local sans java.time, compatible minSdk 23. */
+    private fun localEpochDay(ms: Long): Long {
+        val c = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = ms
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val tzOffset = c.timeZone.getOffset(c.timeInMillis).toLong()
+        return Math.floorDiv(c.timeInMillis + tzOffset, 86_400_000L)
     }
 }
