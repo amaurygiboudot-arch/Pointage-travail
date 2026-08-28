@@ -7,7 +7,6 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Build
@@ -23,22 +22,27 @@ import android.widget.Switch
 import android.widget.TextView
 import java.util.WeakHashMap
 
+/**
+ * Moteur de relief tactile et d'éclairage des trois boutons de pointage.
+ *
+ * Important : depuis la migration V2 d'apparence, ce composant n'a plus le droit
+ * de poser DynamicDiamondDrawable ou CarbonCompositeDrawable sur les boutons
+ * standards. Leur apparence appartient exclusivement à ThemeFrameStyler.
+ */
 object ButtonReliefInstaller {
-    private const val TAG_KEY = 0x4850524C
     private const val PREFS = "appearance_settings"
     private const val PREF_SOLAR = "solar_lighting_enabled"
     private const val TAG_SOLAR_SWITCH = "solar_lighting_switch"
     private const val TAG_THEME_BUTTON = "visual_theme_button"
     private const val TAG_DIAMOND_LAB = "diamond_lab_button"
     private const val FIXED_LIGHT_ANGLE = -55f
-    private val dynamicDrawables = WeakHashMap<Button, DynamicDiamondDrawable>()
+
     private val installedActivities = WeakHashMap<Activity, Boolean>()
     private var currentLightAngle = FIXED_LIGHT_ANGLE
     private var currentNight = false
 
     fun install(activity: Activity) {
         if (installedActivities.put(activity, true) == true) return
-
         val decor = activity.window.decorView
         refresh(activity, decor)
         configureSolarLighting(activity, decor)
@@ -49,16 +53,27 @@ object ButtonReliefInstaller {
                     if (decor.viewTreeObserver.isAlive) decor.viewTreeObserver.removeOnGlobalLayoutListener(this)
                     return
                 }
-                val section = decor.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
                 installThemeSelectorIfPossible(activity)
                 installDiamondLabIfPossible(activity)
                 installSolarToggleIfPossible(activity)
-                ThemeFrameStyler.apply(section)
+                ThemeFrameStyler.apply(decor)
                 AutoDayNightPolarity.apply(decor)
                 if (decor.viewTreeObserver.isAlive) decor.viewTreeObserver.removeOnGlobalLayoutListener(this)
             }
         }
         decor.viewTreeObserver.addOnGlobalLayoutListener(listener)
+    }
+
+    private fun refresh(activity: Activity, decor: View) {
+        val theme = AppThemeCatalog.current(activity)
+        val dark = if (theme.id == "diamond_crystal") true else isDarkMode(activity)
+        applyThemeSafety(decor, dark, theme)
+        applyToTree(decor, dark, theme)
+        installThemeSelectorIfPossible(activity)
+        installDiamondLabIfPossible(activity)
+        installSolarToggleIfPossible(activity)
+        ThemeFrameStyler.apply(decor)
+        if (theme.id == "diamond_crystal") PrimaryDiamond3DInstaller.install(decor, currentLightAngle)
     }
 
     private fun configureSolarLighting(activity: Activity, decor: View) {
@@ -70,7 +85,8 @@ object ButtonReliefInstaller {
                 currentLightAngle = state.lightAngle
                 currentNight = state.night
                 AppThemeCatalog.setCelestialNight(activity, state.night)
-                updateDynamicLight(decor, state.lightAngle, state.night)
+                PrimaryDiamond3DInstaller.updateLight(decor, state.lightAngle)
+                updateJewelLights(decor, state.lightAngle, state.night)
                 indicator?.setNightMode(state.night)
                 state.celestialAngle?.let {
                     indicator?.updateLightAngle(it)
@@ -82,25 +98,130 @@ object ButtonReliefInstaller {
             indicator?.setSunVisible(false)
             currentNight = false
             currentLightAngle = FIXED_LIGHT_ANGLE
-            updateDynamicLight(decor, FIXED_LIGHT_ANGLE, false)
+            PrimaryDiamond3DInstaller.updateLight(decor, FIXED_LIGHT_ANGLE)
+            updateJewelLights(decor, FIXED_LIGHT_ANGLE, false)
         }
-    }
-
-    private fun updateDynamicLight(decor: View, angle: Float, night: Boolean) {
-        dynamicDrawables.entries.toList().forEach { (b, d) -> if (b.rootView === decor) d.setLightAngle(angle) }
-        PrimaryDiamond3DInstaller.updateLight(decor, angle)
-        updateJewelLights(decor, angle, night)
     }
 
     private fun updateJewelLights(view: View, angle: Float, night: Boolean) {
-        if (view is LightReactiveJewelButton) {
+        if (view is LightReactiveJewelButton && isPrimaryPointage(resourceName(view))) {
             view.setLightAngle(angle)
             view.setNightLight(night)
         }
-        if (view is ViewGroup) for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle, night)
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) updateJewelLights(view.getChildAt(i), angle, night)
+        }
     }
 
-    private fun isSolarEnabled(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
+    private fun applyThemeSafety(root: View, dark: Boolean, theme: HpTheme) {
+        sanitizeView(root, dark, theme, false)
+    }
+
+    private fun sanitizeView(view: View, dark: Boolean, theme: HpTheme, inheritedPanel: Boolean) {
+        val id = resourceName(view)
+        val ownPanel = id == "contentPanel" || id == "statusCard" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel" ||
+            id.contains("panel", true) || id.contains("card", true)
+        val onPanel = inheritedPanel || ownPanel
+
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) sanitizeView(view.getChildAt(i), dark, theme, onPanel)
+        }
+
+        val textColor = if (dark) theme.darkText else theme.lightText
+        val hintColor = if (dark) theme.darkHint else theme.lightHint
+        when (view) {
+            is EditText -> {
+                view.setTextColor(textColor)
+                view.setHintTextColor(hintColor)
+            }
+            is Switch -> {
+                view.setTextColor(textColor)
+                styleSwitch(view.context, view)
+            }
+            is Button -> {
+                // Aucun fond ni couleur métier ici pour les boutons standards.
+                if (!isPrimaryPointage(id) && id != "settingsButton") ThemeFrameStyler.apply(view)
+            }
+            is TextView -> {
+                val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
+                if (!tab && view !is Button) {
+                    val surface = if (onPanel) (if (dark) theme.darkPanel else theme.lightPanel) else (if (dark) theme.darkBackground else theme.lightBackground)
+                    if (contrastRatio(view.currentTextColor, surface) < 4.5) view.setTextColor(textColor)
+                }
+            }
+        }
+    }
+
+    private fun applyToTree(view: View, dark: Boolean, theme: HpTheme) {
+        if (view is Button) applyToButton(view, dark, theme)
+        if (view is ViewGroup && view !is True3DButtonHost) {
+            for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark, theme)
+        }
+    }
+
+    private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
+        val id = resourceName(button)
+        if (isPrimaryPointage(id)) {
+            if (theme.id == "diamond_crystal") {
+                button.backgroundTintList = null
+                if (button is LightReactiveJewelButton) {
+                    button.setJewelAccent(theme.accent, theme.accentLight)
+                    button.setLightAngle(currentLightAngle)
+                    button.setNightLight(currentNight)
+                }
+            }
+            installPressAnimator(button)
+            return
+        }
+
+        if (id == "settingsButton") return
+
+        // Purge explicite des anciens fonds concurrents.
+        if (button.background is DynamicDiamondDrawable || button.background is CarbonCompositeDrawable) {
+            button.backgroundTintList = null
+            button.setBackgroundResource(R.drawable.hp_panel)
+        }
+        ThemeFrameStyler.apply(button)
+        installPressAnimator(button)
+    }
+
+    private fun installPressAnimator(button: Button) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
+        val d = button.resources.displayMetrics.density
+        button.elevation = 8f * d
+        button.stateListAnimator = StateListAnimator().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), AnimatorSet().apply {
+                playTogether(
+                    ObjectAnimator.ofFloat(button, "elevation", 2f * d),
+                    ObjectAnimator.ofFloat(button, "scaleX", .965f),
+                    ObjectAnimator.ofFloat(button, "scaleY", .965f)
+                )
+                duration = 70
+            })
+            addState(intArrayOf(), AnimatorSet().apply {
+                playTogether(
+                    ObjectAnimator.ofFloat(button, "elevation", 8f * d),
+                    ObjectAnimator.ofFloat(button, "scaleX", 1f),
+                    ObjectAnimator.ofFloat(button, "scaleY", 1f)
+                )
+                duration = 160
+            })
+        }
+    }
+
+    private fun isDarkMode(activity: Activity): Boolean {
+        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val mode = prefs.getString("mode", "auto") ?: "auto"
+        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        return when (mode) {
+            "light" -> false
+            "dark" -> true
+            else -> systemDark
+        }
+    }
+
+    private fun isSolarEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_SOLAR, false)
 
     private fun setSolarEnabled(activity: Activity, enabled: Boolean) {
         activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(PREF_SOLAR, enabled).apply()
@@ -124,7 +245,7 @@ object ButtonReliefInstaller {
             setOnClickListener {
                 val themes = AppThemeCatalog.themes
                 val selected = themes.indexOfFirst { it.id == AppThemeCatalog.current(activity).id }.coerceAtLeast(0)
-                val dialog = AlertDialog.Builder(activity)
+                AlertDialog.Builder(activity)
                     .setTitle("Choisir le thème")
                     .setSingleChoiceItems(themes.map { it.label }.toTypedArray(), selected) { d, which ->
                         val targetTheme = themes[which]
@@ -138,25 +259,23 @@ object ButtonReliefInstaller {
                         }
                     }
                     .setNegativeButton("Annuler", null)
-                    .create()
-                dialog.show()
+                    .show()
             }
         }
         section.addView(button, if (section.childCount >= 2) 2 else section.childCount,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
-                topMargin = dp(activity, 4); bottomMargin = dp(activity, 4)
+                topMargin = dp(activity, 4)
+                bottomMargin = dp(activity, 4)
             })
+        ThemeFrameStyler.apply(button)
     }
 
     private fun showDiamondEngineWarning(activity: Activity, targetTheme: HpTheme) {
         AlertDialog.Builder(activity)
             .setTitle("💎 Activer le moteur Diamant 3D ?")
             .setMessage(
-                "Le thème Diamant utilise un moteur de simulation 3D dédié pour calculer les facettes, " +
-                    "la profondeur, les reflets et la réaction à l’inclinaison du téléphone.\n\n" +
-                    "Ce moteur demande plus de ressources graphiques et peut consommer davantage de batterie " +
-                    "que les autres thèmes.\n\n" +
-                    "Le moteur 3D est réservé aux trois boutons de pointage : Entrée, Pause et Sortie."
+                "Le thème Diamant utilise un moteur de simulation 3D dédié pour les trois boutons de pointage : Entrée, Pause et Sortie.\n\n" +
+                    "Les autres boutons conservent l'apparence standard HoraTrack."
             )
             .setPositiveButton("ACTIVER LE DIAMANT 3D") { _, _ ->
                 AppThemeCatalog.set(activity, targetTheme)
@@ -167,8 +286,7 @@ object ButtonReliefInstaller {
     }
 
     private fun installDiamondLabIfPossible(activity: Activity) {
-        if (activity !is MainActivity) return
-        if (AppThemeCatalog.current(activity).id != "diamond_crystal") return
+        if (activity !is MainActivity || AppThemeCatalog.current(activity).id != "diamond_crystal") return
         val section = activity.window.decorView.findViewWithTag<LinearLayout>("settings_personalization_installed") ?: return
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
@@ -185,8 +303,10 @@ object ButtonReliefInstaller {
         val themeIndex = (0 until section.childCount).firstOrNull { section.getChildAt(it).tag == TAG_THEME_BUTTON }
         val insertAt = if (themeIndex != null) themeIndex + 1 else section.childCount
         section.addView(button, insertAt, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(activity, 4); bottomMargin = dp(activity, 4)
+            topMargin = dp(activity, 4)
+            bottomMargin = dp(activity, 4)
         })
+        ThemeFrameStyler.apply(button)
     }
 
     private fun installSolarToggleIfPossible(activity: Activity) {
@@ -217,170 +337,24 @@ object ButtonReliefInstaller {
         view.setPadding(dp(context, 18), dp(context, 8), dp(context, 8), dp(context, 8))
     }
 
-    private fun refresh(activity: Activity, decor: View) {
-        val theme = AppThemeCatalog.current(activity)
-        val dark = if (theme.id == "diamond_crystal") true else isDarkMode(activity)
-        applyThemeSafety(activity, decor, dark, theme)
-        applyToTree(decor, dark, theme)
-        installThemeSelectorIfPossible(activity)
-        installDiamondLabIfPossible(activity)
-        installSolarToggleIfPossible(activity)
-        if (theme.id == "diamond_crystal") {
-            PrimaryDiamond3DInstaller.install(decor, currentLightAngle)
-        }
-    }
+    private fun isPrimaryPointage(id: String): Boolean = id == "entryButton" || id == "pauseButton" || id == "exitButton"
 
-    private fun isDarkMode(activity: Activity): Boolean {
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val mode = prefs.getString("mode", "auto") ?: "auto"
-        val systemDark = (activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        return when (mode) { "light" -> false; "dark" -> true; else -> systemDark }
-    }
+    private fun resourceName(view: View): String =
+        runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
 
-    private fun applyThemeSafety(activity: Activity, root: View, dark: Boolean, theme: HpTheme) {
-        val bg = if (dark) theme.darkBackground else theme.lightBackground
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val text = if (dark) theme.darkText else theme.lightText
-        val hint = if (dark) theme.darkHint else theme.lightHint
-        val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val custom = prefs.getBoolean("custom_bg", false) || prefs.getBoolean("custom_image_bg", false)
-        if (!custom) {
-            activity.window.decorView.findViewById<ViewGroup>(android.R.id.content)?.setBackgroundColor(bg)
-            activity.window.statusBarColor = bg
-            activity.window.navigationBarColor = bg
-        }
-        sanitizeView(root, bg, panel, text, text, hint, false, true, dark, theme)
-    }
-
-    private fun sanitizeView(view: View, bg: Int, panel: Int, bgText: Int, panelText: Int, hint: Int, inheritedPanel: Boolean, isRoot: Boolean = false, dark: Boolean, theme: HpTheme) {
-        val id = resourceName(view)
-        val named = id == "contentPanel" || id == "statusCard" || id == "pointageButtons" || id == "gpsSettingsPanel" || id == "analyticsPdfPanel" || id.contains("panel", true) || id.contains("card", true)
-        val anonymous = !isRoot && view is ViewGroup && view !is ScrollView && view.background != null && !isProtectedContainer(id)
-        val own = named || anonymous
-        val onPanel = inheritedPanel || own
-        if (own && view.background != null && view.background.alpha > 0 && !isProtectedContainer(id)) {
-            view.backgroundTintList = ColorStateList.valueOf(panel)
-            view.background.mutate().alpha = if (theme.id == "diamond_crystal") 205 else if (dark) 232 else 244
-        }
-        if (view is ViewGroup) for (i in 0 until view.childCount) sanitizeView(view.getChildAt(i), bg, panel, bgText, panelText, hint, onPanel, false, dark, theme)
-        val tc = if (onPanel) panelText else bgText
-        when (view) {
-            is EditText -> { view.setTextColor(tc); view.setHintTextColor(hint) }
-            is LightReactiveJewelButton -> view.setJewelAccent(theme.accent, theme.accentLight)
-            is Button -> if (!isProtectedButton(id)) { view.backgroundTintList = null; view.setTextColor(panelText) }
-            is Switch -> {
-                view.setTextColor(tc)
-                styleSwitch(view.context, view)
-            }
-            is TextView -> {
-                val tab = id == "tabToday" || id == "tabHistory" || id == "tabAnalytics" || id == "tabSalary" || id == "tabSettings"
-                if (!tab) {
-                    val color = view.currentTextColor
-                    if (isKnownAccent(color)) view.setTextColor(if (dark) theme.accentLight else theme.accent)
-                    else if (contrastRatio(color, if (onPanel) panel else bg) < 4.5) view.setTextColor(tc)
-                }
-            }
-        }
-    }
-
-    private fun applyToTree(view: View, dark: Boolean, theme: HpTheme) {
-        if (view is Button) applyToButton(view, dark, theme)
-        if (view is ViewGroup && view !is True3DButtonHost) for (i in 0 until view.childCount) applyToTree(view.getChildAt(i), dark, theme)
-    }
-
-    private fun applyToButton(button: Button, dark: Boolean, theme: HpTheme) {
-        val id = resourceName(button)
-        val protected = isProtectedButton(id)
-        val primaryPointage = id == "entryButton" || id == "pauseButton" || id == "exitButton"
-        val styleKey = "material_${theme.id}_${if (dark) "dark" else "light"}_v10"
-
-        if (theme.id == "diamond_crystal") {
-            if (primaryPointage) {
-                button.backgroundTintList = null
-                button.background = null
-                button.setTextColor(Color.parseColor("#F7FCFF"))
-                dynamicDrawables.remove(button)
-                if (button is LightReactiveJewelButton) button.alpha = 0f
-                button.setTag(TAG_KEY, styleKey)
-                return
-            }
-
-            if (button is LightReactiveJewelButton) {
-                button.alpha = 1f
-                button.setJewelAccent(theme.accent, theme.accentLight)
-                button.setLightAngle(currentLightAngle)
-                button.setNightLight(currentNight)
-                button.setTag(TAG_KEY, "jewel_${theme.id}_classic")
-            } else if (button.getTag(TAG_KEY) != styleKey || button.background == null) {
-                button.alpha = 1f
-                button.backgroundTintList = null
-                val d = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density, theme.accent, theme.accentLight).apply { setLightAngle(currentLightAngle) }
-                button.background = d
-                dynamicDrawables[button] = d
-                button.setTextColor(Color.parseColor("#F7FCFF"))
-                button.setTag(TAG_KEY, styleKey)
-            }
-            installPressAnimator(button)
-            return
-        }
-
-        if (theme.id == "natural_carbon" && !protected) {
-            if (button.getTag(TAG_KEY) != styleKey || button.background !is CarbonCompositeDrawable) {
-                button.alpha = 1f
-                button.backgroundTintList = null
-                button.background = CarbonCompositeDrawable(button.context)
-                button.setTextColor(Color.parseColor("#F4F6F7"))
-                dynamicDrawables.remove(button)
-                button.setTag(TAG_KEY, styleKey)
-            }
-            installPressAnimator(button)
-            return
-        }
-
-        if (button is LightReactiveJewelButton) {
-            button.alpha = 1f
-            button.setJewelAccent(theme.accent, theme.accentLight)
-            button.setLightAngle(currentLightAngle)
-            button.setNightLight(currentNight)
-            button.setTag(TAG_KEY, "jewel_${theme.id}")
-        } else if (!protected && button.getTag(TAG_KEY) != styleKey) {
-            button.alpha = 1f
-            button.backgroundTintList = null
-            val d = DynamicDiamondDrawable(dark, button.resources.displayMetrics.density, theme.accent, theme.accentLight).apply { setLightAngle(currentLightAngle) }
-            button.background = d
-            dynamicDrawables[button] = d
-            button.setTag(TAG_KEY, styleKey)
-        } else if (protected && button.getTag(TAG_KEY) == null) {
-            button.setTag(TAG_KEY, "protected")
-        }
-        installPressAnimator(button)
-    }
-
-    private fun installPressAnimator(button: Button) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
-        val d = button.resources.displayMetrics.density
-        button.elevation = 8f * d
-        button.stateListAnimator = StateListAnimator().apply {
-            addState(intArrayOf(android.R.attr.state_pressed), AnimatorSet().apply {
-                playTogether(ObjectAnimator.ofFloat(button, "elevation", 2f*d), ObjectAnimator.ofFloat(button, "scaleX", .965f), ObjectAnimator.ofFloat(button, "scaleY", .965f)); duration = 70
-            })
-            addState(intArrayOf(), AnimatorSet().apply {
-                playTogether(ObjectAnimator.ofFloat(button, "elevation", 8f*d), ObjectAnimator.ofFloat(button, "scaleX", 1f), ObjectAnimator.ofFloat(button, "scaleY", 1f)); duration = 160
-            })
-        }
-    }
-
-    private fun isProtectedButton(id: String) = id == "entryButton" || id == "pauseButton" || id == "exitButton" || id == "settingsButton"
-    private fun isProtectedContainer(id: String) = id == "heroPanel" || id == "heroClock" || id == "headerImage" || id == "navigationTabs"
-    private fun resourceName(view: View) = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull().orEmpty()
-    private fun isKnownAccent(color: Int) = AppThemeCatalog.themes.any { color == it.accent || color == it.accentLight } || color == Color.parseColor("#795600")
-    private fun contrastRatio(f: Int, b: Int): Double {
+    private fun contrastRatio(foreground: Int, background: Int): Double {
         fun lum(c: Int): Double {
-            fun x(v: Int): Double { val s = v / 255.0; return if (s <= .03928) s / 12.92 else Math.pow((s + .055) / 1.055, 2.4) }
-            return .2126*x(Color.red(c)) + .7152*x(Color.green(c)) + .0722*x(Color.blue(c))
+            fun channel(v: Int): Double {
+                val s = v / 255.0
+                return if (s <= .03928) s / 12.92 else Math.pow((s + .055) / 1.055, 2.4)
+            }
+            return .2126 * channel(Color.red(c)) + .7152 * channel(Color.green(c)) + .0722 * channel(Color.blue(c))
         }
-        val a = lum(f); val z = lum(b)
-        return (maxOf(a,z)+.05)/(minOf(a,z)+.05)
+        val a = lum(foreground)
+        val b = lum(background)
+        return (maxOf(a, b) + .05) / (minOf(a, b) + .05)
     }
-    private fun dp(context: Context, value: Int) = (value * context.resources.displayMetrics.density).toInt()
+
+    private fun dp(context: Context, value: Int): Int =
+        (value * context.resources.displayMetrics.density).toInt()
 }
