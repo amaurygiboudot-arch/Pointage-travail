@@ -7,6 +7,9 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -35,7 +38,22 @@ class PreviewPdfButton @JvmOverloads constructor(
         runCatching {
             val file = File(activity.cacheDir, "Pointage_${cal.get(Calendar.YEAR)}_${cal.get(Calendar.MONTH) + 1}.pdf")
             file.outputStream().use { out ->
-                MonthlyPdfReport.write(activity, PointageStore.load(activity), cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), out)
+                if (HoraTrackV2.ENABLED) {
+                    MonthlyPdfReportV2.write(
+                        V2RuntimeStore.allSessions(activity),
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        out
+                    )
+                } else {
+                    MonthlyPdfReport.write(
+                        activity,
+                        PointageStore.load(activity),
+                        cal.get(Calendar.YEAR),
+                        cal.get(Calendar.MONTH),
+                        out
+                    )
+                }
             }
             val pretty = SimpleDateFormat("MMMM_yyyy", Locale.FRANCE).format(cal.time)
                 .replaceFirstChar { it.uppercase() }
@@ -44,7 +62,8 @@ class PreviewPdfButton @JvmOverloads constructor(
                 putExtra("pdf_path", file.absolutePath)
                 putExtra("pdf_name", "Pointage_$pretty.pdf")
             })
-        }.onFailure {
+        }.onFailure { error ->
+            V2Diagnostics.report(activity, "PDF mensuel", error)
             Toast.makeText(activity, "Impossible de générer l'aperçu PDF", Toast.LENGTH_LONG).show()
         }
     }
