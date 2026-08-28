@@ -25,13 +25,11 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val app = context?.applicationContext as? Application ?: return true
         SmartSetupManager.init(app)
         CompanyNameUiBinder.init(app)
-
         CustomBackgroundStore.protectPreference(app)
         if (CustomBackgroundStore.isEnabled(app)) {
             CustomBackgroundStore.resolve(app)
             CustomBackgroundStore.saveBackup(app)
         }
-
         app.registerActivityLifecycleCallbacks(this)
         return true
     }
@@ -49,6 +47,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             installOwnerShortcut(activity)
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
+            installSecuritySettings(activity)
             installV2PdfExport(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
@@ -64,11 +63,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
         settingsTab.setOnLongClickListener {
-            if (!AdminDiagnosticsGate.isEnabled(activity)) {
-                activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
-            } else {
-                authenticateOwner(activity)
-            }
+            if (!AdminDiagnosticsGate.isEnabled(activity)) activity.startActivity(Intent(activity, OwnerEnrollmentActivity::class.java))
+            else authenticateOwner(activity)
             true
         }
     }
@@ -87,12 +83,10 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             .build()
         prompt.authenticate(cancellationSignal, activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult?) {
-                super.onAuthenticationSucceeded(result)
-                DeveloperToolsDialog.show(activity)
+                super.onAuthenticationSucceeded(result); DeveloperToolsDialog.show(activity)
             }
             override fun onAuthenticationFailed() {
-                super.onAuthenticationFailed()
-                Toast.makeText(activity, "Empreinte non reconnue", Toast.LENGTH_SHORT).show()
+                super.onAuthenticationFailed(); Toast.makeText(activity, "Empreinte non reconnue", Toast.LENGTH_SHORT).show()
             }
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 super.onAuthenticationError(errorCode, errString)
@@ -105,14 +99,24 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
     private fun installGpsZoneTypeSelector(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) != null) return
-        panel.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) == null) {
+            panel.addView(GpsZoneTypeView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
     }
 
     private fun installBackupRestore(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        if (panel.findViewWithTag<View>(V2BackupRestoreView.TAG) != null) return
-        panel.addView(V2BackupRestoreView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (panel.findViewWithTag<View>(V2BackupRestoreView.TAG) == null) {
+            panel.addView(V2BackupRestoreView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+    }
+
+    private fun installSecuritySettings(activity: MainActivity) {
+        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val existing = panel.findViewWithTag<V2SecuritySettingsView>(V2SecuritySettingsView.TAG)
+        if (existing == null) {
+            panel.addView(V2SecuritySettingsView(activity), ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else existing.refresh()
     }
 
     /** Empêche le bouton visible d'ouvrir l'ancien flux PDF bloqué en V2. */
@@ -153,7 +157,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityDestroyed(activity: Activity) = Unit
-
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
