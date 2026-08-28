@@ -46,6 +46,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
             installOwnerShortcut(activity)
+            installGpsZoneTypeSelector(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
             removeVisibleDeveloperButton(activity)
@@ -96,8 +97,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence?) {
                 super.onAuthenticationError(errorCode, errString)
-                // Le bouton négatif peut remonter un code dépendant de la version Android.
-                // On ignore uniquement les annulations standard et on affiche les vraies erreurs.
                 if (errorCode != BiometricPrompt.BIOMETRIC_ERROR_CANCELED &&
                     errorCode != BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED
                 ) {
@@ -105,6 +104,13 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
                 }
             }
         })
+    }
+
+    private fun installGpsZoneTypeSelector(activity: MainActivity) {
+        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) != null) return
+        val selector = GpsZoneTypeView(activity)
+        panel.addView(selector, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     private fun installReplayButton(activity: MainActivity) {
