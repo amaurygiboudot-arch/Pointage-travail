@@ -32,8 +32,6 @@ object DailyPdfReport {
             entry in dayStart until dayEnd && s.realExitMs != null
         }
         val pdf = PdfDocument()
-        val page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
-        val c = page.canvas
         val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35,35,35); textSize = 21f; typeface = Typeface.DEFAULT_BOLD }
         val head = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(138,98,0); textSize = 12f; typeface = Typeface.DEFAULT_BOLD }
         val text = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(45,45,45); textSize = 10f }
@@ -42,9 +40,39 @@ object DailyPdfReport {
         val line = Paint().apply { color = Color.rgb(205,205,205); strokeWidth = 1f }
         val dateF = SimpleDateFormat("EEEE dd MMMM yyyy", Locale.FRANCE)
         val timeF = SimpleDateFormat("HH:mm", Locale.FRANCE)
-        var y = M
-        c.drawText("RAPPORT JOURNALIER HORATRACK", M, y + 18, title); y += 34
-        c.drawText(dateF.format(Date(dayStart)).replaceFirstChar { it.uppercase() }, M, y + 12, head); y += 28
+        val dayLabel = dateF.format(Date(dayStart)).replaceFirstChar { it.uppercase() }
+        val contentBottom = H - 82f
+
+        var pageNo = 0
+        var page: PdfDocument.Page? = null
+        var y = 0f
+
+        fun finishPage() {
+            page?.let {
+                it.canvas.drawText("© HoraTrack — Rapport généré par le moteur V2.  •  Page $pageNo", M, H - 20f, muted)
+                pdf.finishPage(it)
+            }
+            page = null
+        }
+
+        fun startPage(continuation: Boolean = false) {
+            finishPage()
+            pageNo++
+            page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, pageNo).create())
+            val c = page!!.canvas
+            y = M
+            c.drawText(if (continuation) "RAPPORT JOURNALIER HORATRACK — SUITE" else "RAPPORT JOURNALIER HORATRACK", M, y + 18, title)
+            y += 34
+            c.drawText(dayLabel, M, y + 12, head)
+            y += 28
+        }
+
+        fun ensureSpace(required: Float) {
+            if (page == null) startPage(false)
+            if (y + required > contentBottom) startPage(true)
+        }
+
+        startPage(false)
         var totalWorked = 0L
 
         sessions.forEachIndexed { index, s ->
@@ -52,24 +80,39 @@ object DailyPdfReport {
             val exit = s.countedExitMs ?: s.realExitMs ?: return@forEachIndexed
             val result = HoraTrackV2.time.calculate(s)
             totalWorked += result.paidWorkMs
+
+            ensureSpace(90f)
+            val c = page!!.canvas
             c.drawText("Session ${index + 1}", M, y + 12, head); y += 20
             c.drawText("Entrée comptée : ${timeF.format(Date(entry))}", M, y + 12, text); y += 16
             c.drawText("Sortie comptée : ${timeF.format(Date(exit))}", M, y + 12, text); y += 16
             c.drawText("Pauses non payées : ${format(result.unpaidPauseMs)}", M, y + 12, text); y += 16
             c.drawText("Temps payé : ${format(result.paidWorkMs)}", M, y + 12, bold); y += 22
+
             s.pauses.forEach { p ->
                 val end = p.endMs ?: return@forEach
-                c.drawText("• ${timeF.format(Date(p.startMs))} → ${timeF.format(Date(end))} (${format(end - p.startMs)})", M + 20, y + 11, text)
+                ensureSpace(24f)
+                page!!.canvas.drawText("• ${timeF.format(Date(p.startMs))} → ${timeF.format(Date(end))} (${format(end - p.startMs)})", M + 20, y + 11, text)
                 y += 15
             }
-            c.drawLine(M, y, W - M, y, line); y += 16
+
+            ensureSpace(22f)
+            page!!.canvas.drawLine(M, y, W - M, y, line)
+            y += 16
         }
-        if (sessions.isEmpty()) c.drawText("Aucune session terminée pour cette journée.", M, y + 12, muted)
-        y = H - 70f
-        c.drawLine(M, y, W-M, y, line); y += 20
-        c.drawText("Total payé : ${format(totalWorked)}", M, y, title)
-        c.drawText("© HoraTrack — Rapport généré par le moteur V2.", M, H - 20f, muted)
-        pdf.finishPage(page)
+
+        if (sessions.isEmpty()) {
+            ensureSpace(30f)
+            page!!.canvas.drawText("Aucune session terminée pour cette journée.", M, y + 12, muted)
+            y += 24
+        }
+
+        ensureSpace(58f)
+        page!!.canvas.drawLine(M, y, W - M, y, line)
+        y += 20
+        page!!.canvas.drawText("Total payé : ${format(totalWorked)}", M, y, title)
+
+        finishPage()
         pdf.writeTo(output)
         pdf.close()
     }
