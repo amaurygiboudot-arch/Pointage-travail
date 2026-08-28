@@ -62,8 +62,7 @@ class PreviewPdfButton @JvmOverloads constructor(
                 putExtra("pdf_path", file.absolutePath)
                 putExtra("pdf_name", "Pointage_$pretty.pdf")
             })
-        }.onFailure { error ->
-            V2Diagnostics.report(activity, "PDF mensuel", error)
+        }.onFailure {
             Toast.makeText(activity, "Impossible de générer l'aperçu PDF", Toast.LENGTH_LONG).show()
         }
     }
