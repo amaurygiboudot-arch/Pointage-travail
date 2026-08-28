@@ -25,7 +25,7 @@ object PointageStore {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingIconSync: Runnable? = null
 
-    private fun v2Active(): Boolean = HoraTrackV2.ENABLED && HoraTrackV2.TEST_MODE
+    private fun v2Active(): Boolean = HoraTrackV2.ENABLED
 
     private fun loadUnlocked(context: Context): JSONArray {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]").orEmpty()
@@ -50,14 +50,15 @@ object PointageStore {
                 .put("exitTime", session.realExitMs ?: JSONObject.NULL)
                 .put("countedExitTime", session.countedExitMs ?: JSONObject.NULL)
                 .put("exit", session.countedExitMs ?: session.realExitMs ?: JSONObject.NULL)
-                .put("autoPauseMinutes", 0)
+                .put("autoPauseMinutes", (session.legacyFixedUnpaidPauseMs / 60_000L).toInt())
                 .put("pauses", JSONArray().apply {
                     session.pauses.forEach { pause ->
                         put(
                             JSONObject()
                                 .put("start", pause.startMs)
                                 .put("end", pause.endMs ?: JSONObject.NULL)
-                                .put("manual", true)
+                                .put("manual", pause.source.name == "MANUAL")
+                                .put("automatic", pause.source.name == "SYSTEM")
                         )
                     }
                 })
@@ -270,7 +271,7 @@ object PointageStore {
         val sessionEnd = if (item.isNull("exit")) until else item.optLong("exit", until)
         if (sessionEnd <= entry) return 0L
         val raw = sessionEnd - entry
-        val base = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240) * 60000L
+        val base = item.optInt("autoPauseMinutes", 0).coerceIn(0, 480) * 60000L
         val pauses = item.optJSONArray("pauses")
         val intervals = mutableListOf<Pair<Long, Long>>()
         if (pauses != null) for (i in 0 until pauses.length()) {
@@ -340,6 +341,7 @@ object PointageStore {
         if (v2Active()) {
             return V2RuntimeStore.allSessions(context)
                 .flatMap { it.pauses }
+                .filter { it.source.name == "MANUAL" }
                 .mapNotNull { pause ->
                     val end = pause.endMs ?: return@mapNotNull null
                     if (pause.startMs >= dayStart && pause.startMs < dayEnd && end > pause.startMs) pause.startMs to end else null
@@ -394,7 +396,6 @@ object PointageStore {
     }
 
     private fun resolveCompanySlot(context: Context, rawAddress: String?): Int {
-        val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val address = rawAddress?.trim().orEmpty()
         if (address.isNotBlank()) {
@@ -402,7 +403,7 @@ object PointageStore {
             val direct = map?.optInt(address, 0) ?: 0
             if (direct in 1..2) return direct
         }
-        return if (salary.getString("company_name", "").orEmpty().isNotBlank()) 1 else 1
+        return 1
     }
 
     private fun currentActiveZone(context: Context): Pair<String, String>? {
