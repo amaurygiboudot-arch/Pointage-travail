@@ -14,6 +14,7 @@ import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
 
+/** Façade de compatibilité : en mode V2, aucun calcul métier legacy n'est exécuté. */
 object SalaryCalculator {
 
     data class TierResult(val label:String,val durationMs:Long,val multiplier:Double)
@@ -54,8 +55,34 @@ object SalaryCalculator {
             }
         if (sessions.isEmpty() || hourlyRate <= 0.0) return emptyResult(convention)
 
-        val weekly = linkedMapOf<WeekKey, Int>()
         val totalPaidMs = sessions.sumOf { s -> HoraTrackV2.time.calculate(s).paidWorkMs }
+        val sourceTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
+        val firstTier = sourceTiers.firstOrNull()
+
+        // Sans seuil confirmé, on valorise uniquement le temps payé au taux de base.
+        // Aucune durée hebdomadaire ni majoration n'est inventée.
+        if (firstTier == null || firstTier.fromHour <= 0.0) {
+            val baseGross = totalPaidMs / 3_600_000.0 * hourlyRate
+            return Result(
+                regularMs = totalPaidMs,
+                overtimeTiers = emptyList(),
+                totalWorkedMs = totalPaidMs,
+                workedGross = baseGross,
+                monthlyBaseGross = baseGross,
+                overtimeGross = 0.0,
+                nightMs = 0L,
+                nightPremiumGross = 0.0,
+                saturdayMs = 0L,
+                saturdayPremiumGross = 0.0,
+                sundayMs = 0L,
+                sundayPremiumGross = 0.0,
+                monthlyEstimatedGross = baseGross,
+                completedSessions = sessions.count { it.status == SessionStatusV2.CLOSED }
+            )
+        }
+
+        val weeklyRegular = (firstTier.fromHour * 60.0).roundToInt()
+        val weekly = linkedMapOf<WeekKey, Int>()
         sessions.forEach { s ->
             val entry = s.realArrivalMs ?: return@forEach
             val paidMinutes = (HoraTrackV2.time.calculate(s).paidWorkMs / 60_000L).toInt()
@@ -68,20 +95,26 @@ object SalaryCalculator {
             weekly[key] = (weekly[key] ?: 0) + paidMinutes
         }
 
-        val sourceTiers = convention.overtimeTiers
-        val weeklyRegular = ((sourceTiers.firstOrNull()?.fromHour ?: 35.0) * 60.0).roundToInt()
         val v2Tiers = sourceTiers.map {
-            OvertimeTierV2((it.fromHour * 60.0).roundToInt(), it.toHour?.let { h -> (h * 60.0).roundToInt() }, it.multiplier)
+            OvertimeTierV2(
+                (it.fromHour * 60.0).roundToInt(),
+                it.toHour?.let { h -> (h * 60.0).roundToInt() },
+                it.multiplier
+            )
         }
         val rules = PayrollRulesV2(
             weeklyRegularMinutes = weeklyRegular,
-            overtimeTiers = v2Tiers,
-            nightMultiplier = null,
-            saturdayMultiplier = null,
-            sundayMultiplier = null
+            overtimeTiers = v2Tiers
         )
         val payroll = PayrollEngineV2.calculate(
-            ContractV2("v2-salary", "v2-employer", ContractTypeV2.FULL_TIME, weeklyRegular, hourlyRate, null),
+            ContractV2(
+                "v2-salary",
+                "v2-employer",
+                ContractTypeV2.OTHER,
+                weeklyRegular,
+                hourlyRate,
+                null
+            ),
             weekly.values.map { PayrollWeekV2(it) },
             rules
         )
@@ -95,10 +128,15 @@ object SalaryCalculator {
             }
         }
         val tiers = v2Tiers.mapIndexed { index, tier ->
-            TierResult("Heures sup. +${((tier.multiplier - 1.0) * 100).roundToInt()} %", tierMinutes[index] * 60_000L, tier.multiplier)
+            TierResult(
+                "Heures sup. +${((tier.multiplier - 1.0) * 100).roundToInt()} %",
+                tierMinutes[index] * 60_000L,
+                tier.multiplier
+            )
         }
         val overtimeMs = tierMinutes.sum() * 60_000L
         val regularMs = (totalPaidMs - overtimeMs).coerceAtLeast(0L)
+
         return Result(
             regularMs = regularMs,
             overtimeTiers = tiers,
@@ -119,7 +157,9 @@ object SalaryCalculator {
 
     private fun emptyResult(convention:ConventionCatalog.Convention):Result = Result(
         0L,
-        convention.overtimeTiers.map { TierResult("Heures sup. +${((it.multiplier-1.0)*100).roundToInt()} %",0L,it.multiplier) },
+        if (convention.rulesIntegrated) convention.overtimeTiers.map {
+            TierResult("Heures sup. +${((it.multiplier-1.0)*100).roundToInt()} %",0L,it.multiplier)
+        } else emptyList(),
         0L,0.0,0.0,0.0,0L,0.0,0L,0.0,0L,0.0,0.0,0
     )
 
@@ -190,5 +230,10 @@ object SalaryCalculator {
         while(day.timeInMillis<=last.timeInMillis){val start=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val end=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};total+=overlap(entry,exit,start.timeInMillis,end.timeInMillis);day.add(Calendar.DAY_OF_YEAR,1)}
         return total
     }
-    private fun overlap(start:Long,end:Long,rangeStart:Long,rangeEnd:Long):Long{val from=maxOf(start,rangeStart);val to=minOf(end,rangeEnd);return(to-from).coerceAtLeast(0L)}
+
+    private fun overlap(start:Long,end:Long,rangeStart:Long,rangeEnd:Long):Long{
+        val from=maxOf(start,rangeStart)
+        val to=minOf(end,rangeEnd)
+        return(to-from).coerceAtLeast(0L)
+    }
 }
