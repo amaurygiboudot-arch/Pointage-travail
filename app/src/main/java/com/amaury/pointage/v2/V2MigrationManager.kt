@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.v2.model.EventSourceV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -15,7 +16,7 @@ object V2MigrationManager {
     private const val LEGACY_PREFS = "pointage"
     private const val LEGACY_KEY = "data"
     private const val HISTORY_KEY = "history"
-    private const val VERSION = 2
+    private const val VERSION = 3
 
     data class Result(val imported: Int, val skipped: Int, val legacyCount: Int, val v2Count: Int)
 
@@ -28,9 +29,7 @@ object V2MigrationManager {
         val history = runCatching { JSONArray(runtime.getString(HISTORY_KEY, "[]") ?: "[]") }.getOrElse { JSONArray() }
 
         val signatures = mutableSetOf<String>()
-        for (i in 0 until history.length()) {
-            history.optJSONObject(i)?.let { signatures += signatureV2(it) }
-        }
+        for (i in 0 until history.length()) history.optJSONObject(i)?.let { signatures += signatureV2(it) }
 
         var imported = 0
         var skipped = 0
@@ -40,18 +39,17 @@ object V2MigrationManager {
             val countedEntry = positive(old, "countedEntryTime") ?: positive(old, "entry") ?: realEntry
             val realExit = positive(old, "exitTime") ?: positive(old, "exit")
             val countedExit = positive(old, "countedExitTime") ?: positive(old, "exit")
-            val sig = "$realEntry:${realExit ?: 0L}:${countedEntry}:${countedExit ?: 0L}"
-            if (sig in signatures) { skipped++; continue }
-
-            val pauses = JSONArray()
-            val oldPauses = old.optJSONArray("pauses") ?: JSONArray()
-            for (p in 0 until oldPauses.length()) {
-                val pause = oldPauses.optJSONObject(p) ?: continue
-                val start = positive(pause, "start") ?: continue
-                val end = positive(pause, "end") ?: continue
-                if (end > start) pauses.put(JSONObject().put("start", start).put("end", end))
+            val sig = "$realEntry:${realExit ?: 0L}:$countedEntry:${countedExit ?: 0L}"
+            if (sig in signatures) {
+                // Une ancienne migration V2 peut ne pas avoir conservé la déduction fixe.
+                // On enrichit la ligne existante sans jamais supprimer ni réécrire l'ancienne base.
+                enrichExisting(history, sig, old)
+                skipped++
+                continue
             }
 
+            val basePauseMinutes = old.optInt("autoPauseMinutes", 0).coerceIn(0, 480)
+            val pauses = migratePauses(old, basePauseMinutes)
             val item = JSONObject()
                 .put("id", old.optString("id").ifBlank { "legacy-${UUID.randomUUID()}" })
                 .put("realEntry", realEntry)
@@ -59,6 +57,7 @@ object V2MigrationManager {
                 .put("realExit", realExit ?: JSONObject.NULL)
                 .put("countedExit", countedExit ?: JSONObject.NULL)
                 .put("pauses", pauses)
+                .put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
                 .put("migratedFromLegacy", true)
                 .put("companySlot", old.optInt("companySlot", 1).coerceIn(1, 2))
             history.put(item)
@@ -66,7 +65,7 @@ object V2MigrationManager {
             imported++
         }
 
-        if (imported > 0) runtime.edit().putString(HISTORY_KEY, history.toString()).apply()
+        runtime.edit().putString(HISTORY_KEY, history.toString()).apply()
         app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE).edit()
             .putInt("version", VERSION)
             .putInt("legacy_count", legacy.length())
@@ -74,6 +73,42 @@ object V2MigrationManager {
             .putLong("checked_at", System.currentTimeMillis())
             .apply()
         return Result(imported, skipped, legacy.length(), history.length())
+    }
+
+    private fun migratePauses(old: JSONObject, basePauseMinutes: Int): JSONArray {
+        val pauses = JSONArray()
+        val oldPauses = old.optJSONArray("pauses") ?: JSONArray()
+        for (p in 0 until oldPauses.length()) {
+            val pause = oldPauses.optJSONObject(p) ?: continue
+            // L'ancien moteur ne cumulait pas les intervalles automatiques avec autoPauseMinutes.
+            if (basePauseMinutes > 0 && pause.optBoolean("automatic", false)) continue
+            val start = positive(pause, "start") ?: continue
+            val end = positive(pause, "end") ?: continue
+            if (end <= start) continue
+            pauses.put(
+                JSONObject()
+                    .put("start", start)
+                    .put("end", end)
+                    .put("paid", false)
+                    .put("source", EventSourceV2.IMPORT.name)
+            )
+        }
+        return pauses
+    }
+
+    private fun enrichExisting(history: JSONArray, signature: String, old: JSONObject) {
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            if (signatureV2(item) != signature) continue
+            val basePauseMinutes = old.optInt("autoPauseMinutes", 0).coerceIn(0, 480)
+            if (!item.has("legacyFixedUnpaidPauseMs")) {
+                item.put("legacyFixedUnpaidPauseMs", basePauseMinutes * 60_000L)
+            }
+            val oldMigratedPauses = item.optJSONArray("pauses") ?: JSONArray()
+            if (oldMigratedPauses.length() == 0) item.put("pauses", migratePauses(old, basePauseMinutes))
+            item.put("migratedFromLegacy", true)
+            return
+        }
     }
 
     private fun positive(o: JSONObject, key: String): Long? {
