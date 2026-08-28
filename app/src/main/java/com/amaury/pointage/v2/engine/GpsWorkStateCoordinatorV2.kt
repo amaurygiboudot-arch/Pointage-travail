@@ -77,19 +77,11 @@ object GpsWorkStateCoordinatorV2 {
                 return Outcome(Action.NO_CHANGE, false, "Aucune session V2 ouverte à terminer")
             }
             savePending(context, event, Pending.Kind.EXIT_WORKSITE)
-            return Outcome(
-                Action.EXIT_PENDING_CONFIRMATION,
-                true,
-                "Sortie du poste détectée : fin de journée à confirmer"
-            )
+            return Outcome(Action.EXIT_PENDING_CONFIRMATION, true, "Sortie du poste détectée : fin de journée à confirmer")
         }
 
         savePending(context, event, Pending.Kind.AMBIGUOUS)
-        return Outcome(
-            Action.AMBIGUOUS_PENDING_CONFIRMATION,
-            true,
-            "Transition GPS ambiguë à qualifier"
-        )
+        return Outcome(Action.AMBIGUOUS_PENDING_CONFIRMATION, true, "Transition GPS ambiguë à qualifier")
     }
 
     fun pending(context: Context): Pending? {
@@ -112,6 +104,14 @@ object GpsWorkStateCoordinatorV2 {
     fun markPromptShown(context: Context, pending: Pending) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_PROMPTED_ID, pending.id).apply()
+    }
+
+    /** Une fermeture sans réponse ne transforme pas l'événement en décision. */
+    fun allowPromptAgain(context: Context, pending: Pending) {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (prefs.getString(KEY_PENDING_ID, null) == pending.id) {
+            prefs.edit().remove(KEY_PROMPTED_ID).apply()
+        }
     }
 
     fun confirmExit(context: Context, expectedEndMs: Long? = null): Boolean {
