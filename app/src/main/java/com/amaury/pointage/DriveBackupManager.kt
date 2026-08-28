@@ -55,7 +55,7 @@ object DriveBackupManager {
             val result = runCatching {
                 syncCompletedDays(app)
                 syncClosedMonths(app)
-                "sauvegarde quotidienne et mensuelle à jour"
+                "export PDF quotidien et mensuel à jour"
             }
             onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
         }.start()
@@ -208,7 +208,7 @@ class DriveFolderPickerActivity : Activity() {
             data?.data?.let { uri ->
                 runCatching { DriveBackupManager.saveTreeUri(this, uri) }
                     .onSuccess {
-                        Toast.makeText(this, "Dossier Drive mémorisé. Sauvegarde automatique activée.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "Dossier Drive mémorisé. Export PDF automatique activé.", Toast.LENGTH_LONG).show()
                         DriveBackupManager.syncAllAsync(this) { ok, message -> runOnUiThread { Toast.makeText(this, "Drive : $message", Toast.LENGTH_LONG).show() } }
                     }
                     .onFailure { Toast.makeText(this, "Impossible de mémoriser ce dossier", Toast.LENGTH_LONG).show() }
