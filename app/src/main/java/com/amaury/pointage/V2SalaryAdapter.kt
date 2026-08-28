@@ -45,7 +45,7 @@ object V2SalaryAdapter {
                 val end = s.realExitMs ?: return@filter false
                 val anchor = s.countedEntryMs ?: s.realArrivalMs ?: return@filter false
                 val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }
-                end > anchor && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month
+                s.employerId == contract.employerId && end > anchor && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month
             }
 
         if (sessions.isEmpty()) return Result(0L, emptyList(), 0L, 0.0, 0.0, 0, emptyList())
