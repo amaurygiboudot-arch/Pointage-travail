@@ -4,12 +4,14 @@ import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.WorkSessionV2
+import java.time.LocalDate
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -41,7 +43,8 @@ object V2SalaryAdapter {
         month: Int,
         hourlyRate: Double,
         convention: ConventionCatalog.Convention,
-        companySlot: Int = 1
+        companySlot: Int = 1,
+        ruleHistory: ConventionRuleHistoryV2? = null
     ): Result {
         require(HoraTrackV2.ENABLED) { "V2SalaryAdapter réservé au moteur V2" }
         val slot = companySlot.coerceIn(1, 2)
@@ -53,7 +56,8 @@ object V2SalaryAdapter {
             year = year,
             month = month,
             fallbackRate = hourlyRate,
-            convention = convention
+            convention = convention,
+            ruleHistory = ruleHistory
         )
     }
 
@@ -63,7 +67,8 @@ object V2SalaryAdapter {
         month: Int,
         hourlyRate: Double,
         convention: ConventionCatalog.Convention,
-        companySlot: Int = 1
+        companySlot: Int = 1,
+        ruleHistory: ConventionRuleHistoryV2? = null
     ): Result {
         require(HoraTrackV2.ENABLED) { "V2SalaryAdapter réservé au moteur V2" }
         val profile = V2ProfileStore.loadBound(companySlot.coerceIn(1, 2))
@@ -74,7 +79,8 @@ object V2SalaryAdapter {
             year = year,
             month = month,
             fallbackRate = hourlyRate,
-            convention = convention
+            convention = convention,
+            ruleHistory = ruleHistory
         )
     }
 
@@ -85,7 +91,8 @@ object V2SalaryAdapter {
         year: Int,
         month: Int,
         fallbackRate: Double,
-        convention: ConventionCatalog.Convention
+        convention: ConventionCatalog.Convention,
+        ruleHistory: ConventionRuleHistoryV2?
     ): Result {
         val effectiveRate = contract?.grossHourlyRate ?: fallbackRate.takeIf { it > 0.0 }
         if (contract == null || effectiveRate == null) {
@@ -102,11 +109,32 @@ object V2SalaryAdapter {
         if (selected.isEmpty()) return empty()
 
         val warnings = mutableListOf<String>()
-        val integratedTiers = if (convention.rulesIntegrated) convention.overtimeTiers else emptyList()
-        if (!convention.rulesIntegrated) warnings += "Paliers d'heures supplémentaires non confirmés pour cette convention"
+        val periodEpochDay = LocalDate.of(year, month + 1, 1).toEpochDay()
+        val historicalSnapshot = ruleHistory?.applicable(convention.idcc, periodEpochDay)
+        val historicalMode = ruleHistory != null
+        val historicalRules = historicalSnapshot?.rules
+
+        val integratedTiers = when {
+            historicalMode && historicalRules != null -> historicalRules.overtimeTiers.map {
+                ConventionCatalog.OvertimeTier(
+                    fromHour = it.fromMinutes / 60.0,
+                    toHour = it.toMinutes?.div(60.0),
+                    multiplier = it.multiplier
+                )
+            }
+            historicalMode -> emptyList()
+            convention.rulesIntegrated -> convention.overtimeTiers
+            else -> emptyList()
+        }
+        if (historicalMode && historicalSnapshot == null) {
+            warnings += "Règles conventionnelles historiques : À confirmer pour cette période"
+        } else if (!historicalMode && !convention.rulesIntegrated) {
+            warnings += "Paliers d'heures supplémentaires non confirmés pour cette convention"
+        }
 
         val contractualRegular = contract.contractualWeeklyMinutes
-        val conventionRegular = integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.roundToInt()
+        val conventionRegular = historicalRules?.weeklyRegularMinutes
+            ?: integratedTiers.firstOrNull()?.fromHour?.times(60.0)?.roundToInt()
         val regularLimit = contractualRegular ?: conventionRegular
         if (regularLimit == null || regularLimit <= 0) {
             val total = selected.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }
@@ -128,7 +156,7 @@ object V2SalaryAdapter {
 
         data class WeekStats(var paid: Int = 0, var night: Int = 0, var saturday: Int = 0, var sunday: Int = 0)
         val weeks = linkedMapOf<Pair<Int, Int>, WeekStats>()
-        val nightRule = ConventionNightRules.forIdcc(convention.idcc)
+        val nightRule = if (historicalMode) null else ConventionNightRules.forIdcc(convention.idcc)
         var nightTotalMs = 0L
         var saturdayTotalMs = 0L
         var sundayTotalMs = 0L
@@ -170,7 +198,7 @@ object V2SalaryAdapter {
         val payrollWeeks = weeks.values.map {
             PayrollWeekV2(it.paid, it.night, it.saturday, it.sunday)
         }
-        val rules = PayrollRulesV2(
+        val rules = historicalRules ?: PayrollRulesV2(
             weeklyRegularMinutes = regularLimit,
             overtimeTiers = integratedTiers.map { tier ->
                 OvertimeTierV2(
@@ -181,7 +209,10 @@ object V2SalaryAdapter {
             },
             nightMultiplier = nightRule?.premiumMultiplier
         )
-        val payroll = PayrollEngineV2.calculate(contract.copy(grossHourlyRate = effectiveRate), payrollWeeks, rules)
+        val safeRules = if (historicalMode && historicalSnapshot == null) {
+            PayrollRulesV2(weeklyRegularMinutes = regularLimit)
+        } else rules
+        val payroll = PayrollEngineV2.calculate(contract.copy(grossHourlyRate = effectiveRate), payrollWeeks, safeRules)
 
         var regularMinutes = 0
         val tierMinutes = LongArray(integratedTiers.size)
@@ -215,7 +246,9 @@ object V2SalaryAdapter {
             saturdayMs = saturdayTotalMs,
             sundayMs = sundayTotalMs,
             completedSessions = selected.size,
-            warnings = warnings + payroll.traces
+            warnings = warnings + payroll.traces + historicalSnapshot?.let {
+                listOf("Règles historiques ${it.versionId} — source ${it.sourceId}")
+            }.orEmpty()
         )
     }
 
