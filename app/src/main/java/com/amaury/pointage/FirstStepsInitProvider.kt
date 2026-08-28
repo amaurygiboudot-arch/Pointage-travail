@@ -19,7 +19,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 
-/** Branche le tutoriel et initialise l'assistant intelligent dès la première installation. */
+/** Branche le tutoriel et les composants V2 sur l'interface normale. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
@@ -45,6 +45,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
             installOwnerShortcut(activity)
+            installSalaryExtrasWatcher(activity)
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
             installSecuritySettings(activity)
@@ -59,7 +60,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    /** Entrée secrète : appui long sur Paramètres, puis authentification biométrique. */
     private fun installOwnerShortcut(activity: MainActivity) {
         val settingsTab = activity.findViewById<TextView>(R.id.tabSettings) ?: return
         settingsTab.setOnLongClickListener {
@@ -97,6 +97,13 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         })
     }
 
+    private fun installSalaryExtrasWatcher(activity: MainActivity) {
+        val content = activity.findViewById<LinearLayout>(R.id.contentPanel) ?: return
+        if (content.findViewWithTag<View>(V2SalaryExtrasWatcher.TAG) == null) {
+            content.addView(V2SalaryExtrasWatcher(activity), ViewGroup.LayoutParams(1, 1))
+        }
+    }
+
     private fun installGpsZoneTypeSelector(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
         if (panel.findViewWithTag<View>(GpsZoneTypeView.TAG) == null) {
@@ -119,7 +126,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         } else existing.refresh()
     }
 
-    /** Empêche le bouton visible d'ouvrir l'ancien flux PDF bloqué en V2. */
     private fun installV2PdfExport(activity: MainActivity) {
         if (!HoraTrackV2.ENABLED) return
         activity.findViewById<Button>(R.id.generateMonthlyPdfButton)?.setOnClickListener {
