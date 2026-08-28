@@ -14,8 +14,10 @@ import android.opengl.EGLSurface
  * bouton conserve sa propre EGLSurface, ce qui permet de mutualiser le contexte
  * sans mélanger les états visuels, textures ou matériaux propres à chaque bouton.
  *
- * Cette classe n'est pas encore branchée au renderer des diamants : elle prépare
- * la migration contrôlée afin de conserver strictement leur rendu actuel.
+ * La destruction d'une surface accepte maintenant un nettoyage GPU explicite :
+ * il est exécuté pendant que le contexte partagé est encore courant. Cela évite
+ * de laisser textures, programmes ou autres ressources OpenGL dans le contexte
+ * lorsque le bouton disparaît.
  */
 internal object OpenGlButtonEgl {
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
@@ -49,8 +51,17 @@ internal object OpenGlButtonEgl {
         EGL14.eglSwapBuffers(display, surface)
     }
 
-    fun destroySurface(surface: EGLSurface) {
+    fun destroySurface(
+        surface: EGLSurface,
+        releaseGpuResources: (() -> Unit)? = null
+    ) {
         if (display == EGL14.EGL_NO_DISPLAY || surface == EGL14.EGL_NO_SURFACE) return
+
+        if (releaseGpuResources != null) {
+            makeCurrent(surface)
+            releaseGpuResources()
+        }
+
         if (EGL14.eglGetCurrentSurface(EGL14.EGL_DRAW) == surface) {
             EGL14.eglMakeCurrent(
                 display,
