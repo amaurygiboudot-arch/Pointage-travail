@@ -58,6 +58,7 @@
         <activity android:name=".FirebaseAccountActivity" android:exported="false" />
         <activity android:name=".OwnerFeedbackActivity" android:exported="false" />
         <activity android:name=".SalaryActivity" android:exported="false" />
+        <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />
         <activity android:name=".PdfPreviewActivity" android:exported="false" />
