@@ -36,6 +36,7 @@ android {
         buildConfigField("String", "FIREBASE_APP_ID", "\"${envString("FIREBASE_APP_ID")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${envString("FIREBASE_PROJECT_ID")}\"")
         buildConfigField("String", "FIREBASE_SENDER_ID", "\"${envString("FIREBASE_SENDER_ID")}\"")
+        buildConfigField("Boolean", "INTERNAL_APK_UPDATES_ENABLED", "true")
     }
 
     buildFeatures {
@@ -50,6 +51,11 @@ android {
             isShrinkResources = true
             signingConfig = signingConfigs.getByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+        create("play") {
+            initWith(getByName("release"))
+            buildConfigField("Boolean", "INTERNAL_APK_UPDATES_ENABLED", "false")
+            matchingFallbacks += listOf("release")
         }
     }
 
