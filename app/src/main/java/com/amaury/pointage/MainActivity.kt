@@ -39,6 +39,8 @@ class MainActivity : Activity() {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
+        private const val NAVIGATION_PREFS = "navigation_state"
+        private const val KEY_ACTIVE_TAB = "active_tab"
     }
 
     private lateinit var statusCard: TextView
@@ -76,6 +78,7 @@ class MainActivity : Activity() {
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy { getSharedPreferences("gps_settings", Context.MODE_PRIVATE) }
+    private val navigationPrefs by lazy { getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE) }
 
     private inline fun <reified T : View> requiredView(id: Int, name: String): T =
         requireNotNull(findViewById<T>(id)) { "MainActivity : vue obligatoire absente : $name" }
@@ -193,12 +196,19 @@ class MainActivity : Activity() {
     }
 
     private fun openRequestedTab(intent: Intent?) {
-        when (intent?.getStringExtra("open_tab")) {
+        val requestedTab = intent?.getStringExtra("open_tab")
+        val targetTab = requestedTab ?: navigationPrefs.getString(KEY_ACTIVE_TAB, "today")
+        when (targetTab) {
             "settings" -> showSettingsTab()
             "history" -> showHistoryTab()
             "analytics" -> showAnalyticsTab()
             else -> showTodayTab()
         }
+    }
+
+    private fun persistActiveTab(tab: String) {
+        activeTab = tab
+        navigationPrefs.edit().putString(KEY_ACTIVE_TAB, tab).apply()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -245,7 +255,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
-        activeTab = "today"
+        persistActiveTab("today")
         setActiveTab(tabToday)
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.VISIBLE
@@ -258,7 +268,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
-        activeTab = "history"
+        persistActiveTab("history")
         setActiveTab(tabHistory)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -271,7 +281,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
-        activeTab = "analytics"
+        persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -285,7 +295,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
-        activeTab = "settings"
+        persistActiveTab("settings")
         setActiveTab(tabSettings)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
