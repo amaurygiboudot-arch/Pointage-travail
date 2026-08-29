@@ -116,7 +116,7 @@ class LaunchActivity : Activity() {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(22), dp(24), dp(22), dp(22))
+            setPadding(dp(22), dp(24), dp(22), dp(18))
             background = rounded(panel, 24, accentDisplay)
             elevation = dp(8).toFloat()
         }
@@ -142,13 +142,13 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "Merci d’avoir téléchargé HoraTrack.\n\nL’application est conçue pour simplifier le suivi de ton temps de travail, de tes heures et de ton activité professionnelle.\n\nBonne utilisation !"
+            text = "Merci pour ton téléchargement.\n\nSimplifie le suivi de ton temps de travail.\n\nBonne utilisation !"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 15f
             setTextColor(textColor)
             setLineSpacing(0f, 1.15f)
-            setPadding(dp(2), 0, dp(2), dp(18))
+            setPadding(dp(2), 0, dp(2), dp(14))
         })
 
         card.addView(TextView(this).apply {
@@ -157,7 +157,17 @@ class LaunchActivity : Activity() {
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 13f
             setTextColor(secondary)
-            setPadding(0, 0, 0, dp(18))
+            setPadding(0, 0, 0, dp(8))
+        })
+
+        card.addView(TextView(this).apply {
+            text = "✦ Assisté par IA"
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            textSize = 11f
+            setTextColor(secondary)
+            alpha = 0.78f
+            setPadding(0, 0, 0, dp(12))
         })
 
         val startButton = Button(this).apply {
@@ -180,6 +190,16 @@ class LaunchActivity : Activity() {
         }
         card.addView(startButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply {
             topMargin = dp(2)
+        })
+
+        card.addView(TextView(this).apply {
+            text = "© 2026 — Tous droits réservés"
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            textSize = 10f
+            setTextColor(secondary)
+            alpha = 0.72f
+            setPadding(0, dp(12), 0, 0)
         })
 
         val scroll = ScrollView(this).apply {
