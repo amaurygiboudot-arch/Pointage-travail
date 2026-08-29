@@ -19,8 +19,9 @@ import android.widget.TextView
 /**
  * Lanceur minimal, indépendant de l'interface principale.
  *
- * L'écran de bienvenue s'affiche une fois par version installée.
- * Il utilise exactement la même palette jour/nuit que le reste de HP Travail.
+ * L'écran de bienvenue s'affiche uniquement lors de la première installation.
+ * Les mises à jour conservent l'état de navigation existant et ouvrent
+ * directement l'application, sauf si le mode récupération doit être prioritaire.
  */
 class LaunchActivity : Activity() {
 
@@ -76,7 +77,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun shouldShowWelcomeForCurrentVersion(): Boolean {
-        return readLastShownVersion() != currentVersionCode()
+        return readLastShownVersion() < 0L
     }
 
     private fun markWelcomeShown() {
