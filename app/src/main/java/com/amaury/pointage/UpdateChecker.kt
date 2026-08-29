@@ -19,11 +19,11 @@ import java.net.URL
 object UpdateChecker {
     /**
      * Interrupteur central du moteur de mise à jour APK interne.
-     * Tant que HoraTrack est distribué hors Play Store il reste à true.
-     * Lors du passage à Google Play, le basculer à false désactive les contrôles,
-     * téléchargements et ouvertures d'installateur internes sans supprimer le code.
+     * La variante interne l'active, tandis que la variante Google Play le désactive
+     * directement au moment de la compilation via BuildConfig.
      */
-    internal const val INTERNAL_APK_UPDATES_ENABLED = true
+    internal val INTERNAL_APK_UPDATES_ENABLED: Boolean
+        get() = BuildConfig.INTERNAL_APK_UPDATES_ENABLED
 
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases/latest"
     private const val LATEST_RELEASE_PAGE = "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/latest"
