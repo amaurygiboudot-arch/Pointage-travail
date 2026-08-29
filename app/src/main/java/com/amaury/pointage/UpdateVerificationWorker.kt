@@ -23,6 +23,11 @@ class UpdateVerificationWorker(
 
     override fun doWork(): Result {
         val context = applicationContext
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+            UpdateChecker.clearDownloadState(context)
+            return Result.success()
+        }
+
         val prefs = context.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
         val version = prefs.getString(UpdateChecker.KEY_VERSION, "").orEmpty()
         val apk = UpdateChecker.downloadedApkFile(context) ?: run {
@@ -50,6 +55,7 @@ class UpdateVerificationWorker(
     }
 
     private fun notifyReady(context: Context) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         val apk = UpdateChecker.downloadedApkFile(context)
             ?: context.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
                 .getString(UpdateChecker.KEY_READY_FILE, null)
@@ -78,6 +84,7 @@ class UpdateVerificationWorker(
     }
 
     private fun notifyFailure(context: Context, reason: String) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(
@@ -108,6 +115,12 @@ class UpdateVerificationWorker(
 
         fun enqueue(context: Context) {
             val appContext = context.applicationContext
+            if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+                UpdateChecker.clearDownloadState(appContext)
+                WorkManager.getInstance(appContext).cancelUniqueWork(UNIQUE_WORK)
+                return
+            }
+
             appContext.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, true).apply()
 
