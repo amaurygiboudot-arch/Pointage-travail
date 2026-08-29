@@ -13,6 +13,10 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != DownloadManager.ACTION_DOWNLOAD_COMPLETE) return
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+            UpdateChecker.clearDownloadState(context)
+            return
+        }
 
         val completedId = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
         val prefs = context.getSharedPreferences(UpdateChecker.PREFS, Context.MODE_PRIVATE)
