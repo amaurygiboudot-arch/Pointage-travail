@@ -36,13 +36,28 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
+    private var lastAppliedStyleToken: String? = null
+    private var textStyleDirty = true
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        super.onLayout(changed, l, t, r, b)
+        // Des descendants peuvent être ajoutés/recomposés sans changer les bornes
+        // du ScrollView. Chaque passe de layout doit donc rendre le style à revoir.
+        textStyleDirty = true
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
         drawHpBackground(canvas)
         canvas.restore()
-        applyGlobalAdaptiveTextColor()
+
+        val styleToken = currentStyleToken()
+        if (textStyleDirty || styleToken != lastAppliedStyleToken) {
+            applyGlobalAdaptiveTextColor()
+            lastAppliedStyleToken = currentStyleToken()
+            textStyleDirty = false
+        }
         super.dispatchDraw(canvas)
     }
 
@@ -62,50 +77,84 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         return file
     }
 
-    private fun drawHpBackground(canvas: Canvas) {
+    private fun currentStyleToken(): String {
+        val theme = AppThemeCatalog.current(context)
+        val dark = ThemeDayNight.isDark(context)
         val file = selectedBackgroundFile()
         if (file != null) {
-            drawSelectedImage(canvas, file)
-            return
+            // Même avec la même photo, un changement clair/sombre ou de thème peut
+            // recolorer d'autres composants : l'adaptation photo doit être réappliquée.
+            return "image:${file.absolutePath}:${file.lastModified()}:${file.length()}:$dark:${theme.id}:${theme.accent}:${theme.accentLight}"
         }
+        val background = if (dark) theme.darkBackground else theme.lightBackground
+        return "palette:$dark:$background:${theme.id}:${theme.accent}:${theme.accentLight}"
+    }
 
-        // Règle d'architecture : la matière d'un bouton appartient au bouton uniquement.
-        // Un thème peut changer la palette du fond de l'application, mais il ne réutilise
-        // jamais automatiquement une texture/image destinée à un bouton ou à son cadre.
+    private fun drawHpBackground(canvas: Canvas) {
+        val file = selectedBackgroundFile()
+        if (file != null && drawSelectedImage(canvas, file)) return
+
         val theme = AppThemeCatalog.current(context)
         val dark = ThemeDayNight.isDark(context)
         canvas.drawColor(if (dark) theme.darkBackground else theme.lightBackground)
     }
 
-    private fun drawSelectedImage(canvas: Canvas, file: File) {
+    private fun drawSelectedImage(canvas: Canvas, file: File): Boolean {
         ensureImage(file)
-        val bmp = cachedImage ?: return
+        val bmp = cachedImage ?: return false
         val scale = max(width.toFloat() / bmp.width, height.toFloat() / bmp.height)
         val dw = (bmp.width * scale).toInt()
         val dh = (bmp.height * scale).toInt()
         val left = (width - dw) / 2
         val top = (height - dh) / 2
         canvas.drawBitmap(bmp, null, Rect(left, top, left + dw, top + dh), paint)
+        return true
     }
 
     private fun ensureImage(file: File) {
         val token = "${file.absolutePath}:${file.lastModified()}:${file.length()}"
-        if (cachedImageToken != token || cachedImage == null) {
-            cachedImage?.recycle()
-            cachedImage = runCatching { BitmapFactory.decodeFile(file.absolutePath) }.getOrNull()
-            cachedImageToken = token
-            cachedTextColor = null
-            cachedShadowColor = null
+        // Le token est mémorisé même si le décodage échoue : une image corrompue
+        // ou une allocation refusée ne doit pas être redécodée à chaque frame.
+        if (cachedImageToken == token) return
+
+        cachedImage?.recycle()
+        cachedImage = decodeSampled(file)
+        cachedImageToken = token
+        cachedTextColor = null
+        cachedShadowColor = null
+        textStyleDirty = true
+    }
+
+    private fun decodeSampled(file: File): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val metrics = resources.displayMetrics
+        val targetWidth = max(width, metrics.widthPixels).coerceAtLeast(1)
+        val targetHeight = max(height, metrics.heightPixels).coerceAtLeast(1)
+        var sample = 1
+        while (
+            bounds.outWidth / (sample * 2) >= targetWidth &&
+            bounds.outHeight / (sample * 2) >= targetHeight
+        ) {
+            sample *= 2
         }
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample.coerceAtLeast(1)
+            inJustDecodeBounds = false
+        }
+        return runCatching { BitmapFactory.decodeFile(file.absolutePath, options) }.getOrNull()
     }
 
     private fun applyGlobalAdaptiveTextColor() {
         val file = selectedBackgroundFile()
-        val hasImage = file != null
         if (file != null) {
-            clearPhotoPanels(this, false)
             ensureImage(file)
+            if (cachedImage != null) clearPhotoPanels(this, false)
         }
+        val hasImage = file != null && cachedImage != null
 
         val textColor: Int
         val shadowColor: Int
@@ -134,14 +183,23 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 Color.argb(220, 0, 0, 0)
             }
         }
-        applyTextColorRecursively(this, textColor, shadowColor)
+        applyTextColorRecursively(this, textColor, shadowColor, hasImage)
     }
 
     private fun clearPhotoPanels(view: View, insideEnterprise: Boolean) {
         val nowInside = insideEnterprise || view is EnterpriseLookupView
-        if (nowInside && view is ViewGroup && view !is Button && view !is EditText && view !is Switch) {
+        if (
+            nowInside &&
+            view is ViewGroup &&
+            view !is Button &&
+            view !is EditText &&
+            view !is Switch &&
+            view.background != null
+        ) {
+            // Une fois le panneau rendu transparent, ne réinstalle pas un ColorDrawable
+            // transparent à chaque passe : cela peut redemander un layout et recréer une
+            // boucle layout -> style -> layout pendant le défilement.
             view.background = null
-            view.setBackgroundColor(Color.TRANSPARENT)
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) clearPhotoPanels(view.getChildAt(i), nowInside)
@@ -180,13 +238,13 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         }
     }
 
-    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int) {
-        // Les onglets possèdent leur propre palette active/inactive gérée par MainActivity.
+    private fun applyTextColorRecursively(view: View, color: Int, shadow: Int, photoBackground: Boolean) {
         if (view.id == R.id.navigationTabs) return
 
         if (view is TextView) {
             view.setTextColor(color)
-            view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+            if (photoBackground) view.setShadowLayer(3.8f, 0f, 1.1f, shadow)
+            else view.setShadowLayer(0f, 0f, 0f, Color.TRANSPARENT)
             if (view is EditText) {
                 view.setHintTextColor(
                     if (color == Color.WHITE) Color.rgb(225, 225, 225) else Color.rgb(55, 55, 55)
@@ -195,7 +253,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         }
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                applyTextColorRecursively(view.getChildAt(i), color, shadow)
+                applyTextColorRecursively(view.getChildAt(i), color, shadow, photoBackground)
             }
         }
     }
