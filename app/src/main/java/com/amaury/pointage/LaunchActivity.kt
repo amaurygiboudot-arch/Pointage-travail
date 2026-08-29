@@ -131,7 +131,7 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "BIENVENUE SUR HP TRAVAIL"
+            text = "BIENVENUE SUR HORATRACK"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
@@ -142,7 +142,7 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "Merci d’avoir téléchargé HP Travail.\n\nL’application est conçue pour simplifier le suivi de ton temps de travail, de tes heures et de ton activité professionnelle.\n\nBonne utilisation !"
+            text = "Merci d’avoir téléchargé HoraTrack.\n\nL’application est conçue pour simplifier le suivi de ton temps de travail, de tes heures et de ton activité professionnelle.\n\nBonne utilisation !"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 15f
