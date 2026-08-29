@@ -71,6 +71,7 @@ class True3DButtonTextureView @JvmOverloads constructor(
     private var lastFrameMs = 0L
     private val minFrameMs = 1000L / quality.fps.coerceAtLeast(1)
     @Volatile private var renderQueued = false
+    @Volatile private var surfaceGeneration = 0L
 
     init {
         isOpaque = false
@@ -92,23 +93,38 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
     private fun requestRender(force: Boolean = false) {
         if (renderQueued && !force) return
+        val generation = surfaceGeneration
         renderQueued = true
         renderHandler.post {
+            if (generation != surfaceGeneration) {
+                renderQueued = false
+                return@post
+            }
             val now = SystemClock.uptimeMillis()
             val wait = if (force) 0L else (minFrameMs - (now - lastFrameMs)).coerceAtLeast(0L)
             if (wait > 0L) {
-                renderHandler.postDelayed({ renderQueued = false; drawFrame() }, wait)
+                renderHandler.postDelayed({
+                    renderQueued = false
+                    drawFrame(generation)
+                }, wait)
             } else {
                 renderQueued = false
-                drawFrame()
+                drawFrame(generation)
             }
         }
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        val generation = ++surfaceGeneration
+        renderQueued = false
         surfaceWidth = width.coerceAtLeast(1)
         surfaceHeight = height.coerceAtLeast(1)
-        renderHandler.post { releaseEgl(); egl = EglSession(surface, quality); drawFrame() }
+        renderHandler.post {
+            if (generation != surfaceGeneration) return@post
+            releaseEgl()
+            egl = EglSession(surface, quality)
+            drawFrame(generation)
+        }
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
@@ -118,18 +134,29 @@ class True3DButtonTextureView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        renderHandler.post { releaseEgl() }
-        return true
+        surfaceGeneration++
+        renderQueued = false
+        renderHandler.post {
+            try {
+                releaseEgl()
+            } finally {
+                surface.release()
+            }
+        }
+        return false
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        surfaceGeneration++
+        renderQueued = false
         renderHandler.post { releaseEgl() }
     }
 
-    private fun drawFrame() {
+    private fun drawFrame(generation: Long) {
+        if (generation != surfaceGeneration) return
         val session = egl ?: return
         session.makeCurrent()
         renderer.draw(surfaceWidth, surfaceHeight)
@@ -696,7 +723,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(.00001f)
                 return floatArrayOf(nx / len, ny / len, nz / len)
             }
-
             fun emitVertex(v: FloatArray, n: FloatArray, id: Float) {
                 data.add(v[0]); data.add(v[1]); data.add(v[2])
                 data.add(n[0]); data.add(n[1]); data.add(n[2])
