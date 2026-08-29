@@ -19,8 +19,20 @@ import com.google.firebase.messaging.RemoteMessage
 object FirebaseUpdatePush {
     const val TOPIC = "hp_travail_updates"
     private const val CHANNEL_ID = "hp_travail_updates"
+    private const val NOTIFICATION_ID = 9401
 
     fun initialize(context: Context) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(NOTIFICATION_ID)
+            if (FirebaseApp.getApps(context).isNotEmpty()) {
+                runCatching {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC)
+                }
+            }
+            return
+        }
+
         if (FirebaseApp.getApps(context).isEmpty()) {
             val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
             val appId = BuildConfig.FIREBASE_APP_ID.trim()
@@ -46,6 +58,7 @@ object FirebaseUpdatePush {
     }
 
     private fun createChannel(context: Context) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
@@ -60,6 +73,7 @@ object FirebaseUpdatePush {
     }
 
     fun showUpdateNotification(context: Context, title: String?, body: String?) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         createChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -71,7 +85,7 @@ object FirebaseUpdatePush {
         }
         val pending = PendingIntent.getActivity(
             context,
-            9401,
+            NOTIFICATION_ID,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -87,7 +101,7 @@ object FirebaseUpdatePush {
             .build()
 
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(9401, notification)
+            .notify(NOTIFICATION_ID, notification)
     }
 }
 
@@ -99,6 +113,8 @@ class HpFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
+
         val kind = message.data["kind"].orEmpty()
         if (kind.isNotBlank() && kind != "update") return
 
