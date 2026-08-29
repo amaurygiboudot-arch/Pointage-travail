@@ -14,5 +14,9 @@
         <receiver
             android:name=".UpdateDownloadReceiver"
             tools:node="remove" />
+
+        <service
+            android:name=".HpFirebaseMessagingService"
+            tools:node="remove" />
     </application>
 </manifest>
