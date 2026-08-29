@@ -51,7 +51,7 @@ jobs:
           echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
 
-      - name: Compiler APK et AAB release signes
+      - name: Tester lint et compiler APK AAB release signes
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -65,12 +65,12 @@ jobs:
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
-          gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Publier le diagnostic si la compilation echoue
+      - name: Publier le diagnostic si les controles ou la compilation echouent
         if: steps.gradle_build.outputs.exit_code != '0'
         uses: actions/upload-artifact@v4
         with:
@@ -79,10 +79,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Arreter le build si la compilation echoue
+      - name: Arreter la publication si tests lint ou compilation echouent
         if: steps.gradle_build.outputs.exit_code != '0'
         run: |
-          echo "La compilation Gradle a echoue. Le log complet est disponible dans l'artefact diagnostic-compilation-${{ github.run_number }}."
+          echo "Tests, lint ou compilation Gradle en echec. Aucun artefact ne sera publie."
           exit 1
 
       - name: Verifier la signature APK
