@@ -41,6 +41,7 @@ class MainActivity : Activity() {
         private const val REQUEST_BACKGROUND_LOCATION = 3002
         private const val NAVIGATION_PREFS = "navigation_state"
         private const val KEY_ACTIVE_TAB = "active_tab"
+        private const val KEY_REPORT_MONTH_MS = "report_month_ms"
     }
 
     private lateinit var statusCard: TextView
@@ -114,6 +115,7 @@ class MainActivity : Activity() {
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
 
         loadGpsSettings()
+        restoreSelectedReportMonth()
         updateSelectedReportMonthText()
 
         autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
@@ -322,6 +324,11 @@ class MainActivity : Activity() {
         tabSettings.setTextColor(if (active == tabSettings) activeColor else inactiveColor)
     }
 
+    private fun restoreSelectedReportMonth() {
+        val savedMonthMs = navigationPrefs.getLong(KEY_REPORT_MONTH_MS, -1L)
+        if (savedMonthMs > 0L) selectedReportMonth.timeInMillis = savedMonthMs
+    }
+
     private fun updateSelectedReportMonthText() {
         val label = reportMonthFormat.format(selectedReportMonth.time).replaceFirstChar { it.uppercase() }
         selectedReportMonthText.text = "Mois du rapport : $label"
@@ -344,6 +351,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Choisir le mois du rapport")
             .setSingleChoiceItems(options.toTypedArray(), selectedIndex) { dialog, which ->
                 selectedReportMonth.timeInMillis = calendars[which].timeInMillis
+                navigationPrefs.edit().putLong(KEY_REPORT_MONTH_MS, selectedReportMonth.timeInMillis).apply()
                 updateSelectedReportMonthText(); dialog.dismiss()
             }.setNegativeButton("Annuler", null).show()
     }
