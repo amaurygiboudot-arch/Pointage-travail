@@ -56,6 +56,9 @@ android {
             initWith(getByName("release"))
             buildConfigField("Boolean", "INTERNAL_APK_UPDATES_ENABLED", "false")
             matchingFallbacks += listOf("release")
+            if (System.getenv("POINTAGE_KEYSTORE_PATH").isNullOrBlank()) {
+                signingConfig = null
+            }
         }
     }
 
