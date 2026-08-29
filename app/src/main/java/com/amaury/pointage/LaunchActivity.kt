@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -108,9 +109,8 @@ class LaunchActivity : Activity() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(20), dp(24), dp(20), dp(24))
-            setBackgroundColor(screenBackground)
         }
 
         val card = LinearLayout(this).apply {
@@ -183,15 +183,19 @@ class LaunchActivity : Activity() {
         })
 
         val scroll = ScrollView(this).apply {
-            isFillViewport = true
             clipToPadding = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
             alpha = 0f
             animate().alpha(1f).setDuration(260L).start()
         }
 
-        setContentView(scroll)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(screenBackground)
+            addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        }
+
+        setContentView(root)
     }
 
     private fun openMain() {
