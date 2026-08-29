@@ -1,13 +1,16 @@
 package com.amaury.pointage
 
+import android.Manifest
 import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 class UpdateDownloadReceiver : BroadcastReceiver() {
 
@@ -45,6 +48,14 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
     }
 
     private fun notifyFailure(context: Context, reason: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            // L'état d'échec est déjà conservé par le flux de mise à jour ; sans
+            // permission Android 13+, on évite simplement un notify() interdit.
+            return
+        }
+
         ensureChannel(context)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(
