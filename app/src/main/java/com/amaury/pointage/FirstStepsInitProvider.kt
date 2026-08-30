@@ -21,6 +21,12 @@ import com.amaury.pointage.v2.HoraTrackV2
 
 /** Branche le tutoriel et les composants V2 sur l'interface normale. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
+    companion object {
+        private const val LIGHT_PREFS = "light_tracking_settings"
+        private const val LIGHT_ENABLED = "light_tracking_enabled"
+        private const val LIGHT_BUTTON_TAG = "light_tracking_toggle"
+    }
+
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
         SmartSetupManager.init(app)
@@ -51,6 +57,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
             installSecuritySettings(activity)
+            installLightTracking(activity)
             installV2PdfExport(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
@@ -62,6 +69,43 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             V2ManualEntryInstaller.install(activity)
             installEmployerSelector(activity)
         }
+    }
+
+    private fun installLightTracking(activity: MainActivity) {
+        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val prefs = activity.getSharedPreferences(LIGHT_PREFS, Activity.MODE_PRIVATE)
+
+        fun isEnabled() = prefs.getBoolean(LIGHT_ENABLED, true)
+        fun updateButton(button: Button) {
+            button.text = if (isEnabled()) "☀ SUIVI DE LUMIÈRE : ACTIVÉ" else "☀ SUIVI DE LUMIÈRE : DÉSACTIVÉ"
+        }
+        fun applyState() {
+            if (isEnabled()) {
+                LightDirectionController.attach(activity) { }
+            } else {
+                LightDirectionController.detach(activity)
+            }
+        }
+
+        var button = panel.findViewWithTag<Button>(LIGHT_BUTTON_TAG)
+        if (button == null) {
+            button = Button(activity).apply {
+                tag = LIGHT_BUTTON_TAG
+                isAllCaps = false
+                setBackgroundResource(R.drawable.hp_panel)
+                setOnClickListener {
+                    val enabled = !isEnabled()
+                    prefs.edit().putBoolean(LIGHT_ENABLED, enabled).apply()
+                    updateButton(this)
+                    applyState()
+                }
+            }
+            updateButton(button)
+            panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else {
+            updateButton(button)
+        }
+        applyState()
     }
 
     private fun installEmployerSelector(activity: MainActivity) {
@@ -176,7 +220,9 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit
-    override fun onActivityPaused(activity: Activity) = Unit
+    override fun onActivityPaused(activity: Activity) {
+        if (activity is MainActivity) LightDirectionController.detach(activity)
+    }
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityDestroyed(activity: Activity) = Unit
