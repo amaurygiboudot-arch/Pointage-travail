@@ -40,6 +40,7 @@ class DiamondFacetMemory {
     private var internalReturnUploadBytes = ByteArray(0)
     private var internalLightBuffer = FloatArray(0)
     private var pavilionWeightsBuffer = FloatArray(0)
+    private var scatterBeforeBuffer = FloatArray(0)
 
     fun size(): Int = states.size
 
@@ -312,7 +313,11 @@ class DiamondFacetMemory {
     private fun scatterPavilion(out: FloatArray, region: DiamondFacetRegion, amount: Float) {
         val ids = states.indices.filter { states[it].region == region }
         if (ids.size < 2) return
-        val before = out.copyOf()
+        if (scatterBeforeBuffer.size != out.size) {
+            scatterBeforeBuffer = FloatArray(out.size)
+        }
+        out.copyInto(scatterBeforeBuffer)
+        val before = scatterBeforeBuffer
         ids.forEachIndexed { index, id ->
             val prev = ids[(index - 1 + ids.size) % ids.size]
             val next = ids[(index + 1) % ids.size]
