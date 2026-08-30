@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.drawable.ColorDrawable
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewGroup
@@ -39,17 +40,17 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         val content = rootView.findViewById<LinearLayout>(R.id.contentPanel) ?: return
         val salary = content.findViewWithTag<SalaryPanelView>("integrated_salary_panel") ?: return
 
-        // La fiche complète reste hors de l'onglet Salaire : seul son bouton d'accès y apparaît.
         content.findViewWithTag<SalaryInformationSheetView>(SalaryInformationSheetView.TAG)?.visibility = GONE
 
-        if (salary.findViewWithTag<Button>(INFO_ACCESS_TAG) == null) {
+        val access = salary.findViewWithTag<Button>(INFO_ACCESS_TAG)
+        if (access == null) {
             salary.addView(
                 Button(context).apply {
                     tag = INFO_ACCESS_TAG
                     text = "FICHE DE RENSEIGNEMENTS"
                     isAllCaps = false
                     textSize = 14f
-                    setBackgroundResource(R.drawable.hp_panel)
+                    applyAccessTheme(this)
                     setOnClickListener { showInformationSheet() }
                 },
                 0,
@@ -57,6 +58,8 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
                     bottomMargin = dp(8)
                 }
             )
+        } else {
+            applyAccessTheme(access)
         }
 
         val payslip = salary.findViewWithTag<V2PayslipControlView>(V2PayslipControlView.TAG)
@@ -76,20 +79,41 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         } else rights.refresh()
     }
 
+    private fun applyAccessTheme(button: Button) {
+        val theme = AppThemeCatalog.current(context)
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        button.setTextColor(if (dark) theme.darkText else theme.lightText)
+        button.background = when (theme.id) {
+            "natural_carbon" -> CarbonCompositeDrawable(context)
+            else -> context.getDrawable(R.drawable.hp_panel)?.mutate()
+        }
+    }
+
     private fun showInformationSheet() {
+        val theme = AppThemeCatalog.current(context)
+        val dark = AppThemeCatalog.useDarkPalette(context)
+        val panelColor = if (dark) theme.darkPanel else theme.lightPanel
+        val accentColor = if (dark) theme.accentLight else theme.accent
+
         val sheet = SalaryInformationSheetView(context)
         val scroll = ScrollView(context).apply {
             isFillViewport = true
+            setBackgroundColor(panelColor)
             addView(
                 sheet,
                 ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             )
         }
-        AlertDialog.Builder(context)
+        val dialog = AlertDialog.Builder(context)
             .setTitle("Fiche de renseignements")
             .setView(scroll)
             .setPositiveButton("FERMER", null)
-            .show()
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(ColorDrawable(panelColor))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accentColor)
+        }
+        dialog.show()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
