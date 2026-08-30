@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
@@ -211,6 +212,7 @@ object AnnualPdfReports {
 
     /** Ancien moteur conservé uniquement si le moteur actuel est explicitement désactivé pour rollback. */
     private fun writeWorkLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
@@ -234,6 +236,8 @@ object AnnualPdfReports {
     }
 
     private fun writeSalaryLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PAYROLL)
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val rate = prefDouble(prefs.all["hourly_rate"]) ?: 0.0
         val idcc = prefs.getString("company_idcc", "").orEmpty()
