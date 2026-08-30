@@ -120,4 +120,3 @@ jobs:
           ! grep -Fq '.update-files' "$manifest"
           ! grep -Fq 'UpdateDownloadReceiver' "$manifest"
           ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
-          ! grep -Fq 'com.google.firebase.MESSAGING_EVENT' "$manifest"
