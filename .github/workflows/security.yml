@@ -119,3 +119,5 @@ jobs:
           ! grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' "$manifest"
           ! grep -Fq '.update-files' "$manifest"
           ! grep -Fq 'UpdateDownloadReceiver' "$manifest"
+          ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
+          ! grep -Fq 'com.google.firebase.MESSAGING_EVENT' "$manifest"
