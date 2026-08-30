@@ -48,6 +48,7 @@
         <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
         <activity android:name=".V2RestoreActivity" android:exported="false" />
         <activity android:name=".V2PayslipImportActivity" android:exported="false" />
+        <activity android:name=".SalaryPayslipPhotoActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />
         <activity android:name=".PdfPreviewActivity" android:exported="false" />
