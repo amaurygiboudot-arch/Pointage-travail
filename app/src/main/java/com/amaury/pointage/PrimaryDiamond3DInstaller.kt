@@ -9,6 +9,7 @@ import android.hardware.SensorManager
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.atan2
 import kotlin.math.sqrt
@@ -26,7 +27,7 @@ import kotlin.math.sqrt
  */
 object PrimaryDiamond3DInstaller {
     private const val TAG = "hp_primary_diamond_3d_v5_legacy_detached"
-    private val hosts = WeakHashMap<Button, True3DButtonHost>()
+    private val hosts = WeakHashMap<Button, WeakReference<True3DButtonHost>>()
     private var currentLightAngle = -55f
 
     fun install(root: View, lightAngle: Float = currentLightAngle) {
@@ -34,13 +35,14 @@ object PrimaryDiamond3DInstaller {
         val buttons = ArrayList<Button>(3)
         collectPrimary(root, buttons)
         buttons.forEach { button ->
-            val existing = hosts[button]
+            val existing = hosts[button]?.get()
             if (existing != null) {
                 disableLegacyView(button, existing)
                 existing.setLightAngle(currentLightAngle)
                 existing.setBaseColor(colorFor(button))
                 PrimaryDiamondTiltHub.attach(existing)
             } else {
+                hosts.remove(button)
                 wrap(button, currentLightAngle)
             }
         }
@@ -48,7 +50,11 @@ object PrimaryDiamond3DInstaller {
 
     fun updateLight(root: View, lightAngle: Float) {
         currentLightAngle = lightAngle
-        hosts.entries.toList().forEach { (button, host) ->
+        hosts.entries.toList().forEach { (button, hostRef) ->
+            val host = hostRef.get() ?: run {
+                hosts.remove(button)
+                return@forEach
+            }
             if (host.rootView === root.rootView) {
                 disableLegacyView(button, host)
                 host.setBaseColor(colorFor(button))
@@ -59,7 +65,11 @@ object PrimaryDiamond3DInstaller {
 
     fun updateAllLight(lightAngle: Float) {
         currentLightAngle = lightAngle
-        hosts.entries.toList().forEach { (button, host) ->
+        hosts.entries.toList().forEach { (button, hostRef) ->
+            val host = hostRef.get() ?: run {
+                hosts.remove(button)
+                return@forEach
+            }
             disableLegacyView(button, host)
             host.setBaseColor(colorFor(button))
             host.setLightAngle(lightAngle)
@@ -135,7 +145,7 @@ object PrimaryDiamond3DInstaller {
         host.removeView(button)
         host.setBaseColor(colorFor(button))
         button.setTag(R.id.true3d_internal_tag, TAG)
-        hosts[button] = host
+        hosts[button] = WeakReference(host)
         disableLegacyView(button, host)
 
         host.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
