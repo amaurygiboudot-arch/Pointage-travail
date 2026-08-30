@@ -2,39 +2,24 @@ name: Compiler HoraTrack APK et AAB
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: [ "Security checks" ]
-    types: [ completed ]
+  push:
+    branches: [ main ]
 
 concurrency:
   group: horatrack-apk-aab
   cancel-in-progress: false
 
 jobs:
-  build:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'main')
+  security-gate:
+    name: Controle avant compilation
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-
+      contents: read
     steps:
-      - name: Recuperer le projet valide
+      - name: Recuperer le projet
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Fixer le commit source
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "SOURCE_SHA=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_ENV"
-          else
-            echo "SOURCE_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
-          fi
 
       - name: Installer Java 17
         uses: actions/setup-java@v5
@@ -48,8 +33,7 @@ jobs:
           gradle-version: "8.13"
           cache-cleanup: on-success
 
-      - name: Controle manuel avant publication
-        if: github.event_name == 'workflow_dispatch'
+      - name: Tests unitaires et controle Google Play
         run: |
           gradle :app:testDebugUnitTest :app:assemblePlay --stacktrace
           manifest="$(find app/build/intermediates -type f -name AndroidManifest.xml -path '*/play/*' | head -n 1)"
@@ -58,6 +42,35 @@ jobs:
           ! grep -Fq '.update-files' "$manifest"
           ! grep -Fq 'UpdateDownloadReceiver' "$manifest"
           ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
+
+  build:
+    name: Compiler et publier HoraTrack
+    needs: security-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Recuperer exactement le commit controle
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+
+      - name: Fixer le commit source
+        run: echo "SOURCE_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Installer Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Installer Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+          cache-cleanup: on-success
 
       - name: Restaurer la cle de signature HoraTrack
         env:
@@ -126,7 +139,6 @@ jobs:
           sha256sum HoraTrack.aab > HoraTrack-AAB-SHA256.txt
           cp HoraTrack-SHA256.txt SHA256.txt
           printf '%s\n' "$VERSION_NAME" > HoraTrack-version.txt
-          # Alias techniques conserves temporairement pour les anciennes versions deja installees.
           cp HoraTrack-SHA256.txt HP-Travail-SHA256.txt
           cp HoraTrack-version.txt HP-Travail-version.txt
           test -s HoraTrack.apk
