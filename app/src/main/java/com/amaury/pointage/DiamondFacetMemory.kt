@@ -36,6 +36,8 @@ data class DiamondFacetState(
 
 class DiamondFacetMemory {
     private val states = ArrayList<DiamondFacetState>()
+    private var rgbaUploadBytes = ByteArray(0)
+    private var internalReturnUploadBytes = ByteArray(0)
 
     fun size(): Int = states.size
 
@@ -418,27 +420,29 @@ class DiamondFacetMemory {
         (1f - abs(shortestDelta(a, b)) / width).coerceIn(0f, 1f)
 
     fun toRgbaBytes(): ByteArray {
-        val out = ByteArray(states.size * 4)
+        val requiredSize = states.size * 4
+        if (rgbaUploadBytes.size != requiredSize) rgbaUploadBytes = ByteArray(requiredSize)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            out[p] = unitByte(s.displayTone)
-            out[p + 1] = unitByte(s.transparencyReference)
-            out[p + 2] = unitByte(s.brightness)
-            out[p + 3] = unitByte(s.reflection)
+            rgbaUploadBytes[p] = unitByte(s.displayTone)
+            rgbaUploadBytes[p + 1] = unitByte(s.transparencyReference)
+            rgbaUploadBytes[p + 2] = unitByte(s.brightness)
+            rgbaUploadBytes[p + 3] = unitByte(s.reflection)
         }
-        return out
+        return rgbaUploadBytes
     }
 
     fun toInternalReturnRgbaBytes(): ByteArray {
-        val out = ByteArray(states.size * 4)
+        val requiredSize = states.size * 4
+        if (internalReturnUploadBytes.size != requiredSize) internalReturnUploadBytes = ByteArray(requiredSize)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            out[p] = unitByte(s.internalReturn * s.exitTransmission)
-            out[p + 1] = unitByte(s.internalReturn)
-            out[p + 2] = unitByte(s.exitTransmission)
-            out[p + 3] = 0xFF.toByte()
+            internalReturnUploadBytes[p] = unitByte(s.internalReturn * s.exitTransmission)
+            internalReturnUploadBytes[p + 1] = unitByte(s.internalReturn)
+            internalReturnUploadBytes[p + 2] = unitByte(s.exitTransmission)
+            internalReturnUploadBytes[p + 3] = 0xFF.toByte()
         }
-        return out
+        return internalReturnUploadBytes
     }
 
     private fun unitByte(value: Float): Byte =
