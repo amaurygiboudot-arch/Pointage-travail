@@ -22,7 +22,7 @@ class V2BackupRestoreView @JvmOverloads constructor(
         orientation = VERTICAL
         setPadding(0, dp(14), 0, dp(4))
         addView(TextView(context).apply {
-            text = "SAUVEGARDE & RESTAURATION V2"
+            text = "SAUVEGARDE & RESTAURATION"
             textSize = 15f
         })
         addView(TextView(context).apply {
@@ -42,13 +42,13 @@ class V2BackupRestoreView @JvmOverloads constructor(
             (context as? Activity)?.startActivity(Intent(context, DriveFolderPickerActivity::class.java))
             return
         }
-        Toast.makeText(context, "Sauvegarde V2 en cours…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Sauvegarde en cours…", Toast.LENGTH_SHORT).show()
         Thread {
             val result = V2BackupManager.backupToConfiguredDrive(context)
             post {
                 Toast.makeText(
                     context,
-                    if (result.isSuccess) "Sauvegarde V2 terminée" else "Sauvegarde impossible : ${result.exceptionOrNull()?.message ?: "erreur"}",
+                    if (result.isSuccess) "Sauvegarde terminée" else "Sauvegarde impossible : ${result.exceptionOrNull()?.message ?: "erreur"}",
                     Toast.LENGTH_LONG
                 ).show()
             }

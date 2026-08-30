@@ -14,8 +14,8 @@ import org.json.JSONObject
  * Sauvegarde/restauration de l'historique de pointage dans l'espace Firestore
  * privé de l'utilisateur connecté.
  *
- * En V2, le document contient le snapshot V2 complet. Les anciens documents
- * restent lisibles uniquement pour une restauration/migration conservatrice.
+ * Quand le nouveau moteur est actif, le document contient le snapshot complet.
+ * Les anciens documents restent lisibles uniquement pour une restauration/migration conservatrice.
  */
 object CloudPointageBackup {
     private const val MAX_BATCH_OPS = 450
@@ -26,12 +26,12 @@ object CloudPointageBackup {
             ?: return onDone(false, "Aucun compte Google connecté")
         if (HoraTrackV2.ENABLED) {
             val payload = runCatching { V2BackupManager.snapshot(context.applicationContext).toString() }
-                .getOrElse { return onDone(false, "Impossible de préparer la sauvegarde V2 : ${it.localizedMessage ?: it.javaClass.simpleName}") }
+                .getOrElse { return onDone(false, "Impossible de préparer la sauvegarde : ${it.localizedMessage ?: it.javaClass.simpleName}") }
             FirebaseFirestore.getInstance()
                 .collection("users").document(user.uid).collection("pointages").document(V2_DOCUMENT)
                 .set(hashMapOf("format" to "horatrack_v2", "payload" to payload, "updatedAt" to FieldValue.serverTimestamp()))
-                .addOnSuccessListener { onDone(true, "sauvegarde V2 complète enregistrée") }
-                .addOnFailureListener { onDone(false, it.localizedMessage ?: "Échec de la sauvegarde V2") }
+                .addOnSuccessListener { onDone(true, "Sauvegarde HoraTrack complète enregistrée") }
+                .addOnFailureListener { onDone(false, it.localizedMessage ?: "Échec de la sauvegarde HoraTrack") }
             return
         }
 
@@ -71,8 +71,8 @@ object CloudPointageBackup {
                         val result = V2BackupManager.restoreFromJson(context.applicationContext, payload)
                         if (result.isSuccess) {
                             val r = result.getOrThrow()
-                            onDone(true, "V2 restaurée sans effacer les données locales (${r.mergedSessions} session(s) ajoutée(s))")
-                        } else onDone(false, "Sauvegarde V2 illisible : rien n'a été remplacé")
+                            onDone(true, "HoraTrack restaurée sans effacer les données locales (${r.mergedSessions} session(s) ajoutée(s))")
+                        } else onDone(false, "Sauvegarde HoraTrack illisible : rien n'a été remplacé")
                     } else restoreLegacyIntoV2(collection, context, onDone)
                 }
                 .addOnFailureListener { restoreLegacyIntoV2(collection, context, onDone) }
@@ -99,11 +99,11 @@ object CloudPointageBackup {
                 runCatching { JSONObject(payload) }.getOrNull()?.let(restored::put)
             }
             if (restored.length() == 0) {
-                onDone(false, "Aucune sauvegarde V2 ou historique compatible trouvé")
+                onDone(false, "Aucune sauvegarde HoraTrack ou historique compatible trouvé")
                 return@addOnSuccessListener
             }
             val result = V2BackupManager.importLegacyPointageJson(context.applicationContext, restored)
-            if (result > 0) onDone(true, "$result ancien(s) pointage(s) fusionné(s) dans V2")
+            if (result > 0) onDone(true, "$result ancien(s) pointage(s) fusionné(s) dans HoraTrack")
             else onDone(true, "Aucun pointage supplémentaire à restaurer")
         }.addOnFailureListener { onDone(false, it.localizedMessage ?: "Firestore refuse la restauration") }
     }

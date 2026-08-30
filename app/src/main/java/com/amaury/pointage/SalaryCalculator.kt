@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2LegacyPolicy
 import org.json.JSONArray
 import java.util.Calendar
 import java.util.Locale
@@ -68,6 +69,7 @@ object SalaryCalculator {
 
     /** Rollback uniquement : jamais appelé lorsque V2 est actif. */
     private fun calculateLegacy(data:JSONArray, year:Int, month:Int, hourlyRate:Double, convention:ConventionCatalog.Convention):Result {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PAYROLL)
         var total = 0L
         var completed = 0
         for (i in 0 until data.length()) {

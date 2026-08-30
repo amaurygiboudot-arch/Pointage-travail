@@ -17,6 +17,14 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object UpdateChecker {
+    /**
+     * Interrupteur central du moteur de mise à jour APK interne.
+     * La variante interne l'active, tandis que la variante Google Play le désactive
+     * directement au moment de la compilation via BuildConfig.
+     */
+    internal val INTERNAL_APK_UPDATES_ENABLED: Boolean
+        get() = BuildConfig.INTERNAL_APK_UPDATES_ENABLED
+
     private const val LATEST_RELEASE_API = "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases/latest"
     private const val LATEST_RELEASE_PAGE = "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/latest"
     private const val LATEST_APK_FALLBACK = "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/latest/download/HP-Travail.apk"
@@ -34,12 +42,14 @@ object UpdateChecker {
     @Volatile private var installPromptShowing = false
 
     fun checkAutomatically(activity: Activity) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) return
         check(activity, silent = true, askBeforeDownload = true)
     }
 
     fun tryInstallReady(activity: Activity): Boolean {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return false
         if (installerOpening || installPromptShowing || activity.isFinishing || activity.isDestroyed) return false
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val readyName = prefs.getString(KEY_READY_FILE, null) ?: return false
@@ -54,11 +64,12 @@ object UpdateChecker {
     }
 
     private fun showInstallConfirmation(activity: Activity, apk: File, versionName: String) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (installPromptShowing || activity.isFinishing || activity.isDestroyed) return
         installPromptShowing = true
         val versionText = if (versionName.isBlank()) "" else " $versionName"
         val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour prête")
-            .setMessage("HP Travail$versionText a été téléchargée.\n\nVoulez-vous lancer l'installation maintenant ?")
+            .setMessage("HoraTrack$versionText a été téléchargée.\n\nVoulez-vous lancer l'installation maintenant ?")
             .setPositiveButton("INSTALLER") { _, _ -> launchSystemInstaller(activity, apk) }
             .setNegativeButton("PLUS TARD", null).create()
         dialog.setOnDismissListener { installPromptShowing = false }
@@ -66,12 +77,13 @@ object UpdateChecker {
     }
 
     private fun launchSystemInstaller(activity: Activity, apk: File) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (installerOpening) return
         installerOpening = true
         activity.window.decorView.postDelayed({ installerOpening = false }, 2500L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))) }
-                .onFailure { installerOpening = false; Toast.makeText(activity, "Autorisez HP Travail à installer les mises à jour.", Toast.LENGTH_LONG).show() }
+                .onFailure { installerOpening = false; Toast.makeText(activity, "Autorisez HoraTrack à installer les mises à jour.", Toast.LENGTH_LONG).show() }
             return
         }
         runCatching { activity.startActivity(installerIntent(activity, apk)) }
@@ -79,6 +91,7 @@ object UpdateChecker {
     }
 
     fun check(activity: Activity, silent: Boolean = true, askBeforeDownload: Boolean = false) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) { if (!silent) Toast.makeText(activity, "La mise à jour continue en arrière-plan", Toast.LENGTH_LONG).show(); return }
         if (updateInProgress || promptShowing) { if (!silent && updateInProgress) Toast.makeText(activity, "Vérification déjà en cours", Toast.LENGTH_SHORT).show(); return }
@@ -139,10 +152,11 @@ object UpdateChecker {
     }
 
     private fun showUpdatePrompt(activity: Activity, versionName: String, apkUrl: String) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (promptShowing || activity.isFinishing || activity.isDestroyed) return
         promptShowing = true
         val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour disponible")
-            .setMessage("HP Travail $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
+            .setMessage("HoraTrack $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
             .setPositiveButton("TÉLÉCHARGER") { _, _ -> enqueueBackgroundDownload(activity, apkUrl, versionName, false) }
             .setNegativeButton("PLUS TARD", null).create()
         dialog.setOnDismissListener { promptShowing = false }
@@ -150,13 +164,14 @@ object UpdateChecker {
     }
 
     private fun enqueueBackgroundDownload(activity: Activity, apkUrl: String, versionName: String, silent: Boolean) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (hasActiveDownload(activity)) { if (!silent) Toast.makeText(activity, "Une mise à jour est déjà en cours", Toast.LENGTH_LONG).show(); return }
         try {
-            val fileName = "HP-Travail-$versionName.apk"
+            val fileName = "HoraTrack-$versionName.apk"
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { if (it.name.endsWith(".apk", true)) it.delete() }
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
-                setTitle("Mise à jour HP Travail"); setDescription("Téléchargement de la version $versionName")
+                setTitle("Mise à jour HoraTrack"); setDescription("Téléchargement de la version $versionName")
                 setMimeType("application/vnd.android.package-archive"); setAllowedOverMetered(true); setAllowedOverRoaming(false)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
@@ -172,6 +187,7 @@ object UpdateChecker {
     }
 
     private fun hasActiveDownload(context: Context): Boolean {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return false
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_VERIFICATION_PENDING, false)) return true
         val id = prefs.getLong(KEY_DOWNLOAD_ID, -1L)
@@ -200,11 +216,17 @@ object UpdateChecker {
     }
 
     internal fun downloadedApkFile(context: Context): File? {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return null
         val fileName = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_FILE_NAME, null) ?: return null
         return File(File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), fileName)
     }
 
     internal fun markDownloadReady(context: Context, apk: File) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) {
+            apk.delete()
+            clearDownloadState(context)
+            return
+        }
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val version = prefs.getString(KEY_VERSION, "").orEmpty()
         prefs.edit().putString(KEY_READY_FILE, apk.name).putString(KEY_READY_VERSION, version)
@@ -235,6 +257,7 @@ object UpdateChecker {
     }
 
     internal fun installerIntent(context: Context, apk: File): Intent {
+        check(INTERNAL_APK_UPDATES_ENABLED) { "mises à jour APK internes désactivées" }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.update-files", apk)
         return Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             data = uri
@@ -244,7 +267,11 @@ object UpdateChecker {
         }
     }
 
-    fun openInstaller(activity: Activity, apk: File) { markDownloadReady(activity, apk); tryInstallReady(activity) }
+    fun openInstaller(activity: Activity, apk: File) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) return
+        markDownloadReady(activity, apk)
+        tryInstallReady(activity)
+    }
 
     private fun openConnection(url: String, connectTimeout: Int, readTimeout: Int): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {

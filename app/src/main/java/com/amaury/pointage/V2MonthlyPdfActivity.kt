@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-/** Flux d'export mensuel 100 % V2, indépendant de l'ancien rapport. */
+/** Flux d'export mensuel basé sur HoraTrackMotor, indépendant de l'ancien rapport. */
 class V2MonthlyPdfActivity : Activity() {
     companion object { private const val REQUEST_CREATE = 9401 }
     private var year = 0
@@ -39,7 +39,7 @@ class V2MonthlyPdfActivity : Activity() {
             cursor.add(Calendar.MONTH, -1)
         }
         AlertDialog.Builder(this)
-            .setTitle("Mois du rapport V2")
+            .setTitle("Mois du rapport")
             .setItems(labels.toTypedArray()) { _, which ->
                 val selected = months[which]
                 year = selected.get(Calendar.YEAR)
@@ -72,7 +72,7 @@ class V2MonthlyPdfActivity : Activity() {
         }
         Toast.makeText(
             this,
-            if (result.isSuccess) "PDF HoraTrack V2 enregistré" else "Impossible de générer le PDF : ${result.exceptionOrNull()?.message ?: "erreur inconnue"}",
+            if (result.isSuccess) "PDF HoraTrack enregistré" else "Impossible de générer le PDF : ${result.exceptionOrNull()?.message ?: "erreur inconnue"}",
             Toast.LENGTH_LONG
         ).show()
         finish()

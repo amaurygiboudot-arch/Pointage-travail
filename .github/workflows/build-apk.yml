@@ -1,4 +1,4 @@
-name: Compiler HP Travail APK et AAB
+name: Compiler HoraTrack APK et AAB
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     branches: [ "main" ]
 
 concurrency:
-  group: hp-travail-apk-aab
+  group: horatrack-apk-aab
   cancel-in-progress: true
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
           gradle-version: "8.13"
           cache-cleanup: on-success
 
-      - name: Restaurer la cle de signature HP Travail
+      - name: Restaurer la cle de signature HoraTrack
         env:
           KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
@@ -93,28 +93,36 @@ jobs:
 
       - name: Preparer APK AAB et informations de version
         run: |
-          cp app/build/outputs/apk/release/app-release.apk HP-Travail.apk
+          cp app/build/outputs/apk/release/app-release.apk HoraTrack.apk
+          cp HoraTrack.apk HP-Travail.apk
           cp app/build/outputs/bundle/release/app-release.aab HoraTrack.aab
-          sha256sum HP-Travail.apk > HP-Travail-SHA256.txt
+          sha256sum HoraTrack.apk > HoraTrack-SHA256.txt
           sha256sum HoraTrack.aab > HoraTrack-AAB-SHA256.txt
-          cp HP-Travail-SHA256.txt SHA256.txt
-          printf '%s\n' "$VERSION_NAME" > HP-Travail-version.txt
+          cp HoraTrack-SHA256.txt SHA256.txt
+          printf '%s\n' "$VERSION_NAME" > HoraTrack-version.txt
+          # Alias techniques conserves temporairement pour les anciennes versions deja installees.
+          cp HoraTrack-SHA256.txt HP-Travail-SHA256.txt
+          cp HoraTrack-version.txt HP-Travail-version.txt
+          test -s HoraTrack.apk
           test -s HP-Travail.apk
           test -s HoraTrack.aab
-          test -s HP-Travail-SHA256.txt
+          test -s HoraTrack-SHA256.txt
           test -s HoraTrack-AAB-SHA256.txt
           test -s SHA256.txt
 
       - name: Publier artefacts APK et AAB
         uses: actions/upload-artifact@v4
         with:
-          name: HP-Travail-APK-AAB
+          name: HoraTrack-APK-AAB
           path: |
-            HP-Travail.apk
+            HoraTrack.apk
             HoraTrack.aab
-            HP-Travail-SHA256.txt
+            HoraTrack-SHA256.txt
             HoraTrack-AAB-SHA256.txt
+            HoraTrack-version.txt
             SHA256.txt
+            HP-Travail.apk
+            HP-Travail-SHA256.txt
             HP-Travail-version.txt
           if-no-files-found: error
           retention-days: 30
@@ -132,9 +140,9 @@ jobs:
           chmod 600 "$RUNNER_TEMP/firebase-service-account.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/firebase-service-account.json"
           npm install --global firebase-tools
-          firebase appdistribution:distribute HP-Travail.apk \
+          firebase appdistribution:distribute HoraTrack.apk \
             --app "$FIREBASE_APP_ID" \
-            --release-notes "HP Travail ${VERSION_NAME} - mise a jour automatique depuis GitHub Actions"
+            --release-notes "HoraTrack ${VERSION_NAME} - mise a jour automatique depuis GitHub Actions"
           rm -f "$RUNNER_TEMP/firebase-service-account.json"
 
       - name: Publier la mise a jour GitHub
@@ -144,11 +152,14 @@ jobs:
           TAG="v${VERSION_NAME}"
           gh release delete "$TAG" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" \
-            HP-Travail.apk \
+            HoraTrack.apk \
             HoraTrack.aab \
-            HP-Travail-SHA256.txt \
+            HoraTrack-SHA256.txt \
             HoraTrack-AAB-SHA256.txt \
+            HoraTrack-version.txt \
             SHA256.txt \
+            HP-Travail.apk \
+            HP-Travail-SHA256.txt \
             HP-Travail-version.txt \
             --target "${GITHUB_SHA}" \
             --title "HoraTrack ${VERSION_NAME}" \
@@ -161,14 +172,14 @@ jobs:
         run: |
           TAG="v${VERSION_NAME}"
           gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets,url
-          gh release download "$TAG" -p "HP-Travail.apk" -D "$RUNNER_TEMP/release-check"
+          gh release download "$TAG" -p "HoraTrack.apk" -D "$RUNNER_TEMP/release-check"
           gh release download "$TAG" -p "HoraTrack.aab" -D "$RUNNER_TEMP/release-check"
           gh release download "$TAG" -p "SHA256.txt" -D "$RUNNER_TEMP/release-check"
-          test -s "$RUNNER_TEMP/release-check/HP-Travail.apk"
+          test -s "$RUNNER_TEMP/release-check/HoraTrack.apk"
           test -s "$RUNNER_TEMP/release-check/HoraTrack.aab"
           test -s "$RUNNER_TEMP/release-check/SHA256.txt"
 
-      - name: Notifier tous les telephones HP Travail
+      - name: Notifier tous les telephones HoraTrack
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -219,5 +230,5 @@ jobs:
               timeout=30,
           )
           response.raise_for_status()
-          print("Notification de mise a jour envoyee au topic hp_travail_updates")
+          print("Notification de mise a jour HoraTrack envoyee")
           PY

@@ -39,6 +39,9 @@ class MainActivity : Activity() {
         private const val REQUEST_CREATE_MONTHLY_PDF = 2002
         private const val REQUEST_FINE_LOCATION = 3001
         private const val REQUEST_BACKGROUND_LOCATION = 3002
+        private const val NAVIGATION_PREFS = "navigation_state"
+        private const val KEY_ACTIVE_TAB = "active_tab"
+        private const val KEY_REPORT_MONTH_MS = "report_month_ms"
     }
 
     private lateinit var statusCard: TextView
@@ -76,6 +79,7 @@ class MainActivity : Activity() {
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy { getSharedPreferences("gps_settings", Context.MODE_PRIVATE) }
+    private val navigationPrefs by lazy { getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE) }
 
     private inline fun <reified T : View> requiredView(id: Int, name: String): T =
         requireNotNull(findViewById<T>(id)) { "MainActivity : vue obligatoire absente : $name" }
@@ -111,6 +115,7 @@ class MainActivity : Activity() {
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
 
         loadGpsSettings()
+        restoreSelectedReportMonth()
         updateSelectedReportMonthText()
 
         autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
@@ -193,12 +198,19 @@ class MainActivity : Activity() {
     }
 
     private fun openRequestedTab(intent: Intent?) {
-        when (intent?.getStringExtra("open_tab")) {
+        val requestedTab = intent?.getStringExtra("open_tab")
+        val targetTab = requestedTab ?: navigationPrefs.getString(KEY_ACTIVE_TAB, "today")
+        when (targetTab) {
             "settings" -> showSettingsTab()
             "history" -> showHistoryTab()
             "analytics" -> showAnalyticsTab()
             else -> showTodayTab()
         }
+    }
+
+    private fun persistActiveTab(tab: String) {
+        activeTab = tab
+        navigationPrefs.edit().putString(KEY_ACTIVE_TAB, tab).apply()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -245,7 +257,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
-        activeTab = "today"
+        persistActiveTab("today")
         setActiveTab(tabToday)
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.VISIBLE
@@ -258,7 +270,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
-        activeTab = "history"
+        persistActiveTab("history")
         setActiveTab(tabHistory)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -271,7 +283,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
-        activeTab = "analytics"
+        persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -285,7 +297,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
-        activeTab = "settings"
+        persistActiveTab("settings")
         setActiveTab(tabSettings)
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
@@ -312,6 +324,11 @@ class MainActivity : Activity() {
         tabSettings.setTextColor(if (active == tabSettings) activeColor else inactiveColor)
     }
 
+    private fun restoreSelectedReportMonth() {
+        val savedMonthMs = navigationPrefs.getLong(KEY_REPORT_MONTH_MS, -1L)
+        if (savedMonthMs > 0L) selectedReportMonth.timeInMillis = savedMonthMs
+    }
+
     private fun updateSelectedReportMonthText() {
         val label = reportMonthFormat.format(selectedReportMonth.time).replaceFirstChar { it.uppercase() }
         selectedReportMonthText.text = "Mois du rapport : $label"
@@ -334,6 +351,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Choisir le mois du rapport")
             .setSingleChoiceItems(options.toTypedArray(), selectedIndex) { dialog, which ->
                 selectedReportMonth.timeInMillis = calendars[which].timeInMillis
+                navigationPrefs.edit().putLong(KEY_REPORT_MONTH_MS, selectedReportMonth.timeInMillis).apply()
                 updateSelectedReportMonthText(); dialog.dismiss()
             }.setNegativeButton("Annuler", null).show()
     }
@@ -345,7 +363,7 @@ class MainActivity : Activity() {
             .replaceFirstChar { it.uppercase() }.replace("é", "e").replace("è", "e").replace("ê", "e")
             .replace("û", "u").replace("ô", "o").replace("à", "a").replace("ç", "c")
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "Pointage_$monthFile.pdf")
+            addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "HoraTrack_$monthFile.pdf")
         }, REQUEST_CREATE_MONTHLY_PDF)
     }
 
@@ -503,7 +521,7 @@ class MainActivity : Activity() {
                     append("⏱ ").append(s.countedExitMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  SORTIE COMPTÉE\n")
                 } else append("🟢 EN COURS\n")
                 val r = HoraTrackV2.time.calculate(s, now)
-                append("Temps payé V2 : ").append(formatDuration(r.paidWorkMs)).append("\n\n")
+                append("Temps payé : ").append(formatDuration(r.paidWorkMs)).append("\n\n")
             }
         }.ifBlank { if (todayOnly) "Aucun pointage aujourd'hui." else "Aucun historique." }
     }
@@ -511,7 +529,7 @@ class MainActivity : Activity() {
     private fun buildV2AnalyticsText(): String {
         val sessions = V2RuntimeStore.allSessions(this)
         val analytics = com.amaury.pointage.v2.engine.AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
-        return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ V2 : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
+        return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
     }
 
     private fun buildLegacyTodayHistoryText(): String {
@@ -551,7 +569,7 @@ class MainActivity : Activity() {
 
     private fun buildLegacyAnalyticsText(): String {
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.ANALYTICS)
-        return "Analyses historiques désactivées lorsque HoraTrack V2 est actif."
+        return "Analyses historiques désactivées lorsque HoraTrack est actif."
     }
 
     private fun formatDuration(ms: Long): String {

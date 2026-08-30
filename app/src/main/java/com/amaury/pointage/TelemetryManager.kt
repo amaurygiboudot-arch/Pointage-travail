@@ -9,15 +9,8 @@ import io.sentry.android.core.SentryAndroid
 
 /**
  * Centralise les rapports techniques et les idées utilisateurs.
- *
- * Règles de confidentialité et de gouvernance :
- * - aucun historique de pointage n'est lu ni envoyé ;
- * - aucune adresse, donnée de salaire ou donnée GPS n'est ajoutée ;
- * - les rapports automatiques de crash sont bloqués tant que l'utilisateur
- *   n'a pas donné son accord dans les paramètres ;
- * - une idée est envoyée uniquement après action explicite sur le bouton ;
- * - aucun feedback ne constitue une autorisation de modifier le code ;
- * - toute modification de HP Travail nécessite l'approbation explicite du propriétaire.
+ * Les diagnostics automatiques sont assainis avant envoi et restent soumis
+ * au consentement explicite de l'utilisateur.
  */
 object TelemetryManager {
     private const val PREFS = "telemetry_settings"
@@ -33,12 +26,19 @@ object TelemetryManager {
             options.tracesSampleRate = 0.0
             options.isEnableAutoSessionTracking = false
             options.setBeforeSend(SentryOptions.BeforeSendCallback { event, _ ->
-                // Nettoyage défensif : ne jamais joindre un utilisateur ou une requête.
                 event.user = null
                 event.request = null
 
                 val voluntaryFeedback = event.getTag("hp_type") == "feedback"
-                if (voluntaryFeedback || crashReportsEnabled(context)) event else null
+                if (!voluntaryFeedback && !crashReportsEnabled(context)) return@BeforeSendCallback null
+
+                // Les crashs automatiques ne quittent jamais le téléphone avec le
+                // Throwable brut : on conserve uniquement type + pile de code limitée.
+                if (!voluntaryFeedback) {
+                    event.throwable?.let { event.throwable = DiagnosticSanitizer.safeThrowable(it) }
+                    event.breadcrumbs?.clear()
+                }
+                event
             })
         }
         initialized = true
@@ -58,11 +58,7 @@ object TelemetryManager {
         initialize(context)
     }
 
-    /**
-     * Envoie une suggestion volontaire. Sentry met les événements en cache si le
-     * réseau n'est pas disponible et les transmettra plus tard.
-     * Le retour est explicitement marqué comme information à examiner uniquement.
-     */
+    /** Une idée est envoyée uniquement après action explicite de l'utilisateur. */
     fun sendIdea(context: Context, idea: String): Boolean {
         if (BuildConfig.SENTRY_DSN.isBlank()) return false
         initialize(context)
@@ -80,8 +76,8 @@ object TelemetryManager {
             scope.setTag("android_version", Build.VERSION.RELEASE.orEmpty().take(80))
             scope.setTag("device_model", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(120))
             scope.setExtra("idea", idea.take(4000))
-            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de HP Travail.")
-            Sentry.captureMessage("Suggestion utilisateur HP Travail", SentryLevel.INFO)
+            scope.setExtra("governance", "Suggestion uniquement. Toute modification nécessite l'approbation explicite du propriétaire de HoraTrack.")
+            Sentry.captureMessage("Suggestion utilisateur HoraTrack", SentryLevel.INFO)
         }
         return true
     }

@@ -2,11 +2,10 @@ package com.amaury.pointage
 
 import android.content.Context
 import android.os.Build
-import java.io.PrintWriter
-import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 object CrashRecoveryManager {
     private const val PREFS = "recovery_state"
@@ -28,25 +27,24 @@ object CrashRecoveryManager {
         val now = System.currentTimeMillis()
         val last = prefs.getLong(KEY_LAST_CRASH, 0L)
         val count = if (now - last <= WINDOW_MS) prefs.getInt(KEY_CRASH_COUNT, 0) + 1 else 1
-
-        val stack = StringWriter().also { writer ->
-            throwable.printStackTrace(PrintWriter(writer))
-        }.toString()
+        val incidentId = UUID.randomUUID().toString().take(8).uppercase(Locale.ROOT)
         val version = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty()
         }.getOrDefault("inconnue")
         val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.FRANCE).format(Date(now))
         val report = buildString {
-            appendLine("HP Travail — rapport de crash")
+            appendLine("HoraTrack — rapport de crash")
+            appendLine("Identifiant : $incidentId")
             appendLine("Date : $date")
-            appendLine("Version : $version")
+            appendLine("Version : ${DiagnosticSanitizer.message(version, 80)}")
             appendLine("Android : ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-            appendLine("Téléphone : ${Build.MANUFACTURER} ${Build.MODEL}")
-            appendLine("Thread : ${thread.name}")
-            appendLine("Erreur : ${throwable::class.java.name}: ${throwable.message.orEmpty()}")
+            appendLine("Téléphone : ${DiagnosticSanitizer.message("${Build.MANUFACTURER} ${Build.MODEL}", 120)}")
+            appendLine("Thread : ${DiagnosticSanitizer.message(thread.name, 80)}")
+            appendLine("Type : ${throwable::class.java.name}")
+            appendLine("Message : ${DiagnosticSanitizer.message(throwable.message)}")
             appendLine()
-            append(stack)
-        }.take(24000)
+            append(DiagnosticSanitizer.stackSummary(throwable))
+        }.take(12000)
 
         prefs.edit()
             .putLong(KEY_LAST_CRASH, now)

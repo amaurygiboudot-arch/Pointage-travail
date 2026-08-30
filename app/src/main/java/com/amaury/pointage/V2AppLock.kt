@@ -9,11 +9,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.text.InputType
+import android.util.Base64
 import android.widget.EditText
 import android.widget.LinearLayout
 import java.security.MessageDigest
-import java.util.UUID
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.PBEKeySpec
 
 /** Verrouillage local : aucun PIN brut n'est stocké. */
 object V2AppLock {
@@ -22,9 +25,18 @@ object V2AppLock {
     private const val KEY_BIOMETRIC = "biometric"
     private const val KEY_PIN_HASH = "pin_hash"
     private const val KEY_PIN_SALT = "pin_salt"
+    private const val KEY_PIN_SCHEME = "pin_scheme"
     private const val KEY_TIMEOUT_MIN = "timeout_min"
     private const val KEY_LAST_UNLOCK = "last_unlock_ms"
+
+    private const val SCHEME_PBKDF2_SHA256 = "pbkdf2-sha256-v1"
+    private const val SCHEME_PBKDF2_SHA1 = "pbkdf2-sha1-v1"
+    private const val PBKDF2_ITERATIONS = 210_000
+    private const val PBKDF2_BITS = 256
+    private const val SALT_BYTES = 16
+
     private val promptVisible = AtomicBoolean(false)
+    private val secureRandom = SecureRandom()
 
     fun install(app: Application) {
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -77,19 +89,27 @@ object V2AppLock {
     fun setPin(context: Context, pin: String): Boolean {
         val clean = pin.filter(Char::isDigit)
         if (clean.length !in 4..8) return false
-        val salt = UUID.randomUUID().toString()
-        prefs(context).edit()
-            .putString(KEY_PIN_SALT, salt)
-            .putString(KEY_PIN_HASH, hash(salt, clean))
-            .apply()
-        return true
+        return storePbkdf2Pin(context, clean)
     }
 
     fun verifyPin(context: Context, pin: String): Boolean {
+        val clean = pin.filter(Char::isDigit)
+        if (clean.length !in 4..8) return false
+
         val p = prefs(context)
         val salt = p.getString(KEY_PIN_SALT, null) ?: return false
         val expected = p.getString(KEY_PIN_HASH, null) ?: return false
-        return constantTimeEquals(expected, hash(salt, pin.filter(Char::isDigit)))
+        val scheme = p.getString(KEY_PIN_SCHEME, null)
+
+        if (scheme.isNullOrBlank()) {
+            // Migration transparente de l'ancien SHA-256 salé : le PIN n'est jamais remis à zéro.
+            val legacyOk = constantTimeEquals(expected, legacyHash(salt, clean))
+            if (legacyOk) storePbkdf2Pin(context, clean)
+            return legacyOk
+        }
+
+        val actual = runCatching { pbkdf2Hash(scheme, salt, clean) }.getOrNull() ?: return false
+        return constantTimeEquals(expected, actual)
     }
 
     fun needsUnlock(context: Context, nowMs: Long = System.currentTimeMillis()): Boolean {
@@ -171,14 +191,49 @@ object V2AppLock {
         dialog.show()
     }
 
+    private fun storePbkdf2Pin(context: Context, cleanPin: String): Boolean {
+        val saltBytes = ByteArray(SALT_BYTES).also(secureRandom::nextBytes)
+        val salt = Base64.encodeToString(saltBytes, Base64.NO_WRAP)
+        val preferredScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) SCHEME_PBKDF2_SHA256 else SCHEME_PBKDF2_SHA1
+        val derived = runCatching { preferredScheme to pbkdf2Hash(preferredScheme, salt, cleanPin) }.getOrElse {
+            if (preferredScheme == SCHEME_PBKDF2_SHA1) return false
+            runCatching { SCHEME_PBKDF2_SHA1 to pbkdf2Hash(SCHEME_PBKDF2_SHA1, salt, cleanPin) }.getOrNull() ?: return false
+        }
+        prefs(context).edit()
+            .putString(KEY_PIN_SALT, salt)
+            .putString(KEY_PIN_HASH, derived.second)
+            .putString(KEY_PIN_SCHEME, derived.first)
+            .apply()
+        return true
+    }
+
+    private fun pbkdf2Hash(scheme: String, saltBase64: String, pin: String): String {
+        val algorithm = when (scheme) {
+            SCHEME_PBKDF2_SHA256 -> "PBKDF2WithHmacSHA256"
+            SCHEME_PBKDF2_SHA1 -> "PBKDF2WithHmacSHA1"
+            else -> throw IllegalArgumentException("Schéma PIN inconnu")
+        }
+        val salt = Base64.decode(saltBase64, Base64.NO_WRAP)
+        val spec = PBEKeySpec(pin.toCharArray(), salt, PBKDF2_ITERATIONS, PBKDF2_BITS)
+        return try {
+            SecretKeyFactory.getInstance(algorithm).generateSecret(spec).encoded.toHex()
+        } finally {
+            spec.clearPassword()
+        }
+    }
+
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun safeLong(value: Any?): Long = when (value) {
         is Number -> value.toLong()
         is String -> value.toLongOrNull() ?: 0L
         else -> 0L
     }
-    private fun hash(salt: String, pin: String): String = MessageDigest.getInstance("SHA-256")
-        .digest("$salt:$pin".toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    private fun legacyHash(salt: String, pin: String): String = MessageDigest.getInstance("SHA-256")
+        .digest("$salt:$pin".toByteArray(Charsets.UTF_8)).toHex()
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
     private fun constantTimeEquals(a: String, b: String): Boolean {
         if (a.length != b.length) return false
         var diff = 0

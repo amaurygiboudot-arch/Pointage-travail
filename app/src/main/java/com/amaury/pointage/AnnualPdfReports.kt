@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
@@ -17,8 +18,8 @@ object AnnualPdfReports {
 
     /**
      * Bilan annuel du temps de travail.
-     * Quand V2 est active, aucun calcul WorkReportCalculator n'est utilisé.
-     * Le JSONArray n'est conservé que pour le rollback legacy lorsque V2 est désactivée.
+     * Quand le moteur actuel est actif, aucun calcul WorkReportCalculator n'est utilisé.
+     * Le JSONArray n'est conservé que pour le rollback legacy lorsque ce moteur est désactivé.
      */
     fun writeWork(context: Context, data: JSONArray, year: Int, out: OutputStream) {
         if (!HoraTrackV2.ENABLED) {
@@ -34,7 +35,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "HoraTrack V2 • Synthèse annuelle")
+        PdfVisualStyle.header(canvas, 595, "BILAN ANNUEL DU TEMPS DE TRAVAIL — $year", "HoraTrack • Synthèse annuelle")
 
         val header = PdfVisualStyle.boldPaint(9.2f)
         val normal = PdfVisualStyle.bodyPaint(8.8f)
@@ -102,7 +103,7 @@ object AnnualPdfReports {
     }
 
     /**
-     * Estimation annuelle de rémunération V2.
+     * Estimation annuelle de rémunération.
      * Les heures sont limitées à l'employeur principal pour ne jamais mélanger
      * deux contrats différents. Aucune convention inconnue n'est remplacée par
      * une convention par défaut.
@@ -125,7 +126,7 @@ object AnnualPdfReports {
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
-        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "Document indicatif • HoraTrack V2")
+        PdfVisualStyle.header(canvas, 595, "ESTIMATION ANNUELLE DE RÉMUNÉRATION — $year", "Document indicatif • HoraTrack")
         val header = PdfVisualStyle.boldPaint(9.2f)
         val normal = PdfVisualStyle.bodyPaint(8.7f)
         val small = PdfVisualStyle.bodyPaint(7.9f)
@@ -136,7 +137,7 @@ object AnnualPdfReports {
         y += 18f
         canvas.drawRect(30f, y, 565f, y + 24, fill)
         val xs = floatArrayOf(34f, 150f, 255f, 350f, 455f)
-        arrayOf("Mois", "Heures payées", "Heures sup.", "Brut V2", "État des règles")
+        arrayOf("Mois", "Heures payées", "Heures sup.", "Brut estimé", "État des règles")
             .forEachIndexed { i, value -> canvas.drawText(value, xs[i], y + 16, header) }
         y += 30f
 
@@ -165,9 +166,9 @@ object AnnualPdfReports {
                 rate == null || rate <= 0.0 -> "Taux manquant"
                 convention == null -> "Convention à confirmer"
                 salary?.warnings?.isNotEmpty() == true -> "À confirmer"
-                else -> "V2"
+                else -> "OK"
             }
-            if (state != "V2") ruleWarnings++
+            if (state != "OK") ruleWarnings++
 
             val values = arrayOf(
                 monthLabel(year, month),
@@ -192,7 +193,7 @@ object AnnualPdfReports {
         canvas.drawText("TOTAL ANNÉE", 38f, y + 17, header)
         canvas.drawText("Temps payé : ${dur(annualPaid)} • heures sup. confirmées : ${dur(annualOvertime)}", 38f, y + 35, header)
         canvas.drawText(
-            if (grossMonths > 0) "Brut V2 cumulé sur $grossMonths mois calculables : ${euro.format(annualGross)}" else "Brut annuel non calculé : fiche Salaire ou règles à compléter",
+            if (grossMonths > 0) "Brut estimé cumulé sur $grossMonths mois calculables : ${euro.format(annualGross)}" else "Brut annuel non calculé : fiche Salaire ou règles à compléter",
             38f,
             y + 52,
             header
@@ -201,7 +202,7 @@ object AnnualPdfReports {
         if (ruleWarnings > 0) {
             canvas.drawText("$ruleWarnings mois comportent une règle manquante ou à confirmer : HoraTrack n'a appliqué aucune valeur par défaut.", 30f, y, small)
         } else {
-            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions HoraTrack V2 de l'employeur.", 30f, y, small)
+            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions HoraTrack de l'employeur.", 30f, y, small)
         }
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
@@ -209,8 +210,9 @@ object AnnualPdfReports {
         pdf.close()
     }
 
-    /** Ancien moteur conservé uniquement si V2 est explicitement désactivée pour rollback. */
+    /** Ancien moteur conservé uniquement si le moteur actuel est explicitement désactivé pour rollback. */
     private fun writeWorkLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
         val canvas = page.canvas
@@ -234,6 +236,8 @@ object AnnualPdfReports {
     }
 
     private fun writeSalaryLegacy(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PAYROLL)
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val rate = prefDouble(prefs.all["hourly_rate"]) ?: 0.0
         val idcc = prefs.getString("company_idcc", "").orEmpty()

@@ -19,8 +19,20 @@ import com.google.firebase.messaging.RemoteMessage
 object FirebaseUpdatePush {
     const val TOPIC = "hp_travail_updates"
     private const val CHANNEL_ID = "hp_travail_updates"
+    private const val NOTIFICATION_ID = 9401
 
     fun initialize(context: Context) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .cancel(NOTIFICATION_ID)
+            if (FirebaseApp.getApps(context).isNotEmpty()) {
+                runCatching {
+                    FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC)
+                }
+            }
+            return
+        }
+
         if (FirebaseApp.getApps(context).isEmpty()) {
             val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
             val appId = BuildConfig.FIREBASE_APP_ID.trim()
@@ -46,20 +58,22 @@ object FirebaseUpdatePush {
     }
 
     private fun createChannel(context: Context) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Mises à jour HP Travail",
+                "Mises à jour HoraTrack",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Avertit lorsqu'une nouvelle version de HP Travail est disponible"
+                description = "Avertit lorsqu'une nouvelle version de HoraTrack est disponible"
             }
         )
     }
 
     fun showUpdateNotification(context: Context, title: String?, body: String?) {
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         createChannel(context)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -71,23 +85,23 @@ object FirebaseUpdatePush {
         }
         val pending = PendingIntent.getActivity(
             context,
-            9401,
+            NOTIFICATION_ID,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_icon_red)
-            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HP Travail")
+            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HoraTrack")
             .setContentText(body?.takeIf { it.isNotBlank() } ?: "Une nouvelle version est disponible. Appuie ici pour la mettre à jour.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HP Travail est disponible. Ouvre l'application pour l'installer."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HoraTrack est disponible. Ouvre l'application pour l'installer."))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
             .build()
 
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(9401, notification)
+            .notify(NOTIFICATION_ID, notification)
     }
 }
 
@@ -99,6 +113,8 @@ class HpFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
+
         val kind = message.data["kind"].orEmpty()
         if (kind.isNotBlank() && kind != "update") return
 

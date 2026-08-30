@@ -36,6 +36,11 @@ data class DiamondFacetState(
 
 class DiamondFacetMemory {
     private val states = ArrayList<DiamondFacetState>()
+    private var rgbaUploadBytes = ByteArray(0)
+    private var internalReturnUploadBytes = ByteArray(0)
+    private var internalLightBuffer = FloatArray(0)
+    private var pavilionWeightsBuffer = FloatArray(0)
+    private var scatterBeforeBuffer = FloatArray(0)
 
     fun size(): Int = states.size
 
@@ -219,7 +224,13 @@ class DiamondFacetMemory {
         lightToSurface: FloatArray,
         refractionControl: Float
     ): FloatArray {
-        val out = FloatArray(states.size)
+        val requiredSize = states.size
+        if (internalLightBuffer.size != requiredSize) {
+            internalLightBuffer = FloatArray(requiredSize)
+        } else {
+            internalLightBuffer.fill(0f)
+        }
+        val out = internalLightBuffer
         val entryIds = states.indices.filter { isEntryRegion(states[it].region) }
         val pavilionIds = states.indices.filter { isPavilionRegion(states[it].region) }
         if (entryIds.isEmpty() || pavilionIds.isEmpty()) return out
@@ -230,6 +241,11 @@ class DiamondFacetMemory {
         val incomingWorld = normalize3(
             -lightToSurface[0], -lightToSurface[1], -lightToSurface[2]
         )
+
+        if (pavilionWeightsBuffer.size != pavilionIds.size) {
+            pavilionWeightsBuffer = FloatArray(pavilionIds.size)
+        }
+        val weights = pavilionWeightsBuffer
 
         for (entryId in entryIds) {
             val entryN = rotatedNormals[entryId]
@@ -244,7 +260,6 @@ class DiamondFacetMemory {
 
             val entryEnergy = entryFacing * sourceIntensity * (0.30f + refractionControl * 0.70f)
             val entryAzimuth = azimuth(internalRay)
-            val weights = FloatArray(pavilionIds.size)
             var weightSum = 0f
 
             pavilionIds.forEachIndexed { index, pavilionId ->
@@ -298,7 +313,11 @@ class DiamondFacetMemory {
     private fun scatterPavilion(out: FloatArray, region: DiamondFacetRegion, amount: Float) {
         val ids = states.indices.filter { states[it].region == region }
         if (ids.size < 2) return
-        val before = out.copyOf()
+        if (scatterBeforeBuffer.size != out.size) {
+            scatterBeforeBuffer = FloatArray(out.size)
+        }
+        out.copyInto(scatterBeforeBuffer)
+        val before = scatterBeforeBuffer
         ids.forEachIndexed { index, id ->
             val prev = ids[(index - 1 + ids.size) % ids.size]
             val next = ids[(index + 1) % ids.size]
@@ -418,27 +437,29 @@ class DiamondFacetMemory {
         (1f - abs(shortestDelta(a, b)) / width).coerceIn(0f, 1f)
 
     fun toRgbaBytes(): ByteArray {
-        val out = ByteArray(states.size * 4)
+        val requiredSize = states.size * 4
+        if (rgbaUploadBytes.size != requiredSize) rgbaUploadBytes = ByteArray(requiredSize)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            out[p] = unitByte(s.displayTone)
-            out[p + 1] = unitByte(s.transparencyReference)
-            out[p + 2] = unitByte(s.brightness)
-            out[p + 3] = unitByte(s.reflection)
+            rgbaUploadBytes[p] = unitByte(s.displayTone)
+            rgbaUploadBytes[p + 1] = unitByte(s.transparencyReference)
+            rgbaUploadBytes[p + 2] = unitByte(s.brightness)
+            rgbaUploadBytes[p + 3] = unitByte(s.reflection)
         }
-        return out
+        return rgbaUploadBytes
     }
 
     fun toInternalReturnRgbaBytes(): ByteArray {
-        val out = ByteArray(states.size * 4)
+        val requiredSize = states.size * 4
+        if (internalReturnUploadBytes.size != requiredSize) internalReturnUploadBytes = ByteArray(requiredSize)
         states.forEachIndexed { index, s ->
             val p = index * 4
-            out[p] = unitByte(s.internalReturn * s.exitTransmission)
-            out[p + 1] = unitByte(s.internalReturn)
-            out[p + 2] = unitByte(s.exitTransmission)
-            out[p + 3] = 0xFF.toByte()
+            internalReturnUploadBytes[p] = unitByte(s.internalReturn * s.exitTransmission)
+            internalReturnUploadBytes[p + 1] = unitByte(s.internalReturn)
+            internalReturnUploadBytes[p + 2] = unitByte(s.exitTransmission)
+            internalReturnUploadBytes[p + 3] = 0xFF.toByte()
         }
-        return out
+        return internalReturnUploadBytes
     }
 
     private fun unitByte(value: Float): Byte =

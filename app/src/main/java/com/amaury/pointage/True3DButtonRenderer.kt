@@ -8,16 +8,10 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.opengl.EGL14
-import android.opengl.EGLConfig
-import android.opengl.EGLContext
-import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES20
 import android.opengl.Matrix
 import android.os.Build
-import android.os.Handler
-import android.os.HandlerThread
 import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.MotionEvent
@@ -70,14 +64,14 @@ class True3DButtonTextureView @JvmOverloads constructor(
 ) : TextureView(context, attrs), TextureView.SurfaceTextureListener {
     private val quality = DiamondDeviceProfile.quality(context)
     private val renderer = CrystalMeshRenderer(quality)
-    private val renderThread = HandlerThread("hp-diamond-3d-${quality.name.lowercase()}").apply { start() }
-    private val renderHandler = Handler(renderThread.looper)
+    private val renderHandler = DiamondRenderThread.handler
     private var egl: EglSession? = null
     private var surfaceWidth = 1
     private var surfaceHeight = 1
     private var lastFrameMs = 0L
     private val minFrameMs = 1000L / quality.fps.coerceAtLeast(1)
     @Volatile private var renderQueued = false
+    @Volatile private var surfaceGeneration = 0L
 
     init {
         isOpaque = false
@@ -99,23 +93,38 @@ class True3DButtonTextureView @JvmOverloads constructor(
 
     private fun requestRender(force: Boolean = false) {
         if (renderQueued && !force) return
+        val generation = surfaceGeneration
         renderQueued = true
         renderHandler.post {
+            if (generation != surfaceGeneration) {
+                renderQueued = false
+                return@post
+            }
             val now = SystemClock.uptimeMillis()
             val wait = if (force) 0L else (minFrameMs - (now - lastFrameMs)).coerceAtLeast(0L)
             if (wait > 0L) {
-                renderHandler.postDelayed({ renderQueued = false; drawFrame() }, wait)
+                renderHandler.postDelayed({
+                    renderQueued = false
+                    drawFrame(generation)
+                }, wait)
             } else {
                 renderQueued = false
-                drawFrame()
+                drawFrame(generation)
             }
         }
     }
 
     override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        val generation = ++surfaceGeneration
+        renderQueued = false
         surfaceWidth = width.coerceAtLeast(1)
         surfaceHeight = height.coerceAtLeast(1)
-        renderHandler.post { releaseEgl(); egl = EglSession(surface, quality); drawFrame() }
+        renderHandler.post {
+            if (generation != surfaceGeneration) return@post
+            releaseEgl()
+            egl = EglSession(surface, quality)
+            drawFrame(generation)
+        }
     }
 
     override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
@@ -125,18 +134,29 @@ class True3DButtonTextureView @JvmOverloads constructor(
     }
 
     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-        renderHandler.post { releaseEgl() }
-        return true
+        surfaceGeneration++
+        renderQueued = false
+        renderHandler.post {
+            try {
+                releaseEgl()
+            } finally {
+                surface.release()
+            }
+        }
+        return false
     }
 
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
-        renderHandler.post { releaseEgl(); renderThread.quitSafely() }
+        surfaceGeneration++
+        renderQueued = false
+        renderHandler.post { releaseEgl() }
     }
 
-    private fun drawFrame() {
+    private fun drawFrame(generation: Long) {
+        if (generation != surfaceGeneration) return
         val session = egl ?: return
         session.makeCurrent()
         renderer.draw(surfaceWidth, surfaceHeight)
@@ -144,48 +164,23 @@ class True3DButtonTextureView @JvmOverloads constructor(
         lastFrameMs = SystemClock.uptimeMillis()
     }
 
-    private fun releaseEgl() { egl?.release(); egl = null }
+    private fun releaseEgl() {
+        val session = egl ?: return
+        session.makeCurrent()
+        renderer.releaseGpu()
+        session.release()
+        egl = null
+    }
 
     private class EglSession(texture: SurfaceTexture, quality: DiamondQuality) {
-        private val display: EGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        private val context: EGLContext
-        private val surface: EGLSurface
+        private val surface: EGLSurface = OpenGlButtonEgl.createSurface(
+            texture,
+            if (quality == DiamondQuality.ECO) 16 else 24
+        )
 
-        init {
-            val version = IntArray(2)
-            check(EGL14.eglInitialize(display, version, 0, version, 1))
-            val depth = if (quality == DiamondQuality.ECO) 16 else 24
-            val attrs = intArrayOf(
-                EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
-                EGL14.EGL_RED_SIZE, 8,
-                EGL14.EGL_GREEN_SIZE, 8,
-                EGL14.EGL_BLUE_SIZE, 8,
-                EGL14.EGL_ALPHA_SIZE, 8,
-                EGL14.EGL_DEPTH_SIZE, depth,
-                EGL14.EGL_NONE
-            )
-            val configs = arrayOfNulls<EGLConfig>(1)
-            val count = IntArray(1)
-            check(EGL14.eglChooseConfig(display, attrs, 0, configs, 0, 1, count, 0) && count[0] > 0)
-            context = EGL14.eglCreateContext(
-                display, configs[0], EGL14.EGL_NO_CONTEXT,
-                intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0
-            )
-            surface = EGL14.eglCreateWindowSurface(
-                display, configs[0], texture, intArrayOf(EGL14.EGL_NONE), 0
-            )
-            check(context != EGL14.EGL_NO_CONTEXT && surface != EGL14.EGL_NO_SURFACE)
-        }
-
-        fun makeCurrent() { EGL14.eglMakeCurrent(display, surface, surface, context) }
-        fun swap() { EGL14.eglSwapBuffers(display, surface) }
-
-        fun release() {
-            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
-            if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
-            if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
-            EGL14.eglTerminate(display)
-        }
+        fun makeCurrent() = OpenGlButtonEgl.makeCurrent(surface)
+        fun swap() = OpenGlButtonEgl.swap(surface)
+        fun release() = OpenGlButtonEgl.destroySurface(surface)
     }
 
     private class CrystalMeshRenderer(private val quality: DiamondQuality) {
@@ -202,6 +197,13 @@ class True3DButtonTextureView @JvmOverloads constructor(
         private var facetTextureWidth = 0
         private var internalReturnTexture = 0
         private var internalReturnTextureWidth = 0
+        private var stateUploadBuffer: ByteBuffer? = null
+        private var internalUploadBuffer: ByteBuffer? = null
+        private val projectionMatrix = FloatArray(16)
+        private val viewMatrix = FloatArray(16)
+        private val modelMatrix = FloatArray(16)
+        private val viewProjectionMatrix = FloatArray(16)
+        private val mvpMatrix = FloatArray(16)
         private var smoothPitch = 0f
         private var smoothRoll = 0f
         private var smoothYaw = 0f
@@ -277,25 +279,41 @@ class True3DButtonTextureView @JvmOverloads constructor(
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
 
             val aspect = width.toFloat() / height.coerceAtLeast(1)
-            val proj = FloatArray(16)
-            val view = FloatArray(16)
-            val model = FloatArray(16)
-            val vp = FloatArray(16)
-            val mvp = FloatArray(16)
-            Matrix.perspectiveM(proj, 0, 24f, aspect, .1f, 20f)
-            Matrix.setLookAtM(view, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
-            Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
-            Matrix.rotateM(model, 0, -8.2f + smoothPitch * .20f, 1f, 0f, 0f)
-            Matrix.rotateM(model, 0, 2.4f - smoothRoll * .24f, 0f, 1f, 0f)
-            Matrix.rotateM(model, 0, smoothYaw * .025f, 0f, 0f, 1f)
-            Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
-            Matrix.multiplyMM(mvp, 0, vp, 0, model, 0)
+            Matrix.perspectiveM(projectionMatrix, 0, 24f, aspect, .1f, 20f)
+            Matrix.setLookAtM(viewMatrix, 0, 0f, -2.72f, 4.3f, 0f, 0f, 0f, 0f, 1f, 0f)
+            Matrix.setIdentityM(modelMatrix, 0)
+            Matrix.translateM(modelMatrix, 0, 0f, if (pressed) .035f else 0f, if (pressed) -.16f else .18f)
+            Matrix.rotateM(modelMatrix, 0, -8.2f + smoothPitch * .20f, 1f, 0f, 0f)
+            Matrix.rotateM(modelMatrix, 0, 2.4f - smoothRoll * .24f, 0f, 1f, 0f)
+            Matrix.rotateM(modelMatrix, 0, smoothYaw * .025f, 0f, 0f, 1f)
+            Matrix.multiplyMM(viewProjectionMatrix, 0, projectionMatrix, 0, viewMatrix, 0)
+            Matrix.multiplyMM(mvpMatrix, 0, viewProjectionMatrix, 0, modelMatrix, 0)
 
             val a = normalize(baseLightAngle)
             val rad = Math.toRadians(a.toDouble())
-            drawFacets(mvp, model, cos(rad).toFloat(), sin(rad).toFloat())
-            drawTrueEdges(mvp)
+            drawFacets(mvpMatrix, modelMatrix, cos(rad).toFloat(), sin(rad).toFloat())
+            drawTrueEdges(mvpMatrix)
+        }
+
+        fun releaseGpu() {
+            if (facetTexture != 0) {
+                GLES20.glDeleteTextures(1, intArrayOf(facetTexture), 0)
+                facetTexture = 0
+                facetTextureWidth = 0
+            }
+            if (internalReturnTexture != 0) {
+                GLES20.glDeleteTextures(1, intArrayOf(internalReturnTexture), 0)
+                internalReturnTexture = 0
+                internalReturnTextureWidth = 0
+            }
+            if (program != 0) {
+                GLES20.glDeleteProgram(program)
+                program = 0
+            }
+            if (edgeProgram != 0) {
+                GLES20.glDeleteProgram(edgeProgram)
+                edgeProgram = 0
+            }
         }
 
         private fun ensureFacetTextures() {
@@ -335,7 +353,10 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val internalBytes = facetMemory.toInternalReturnRgbaBytes()
             if (stateBytes.isEmpty() || internalBytes.isEmpty()) return
 
-            val stateBuffer = ByteBuffer.allocateDirect(stateBytes.size).apply { put(stateBytes); position(0) }
+            val stateBuffer = reusableUploadBuffer(stateUploadBuffer, stateBytes.size).also { stateUploadBuffer = it }
+            stateBuffer.clear()
+            stateBuffer.put(stateBytes)
+            stateBuffer.flip()
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, facetTexture)
             GLES20.glTexSubImage2D(
@@ -343,13 +364,21 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, stateBuffer
             )
 
-            val internalBuffer = ByteBuffer.allocateDirect(internalBytes.size).apply { put(internalBytes); position(0) }
+            val internalBuffer = reusableUploadBuffer(internalUploadBuffer, internalBytes.size).also { internalUploadBuffer = it }
+            internalBuffer.clear()
+            internalBuffer.put(internalBytes)
+            internalBuffer.flip()
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, internalReturnTexture)
             GLES20.glTexSubImage2D(
                 GLES20.GL_TEXTURE_2D, 0, 0, 0, facetMemory.size(), 1,
                 GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, internalBuffer
             )
+        }
+
+        private fun reusableUploadBuffer(current: ByteBuffer?, requiredSize: Int): ByteBuffer {
+            if (current != null && current.capacity() >= requiredSize) return current
+            return ByteBuffer.allocateDirect(requiredSize).order(ByteOrder.nativeOrder())
         }
 
         private fun drawFacets(mvp: FloatArray, model: FloatArray, lx: Float, ly: Float) {
@@ -562,6 +591,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val ok = IntArray(1)
             GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, ok, 0)
             check(ok[0] == GLES20.GL_TRUE) { GLES20.glGetProgramInfoLog(program) }
+            GLES20.glDeleteShader(vs)
+            GLES20.glDeleteShader(fs)
             pLoc = GLES20.glGetAttribLocation(program, "aPosition")
             nLoc = GLES20.glGetAttribLocation(program, "aNormal")
             rLoc = GLES20.glGetAttribLocation(program, "aRegion")
@@ -593,6 +624,8 @@ class True3DButtonTextureView @JvmOverloads constructor(
             val ok = IntArray(1)
             GLES20.glGetProgramiv(edgeProgram, GLES20.GL_LINK_STATUS, ok, 0)
             check(ok[0] == GLES20.GL_TRUE) { GLES20.glGetProgramInfoLog(edgeProgram) }
+            GLES20.glDeleteShader(vs)
+            GLES20.glDeleteShader(fs)
             edgePositionLoc = GLES20.glGetAttribLocation(edgeProgram, "aPosition")
             edgeMvpLoc = GLES20.glGetUniformLocation(edgeProgram, "uMvp")
             edgeColorLoc = GLES20.glGetUniformLocation(edgeProgram, "uEdgeColor")
@@ -690,7 +723,6 @@ class True3DButtonTextureView @JvmOverloads constructor(
                 val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(.00001f)
                 return floatArrayOf(nx / len, ny / len, nz / len)
             }
-
             fun emitVertex(v: FloatArray, n: FloatArray, id: Float) {
                 data.add(v[0]); data.add(v[1]); data.add(v[2])
                 data.add(n[0]); data.add(n[1]); data.add(n[2])

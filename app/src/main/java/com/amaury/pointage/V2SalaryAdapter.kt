@@ -113,7 +113,7 @@ object V2SalaryAdapter {
         val warnings = mutableListOf<String>()
         val periodEpochDay = LocalDate.of(year, month + 1, 1).toEpochDay()
         val historicalSnapshot = ruleHistory?.applicable(convention.idcc, periodEpochDay)
-        val historicalMode = ruleHistory != null
+        val historicalMode = ruleHistory?.allVersions(convention.idcc)?.isNotEmpty() == true
         val historicalRules = historicalSnapshot?.rules
 
         val integratedTiers = when {

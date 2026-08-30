@@ -11,16 +11,17 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Space
 import android.widget.TextView
 
 /**
  * Lanceur minimal, indépendant de l'interface principale.
  *
- * L'écran de bienvenue s'affiche une fois par version installée.
- * Il utilise exactement la même palette jour/nuit que le reste de HP Travail.
+ * L'écran de bienvenue s'affiche uniquement lors de la première installation.
+ * Les mises à jour conservent l'état de navigation existant et ouvrent
+ * directement l'application, sauf si le mode récupération doit être prioritaire.
  */
 class LaunchActivity : Activity() {
 
@@ -76,7 +77,7 @@ class LaunchActivity : Activity() {
     }
 
     private fun shouldShowWelcomeForCurrentVersion(): Boolean {
-        return readLastShownVersion() != currentVersionCode()
+        return readLastShownVersion() < 0L
     }
 
     private fun markWelcomeShown() {
@@ -110,15 +111,12 @@ class LaunchActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(20), dp(24), dp(20), dp(24))
-            setBackgroundColor(screenBackground)
         }
-
-        content.addView(Space(this), LinearLayout.LayoutParams(1, dp(12)))
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(22), dp(24), dp(22), dp(22))
+            setPadding(dp(22), dp(24), dp(22), dp(18))
             background = rounded(panel, 24, accentDisplay)
             elevation = dp(8).toFloat()
         }
@@ -133,7 +131,7 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "BIENVENUE SUR HP TRAVAIL"
+            text = "BIENVENUE SUR HORATRACK"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 20f
@@ -144,13 +142,13 @@ class LaunchActivity : Activity() {
         })
 
         card.addView(TextView(this).apply {
-            text = "Merci d’avoir téléchargé HP Travail.\n\nL’application est conçue pour simplifier le suivi de ton temps de travail, de tes heures et de ton activité professionnelle.\n\nBonne utilisation !"
+            text = "Merci pour ton téléchargement.\n\nSimplifie le suivi de ton temps de travail.\n\nBonne utilisation !"
             gravity = Gravity.CENTER
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 15f
             setTextColor(textColor)
             setLineSpacing(0f, 1.15f)
-            setPadding(dp(2), 0, dp(2), dp(18))
+            setPadding(dp(2), 0, dp(2), dp(14))
         })
 
         card.addView(TextView(this).apply {
@@ -159,7 +157,17 @@ class LaunchActivity : Activity() {
             textAlignment = View.TEXT_ALIGNMENT_CENTER
             textSize = 13f
             setTextColor(secondary)
-            setPadding(0, 0, 0, dp(18))
+            setPadding(0, 0, 0, dp(8))
+        })
+
+        card.addView(TextView(this).apply {
+            text = "✦ Assisté par IA"
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            textSize = 11f
+            setTextColor(secondary)
+            alpha = 0.78f
+            setPadding(0, 0, 0, dp(12))
         })
 
         val startButton = Button(this).apply {
@@ -184,10 +192,17 @@ class LaunchActivity : Activity() {
             topMargin = dp(2)
         })
 
-        content.addView(Space(this), LinearLayout.LayoutParams(1, dp(18)))
+        card.addView(TextView(this).apply {
+            text = "© 2026 — Tous droits réservés"
+            gravity = Gravity.CENTER
+            textAlignment = View.TEXT_ALIGNMENT_CENTER
+            textSize = 10f
+            setTextColor(secondary)
+            alpha = 0.72f
+            setPadding(0, dp(12), 0, 0)
+        })
 
         val scroll = ScrollView(this).apply {
-            isFillViewport = true
             clipToPadding = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             addView(content, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -195,7 +210,12 @@ class LaunchActivity : Activity() {
             animate().alpha(1f).setDuration(260L).start()
         }
 
-        setContentView(scroll)
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(screenBackground)
+            addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        }
+
+        setContentView(root)
     }
 
     private fun openMain() {
