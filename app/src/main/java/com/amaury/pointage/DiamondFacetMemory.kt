@@ -39,6 +39,7 @@ class DiamondFacetMemory {
     private var rgbaUploadBytes = ByteArray(0)
     private var internalReturnUploadBytes = ByteArray(0)
     private var internalLightBuffer = FloatArray(0)
+    private var pavilionWeightsBuffer = FloatArray(0)
 
     fun size(): Int = states.size
 
@@ -240,6 +241,11 @@ class DiamondFacetMemory {
             -lightToSurface[0], -lightToSurface[1], -lightToSurface[2]
         )
 
+        if (pavilionWeightsBuffer.size != pavilionIds.size) {
+            pavilionWeightsBuffer = FloatArray(pavilionIds.size)
+        }
+        val weights = pavilionWeightsBuffer
+
         for (entryId in entryIds) {
             val entryN = rotatedNormals[entryId]
             val entryFacing = max(0f, dot3(entryN, lightToSurface))
@@ -253,7 +259,6 @@ class DiamondFacetMemory {
 
             val entryEnergy = entryFacing * sourceIntensity * (0.30f + refractionControl * 0.70f)
             val entryAzimuth = azimuth(internalRay)
-            val weights = FloatArray(pavilionIds.size)
             var weightSum = 0f
 
             pavilionIds.forEachIndexed { index, pavilionId ->
