@@ -23,7 +23,7 @@ object PauseScheduleManager {
     private const val CONFIRM_PREFS = "pause_schedule_confirmation"
     private const val KEY_CONFIRM_END_AT = "end_at"
     private const val KEY_CONFIRM_DEADLINE = "deadline"
-    private const val CONFIRM_WINDOW_MS = 5L * 60_000L
+    internal const val CONFIRM_WINDOW_MS = 5L * 60_000L
 
     const val ACTION_START = "com.amaury.pointage.AUTO_PAUSE_START"
     const val ACTION_END = "com.amaury.pointage.AUTO_PAUSE_END"
@@ -125,7 +125,7 @@ object PauseScheduleManager {
         val p = context.applicationContext.getSharedPreferences(CONFIRM_PREFS, Context.MODE_PRIVATE)
         val endAt = p.getLong(KEY_CONFIRM_END_AT, 0L)
         val deadline = p.getLong(KEY_CONFIRM_DEADLINE, 0L)
-        if (endAt <= 0L || deadline <= 0L || nowMs >= deadline) {
+        if (!isEndConfirmationPending(endAt, deadline, nowMs)) {
             if (endAt > 0L || deadline > 0L) p.edit().clear().apply()
             return null
         }
@@ -160,6 +160,11 @@ object PauseScheduleManager {
         if (resumed) markEndConfirmationIfRecent(context, scheduledEndNearNow(context))
     }
 
+    internal fun confirmationDeadline(endAtMs: Long): Long = endAtMs + CONFIRM_WINDOW_MS
+
+    internal fun isEndConfirmationPending(endAtMs: Long, deadlineMs: Long, nowMs: Long): Boolean =
+        endAtMs > 0L && deadlineMs > 0L && nowMs < deadlineMs
+
     private fun startScheduledPause(context: Context): Boolean {
         if (!HoraTrackV2.ENABLED) return PointageStore.startPause(context, true)
         val snap = V2RuntimeStore.snapshot(context).session ?: return false
@@ -181,7 +186,7 @@ object PauseScheduleManager {
 
     private fun markEndConfirmationIfRecent(context: Context, scheduledEndMs: Long) {
         val now = System.currentTimeMillis()
-        val deadline = scheduledEndMs + CONFIRM_WINDOW_MS
+        val deadline = confirmationDeadline(scheduledEndMs)
         if (scheduledEndMs <= 0L || now < scheduledEndMs || now >= deadline) return
         context.applicationContext.getSharedPreferences(CONFIRM_PREFS, Context.MODE_PRIVATE).edit()
             .putLong(KEY_CONFIRM_END_AT, scheduledEndMs)
