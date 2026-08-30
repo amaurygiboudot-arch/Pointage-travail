@@ -87,7 +87,7 @@ class V2PayslipImportActivity : Activity() {
                     netValue,
                     confirmedByUser = true
                 )
-                Toast.makeText(this, "Bulletin importé • comparaison V2 disponible", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Bulletin importé • comparaison disponible", Toast.LENGTH_LONG).show()
                 dialog.setOnCancelListener(null)
                 dialog.dismiss()
                 finish()

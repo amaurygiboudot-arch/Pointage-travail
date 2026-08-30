@@ -61,7 +61,7 @@ class RecoveryActivityV2 : Activity() {
         }
 
         val brand = TextView(this).apply {
-            text = "♛  HP TRAVAIL"
+            text = "♛  HORATRACK"
             textSize = 25f
             gravity = Gravity.CENTER
             setTextColor(Color.rgb(20, 20, 20))
@@ -123,7 +123,7 @@ class RecoveryActivityV2 : Activity() {
                 val report = CrashRecoveryManager.getLastCrashReport(this@RecoveryActivityV2)
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "HP Travail — rapport d’erreur")
+                    putExtra(Intent.EXTRA_SUBJECT, "HoraTrack — rapport d’erreur")
                     putExtra(Intent.EXTRA_TEXT, report)
                 }
                 startActivity(Intent.createChooser(share, "Partager le rapport d’erreur"))
@@ -147,7 +147,7 @@ class RecoveryActivityV2 : Activity() {
         content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         content.addView(Button(this).apply {
-            text = "OUVRIR HP TRAVAIL QUAND MÊME"
+            text = "OUVRIR HORATRACK QUAND MÊME"
             styleButton(this)
             setOnClickListener {
                 CrashRecoveryManager.clear(this@RecoveryActivityV2)
