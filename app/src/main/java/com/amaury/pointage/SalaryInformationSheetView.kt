@@ -4,10 +4,12 @@ import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -17,20 +19,252 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 
-class SalaryInformationSheetView @JvmOverloads constructor(context:Context,attrs:AttributeSet?=null):LinearLayout(context,attrs){
- companion object{const val TAG="salary_information_sheet";private const val PREFS="salary_settings"}
- private val prefs=context.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
- private val companyName=field("Nom de l'entreprise");private val companySiret=field("SIRET — 14 chiffres",InputType.TYPE_CLASS_NUMBER);private val hourlyRate=field("Taux horaire brut — ex. 13,70",InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL);private val weeklyHours=field("Durée hebdomadaire contractuelle — ex. 35",InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL);private val mealAmount=field("Montant panier — ex. 5,38",InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL);private val contractType=Spinner(context);private val conventionButton=Button(context);private val status=TextView(context)
- init{tag=TAG;orientation=VERTICAL;setPadding(dp(14),dp(14),dp(14),dp(14));setBackgroundResource(R.drawable.hp_panel);buildUi();refresh()}
- fun refresh(){companyName.setText(textPref("company_name"));companySiret.setText(textPref("company_siret"));hourlyRate.setText(textPref("hourly_rate").replace('.',','));weeklyHours.setText(textPref("contract_weekly_hours").replace('.',','));mealAmount.setText(textPref("meal_amount").replace('.',','));contractType.setSelection(contractIndex(textPref("contract_type")));updateConventionLabel();updateStatus()}
- private fun buildUi(){addView(TextView(context).apply{text="📋 FICHE DE RENSEIGNEMENTS";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="Ces informations servent aux calculs de salaire et aux règles V2. Les données déjà enregistrées sont conservées et préremplies.";textSize=13f;setPadding(0,dp(7),0,dp(12))});addLabel("ENTREPRISE PRINCIPALE");addView(companyName,rowParams());addView(companySiret,rowParams());addLabel("CONTRAT");contractType.adapter=ArrayAdapter(context,android.R.layout.simple_spinner_dropdown_item,listOf("Choisir le type de contrat","Temps plein","Temps partiel","Forfait","Autre"));addView(contractType,rowParams());addView(weeklyHours,rowParams());addLabel("RÉMUNÉRATION");addView(hourlyRate,rowParams());addView(mealAmount,rowParams());addLabel("CONVENTION COLLECTIVE");conventionButton.apply{isAllCaps=false;textSize=14f;setBackgroundResource(R.drawable.hp_panel);setOnClickListener{showConventionPicker()}};addView(conventionButton,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(52)).apply{topMargin=dp(6)});status.textSize=13f;status.setPadding(0,dp(10),0,dp(8));addView(status);addView(Button(context).apply{text="ENREGISTRER LA FICHE";isAllCaps=false;textSize=14f;setTextColor(Color.parseColor("#F3A64A"));setBackgroundResource(R.drawable.hp_panel);setOnClickListener{save()}},LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(54)).apply{topMargin=dp(5)})}
- private fun save(){val siret=companySiret.text.toString().filter(Char::isDigit);if(siret.isNotEmpty()&&siret.length!=14){companySiret.error="Le SIRET doit contenir 14 chiffres";return};val contract=contractValue(contractType.selectedItemPosition);if(contract.isBlank()){Toast.makeText(context,"Choisis le type de contrat",Toast.LENGTH_LONG).show();return};val weekly=weeklyHours.text.toString().trim().replace(',','.').toDoubleOrNull();if(contract!="FORFAIT"&&(weekly==null||weekly<=0.0||weekly>80.0)){weeklyHours.error="Indique la durée hebdomadaire du contrat";return};val rate=hourlyRate.text.toString().trim().replace(',','.').toDoubleOrNull();if(rate==null||rate<=0.0){hourlyRate.error="Indique un taux horaire brut valide";return};val meal=mealAmount.text.toString().trim().replace(',','.').toDoubleOrNull();val editor=prefs.edit().putString("company_name",companyName.text.toString().trim()).putString("company_siret",siret).putString("contract_type",contract).putString("hourly_rate",rate.toString());if(weekly!=null&&weekly>0.0)editor.putString("contract_weekly_hours",weekly.toString()) else if(contract=="FORFAIT")editor.remove("contract_weekly_hours");if(meal!=null&&meal>=0.0)editor.putString("meal_amount",meal.toString());editor.apply();updateStatus();Toast.makeText(context,"Fiche de renseignements enregistrée",Toast.LENGTH_SHORT).show()}
- private fun showConventionPicker(){val items=ConventionCatalog.all(context);AlertDialog.Builder(context).setTitle("Convention collective").setItems(items.map{it.displayName}.toTypedArray()){_,which->val convention=items.getOrNull(which)?:return@setItems;prefs.edit().putString("company_idcc",convention.idcc).putString("convention_idcc",convention.idcc).putString("company_convention_name",convention.fullName).apply();updateConventionLabel();updateStatus()}.setNegativeButton("Annuler",null).show()}
- private fun updateConventionLabel(){val idcc=textPref("company_idcc").ifBlank{textPref("convention_idcc")};conventionButton.text=ConventionCatalog.findByIdcc(context,idcc)?.displayName?:"CHOISIR LA CONVENTION COLLECTIVE"}
- private fun updateStatus(){val missing=mutableListOf<String>();if(textPref("company_name").isBlank()&&textPref("company_siret").isBlank())missing+="entreprise";val type=textPref("contract_type");if(type.isBlank())missing+="type de contrat";if(type!="FORFAIT"&&numberPref("contract_weekly_hours")==null)missing+="durée hebdomadaire";if(numberPref("hourly_rate")==null)missing+="taux horaire";status.text=if(missing.isEmpty())"✅ Fiche complète pour les calculs principaux" else "⚠️ À compléter : ${missing.joinToString(", ")}"}
- private fun textPref(key:String):String=when(val v=prefs.all[key]){null->"";is String->v;is Number->v.toString();is Boolean->v.toString();else->v.toString()}.trim()
- private fun numberPref(key:String):Double?=when(val v=prefs.all[key]){is Number->v.toDouble();is String->v.replace(',','.').toDoubleOrNull();else->null}
- private fun field(h:String,type:Int=InputType.TYPE_CLASS_TEXT)=EditText(context).apply{hint=h;inputType=type;isSingleLine=true;textSize=14f;background=GradientDrawable().apply{shape=GradientDrawable.RECTANGLE;setColor(Color.TRANSPARENT);setStroke(dp(1),Color.parseColor("#D6A84B"));cornerRadius=dp(16).toFloat()};setPadding(dp(12),dp(7),dp(12),dp(7))}
- private fun addLabel(t:String){addView(TextView(context).apply{text=t;textSize=13f;setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(12),0,0)})};private fun rowParams()=LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(52)).apply{topMargin=dp(6)}
- private fun contractIndex(v:String)=when(v.uppercase()){"FULL_TIME"->1;"PART_TIME"->2;"FORFAIT"->3;"OTHER"->4;else->0};private fun contractValue(i:Int)=when(i){1->"FULL_TIME";2->"PART_TIME";3->"FORFAIT";4->"OTHER";else->""};private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
+class SalaryInformationSheetView @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : LinearLayout(context, attrs) {
+    companion object {
+        const val TAG = "salary_information_sheet"
+        private const val PREFS = "salary_settings"
+    }
+
+    private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val theme get() = AppThemeCatalog.current(context)
+    private val dark get() = AppThemeCatalog.useDarkPalette(context)
+    private val textColor get() = if (dark) theme.darkText else theme.lightText
+    private val hintColor get() = if (dark) theme.darkHint else theme.lightHint
+    private val accentColor get() = if (dark) theme.accentLight else theme.accent
+    private val panelColor get() = if (dark) theme.darkPanel else theme.lightPanel
+
+    private val companyName = field("Nom de l'entreprise")
+    private val companySiret = field("SIRET — 14 chiffres", InputType.TYPE_CLASS_NUMBER)
+    private val hourlyRate = field("Taux horaire brut — ex. 13,70", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+    private val weeklyHours = field("Durée hebdomadaire contractuelle — ex. 35", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+    private val mealAmount = field("Montant panier — ex. 5,38", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+    private val contractType = Spinner(context)
+    private val conventionButton = Button(context)
+    private val status = TextView(context)
+
+    init {
+        tag = TAG
+        orientation = VERTICAL
+        setPadding(dp(14), dp(14), dp(14), dp(14))
+        applyPanelBackground(this)
+        buildUi()
+        refresh()
+    }
+
+    fun refresh() {
+        applyThemeRecursively(this)
+        companyName.setText(textPref("company_name"))
+        companySiret.setText(textPref("company_siret"))
+        hourlyRate.setText(textPref("hourly_rate").replace('.', ','))
+        weeklyHours.setText(textPref("contract_weekly_hours").replace('.', ','))
+        mealAmount.setText(textPref("meal_amount").replace('.', ','))
+        contractType.setSelection(contractIndex(textPref("contract_type")))
+        updateConventionLabel()
+        updateStatus()
+    }
+
+    private fun buildUi() {
+        addView(TextView(context).apply {
+            text = "📋 FICHE DE RENSEIGNEMENTS"
+            textSize = 17f
+            setTypeface(typeface, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            setTextColor(textColor)
+        })
+        addView(TextView(context).apply {
+            text = "Ces informations servent aux calculs de salaire de HoraTrack. Les données déjà enregistrées sont conservées et préremplies."
+            textSize = 13f
+            setTextColor(hintColor)
+            setPadding(0, dp(7), 0, dp(12))
+        })
+        addLabel("ENTREPRISE PRINCIPALE")
+        addView(companyName, rowParams())
+        addView(companySiret, rowParams())
+        addLabel("CONTRAT")
+        contractType.adapter = themedAdapter(listOf("Choisir le type de contrat", "Temps plein", "Temps partiel", "Forfait", "Autre"))
+        contractType.background = controlBackground()
+        addView(contractType, rowParams())
+        addView(weeklyHours, rowParams())
+        addLabel("RÉMUNÉRATION")
+        addView(hourlyRate, rowParams())
+        addView(mealAmount, rowParams())
+        addLabel("CONVENTION COLLECTIVE")
+        conventionButton.apply {
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(textColor)
+            applyPanelBackground(this)
+            setOnClickListener { showConventionPicker() }
+        }
+        addView(conventionButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+        status.textSize = 13f
+        status.setTextColor(hintColor)
+        status.setPadding(0, dp(10), 0, dp(8))
+        addView(status)
+        addView(Button(context).apply {
+            text = "ENREGISTRER LA FICHE"
+            isAllCaps = false
+            textSize = 14f
+            setTextColor(accentColor)
+            applyPanelBackground(this)
+            setOnClickListener { save() }
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(5) })
+    }
+
+    private fun save() {
+        val siret = companySiret.text.toString().filter(Char::isDigit)
+        if (siret.isNotEmpty() && siret.length != 14) {
+            companySiret.error = "Le SIRET doit contenir 14 chiffres"
+            return
+        }
+        val contract = contractValue(contractType.selectedItemPosition)
+        if (contract.isBlank()) {
+            Toast.makeText(context, "Choisis le type de contrat", Toast.LENGTH_LONG).show()
+            return
+        }
+        val weekly = weeklyHours.text.toString().trim().replace(',', '.').toDoubleOrNull()
+        if (contract != "FORFAIT" && (weekly == null || weekly <= 0.0 || weekly > 80.0)) {
+            weeklyHours.error = "Indique la durée hebdomadaire du contrat"
+            return
+        }
+        val rate = hourlyRate.text.toString().trim().replace(',', '.').toDoubleOrNull()
+        if (rate == null || rate <= 0.0) {
+            hourlyRate.error = "Indique un taux horaire brut valide"
+            return
+        }
+        val meal = mealAmount.text.toString().trim().replace(',', '.').toDoubleOrNull()
+        val editor = prefs.edit()
+            .putString("company_name", companyName.text.toString().trim())
+            .putString("company_siret", siret)
+            .putString("contract_type", contract)
+            .putString("hourly_rate", rate.toString())
+        if (weekly != null && weekly > 0.0) editor.putString("contract_weekly_hours", weekly.toString())
+        else if (contract == "FORFAIT") editor.remove("contract_weekly_hours")
+        if (meal != null && meal >= 0.0) editor.putString("meal_amount", meal.toString())
+        editor.apply()
+        updateStatus()
+        Toast.makeText(context, "Fiche de renseignements enregistrée", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showConventionPicker() {
+        val items = ConventionCatalog.all(context)
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Convention collective")
+            .setItems(items.map { it.displayName }.toTypedArray()) { _, which ->
+                val convention = items.getOrNull(which) ?: return@setItems
+                prefs.edit()
+                    .putString("company_idcc", convention.idcc)
+                    .putString("convention_idcc", convention.idcc)
+                    .putString("company_convention_name", convention.fullName)
+                    .apply()
+                updateConventionLabel()
+                updateStatus()
+            }
+            .setNegativeButton("Annuler", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawable(ColorDrawable(panelColor))
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.setTextColor(accentColor)
+        }
+        dialog.show()
+    }
+
+    private fun updateConventionLabel() {
+        val idcc = textPref("company_idcc").ifBlank { textPref("convention_idcc") }
+        conventionButton.text = ConventionCatalog.findByIdcc(context, idcc)?.displayName ?: "CHOISIR LA CONVENTION COLLECTIVE"
+    }
+
+    private fun updateStatus() {
+        val missing = mutableListOf<String>()
+        if (textPref("company_name").isBlank() && textPref("company_siret").isBlank()) missing += "entreprise"
+        val type = textPref("contract_type")
+        if (type.isBlank()) missing += "type de contrat"
+        if (type != "FORFAIT" && numberPref("contract_weekly_hours") == null) missing += "durée hebdomadaire"
+        if (numberPref("hourly_rate") == null) missing += "taux horaire"
+        status.text = if (missing.isEmpty()) "✅ Fiche complète pour les calculs principaux" else "⚠️ À compléter : ${missing.joinToString(", ")}"
+    }
+
+    private fun field(hint: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(context).apply {
+        this.hint = hint
+        inputType = type
+        isSingleLine = true
+        textSize = 14f
+        setTextColor(textColor)
+        setHintTextColor(hintColor)
+        background = controlBackground()
+        setPadding(dp(12), dp(7), dp(12), dp(7))
+    }
+
+    private fun addLabel(label: String) {
+        addView(TextView(context).apply {
+            text = label
+            textSize = 13f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(accentColor)
+            setPadding(0, dp(12), 0, 0)
+        })
+    }
+
+    private fun themedAdapter(items: List<String>) = object : ArrayAdapter<String>(context, android.R.layout.simple_spinner_dropdown_item, items) {
+        private fun style(view: View): View {
+            (view as? TextView)?.apply {
+                setTextColor(textColor)
+                setBackgroundColor(panelColor)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+            }
+            return view
+        }
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View = style(super.getView(position, convertView, parent))
+        override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View = style(super.getDropDownView(position, convertView, parent))
+    }
+
+    private fun applyPanelBackground(view: View) {
+        view.background = when (theme.id) {
+            "natural_carbon" -> CarbonCompositeDrawable(context)
+            else -> context.getDrawable(R.drawable.hp_panel)?.mutate()
+        }
+    }
+
+    private fun controlBackground() = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(panelColor)
+        setStroke(dp(1), accentColor)
+        cornerRadius = dp(16).toFloat()
+    }
+
+    private fun applyThemeRecursively(view: View) {
+        when (view) {
+            is EditText -> {
+                view.setTextColor(textColor)
+                view.setHintTextColor(hintColor)
+                view.background = controlBackground()
+            }
+            is TextView -> if (view !== status) view.setTextColor(textColor)
+        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) applyThemeRecursively(view.getChildAt(i))
+        status.setTextColor(hintColor)
+        conventionButton.setTextColor(textColor)
+    }
+
+    private fun textPref(key: String): String = when (val value = prefs.all[key]) {
+        null -> ""
+        is String -> value
+        is Number -> value.toString()
+        is Boolean -> value.toString()
+        else -> value.toString()
+    }.trim()
+
+    private fun numberPref(key: String): Double? = when (val value = prefs.all[key]) {
+        is Number -> value.toDouble()
+        is String -> value.replace(',', '.').toDoubleOrNull()
+        else -> null
+    }
+
+    private fun rowParams() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
+    private fun contractIndex(value: String) = when (value.uppercase()) { "FULL_TIME" -> 1; "PART_TIME" -> 2; "FORFAIT" -> 3; "OTHER" -> 4; else -> 0 }
+    private fun contractValue(index: Int) = when (index) { 1 -> "FULL_TIME"; 2 -> "PART_TIME"; 3 -> "FORFAIT"; 4 -> "OTHER"; else -> "" }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
