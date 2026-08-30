@@ -2,8 +2,9 @@ name: Compiler HoraTrack APK et AAB
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ "main" ]
+  workflow_run:
+    workflows: [ "Security checks" ]
+    types: [ completed ]
 
 concurrency:
   group: horatrack-apk-aab
@@ -11,15 +12,29 @@ concurrency:
 
 jobs:
   build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Recuperer le projet
+      - name: Recuperer le projet valide
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Fixer le commit source
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "SOURCE_SHA=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_ENV"
+          else
+            echo "SOURCE_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          fi
 
       - name: Installer Java 17
         uses: actions/setup-java@v5
@@ -32,6 +47,17 @@ jobs:
         with:
           gradle-version: "8.13"
           cache-cleanup: on-success
+
+      - name: Controle manuel avant publication
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          gradle :app:testDebugUnitTest :app:assemblePlay --stacktrace
+          manifest="$(find app/build/intermediates -type f -name AndroidManifest.xml -path '*/play/*' | head -n 1)"
+          test -n "$manifest"
+          ! grep -Fq 'android.permission.REQUEST_INSTALL_PACKAGES' "$manifest"
+          ! grep -Fq '.update-files' "$manifest"
+          ! grep -Fq 'UpdateDownloadReceiver' "$manifest"
+          ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
 
       - name: Restaurer la cle de signature HoraTrack
         env:
@@ -161,7 +187,7 @@ jobs:
             HP-Travail.apk \
             HP-Travail-SHA256.txt \
             HP-Travail-version.txt \
-            --target "${GITHUB_SHA}" \
+            --target "${SOURCE_SHA}" \
             --title "HoraTrack ${VERSION_NAME}" \
             --notes "Mise à jour automatique HoraTrack - APK + AAB Google Play" \
             --latest
