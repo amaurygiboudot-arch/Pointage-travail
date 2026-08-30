@@ -6,6 +6,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
 import java.io.OutputStream
@@ -117,8 +118,9 @@ object DailyPdfReport {
         pdf.close()
     }
 
-    /** Rollback uniquement quand V2 est désactivé. */
+    /** Rollback uniquement quand le moteur actuel est explicitement désactivé. */
     private fun writeLegacy(data: JSONArray, dayStart: Long, dayEnd: Long, output: OutputStream) {
+        V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(W, H, 1).create())
         val c = page.canvas
