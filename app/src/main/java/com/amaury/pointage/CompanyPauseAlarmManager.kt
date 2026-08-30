@@ -186,7 +186,7 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             CompanyPauseAlarmManager.isEnd(event) -> {
                 if (HoraTrackV2.ENABLED && CompanyPauseAlarmManager.isAutomaticPause(context, company, pauseIndex)) {
                     val snap = V2RuntimeStore.snapshot(context).session
-                    val automaticPauseOpen = snap?.realExitMs == null && snap.pauses.any {
+                    val automaticPauseOpen = snap != null && snap.realExitMs == null && snap.pauses.any {
                         it.endMs == null && it.source == EventSourceV2.SYSTEM
                     }
                     if (automaticPauseOpen) {
