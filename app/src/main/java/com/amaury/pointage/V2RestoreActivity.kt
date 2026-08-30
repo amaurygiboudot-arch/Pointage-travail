@@ -26,7 +26,7 @@ class V2RestoreActivity : Activity() {
         Toast.makeText(
             this,
             result.fold(
-                onSuccess = { "Restauration V2 terminée • ${it.mergedSessions} session(s) ajoutée(s) sans écraser les données présentes" },
+                onSuccess = { "Restauration terminée • ${it.mergedSessions} session(s) ajoutée(s) sans écraser les données présentes" },
                 onFailure = { "Restauration impossible : ${it.message ?: "erreur inconnue"}" }
             ),
             Toast.LENGTH_LONG

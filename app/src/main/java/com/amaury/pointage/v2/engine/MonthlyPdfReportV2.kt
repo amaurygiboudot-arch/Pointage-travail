@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-/** Génération mensuelle basée uniquement sur les sessions et calculs V2. */
+/** Génération mensuelle basée uniquement sur les sessions et calculs HoraTrackMotor. */
 object MonthlyPdfReportV2 {
     private const val W = 842
     private const val H = 595
@@ -55,7 +55,7 @@ object MonthlyPdfReportV2 {
                 page!!.canvas,
                 W,
                 "RELEVÉ MENSUEL DE TRAVAIL — $monthLabel",
-                if (continuation) "HoraTrack V2 • suite • page $pageNo" else "HoraTrack V2 • données calculées par le moteur V2"
+                if (continuation) "HoraTrack • suite • page $pageNo" else "HoraTrack • données calculées automatiquement"
             )
             y = 92f
         }

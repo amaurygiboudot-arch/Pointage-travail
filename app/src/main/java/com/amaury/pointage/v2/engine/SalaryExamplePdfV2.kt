@@ -91,7 +91,7 @@ object SalaryExamplePdfV2 {
         if (Field.HOURS in fields) {
             section("TEMPS DE TRAVAIL", listOf(
                 "Sessions terminées" to (salary?.completedSessions?.toString() ?: sessions.count { it.realExitMs != null }.toString()),
-                "Temps payé V2" to duration(salary?.totalWorkedMs ?: sessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }),
+                "Temps payé" to duration(salary?.totalWorkedMs ?: sessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }),
                 "Heures normales" to duration(salary?.regularMs ?: 0L),
                 "Heures supplémentaires" to (salary?.overtimeTiers?.joinToString { "${it.label}: ${duration(it.durationMs)}" }?.ifBlank { "Aucune règle confirmée applicable" } ?: "À confirmer")
             ))
@@ -100,7 +100,7 @@ object SalaryExamplePdfV2 {
         if (Field.PAUSES in fields) {
             section("PAUSES", listOf(
                 "Pauses non payées déduites" to duration(pauseMs),
-                "Méthode" to "Intervalles V2 confirmés + déductions historiques conservées"
+                "Méthode" to "Intervalles confirmés + déductions historiques conservées"
             ))
         }
 
@@ -128,7 +128,7 @@ object SalaryExamplePdfV2 {
         if (Field.SOURCES in fields) {
             val warnings = salary?.warnings.orEmpty()
             section("SOURCES & CONTRÔLES", listOf(
-                "Source des heures" to "Moteur HoraTrack V2",
+                "Source des heures" to "Moteur HoraTrackMotor",
                 "Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer",
                 "Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • ")
             ))

@@ -36,7 +36,7 @@ object V2TestUiInstaller {
             setBackgroundResource(R.drawable.hp_panel)
         }
         val title = TextView(activity).apply {
-            text = "🧪 HORATRACK V2 — MODE TEST ACTIF"
+            text = "🧪 HORATRACK — MODE TEST ACTIF"
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(Color.parseColor("#F3A64A"))
@@ -48,16 +48,16 @@ object V2TestUiInstaller {
             val report = V2ValidationSuite.run()
             text = buildString {
                 append(if (report.passed) "Diagnostic OK" else "${report.failures.size} contrôle(s) à vérifier")
-                append(" • historique V2 ").append(migration.v2Count)
+                append(" • historique ").append(migration.v2Count)
                 if (migration.imported > 0) append(" (+").append(migration.imported).append(" migrés)")
                 if (profile.missing.isNotEmpty()) append(" • fiche Salaire à compléter")
-                else append(" • fiche Salaire reliée V2")
+                else append(" • fiche Salaire reliée")
             }
             setOnClickListener {
                 val current = V2ValidationSuite.run()
                 Toast.makeText(
                     activity,
-                    if (current.passed) "Diagnostic V2 : tous les contrôles passent" else "V2 : ${current.failures.joinToString()}",
+                    if (current.passed) "Diagnostic HoraTrack : tous les contrôles passent" else "HoraTrack : ${current.failures.joinToString()}",
                     Toast.LENGTH_LONG
                 ).show()
             }
