@@ -64,10 +64,10 @@ object FirebaseUpdatePush {
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Mises à jour HP Travail",
+                "Mises à jour HoraTrack",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Avertit lorsqu'une nouvelle version de HP Travail est disponible"
+                description = "Avertit lorsqu'une nouvelle version de HoraTrack est disponible"
             }
         )
     }
@@ -92,9 +92,9 @@ object FirebaseUpdatePush {
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.hp_icon_red)
-            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HP Travail")
+            .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HoraTrack")
             .setContentText(body?.takeIf { it.isNotBlank() } ?: "Une nouvelle version est disponible. Appuie ici pour la mettre à jour.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HP Travail est disponible. Ouvre l'application pour l'installer."))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HoraTrack est disponible. Ouvre l'application pour l'installer."))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pending)
