@@ -186,7 +186,12 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             CompanyPauseAlarmManager.isEnd(event) -> {
                 if (HoraTrackV2.ENABLED && CompanyPauseAlarmManager.isAutomaticPause(context, company, pauseIndex)) {
                     val snap = V2RuntimeStore.snapshot(context).session
-                    if (snap?.pauses?.any { it.endMs == null } == true) V2RuntimeStore.togglePause(context)
+                    val automaticPauseOpen = snap?.realExitMs == null && snap.pauses.any {
+                        it.endMs == null && it.source == EventSourceV2.SYSTEM
+                    }
+                    if (automaticPauseOpen) {
+                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                    }
                     CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, false)
                 }
             }
