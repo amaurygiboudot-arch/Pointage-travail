@@ -69,7 +69,7 @@ object UpdateChecker {
         installPromptShowing = true
         val versionText = if (versionName.isBlank()) "" else " $versionName"
         val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour prête")
-            .setMessage("HP Travail$versionText a été téléchargée.\n\nVoulez-vous lancer l'installation maintenant ?")
+            .setMessage("HoraTrack$versionText a été téléchargée.\n\nVoulez-vous lancer l'installation maintenant ?")
             .setPositiveButton("INSTALLER") { _, _ -> launchSystemInstaller(activity, apk) }
             .setNegativeButton("PLUS TARD", null).create()
         dialog.setOnDismissListener { installPromptShowing = false }
@@ -83,7 +83,7 @@ object UpdateChecker {
         activity.window.decorView.postDelayed({ installerOpening = false }, 2500L)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.packageManager.canRequestPackageInstalls()) {
             runCatching { activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${activity.packageName}"))) }
-                .onFailure { installerOpening = false; Toast.makeText(activity, "Autorisez HP Travail à installer les mises à jour.", Toast.LENGTH_LONG).show() }
+                .onFailure { installerOpening = false; Toast.makeText(activity, "Autorisez HoraTrack à installer les mises à jour.", Toast.LENGTH_LONG).show() }
             return
         }
         runCatching { activity.startActivity(installerIntent(activity, apk)) }
@@ -156,7 +156,7 @@ object UpdateChecker {
         if (promptShowing || activity.isFinishing || activity.isDestroyed) return
         promptShowing = true
         val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour disponible")
-            .setMessage("HP Travail $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
+            .setMessage("HoraTrack $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
             .setPositiveButton("TÉLÉCHARGER") { _, _ -> enqueueBackgroundDownload(activity, apkUrl, versionName, false) }
             .setNegativeButton("PLUS TARD", null).create()
         dialog.setOnDismissListener { promptShowing = false }
@@ -167,11 +167,11 @@ object UpdateChecker {
         if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (hasActiveDownload(activity)) { if (!silent) Toast.makeText(activity, "Une mise à jour est déjà en cours", Toast.LENGTH_LONG).show(); return }
         try {
-            val fileName = "HP-Travail-$versionName.apk"
+            val fileName = "HoraTrack-$versionName.apk"
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { if (it.name.endsWith(".apk", true)) it.delete() }
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
-                setTitle("Mise à jour HP Travail"); setDescription("Téléchargement de la version $versionName")
+                setTitle("Mise à jour HoraTrack"); setDescription("Téléchargement de la version $versionName")
                 setMimeType("application/vnd.android.package-archive"); setAllowedOverMetered(true); setAllowedOverRoaming(false)
                 setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
                 setDestinationInExternalFilesDir(activity, Environment.DIRECTORY_DOWNLOADS, "updates/$fileName")
