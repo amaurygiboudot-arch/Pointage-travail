@@ -54,11 +54,7 @@ object GpsWorkStateCoordinatorV2 {
 
         if (event.pointType == GpsPointTypeV2.POSTE && event.transition == GpsTransitionV2.ENTER) {
             val pending = pending(context)
-            if (pending?.kind == Pending.Kind.EXIT_WORKSITE &&
-                pending.placeId == event.placeId &&
-                event.atMs >= pending.atMs &&
-                event.atMs - pending.atMs <= RETURN_WINDOW_MS
-            ) {
+            if (isQuickReturnToPoste(pending, event)) {
                 clearPending(context)
                 return Outcome(Action.RETURNED_TO_POSTE, false, "Retour rapide au poste : sortie GPS annulée")
             }
@@ -84,6 +80,13 @@ object GpsWorkStateCoordinatorV2 {
 
         savePending(context, event, Pending.Kind.AMBIGUOUS)
         return Outcome(Action.AMBIGUOUS_PENDING_CONFIRMATION, true, "Transition GPS ambiguë à qualifier")
+    }
+
+    internal fun isQuickReturnToPoste(pending: Pending?, event: GpsEventV2): Boolean {
+        if (pending?.kind != Pending.Kind.EXIT_WORKSITE) return false
+        if (event.pointType != GpsPointTypeV2.POSTE || event.transition != GpsTransitionV2.ENTER) return false
+        if (pending.placeId != event.placeId || event.atMs < pending.atMs) return false
+        return event.atMs - pending.atMs <= RETURN_WINDOW_MS
     }
 
     fun pending(context: Context): Pending? {
