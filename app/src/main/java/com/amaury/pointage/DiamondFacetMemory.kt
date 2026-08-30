@@ -38,6 +38,7 @@ class DiamondFacetMemory {
     private val states = ArrayList<DiamondFacetState>()
     private var rgbaUploadBytes = ByteArray(0)
     private var internalReturnUploadBytes = ByteArray(0)
+    private var internalLightBuffer = FloatArray(0)
 
     fun size(): Int = states.size
 
@@ -221,7 +222,13 @@ class DiamondFacetMemory {
         lightToSurface: FloatArray,
         refractionControl: Float
     ): FloatArray {
-        val out = FloatArray(states.size)
+        val requiredSize = states.size
+        if (internalLightBuffer.size != requiredSize) {
+            internalLightBuffer = FloatArray(requiredSize)
+        } else {
+            internalLightBuffer.fill(0f)
+        }
+        val out = internalLightBuffer
         val entryIds = states.indices.filter { isEntryRegion(states[it].region) }
         val pavilionIds = states.indices.filter { isPavilionRegion(states[it].region) }
         if (entryIds.isEmpty() || pavilionIds.isEmpty()) return out
