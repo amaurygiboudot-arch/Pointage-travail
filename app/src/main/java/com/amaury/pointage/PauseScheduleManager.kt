@@ -6,6 +6,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.model.EventSourceV2
 import java.util.Calendar
 import java.util.Locale
 
@@ -75,7 +78,7 @@ object PauseScheduleManager {
         } else {
             cancel(context)
             clearEndConfirmation(context)
-            if (PointageStore.isPausedAutomatically(context)) PointageStore.resumeAnyPause(context)
+            if (isScheduledPauseActive(context)) resumeScheduledPause(context)
             updateWidgets(context)
         }
     }
@@ -107,9 +110,9 @@ object PauseScheduleManager {
         val inside = if (end > start) minute in start until end else minute >= start || minute < end
 
         val changed = when {
-            inside && !PointageStore.isPaused(context) -> PointageStore.startPause(context, true)
-            !inside && PointageStore.isPaused(context) -> {
-                val resumed = PointageStore.resumeAnyPause(context)
+            inside && !PointageStore.isPaused(context) -> startScheduledPause(context)
+            !inside && isScheduledPauseActive(context) -> {
+                val resumed = resumeScheduledPause(context)
                 if (resumed) markEndConfirmationIfRecent(context, scheduledEndNearNow(context))
                 resumed
             }
@@ -152,9 +155,28 @@ object PauseScheduleManager {
     }
 
     internal fun onScheduledEnd(context: Context) {
-        if (!PointageStore.isPaused(context)) return
-        val resumed = PointageStore.resumeAnyPause(context)
+        if (!isScheduledPauseActive(context)) return
+        val resumed = resumeScheduledPause(context)
         if (resumed) markEndConfirmationIfRecent(context, scheduledEndNearNow(context))
+    }
+
+    private fun startScheduledPause(context: Context): Boolean {
+        if (!HoraTrackV2.ENABLED) return PointageStore.startPause(context, true)
+        val snap = V2RuntimeStore.snapshot(context).session ?: return false
+        if (snap.realExitMs != null || snap.pauses.any { it.endMs == null }) return false
+        return V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+    }
+
+    private fun isScheduledPauseActive(context: Context): Boolean {
+        if (!HoraTrackV2.ENABLED) return PointageStore.isPausedAutomatically(context)
+        val snap = V2RuntimeStore.snapshot(context).session ?: return false
+        return snap.realExitMs == null && snap.pauses.any { it.endMs == null && it.source == EventSourceV2.SYSTEM }
+    }
+
+    private fun resumeScheduledPause(context: Context): Boolean {
+        if (!HoraTrackV2.ENABLED) return PointageStore.resumePause(context, automaticOnly = true)
+        if (!isScheduledPauseActive(context)) return false
+        return V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
     }
 
     private fun markEndConfirmationIfRecent(context: Context, scheduledEndMs: Long) {
@@ -219,7 +241,7 @@ class PauseScheduleReceiver : BroadcastReceiver() {
         when (intent.action) {
             PauseScheduleManager.ACTION_START -> {
                 if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
-                    PointageStore.startPause(context, true)
+                    PauseScheduleManager.applyCurrentWindow(context)
                 }
             }
             PauseScheduleManager.ACTION_END -> PauseScheduleManager.onScheduledEnd(context)
