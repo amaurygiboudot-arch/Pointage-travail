@@ -9,7 +9,7 @@ import com.amaury.pointage.v2.V2RuntimeStore
 import java.util.LinkedHashMap
 import java.util.Locale
 
-/** Analyses directement alimentées par les sessions et le moteur HoraTrack V2. */
+/** Analyses directement alimentées par les sessions et le moteur HoraTrack. */
 class LiveAnalyticsTextView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -63,10 +63,10 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         }
 
         return buildString {
-            append("⏱ TOTAL TEMPS PAYÉ V2 : ").append(formatDuration(totalWorked)).append('\n')
+            append("⏱ TOTAL TEMPS PAYÉ : ").append(formatDuration(totalWorked)).append('\n')
             append("⏸ PAUSES NON PAYÉES DÉDUITES : ").append(formatDuration(totalPause)).append('\n')
             append("✅ Sessions terminées : ").append(completedSessions).append('\n')
-            if (openSessions > 0) append("🟢 En cours : ").append(openSessions).append(" — calcul V2 actualisé automatiquement\n")
+            if (openSessions > 0) append("🟢 En cours : ").append(openSessions).append(" — calcul actualisé automatiquement\n")
             append("\nHEURES PAR LIEU\n\n")
             if (totals.isEmpty()) append("Aucune donnée.")
             else totals.forEach { (place, duration) ->
@@ -78,6 +78,6 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
 
     private fun formatDuration(ms: Long): String {
         val totalMinutes = ms.coerceAtLeast(0L) / 60_000L
-        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
+        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, (totalMinutes % 60L))
     }
 }
