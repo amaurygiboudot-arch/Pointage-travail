@@ -363,7 +363,7 @@ class MainActivity : Activity() {
             .replaceFirstChar { it.uppercase() }.replace("é", "e").replace("è", "e").replace("ê", "e")
             .replace("û", "u").replace("ô", "o").replace("à", "a").replace("ç", "c")
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "Pointage_$monthFile.pdf")
+            addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "HoraTrack_$monthFile.pdf")
         }, REQUEST_CREATE_MONTHLY_PDF)
     }
 
@@ -521,7 +521,7 @@ class MainActivity : Activity() {
                     append("⏱ ").append(s.countedExitMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  SORTIE COMPTÉE\n")
                 } else append("🟢 EN COURS\n")
                 val r = HoraTrackV2.time.calculate(s, now)
-                append("Temps payé V2 : ").append(formatDuration(r.paidWorkMs)).append("\n\n")
+                append("Temps payé : ").append(formatDuration(r.paidWorkMs)).append("\n\n")
             }
         }.ifBlank { if (todayOnly) "Aucun pointage aujourd'hui." else "Aucun historique." }
     }
@@ -529,7 +529,7 @@ class MainActivity : Activity() {
     private fun buildV2AnalyticsText(): String {
         val sessions = V2RuntimeStore.allSessions(this)
         val analytics = com.amaury.pointage.v2.engine.AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
-        return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ V2 : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
+        return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
     }
 
     private fun buildLegacyTodayHistoryText(): String {
@@ -569,7 +569,7 @@ class MainActivity : Activity() {
 
     private fun buildLegacyAnalyticsText(): String {
         V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.ANALYTICS)
-        return "Analyses historiques désactivées lorsque HoraTrack V2 est actif."
+        return "Analyses historiques désactivées lorsque HoraTrack est actif."
     }
 
     private fun formatDuration(ms: Long): String {
