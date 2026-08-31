@@ -15,6 +15,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.OfficialCompanyAgreementSearchV2
+import com.amaury.pointage.v2.PisteAccessSetupV2
 
 class SalaryCompanyDetailsView(
     context: Context,
@@ -69,6 +70,22 @@ class SalaryCompanyDetailsView(
                 Toast.makeText(context, "Recherche ouverte dans Légifrance — résultats à vérifier avant application.", Toast.LENGTH_LONG).show()
             } catch (_: ActivityNotFoundException) {
                 Toast.makeText(context, "Impossible d’ouvrir Légifrance sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
+        })
+        addView(button("CRÉER / OUVRIR MON COMPTE PISTE") {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, PisteAccessSetupV2.registrationUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Toast.makeText(context, PisteAccessSetupV2.SETUP_REQUIRED_MESSAGE, Toast.LENGTH_LONG).show()
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir PISTE sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
+        })
+        addView(button("OUVRIR MES APPLICATIONS PISTE") {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, PisteAccessSetupV2.applicationsUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Toast.makeText(context, "Connecte-toi à PISTE puis ouvre Applications pour configurer l’API Légifrance.", Toast.LENGTH_LONG).show()
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir PISTE sur cet appareil.", Toast.LENGTH_LONG).show()
             }
         })
         addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
