@@ -101,9 +101,9 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     }
 
     /**
-     * EnterpriseLookupView est encore la recherche historique et enregistre ses résultats
-     * dans salary_settings. On les recopie ici dans le stockage V2 réellement utilisé par
-     * MES ENTREPRISES. SalaryCompanyStore.upsert déduplique par identifiant ou SIRET.
+     * Migration de compatibilité uniquement : les anciennes entreprises déjà
+     * enregistrées dans salary_settings restent récupérables, mais l'interface
+     * visible d'ajout n'utilise plus Entreprise 1 / Entreprise 2.
      */
     private fun syncLegacyCompaniesIntoStore() {
         val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
@@ -162,13 +162,18 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     }
 
     private fun showEnterpriseLookup() {
-        val dialog = themedDialog(
-            "Ajouter une entreprise",
-            ScrollView(context).apply { addView(EnterpriseLookupView(context)) }
-        )
-        dialog.setOnDismissListener {
+        var dialog: AlertDialog? = null
+        val lookup = V2SalaryCompanyLookupView(context) {
             rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies)
+            dialog?.dismiss()
         }
+        dialog = themedDialog(
+            "Ajouter une entreprise",
+            ScrollView(context).apply {
+                isFillViewport = true
+                addView(lookup)
+            }
+        )
     }
 
     private fun showInformationSheet() {
