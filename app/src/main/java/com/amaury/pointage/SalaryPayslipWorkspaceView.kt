@@ -17,6 +17,7 @@ import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.SocialContributionCatalogV2
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -42,66 +43,23 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  }
  private fun records()=V2PayslipStore.forCompany(context,company.id)
  private fun render(){val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();if(page==0)renderEstimate() else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
-
- private fun selectedPeriod():Pair<Int,Int>{
-  val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
-  val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms
-  return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)
- }
- private fun choosePeriod(){
-  val labels=ArrayList<String>();val values=ArrayList<Long>();val c=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
-  repeat(36){labels+=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(c.time).replaceFirstChar{it.uppercase()};values+=c.timeInMillis;c.add(Calendar.MONTH,-1)}
-  AlertDialog.Builder(context).setTitle("Choisir le mois").setItems(labels.toTypedArray()){_,which->context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",values[which]).apply();render()}.setNegativeButton("ANNULER",null).show()
- }
+ private fun selectedPeriod():Pair<Int,Int>{val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L);val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms;return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)}
+ private fun choosePeriod(){val labels=ArrayList<String>();val values=ArrayList<Long>();val c=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};repeat(36){labels+=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(c.time).replaceFirstChar{it.uppercase()};values+=c.timeInMillis;c.add(Calendar.MONTH,-1)};AlertDialog.Builder(context).setTitle("Choisir le mois").setItems(labels.toTypedArray()){_,which->context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",values[which]).apply();render()}.setNegativeButton("ANNULER",null).show()}
  private fun renderEstimate(){
   val prefs=SalaryCompanyStore.prefs(context,company.id);val weekly=prefs.getString("contract_weekly_hours","").orEmpty();val mealRaw=prefs.getString("meal_amount","").orEmpty();val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
   add(TextView(context).apply{text="FICHE DE PAIE ESTIMATIVE";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(4))})
-  val seniority=seniority(prefs.getString("entry_date","").orEmpty(),year,month)
-  add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}\nAncienneté : $seniority";textSize=14f;setPadding(0,0,0,dp(10))})
-  val conventionId=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()};val convention=ConventionCatalog.findByIdcc(context,conventionId)
-  val calc=if(HoraTrackV2.ENABLED&&convention!=null)runCatching{V2SalaryAdapter.calculateForCompany(context,company,year,month,convention)}.getOrNull() else null
-  if(calc==null){
-   add(TextView(context).apply{text="Calcul détaillé indisponible : complète le contrat et la convention de cette entreprise. HoraTrack n’invente aucune majoration.";textSize=14f})
-  }else{
-   val mealAmount=mealRaw.replace(',','.').toDoubleOrNull()?.coerceAtLeast(0.0)?:0.0;val mealCount=countMeals(year,month);val mealTotal=mealCount*mealAmount
-   val lines=buildString{
-    append("Convention : ").append(convention?.displayName ?: "Non renseignée").append('\n')
-    append("Heures normales : ").append(hours(calc.regularMs)).append(" — ").append(eur(calc.regularGross)).append('\n')
-    calc.overtimeTiers.filter{it.durationMs>0}.forEach{append(it.label).append(" : ").append(hours(it.durationMs)).append('\n')}
-    append("Heures de nuit : ").append(hours(calc.nightMs)).append('\n')
-    append("Samedi : ").append(hours(calc.saturdayMs)).append('\n')
-    append("Dimanche : ").append(hours(calc.sundayMs)).append('\n')
-    append("Majoration / primes calculées : ").append(eur(calc.premiumsGross)).append('\n')
-    append("Paniers : ").append(mealCount).append(" × ").append(eur(mealAmount)).append(" = ").append(eur(mealTotal)).append('\n')
-    append("BRUT ESTIMÉ HORS PANIERS : ").append(eur(calc.monthlyEstimatedGross)).append('\n')
-    append("BRUT + PANIERS : ").append(eur(calc.monthlyEstimatedGross+mealTotal)).append('\n')
-    append("NET ESTIMÉ : non calculé tant que le moteur de cotisations fiable n’est pas disponible")
-   }
-   add(TextView(context).apply{text=lines;textSize=14f})
-   ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})}
-   if(calc.warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+calc.warnings.joinToString("\n• ");textSize=12f})
+  val seniority=seniority(prefs.getString("entry_date","").orEmpty(),year,month);add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}\nAncienneté : $seniority";textSize=14f;setPadding(0,0,0,dp(10))})
+  val conventionId=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()};val convention=ConventionCatalog.findByIdcc(context,conventionId);val calc=if(HoraTrackV2.ENABLED&&convention!=null)runCatching{V2SalaryAdapter.calculateForCompany(context,company,year,month,convention)}.getOrNull() else null
+  if(calc==null){add(TextView(context).apply{text="Calcul détaillé indisponible : complète le contrat et la convention de cette entreprise. HoraTrack n’invente aucune majoration.";textSize=14f})}else{
+   val mealAmount=mealRaw.replace(',','.').toDoubleOrNull()?.coerceAtLeast(0.0)?:0.0;val mealCount=countMeals(year,month);val mealTotal=mealCount*mealAmount;val social=SocialContributionCatalogV2.estimateEmployeeDeductions(calc.monthlyEstimatedGross,year)
+   val lines=buildString{append("Convention : ").append(convention?.displayName?:"Non renseignée").append('\n');append("Heures normales : ").append(hours(calc.regularMs)).append(" — ").append(eur(calc.regularGross)).append('\n');calc.overtimeTiers.filter{it.durationMs>0}.forEach{append(it.label).append(" : ").append(hours(it.durationMs)).append('\n')};append("Heures de nuit : ").append(hours(calc.nightMs)).append('\n');append("Samedi : ").append(hours(calc.saturdayMs)).append('\n');append("Dimanche : ").append(hours(calc.sundayMs)).append('\n');append("Majoration / primes calculées : ").append(eur(calc.premiumsGross)).append('\n');append("Paniers : ").append(mealCount).append(" × ").append(eur(mealAmount)).append(" = ").append(eur(mealTotal)).append('\n');append("BRUT ESTIMÉ HORS PANIERS : ").append(eur(calc.monthlyEstimatedGross)).append('\n');append("BRUT + PANIERS : ").append(eur(calc.monthlyEstimatedGross+mealTotal)).append('\n');if(social.lines.isNotEmpty()){append("\nCOTISATIONS SALARIALES CONNUES ($year) :\n");social.lines.forEach{line->append("• ").append(line.label).append(" : ").append(String.format(Locale.FRANCE,"%.2f %%",line.rate*100.0)).append(" × ").append(eur(line.baseAmount)).append(" = -").append(eur(line.employeeAmount)).append('\n')};append("Total retenues connues : -").append(eur(social.employeeDeductions)).append('\n');append("NET ESTIMÉ AVANT IMPÔT (partiel) : ").append(eur(social.netBeforeIncomeTax)).append('\n')}else append("NET ESTIMÉ : barème de cotisations non intégré pour $year\n")}
+   add(TextView(context).apply{text=lines;textSize=14f});ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})};val warnings=calc.warnings+social.warnings;if(warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+warnings.joinToString("\n• ");textSize=12f})
   }
-  add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${weekly.ifBlank{"à compléter"}}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f})
-  addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
+  add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${weekly.ifBlank{"à compléter"}}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f});addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
  }
- private fun countMeals(year:Int,month:Int):Int{
-  val aliases=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
-  val firstByDay=linkedMapOf<String,Long>();val day=SimpleDateFormat("yyyy-MM-dd",Locale.FRANCE)
-  V2RuntimeStore.allSessions(context).forEach{s->val entry=s.countedEntryMs?:s.realArrivalMs?:return@forEach;if(s.realExitMs==null||s.employerId !in aliases)return@forEach;val c=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry};if(c.get(Calendar.YEAR)!=year||c.get(Calendar.MONTH)!=month)return@forEach;val key=day.format(c.time);val old=firstByDay[key];if(old==null||entry<old)firstByDay[key]=entry}
-  return firstByDay.values.count{entry->ShiftProfileManager.mealEnabled(context,ShiftProfileManager.detect(entry))}
- }
- private fun seniority(raw:String,year:Int,month:Int):String{
-  val start=runCatching{LocalDate.parse(raw.trim(),DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}.getOrNull()?:return "à compléter"
-  val end=LocalDate.of(year,month+1,1).withDayOfMonth(LocalDate.of(year,month+1,1).lengthOfMonth());if(start.isAfter(end))return "0 mois";val months=ChronoUnit.MONTHS.between(start.withDayOfMonth(1),end.withDayOfMonth(1)).toInt();val y=months/12;val m=months%12;return when{y>0&&m>0->"$y an${if(y>1)"s" else ""} et $m mois";y>0->"$y an${if(y>1)"s" else ""}";else->"$m mois"}
- }
- private fun renderReal(r:V2PayslipStore.Record){
-  val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné"
-  add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))})
-  add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f})
-  addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}}
-  addButton("ANALYSER / COMPARER AVEC L’IA"){askAiConsent(r)}
-  addButton("SUPPRIMER CE BULLETIN"){AlertDialog.Builder(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique HoraTrack. Le fichier original extérieur à HoraTrack n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}
- }
+ private fun countMeals(year:Int,month:Int):Int{val aliases=SalaryCompanyStore.acceptedEmployerIds(context,company.id);val firstByDay=linkedMapOf<String,Long>();val day=SimpleDateFormat("yyyy-MM-dd",Locale.FRANCE);V2RuntimeStore.allSessions(context).forEach{s->val entry=s.countedEntryMs?:s.realArrivalMs?:return@forEach;if(s.realExitMs==null||s.employerId !in aliases)return@forEach;val c=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry};if(c.get(Calendar.YEAR)!=year||c.get(Calendar.MONTH)!=month)return@forEach;val key=day.format(c.time);val old=firstByDay[key];if(old==null||entry<old)firstByDay[key]=entry};return firstByDay.values.count{entry->ShiftProfileManager.mealEnabled(context,ShiftProfileManager.detect(entry))}}
+ private fun seniority(raw:String,year:Int,month:Int):String{val start=runCatching{LocalDate.parse(raw.trim(),DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}.getOrNull()?:return "à compléter";val end=LocalDate.of(year,month+1,1).withDayOfMonth(LocalDate.of(year,month+1,1).lengthOfMonth());if(start.isAfter(end))return "0 mois";val months=ChronoUnit.MONTHS.between(start.withDayOfMonth(1),end.withDayOfMonth(1)).toInt();val y=months/12;val m=months%12;return when{y>0&&m>0->"$y an${if(y>1)"s" else ""} et $m mois";y>0->"$y an${if(y>1)"s" else ""}";else->"$m mois"}}
+ private fun renderReal(r:V2PayslipStore.Record){val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné";add(TextView(context).apply{text="BULLETIN RÉEL — $month ${r.year}";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(10))});add(TextView(context).apply{text="Brut : $gross\nNet : $net\nDocument original conservé.";textSize=14f});addButton("OUVRIR LE DOCUMENT"){val uri=Uri.parse(r.sourceUri);runCatching{context.startActivity(Intent(Intent.ACTION_VIEW).apply{setDataAndType(uri,r.sourceMime?:"*/*");addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)})}.onFailure{Toast.makeText(context,"Impossible d’ouvrir le document",Toast.LENGTH_LONG).show()}};addButton("ANALYSER / COMPARER AVEC L’IA"){askAiConsent(r)};addButton("SUPPRIMER CE BULLETIN"){AlertDialog.Builder(context).setTitle("Supprimer ce bulletin ?").setMessage("Le bulletin sera retiré de l’historique HoraTrack. Le fichier original extérieur à HoraTrack n’est pas modifié.").setNegativeButton("ANNULER",null).setPositiveButton("SUPPRIMER"){_,_->V2PayslipStore.remove(context,r.id);page=(page-1).coerceAtLeast(0);render()}.show()}}
  private fun launchPhoto(){val a=context as? Activity?:return;a.startActivity(Intent(context,SalaryPayslipPhotoActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name))}
  private fun launchImport(){val a=context as? Activity?:return;a.startActivity(Intent(context,V2PayslipImportActivity::class.java).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_ID,company.id).putExtra(V2PayslipImportActivity.EXTRA_COMPANY_NAME,company.name))}
  private fun askAiConsent(r:V2PayslipStore.Record){AlertDialog.Builder(context).setTitle("Analyse avec l’IA").setMessage("Autoriser l’analyse comparative de ce bulletin avec l’estimation HoraTrack ? Les résultats distinguent calcul certain, estimation et anomalie potentielle.").setNegativeButton("ANNULER",null).setPositiveButton("AUTORISER"){_,_->val comparison=V2PayslipStore.comparison(context,r);val message=when{comparison==null->"Comparaison insuffisante : complète les données Salaire/Convention. Aucune conclusion juridique n’est inventée.";comparison.conforming->"Calcul : les montants contrôlés concordent avec l’estimation HoraTrack dans la tolérance du moteur.";else->"Anomalie potentielle : un ou plusieurs écarts sont détectés. Vérification nécessaire avant toute conclusion."};AlertDialog.Builder(context).setTitle("Comparaison").setMessage(message).setPositiveButton("OK",null).show()}.show()}
