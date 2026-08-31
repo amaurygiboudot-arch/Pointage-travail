@@ -5,6 +5,7 @@ import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.EmployerV2
+import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -56,6 +57,9 @@ object V2ProfileStore {
         val type = parseContractType(prefs.getString("contract_type", "").orEmpty())
         val weeklyMinutes = prefs.getString("contract_weekly_hours", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }?.let { (it * 60.0).toInt() }
         val rate = prefs.getString("hourly_rate", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val forfaitHours = prefs.getString("forfait_annual_hours", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val forfaitDays = prefs.getString("forfait_annual_days", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val monthlyGross = prefs.getString("monthly_gross_salary", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
         val hireEpochDay = runCatching {
             prefs.getString("entry_date", "").orEmpty().trim().takeIf { it.isNotBlank() }?.let {
                 LocalDate.parse(it, DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE)).toEpochDay()
@@ -69,10 +73,35 @@ object V2ProfileStore {
         )
         val missing = mutableListOf<String>()
         if (type == null) missing += "type de contrat"
-        if (weeklyMinutes == null && type != ContractTypeV2.FORFAIT) missing += "durée hebdomadaire"
-        if (rate == null) missing += "taux horaire"
-        val contract = if (type != null && rate != null && (weeklyMinutes != null || type == ContractTypeV2.FORFAIT)) {
-            ContractV2("contract_${company.id}", company.id, type, weeklyMinutes, rate, hireEpochDay)
+        when (type) {
+            ContractTypeV2.FULL_TIME, ContractTypeV2.PART_TIME, ContractTypeV2.OTHER -> {
+                if (weeklyMinutes == null) missing += "durée hebdomadaire"
+                if (rate == null) missing += "taux horaire"
+            }
+            ContractTypeV2.FORFAIT_HOURS -> {
+                if (forfaitHours == null) missing += "heures du forfait annuel"
+                if (monthlyGross == null) missing += "salaire brut mensuel convenu"
+            }
+            ContractTypeV2.FORFAIT_DAYS -> {
+                if (forfaitDays == null) missing += "jours du forfait annuel"
+                if (monthlyGross == null) missing += "salaire brut mensuel convenu"
+            }
+            ContractTypeV2.FORFAIT -> missing += "type de forfait à préciser"
+            null -> Unit
+        }
+        val contract = if (type != null && missing.isEmpty()) {
+            ContractV2(
+                id = "contract_${company.id}",
+                employerId = company.id,
+                type = type,
+                contractualWeeklyMinutes = weeklyMinutes,
+                grossHourlyRate = rate,
+                hireDateEpochDay = hireEpochDay,
+                forfaitHoursPeriod = if (type == ContractTypeV2.FORFAIT_HOURS) ForfaitHoursPeriodV2.YEAR else null,
+                forfaitHours = if (type == ContractTypeV2.FORFAIT_HOURS) forfaitHours else null,
+                forfaitAnnualDays = if (type == ContractTypeV2.FORFAIT_DAYS) forfaitDays else null,
+                monthlyGrossSalary = if (type == ContractTypeV2.FORFAIT_HOURS || type == ContractTypeV2.FORFAIT_DAYS) monthlyGross else null
+            )
         } else null
         return Profile(employer, contract, slot, missing)
     }
@@ -109,6 +138,8 @@ object V2ProfileStore {
     private fun parseContractType(value: String): ContractTypeV2? = when (value.trim().uppercase(Locale.ROOT)) {
         "FULL_TIME" -> ContractTypeV2.FULL_TIME
         "PART_TIME" -> ContractTypeV2.PART_TIME
+        "FORFAIT_HEURES" -> ContractTypeV2.FORFAIT_HOURS
+        "FORFAIT_JOURS" -> ContractTypeV2.FORFAIT_DAYS
         "FORFAIT" -> ContractTypeV2.FORFAIT
         "OTHER" -> ContractTypeV2.OTHER
         else -> null
