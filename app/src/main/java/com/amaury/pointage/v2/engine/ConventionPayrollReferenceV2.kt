@@ -16,17 +16,26 @@ object ConventionPayrollReferenceV2 {
         val extensionStatus:ExtensionStatus,
         val warnings:List<String>
     ) {
-        /**
-         * Un accord étendu peut être utilisé comme référence de branche générale.
-         * Un accord non étendu n'est jamais imposé automatiquement : son applicabilité
-         * à l'entreprise doit d'abord être confirmée (adhésion/signataire/application volontaire, etc.).
-         */
         fun canApplyToCompany(companyApplicabilityConfirmed:Boolean):Boolean = when(extensionStatus) {
             ExtensionStatus.EXTENDED -> true
             ExtensionStatus.NOT_EXTENDED -> companyApplicabilityConfirmed
             ExtensionStatus.UNKNOWN -> false
         }
     }
+
+    private val plasturgie2024 = Snapshot(
+        idcc="292",
+        effectiveFrom=LocalDate.of(2024,3,1),
+        effectiveTo=null,
+        minima=listOf(
+            Minimum(700,1803.0),Minimum(710,1815.0),Minimum(720,1835.0),Minimum(730,1887.0),Minimum(740,1969.0),
+            Minimum(750,2088.0),Minimum(800,2226.0),Minimum(810,2381.0),Minimum(820,2605.0),Minimum(830,2791.0),
+            Minimum(900,3316.0),Minimum(910,3473.0),Minimum(920,3987.0),Minimum(930,5175.0),Minimum(940,6446.0)
+        ),
+        source="Légifrance — IDCC 292, accord salaires du 15/02/2024, étendu, effet 01/03/2024",
+        extensionStatus=ExtensionStatus.EXTENDED,
+        warnings=emptyList()
+    )
 
     private val plasturgie2026 = Snapshot(
         idcc="292",
@@ -39,15 +48,13 @@ object ConventionPayrollReferenceV2 {
         ),
         source="Légifrance — IDCC 292, accord salaires du 19/02/2026, effet 01/03/2026",
         extensionStatus=ExtensionStatus.NOT_EXTENDED,
-        warnings=listOf(
-            "Accord salaires Plasturgie du 19/02/2026 : en vigueur non étendu sur Légifrance.",
-            "Ne pas appliquer automatiquement ces minima à une entreprise tant que l'applicabilité de l'accord à cette entreprise n'est pas confirmée.",
-            "Les primes, ancienneté, nuit et autres dispositions doivent être résolues par leur règle conventionnelle datée avant calcul."
-        )
+        warnings=listOf("Accord salaires Plasturgie du 19/02/2026 : en vigueur non étendu sur Légifrance.")
     )
 
-    fun applicable(idcc:String,date:LocalDate):Snapshot? = listOf(plasturgie2026)
-        .filter { it.idcc==idcc && !date.isBefore(it.effectiveFrom) && (it.effectiveTo==null || !date.isAfter(it.effectiveTo)) }
+    private val snapshots=listOf(plasturgie2024,plasturgie2026)
+
+    fun applicable(idcc:String,date:LocalDate,companyApplicabilityConfirmed:Boolean=false):Snapshot? = snapshots
+        .filter { it.idcc==idcc && !date.isBefore(it.effectiveFrom) && (it.effectiveTo==null || !date.isAfter(it.effectiveTo)) && it.canApplyToCompany(companyApplicabilityConfirmed) }
         .maxByOrNull{it.effectiveFrom}
 
     fun minimum(
@@ -55,8 +62,7 @@ object ConventionPayrollReferenceV2 {
         date:LocalDate,
         coefficient:Int,
         companyApplicabilityConfirmed:Boolean=false
-    ):Minimum? = applicable(idcc,date)
-        ?.takeIf { it.canApplyToCompany(companyApplicabilityConfirmed) }
+    ):Minimum? = applicable(idcc,date,companyApplicabilityConfirmed)
         ?.minima
         ?.firstOrNull{it.coefficient==coefficient}
 }
