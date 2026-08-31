@@ -7,6 +7,7 @@ object NetSalaryEngineV2 {
         val statutory: Double,
         val complementaryRetirement: Double,
         val companyEmployeeDeductions: Double,
+        val employerStatusContributions: Double,
         val netBeforeIncomeTax: Double,
         val netTaxable: Double?,
         val incomeTax: Double?,
@@ -18,6 +19,7 @@ object NetSalaryEngineV2 {
     fun calculate(gross: Double, year: Int, company: CompanyPayrollOverridesV2.Snapshot): Result {
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year)
         val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus)
+        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(gross, year, company.professionalStatus)
         val companyKnown = listOf(
             company.mutualEmployeeAmount,
             company.providentEmployeeAmount,
@@ -46,6 +48,7 @@ object NetSalaryEngineV2 {
         val warnings = buildList {
             addAll(statutory.warnings)
             addAll(retirement.warnings)
+            addAll(statusContributions.warnings)
             addAll(company.warnings)
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
@@ -56,6 +59,7 @@ object NetSalaryEngineV2 {
             statutory = statutory.employeeDeductions,
             complementaryRetirement = retirement.employeeDeductions,
             companyEmployeeDeductions = companyKnown,
+            employerStatusContributions = statusContributions.employerContributions,
             netBeforeIncomeTax = beforeTax,
             netTaxable = netTaxable,
             incomeTax = tax,
