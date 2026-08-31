@@ -1,67 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <uses-feature android:name="android.hardware.location" android:required="false" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
-    <uses-feature android:name="android.hardware.location.network" android:required="false" />
-    <uses-feature android:name="android.hardware.telephony" android:required="false" />
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
-
-    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
-    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
 
-    <application android:name=".PointageApplication" android:theme="@style/Theme.PointageTravail" android:label="@string/app_name" android:icon="@drawable/hp_icon_red" android:roundIcon="@drawable/hp_icon_red" android:resizeableActivity="true" android:supportsRtl="true" android:allowBackup="false" android:fullBackupContent="false" android:usesCleartextTraffic="false" android:networkSecurityConfig="@xml/network_security_config">
-        <meta-data android:name="io.sentry.auto-init" android:value="false" />
-        <provider android:name=".AppCheckInitProvider" android:authorities="${applicationId}.app-check-init" android:exported="false" android:initOrder="1000" />
-        <provider android:name=".RecoveryInitProvider" android:authorities="${applicationId}.recovery-init" android:exported="false" android:initOrder="200" />
-        <provider android:name="com.amaury.pointage.v2.V2InitProvider" android:authorities="${applicationId}.v2-init" android:exported="false" android:initOrder="180" />
-        <provider android:name=".ForegroundLocationInitProvider" android:authorities="${applicationId}.foreground-location-init" android:exported="false" android:initOrder="150" />
-        <provider android:name=".TelemetryInitProvider" android:authorities="${applicationId}.telemetry-init" android:exported="false" android:initOrder="100" />
-        <provider android:name=".SecurityUiInitProvider" android:authorities="${applicationId}.security-ui-init" android:exported="false" android:initOrder="80" />
-        <provider android:name=".DeviceRegistryInitProvider" android:authorities="${applicationId}.device-registry-init" android:exported="false" android:initOrder="70" />
-        <provider android:name=".GoogleAccountPromptProvider" android:authorities="${applicationId}.google-account-prompt" android:exported="false" android:initOrder="60" />
-        <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
-        <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
-        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
-        <service android:name=".HpFirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
-        <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" />
-        <activity-alias android:name=".IconRed" android:enabled="true" android:exported="true" android:icon="@drawable/hp_icon_red" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".IconGreen" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_green" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity-alias android:name=".IconOrange" android:enabled="false" android:exported="true" android:icon="@drawable/hp_icon_orange" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
-        <activity android:name=".RecoveryActivity" android:exported="false" android:excludeFromRecents="false" />
-        <activity android:name=".RecoveryActivityV2" android:exported="false" android:excludeFromRecents="false" />
-        <activity android:name=".AdminDiagnosticsActivity" android:exported="false" android:excludeFromRecents="true" />
-        <activity android:name=".OwnerEnrollmentActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
-        <activity android:name=".MainActivity" android:exported="false" />
-        <activity android:name=".SalaryAuthActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
-        <activity android:name=".FirebaseAccountActivity" android:exported="false" />
-        <activity android:name=".OwnerFeedbackActivity" android:exported="false" />
-        <activity android:name=".SalaryActivity" android:exported="false" />
-        <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
-        <activity android:name=".V2RestoreActivity" android:exported="false" />
-        <activity android:name=".V2PayslipImportActivity" android:exported="false" />
-        <activity android:name=".SalaryPayslipPhotoActivity" android:exported="false" android:excludeFromRecents="true" />
-        <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
-        <activity android:name=".BackgroundPickerActivity" android:exported="false" />
-        <activity android:name=".PdfPreviewActivity" android:exported="false" />
-        <activity android:name=".DiamondLabActivity" android:exported="false" />
-        <activity android:name=".SecurityInfoActivity" android:exported="false" />
-        <receiver android:name=".PointageWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/pointage_widget_info" /></receiver>
-        <receiver android:name=".QuickActionsWidgetProvider" android:exported="false"><intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /><action android:name="android.intent.action.CONFIGURATION_CHANGED" /></intent-filter><meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_actions_widget_info" /></receiver>
-        <receiver android:name=".WidgetLocationExpiryReceiver" android:exported="false" />
-        <receiver android:name=".UpdateDownloadReceiver" android:exported="false"><intent-filter><action android:name="android.intent.action.DOWNLOAD_COMPLETE" /></intent-filter></receiver>
-        <receiver android:name=".DriveBackupReceiver" android:exported="false" />
-        <receiver android:name=".GeofenceBroadcastReceiver" android:exported="false" />
-        <receiver android:name=".PauseScheduleReceiver" android:exported="false" />
-        <receiver android:name=".CompanyPauseAlarmReceiver" android:exported="false" />
-        <receiver android:name=".BootReceiver" android:enabled="true" android:exported="false"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter></receiver>
+    <application
+        android:allowBackup="false"
+        android:label="HP Travail V3"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HPTravailV3">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

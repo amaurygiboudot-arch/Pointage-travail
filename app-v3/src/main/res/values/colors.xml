@@ -1,12 +1,11 @@
 <resources>
-    <color name="hp_black">#080808</color>
-    <color name="hp_panel">#121212</color>
-    <color name="hp_gold">#D6A84B</color>
-    <color name="hp_gold_light">#F3D58A</color>
-    <color name="hp_green">#159447</color>
-    <color name="hp_green_dark">#063D1D</color>
-    <color name="hp_red">#C51F28</color>
-    <color name="hp_red_dark">#4D080C</color>
-    <color name="hp_white">#F4EFE3</color>
-    <color name="hp_grey">#A99F8C</color>
+    <color name="v3_black">#080A0C</color>
+    <color name="v3_surface">#101419</color>
+    <color name="v3_surface_2">#151B22</color>
+    <color name="v3_gold">#D7A73F</color>
+    <color name="v3_gold_light">#F3D58A</color>
+    <color name="v3_text">#F7F1E7</color>
+    <color name="v3_text_muted">#BEB6AA</color>
+    <color name="v3_green">#0E9F52</color>
+    <color name="v3_red">#C72C3B</color>
 </resources>
