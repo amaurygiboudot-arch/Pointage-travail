@@ -79,7 +79,13 @@ class V2RightsRestView @JvmOverloads constructor(
                 }
             }
         }
-        val latest = RestEngineV2.dailyRests(V2RuntimeStore.allSessions(context)).lastOrNull()
+        val sessions = if (companyId.isBlank()) {
+            V2RuntimeStore.allSessions(context)
+        } else {
+            val accepted = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
+            V2RuntimeStore.allSessions(context).filter { it.employerId in accepted }
+        }
+        val latest = RestEngineV2.dailyRests(sessions).lastOrNull()
         val rest = latest?.let {
             "Dernier repos entre journées : ${duration(it.restMs)} • conformité légale : À confirmer selon la règle applicable"
         } ?: "Repos quotidien : pas encore assez de journées terminées pour calculer un intervalle."
