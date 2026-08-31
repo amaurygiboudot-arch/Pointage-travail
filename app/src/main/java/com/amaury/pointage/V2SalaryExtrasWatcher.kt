@@ -26,56 +26,26 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         private const val LEGACY_TAG = "salary_v2_legacy_container"
     }
 
-    init {
-        tag = TAG
-        visibility = GONE
-    }
+    init { tag = TAG; visibility = GONE }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        rootView.viewTreeObserver.addOnGlobalLayoutListener(this)
-        installIfPresent()
-    }
-
-    override fun onDetachedFromWindow() {
-        if (rootView.viewTreeObserver.isAlive) {
-            rootView.viewTreeObserver.removeOnGlobalLayoutListener(this)
-        }
-        super.onDetachedFromWindow()
-    }
-
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); rootView.viewTreeObserver.addOnGlobalLayoutListener(this); installIfPresent() }
+    override fun onDetachedFromWindow() { if (rootView.viewTreeObserver.isAlive) rootView.viewTreeObserver.removeOnGlobalLayoutListener(this); super.onDetachedFromWindow() }
     override fun onGlobalLayout() = installIfPresent()
 
     private fun installIfPresent() {
         val content = rootView.findViewById<LinearLayout>(R.id.contentPanel) ?: return
         val salary = content.findViewWithTag<SalaryPanelView>("integrated_salary_panel") ?: return
         content.findViewWithTag<SalaryInformationSheetView>(SalaryInformationSheetView.TAG)?.visibility = GONE
-
         var root = salary.findViewWithTag<LinearLayout>(ROOT_TAG)
         if (root == null) {
-            val legacy = LinearLayout(context).apply {
-                tag = LEGACY_TAG
-                orientation = LinearLayout.VERTICAL
-                visibility = GONE
-            }
+            val legacy = LinearLayout(context).apply { tag = LEGACY_TAG; orientation = LinearLayout.VERTICAL; visibility = GONE }
             val old = ArrayList<View>()
             for (i in 0 until salary.childCount) old += salary.getChildAt(i)
-            old.forEach {
-                salary.removeView(it)
-                legacy.addView(it)
-            }
+            old.forEach { salary.removeView(it); legacy.addView(it) }
             salary.addView(legacy, LinearLayout.LayoutParams(1, 1))
             root = buildRoot()
-            salary.addView(
-                root,
-                0,
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            )
+            salary.addView(root, 0, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-
         refreshTheme(root)
         refreshCompanies(root)
         consumeAuthorizedAccess()
@@ -94,46 +64,23 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(8), dp(18), dp(8), dp(8))
         })
-        addView(LinearLayout(context).apply {
-            tag = "salary_companies_list"
-            orientation = LinearLayout.VERTICAL
-        })
+        addView(LinearLayout(context).apply { tag = "salary_companies_list"; orientation = LinearLayout.VERTICAL })
     }
 
-    /**
-     * Migration de compatibilité uniquement : les anciennes entreprises déjà
-     * enregistrées dans salary_settings restent récupérables, mais l'interface
-     * visible d'ajout n'utilise plus Entreprise 1 / Entreprise 2.
-     */
     private fun syncLegacyCompaniesIntoStore() {
         val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-
         fun sync(slot: Int) {
             val prefix = if (slot == 1) "company_" else "company2_"
             val name = prefs.getString("${prefix}name", "").orEmpty().trim()
             val siret = prefs.getString("${prefix}siret", "").orEmpty().filter(Char::isDigit)
             if (name.isBlank() && siret.isBlank()) return
-
             val address = prefs.getString("${prefix}address", "").orEmpty().trim()
             val idcc = prefs.getString("${prefix}idcc", "").orEmpty().trim()
             val conventionName = prefs.getString("${prefix}convention_name", "").orEmpty().trim()
             val id = if (siret.isNotBlank()) "siret_$siret" else "legacy_slot_$slot"
-
-            SalaryCompanyStore.upsert(
-                context,
-                SalaryCompanyStore.Company(
-                    id = id,
-                    name = name,
-                    siret = siret,
-                    address = address,
-                    conventionName = conventionName,
-                    idcc = idcc
-                )
-            )
+            SalaryCompanyStore.upsert(context, SalaryCompanyStore.Company(id, name, siret, address, conventionName, idcc))
         }
-
-        sync(1)
-        sync(2)
+        sync(1); sync(2)
     }
 
     private fun refreshCompanies(root: LinearLayout) {
@@ -151,46 +98,27 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             return
         }
         companies.forEach { company ->
-            list.addView(
-                actionButton(
-                    company.name.ifBlank { "Entreprise" } +
-                        if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
-                ) { authenticateAndOpenCompany(company) },
-                buttonLp()
-            )
+            list.addView(actionButton(
+                company.name.ifBlank { "Entreprise" } + if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
+            ) { authenticateAndOpenCompany(company) }, buttonLp())
         }
     }
 
     private fun showEnterpriseLookup() {
-        var dialog: AlertDialog? = null
+        var root: LinearLayout? = null
         val lookup = V2SalaryCompanyLookupView(context) {
-            rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies)
-            dialog?.dismiss()
+            rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.also { root = it }?.let(::refreshCompanies)
         }
-        dialog = themedDialog(
-            "Ajouter une entreprise",
-            ScrollView(context).apply {
-                isFillViewport = true
-                addView(lookup)
-            }
-        )
+        themedDialog("Ajouter une entreprise", ScrollView(context).apply { isFillViewport = true; addView(lookup) })
+        root?.requestLayout()
     }
 
     private fun showInformationSheet() {
-        themedDialog(
-            "Fiche de renseignements",
-            ScrollView(context).apply {
-                isFillViewport = true
-                addView(SalaryInformationSheetView(context))
-            }
-        )
+        themedDialog("Fiche de renseignements", ScrollView(context).apply { isFillViewport = true; addView(SalaryInformationSheetView(context)) })
     }
 
     private fun authenticateAndOpenCompany(company: SalaryCompanyStore.Company) {
-        context.startActivity(
-            Intent(context, SalaryAuthActivity::class.java)
-                .putExtra(SalaryAuthActivity.EXTRA_COMPANY_ID, company.id)
-        )
+        context.startActivity(Intent(context, SalaryAuthActivity::class.java).putExtra(SalaryAuthActivity.EXTRA_COMPANY_ID, company.id))
     }
 
     private fun consumeAuthorizedAccess() {
@@ -204,8 +132,7 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(8), dp(14), dp(12))
             addView(TextView(context).apply {
-                text = company.name.ifBlank { "Entreprise" } +
-                    if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
+                text = company.name.ifBlank { "Entreprise" } + if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
                 textSize = 17f
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(0, 0, 0, dp(10))
@@ -219,19 +146,9 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     }
 
     private fun showCompanyInformation(company: SalaryCompanyStore.Company) {
-        themedDialog(
-            "Informations entreprise",
-            ScrollView(context).apply {
-                addView(
-                    SalaryCompanyDetailsView(
-                        context,
-                        company,
-                        { rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) },
-                        { confirmDelete(it) }
-                    )
-                )
-            }
-        )
+        themedDialog("Informations entreprise", ScrollView(context).apply {
+            addView(SalaryCompanyDetailsView(context, company, { rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) }, { confirmDelete(it) }))
+        })
     }
 
     private fun confirmDelete(company: SalaryCompanyStore.Company) {
@@ -239,93 +156,40 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             .setTitle("Supprimer l’entreprise ?")
             .setMessage("${company.name.ifBlank { "Cette entreprise" }} sera retirée de MES ENTREPRISES.")
             .setNegativeButton("ANNULER", null)
-            .setPositiveButton("SUPPRIMER") { _, _ ->
-                SalaryCompanyStore.remove(context, company.id)
-                rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies)
-            }
+            .setPositiveButton("SUPPRIMER") { _, _ -> SalaryCompanyStore.remove(context, company.id); rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) }
             .show()
     }
 
-    private fun showContract(company: SalaryCompanyStore.Company) {
-        themedDialog("Contrat", ScrollView(context).apply {
-            addView(SalaryContractDetailsView(context, company))
-        })
-    }
-
-    private fun showPayslipWorkspace(company: SalaryCompanyStore.Company) {
-        themedDialog("Fiche de salaire", ScrollView(context).apply {
-            addView(SalaryPayslipWorkspaceView(context, company))
-        })
-    }
-
-    private fun showRights(company: SalaryCompanyStore.Company) {
-        themedDialog("Droits, congés & repos", ScrollView(context).apply {
-            addView(V2RightsRestView(context, companyId = company.id))
-        })
-    }
+    private fun showContract(company: SalaryCompanyStore.Company) { themedDialog("Contrat", ScrollView(context).apply { addView(SalaryContractDetailsView(context, company)) }) }
+    private fun showPayslipWorkspace(company: SalaryCompanyStore.Company) { themedDialog("Fiche de salaire", ScrollView(context).apply { addView(SalaryPayslipWorkspaceView(context, company)) }) }
+    private fun showRights(company: SalaryCompanyStore.Company) { themedDialog("Droits, congés & repos", ScrollView(context).apply { addView(V2RightsRestView(context, companyId = company.id)) }) }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
-        text = label
-        isAllCaps = false
-        textSize = 14f
-        setOnClickListener { click() }
-        applyAccessTheme(this)
+        text = label; isAllCaps = false; textSize = 14f; setOnClickListener { click() }; applyAccessTheme(this)
     }
-
-    private fun buttonLp() = LinearLayout.LayoutParams(
-        ViewGroup.LayoutParams.MATCH_PARENT,
-        dp(58)
-    ).apply { topMargin = dp(8) }
+    private fun buttonLp() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { topMargin = dp(8) }
 
     private fun refreshTheme(root: LinearLayout) {
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
-        root.findViewWithTag<TextView>("salary_companies_title")
-            ?.setTextColor(if (dark) theme.darkText else theme.lightText)
+        root.findViewWithTag<TextView>("salary_companies_title")?.setTextColor(if (dark) theme.darkText else theme.lightText)
         walkButtons(root) { applyAccessTheme(it) }
     }
-
-    private fun walkButtons(group: ViewGroup, block: (Button) -> Unit) {
-        for (i in 0 until group.childCount) {
-            when (val child = group.getChildAt(i)) {
-                is Button -> block(child)
-                is ViewGroup -> walkButtons(child, block)
-            }
-        }
-    }
-
+    private fun walkButtons(group: ViewGroup, block: (Button) -> Unit) { for (i in 0 until group.childCount) when (val child = group.getChildAt(i)) { is Button -> block(child); is ViewGroup -> walkButtons(child, block) } }
     private fun applyAccessTheme(button: Button) {
-        val theme = AppThemeCatalog.current(context)
-        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context); val dark = AppThemeCatalog.useDarkPalette(context)
         button.setTextColor(if (dark) theme.darkText else theme.lightText)
-        button.background = when (theme.id) {
-            "natural_carbon" -> CarbonCompositeDrawable(context)
-            else -> context.getDrawable(R.drawable.hp_panel)?.mutate()
-        }
+        button.background = when (theme.id) { "natural_carbon" -> CarbonCompositeDrawable(context); else -> context.getDrawable(R.drawable.hp_panel)?.mutate() }
     }
-
     private fun themedDialog(title: String, view: View): AlertDialog {
-        val theme = AppThemeCatalog.current(context)
-        val dark = AppThemeCatalog.useDarkPalette(context)
-        val panel = if (dark) theme.darkPanel else theme.lightPanel
-        val accent = if (dark) theme.accentLight else theme.accent
+        val theme = AppThemeCatalog.current(context); val dark = AppThemeCatalog.useDarkPalette(context)
+        val panel = if (dark) theme.darkPanel else theme.lightPanel; val accent = if (dark) theme.accentLight else theme.accent
         view.setBackgroundColor(panel)
-        val dialog = AlertDialog.Builder(context)
-            .setTitle(title)
-            .setView(view)
-            .setPositiveButton("FERMER", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawable(ColorDrawable(panel))
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
-        }
-        dialog.show()
-        return dialog
+        val dialog = AlertDialog.Builder(context).setTitle(title).setView(view).setPositiveButton("FERMER", null).create()
+        dialog.setOnShowListener { dialog.window?.setBackgroundDrawable(ColorDrawable(panel)); dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent) }
+        dialog.show(); return dialog
     }
-
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
 
-object PendingSalaryCompanyAccess {
-    var authorizedCompanyId: String? = null
-}
+object PendingSalaryCompanyAccess { var authorizedCompanyId: String? = null }
