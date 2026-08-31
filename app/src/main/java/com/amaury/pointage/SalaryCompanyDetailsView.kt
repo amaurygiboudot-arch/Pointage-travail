@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.Intent
 import android.graphics.Typeface
 import android.text.InputType
 import android.view.ViewGroup
@@ -12,6 +14,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
+import com.amaury.pointage.v2.OfficialCompanyAgreementSearchV2
 
 class SalaryCompanyDetailsView(
     context: Context,
@@ -51,9 +54,22 @@ class SalaryCompanyDetailsView(
             }
         }
         addView(button("RECHERCHER DANS LES SOURCES OFFICIELLES") {
-            SalaryCompanyStore.prefs(context, company.id).edit().putBoolean("company_agreement_search_requested", true).commit()
-            Toast.makeText(context, "Recherche d’accords demandée pour cette entreprise", Toast.LENGTH_SHORT).show()
-            showAgreements()
+            val request = OfficialCompanyAgreementSearchV2.build(company.siret)
+            if (request == null) {
+                Toast.makeText(context, "Renseigne d’abord un SIRET valide à 14 chiffres.", Toast.LENGTH_LONG).show()
+                return@button
+            }
+            SalaryCompanyStore.prefs(context, company.id).edit()
+                .putBoolean("company_agreement_search_requested", true)
+                .putString("company_agreement_search_siret", request.normalizedSiret)
+                .putLong("company_agreement_search_requested_at", System.currentTimeMillis())
+                .commit()
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, request.uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Toast.makeText(context, "Recherche ouverte dans Légifrance — résultats à vérifier avant application.", Toast.LENGTH_LONG).show()
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir Légifrance sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
         })
         addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
             SalaryCompanyStore.prefs(context, company.id).edit().putBoolean("company_agreement_import_requested", true).commit()
