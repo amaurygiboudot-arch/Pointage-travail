@@ -38,8 +38,17 @@ class SalaryCompanyDetailsView(
         addView(button("ENREGISTRER LES INFORMATIONS") {
             val digits = siret.text.toString().filter(Char::isDigit)
             if (digits.isNotBlank() && digits.length != 14) { siret.error = "Le SIRET doit contenir 14 chiffres"; return@button }
-            company = company.copy(name = name.text.toString().trim(), siret = digits, address = address.text.toString().trim(), conventionName = convention.text.toString().trim(), idcc = idcc.text.toString().trim())
-            SalaryCompanyStore.upsert(context, company); onChanged(company); Toast.makeText(context, "Informations enregistrées", Toast.LENGTH_SHORT).show(); showSummary()
+            val updated = company.copy(name = name.text.toString().trim(), siret = digits, address = address.text.toString().trim(), conventionName = convention.text.toString().trim(), idcc = idcc.text.toString().trim())
+            val saved = SalaryCompanyStore.upsert(context, updated)
+            val reread = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id || (updated.siret.isNotBlank() && it.siret == updated.siret) }
+            if (!saved || reread == null) {
+                Toast.makeText(context, "Échec de l’enregistrement des informations", Toast.LENGTH_LONG).show()
+                return@button
+            }
+            company = reread
+            onChanged(company)
+            Toast.makeText(context, "Informations enregistrées et vérifiées", Toast.LENGTH_SHORT).show()
+            showSummary()
         })
         addView(button("ANNULER") { showSummary() })
     }
@@ -82,10 +91,21 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
             val type = when (spinner.selectedItemPosition) { 1 -> "PART_TIME"; 2 -> "FORFAIT"; 3 -> "OTHER"; else -> "FULL_TIME" }
             val weeklyValue = weekly.text.toString().replace(',', '.').toDoubleOrNull()
             if (type != "FORFAIT" && (weeklyValue == null || weeklyValue <= 0)) { weekly.error = "Durée hebdomadaire invalide"; return@button }
-            prefs.edit().putString("hourly_rate", rateValue.toString()).putString("convention_coefficient", coefficient.text.toString().trim()).putString("contract_type", type).putString("entry_date", entry.text.toString().trim()).putString("end_date", end.text.toString().trim()).apply {
+            val editor = prefs.edit().putString("hourly_rate", rateValue.toString()).putString("convention_coefficient", coefficient.text.toString().trim()).putString("contract_type", type).putString("entry_date", entry.text.toString().trim()).putString("end_date", end.text.toString().trim()).apply {
                 if (weeklyValue != null && weeklyValue > 0) putString("contract_weekly_hours", weeklyValue.toString()) else remove("contract_weekly_hours")
-            }.apply()
-            Toast.makeText(context, "Contrat enregistré", Toast.LENGTH_SHORT).show(); showSummary()
+            }
+            if (!editor.commit()) {
+                Toast.makeText(context, "Échec de l’enregistrement du contrat", Toast.LENGTH_LONG).show()
+                return@button
+            }
+            val ok = prefs.getString("hourly_rate", "").orEmpty() == rateValue.toString() &&
+                prefs.getString("contract_type", "").orEmpty() == type &&
+                prefs.getString("entry_date", "").orEmpty() == entry.text.toString().trim()
+            if (!ok) {
+                Toast.makeText(context, "Contrat écrit mais non relu correctement", Toast.LENGTH_LONG).show()
+                return@button
+            }
+            Toast.makeText(context, "Contrat enregistré et vérifié", Toast.LENGTH_SHORT).show(); showSummary()
         })
         addView(button("ANNULER") { showSummary() })
     }
