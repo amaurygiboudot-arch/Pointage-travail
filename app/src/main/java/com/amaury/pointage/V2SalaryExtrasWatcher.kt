@@ -66,24 +66,9 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         addView(LinearLayout(context).apply { tag = "salary_companies_list"; orientation = LinearLayout.VERTICAL })
     }
 
-    private fun syncLegacyCompaniesIntoStore() {
-        val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        fun sync(slot: Int) {
-            val prefix = if (slot == 1) "company_" else "company2_"
-            val name = prefs.getString("${prefix}name", "").orEmpty().trim()
-            val siret = prefs.getString("${prefix}siret", "").orEmpty().filter(Char::isDigit)
-            if (name.isBlank() && siret.isBlank()) return
-            val address = prefs.getString("${prefix}address", "").orEmpty().trim()
-            val idcc = prefs.getString("${prefix}idcc", "").orEmpty().trim()
-            val conventionName = prefs.getString("${prefix}convention_name", "").orEmpty().trim()
-            val id = if (siret.isNotBlank()) "siret_$siret" else "legacy_slot_$slot"
-            SalaryCompanyStore.upsert(context, SalaryCompanyStore.Company(id, name, siret, address, conventionName, idcc))
-        }
-        sync(1); sync(2)
-    }
-
     private fun refreshCompanies(root: LinearLayout) {
-        syncLegacyCompaniesIntoStore()
+        // V2 est l'unique source active. L'import legacy éventuel est effectué une seule fois
+        // par SalaryCompanyStore lors de l'initialisation du store, jamais à chaque rafraîchissement.
         val list = root.findViewWithTag<LinearLayout>("salary_companies_list") ?: return
         list.removeAllViews()
         val companies = SalaryCompanyStore.list(context)
@@ -120,7 +105,7 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     private fun showInformationSheet(company: SalaryCompanyStore.Company) {
         themedDialog("Fiche de renseignements — ${company.name.ifBlank { "Entreprise" }}", ScrollView(context).apply {
             isFillViewport = true
-            addView(SalaryInformationSheetView(context))
+            addView(SalaryInformationSheetView(context).bindCompany(company.id))
         })
     }
 
