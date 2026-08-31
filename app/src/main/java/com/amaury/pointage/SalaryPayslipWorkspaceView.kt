@@ -85,7 +85,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
  }
  private fun countMeals(year:Int,month:Int):Int{
-  val aliases=linkedSetOf(company.id);val index=SalaryCompanyStore.list(context).indexOfFirst{it.id==company.id};if(index==0)aliases+="company_1";if(index==1)aliases+="company_2"
+  val aliases=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
   val firstByDay=linkedMapOf<String,Long>();val day=SimpleDateFormat("yyyy-MM-dd",Locale.FRANCE)
   V2RuntimeStore.allSessions(context).forEach{s->val entry=s.countedEntryMs?:s.realArrivalMs?:return@forEach;if(s.realExitMs==null||s.employerId !in aliases)return@forEach;val c=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry};if(c.get(Calendar.YEAR)!=year||c.get(Calendar.MONTH)!=month)return@forEach;val key=day.format(c.time);val old=firstByDay[key];if(old==null||entry<old)firstByDay[key]=entry}
   return firstByDay.values.count{entry->ShiftProfileManager.mealEnabled(context,ShiftProfileManager.detect(entry))}
