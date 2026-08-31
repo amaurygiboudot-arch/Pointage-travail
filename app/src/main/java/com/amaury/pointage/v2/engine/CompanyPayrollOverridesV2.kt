@@ -2,7 +2,9 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
@@ -23,13 +25,12 @@ object CompanyPayrollOverridesV2 {
         val warnings:List<String>
     )
 
-    /** referenceDate doit appartenir à la période de paie concernée. */
-    fun load(context:Context,companyId:String,referenceDate:LocalDate=LocalDate.now()):Snapshot {
+    fun load(context:Context,companyId:String,referenceDate:LocalDate=selectedPayrollReferenceDate(context)):Snapshot {
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=p.getString(key,"").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>=0.0}
+        fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
         val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
-        val idcc=company?.idcc?.ifBlank{null}
-            ?:p.getString("company_idcc","").orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
+        val idcc=normalizeIdcc(company?.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
         val entryDate=runCatching {
             p.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let {
                 LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
@@ -52,5 +53,12 @@ object CompanyPayrollOverridesV2 {
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
         }
         return Snapshot(companyId,idcc,entryDate,seniorityMonths,number("meal_amount"),mutual,provident,transport,tax,professionalStatus,warnings)
+    }
+
+    /** Utilise la fin du mois actuellement sélectionné dans l'espace bulletin. */
+    private fun selectedPayrollReferenceDate(context:Context):LocalDate {
+        val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
+        val selected=if(ms>0L) Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
+        return selected.withDayOfMonth(selected.lengthOfMonth())
     }
 }
