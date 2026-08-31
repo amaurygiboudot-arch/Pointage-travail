@@ -67,8 +67,6 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     }
 
     private fun refreshCompanies(root: LinearLayout) {
-        // V2 est l'unique source active. L'import legacy éventuel est effectué une seule fois
-        // par SalaryCompanyStore lors de l'initialisation du store, jamais à chaque rafraîchissement.
         val list = root.findViewWithTag<LinearLayout>("salary_companies_list") ?: return
         list.removeAllViews()
         val companies = SalaryCompanyStore.list(context)
@@ -88,15 +86,24 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             }
             list.addView(actionButton(label) { authenticateAndOpenCompany(company) }, buttonLp())
         }
+        list.requestLayout()
+        list.invalidate()
     }
 
     private fun showEnterpriseLookup() {
+        // IMPORTANT : le lookup vit dans une fenêtre de dialogue. Son rootView n'est donc pas
+        // celui de l'écran Salaire. On capture ici la vraie racine V2 AVANT d'ouvrir le dialogue,
+        // afin que le callback puisse rafraîchir MES ENTREPRISES immédiatement après l'écriture.
+        val salaryRoot = rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
         var dialog: AlertDialog? = null
         val lookup = V2SalaryCompanyLookupView(context) {
-            val root = rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
-            root?.let(::refreshCompanies)
-            root?.requestLayout()
-            root?.invalidate()
+            val target = salaryRoot ?: rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
+            target?.let {
+                refreshCompanies(it)
+                refreshTheme(it)
+                it.requestLayout()
+                it.invalidate()
+            }
             dialog?.dismiss()
         }
         dialog = themedDialog("Ajouter une entreprise", ScrollView(context).apply { isFillViewport = true; addView(lookup) })
