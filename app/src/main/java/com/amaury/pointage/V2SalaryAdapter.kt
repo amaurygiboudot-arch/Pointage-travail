@@ -10,9 +10,11 @@ import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
+import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -59,7 +61,64 @@ object V2SalaryAdapter {
             month = month,
             fallbackRate = hourlyRate,
             convention = convention,
-            ruleHistory = history
+            ruleHistory = history,
+            acceptedEmployerIds = profile.contract?.let { setOf(it.employerId) }.orEmpty()
+        )
+    }
+
+    /** Calcul canonique pour une entreprise V2 identifiée par son identifiant stable. */
+    fun calculateForCompany(
+        context: Context,
+        company: SalaryCompanyStore.Company,
+        year: Int,
+        month: Int,
+        convention: ConventionCatalog.Convention,
+        ruleHistory: ConventionRuleHistoryV2? = null
+    ): Result {
+        require(HoraTrackV2.ENABLED) { "V2SalaryAdapter réservé au moteur V2" }
+        val prefs = SalaryCompanyStore.prefs(context, company.id)
+        val type = when (prefs.getString("contract_type", "").orEmpty().uppercase(Locale.ROOT)) {
+            "FULL_TIME" -> ContractTypeV2.FULL_TIME
+            "PART_TIME" -> ContractTypeV2.PART_TIME
+            "FORFAIT" -> ContractTypeV2.FORFAIT
+            "OTHER" -> ContractTypeV2.OTHER
+            else -> null
+        }
+        val weeklyMinutes = prefs.getString("contract_weekly_hours", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }?.let { (it * 60.0).roundToInt() }
+        val rate = prefs.getString("hourly_rate", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val hireEpochDay = runCatching {
+            prefs.getString("entry_date", "").orEmpty().trim().takeIf { it.isNotBlank() }?.let {
+                LocalDate.parse(it, DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE)).toEpochDay()
+            }
+        }.getOrNull()
+        val missing = mutableListOf<String>()
+        if (type == null) missing += "type de contrat"
+        if (weeklyMinutes == null && type != ContractTypeV2.FORFAIT) missing += "durée hebdomadaire"
+        if (rate == null) missing += "taux horaire"
+        val contract = if (type != null && rate != null && (weeklyMinutes != null || type == ContractTypeV2.FORFAIT)) {
+            ContractV2(
+                id = "contract_${company.id}",
+                employerId = company.id,
+                type = type,
+                contractualWeeklyMinutes = weeklyMinutes,
+                grossHourlyRate = rate,
+                hireDateEpochDay = hireEpochDay
+            )
+        } else null
+        val aliases = linkedSetOf(company.id)
+        val index = SalaryCompanyStore.list(context).indexOfFirst { it.id == company.id }
+        if (index == 0) aliases += "company_1"
+        if (index == 1) aliases += "company_2"
+        return calculateCore(
+            contract = contract,
+            missing = missing,
+            sessions = V2RuntimeStore.allSessions(context),
+            year = year,
+            month = month,
+            fallbackRate = rate ?: 0.0,
+            convention = convention,
+            ruleHistory = ruleHistory ?: V2ConventionRuleStore.history(context),
+            acceptedEmployerIds = aliases
         )
     }
 
@@ -82,7 +141,8 @@ object V2SalaryAdapter {
             month = month,
             fallbackRate = hourlyRate,
             convention = convention,
-            ruleHistory = ruleHistory
+            ruleHistory = ruleHistory,
+            acceptedEmployerIds = profile?.contract?.let { setOf(it.employerId) }.orEmpty()
         )
     }
 
@@ -94,18 +154,20 @@ object V2SalaryAdapter {
         month: Int,
         fallbackRate: Double,
         convention: ConventionCatalog.Convention,
-        ruleHistory: ConventionRuleHistoryV2?
+        ruleHistory: ConventionRuleHistoryV2?,
+        acceptedEmployerIds: Set<String>
     ): Result {
         val effectiveRate = contract?.grossHourlyRate ?: fallbackRate.takeIf { it > 0.0 }
         if (contract == null || effectiveRate == null) {
             return empty(missing.map { "Fiche Salaire à compléter : $it" })
         }
 
+        val employerIds = acceptedEmployerIds.ifEmpty { setOf(contract.employerId) }
         val selected = sessions.filter { s ->
             val end = s.realExitMs ?: return@filter false
             val anchor = s.countedEntryMs ?: s.realArrivalMs ?: return@filter false
             val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }
-            s.employerId == contract.employerId && end > anchor &&
+            s.employerId in employerIds && end > anchor &&
                 c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month
         }
         if (selected.isEmpty()) return empty()
@@ -197,9 +259,7 @@ object V2SalaryAdapter {
             }
         }
 
-        val payrollWeeks = weeks.values.map {
-            PayrollWeekV2(it.paid, it.night, it.saturday, it.sunday)
-        }
+        val payrollWeeks = weeks.values.map { PayrollWeekV2(it.paid, it.night, it.saturday, it.sunday) }
         val rules = if (historicalRules != null) {
             historicalRules.copy(weeklyRegularMinutes = historicalRules.weeklyRegularMinutes ?: regularLimit)
         } else {
