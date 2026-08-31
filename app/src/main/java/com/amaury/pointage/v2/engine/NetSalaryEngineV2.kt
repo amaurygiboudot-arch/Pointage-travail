@@ -17,7 +17,7 @@ object NetSalaryEngineV2 {
 
     fun calculate(gross: Double, year: Int, company: CompanyPayrollOverridesV2.Snapshot): Result {
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year)
-        val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year)
+        val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus)
         val companyKnown = listOf(
             company.mutualEmployeeAmount,
             company.providentEmployeeAmount,
@@ -27,17 +27,10 @@ object NetSalaryEngineV2 {
         val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
-        // Le PAS ne doit jamais être appliqué au net à payer avant impôt.
-        // Pour un salaire, son assiette est le net imposable. Dans le référentiel légal
-        // actuellement intégré, CSG imposable + CRDS ne sont pas fiscalement déductibles :
-        // elles doivent donc être réintégrées au net avant impôt.
         val nonDeductibleCsgCrds = statutory.lines
             .filter { it.id == "csg_taxable" || it.id == "crds" }
             .sumOf { it.employeeAmount }
 
-        // Les éléments entreprise peuvent eux aussi modifier le net imposable
-        // (notamment certaines parts de prévoyance/mutuelle employeur). Tant que ces
-        // assiettes fiscales ne sont pas modélisées, on refuse d'inventer un PAS exact.
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
             company.providentEmployeeAmount != null &&
             company.transportEmployeeAmount != null
@@ -54,12 +47,8 @@ object NetSalaryEngineV2 {
             addAll(statutory.warnings)
             addAll(retirement.warnings)
             addAll(company.warnings)
-            if (!taxableCompanyDataComplete) {
-                add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
-            }
-            if (company.incomeTaxRate == null) {
-                add("PAS : taux personnel non renseigné.")
-            }
+            if (!taxableCompanyDataComplete) add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
+            if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
 
         return Result(
