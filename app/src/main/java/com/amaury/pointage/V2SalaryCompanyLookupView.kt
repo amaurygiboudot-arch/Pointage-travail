@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Typeface
 import android.text.InputType
@@ -16,19 +17,13 @@ import java.net.URL
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-/**
- * Ajout d'une entreprise pour l'espace Salaire V2.
- *
- * Contrairement à EnterpriseLookupView, cette vue n'expose aucun emplacement
- * "Entreprise 1 / Entreprise 2" : chaque recherche valide crée/met à jour une
- * vraie entrée de SalaryCompanyStore, qui est illimité et déduplique par SIRET.
- */
+/** Ajout d'une entreprise V2 par nom OU SIRET. */
 class V2SalaryCompanyLookupView(
     context: Context,
     private val onSaved: () -> Unit
 ) : LinearLayout(context) {
 
-    private val siretInput = EditText(context)
+    private val queryInput = EditText(context)
     private val status = TextView(context)
     private val searchButton = Button(context)
 
@@ -42,46 +37,49 @@ class V2SalaryCompanyLookupView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "Entre le SIRET à 14 chiffres. L'entreprise sera ajoutée directement à MES ENTREPRISES."
+            text = "Écris le nom de l'entreprise OU son SIRET à 14 chiffres."
             textSize = 13f
             setPadding(0, dp(6), 0, dp(10))
         })
 
-        siretInput.apply {
-            hint = "SIRET — 14 chiffres"
-            inputType = InputType.TYPE_CLASS_NUMBER
+        queryInput.apply {
+            hint = "Nom de l'entreprise ou SIRET"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             isSingleLine = true
         }
-        addView(siretInput, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(queryInput, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         searchButton.apply {
-            text = "RECHERCHER ET AJOUTER"
+            text = "RECHERCHER"
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener { lookupAndSave() }
+            setOnClickListener { search() }
         }
         addView(searchButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(8) })
 
-        status.textSize = 13f
-        status.setPadding(0, dp(8), 0, 0)
+        status.textSize = 14f
+        status.setPadding(0, dp(10), 0, 0)
         addView(status)
     }
 
-    private fun lookupAndSave() {
-        val siret = siretInput.text.toString().filter(Char::isDigit)
-        if (siret.length != 14) {
-            Toast.makeText(context, "Le SIRET doit contenir exactement 14 chiffres", Toast.LENGTH_LONG).show()
+    private fun search() {
+        val query = queryInput.text.toString().trim()
+        if (query.length < 2) {
+            Toast.makeText(context, "Écris un nom d'entreprise ou un SIRET", Toast.LENGTH_LONG).show()
+            return
+        }
+        val digits = query.filter(Char::isDigit)
+        if (query.all { it.isDigit() || it.isWhitespace() } && digits.length != 14) {
+            Toast.makeText(context, "Un SIRET doit contenir exactement 14 chiffres", Toast.LENGTH_LONG).show()
             return
         }
 
-        searchButton.isEnabled = false
-        searchButton.text = "RECHERCHE…"
-        status.text = "Recherche dans les données publiques…"
-
+        setSearching(true)
         Thread {
             try {
-                val encoded = URLEncoder.encode(siret, StandardCharsets.UTF_8.name())
-                val connection = URL("https://recherche-entreprises.api.gouv.fr/search?q=$encoded&per_page=1").openConnection() as HttpURLConnection
+                val encoded = URLEncoder.encode(if (digits.length == 14) digits else query, StandardCharsets.UTF_8.name())
+                val perPage = if (digits.length == 14) 1 else 10
+                val connection = URL("https://recherche-entreprises.api.gouv.fr/search?q=$encoded&per_page=$perPage").openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 15000
@@ -93,53 +91,87 @@ class V2SalaryCompanyLookupView(
                 connection.disconnect()
                 if (code !in 200..299) throw IllegalStateException("service indisponible ($code)")
 
-                val root = JSONObject(body)
-                val results = root.optJSONArray("results") ?: JSONArray()
-                if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée pour ce SIRET")
-                val result = results.getJSONObject(0)
+                val results = JSONObject(body).optJSONArray("results") ?: JSONArray()
+                if (results.length() == 0) throw IllegalStateException("aucune entreprise trouvée")
 
-                val name = firstNonBlank(
-                    result.optString("nom_complet"),
-                    result.optString("nom_raison_sociale"),
-                    result.optString("denomination"),
-                    result.optString("nom")
-                )
-                val establishment = findMatchingEstablishment(result, siret)
-                val address = firstNonBlank(
-                    establishment?.optString("adresse"),
-                    establishment?.optString("adresse_complete"),
-                    result.optString("adresse")
-                )
-                val idcc = findIdccs(result).firstOrNull().orEmpty()
-                val conventionName = ConventionCatalog.findByIdcc(idcc)?.fullName.orEmpty()
-
-                SalaryCompanyStore.upsert(
-                    context,
-                    SalaryCompanyStore.Company(
-                        id = "siret_$siret",
-                        name = name.ifBlank { "Entreprise" },
-                        siret = siret,
-                        address = address,
-                        conventionName = conventionName,
-                        idcc = idcc
-                    )
-                )
+                val choices = (0 until results.length()).mapNotNull { i ->
+                    results.optJSONObject(i)?.let { parseCompany(it, if (digits.length == 14) digits else "") }
+                }
+                if (choices.isEmpty()) throw IllegalStateException("résultat incomplet")
 
                 post {
-                    searchButton.isEnabled = true
-                    searchButton.text = "RECHERCHER ET AJOUTER"
-                    status.text = "${name.ifBlank { "Entreprise" }} ajoutée à MES ENTREPRISES."
-                    Toast.makeText(context, "Entreprise ajoutée", Toast.LENGTH_LONG).show()
-                    onSaved()
+                    setSearching(false)
+                    if (choices.size == 1) saveCompany(choices.first())
+                    else showChoices(choices)
                 }
             } catch (e: Exception) {
                 post {
-                    searchButton.isEnabled = true
-                    searchButton.text = "RECHERCHER ET AJOUTER"
-                    status.text = "Impossible d'ajouter l'entreprise : ${e.message ?: "erreur inconnue"}"
+                    setSearching(false)
+                    status.text = "Impossible de trouver l'entreprise : ${e.message ?: "erreur inconnue"}"
                 }
             }
         }.start()
+    }
+
+    private fun showChoices(companies: List<SalaryCompanyStore.Company>) {
+        val labels = companies.map { c ->
+            buildString {
+                append(c.name.ifBlank { "Entreprise" })
+                if (c.siret.isNotBlank()) append("\nSIRET : ").append(c.siret)
+                if (c.address.isNotBlank()) append("\n").append(c.address)
+            }
+        }.toTypedArray()
+        AlertDialog.Builder(context)
+            .setTitle("Choisis l'entreprise")
+            .setItems(labels) { _, which -> companies.getOrNull(which)?.let(::saveCompany) }
+            .setNegativeButton("ANNULER", null)
+            .show()
+    }
+
+    private fun saveCompany(company: SalaryCompanyStore.Company) {
+        SalaryCompanyStore.upsert(context, company)
+        status.text = buildString {
+            append("✓ ENTREPRISE ENREGISTRÉE\n")
+            append(company.name.ifBlank { "Entreprise" })
+            if (company.siret.isNotBlank()) append("\nSIRET : ").append(company.siret)
+            append("\n\nElle apparaît maintenant dans MES ENTREPRISES.")
+        }
+        status.setTypeface(status.typeface, Typeface.BOLD)
+        searchButton.text = "AJOUTÉE ✓"
+        Toast.makeText(context, "${company.name.ifBlank { "Entreprise" }} ajoutée", Toast.LENGTH_LONG).show()
+        onSaved()
+    }
+
+    private fun parseCompany(result: JSONObject, requestedSiret: String): SalaryCompanyStore.Company {
+        val name = firstNonBlank(
+            result.optString("nom_complet"),
+            result.optString("nom_raison_sociale"),
+            result.optString("denomination"),
+            result.optString("nom")
+        )
+        val establishment = if (requestedSiret.isNotBlank()) findMatchingEstablishment(result, requestedSiret) else result.optJSONObject("siege")
+        val siret = firstNonBlank(establishment?.optString("siret"), result.optJSONObject("siege")?.optString("siret"))
+            .filter(Char::isDigit)
+        val siren = result.optString("siren").filter(Char::isDigit)
+        val address = firstNonBlank(
+            establishment?.optString("adresse"),
+            establishment?.optString("adresse_complete"),
+            result.optString("adresse")
+        )
+        val idcc = findIdccs(result).firstOrNull().orEmpty()
+        val conventionName = ConventionCatalog.findByIdcc(idcc)?.fullName.orEmpty()
+        val id = when {
+            siret.isNotBlank() -> "siret_$siret"
+            siren.isNotBlank() -> "siren_$siren"
+            else -> "name_${name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')}"
+        }
+        return SalaryCompanyStore.Company(id, name.ifBlank { "Entreprise" }, siret, address, conventionName, idcc)
+    }
+
+    private fun setSearching(searching: Boolean) {
+        searchButton.isEnabled = !searching
+        searchButton.text = if (searching) "RECHERCHE…" else "RECHERCHER"
+        if (searching) status.text = "Recherche dans les données publiques…"
     }
 
     private fun findMatchingEstablishment(result: JSONObject, siret: String): JSONObject? {
@@ -156,12 +188,7 @@ class V2SalaryCompanyLookupView(
     private fun findIdccs(result: JSONObject): List<String> {
         val out = LinkedHashSet<String>()
         val complements = result.optJSONArray("complements")
-        if (complements != null) {
-            for (i in 0 until complements.length()) {
-                val item = complements.optJSONObject(i) ?: continue
-                collectIdcc(item, out)
-            }
-        }
+        if (complements != null) for (i in 0 until complements.length()) complements.optJSONObject(i)?.let { collectIdcc(it, out) }
         collectIdcc(result, out)
         return out.toList()
     }
@@ -171,14 +198,9 @@ class V2SalaryCompanyLookupView(
             obj.optString(key).filter(Char::isDigit).takeIf { it.isNotBlank() }?.let(out::add)
         }
         val ids = obj.optJSONArray("idccs") ?: return
-        for (i in 0 until ids.length()) {
-            val value = ids.optString(i).filter(Char::isDigit)
-            if (value.isNotBlank()) out.add(value)
-        }
+        for (i in 0 until ids.length()) ids.optString(i).filter(Char::isDigit).takeIf { it.isNotBlank() }?.let(out::add)
     }
 
-    private fun firstNonBlank(vararg values: String?): String =
-        values.firstOrNull { !it.isNullOrBlank() }.orEmpty().trim()
-
+    private fun firstNonBlank(vararg values: String?): String = values.firstOrNull { !it.isNullOrBlank() }.orEmpty().trim()
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
