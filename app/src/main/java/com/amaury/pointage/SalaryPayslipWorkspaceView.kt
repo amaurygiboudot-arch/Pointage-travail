@@ -16,13 +16,17 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2PayslipStore
+import com.amaury.pointage.v2.V2RuntimeStore
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.abs
 
-/** Espace de comparaison : estimation HoraTrack + nombre illimité de bulletins réels. */
+/** Espace V2 : estimation HoraTrack + nombre illimité de bulletins réels. */
 class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompanyStore.Company):LinearLayout(context){
  private var page=0
  private val pageBox=LinearLayout(context)
@@ -31,7 +35,8 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  init{
   orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12))
   addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER})
-  addView(TextView(context).apply{text="Glisse à gauche/droite pour comparer l’estimation HoraTrack aux bulletins réels de cette entreprise.";textSize=12f;setPadding(0,dp(5),0,dp(8))})
+  addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))})
+  addButtonTop("CHOISIR LE MOIS"){choosePeriod()}
   pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()
  }
@@ -43,32 +48,51 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms
   return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)
  }
+ private fun choosePeriod(){
+  val labels=ArrayList<String>();val values=ArrayList<Long>();val c=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)}
+  repeat(36){labels+=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(c.time).replaceFirstChar{it.uppercase()};values+=c.timeInMillis;c.add(Calendar.MONTH,-1)}
+  AlertDialog.Builder(context).setTitle("Choisir le mois").setItems(labels.toTypedArray()){_,which->context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",values[which]).apply();render()}.setNegativeButton("ANNULER",null).show()
+ }
  private fun renderEstimate(){
-  val prefs=SalaryCompanyStore.prefs(context,company.id);val rate=prefs.getString("hourly_rate","").orEmpty().toDoubleOrNull();val weekly=prefs.getString("contract_weekly_hours","").orEmpty();val meal=prefs.getString("meal_amount","").orEmpty();val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
+  val prefs=SalaryCompanyStore.prefs(context,company.id);val weekly=prefs.getString("contract_weekly_hours","").orEmpty();val mealRaw=prefs.getString("meal_amount","").orEmpty();val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
   add(TextView(context).apply{text="FICHE DE PAIE ESTIMATIVE";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(4))})
-  add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}";textSize=14f;setPadding(0,0,0,dp(10))})
+  val seniority=seniority(prefs.getString("entry_date","").orEmpty(),year,month)
+  add(TextView(context).apply{text="Période : $period\nEntreprise : ${company.name.ifBlank{"Non renseignée"}}\nSIRET : ${company.siret.ifBlank{"Non renseigné"}}\nAncienneté : $seniority";textSize=14f;setPadding(0,0,0,dp(10))})
   val conventionId=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()};val convention=ConventionCatalog.findByIdcc(context,conventionId)
-  val calc=if(HoraTrackV2.ENABLED&&rate!=null&&rate>0&&convention!=null)runCatching{V2SalaryAdapter.calculate(context,year,month,rate,convention)}.getOrNull() else null
+  val calc=if(HoraTrackV2.ENABLED&&convention!=null)runCatching{V2SalaryAdapter.calculateForCompany(context,company,year,month,convention)}.getOrNull() else null
   if(calc==null){
-   add(TextView(context).apply{text="Calcul détaillé indisponible : complète le taux horaire et la convention de cette entreprise. HoraTrack n’invente aucune majoration.";textSize=14f})
+   add(TextView(context).apply{text="Calcul détaillé indisponible : complète le contrat et la convention de cette entreprise. HoraTrack n’invente aucune majoration.";textSize=14f})
   }else{
+   val mealAmount=mealRaw.replace(',','.').toDoubleOrNull()?.coerceAtLeast(0.0)?:0.0;val mealCount=countMeals(year,month);val mealTotal=mealCount*mealAmount
    val lines=buildString{
+    append("Convention : ").append(convention.displayName).append('\n')
     append("Heures normales : ").append(hours(calc.regularMs)).append(" — ").append(eur(calc.regularGross)).append('\n')
     calc.overtimeTiers.filter{it.durationMs>0}.forEach{append(it.label).append(" : ").append(hours(it.durationMs)).append('\n')}
     append("Heures de nuit : ").append(hours(calc.nightMs)).append('\n')
     append("Samedi : ").append(hours(calc.saturdayMs)).append('\n')
     append("Dimanche : ").append(hours(calc.sundayMs)).append('\n')
     append("Majoration / primes calculées : ").append(eur(calc.premiumsGross)).append('\n')
-    append("Panier unitaire : ").append(meal.ifBlank{"à compléter"}).append(if(meal.isBlank())"" else " €").append('\n')
-    append("Total paniers : À confirmer selon les jours ouvrant droit").append("\n\n")
-    append("BRUT ESTIMÉ : ").append(eur(calc.monthlyEstimatedGross)).append('\n')
+    append("Paniers : ").append(mealCount).append(" × ").append(eur(mealAmount)).append(" = ").append(eur(mealTotal)).append('\n')
+    append("BRUT ESTIMÉ HORS PANIERS : ").append(eur(calc.monthlyEstimatedGross)).append('\n')
+    append("BRUT + PANIERS : ").append(eur(calc.monthlyEstimatedGross+mealTotal)).append('\n')
     append("NET ESTIMÉ : non calculé tant que le moteur de cotisations fiable n’est pas disponible")
    }
    add(TextView(context).apply{text=lines;textSize=14f})
+   ConventionNightRules.forIdcc(convention.idcc)?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})}
    if(calc.warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+calc.warnings.joinToString("\n• ");textSize=12f})
   }
   add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${weekly.ifBlank{"à compléter"}}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f})
   addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
+ }
+ private fun countMeals(year:Int,month:Int):Int{
+  val aliases=linkedSetOf(company.id);val index=SalaryCompanyStore.list(context).indexOfFirst{it.id==company.id};if(index==0)aliases+="company_1";if(index==1)aliases+="company_2"
+  val firstByDay=linkedMapOf<String,Long>();val day=SimpleDateFormat("yyyy-MM-dd",Locale.FRANCE)
+  V2RuntimeStore.allSessions(context).forEach{s->val entry=s.countedEntryMs?:s.realArrivalMs?:return@forEach;if(s.realExitMs==null||s.employerId !in aliases)return@forEach;val c=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry};if(c.get(Calendar.YEAR)!=year||c.get(Calendar.MONTH)!=month)return@forEach;val key=day.format(c.time);val old=firstByDay[key];if(old==null||entry<old)firstByDay[key]=entry}
+  return firstByDay.values.count{entry->ShiftProfileManager.mealEnabled(context,ShiftProfileManager.detect(entry))}
+ }
+ private fun seniority(raw:String,year:Int,month:Int):String{
+  val start=runCatching{LocalDate.parse(raw.trim(),DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}.getOrNull()?:return "à compléter"
+  val end=LocalDate.of(year,month+1,1).withDayOfMonth(LocalDate.of(year,month+1,1).lengthOfMonth());if(start.isAfter(end))return "0 mois";val months=ChronoUnit.MONTHS.between(start.withDayOfMonth(1),end.withDayOfMonth(1)).toInt();val y=months/12;val m=months%12;return when{y>0&&m>0->"$y an${if(y>1)"s" else ""} et $m mois";y>0->"$y an${if(y>1)"s" else ""}";else->"$m mois"}
  }
  private fun renderReal(r:V2PayslipStore.Record){
   val month=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};val gross=r.gross?.let{eur(it)}?:"à confirmer";val net=r.net?.let{eur(it)}?:"non renseigné"
@@ -84,6 +108,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  private fun next(){if(page<records().size){page++;render()}};private fun previous(){if(page>0){page--;render()}}
  private fun choosePage(){val rs=records();val labels=ArrayList<String>();labels+="Estimation HoraTrack";rs.forEach{r->val m=DateFormatSymbols(Locale.FRANCE).months.getOrNull(r.month).orEmpty().replaceFirstChar{it.uppercase()};labels+="Bulletin réel — $m ${r.year}"};AlertDialog.Builder(context).setTitle("Choisir une page").setItems(labels.toTypedArray()){_,which->page=which;render()}.setNegativeButton("ANNULER",null).show()}
  private fun add(v:android.view.View){pageBox.addView(v)}
+ private fun addButtonTop(label:String,click:()->Unit){addView(Button(context).apply{text=label;isAllCaps=false;setBackgroundResource(R.drawable.hp_panel);setOnClickListener{click()}},LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(52)).apply{bottomMargin=dp(7)})}
  private fun addButton(label:String,click:()->Unit){pageBox.addView(Button(context).apply{text=label;isAllCaps=false;setBackgroundResource(R.drawable.hp_panel);setOnClickListener{click()}},LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(52)).apply{topMargin=dp(7)})}
  private fun hours(ms:Long)=String.format(Locale.FRANCE,"%.2f h",ms/3_600_000.0)
  private fun eur(v:Double)=String.format(Locale.FRANCE,"%.2f €",v)
