@@ -65,7 +65,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
   }else{
    val mealAmount=mealRaw.replace(',','.').toDoubleOrNull()?.coerceAtLeast(0.0)?:0.0;val mealCount=countMeals(year,month);val mealTotal=mealCount*mealAmount
    val lines=buildString{
-    append("Convention : ").append(convention.displayName).append('\n')
+    append("Convention : ").append(convention?.displayName ?: "Non renseignée").append('\n')
     append("Heures normales : ").append(hours(calc.regularMs)).append(" — ").append(eur(calc.regularGross)).append('\n')
     calc.overtimeTiers.filter{it.durationMs>0}.forEach{append(it.label).append(" : ").append(hours(it.durationMs)).append('\n')}
     append("Heures de nuit : ").append(hours(calc.nightMs)).append('\n')
@@ -78,7 +78,7 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
     append("NET ESTIMÉ : non calculé tant que le moteur de cotisations fiable n’est pas disponible")
    }
    add(TextView(context).apply{text=lines;textSize=14f})
-   ConventionNightRules.forIdcc(convention.idcc)?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})}
+   ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})}
    if(calc.warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+calc.warnings.joinToString("\n• ");textSize=12f})
   }
   add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${weekly.ifBlank{"à compléter"}}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f})
