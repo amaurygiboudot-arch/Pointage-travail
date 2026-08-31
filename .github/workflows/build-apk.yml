@@ -2,8 +2,6 @@ name: Compiler HoraTrack APK et AAB
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
 
 concurrency:
   group: horatrack-apk-aab
