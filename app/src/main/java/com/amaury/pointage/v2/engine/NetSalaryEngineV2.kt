@@ -1,16 +1,78 @@
 package com.amaury.pointage.v2.engine
 
-/** Couche 5/6 — assemblage canonique brut -> retenues connues -> net estimé. */
+/** Couche 5/6 — assemblage canonique brut -> retenues connues -> net imposable -> PAS -> net estimé. */
 object NetSalaryEngineV2 {
-    data class Result(val gross:Double,val statutory:Double,val complementaryRetirement:Double,val companyEmployeeDeductions:Double,val netBeforeIncomeTax:Double,val incomeTax:Double?,val netAfterIncomeTax:Double?,val complete:Boolean,val warnings:List<String>)
+    data class Result(
+        val gross: Double,
+        val statutory: Double,
+        val complementaryRetirement: Double,
+        val companyEmployeeDeductions: Double,
+        val netBeforeIncomeTax: Double,
+        val netTaxable: Double?,
+        val incomeTax: Double?,
+        val netAfterIncomeTax: Double?,
+        val complete: Boolean,
+        val warnings: List<String>
+    )
 
-    fun calculate(gross:Double,year:Int,company:CompanyPayrollOverridesV2.Snapshot):Result {
-        val statutory=SocialContributionCatalogV2.estimateEmployeeDeductions(gross,year)
-        val retirement=ComplementaryRetirementCatalogV2.estimate(gross,year)
-        val companyKnown=listOf(company.mutualEmployeeAmount,company.providentEmployeeAmount,company.transportEmployeeAmount).filterNotNull().sum()
-        val beforeTax=(gross-statutory.employeeDeductions-retirement.employeeDeductions-companyKnown).coerceAtLeast(0.0)
-        val tax=company.incomeTaxRate?.let{beforeTax*it}
-        val warnings=statutory.warnings+retirement.warnings+company.warnings
-        return Result(gross,statutory.employeeDeductions,retirement.employeeDeductions,companyKnown,beforeTax,tax,tax?.let{(beforeTax-it).coerceAtLeast(0.0)},warnings.isEmpty(),warnings)
+    fun calculate(gross: Double, year: Int, company: CompanyPayrollOverridesV2.Snapshot): Result {
+        val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year)
+        val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year)
+        val companyKnown = listOf(
+            company.mutualEmployeeAmount,
+            company.providentEmployeeAmount,
+            company.transportEmployeeAmount
+        ).filterNotNull().sum()
+
+        val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
+            .coerceAtLeast(0.0)
+
+        // Le PAS ne doit jamais être appliqué au net à payer avant impôt.
+        // Pour un salaire, son assiette est le net imposable. Dans le référentiel légal
+        // actuellement intégré, CSG imposable + CRDS ne sont pas fiscalement déductibles :
+        // elles doivent donc être réintégrées au net avant impôt.
+        val nonDeductibleCsgCrds = statutory.lines
+            .filter { it.id == "csg_taxable" || it.id == "crds" }
+            .sumOf { it.employeeAmount }
+
+        // Les éléments entreprise peuvent eux aussi modifier le net imposable
+        // (notamment certaines parts de prévoyance/mutuelle employeur). Tant que ces
+        // assiettes fiscales ne sont pas modélisées, on refuse d'inventer un PAS exact.
+        val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
+            company.providentEmployeeAmount != null &&
+            company.transportEmployeeAmount != null
+
+        val netTaxable = if (taxableCompanyDataComplete) {
+            (beforeTax + nonDeductibleCsgCrds).coerceAtLeast(0.0)
+        } else null
+
+        val tax = if (netTaxable != null && company.incomeTaxRate != null) {
+            netTaxable * company.incomeTaxRate
+        } else null
+
+        val warnings = buildList {
+            addAll(statutory.warnings)
+            addAll(retirement.warnings)
+            addAll(company.warnings)
+            if (!taxableCompanyDataComplete) {
+                add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
+            }
+            if (company.incomeTaxRate == null) {
+                add("PAS : taux personnel non renseigné.")
+            }
+        }.distinct()
+
+        return Result(
+            gross = gross,
+            statutory = statutory.employeeDeductions,
+            complementaryRetirement = retirement.employeeDeductions,
+            companyEmployeeDeductions = companyKnown,
+            netBeforeIncomeTax = beforeTax,
+            netTaxable = netTaxable,
+            incomeTax = tax,
+            netAfterIncomeTax = tax?.let { (beforeTax - it).coerceAtLeast(0.0) },
+            complete = warnings.isEmpty(),
+            warnings = warnings
+        )
     }
 }
