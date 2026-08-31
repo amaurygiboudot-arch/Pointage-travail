@@ -3,6 +3,9 @@ package com.amaury.pointage
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Stockage V2 multi-entreprises, avec écriture synchrone et vérifiable. */
 object SalaryCompanyStore {
@@ -27,14 +30,10 @@ object SalaryCompanyStore {
     fun upsert(context: Context, company: Company): Boolean {
         migrateLegacy(context)
         val all = read(context).toMutableList()
-        val index = all.indexOfFirst {
-            it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
-        }
+        val index = all.indexOfFirst { it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret) }
         if (index >= 0) all[index] = company else all += company
         if (!save(context, all)) return false
-        return read(context).any {
-            it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
-        }
+        return read(context).any { it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret) }
     }
 
     fun remove(context: Context, id: String): Boolean {
@@ -42,81 +41,68 @@ object SalaryCompanyStore {
         return save(context, read(context).filterNot { it.id == id })
     }
 
-    fun prefs(context: Context, companyId: String) =
-        context.getSharedPreferences(
-            "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}",
-            Context.MODE_PRIVATE
-        )
+    fun prefs(context: Context, companyId: String) = context.getSharedPreferences(
+        "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}", Context.MODE_PRIVATE
+    )
 
     private fun read(context: Context): List<Company> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY, "[]") ?: "[]"
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
         return runCatching {
             val array = JSONArray(raw)
             (0 until array.length()).map { i ->
                 val o = array.getJSONObject(i)
-                Company(
-                    id = o.optString("id"),
-                    name = o.optString("name"),
-                    siret = o.optString("siret"),
-                    address = o.optString("address"),
-                    conventionName = o.optString("conventionName"),
-                    idcc = o.optString("idcc")
-                )
+                Company(o.optString("id"),o.optString("name"),o.optString("siret"),o.optString("address"),o.optString("conventionName"),o.optString("idcc"))
             }.filter { it.id.isNotBlank() }
         }.getOrDefault(emptyList())
     }
 
     private fun save(context: Context, companies: List<Company>): Boolean {
         val array = JSONArray()
-        companies.forEach { c ->
-            array.put(JSONObject().apply {
-                put("id", c.id)
-                put("name", c.name)
-                put("siret", c.siret)
-                put("address", c.address)
-                put("conventionName", c.conventionName)
-                put("idcc", c.idcc)
-            })
-        }
-        // commit() est volontaire : l'UI ne doit jamais annoncer un succès avant
-        // que la donnée soit réellement écrite et relisible.
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY, array.toString())
-            .commit()
+        companies.forEach { c -> array.put(JSONObject().apply { put("id",c.id);put("name",c.name);put("siret",c.siret);put("address",c.address);put("conventionName",c.conventionName);put("idcc",c.idcc) }) }
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, array.toString()).commit()
     }
 
     private fun migrateLegacy(context: Context) {
         val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (store.contains(KEY)) return
-
         val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val migrated = mutableListOf<Company>()
+        val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
-        fun add(nameKey: String, siretKey: String, suffix: String) {
-            val name = old.getString(nameKey, "").orEmpty().trim()
-            val siret = old.getString(siretKey, "").orEmpty().trim()
+        fun value(key: String): String = when (val v = old.all[key]) { null -> ""; is String -> v; is Number -> v.toString(); else -> v.toString() }.trim()
+        fun migrateSlot(slot: Int) {
+            val p = if (slot == 1) "company_" else "company2_"
+            val name = value("${p}name")
+            val siret = value("${p}siret").filter(Char::isDigit)
             if (name.isBlank() && siret.isBlank()) return
-            val id = if (siret.isNotBlank()) "siret_$siret" else "legacy_$suffix"
-            migrated += Company(
-                id = id,
-                name = name,
-                siret = siret,
-                conventionName = old.getString("company_convention_name", "").orEmpty(),
-                idcc = old.getString("company_idcc", "").orEmpty()
-            )
-            prefs(context, id).edit()
-                .putString("contract_type", old.getString("contract_type", ""))
-                .putString("hourly_rate", old.getString("hourly_rate", ""))
-                .putString("contract_weekly_hours", old.getString("contract_weekly_hours", ""))
-                .putString("meal_amount", old.getString("meal_amount", ""))
-                .putString("convention_coefficient", old.getString("convention_coefficient", ""))
-                .commit()
+            val id = if (siret.isNotBlank()) "siret_$siret" else "legacy_$slot"
+            val idcc = value("${p}idcc").ifBlank { if (slot == 1) value("convention_idcc") else "" }
+            val conventionName = value("${p}convention_name")
+            val address = value("${p}address")
+            migrated += Company(id,name,siret,address,conventionName,idcc)
+
+            val contractType = if (slot == 1) value("contract_type") else value("company2_contract_type")
+            val rate = if (slot == 1) value("hourly_rate") else value("company2_hourly_rate")
+            val weekly = if (slot == 1) value("contract_weekly_hours") else value("company2_contract_weekly_hours")
+            val coefficient = if (slot == 1) value("convention_coefficient") else value("company2_convention_coefficient")
+            val meal = if (slot == 1) value("meal_amount") else value("company2_meal_amount").ifBlank { value("meal_amount") }
+            val hireMsKey = if (slot == 1) "employment_start_date" else "company2_employment_start_date"
+            val hireMs = when (val raw = old.all[hireMsKey]) { is Number -> raw.toLong(); is String -> raw.toLongOrNull() ?: 0L; else -> 0L }
+            val entryDate = if (hireMs > 0L) dateFormat.format(Date(hireMs)) else value(if (slot == 1) "entry_date" else "company2_entry_date")
+
+            val editor = prefs(context, id).edit()
+                .putString("contract_type", contractType)
+                .putString("hourly_rate", rate)
+                .putString("contract_weekly_hours", weekly)
+                .putString("meal_amount", meal)
+                .putString("convention_coefficient", coefficient)
+                .putString("entry_date", entryDate)
+                .putString("company_idcc", idcc)
+            editor.commit()
         }
 
-        add("company_name", "company_siret", "1")
-        add("company2_name", "company2_siret", "2")
+        migrateSlot(1)
+        migrateSlot(2)
         save(context, migrated)
     }
 }
