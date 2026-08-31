@@ -1,0 +1,182 @@
+package com.amaury.pointage
+
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.util.TypedValue
+import android.widget.RemoteViews
+import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeStore
+
+class QuickActionsWidgetProvider : AppWidgetProvider() {
+    companion object {
+        const val ACTION_ENTRY = "com.amaury.pointage.QUICK_ACTION_ENTRY"
+        const val ACTION_PAUSE = "com.amaury.pointage.QUICK_ACTION_PAUSE"
+        const val ACTION_EXIT = "com.amaury.pointage.QUICK_ACTION_EXIT"
+
+        fun updateAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, QuickActionsWidgetProvider::class.java)
+            manager.getAppWidgetIds(component).forEach { updateDynamicState(context, manager, it) }
+        }
+
+        private fun rebuildAll(context: Context) {
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, QuickActionsWidgetProvider::class.java)
+            manager.getAppWidgetIds(component).forEach { updateWidget(context, manager, it) }
+        }
+
+        private fun backgroundFor(themeId: String, dark: Boolean): Int = when (themeId) {
+            "steel_blue" -> if (dark) R.drawable.widget_bg_steel_dark else R.drawable.widget_bg_steel_light
+            "brushed_aluminum" -> if (dark) R.drawable.widget_bg_alu_dark else R.drawable.widget_bg_alu_light
+            "natural_carbon" -> if (dark) R.drawable.widget_bg_carbon_dark else R.drawable.widget_bg_carbon_light
+            "diamond_crystal" -> if (dark) R.drawable.widget_bg_diamond_dark else R.drawable.widget_bg_diamond_light
+            else -> if (dark) R.drawable.widget_bg_gold_dark else R.drawable.widget_bg_gold_light
+        }
+
+        private fun widgetSize(manager: AppWidgetManager, widgetId: Int): Pair<Int, Int> {
+            val options = manager.getAppWidgetOptions(widgetId)
+            return options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 220).coerceAtLeast(160) to
+                options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 82).coerceAtLeast(60)
+        }
+
+        private fun pending(context: Context, widgetId: Int, action: String, slot: Int): PendingIntent {
+            val intent = Intent(context, QuickActionsWidgetProvider::class.java).apply {
+                this.action = action
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            }
+            return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        private fun v2Paused(context: Context): Boolean {
+            val session = V2RuntimeStore.snapshot(context).session ?: return false
+            return session.realExitMs == null && session.pauses.any { it.endMs == null }
+        }
+
+        private fun updateDynamicState(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
+            val paused = if (HoraTrackV2.ENABLED) v2Paused(context) else PointageStore.isPaused(context)
+            views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            manager.partiallyUpdateAppWidget(widgetId, views)
+        }
+
+        private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
+            val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
+            val theme = AppThemeCatalog.current(context)
+            val dark = AppThemeCatalog.useDarkPalette(context)
+            val accent = if (dark) theme.accentLight else theme.accent
+
+            val (widgetWidth, _) = widgetSize(manager, widgetId)
+            val cellWidth = widgetWidth / 3f
+            val buttonDp = (cellWidth * .66f).coerceIn(52f, 78f)
+            val innerDp = buttonDp * .885f
+            val labelSp = (buttonDp * .15f).coerceIn(8f, 12f)
+            val bitmapPx = (buttonDp * 3f).toInt().coerceIn(156, 300)
+
+            views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            val frame = WidgetVisualRenderer.jewelFrame(bitmapPx)
+            views.setImageViewBitmap(R.id.quick_entry_button, frame)
+            views.setImageViewBitmap(R.id.quick_pause_icon, frame)
+            views.setImageViewBitmap(R.id.quick_exit_button, frame)
+            views.setImageViewBitmap(R.id.quick_entry_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.ENTRY, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_pause_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.PAUSE, bitmapPx))
+            views.setImageViewBitmap(R.id.quick_exit_inner, WidgetVisualRenderer.jewelInner(context, WidgetVisualRenderer.Jewel.EXIT, bitmapPx))
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf(R.id.quick_entry_stack, R.id.quick_pause_stack, R.id.quick_exit_stack).forEach {
+                    views.setViewLayoutWidth(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+                listOf(R.id.quick_entry_button, R.id.quick_pause_icon, R.id.quick_exit_button).forEach {
+                    views.setViewLayoutWidth(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+                listOf(R.id.quick_entry_inner, R.id.quick_pause_inner, R.id.quick_exit_inner).forEach {
+                    views.setViewLayoutWidth(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
+                    views.setViewLayoutHeight(it, innerDp, TypedValue.COMPLEX_UNIT_DIP)
+                }
+            }
+
+            listOf(R.id.quick_entry_label, R.id.quick_pause_label, R.id.quick_exit_label).forEach {
+                views.setTextViewTextSize(it, TypedValue.COMPLEX_UNIT_SP, labelSp)
+                views.setTextColor(it, accent)
+            }
+
+            views.setOnClickPendingIntent(R.id.quick_entry_inner, pending(context, widgetId, ACTION_ENTRY, 1))
+            views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
+            views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
+
+            val paused = if (HoraTrackV2.ENABLED) v2Paused(context) else PointageStore.isPaused(context)
+            views.setTextViewText(R.id.quick_pause_label, if (paused) "REPRENDRE" else "PAUSE")
+            manager.updateAppWidget(widgetId, views)
+        }
+    }
+
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        ids.forEach { updateWidget(context, manager, it) }
+    }
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        updateWidget(context, manager, appWidgetId)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        var handledAction = false
+        var needsFullRebuild = false
+        when (intent.action) {
+            ACTION_ENTRY -> {
+                handledAction = true
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                Toast.makeText(context, if (ok) "Entrée enregistrée" else "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+            }
+            ACTION_PAUSE -> {
+                handledAction = true
+                if (HoraTrackV2.ENABLED) {
+                    val snap = V2RuntimeStore.snapshot(context)
+                    if (snap.session == null || snap.session.realExitMs != null) {
+                        Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val wasPaused = snap.session.pauses.any { it.endMs == null }
+                        V2RuntimeStore.togglePause(context)
+                        Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    when {
+                        !PointageStore.hasOpen(context) -> Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                        PointageStore.isPaused(context) -> { PointageStore.resumePause(context); Toast.makeText(context, "Travail repris", Toast.LENGTH_SHORT).show() }
+                        else -> { PointageStore.startPause(context); Toast.makeText(context, "Pause démarrée", Toast.LENGTH_SHORT).show() }
+                    }
+                }
+            }
+            ACTION_EXIT -> {
+                handledAction = true
+                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                Toast.makeText(context, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+            }
+            Intent.ACTION_CONFIGURATION_CHANGED -> needsFullRebuild = true
+        }
+
+        if (needsFullRebuild) {
+            PointageWidgetProvider.updateAll(context)
+            rebuildAll(context)
+        } else if (handledAction) {
+            val clickedId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (intent.action == ACTION_PAUSE) {
+                    val manager = AppWidgetManager.getInstance(context)
+                    if (clickedId != AppWidgetManager.INVALID_APPWIDGET_ID) updateDynamicState(context, manager, clickedId)
+                    else updateAll(context)
+                }
+                PointageWidgetProvider.updateAll(context)
+            }, 260L)
+        }
+    }
+}

@@ -1,0 +1,4 @@
+<resources>
+    <item name="locationManagementView" type="id" />
+    <item name="true3d_internal_tag" type="id" />
+</resources>

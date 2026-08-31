@@ -1,0 +1,158 @@
+package com.amaury.pointage
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.DatePickerDialog
+import android.os.Bundle
+import android.widget.*
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+
+/** Écran Salaire historique conservé comme façade UI, calculé exclusivement par V2. */
+class SalaryActivity : Activity() {
+    private lateinit var hourlyRateInput: EditText
+    private lateinit var salaryMonthText: TextView
+    private lateinit var salaryResultContainer: LinearLayout
+    private lateinit var selectedConventionText: TextView
+    private lateinit var conventionRuleStatusText: TextView
+    private lateinit var employmentStartDateText: TextView
+    private val prefs by lazy { getSharedPreferences("salary_settings", MODE_PRIVATE) }
+    private val monthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
+    private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
+    private val selectedMonth = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
+    private lateinit var selectedConvention: ConventionCatalog.Convention
+
+    override fun onCreate(b: Bundle?) {
+        super.onCreate(b)
+        setContentView(R.layout.activity_salary)
+        hourlyRateInput = findViewById(R.id.hourlyRateInput)
+        salaryMonthText = findViewById(R.id.salaryMonthText)
+        salaryResultContainer = findViewById(R.id.salaryResultContainer)
+        selectedConventionText = findViewById(R.id.selectedConventionText)
+        conventionRuleStatusText = findViewById(R.id.conventionRuleStatusText)
+        employmentStartDateText = findViewById(R.id.employmentStartDateText)
+
+        val profile = com.amaury.pointage.v2.V2ProfileStore.load(this, 1)
+        hourlyRateInput.setText(profile.contract?.grossHourlyRate?.toString() ?: textPref("hourly_rate"))
+        val all = ConventionCatalog.all(this)
+        val idcc = profile.employer?.collectiveAgreementId.orEmpty()
+        selectedConvention = (
+            if (idcc.isNotBlank()) ConventionCatalog.findByIdcc(this, idcc) else null
+        ) ?: all.firstOrNull { it.idcc.isBlank() }
+            ?: error("Régime légal HoraTrack indisponible")
+
+        findViewById<Button>(R.id.salaryBackButton).setOnClickListener { finish() }
+        findViewById<Button>(R.id.chooseSalaryMonthButton).setOnClickListener { showMonthDialog() }
+        findViewById<Button>(R.id.calculateSalaryButton).setOnClickListener { calculateSalary(true) }
+        findViewById<Button>(R.id.searchConventionButton).setOnClickListener { showConventionPicker() }
+        findViewById<Button>(R.id.chooseEmploymentStartDateButton).setOnClickListener { showStartDatePicker() }
+        updateLabels()
+        calculateSalary(false)
+        AppearanceManager.apply(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        calculateSalary(false)
+    }
+
+    private fun calculateSalary(showError: Boolean) {
+        val rate = hourlyRateInput.text.toString().replace(',', '.').toDoubleOrNull()
+        if (rate == null || rate <= 0) {
+            salaryResultContainer.removeAllViews()
+            card("Calcul automatique", "Renseigne le taux horaire dans la fiche Salaire.")
+            if (showError) Toast.makeText(this, "Taux horaire brut manquant", Toast.LENGTH_LONG).show()
+            return
+        }
+        prefs.edit().putString("hourly_rate", rate.toString()).apply()
+        val r = V2SalaryAdapter.calculate(
+            this,
+            selectedMonth.get(Calendar.YEAR),
+            selectedMonth.get(Calendar.MONTH),
+            rate,
+            selectedConvention
+        )
+        salaryResultContainer.removeAllViews()
+        val euro = NumberFormat.getCurrencyInstance(Locale.FRANCE)
+        card("Employeur", com.amaury.pointage.v2.V2ProfileStore.load(this, 1).employer?.name ?: "À compléter")
+        card("Convention / régime", if (selectedConvention.idcc.isBlank()) "Régime légal — convention à confirmer" else selectedConvention.displayName)
+        card("Heures normales", dur(r.regularMs))
+        r.overtimeTiers.forEach { card(it.label, dur(it.durationMs)) }
+        card("Total travaillé", dur(r.totalWorkedMs))
+        card("Heures supplémentaires", euro.format(r.overtimeGross))
+        card("Salaire estimé", euro.format(r.monthlyEstimatedGross))
+        r.warnings.distinct().forEach { card("À vérifier", it) }
+    }
+
+    private fun updateLabels() {
+        salaryMonthText.text = "Mois : ${monthFormat.format(selectedMonth.time).replaceFirstChar { it.uppercase() }}"
+        selectedConventionText.text = if (selectedConvention.idcc.isBlank()) "Régime légal — convention non renseignée" else selectedConvention.displayName
+        conventionRuleStatusText.text = if (selectedConvention.rulesIntegrated) "✓ Règles intégrées" else "⚠ Règles à confirmer"
+        val start = safeLong(prefs.all["employment_start_date"])
+        employmentStartDateText.text = if (start > 0) "Date d'entrée : ${dateFormat.format(start)}" else "Date d'entrée : non renseignée"
+    }
+
+    private fun showMonthDialog() {
+        val labels = ArrayList<String>()
+        val months = ArrayList<Calendar>()
+        val c = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
+        repeat(36) {
+            months += c.clone() as Calendar
+            labels += monthFormat.format(c.time).replaceFirstChar { it.uppercase() }
+            c.add(Calendar.MONTH, -1)
+        }
+        AlertDialog.Builder(this).setTitle("Choisir le mois").setItems(labels.toTypedArray()) { _, i ->
+            selectedMonth.timeInMillis = months[i].timeInMillis
+            updateLabels()
+            calculateSalary(false)
+        }.show()
+    }
+
+    private fun showConventionPicker() {
+        val all = ConventionCatalog.all(this)
+        AlertDialog.Builder(this).setTitle("Convention collective").setItems(all.map { it.displayName }.toTypedArray()) { _, i ->
+            selectedConvention = all[i]
+            prefs.edit().putString("company_idcc", selectedConvention.idcc).putString("convention_idcc", selectedConvention.idcc).apply()
+            updateLabels()
+            calculateSalary(false)
+        }.show()
+    }
+
+    private fun showStartDatePicker() {
+        val c = Calendar.getInstance(Locale.FRANCE)
+        safeLong(prefs.all["employment_start_date"]).takeIf { it > 0 }?.let { c.timeInMillis = it }
+        DatePickerDialog(this, { _, y, m, d ->
+            c.set(y, m, d, 12, 0, 0)
+            c.set(Calendar.MILLISECOND, 0)
+            prefs.edit().putLong("employment_start_date", c.timeInMillis).apply()
+            updateLabels()
+        }, c.get(Calendar.YEAR), c.get(Calendar.MONTH), c.get(Calendar.DAY_OF_MONTH)).show()
+    }
+
+    private fun card(label: String, value: String) {
+        salaryResultContainer.addView(TextView(this).apply {
+            text = "$label\n$value"
+            textSize = 15f
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setBackgroundResource(R.drawable.hp_panel)
+        }, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+    }
+
+    private fun textPref(k: String) = when (val v = prefs.all[k]) {
+        is String -> v
+        is Number -> v.toString()
+        else -> ""
+    }
+    private fun safeLong(v: Any?) = when (v) {
+        is Number -> v.toLong()
+        is String -> v.toLongOrNull() ?: 0L
+        else -> 0L
+    }
+    private fun dur(ms: Long): String {
+        val m = ms.coerceAtLeast(0) / 60000
+        return String.format(Locale.FRANCE, "%02dh %02dm", m / 60, m % 60)
+    }
+    private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+}

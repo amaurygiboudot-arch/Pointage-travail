@@ -1,0 +1,29 @@
+<resources>
+    <style name="PointageButtonStyle" parent="@android:style/Widget.Material.Button">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+    </style>
+
+    <style name="Theme.PointageTravail" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#D6A84B</item>
+        <item name="android:windowBackground">#050505</item>
+        <item name="android:colorBackground">#050505</item>
+        <item name="android:textColorPrimary">#F4EFE3</item>
+        <item name="android:textColorSecondary">#CFC7B8</item>
+        <item name="android:textColorHint">#9B9386</item>
+        <item name="android:navigationBarColor">#050505</item>
+        <item name="android:statusBarColor">#050505</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:buttonStyle">@style/PointageButtonStyle</item>
+    </style>
+</resources>

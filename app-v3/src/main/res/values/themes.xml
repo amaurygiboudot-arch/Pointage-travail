@@ -1,0 +1,45 @@
+<resources>
+    <style name="PointageScrollViewStyle" parent="@android:style/Widget.ScrollView">
+        <item name="android:fitsSystemWindows">true</item>
+    </style>
+
+    <style name="PointageButtonStyle" parent="@android:style/Widget.Material.Button">
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingLeft">14dp</item>
+        <item name="android:paddingRight">14dp</item>
+        <item name="android:paddingTop">4dp</item>
+        <item name="android:paddingBottom">4dp</item>
+    </style>
+
+    <style name="Theme.PointageDialog" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:windowMinWidthMajor">88%</item>
+        <item name="android:windowMinWidthMinor">88%</item>
+        <item name="android:windowBackground">#FFFDF9</item>
+        <item name="android:colorAccent">#D6A84B</item>
+        <item name="android:textColorPrimary">#17130D</item>
+        <item name="android:textColorSecondary">#625B50</item>
+        <item name="android:textColorHint">#7A7165</item>
+    </style>
+
+    <style name="Theme.PointageTravail" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#D6A84B</item>
+        <item name="android:windowBackground">#F4EFE3</item>
+        <item name="android:colorBackground">#F4EFE3</item>
+        <item name="android:textColorPrimary">#1A1A1A</item>
+        <item name="android:textColorSecondary">#5F574C</item>
+        <item name="android:textColorHint">#7A7165</item>
+        <item name="android:navigationBarColor">#F4EFE3</item>
+        <item name="android:statusBarColor">#F4EFE3</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:scrollViewStyle">@style/PointageScrollViewStyle</item>
+        <item name="android:buttonStyle">@style/PointageButtonStyle</item>
+        <item name="android:alertDialogTheme">@style/Theme.PointageDialog</item>
+    </style>
+</resources>
