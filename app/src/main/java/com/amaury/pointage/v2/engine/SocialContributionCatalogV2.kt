@@ -4,13 +4,13 @@ import kotlin.math.min
 
 /**
  * Couche 1/6 - référentiel daté des retenues salariales légales de base.
- * Source 2026 : Urssaf, taux de cotisations du secteur privé au 01/01/2026.
+ * Source 2026 : Urssaf, règles applicables au secteur privé.
  *
  * Important : chaque ligne conserve son taux ET son assiette. HoraTrack ne
  * remplace jamais la paie par un pourcentage global brut -> net.
  */
 object SocialContributionCatalogV2 {
-    enum class Base { GROSS, GROSS_ABATED_9825, GROSS_CAPPED_MONTHLY_PASS }
+    enum class Base { GROSS, CSG_CRDS_2026, GROSS_CAPPED_MONTHLY_PASS }
 
     data class Rule(
         val id: String,
@@ -41,21 +41,36 @@ object SocialContributionCatalogV2 {
 
     // PASS 2026 = 48 060 EUR ; PMSS = 4 005 EUR.
     private const val MONTHLY_PASS_2026 = 4005.0
-    // Le plafond annuel utilisé par l'Urssaf pour l'assiette CSG/CRDS 2026 est 4 PASS.
-    private const val CSG_CRDS_ANNUAL_CAP_2026 = 192240.0
-    private const val CSG_CRDS_MONTHLY_CAP_2026 = CSG_CRDS_ANNUAL_CAP_2026 / 12.0
+    // L'abattement de 1,75 % CSG/CRDS est limité à 4 PASS.
+    // Au-delà, la fraction excédentaire reste dans l'assiette à 100 %.
+    private const val CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026 = MONTHLY_PASS_2026 * 4.0
 
     private val rules2026 = listOf(
-        Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 01/01/2026"),
-        Rule("old_age_capped", "Assurance vieillesse plafonnée", 0.0690, Base.GROSS_CAPPED_MONTHLY_PASS, 2026, 2026, "Urssaf - taux secteur privé 01/01/2026"),
-        Rule("csg_deductible", "CSG déductible", 0.0680, Base.GROSS_ABATED_9825, 2026, 2026, "Urssaf - taux secteur privé 01/01/2026"),
-        Rule("csg_taxable", "CSG imposable", 0.0240, Base.GROSS_ABATED_9825, 2026, 2026, "Urssaf - taux secteur privé 01/01/2026"),
-        Rule("crds", "CRDS", 0.0050, Base.GROSS_ABATED_9825, 2026, 2026, "Urssaf - taux secteur privé 01/01/2026")
+        Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
+        Rule("old_age_capped", "Assurance vieillesse plafonnée", 0.0690, Base.GROSS_CAPPED_MONTHLY_PASS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
+        Rule("csg_deductible", "CSG déductible", 0.0680, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026"),
+        Rule("csg_taxable", "CSG imposable", 0.0240, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026"),
+        Rule("crds", "CRDS", 0.0050, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026")
     )
 
     fun employeeRules(year: Int): List<Rule> = when (year) {
         2026 -> rules2026
         else -> emptyList()
+    }
+
+    /**
+     * Assiette CSG/CRDS de base sur le salaire brut seul :
+     * - 98,25 % jusqu'à 4 PMSS ;
+     * - 100 % de la fraction au-delà.
+     *
+     * Les contributions patronales de prévoyance/santé qui doivent être
+     * réintégrées dans l'assiette ne sont pas inventées ici : elles seront
+     * ajoutées quand la couche entreprise dispose de ces montants.
+     */
+    private fun csgCrdsBase2026(gross: Double): Double {
+        val abatedPart = min(gross, CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026)
+        val excess = (gross - CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026).coerceAtLeast(0.0)
+        return abatedPart * 0.9825 + excess
     }
 
     fun estimateEmployeeDeductions(gross: Double, year: Int): Estimate {
@@ -72,11 +87,10 @@ object SocialContributionCatalogV2 {
         }
 
         val monthlyPass = if (year == 2026) MONTHLY_PASS_2026 else Double.POSITIVE_INFINITY
-        val csgCrdsCap = if (year == 2026) CSG_CRDS_MONTHLY_CAP_2026 else Double.POSITIVE_INFINITY
         val lines = rules.map { rule ->
             val base = when (rule.base) {
                 Base.GROSS -> safeGross
-                Base.GROSS_ABATED_9825 -> min(safeGross, csgCrdsCap) * 0.9825
+                Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross)
                 Base.GROSS_CAPPED_MONTHLY_PASS -> min(safeGross, monthlyPass)
             }
             Line(rule.id, rule.label, base, rule.employeeRate, base * rule.employeeRate, rule.source)
@@ -89,7 +103,8 @@ object SocialContributionCatalogV2 {
             lines = lines,
             warnings = listOf(
                 "Couche 1/6 : ce net est volontairement partiel.",
-                "Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise seront ajoutées dans les couches suivantes."
+                "L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.",
+                "Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes."
             )
         )
     }
