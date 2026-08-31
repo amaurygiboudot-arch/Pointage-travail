@@ -95,7 +95,25 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
                     append(company.name.ifBlank { "Entreprise" })
                     if (company.siret.isNotBlank()) append("\nSIRET : ${company.siret}")
                 }
-                list.addView(actionButton(label) { authenticateAndOpenCompany(company) }, buttonLp())
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(
+                        actionButton(label) { authenticateAndOpenCompany(company) },
+                        LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    )
+                    addView(
+                        actionButton("✕") { confirmDelete(company) }.apply {
+                            contentDescription = "Supprimer ${company.name.ifBlank { "cette entreprise" }}"
+                            textSize = 18f
+                            setPadding(dp(6), dp(12), dp(6), dp(12))
+                        },
+                        LinearLayout.LayoutParams(dp(54), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                            marginStart = dp(8)
+                        }
+                    )
+                }
+                list.addView(row, buttonLp())
             }
         }
 
