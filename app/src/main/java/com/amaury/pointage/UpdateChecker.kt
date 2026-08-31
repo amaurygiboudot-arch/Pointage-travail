@@ -39,18 +39,17 @@ object UpdateChecker {
     @Volatile private var updateInProgress = false
     @Volatile private var installerOpening = false
     @Volatile private var promptShowing = false
-    @Volatile private var installPromptShowing = false
 
     fun checkAutomatically(activity: Activity) {
         if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (tryInstallReady(activity)) return
         if (hasActiveDownload(activity)) return
-        check(activity, silent = true, askBeforeDownload = true)
+        check(activity, silent = true, askBeforeDownload = false)
     }
 
     fun tryInstallReady(activity: Activity): Boolean {
         if (!INTERNAL_APK_UPDATES_ENABLED) return false
-        if (installerOpening || installPromptShowing || activity.isFinishing || activity.isDestroyed) return false
+        if (installerOpening || activity.isFinishing || activity.isDestroyed) return false
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val readyName = prefs.getString(KEY_READY_FILE, null) ?: return false
         val readyVersion = prefs.getString(KEY_READY_VERSION, "").orEmpty()
@@ -59,21 +58,8 @@ object UpdateChecker {
         val apk = File(File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates"), readyName)
         if (!apk.exists()) { clearReadyState(activity, false); return false }
         if (runCatching { validateApk(activity, apk) }.isFailure) { clearReadyState(activity, true); return false }
-        showInstallConfirmation(activity, apk, readyVersion)
+        launchSystemInstaller(activity, apk)
         return true
-    }
-
-    private fun showInstallConfirmation(activity: Activity, apk: File, versionName: String) {
-        if (!INTERNAL_APK_UPDATES_ENABLED) return
-        if (installPromptShowing || activity.isFinishing || activity.isDestroyed) return
-        installPromptShowing = true
-        val versionText = if (versionName.isBlank()) "" else " $versionName"
-        val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour prête")
-            .setMessage("HoraTrack$versionText a été téléchargée.\n\nVoulez-vous lancer l'installation maintenant ?")
-            .setPositiveButton("INSTALLER") { _, _ -> launchSystemInstaller(activity, apk) }
-            .setNegativeButton("PLUS TARD", null).create()
-        dialog.setOnDismissListener { installPromptShowing = false }
-        dialog.show()
     }
 
     private fun launchSystemInstaller(activity: Activity, apk: File) {
@@ -182,7 +168,7 @@ object UpdateChecker {
                 .putLong(KEY_DOWNLOAD_ID, downloadId).putString(KEY_VERSION, versionName).putString(KEY_FILE_NAME, fileName)
                 .putBoolean(KEY_VERIFICATION_PENDING, false)
                 .remove(KEY_READY_FILE).remove(KEY_READY_VERSION).apply()
-            Toast.makeText(activity, "Téléchargement de la mise à jour lancé", Toast.LENGTH_LONG).show()
+            if (!silent) Toast.makeText(activity, "Téléchargement de la mise à jour lancé", Toast.LENGTH_LONG).show()
         } catch (e: Exception) { if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show() }
     }
 
@@ -201,7 +187,6 @@ object UpdateChecker {
                     DownloadManager.STATUS_SUCCESSFUL -> {
                         val apk = downloadedApkFile(context)
                         if (apk?.exists() == true) {
-                            // Le broadcast de fin a pu être manqué : on relance la vérification de façon durable.
                             UpdateVerificationWorker.enqueue(context)
                             true
                         } else { clearDownloadState(context); false }
