@@ -11,6 +11,7 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.CompanyAgreementStoreV2
 
 class SalaryCompanyDetailsView(
     context: Context,
@@ -24,7 +25,41 @@ class SalaryCompanyDetailsView(
         removeAllViews()
         addView(text("Nom : ${company.name.ifBlank { "Non renseigné" }}\nSIRET : ${company.siret.ifBlank { "Non renseigné" }}\nAdresse : ${company.address.ifBlank { "Non renseignée" }}\nConvention : ${company.conventionName.ifBlank { if (company.idcc.isBlank()) "Non renseignée" else "IDCC ${company.idcc}" }}"))
         addView(button("MODIFIER LES INFORMATIONS") { showEditor() })
+        addView(button("ACCORDS D’ENTREPRISE") { showAgreements() })
         addView(button("SUPPRIMER L’ENTREPRISE") { onDelete(company) })
+    }
+
+    private fun showAgreements() {
+        removeAllViews()
+        addView(text("ACCORDS D’ENTREPRISE\n\nHoraTrack recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
+        val agreements = CompanyAgreementStoreV2.list(context, company.id)
+        if (agreements.isEmpty()) {
+            addView(text("État : accord interne non identifié / à confirmer.\n\nCela ne signifie pas qu’aucun accord existe."))
+        } else {
+            agreements.forEach { agreement ->
+                val status = when (agreement.status) {
+                    CompanyAgreementStoreV2.Status.UNKNOWN -> "À confirmer"
+                    CompanyAgreementStoreV2.Status.TO_PROVIDE -> "Document à fournir"
+                    CompanyAgreementStoreV2.Status.IMPORTED -> "Importé — validation nécessaire"
+                    CompanyAgreementStoreV2.Status.VERIFIED -> "Vérifié"
+                }
+                val dates = listOfNotNull(
+                    agreement.effectiveFrom?.let { "Début : $it" },
+                    agreement.effectiveTo?.let { "Fin : $it" }
+                ).joinToString(" — ")
+                addView(text("${agreement.title.ifBlank { "Accord sans titre" }}\nÉtat : $status${if (dates.isBlank()) "" else "\n$dates"}${if (agreement.sourceLabel.isBlank()) "" else "\nSource : ${agreement.sourceLabel}"}"))
+            }
+        }
+        addView(button("RECHERCHER DANS LES SOURCES OFFICIELLES") {
+            SalaryCompanyStore.prefs(context, company.id).edit().putBoolean("company_agreement_search_requested", true).commit()
+            Toast.makeText(context, "Recherche d’accords demandée pour cette entreprise", Toast.LENGTH_SHORT).show()
+            showAgreements()
+        })
+        addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
+            SalaryCompanyStore.prefs(context, company.id).edit().putBoolean("company_agreement_import_requested", true).commit()
+            Toast.makeText(context, "Import d’accord : étape document à connecter", Toast.LENGTH_LONG).show()
+        })
+        addView(button("RETOUR") { showSummary() })
     }
 
     private fun showEditor() {
