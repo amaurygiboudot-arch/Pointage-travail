@@ -45,6 +45,39 @@ object SalaryCompanyStore {
         "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}", Context.MODE_PRIVATE
     )
 
+    /**
+     * Identifiants employeur acceptés pour relire les anciennes sessions sans dépendre
+     * de la position actuelle de l'entreprise dans MES ENTREPRISES.
+     */
+    fun acceptedEmployerIds(context: Context, companyId: String): Set<String> {
+        val company = list(context).firstOrNull { it.id == companyId } ?: return setOf(companyId)
+        val ids = linkedSetOf(company.id)
+        val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+
+        fun value(key: String): String = when (val v = old.all[key]) {
+            null -> ""
+            is String -> v
+            is Number -> v.toString()
+            else -> v.toString()
+        }.trim()
+
+        fun matches(slot: Int): Boolean {
+            val prefix = if (slot == 1) "company_" else "company2_"
+            val oldSiret = value("${prefix}siret").filter(Char::isDigit)
+            val oldName = value("${prefix}name")
+            val currentSiret = company.siret.filter(Char::isDigit)
+            return when {
+                currentSiret.isNotBlank() && oldSiret.isNotBlank() -> currentSiret == oldSiret
+                company.name.isNotBlank() && oldName.isNotBlank() -> company.name.equals(oldName, ignoreCase = true)
+                else -> false
+            }
+        }
+
+        if (matches(1)) ids += "company_1"
+        if (matches(2)) ids += "company_2"
+        return ids
+    }
+
     private fun read(context: Context): List<Company> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
         return runCatching {
