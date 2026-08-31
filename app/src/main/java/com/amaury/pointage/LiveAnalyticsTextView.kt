@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.util.AttributeSet
 import android.view.View
 import android.widget.TextView
@@ -23,6 +24,10 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         private const val KEY_REPORT_MONTH_MS = "report_month_ms"
     }
 
+    private val navigationPrefs by lazy {
+        context.getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE)
+    }
+
     private val updater = object : Runnable {
         override fun run() {
             if (isAttachedToWindow && isAnalyticsVisible()) text = buildLiveAnalyticsText()
@@ -30,13 +35,23 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         }
     }
 
+    private val reportMonthListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == KEY_REPORT_MONTH_MS && isAttachedToWindow && isAnalyticsVisible()) {
+            removeCallbacks(updater)
+            text = buildLiveAnalyticsText()
+            postDelayed(updater, 10_000L)
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        navigationPrefs.registerOnSharedPreferenceChangeListener(reportMonthListener)
         removeCallbacks(updater)
         post(updater)
     }
 
     override fun onDetachedFromWindow() {
+        navigationPrefs.unregisterOnSharedPreferenceChangeListener(reportMonthListener)
         removeCallbacks(updater)
         super.onDetachedFromWindow()
     }
@@ -100,7 +115,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
     }
 
     private fun selectedReportMonthBounds(nowMs: Long): Pair<Long, Long> {
-        val savedMonth = context.getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE)
+        val savedMonth = navigationPrefs
             .getLong(KEY_REPORT_MONTH_MS, -1L)
             .takeIf { it > 0L }
             ?: nowMs
