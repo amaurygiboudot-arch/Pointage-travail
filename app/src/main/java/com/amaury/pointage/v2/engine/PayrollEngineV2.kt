@@ -42,6 +42,10 @@ object PayrollEngineV2 {
         baskets:List<BasketV2> = emptyList(),
         deductions:List<DeductionV2> = emptyList()
     ):PayrollResultV2 {
+        if (contract.type == ContractTypeV2.FORFAIT_DAYS || contract.type == ContractTypeV2.FORFAIT_HOURS) {
+            return calculateForfait(contract, premiums, baskets, deductions)
+        }
+
         val rate = requireNotNull(contract.grossHourlyRate) { "Taux horaire brut obligatoire" }
         require(rate > 0.0) { "Taux horaire brut invalide" }
 
@@ -102,6 +106,56 @@ object PayrollEngineV2 {
             deductionsTotal,
             (gross - deductionsTotal).coerceAtLeast(0.0),
             trace
+        )
+    }
+
+    private fun calculateForfait(
+        contract:ContractV2,
+        premiums:List<PremiumV2>,
+        baskets:List<BasketV2>,
+        deductions:List<DeductionV2>
+    ):PayrollResultV2 {
+        val monthlyGross = requireNotNull(contract.monthlyGrossSalary) {
+            "Salaire brut mensuel convenu obligatoire pour un forfait"
+        }
+        require(monthlyGross > 0.0) { "Salaire brut mensuel convenu invalide" }
+
+        when (contract.type) {
+            ContractTypeV2.FORFAIT_HOURS -> {
+                requireNotNull(contract.forfaitHoursPeriod) { "Période du forfait heures obligatoire" }
+                val hours = requireNotNull(contract.forfaitHours) { "Nombre d'heures du forfait obligatoire" }
+                require(hours > 0.0) { "Nombre d'heures du forfait invalide" }
+            }
+            ContractTypeV2.FORFAIT_DAYS -> {
+                val days = requireNotNull(contract.forfaitAnnualDays) { "Nombre annuel de jours obligatoire" }
+                require(days > 0.0 && days <= 218.0) { "Nombre annuel de jours du forfait invalide" }
+            }
+            else -> error("Type de forfait incohérent")
+        }
+
+        val fixed = premiums.sumOf { it.amount }
+        val basketTotal = baskets.sumOf { it.amount }
+        val gross = monthlyGross + fixed
+        val deductionsTotal = deductions.sumOf { it.amount }.coerceAtLeast(0.0)
+        val trace = mutableListOf<String>()
+        trace += when (contract.type) {
+            ContractTypeV2.FORFAIT_HOURS -> "Forfait heures : salaire brut mensuel convenu utilisé comme base ; les heures du forfait ne sont pas reconverties artificiellement en taux horaire."
+            ContractTypeV2.FORFAIT_DAYS -> "Forfait jours : salaire brut mensuel convenu utilisé comme base ; aucun taux horaire n'est inventé."
+            else -> error("Type de forfait incohérent")
+        }
+        trace += "Les pointages servent au suivi du temps/charge et ne recalculent pas automatiquement la rémunération forfaitaire."
+        if (baskets.isNotEmpty()) trace += "Paniers suivis séparément du brut estimé"
+
+        return PayrollResultV2(
+            regularGross = monthlyGross,
+            overtimeGross = 0.0,
+            premiumsGross = 0.0,
+            fixedPremiumsGross = fixed,
+            baskets = basketTotal,
+            grossEstimate = gross,
+            deductions = deductionsTotal,
+            netBeforeUnknownContributions = (gross - deductionsTotal).coerceAtLeast(0.0),
+            traces = trace
         )
     }
 }
