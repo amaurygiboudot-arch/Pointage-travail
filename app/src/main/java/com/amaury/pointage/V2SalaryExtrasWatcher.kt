@@ -26,6 +26,8 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         private const val LEGACY_TAG = "salary_v2_legacy_container"
     }
 
+    private var lastCompanySignature: String? = null
+
     init { tag = TAG; visibility = GONE }
 
     override fun onAttachedToWindow() { super.onAttachedToWindow(); rootView.viewTreeObserver.addOnGlobalLayoutListener(this); installIfPresent() }
@@ -45,6 +47,7 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             salary.addView(legacy, LinearLayout.LayoutParams(1, 1))
             root = buildRoot()
             salary.addView(root, 0, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            lastCompanySignature = null
         }
         refreshTheme(root)
         refreshCompanies(root)
@@ -55,51 +58,62 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         tag = ROOT_TAG
         orientation = LinearLayout.VERTICAL
         setPadding(0, dp(4), 0, dp(16))
-        addView(actionButton("+ AJOUTER UNE ENTREPRISE") { showEnterpriseLookup() })
+        addView(actionButton("+ AJOUTER UNE ENTREPRISE") { showEnterpriseLookup() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(TextView(context).apply {
             tag = "salary_companies_title"
             text = "MES ENTREPRISES"
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(8), dp(18), dp(8), dp(8))
-        })
-        addView(LinearLayout(context).apply { tag = "salary_companies_list"; orientation = LinearLayout.VERTICAL })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(LinearLayout(context).apply {
+            tag = "salary_companies_list"
+            orientation = LinearLayout.VERTICAL
+            visibility = VISIBLE
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
-    private fun refreshCompanies(root: LinearLayout) {
+    private fun refreshCompanies(root: LinearLayout, force: Boolean = false) {
         val list = root.findViewWithTag<LinearLayout>("salary_companies_list") ?: return
-        list.removeAllViews()
         val companies = SalaryCompanyStore.list(context)
+        val signature = companies.joinToString("|") { "${it.id}:${it.name}:${it.siret}:${it.address}:${it.idcc}" }
+        if (!force && signature == lastCompanySignature && list.childCount > 0) return
+        lastCompanySignature = signature
+
+        list.removeAllViews()
+        list.visibility = VISIBLE
         if (companies.isEmpty()) {
             list.addView(TextView(context).apply {
                 text = "Aucune entreprise ajoutée"
                 textSize = 14f
                 gravity = Gravity.CENTER
                 setPadding(dp(12), dp(18), dp(12), dp(18))
-            })
-            return
-        }
-        companies.forEach { company ->
-            val label = buildString {
-                append(company.name.ifBlank { "Entreprise" })
-                if (company.siret.isNotBlank()) append("\nSIRET : ${company.siret}")
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        } else {
+            companies.forEach { company ->
+                val label = buildString {
+                    append(company.name.ifBlank { "Entreprise" })
+                    if (company.siret.isNotBlank()) append("\nSIRET : ${company.siret}")
+                }
+                list.addView(actionButton(label) { authenticateAndOpenCompany(company) }, buttonLp())
             }
-            list.addView(actionButton(label) { authenticateAndOpenCompany(company) }, buttonLp())
         }
+
         list.requestLayout()
+        root.requestLayout()
+        (root.parent as? View)?.requestLayout()
         list.invalidate()
+        root.invalidate()
     }
 
     private fun showEnterpriseLookup() {
-        // IMPORTANT : le lookup vit dans une fenêtre de dialogue. Son rootView n'est donc pas
-        // celui de l'écran Salaire. On capture ici la vraie racine V2 AVANT d'ouvrir le dialogue,
-        // afin que le callback puisse rafraîchir MES ENTREPRISES immédiatement après l'écriture.
         val salaryRoot = rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
         var dialog: AlertDialog? = null
         val lookup = V2SalaryCompanyLookupView(context) {
+            lastCompanySignature = null
             val target = salaryRoot ?: rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
             target?.let {
-                refreshCompanies(it)
+                refreshCompanies(it, force = true)
                 refreshTheme(it)
                 it.requestLayout()
                 it.invalidate()
@@ -145,7 +159,10 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
 
     private fun showCompanyInformation(company: SalaryCompanyStore.Company) {
         themedDialog("Informations entreprise", ScrollView(context).apply {
-            addView(SalaryCompanyDetailsView(context, company, { rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) }, { confirmDelete(it) }))
+            addView(SalaryCompanyDetailsView(context, company, {
+                lastCompanySignature = null
+                rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let { root -> refreshCompanies(root, force = true) }
+            }, { confirmDelete(it) }))
         })
     }
 
@@ -153,7 +170,11 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         AlertDialog.Builder(context).setTitle("Supprimer l’entreprise ?")
             .setMessage("${company.name.ifBlank { "Cette entreprise" }} sera retirée de MES ENTREPRISES.")
             .setNegativeButton("ANNULER", null)
-            .setPositiveButton("SUPPRIMER") { _, _ -> SalaryCompanyStore.remove(context, company.id); rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) }
+            .setPositiveButton("SUPPRIMER") { _, _ ->
+                SalaryCompanyStore.remove(context, company.id)
+                lastCompanySignature = null
+                rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let { root -> refreshCompanies(root, force = true) }
+            }
             .show()
     }
 
