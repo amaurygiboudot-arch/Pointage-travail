@@ -56,7 +56,6 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         orientation = LinearLayout.VERTICAL
         setPadding(0, dp(4), 0, dp(16))
         addView(actionButton("+ AJOUTER UNE ENTREPRISE") { showEnterpriseLookup() })
-        addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet() }, buttonLp())
         addView(TextView(context).apply {
             tag = "salary_companies_title"
             text = "MES ENTREPRISES"
@@ -97,24 +96,45 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             })
             return
         }
-        companies.forEach { company ->
-            list.addView(actionButton(
-                company.name.ifBlank { "Entreprise" } + if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
-            ) { authenticateAndOpenCompany(company) }, buttonLp())
-        }
+        companies.forEach { company -> list.addView(companyCard(company), buttonLp()) }
+    }
+
+    private fun companyCard(company: SalaryCompanyStore.Company) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(8), dp(8), dp(8), dp(10))
+        addView(TextView(context).apply {
+            text = buildString {
+                append(company.name.ifBlank { "Entreprise" })
+                if (company.siret.isNotBlank()) append("\nSIRET : ${company.siret}")
+            }
+            textSize = 16f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dp(8), dp(6), dp(8), dp(8))
+        })
+        addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) }, buttonLp())
+        addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
+        addView(actionButton("CONTRAT") { showContract(company) }, buttonLp())
+        addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
+        addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
     }
 
     private fun showEnterpriseLookup() {
-        var root: LinearLayout? = null
+        var dialog: AlertDialog? = null
         val lookup = V2SalaryCompanyLookupView(context) {
-            rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.also { root = it }?.let(::refreshCompanies)
+            val root = rootView.findViewWithTag<LinearLayout>(ROOT_TAG)
+            root?.let(::refreshCompanies)
+            root?.requestLayout()
+            root?.invalidate()
+            dialog?.dismiss()
         }
-        themedDialog("Ajouter une entreprise", ScrollView(context).apply { isFillViewport = true; addView(lookup) })
-        root?.requestLayout()
+        dialog = themedDialog("Ajouter une entreprise", ScrollView(context).apply { isFillViewport = true; addView(lookup) })
     }
 
-    private fun showInformationSheet() {
-        themedDialog("Fiche de renseignements", ScrollView(context).apply { isFillViewport = true; addView(SalaryInformationSheetView(context)) })
+    private fun showInformationSheet(company: SalaryCompanyStore.Company) {
+        themedDialog("Fiche de renseignements — ${company.name.ifBlank { "Entreprise" }}", ScrollView(context).apply {
+            isFillViewport = true
+            addView(SalaryInformationSheetView(context))
+        })
     }
 
     private fun authenticateAndOpenCompany(company: SalaryCompanyStore.Company) {
@@ -133,11 +153,10 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             setPadding(dp(14), dp(8), dp(14), dp(12))
             addView(TextView(context).apply {
                 text = company.name.ifBlank { "Entreprise" } + if (company.siret.isBlank()) "" else "\nSIRET : ${company.siret}"
-                textSize = 17f
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(0, 0, 0, dp(10))
+                textSize = 17f; setTypeface(typeface, Typeface.BOLD); setPadding(0, 0, 0, dp(10))
             })
-            addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) })
+            addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) })
+            addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("CONTRAT") { showContract(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
@@ -152,8 +171,7 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     }
 
     private fun confirmDelete(company: SalaryCompanyStore.Company) {
-        AlertDialog.Builder(context)
-            .setTitle("Supprimer l’entreprise ?")
+        AlertDialog.Builder(context).setTitle("Supprimer l’entreprise ?")
             .setMessage("${company.name.ifBlank { "Cette entreprise" }} sera retirée de MES ENTREPRISES.")
             .setNegativeButton("ANNULER", null)
             .setPositiveButton("SUPPRIMER") { _, _ -> SalaryCompanyStore.remove(context, company.id); rootView.findViewWithTag<LinearLayout>(ROOT_TAG)?.let(::refreshCompanies) }
@@ -167,11 +185,10 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
         text = label; isAllCaps = false; textSize = 14f; setOnClickListener { click() }; applyAccessTheme(this)
     }
-    private fun buttonLp() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)).apply { topMargin = dp(8) }
+    private fun buttonLp() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
 
     private fun refreshTheme(root: LinearLayout) {
-        val theme = AppThemeCatalog.current(context)
-        val dark = AppThemeCatalog.useDarkPalette(context)
+        val theme = AppThemeCatalog.current(context); val dark = AppThemeCatalog.useDarkPalette(context)
         root.findViewWithTag<TextView>("salary_companies_title")?.setTextColor(if (dark) theme.darkText else theme.lightText)
         walkButtons(root) { applyAccessTheme(it) }
     }
@@ -180,6 +197,7 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
         val theme = AppThemeCatalog.current(context); val dark = AppThemeCatalog.useDarkPalette(context)
         button.setTextColor(if (dark) theme.darkText else theme.lightText)
         button.background = when (theme.id) { "natural_carbon" -> CarbonCompositeDrawable(context); else -> context.getDrawable(R.drawable.hp_panel)?.mutate() }
+        button.setPadding(dp(10), dp(12), dp(10), dp(12))
     }
     private fun themedDialog(title: String, view: View): AlertDialog {
         val theme = AppThemeCatalog.current(context); val dark = AppThemeCatalog.useDarkPalette(context)
