@@ -12,6 +12,7 @@ object CompanyPayrollOverridesV2 {
         val providentEmployeeAmount:Double?,
         val transportEmployeeAmount:Double?,
         val incomeTaxRate:Double?,
+        val professionalStatus:String?,
         val warnings:List<String>
     )
     fun load(context:Context,companyId:String):Snapshot {
@@ -21,12 +22,14 @@ object CompanyPayrollOverridesV2 {
         val provident=number("provident_employee_amount")
         val transport=number("transport_employee_amount")
         val tax=number("income_tax_rate_percent")?.div(100.0)
+        val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val warnings=buildList {
             if(mutual==null)add("Mutuelle salariale : à confirmer")
             if(provident==null)add("Prévoyance salariale : à confirmer")
             if(transport==null)add("Retenue transport : à confirmer")
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
+            if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
         }
-        return Snapshot(companyId,number("meal_amount"),mutual,provident,transport,tax,warnings)
+        return Snapshot(companyId,number("meal_amount"),mutual,provident,transport,tax,professionalStatus,warnings)
     }
 }
