@@ -29,6 +29,14 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
     init { isClickable = true; isFocusable = true; setOnClickListener { showIntegratedSalaryTab() } }
     override fun onAttachedToWindow() { super.onAttachedToWindow(); WidgetThemeSync.install(context); (context as? Activity)?.let { ButtonReliefInstaller.install(it) }; post { applyTabTypography(); installTabButtonStyle(); installAddressUi(); installSalaryAutoHide(); normalizeFrameSizes() } }
 
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        // Au retour de SalaryAuthActivity, MainActivity peut avoir brièvement restauré Aujourd'hui.
+        // Si une entreprise vient d'être autorisée, Salaire reprend la main avant que le watcher
+        // consomme l'identifiant et ouvre l'espace entreprise.
+        if (hasWindowFocus && PendingSalaryCompanyAccess.authorizedCompanyId != null) post { showIntegratedSalaryTab() }
+    }
+
     private fun showIntegratedSalaryTab() {
         val root = rootView ?: return
         val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
@@ -40,18 +48,16 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val pointageButtons = root.findViewById<View>(R.id.pointageButtons)
         val shiftControl = root.findViewById<ShiftControlView>(R.id.shiftControlView)
 
-        // Une seule façade Salaire : le panneau intégré. Les anciennes briques sont gardées
-        // uniquement comme secours interne et ne sont jamais affichées en double.
+        context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE).edit().putString("active_tab", "salary").apply()
+
+        // SalaryPanelView est conservé temporairement comme conteneur de migration. Son ancienne
+        // interface reste masquée par V2SalaryExtrasWatcher jusqu'à validation de la parité V2.
         var salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
         if (salaryPanel == null) {
             salaryPanel = SalaryPanelView(context).apply { tag = SALARY_PANEL_TAG; visibility = View.GONE }
             contentPanel.addView(salaryPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
         }
         CompanyBasePauseInstaller.install(salaryPanel)
-
-        // V2SalaryExtrasWatcher réorganise ce même panneau en accès unique :
-        // Ajouter entreprise, fiche renseignements, entreprises, contrat, fiche salaire,
-        // droits/congés/repos. Ne pas afficher une seconde fiche de renseignements ici.
         contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG)?.visibility = View.GONE
 
         statusCard?.visibility = View.GONE
@@ -64,9 +70,6 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         contentTitle?.visibility = View.VISIBLE
         contentTitle?.text = "S A L A I R E"
         salaryPanel.visibility = View.VISIBLE
-        salaryPanel.refresh()
-        // Force un passage de layout afin que le watcher V2 déjà installé raccorde immédiatement
-        // ses accès, y compris au premier affichage de l'onglet Salaire.
         salaryPanel.requestLayout()
         selectTab(R.id.tabSalary)
         normalizeFrameSizes()
