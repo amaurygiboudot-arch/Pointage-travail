@@ -96,26 +96,13 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             })
             return
         }
-        companies.forEach { company -> list.addView(companyCard(company), buttonLp()) }
-    }
-
-    private fun companyCard(company: SalaryCompanyStore.Company) = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(8), dp(8), dp(8), dp(10))
-        addView(TextView(context).apply {
-            text = buildString {
+        companies.forEach { company ->
+            val label = buildString {
                 append(company.name.ifBlank { "Entreprise" })
                 if (company.siret.isNotBlank()) append("\nSIRET : ${company.siret}")
             }
-            textSize = 16f
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(dp(8), dp(6), dp(8), dp(8))
-        })
-        addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) }, buttonLp())
-        addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
-        addView(actionButton("CONTRAT") { showContract(company) }, buttonLp())
-        addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
-        addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
+            list.addView(actionButton(label) { authenticateAndOpenCompany(company) }, buttonLp())
+        }
     }
 
     private fun showEnterpriseLookup() {
