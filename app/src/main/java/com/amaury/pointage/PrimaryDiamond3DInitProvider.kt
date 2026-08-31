@@ -9,12 +9,12 @@ import android.net.Uri
 import android.os.Bundle
 
 /**
- * Branche automatiquement les trois boutons principaux sur le moteur Diamant 3D
- * lorsque le thème diamant est actif.
+ * Branche automatiquement les trois boutons principaux de HoraTrack sur le
+ * moteur OpenGL déjà intégré à :app.
  *
- * Cette initialisation avait été neutralisée : le manifeste chargeait bien ce
- * provider, mais il ne faisait plus rien. Les boutons visibles restaient donc
- * les anciens boutons et ne recevaient jamais l'inclinaison du téléphone.
+ * Le choix du niveau de rendu est fait par DiamondDeviceProfile : les appareils
+ * modestes restent en ECO/BALANCED et les plus puissants utilisent HIGH/ULTRA.
+ * Le rendu 3D n'est donc plus conditionné par un thème visuel caché/réservé.
  */
 class PrimaryDiamond3DInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
     private var application: Application? = null
@@ -27,7 +27,7 @@ class PrimaryDiamond3DInitProvider : ContentProvider(), Application.ActivityLife
     }
 
     private fun installIfNeeded(activity: Activity) {
-        if (AppThemeCatalog.current(activity).id != "diamond_crystal") return
+        if (activity !is MainActivity) return
         activity.window.decorView.post {
             if (!activity.isFinishing && !activity.isDestroyed) {
                 PrimaryDiamond3DInstaller.install(activity.window.decorView)
@@ -40,8 +40,8 @@ class PrimaryDiamond3DInitProvider : ContentProvider(), Application.ActivityLife
     }
 
     override fun onActivityResumed(activity: Activity) {
-        // Réessaie au retour au premier plan : certains écrans construisent leurs
-        // boutons après onActivityCreated(). L'installateur est idempotent.
+        // Certains boutons sont reconstruits après onActivityCreated().
+        // L'installateur est idempotent : on peut donc raccorder à nouveau sans doublon.
         installIfNeeded(activity)
     }
 
