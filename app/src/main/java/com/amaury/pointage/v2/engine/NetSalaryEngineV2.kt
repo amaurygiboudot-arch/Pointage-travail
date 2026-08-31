@@ -6,6 +6,8 @@ object NetSalaryEngineV2 {
         val gross: Double,
         val statutory: Double,
         val complementaryRetirement: Double,
+        val conventionProvidentEmployee: Double,
+        val conventionProvidentEmployer: Double,
         val companyEmployeeDeductions: Double,
         val employerStatusContributions: Double,
         val netBeforeIncomeTax: Double,
@@ -20,11 +22,24 @@ object NetSalaryEngineV2 {
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year)
         val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus)
         val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(gross, year, company.professionalStatus)
-        val companyKnown = listOf(
+        val conventionProvident = ConventionProvidentCatalogV2.estimate(
+            gross = gross,
+            year = year,
+            idcc = company.idcc,
+            professionalStatus = company.professionalStatus,
+            seniorityMonths = company.seniorityMonths
+        )
+
+        // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
+        // Le minimum n'est donc jamais ajouté une seconde fois.
+        val effectiveProvident = company.providentEmployeeAmount ?: conventionProvident.employeeDeductions
+        val conventionProvidentKnown = year == 2026 && company.idcc == "292" &&
+            company.professionalStatus == "NON_CADRE" && company.seniorityMonths != null
+        val companyKnown = listOfNotNull(
             company.mutualEmployeeAmount,
-            company.providentEmployeeAmount,
+            effectiveProvident,
             company.transportEmployeeAmount
-        ).filterNotNull().sum()
+        ).sum()
 
         val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
@@ -33,9 +48,9 @@ object NetSalaryEngineV2 {
             .filter { it.id == "csg_taxable" || it.id == "crds" }
             .sumOf { it.employeeAmount }
 
+        val providentDataComplete = company.providentEmployeeAmount != null || conventionProvidentKnown
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
-            company.providentEmployeeAmount != null &&
-            company.transportEmployeeAmount != null
+            providentDataComplete && company.transportEmployeeAmount != null
 
         val netTaxable = if (taxableCompanyDataComplete) {
             (beforeTax + nonDeductibleCsgCrds).coerceAtLeast(0.0)
@@ -49,7 +64,14 @@ object NetSalaryEngineV2 {
             addAll(statutory.warnings)
             addAll(retirement.warnings)
             addAll(statusContributions.warnings)
-            addAll(company.warnings)
+            addAll(conventionProvident.warnings)
+            addAll(company.warnings.filterNot {
+                it.startsWith("Prévoyance salariale entreprise") && conventionProvidentKnown
+            })
+            if (company.providentEmployeeAmount != null && conventionProvident.employeeDeductions > 0.0 &&
+                company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
+                add("Prévoyance salariale renseignée inférieure au minimum conventionnel Plasturgie calculé : vérifier le bulletin ou le régime d’entreprise.")
+            }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
@@ -58,6 +80,8 @@ object NetSalaryEngineV2 {
             gross = gross,
             statutory = statutory.employeeDeductions,
             complementaryRetirement = retirement.employeeDeductions,
+            conventionProvidentEmployee = if (company.providentEmployeeAmount == null) conventionProvident.employeeDeductions else 0.0,
+            conventionProvidentEmployer = conventionProvident.employerContributions,
             companyEmployeeDeductions = companyKnown,
             employerStatusContributions = statusContributions.employerContributions,
             netBeforeIncomeTax = beforeTax,
