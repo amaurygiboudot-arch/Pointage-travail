@@ -168,7 +168,6 @@ class V2SalaryExtrasWatcher @JvmOverloads constructor(
             })
             addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) })
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
-            addView(actionButton("CONTRAT") { showContract(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
         }
