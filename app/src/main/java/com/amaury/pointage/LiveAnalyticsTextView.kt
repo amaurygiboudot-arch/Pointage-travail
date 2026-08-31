@@ -6,10 +6,10 @@ import android.view.View
 import android.widget.TextView
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeStore
-import java.util.LinkedHashMap
+import com.amaury.pointage.v2.engine.AnalyticsEngineV2
 import java.util.Locale
 
-/** Analyses directement alimentées par les sessions et le moteur HoraTrack. */
+/** Analyses alimentées uniquement par AnalyticsEngineV2. */
 class LiveAnalyticsTextView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -44,34 +44,20 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
 
     private fun buildLiveAnalyticsText(): String {
         val now = System.currentTimeMillis()
-        val sessions = V2RuntimeStore.allSessions(context, now)
-        val totals = LinkedHashMap<String, Long>()
-        var totalWorked = 0L
-        var totalPause = 0L
-        var completedSessions = 0
-        var openSessions = 0
-
-        sessions.forEach { session ->
-            val result = HoraTrackV2.time.calculate(session, now)
-            val worked = result.paidWorkMs.coerceAtLeast(0L)
-            val unpaidPause = result.unpaidPauseMs.coerceAtLeast(0L)
-            val place = session.placeLabel?.trim()?.takeIf { it.isNotBlank() } ?: "Lieu à confirmer"
-            totals[place] = (totals[place] ?: 0L) + worked
-            totalWorked += worked
-            totalPause += unpaidPause
-            if (session.realExitMs == null) openSessions++ else completedSessions++
-        }
-
+        val analytics = AnalyticsEngineV2.summarize(V2RuntimeStore.allSessions(context, now), HoraTrackV2.time, now)
         return buildString {
-            append("⏱ TOTAL TEMPS PAYÉ : ").append(formatDuration(totalWorked)).append('\n')
-            append("⏸ PAUSES NON PAYÉES DÉDUITES : ").append(formatDuration(totalPause)).append('\n')
-            append("✅ Sessions terminées : ").append(completedSessions).append('\n')
-            if (openSessions > 0) append("🟢 En cours : ").append(openSessions).append(" — calcul actualisé automatiquement\n")
+            append("⏱ TOTAL PRÉSENCE : ").append(formatDuration(analytics.totalPresenceMs)).append('\n')
+            append("⏱ TOTAL TEMPS PAYÉ : ").append(formatDuration(analytics.totalPaidMs)).append('\n')
+            append("⏸ PAUSES NON PAYÉES DÉDUITES : ").append(formatDuration(analytics.totalUnpaidPauseMs)).append('\n')
+            append("✅ Sessions terminées : ").append(analytics.completedSessions).append('\n')
+            if (analytics.openSessions > 0) append("🟢 En cours : ").append(analytics.openSessions).append(" — calcul actualisé automatiquement\n")
+            if (analytics.warnings > 0) append("⚠️ Avertissements : ").append(analytics.warnings).append('\n')
             append("\nHEURES PAR LIEU\n\n")
-            if (totals.isEmpty()) append("Aucune donnée.")
-            else totals.forEach { (place, duration) ->
-                append("📍 ").append(place).append('\n')
-                append("⏱ ").append(formatDuration(duration)).append('\n').append('\n')
+            if (analytics.places.isEmpty()) append("Aucune donnée.")
+            else analytics.places.forEach { place ->
+                append("📍 ").append(place.label).append('\n')
+                append("⏱ Payé : ").append(formatDuration(place.paidMs)).append('\n')
+                append("Présence : ").append(formatDuration(place.presenceMs)).append(" — ").append(place.sessions).append(" session(s)\n\n")
             }
         }
     }
