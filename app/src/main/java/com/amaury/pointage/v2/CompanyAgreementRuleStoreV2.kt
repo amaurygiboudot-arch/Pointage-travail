@@ -12,7 +12,10 @@ object CompanyAgreementRuleStoreV2 {
         val category: CompanyAgreementRuleExtractorV2.Category,
         val excerpt: String,
         val confidence: Double,
-        val verified: Boolean = false
+        val verified: Boolean = false,
+        val effectiveFrom: String? = null,
+        val effectiveTo: String? = null,
+        val scope: String? = null
     )
 
     private const val KEY = "company_agreement_rule_candidates_v2"
@@ -49,7 +52,10 @@ object CompanyAgreementRuleStoreV2 {
                     category = category,
                     excerpt = o.optString("excerpt"),
                     confidence = o.optDouble("confidence", 0.0),
-                    verified = o.optBoolean("verified", false)
+                    verified = o.optBoolean("verified", false),
+                    effectiveFrom = o.optString("effectiveFrom").takeIf { it.isNotBlank() },
+                    effectiveTo = o.optString("effectiveTo").takeIf { it.isNotBlank() },
+                    scope = o.optString("scope").takeIf { it.isNotBlank() }
                 )
             }
         }.getOrDefault(emptyList())
@@ -74,6 +80,31 @@ object CompanyAgreementRuleStoreV2 {
         return matched && save(context, companyId, updated)
     }
 
+    fun setApplicability(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        category: CompanyAgreementRuleExtractorV2.Category,
+        excerpt: String,
+        effectiveFrom: String?,
+        effectiveTo: String?,
+        scope: String?
+    ): Boolean {
+        val current = list(context, companyId)
+        var matched = false
+        val updated = current.map { candidate ->
+            if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
+                matched = true
+                candidate.copy(
+                    effectiveFrom = effectiveFrom?.trim()?.takeIf { it.isNotBlank() },
+                    effectiveTo = effectiveTo?.trim()?.takeIf { it.isNotBlank() },
+                    scope = scope?.trim()?.takeIf { it.isNotBlank() }
+                )
+            } else candidate
+        }
+        return matched && save(context, companyId, updated)
+    }
+
     private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
         val array = JSONArray()
         values.forEach { value ->
@@ -83,6 +114,9 @@ object CompanyAgreementRuleStoreV2 {
                 put("excerpt", value.excerpt)
                 put("confidence", value.confidence)
                 put("verified", value.verified)
+                put("effectiveFrom", value.effectiveFrom ?: "")
+                put("effectiveTo", value.effectiveTo ?: "")
+                put("scope", value.scope ?: "")
             })
         }
         return SalaryCompanyStore.prefs(context, companyId)
