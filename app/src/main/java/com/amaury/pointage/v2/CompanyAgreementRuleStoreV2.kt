@@ -55,6 +55,25 @@ object CompanyAgreementRuleStoreV2 {
         }.getOrDefault(emptyList())
     }
 
+    fun setVerified(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        category: CompanyAgreementRuleExtractorV2.Category,
+        excerpt: String,
+        verified: Boolean
+    ): Boolean {
+        val current = list(context, companyId)
+        var matched = false
+        val updated = current.map { candidate ->
+            if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
+                matched = true
+                candidate.copy(verified = verified)
+            } else candidate
+        }
+        return matched && save(context, companyId, updated)
+    }
+
     private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
         val array = JSONArray()
         values.forEach { value ->
