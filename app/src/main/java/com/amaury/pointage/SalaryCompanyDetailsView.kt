@@ -61,6 +61,23 @@ class SalaryCompanyDetailsView(
                 candidates.forEach { candidate ->
                     val confidence = (candidate.confidence * 100).toInt().coerceIn(0, 100)
                     addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}\n${candidate.excerpt}"))
+                    addView(button(if (candidate.verified) "RETIRER LA VALIDATION" else "VALIDER CETTE RÈGLE") {
+                        val saved = CompanyAgreementRuleStoreV2.setVerified(
+                            context,
+                            company.id,
+                            candidate.agreementId,
+                            candidate.category,
+                            candidate.excerpt,
+                            !candidate.verified
+                        )
+                        Toast.makeText(
+                            context,
+                            if (saved) if (candidate.verified) "Validation retirée." else "Règle validée — elle reste séparée du moteur de paie pour l’instant."
+                            else "Impossible d’enregistrer la validation.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        if (saved) showAgreements()
+                    })
                 }
                 if (agreement.id.startsWith("ACCOTEXT")) {
                     addView(button("ANALYSER CET ACCORD") {
