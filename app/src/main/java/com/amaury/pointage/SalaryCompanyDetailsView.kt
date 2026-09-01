@@ -14,6 +14,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementIngestionV2
+import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
 import com.amaury.pointage.v2.OfficialAgreementContentParserV2
@@ -56,6 +57,11 @@ class SalaryCompanyDetailsView(
                     agreement.effectiveTo?.let { "Fin : $it" }
                 ).joinToString(" — ")
                 addView(text("${agreement.title.ifBlank { "Accord sans titre" }}\nÉtat : $status${if (dates.isBlank()) "" else "\n$dates"}${if (agreement.sourceLabel.isBlank()) "" else "\nSource : ${agreement.sourceLabel}"}"))
+                val candidates = CompanyAgreementRuleStoreV2.list(context, company.id).filter { it.agreementId == agreement.id }
+                candidates.forEach { candidate ->
+                    val confidence = (candidate.confidence * 100).toInt().coerceIn(0, 100)
+                    addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}\n${candidate.excerpt}"))
+                }
                 if (agreement.id.startsWith("ACCOTEXT")) {
                     addView(button("ANALYSER CET ACCORD") {
                         Toast.makeText(context, "Récupération de l’accord officiel…", Toast.LENGTH_SHORT).show()
@@ -73,6 +79,7 @@ class SalaryCompanyDetailsView(
                                     else "Analyse terminée mais l’enregistrement des règles a échoué.",
                                     Toast.LENGTH_LONG
                                 ).show()
+                                if (ingestion.saved) showAgreements()
                             }
                             .addOnFailureListener { error ->
                                 Toast.makeText(context, "Lecture de l’accord impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
