@@ -120,7 +120,7 @@ object CompanyPauseAlarmManager {
         val duration = pause?.durationMinutes ?: 0
         val openApp = PendingIntent.getActivity(context, 6100 + company * 10 + pauseIndex, Intent(context, LaunchActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(context, CHANNEL_ID) else @Suppress("DEPRECATION") Notification.Builder(context))
-            .setSmallIcon(R.drawable.hp_icon_red)
+            .setSmallIcon(R.drawable.hp_logo_vector)
             .setContentTitle("Début de la pause $pauseIndex")
             .setContentText(if (duration > 0) "$companyName • pause de $duration min" else companyName)
             .setContentIntent(openApp)
