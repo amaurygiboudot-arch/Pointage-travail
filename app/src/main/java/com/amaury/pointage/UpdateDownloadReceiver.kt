@@ -54,7 +54,7 @@ class UpdateDownloadReceiver : BroadcastReceiver() {
         manager.notify(
             NOTIFICATION_ID,
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.hp_icon_red)
+                .setSmallIcon(R.drawable.hp_logo_vector)
                 .setContentTitle("Mise à jour interrompue")
                 .setContentText(reason.take(120))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
