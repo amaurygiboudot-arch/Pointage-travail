@@ -88,6 +88,44 @@ jobs:
           echo "VERSION_CODE=${{ github.run_number }}" >> "$GITHUB_ENV"
           echo "VERSION_NAME=1.${{ github.run_number }}" >> "$GITHUB_ENV"
 
+      - name: Convertir les icones launcher en JPEG Android valide
+        run: |
+          python -m pip install --quiet Pillow
+          python <<'PY'
+          from pathlib import Path
+          from PIL import Image
+
+          root = Path("app/src/main/res/mipmap-nodpi")
+          for color in ("red", "green", "orange"):
+              src = root / f"horatrack_icon_{color}.webp"
+              dst = root / f"horatrack_icon_{color}.jpg"
+              if not src.is_file():
+                  raise SystemExit(f"Icone source absente: {src}")
+              with Image.open(src) as image:
+                  image.load()
+                  if image.size != (512, 512):
+                      raise SystemExit(f"Taille inattendue pour {src}: {image.size}")
+                  image.convert("RGB").save(
+                      dst,
+                      format="JPEG",
+                      quality=95,
+                      subsampling=0,
+                      optimize=True,
+                  )
+              with Image.open(dst) as check:
+                  check.verify()
+                  if check.format != "JPEG":
+                      raise SystemExit(f"Format JPEG invalide: {dst}")
+              src.unlink()
+              print(f"OK {color}: {dst} ({dst.stat().st_size} octets)")
+          PY
+          test ! -e app/src/main/res/mipmap-nodpi/horatrack_icon_red.webp
+          test ! -e app/src/main/res/mipmap-nodpi/horatrack_icon_green.webp
+          test ! -e app/src/main/res/mipmap-nodpi/horatrack_icon_orange.webp
+          test -s app/src/main/res/mipmap-nodpi/horatrack_icon_red.jpg
+          test -s app/src/main/res/mipmap-nodpi/horatrack_icon_green.jpg
+          test -s app/src/main/res/mipmap-nodpi/horatrack_icon_orange.jpg
+
       - name: Compiler APK et AAB release signes
         id: gradle_build
         env:
@@ -121,6 +159,16 @@ jobs:
         run: |
           echo "La compilation Gradle a echoue. Le log complet est disponible dans l'artefact diagnostic-compilation-${{ github.run_number }}."
           exit 1
+
+      - name: Verifier les ressources d icone dans l APK final
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          test -n "$AAPT2" || (echo "aapt2 introuvable" && exit 1)
+          "$AAPT2" dump resources app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/horatrack-resources.txt"
+          grep -A 12 'mipmap/horatrack_icon_red' "$RUNNER_TEMP/horatrack-resources.txt" | grep -q '\.jpg'
+          grep -A 12 'mipmap/horatrack_icon_green' "$RUNNER_TEMP/horatrack-resources.txt" | grep -q '\.jpg'
+          grep -A 12 'mipmap/horatrack_icon_orange' "$RUNNER_TEMP/horatrack-resources.txt" | grep -q '\.jpg'
+          echo "Les trois icones launcher sont bien packagees en JPEG."
 
       - name: Verifier la signature APK
         run: |
