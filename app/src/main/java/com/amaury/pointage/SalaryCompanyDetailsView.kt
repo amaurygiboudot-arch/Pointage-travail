@@ -21,6 +21,7 @@ import com.amaury.pointage.v2.OfficialAgreementContentParserV2
 import com.amaury.pointage.v2.OfficialAgreementResultStoreV2
 import com.amaury.pointage.v2.OfficialAgreementSearchParserV2
 import com.amaury.pointage.v2.PisteAccessSetupV2
+import com.amaury.pointage.v2.engine.CompanyAgreementStructuredRuleV2
 
 class SalaryCompanyDetailsView(
     context: Context,
@@ -60,12 +61,21 @@ class SalaryCompanyDetailsView(
                 val candidates = CompanyAgreementRuleStoreV2.list(context, company.id).filter { it.agreementId == agreement.id }
                 candidates.forEach { candidate ->
                     val confidence = (candidate.confidence * 100).toInt().coerceIn(0, 100)
+                    val structured = CompanyAgreementStructuredRuleV2.structure(candidate)
+                    val valueLabel = structured.value?.let { value ->
+                        val amount = if (value.amount % 1.0 == 0.0) value.amount.toInt().toString() else value.amount.toString().replace('.', ',')
+                        when (value.type) {
+                            CompanyAgreementStructuredRuleV2.ValueType.PERCENT -> "$amount %"
+                            CompanyAgreementStructuredRuleV2.ValueType.EURO_AMOUNT -> "$amount €"
+                            CompanyAgreementStructuredRuleV2.ValueType.HOURS -> "$amount h"
+                        }
+                    }
                     val applicability = listOfNotNull(
                         candidate.effectiveFrom?.let { "Début : $it" },
                         candidate.effectiveTo?.let { "Fin : $it" },
                         candidate.scope?.let { "Champ : $it" }
                     ).joinToString("\n")
-                    addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}${if (applicability.isBlank()) "" else "\n$applicability"}\n${candidate.excerpt}"))
+                    addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}${valueLabel?.let { "\nValeur détectée : $it\nValeur de calcul : ${if (candidate.calculationValueVerified) "Validée" else "À vérifier"}" } ?: "\nValeur de calcul : non déterminée"}${if (applicability.isBlank()) "" else "\n$applicability"}\n${candidate.excerpt}"))
                     if (candidate.verified) {
                         val from = field("Début d’application — JJ/MM/AAAA", candidate.effectiveFrom.orEmpty())
                         val to = field("Fin d’application — facultative", candidate.effectiveTo.orEmpty())
@@ -85,6 +95,25 @@ class SalaryCompanyDetailsView(
                             Toast.makeText(context, if (saved) "Période et champ enregistrés." else "Impossible d’enregistrer l’applicabilité.", Toast.LENGTH_LONG).show()
                             if (saved) showAgreements()
                         })
+                        if (structured.value != null) {
+                            addView(button(if (candidate.calculationValueVerified) "RETIRER LA VALIDATION DE LA VALEUR" else "VALIDER LA VALEUR DÉTECTÉE") {
+                                val saved = CompanyAgreementRuleStoreV2.setCalculationValueVerified(
+                                    context,
+                                    company.id,
+                                    candidate.agreementId,
+                                    candidate.category,
+                                    candidate.excerpt,
+                                    !candidate.calculationValueVerified
+                                )
+                                Toast.makeText(
+                                    context,
+                                    if (saved) if (candidate.calculationValueVerified) "Validation de la valeur retirée." else "Valeur de calcul validée."
+                                    else "Impossible d’enregistrer la validation de la valeur.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                if (saved) showAgreements()
+                            })
+                        }
                     }
                     addView(button(if (candidate.verified) "RETIRER LA VALIDATION" else "VALIDER CETTE RÈGLE") {
                         val saved = CompanyAgreementRuleStoreV2.setVerified(
