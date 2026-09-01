@@ -14,7 +14,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
-import com.amaury.pointage.v2.OfficialCompanyAgreementSearchV2
+import com.amaury.pointage.v2.LegifranceFunctionClientV2
 import com.amaury.pointage.v2.PisteAccessSetupV2
 
 class SalaryCompanyDetailsView(
@@ -55,22 +55,52 @@ class SalaryCompanyDetailsView(
             }
         }
         addView(button("RECHERCHER DANS LES SOURCES OFFICIELLES") {
-            val request = OfficialCompanyAgreementSearchV2.build(company.siret)
-            if (request == null) {
+            val siret = company.siret.filter(Char::isDigit)
+            if (siret.length != 14) {
                 Toast.makeText(context, "Renseigne d’abord un SIRET valide à 14 chiffres.", Toast.LENGTH_LONG).show()
                 return@button
             }
             SalaryCompanyStore.prefs(context, company.id).edit()
                 .putBoolean("company_agreement_search_requested", true)
-                .putString("company_agreement_search_siret", request.normalizedSiret)
+                .putString("company_agreement_search_siret", siret)
                 .putLong("company_agreement_search_requested_at", System.currentTimeMillis())
                 .commit()
-            try {
-                context.startActivity(Intent(Intent.ACTION_VIEW, request.uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                Toast.makeText(context, "Recherche ouverte dans Légifrance — résultats à vérifier avant application.", Toast.LENGTH_LONG).show()
-            } catch (_: ActivityNotFoundException) {
-                Toast.makeText(context, "Impossible d’ouvrir Légifrance sur cet appareil.", Toast.LENGTH_LONG).show()
-            }
+
+            val body = mapOf(
+                "fond" to "ACCO",
+                "recherche" to mapOf(
+                    "champs" to listOf(
+                        mapOf(
+                            "typeChamp" to "ALL",
+                            "criteres" to listOf(
+                                mapOf(
+                                    "typeRecherche" to "EXACTE",
+                                    "valeur" to siret,
+                                    "operateur" to "ET"
+                                )
+                            ),
+                            "operateur" to "ET"
+                        )
+                    ),
+                    "pageNumber" to 1,
+                    "pageSize" to 25,
+                    "operateur" to "ET",
+                    "sort" to "PERTINENCE",
+                    "typePagination" to "DEFAUT"
+                )
+            )
+
+            Toast.makeText(context, "Recherche officielle en cours…", Toast.LENGTH_SHORT).show()
+            LegifranceFunctionClientV2.request("/search", body)
+                .addOnSuccessListener {
+                    SalaryCompanyStore.prefs(context, company.id).edit()
+                        .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
+                        .commit()
+                    Toast.makeText(context, "Réponse Légifrance reçue — résultats à vérifier.", Toast.LENGTH_LONG).show()
+                }
+                .addOnFailureListener { error ->
+                    Toast.makeText(context, "Recherche Légifrance impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
+                }
         })
         addView(button("CRÉER / OUVRIR MON COMPTE PISTE") {
             try {
