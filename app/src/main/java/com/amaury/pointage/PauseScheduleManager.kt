@@ -101,7 +101,7 @@ object PauseScheduleManager {
 
     fun applyCurrentWindow(context: Context) {
         val s = load(context)
-        if (!s.enabled || !PointageStore.hasOpen(context)) return
+        if (!s.enabled || !hasOpenSession(context)) return
 
         val now = Calendar.getInstance(Locale.FRANCE)
         val minute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
@@ -110,10 +110,11 @@ object PauseScheduleManager {
         val inside = if (end > start) minute in start until end else minute >= start || minute < end
 
         val changed = when {
-            inside && !PointageStore.isPaused(context) -> startScheduledPause(context)
+            inside && !isAnyPauseActive(context) -> startScheduledPause(context)
             !inside && isScheduledPauseActive(context) -> {
-                val resumed = resumeScheduledPause(context)
-                if (resumed) markEndConfirmationIfRecent(context, scheduledEndNearNow(context))
+                val scheduledEnd = scheduledEndNearNow(context)
+                val resumed = resumeScheduledPause(context, scheduledEnd)
+                if (resumed) markEndConfirmationIfRecent(context, scheduledEnd)
                 resumed
             }
             else -> false
@@ -140,8 +141,8 @@ object PauseScheduleManager {
         val pending = pendingEndConfirmation(context) ?: return false
         val now = System.currentTimeMillis()
         clearEndConfirmation(context)
-        if (!PointageStore.hasOpen(context)) return false
-        if (PointageStore.isPaused(context)) return true
+        if (!hasOpenSession(context)) return false
+        if (isAnyPauseActive(context)) return true
 
         if (now > pending.endAtMs) {
             PointageStore.addManualPause(context, pending.endAtMs, now)
@@ -156,14 +157,27 @@ object PauseScheduleManager {
 
     internal fun onScheduledEnd(context: Context) {
         if (!isScheduledPauseActive(context)) return
-        val resumed = resumeScheduledPause(context)
-        if (resumed) markEndConfirmationIfRecent(context, scheduledEndNearNow(context))
+        val scheduledEnd = scheduledEndNearNow(context)
+        val resumed = resumeScheduledPause(context, scheduledEnd)
+        if (resumed) markEndConfirmationIfRecent(context, scheduledEnd)
     }
 
     internal fun confirmationDeadline(endAtMs: Long): Long = endAtMs + CONFIRM_WINDOW_MS
 
     internal fun isEndConfirmationPending(endAtMs: Long, deadlineMs: Long, nowMs: Long): Boolean =
         endAtMs > 0L && deadlineMs > 0L && nowMs < deadlineMs
+
+    private fun hasOpenSession(context: Context): Boolean {
+        if (!HoraTrackV2.ENABLED) return PointageStore.hasOpen(context)
+        val session = V2RuntimeStore.snapshot(context).session ?: return false
+        return session.realExitMs == null
+    }
+
+    private fun isAnyPauseActive(context: Context): Boolean {
+        if (!HoraTrackV2.ENABLED) return PointageStore.isPaused(context)
+        val session = V2RuntimeStore.snapshot(context).session ?: return false
+        return session.realExitMs == null && session.pauses.any { it.endMs == null }
+    }
 
     private fun startScheduledPause(context: Context): Boolean {
         if (!HoraTrackV2.ENABLED) return PointageStore.startPause(context, true)
@@ -178,10 +192,15 @@ object PauseScheduleManager {
         return snap.realExitMs == null && snap.pauses.any { it.endMs == null && it.source == EventSourceV2.SYSTEM }
     }
 
-    private fun resumeScheduledPause(context: Context): Boolean {
+    private fun resumeScheduledPause(context: Context, endAtMs: Long? = null): Boolean {
         if (!HoraTrackV2.ENABLED) return PointageStore.resumePause(context, automaticOnly = true)
         if (!isScheduledPauseActive(context)) return false
-        return V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+        val now = System.currentTimeMillis()
+        val pauseStart = V2RuntimeStore.snapshot(context, now).session?.pauses
+            ?.lastOrNull { it.endMs == null && it.source == EventSourceV2.SYSTEM }
+            ?.startMs ?: return false
+        val effectiveEnd = endAtMs?.takeIf { it >= pauseStart && it <= now } ?: now
+        return V2RuntimeStore.togglePause(context, nowMs = effectiveEnd, source = EventSourceV2.SYSTEM, paid = false)
     }
 
     private fun markEndConfirmationIfRecent(context: Context, scheduledEndMs: Long) {
@@ -244,11 +263,7 @@ object PauseScheduleManager {
 class PauseScheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            PauseScheduleManager.ACTION_START -> {
-                if (PointageStore.hasOpen(context) && !PointageStore.isPaused(context)) {
-                    PauseScheduleManager.applyCurrentWindow(context)
-                }
-            }
+            PauseScheduleManager.ACTION_START -> PauseScheduleManager.applyCurrentWindow(context)
             PauseScheduleManager.ACTION_END -> PauseScheduleManager.onScheduledEnd(context)
         }
         PointageWidgetProvider.updateAll(context)
