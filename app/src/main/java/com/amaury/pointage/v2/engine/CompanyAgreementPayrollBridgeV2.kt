@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.v2.ApplicableCompanyAgreementRulesV2
+import com.amaury.pointage.v2.CompanyAgreementRuleExtractorV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import java.time.LocalDate
 
@@ -14,10 +15,12 @@ object CompanyAgreementPayrollBridgeV2 {
     data class Snapshot(
         val referenceDate: LocalDate,
         val applicableRules: List<CompanyAgreementRuleStoreV2.StoredCandidate>,
-        val calculationReadyRules: List<CompanyAgreementStructuredRuleV2.Rule>
+        val calculationReadyRules: List<CompanyAgreementStructuredRuleV2.Rule>,
+        val overtimePercentRules: List<CompanyAgreementStructuredRuleV2.Rule>
     ) {
         val hasApplicableRules: Boolean get() = applicableRules.isNotEmpty()
         val hasCalculationReadyRules: Boolean get() = calculationReadyRules.isNotEmpty()
+        val hasOvertimePercentRules: Boolean get() = overtimePercentRules.isNotEmpty()
     }
 
     fun load(
@@ -26,12 +29,18 @@ object CompanyAgreementPayrollBridgeV2 {
         referenceDate: LocalDate
     ): Snapshot {
         val applicable = ApplicableCompanyAgreementRulesV2.list(context, companyId, referenceDate)
+        val calculationReady = applicable
+            .map(CompanyAgreementStructuredRuleV2::structure)
+            .filter { it.calculationReady }
+        val overtimePercent = calculationReady.filter { rule ->
+            rule.source.category == CompanyAgreementRuleExtractorV2.Category.OVERTIME &&
+                rule.value?.type == CompanyAgreementStructuredRuleV2.ValueType.PERCENT
+        }
         return Snapshot(
             referenceDate = referenceDate,
             applicableRules = applicable,
-            calculationReadyRules = applicable
-                .map(CompanyAgreementStructuredRuleV2::structure)
-                .filter { it.calculationReady }
+            calculationReadyRules = calculationReady,
+            overtimePercentRules = overtimePercent
         )
     }
 }
