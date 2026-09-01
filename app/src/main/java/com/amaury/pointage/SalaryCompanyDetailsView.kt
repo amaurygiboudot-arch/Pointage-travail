@@ -60,7 +60,32 @@ class SalaryCompanyDetailsView(
                 val candidates = CompanyAgreementRuleStoreV2.list(context, company.id).filter { it.agreementId == agreement.id }
                 candidates.forEach { candidate ->
                     val confidence = (candidate.confidence * 100).toInt().coerceIn(0, 100)
-                    addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}\n${candidate.excerpt}"))
+                    val applicability = listOfNotNull(
+                        candidate.effectiveFrom?.let { "Début : $it" },
+                        candidate.effectiveTo?.let { "Fin : $it" },
+                        candidate.scope?.let { "Champ : $it" }
+                    ).joinToString("\n")
+                    addView(text("Règle détectée : ${candidate.category.name}\nConfiance : $confidence %\nValidation : ${if (candidate.verified) "Vérifiée" else "À vérifier"}${if (applicability.isBlank()) "" else "\n$applicability"}\n${candidate.excerpt}"))
+                    if (candidate.verified) {
+                        val from = field("Début d’application — JJ/MM/AAAA", candidate.effectiveFrom.orEmpty())
+                        val to = field("Fin d’application — facultative", candidate.effectiveTo.orEmpty())
+                        val scope = field("Champ d’application — ex. tous les salariés", candidate.scope.orEmpty())
+                        addView(from, row()); addView(to, row()); addView(scope, row())
+                        addView(button("ENREGISTRER L’APPLICABILITÉ") {
+                            val saved = CompanyAgreementRuleStoreV2.setApplicability(
+                                context,
+                                company.id,
+                                candidate.agreementId,
+                                candidate.category,
+                                candidate.excerpt,
+                                from.text.toString(),
+                                to.text.toString(),
+                                scope.text.toString()
+                            )
+                            Toast.makeText(context, if (saved) "Période et champ enregistrés." else "Impossible d’enregistrer l’applicabilité.", Toast.LENGTH_LONG).show()
+                            if (saved) showAgreements()
+                        })
+                    }
                     addView(button(if (candidate.verified) "RETIRER LA VALIDATION" else "VALIDER CETTE RÈGLE") {
                         val saved = CompanyAgreementRuleStoreV2.setVerified(
                             context,
