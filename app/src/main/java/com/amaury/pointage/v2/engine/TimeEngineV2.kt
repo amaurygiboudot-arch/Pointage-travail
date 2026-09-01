@@ -33,11 +33,9 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
 
     override fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long {
         require(realExitMs > 0L) { "realExitMs doit être positif" }
-        if (expectedEndMs == null || expectedEndMs <= 0L) return realExitMs
-        // La sortie réelle reste la trace physique. La sortie comptée reste l'heure de fin
-        // du profil lorsqu'elle est atteinte : un dépassement ne devient pas implicitement
-        // du temps compté. Les heures supplémentaires doivent être qualifiées séparément.
-        return if (realExitMs >= expectedEndMs) expectedEndMs else realExitMs
+        // La fin prévue reste une information de planning. Elle ne doit jamais écraser
+        // une sortie réellement pointée ni supprimer du temps réellement travaillé.
+        return realExitMs
     }
 
     override fun calculate(session: WorkSessionV2, nowMs: Long): TimeResultV2 {
