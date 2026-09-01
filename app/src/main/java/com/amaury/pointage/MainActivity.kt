@@ -481,10 +481,11 @@ class MainActivity : Activity() {
         if (HoraTrackV2.ENABLED) {
             val snap = V2RuntimeStore.snapshot(this)
             val session = snap.session
+            val openPause = session?.pauses?.lastOrNull { it.endMs == null }
             statusCard.text = when {
                 session == null -> "STATUT ACTUEL\n○ Aucune entrée en cours"
                 session.status == SessionStatusV2.CLOSED -> "STATUT ACTUEL\n● SESSION TERMINÉE"
-                session.pauses.any { it.endMs == null } -> "STATUT ACTUEL\n⏸ PAUSE EN COURS\nDepuis ${dateFormat.format(Date(session.realArrivalMs ?: System.currentTimeMillis()))}"
+                openPause != null -> "STATUT ACTUEL\n⏸ PAUSE EN COURS\nDepuis ${dateFormat.format(Date(openPause.startMs))}"
                 else -> "STATUT ACTUEL\n● ENTRÉE EN COURS\nDepuis ${dateFormat.format(Date(session.realArrivalMs ?: System.currentTimeMillis()))}"
             }
             historyText.text = buildV2HistoryText(todayOnly = true)
