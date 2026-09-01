@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.amaury.pointage.IconSwitcher
+import com.amaury.pointage.PauseScheduleManager
 import com.amaury.pointage.V2AppLock
 
 /** Initialisation V2 indépendante des écrans : aucune donnée utilisateur n'est effacée. */
@@ -45,19 +46,22 @@ class V2InitProvider : ContentProvider() {
         iconStateListener = listener
         prefs.registerOnSharedPreferenceChangeListener(listener)
 
-        // Sécurité supplémentaire pour les launchers (notamment HyperOS) :
-        // on resynchronise juste avant que l'application quitte le premier plan,
-        // c'est précisément à ce moment que l'utilisateur revoit l'icône.
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityPaused(activity: Activity) = syncIconNowAndAfterStateCommit(app)
             override fun onActivityStopped(activity: Activity) = syncIconNowAndAfterStateCommit(app)
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
             override fun onActivityStarted(activity: Activity) = Unit
-            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) {
+                // Une alarme de fin peut être retardée par Android/HyperOS.
+                // Au retour dans l'app, on réconcilie immédiatement l'état avec le créneau prévu.
+                PauseScheduleManager.applyCurrentWindow(app)
+                syncIconNowAndAfterStateCommit(app)
+            }
             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
             override fun onActivityDestroyed(activity: Activity) = Unit
         })
 
+        PauseScheduleManager.applyCurrentWindow(app)
         syncIconNowAndAfterStateCommit(app)
     }
 
