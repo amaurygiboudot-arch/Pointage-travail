@@ -91,7 +91,7 @@ object FirebaseUpdatePush {
         )
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.hp_icon_red)
+            .setSmallIcon(R.drawable.hp_logo_vector)
             .setContentTitle(title?.takeIf { it.isNotBlank() } ?: "Mise à jour HoraTrack")
             .setContentText(body?.takeIf { it.isNotBlank() } ?: "Une nouvelle version est disponible. Appuie ici pour la mettre à jour.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(body ?: "Une nouvelle version de HoraTrack est disponible. Ouvre l'application pour l'installer."))
