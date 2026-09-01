@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import android.app.Activity
 import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
@@ -7,6 +8,9 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.database.Cursor
 import android.net.Uri
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import com.amaury.pointage.IconSwitcher
 import com.amaury.pointage.V2AppLock
 
@@ -14,6 +18,7 @@ import com.amaury.pointage.V2AppLock
 class V2InitProvider : ContentProvider() {
     private var runtimePrefs: SharedPreferences? = null
     private var iconStateListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
@@ -34,12 +39,36 @@ class V2InitProvider : ContentProvider() {
     private fun installIconStateSync(app: Application) {
         val prefs = app.getSharedPreferences("horatrack_v2_test_runtime", Context.MODE_PRIVATE)
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            IconSwitcher.sync(app)
+            syncIconNowAndAfterStateCommit(app)
         }
         runtimePrefs = prefs
         iconStateListener = listener
         prefs.registerOnSharedPreferenceChangeListener(listener)
+
+        // Sécurité supplémentaire pour les launchers (notamment HyperOS) :
+        // on resynchronise juste avant que l'application quitte le premier plan,
+        // c'est précisément à ce moment que l'utilisateur revoit l'icône.
+        app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityPaused(activity: Activity) = syncIconNowAndAfterStateCommit(app)
+            override fun onActivityStopped(activity: Activity) = syncIconNowAndAfterStateCommit(app)
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+            override fun onActivityStarted(activity: Activity) = Unit
+            override fun onActivityResumed(activity: Activity) = Unit
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+            override fun onActivityDestroyed(activity: Activity) = Unit
+        })
+
+        syncIconNowAndAfterStateCommit(app)
+    }
+
+    private fun syncIconNowAndAfterStateCommit(app: Application) {
         IconSwitcher.sync(app)
+        mainHandler.removeCallbacksAndMessages(ICON_SYNC_TOKEN)
+        mainHandler.postAtTime(
+            { IconSwitcher.sync(app) },
+            ICON_SYNC_TOKEN,
+            android.os.SystemClock.uptimeMillis() + ICON_SYNC_DELAY_MS
+        )
     }
 
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
@@ -47,4 +76,9 @@ class V2InitProvider : ContentProvider() {
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<out String>?): Int = 0
     override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<out String>?): Int = 0
+
+    private companion object {
+        const val ICON_SYNC_DELAY_MS = 250L
+        val ICON_SYNC_TOKEN = Any()
+    }
 }
