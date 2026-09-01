@@ -13,8 +13,10 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.CompanyAgreementIngestionV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
+import com.amaury.pointage.v2.OfficialAgreementContentParserV2
 import com.amaury.pointage.v2.OfficialAgreementResultStoreV2
 import com.amaury.pointage.v2.OfficialAgreementSearchParserV2
 import com.amaury.pointage.v2.PisteAccessSetupV2
@@ -54,6 +56,29 @@ class SalaryCompanyDetailsView(
                     agreement.effectiveTo?.let { "Fin : $it" }
                 ).joinToString(" — ")
                 addView(text("${agreement.title.ifBlank { "Accord sans titre" }}\nÉtat : $status${if (dates.isBlank()) "" else "\n$dates"}${if (agreement.sourceLabel.isBlank()) "" else "\nSource : ${agreement.sourceLabel}"}"))
+                if (agreement.id.startsWith("ACCOTEXT")) {
+                    addView(button("ANALYSER CET ACCORD") {
+                        Toast.makeText(context, "Récupération de l’accord officiel…", Toast.LENGTH_SHORT).show()
+                        LegifranceFunctionClientV2.request("/consult/acco", mapOf("id" to agreement.id))
+                            .addOnSuccessListener { result ->
+                                val officialText = OfficialAgreementContentParserV2.extract(result.data)
+                                if (officialText.isBlank()) {
+                                    Toast.makeText(context, "Accord reçu mais aucun texte exploitable n’a été trouvé.", Toast.LENGTH_LONG).show()
+                                    return@addOnSuccessListener
+                                }
+                                val ingestion = CompanyAgreementIngestionV2.ingest(context, company.id, agreement.id, officialText)
+                                Toast.makeText(
+                                    context,
+                                    if (ingestion.saved) "Analyse terminée : ${ingestion.extractedCount} règle(s) candidate(s), aucune appliquée automatiquement."
+                                    else "Analyse terminée mais l’enregistrement des règles a échoué.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            .addOnFailureListener { error ->
+                                Toast.makeText(context, "Lecture de l’accord impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
+                            }
+                    })
+                }
             }
         }
         addView(button("RECHERCHER DANS LES SOURCES OFFICIELLES") {
