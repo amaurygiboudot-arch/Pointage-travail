@@ -15,7 +15,8 @@ object CompanyAgreementRuleStoreV2 {
         val verified: Boolean = false,
         val effectiveFrom: String? = null,
         val effectiveTo: String? = null,
-        val scope: String? = null
+        val scope: String? = null,
+        val calculationValueVerified: Boolean = false
     )
 
     private const val KEY = "company_agreement_rule_candidates_v2"
@@ -55,7 +56,8 @@ object CompanyAgreementRuleStoreV2 {
                     verified = o.optBoolean("verified", false),
                     effectiveFrom = o.optString("effectiveFrom").takeIf { it.isNotBlank() },
                     effectiveTo = o.optString("effectiveTo").takeIf { it.isNotBlank() },
-                    scope = o.optString("scope").takeIf { it.isNotBlank() }
+                    scope = o.optString("scope").takeIf { it.isNotBlank() },
+                    calculationValueVerified = o.optBoolean("calculationValueVerified", false)
                 )
             }
         }.getOrDefault(emptyList())
@@ -74,7 +76,29 @@ object CompanyAgreementRuleStoreV2 {
         val updated = current.map { candidate ->
             if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
                 matched = true
-                candidate.copy(verified = verified)
+                candidate.copy(
+                    verified = verified,
+                    calculationValueVerified = if (verified) candidate.calculationValueVerified else false
+                )
+            } else candidate
+        }
+        return matched && save(context, companyId, updated)
+    }
+
+    fun setCalculationValueVerified(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        category: CompanyAgreementRuleExtractorV2.Category,
+        excerpt: String,
+        verified: Boolean
+    ): Boolean {
+        val current = list(context, companyId)
+        var matched = false
+        val updated = current.map { candidate ->
+            if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
+                matched = true
+                candidate.copy(calculationValueVerified = candidate.verified && verified)
             } else candidate
         }
         return matched && save(context, companyId, updated)
@@ -117,6 +141,7 @@ object CompanyAgreementRuleStoreV2 {
                 put("effectiveFrom", value.effectiveFrom ?: "")
                 put("effectiveTo", value.effectiveTo ?: "")
                 put("scope", value.scope ?: "")
+                put("calculationValueVerified", value.calculationValueVerified)
             })
         }
         return SalaryCompanyStore.prefs(context, companyId)
