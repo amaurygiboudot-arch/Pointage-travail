@@ -8,14 +8,18 @@ const TOKEN_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
 const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
 
 async function pisteAccessToken() {
-  const credentials = Buffer.from(`${pisteClientId.value()}:${pisteClientSecret.value()}`).toString("base64");
+  const form = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: pisteClientId.value(),
+    client_secret: pisteClientSecret.value(),
+    scope: "openid",
+  });
   const response = await fetch(TOKEN_URL, {
     method: "POST",
     headers: {
-      Authorization: `Basic ${credentials}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: "grant_type=client_credentials",
+    body: form.toString(),
   });
   if (!response.ok) throw new Error(`PISTE OAuth ${response.status}`);
   const json = await response.json();
