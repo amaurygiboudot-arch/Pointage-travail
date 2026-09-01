@@ -138,12 +138,12 @@ class SalaryCompanyDetailsView(
                         Toast.makeText(context, "Récupération de l’accord officiel…", Toast.LENGTH_SHORT).show()
                         LegifranceFunctionClientV2.request("/consult/acco", mapOf("id" to agreement.id))
                             .addOnSuccessListener { result ->
-                                val officialText = OfficialAgreementContentParserV2.extract(result.data)
-                                if (officialText.isBlank()) {
-                                    Toast.makeText(context, "Accord reçu mais aucun texte exploitable n’a été trouvé.", Toast.LENGTH_LONG).show()
+                                val officialContent = OfficialAgreementContentParserV2.extractVerified(result.data, company.siret)
+                                if (officialContent == null) {
+                                    Toast.makeText(context, "Accord refusé : SIRET différent, absent ou contenu officiel inexploitable.", Toast.LENGTH_LONG).show()
                                     return@addOnSuccessListener
                                 }
-                                val ingestion = CompanyAgreementIngestionV2.ingest(context, company.id, agreement.id, officialText)
+                                val ingestion = CompanyAgreementIngestionV2.ingest(context, company.id, agreement.id, officialContent.text)
                                 Toast.makeText(
                                     context,
                                     if (ingestion.saved) "Analyse terminée : ${ingestion.extractedCount} règle(s) candidate(s), aucune appliquée automatiquement."
@@ -283,51 +283,34 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
     private fun showSummary() {
         removeAllViews()
         val rate = prefs.getString("hourly_rate", "").orEmpty(); val coefficient = prefs.getString("convention_coefficient", "").orEmpty()
-        val type = prefs.getString("contract_type", "").orEmpty(); val entry = prefs.getString("entry_date", "").orEmpty(); val end = prefs.getString("end_date", "").orEmpty(); val weekly = prefs.getString("contract_weekly_hours", "").orEmpty()
-        addView(TextView(context).apply {
-            textSize = 15f; text = "TAUX HORAIRE BRUT : ${rate.ifBlank { "Non renseigné" }}\n\nCOEFFICIENT CONVENTIONNEL : ${coefficient.ifBlank { "Non renseigné" }}\n\nTYPE DE CONTRAT : ${type.ifBlank { "Non renseigné" }}\n\nDATE D’ENTRÉE : ${entry.ifBlank { "Non renseignée" }}\n\nDATE DE FIN : ${end.ifBlank { "Non applicable / non renseignée" }}\n\nDURÉE HEBDOMADAIRE : ${weekly.ifBlank { "Non renseignée" }}"
-        })
-        addView(button("MODIFIER LE CONTRAT") { showEditor() })
+        val type = prefs.getString("contract_type", "").orEmpty(); val weekly = prefs.getString("contract_weekly_hours", "").orEmpty(); val monthly = prefs.getString("monthly_contract_salary", "").orEmpty(); val status = prefs.getString("professional_status", "").orEmpty()
+        addView(text("Type de contrat : ${type.ifBlank { "Non renseigné" }}\nTemps de travail : ${weekly.ifBlank { "Non renseigné" }}\nTaux horaire : ${rate.ifBlank { "Non renseigné" }}\nSalaire mensuel forfait : ${monthly.ifBlank { "Non renseigné" }}\nStatut : ${status.ifBlank { "Non renseigné" }}\nCoefficient : ${coefficient.ifBlank { "Non renseigné" }}"))
+        addView(button("MODIFIER") { showEditor() })
     }
 
     private fun showEditor() {
         removeAllViews()
-        val rate = field("Taux horaire brut", prefs.getString("hourly_rate", "").orEmpty(), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
-        val coefficient = field("Coefficient conventionnel", prefs.getString("convention_coefficient", "").orEmpty())
-        val spinner = Spinner(context); val types = listOf("Temps plein", "Temps partiel", "Forfait", "Autre")
-        spinner.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, types)
-        spinner.setSelection(when (prefs.getString("contract_type", "")) { "PART_TIME" -> 1; "FORFAIT" -> 2; "OTHER" -> 3; else -> 0 })
-        val entry = field("Date d’entrée — JJ/MM/AAAA", prefs.getString("entry_date", "").orEmpty())
-        val end = field("Date de fin — si applicable", prefs.getString("end_date", "").orEmpty())
-        val weekly = field("Durée hebdomadaire", prefs.getString("contract_weekly_hours", "").orEmpty(), InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
-        addView(rate, row()); addView(coefficient, row()); addView(spinner, row()); addView(entry, row()); addView(end, row()); addView(weekly, row())
-        addView(button("ENREGISTRER LE CONTRAT") {
-            val rateValue = rate.text.toString().replace(',', '.').toDoubleOrNull()
-            if (rateValue == null || rateValue <= 0) { rate.error = "Taux horaire invalide"; return@button }
-            val type = when (spinner.selectedItemPosition) { 1 -> "PART_TIME"; 2 -> "FORFAIT"; 3 -> "OTHER"; else -> "FULL_TIME" }
-            val weeklyValue = weekly.text.toString().replace(',', '.').toDoubleOrNull()
-            if (type != "FORFAIT" && (weeklyValue == null || weeklyValue <= 0)) { weekly.error = "Durée hebdomadaire invalide"; return@button }
-            val editor = prefs.edit().putString("hourly_rate", rateValue.toString()).putString("convention_coefficient", coefficient.text.toString().trim()).putString("contract_type", type).putString("entry_date", entry.text.toString().trim()).putString("end_date", end.text.toString().trim()).apply {
-                if (weeklyValue != null && weeklyValue > 0) putString("contract_weekly_hours", weeklyValue.toString()) else remove("contract_weekly_hours")
-            }
-            if (!editor.commit()) {
-                Toast.makeText(context, "Échec de l’enregistrement du contrat", Toast.LENGTH_LONG).show()
-                return@button
-            }
-            val ok = prefs.getString("hourly_rate", "").orEmpty() == rateValue.toString() &&
-                prefs.getString("contract_type", "").orEmpty() == type &&
-                prefs.getString("entry_date", "").orEmpty() == entry.text.toString().trim()
-            if (!ok) {
-                Toast.makeText(context, "Contrat écrit mais non relu correctement", Toast.LENGTH_LONG).show()
-                return@button
-            }
-            Toast.makeText(context, "Contrat enregistré et vérifié", Toast.LENGTH_SHORT).show(); showSummary()
+        val type = Spinner(context); val values = listOf("TEMPS_PLEIN", "TEMPS_PARTIEL", "FORFAIT_HEURES", "FORFAIT_JOURS")
+        type.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, values)
+        type.setSelection(values.indexOf(prefs.getString("contract_type", "TEMPS_PLEIN")).coerceAtLeast(0))
+        val weekly = field("Heures contractuelles / semaine", prefs.getString("contract_weekly_hours", "").orEmpty())
+        val annualHours = field("Forfait annuel en heures", prefs.getString("annual_hours_package", "").orEmpty())
+        val annualDays = field("Forfait annuel en jours", prefs.getString("annual_days_package", "").orEmpty())
+        val rate = field("Taux horaire brut", prefs.getString("hourly_rate", "").orEmpty())
+        val monthly = field("Salaire mensuel brut contractuel", prefs.getString("monthly_contract_salary", "").orEmpty())
+        val status = Spinner(context); val statuses = listOf("NON_CADRE", "CADRE"); status.adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, statuses); status.setSelection(statuses.indexOf(prefs.getString("professional_status", "NON_CADRE")).coerceAtLeast(0))
+        val coefficient = field("Coefficient convention collective", prefs.getString("convention_coefficient", "").orEmpty(), InputType.TYPE_CLASS_NUMBER)
+        addView(type, row()); listOf(weekly, annualHours, annualDays, rate, monthly).forEach { addView(it, row()) }; addView(status, row()); addView(coefficient, row())
+        addView(button("ENREGISTRER") {
+            prefs.edit().putString("contract_type", type.selectedItem.toString()).putString("contract_weekly_hours", weekly.text.toString().trim()).putString("annual_hours_package", annualHours.text.toString().trim()).putString("annual_days_package", annualDays.text.toString().trim()).putString("hourly_rate", rate.text.toString().trim()).putString("monthly_contract_salary", monthly.text.toString().trim()).putString("professional_status", status.selectedItem.toString()).putString("convention_coefficient", coefficient.text.toString().trim()).commit()
+            Toast.makeText(context, "Contrat enregistré", Toast.LENGTH_SHORT).show(); showSummary()
         })
         addView(button("ANNULER") { showSummary() })
     }
 
-    private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(context).apply { hint = h; setText(v.replace('.', ',')); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
-    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setTypeface(typeface, Typeface.NORMAL); setOnClickListener { click() } }
+    private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
+    private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_DECIMAL or InputType.TYPE_NUMBER_FLAG_DECIMAL) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
+    private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { click() } }
     private fun row() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }
