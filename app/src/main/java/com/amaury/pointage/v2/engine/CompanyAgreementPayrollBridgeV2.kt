@@ -16,11 +16,13 @@ object CompanyAgreementPayrollBridgeV2 {
         val referenceDate: LocalDate,
         val applicableRules: List<CompanyAgreementRuleStoreV2.StoredCandidate>,
         val calculationReadyRules: List<CompanyAgreementStructuredRuleV2.Rule>,
-        val overtimePercentRules: List<CompanyAgreementStructuredRuleV2.Rule>
+        val overtimePercentRules: List<CompanyAgreementStructuredRuleV2.Rule>,
+        val overtimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>
     ) {
         val hasApplicableRules: Boolean get() = applicableRules.isNotEmpty()
         val hasCalculationReadyRules: Boolean get() = calculationReadyRules.isNotEmpty()
         val hasOvertimePercentRules: Boolean get() = overtimePercentRules.isNotEmpty()
+        val hasOvertimeRules: Boolean get() = overtimeRules.isNotEmpty()
     }
 
     fun load(
@@ -36,11 +38,13 @@ object CompanyAgreementPayrollBridgeV2 {
             rule.source.category == CompanyAgreementRuleExtractorV2.Category.OVERTIME &&
                 rule.value?.type == CompanyAgreementStructuredRuleV2.ValueType.PERCENT
         }
+        val overtime = overtimePercent.mapNotNull(CompanyAgreementOvertimeRuleV2::from)
         return Snapshot(
             referenceDate = referenceDate,
             applicableRules = applicable,
             calculationReadyRules = calculationReady,
-            overtimePercentRules = overtimePercent
+            overtimePercentRules = overtimePercent,
+            overtimeRules = overtime
         )
     }
 }
