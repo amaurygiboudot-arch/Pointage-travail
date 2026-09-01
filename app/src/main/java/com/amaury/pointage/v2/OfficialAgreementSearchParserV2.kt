@@ -1,7 +1,33 @@
 package com.amaury.pointage.v2
 
-/** Convertit une réponse /search ACCO en accords candidats uniquement si le SIRET retourné correspond. */
+/** Convertit une réponse /search ACCO en candidats. Le SIRET reste à vérifier via /consult/acco. */
 object OfficialAgreementSearchParserV2 {
+    fun parseCandidates(data: Any?): List<CompanyAgreementStoreV2.Agreement> {
+        val root = data as? Map<*, *> ?: return emptyList()
+        val results = root["results"] as? List<*> ?: return emptyList()
+
+        return results.mapNotNull { raw ->
+            val item = raw as? Map<*, *> ?: return@mapNotNull null
+            val id = firstString(item, "id", "cid", "idAccord")
+                ?.takeIf { it.startsWith("ACCOTEXT") } ?: return@mapNotNull null
+            val title = firstString(item, "titre", "title", "libelle")
+                ?.takeIf { it.isNotBlank() } ?: "Accord d’entreprise"
+            val signatureDate = firstString(item, "dateSignature", "signatureDate", "date")
+                ?.take(10)
+                ?.takeIf { it.isNotBlank() }
+
+            CompanyAgreementStoreV2.Agreement(
+                id = id,
+                title = title,
+                effectiveFrom = signatureDate,
+                effectiveTo = null,
+                sourceLabel = "Légifrance",
+                status = CompanyAgreementStoreV2.Status.UNKNOWN,
+                notes = "Candidat trouvé dans la recherche officielle. SIRET, contenu et période d’application à vérifier via la consultation de l’accord."
+            )
+        }.distinctBy { it.id }
+    }
+
     fun parse(data: Any?, expectedSiret: String): List<CompanyAgreementStoreV2.Agreement> {
         val siret = expectedSiret.filter(Char::isDigit)
         if (siret.length != 14) return emptyList()
