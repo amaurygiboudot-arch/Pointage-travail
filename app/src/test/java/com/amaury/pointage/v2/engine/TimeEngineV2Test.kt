@@ -21,12 +21,12 @@ class TimeEngineV2Test {
     }
 
     @Test
-    fun `sortie comptee reste heure prevue meme si sortie reelle est plus tard`() {
+    fun `sortie comptee conserve la sortie reelle meme apres heure prevue`() {
         val expected = base
         assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected, expected))
-        assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected + 20 * minute, expected))
-        assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected + 23 * minute, expected))
-        assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected + 2 * 60 * minute, expected))
+        assertEquals(expected + 20 * minute, DefaultTimeEngineV2.countedExitFromRealExit(expected + 20 * minute, expected))
+        assertEquals(expected + 23 * minute, DefaultTimeEngineV2.countedExitFromRealExit(expected + 23 * minute, expected))
+        assertEquals(expected + 2 * 60 * minute, DefaultTimeEngineV2.countedExitFromRealExit(expected + 2 * 60 * minute, expected))
     }
 
     @Test
