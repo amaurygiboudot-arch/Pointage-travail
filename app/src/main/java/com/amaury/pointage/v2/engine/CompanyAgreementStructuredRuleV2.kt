@@ -5,7 +5,7 @@ import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 
 /**
  * Valeur structurée issue d'une règle d'accord déjà vérifiée et applicable.
- * L'absence d'une valeur certaine laisse la règle informative et interdit son application au calcul.
+ * L'absence d'une valeur certaine ou de sa validation explicite interdit son application au calcul.
  */
 object CompanyAgreementStructuredRuleV2 {
     enum class ValueType { PERCENT, EURO_AMOUNT, HOURS }
@@ -19,7 +19,8 @@ object CompanyAgreementStructuredRuleV2 {
         val source: CompanyAgreementRuleStoreV2.StoredCandidate,
         val value: Value?
     ) {
-        val calculationReady: Boolean get() = value != null
+        val calculationReady: Boolean
+            get() = source.verified && source.calculationValueVerified && value != null
     }
 
     fun structure(source: CompanyAgreementRuleStoreV2.StoredCandidate): Rule {
