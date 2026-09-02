@@ -14,11 +14,18 @@ import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.concurrent.Executors
 
 object DriveBackupManager {
     private const val PREFS = "drive_backup"
     private const val KEY_TREE_URI = "tree_uri"
     private const val ROOT_FOLDER = "Pointage Travail"
+    private val executor = Executors.newSingleThreadExecutor()
+    private val storageLock = Any()
+
+    /** Tous les accès au dossier Drive partagé passent par ce verrou unique. */
+    internal fun <T> withStorageAccess(block: () -> T): T =
+        synchronized(storageLock) { block() }
 
     fun isConfigured(context: Context): Boolean =
         !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_TREE_URI, null).isNullOrBlank()
@@ -43,25 +50,28 @@ object DriveBackupManager {
     fun syncCurrentMonthAsync(context: Context) {
         if (!isConfigured(context)) return
         val app = context.applicationContext
-        Thread { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }.start()
-    }
-
-    fun syncAutomaticAsync(context: Context) {
-        if (!isConfigured(context)) return
-        val app = context.applicationContext
-        Thread { runCatching { syncCompletedDays(app); syncClosedMonths(app) } }.start()
+        executor.execute {
+            runCatching {
+                withStorageAccess {
+                    syncCompletedDays(app)
+                    syncClosedMonths(app)
+                }
+            }
+        }
     }
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
-        Thread {
+        executor.execute {
             val result = runCatching {
-                syncCompletedDays(app)
-                syncClosedMonths(app)
+                withStorageAccess {
+                    syncCompletedDays(app)
+                    syncClosedMonths(app)
+                }
                 "sauvegarde quotidienne et mensuelle à jour"
             }
             onDone?.invoke(result.isSuccess, result.getOrElse { it.message ?: "Erreur Drive" })
-        }.start()
+        }
     }
 
     private fun syncCompletedDays(context: Context) {
@@ -124,10 +134,14 @@ object DriveBackupManager {
             val y = cal.get(Calendar.YEAR); val m = cal.get(Calendar.MONTH)
             if (y * 12 + m < currentKey) months += y to m
         }
-        months.forEach { (y, m) -> syncMonth(context, y, m) }
+        months.forEach { (y, m) -> syncMonthLocked(context, y, m) }
     }
 
-    fun syncMonth(context: Context, year: Int, month: Int) {
+    fun syncMonth(context: Context, year: Int, month: Int) = withStorageAccess {
+        syncMonthLocked(context, year, month)
+    }
+
+    private fun syncMonthLocked(context: Context, year: Int, month: Int) {
         val treeUri = savedTreeUri(context) ?: return
         val all = PointageStore.load(context)
         if (all.length() == 0) return
