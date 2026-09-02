@@ -9,7 +9,7 @@ package com.amaury.pointage.core.rights
  */
 data class RightRuleCandidate(
     val ruleId: String,
-    val source: RightSource,
+    val source: RuleSourceType,
     val priority: Int,
     val minimumValueMs: Long,
     val explanation: String

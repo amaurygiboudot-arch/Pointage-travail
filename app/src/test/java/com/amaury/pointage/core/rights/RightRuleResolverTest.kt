@@ -7,8 +7,8 @@ import org.junit.Test
 class RightRuleResolverTest {
     @Test
     fun `la priorite explicite vient avant la valeur`() {
-        val legal = candidate("legal", RightSource.LAW, 10, 20)
-        val agreement = candidate("accord", RightSource.COMPANY_AGREEMENT, 20, 30)
+        val legal = candidate("legal", RuleSourceType.LAW, 10, 20)
+        val agreement = candidate("accord", RuleSourceType.COMPANY_AGREEMENT, 20, 30)
 
         val result = RightRuleResolver.resolve(listOf(legal, agreement))
 
@@ -17,8 +17,8 @@ class RightRuleResolverTest {
 
     @Test
     fun `a priorite egale la valeur minimale la plus favorable gagne`() {
-        val first = candidate("branche-a", RightSource.COLLECTIVE_AGREEMENT, 20, 20)
-        val second = candidate("branche-b", RightSource.COLLECTIVE_AGREEMENT, 20, 30)
+        val first = candidate("branche-a", RuleSourceType.COLLECTIVE_AGREEMENT, 20, 20)
+        val second = candidate("branche-b", RuleSourceType.COLLECTIVE_AGREEMENT, 20, 30)
 
         val result = RightRuleResolver.resolve(listOf(first, second))
 
@@ -30,7 +30,7 @@ class RightRuleResolverTest {
         assertNull(RightRuleResolver.resolve(emptyList()).selected)
     }
 
-    private fun candidate(id: String, source: RightSource, priority: Int, minutes: Long) =
+    private fun candidate(id: String, source: RuleSourceType, priority: Int, minutes: Long) =
         RightRuleCandidate(
             ruleId = id,
             source = source,
