@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.util.AttributeSet
 import android.view.View
@@ -152,73 +154,91 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                     Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                val updated = (existing + formatted).distinctBy { it.lowercase() }.take(10)
-                addressList.setText(updated.joinToString("\n"))
+                val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                positiveButton.isEnabled = false
+                positiveButton.text = "LOCALISATION…"
+                val notifyOnArrivalValue = notifyOnArrival.isChecked
+                val appContext = context.applicationContext
 
-                val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-                PlaceNames.put(context, formatted, nameValue)
+                // Le géocodage peut interroger un service distant et ne doit jamais bloquer l'écran.
+                Thread {
+                    val geocoded = runCatching {
+                        Geocoder(appContext, Locale.FRANCE).getFromLocationName(formatted, 1)?.firstOrNull()
+                    }.getOrNull()
 
-                val contacts = runCatching {
-                    JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
-                }.getOrElse { JSONObject() }
-                contacts.put(
-                    formatted,
-                    JSONObject()
-                        .put("contactName", contactValue)
-                        .put("phone", phoneValue)
-                        .put("enabled", notifyOnArrival.isChecked)
-                )
+                    Handler(Looper.getMainLooper()).post finishGeocoding@{
+                        if (!dialog.isShowing || !isAttachedToWindow) return@finishGeocoding
 
-                val companyMap = runCatching {
-                    JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
-                }.getOrElse { JSONObject() }
-                companyMap.put(formatted, companySlot)
+                        val latestAddresses = addressList.text.toString().lines()
+                            .map { it.trim() }
+                            .filter { it.isNotBlank() }
+                        if (latestAddresses.any { it.equals(formatted, ignoreCase = true) }) {
+                            positiveButton.isEnabled = true
+                            positiveButton.text = "Ajouter"
+                            Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
+                            return@finishGeocoding
+                        }
+                        val updated = (latestAddresses + formatted).distinctBy { it.lowercase() }.take(10)
+                        addressList.setText(updated.joinToString("\n"))
 
-                // Géocode immédiatement l'adresse AVANT d'ouvrir le sélecteur de point.
-                // Ainsi la carte s'ouvre sur l'adresse choisie, jamais sur la position actuelle du téléphone.
-                val geocoded = runCatching {
-                    Geocoder(context, Locale.FRANCE).getFromLocationName(formatted, 1)?.firstOrNull()
-                }.getOrNull()
+                        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                        PlaceNames.put(context, formatted, nameValue)
 
-                val zones = runCatching {
-                    JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
-                }.getOrElse { JSONArray() }
+                        val contacts = runCatching {
+                            JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
+                        }.getOrElse { JSONObject() }
+                        contacts.put(
+                            formatted,
+                            JSONObject()
+                                .put("contactName", contactValue)
+                                .put("phone", phoneValue)
+                                .put("enabled", notifyOnArrivalValue)
+                        )
 
-                if (geocoded != null) {
-                    val zone = JSONObject()
-                        .put("id", UUID.randomUUID().toString())
-                        .put("address", formatted)
-                        .put("latitude", geocoded.latitude)
-                        .put("longitude", geocoded.longitude)
-                        .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
-                        .put("pointSource", "geocoder")
-                    zones.put(zone)
-                }
+                        val companyMap = runCatching {
+                            JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
+                        }.getOrElse { JSONObject() }
+                        companyMap.put(formatted, companySlot)
 
-                val editor = gpsPrefs.edit()
-                    .putString("address", updated.joinToString("\n"))
-                    .putString("arrival_contacts", contacts.toString())
-                    .putString("address_company_slots", companyMap.toString())
-                    .putString("zones", zones.toString())
-                    .remove("active_zones")
-                    .putString("pending_point_address", formatted)
+                        val zones = runCatching {
+                            JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
+                        }.getOrElse { JSONArray() }
+                        if (geocoded != null) {
+                            val zone = JSONObject()
+                                .put("id", UUID.randomUUID().toString())
+                                .put("address", formatted)
+                                .put("latitude", geocoded.latitude)
+                                .put("longitude", geocoded.longitude)
+                                .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
+                                .put("pointSource", "geocoder")
+                            zones.put(zone)
+                        }
 
-                editor.apply()
+                        gpsPrefs.edit()
+                            .putString("address", updated.joinToString("\n"))
+                            .putString("arrival_contacts", contacts.toString())
+                            .putString("address_company_slots", companyMap.toString())
+                            .putString("zones", zones.toString())
+                            .remove("active_zones")
+                            .putString("pending_point_address", formatted)
+                            .apply()
 
-                if (notifyOnArrival.isChecked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                ) {
-                    (context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
-                }
+                        if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            (context as? Activity)?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1102)
+                        }
 
-                rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
-                val companyName = if (companySlot == 1) company1Name else company2Name
-                val message = if (geocoded != null)
-                    "$nameValue ajouté à $companyName — la carte va s'ouvrir sur l'adresse"
-                else
-                    "$nameValue ajouté à $companyName — adresse introuvable automatiquement, place le point manuellement"
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                dialog.dismiss()
+                        rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
+                        val companyName = if (companySlot == 1) company1Name else company2Name
+                        val message = if (geocoded != null)
+                            "$nameValue ajouté à $companyName — la carte va s'ouvrir sur l'adresse"
+                        else
+                            "$nameValue ajouté à $companyName — adresse introuvable automatiquement, place le point manuellement"
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        dialog.dismiss()
+                    }
+                }.start()
             }
         }
         dialog.show()

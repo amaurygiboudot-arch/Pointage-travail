@@ -63,6 +63,7 @@ class MainActivity : Activity() {
 
     private var activeTab = "today"
     private var updatingGpsSwitch = false
+    private var gpsSaveRequestId = 0
 
     private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
         set(Calendar.DAY_OF_MONTH, 1)
@@ -122,6 +123,7 @@ class MainActivity : Activity() {
             if (updatingGpsSwitch) return@setOnCheckedChangeListener
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
+                gpsSaveRequestId++
                 gpsPrefs.edit().remove("active_zones").apply()
                 GeofenceManager.remove(this)
                 updateGpsStatus()
@@ -195,6 +197,11 @@ class MainActivity : Activity() {
             "settings" -> showSettingsTab()
             else -> showTodayTab()
         }
+    }
+
+    override fun onDestroy() {
+        gpsSaveRequestId++
+        super.onDestroy()
     }
 
     private fun openRequestedTab(intent: Intent?) {
@@ -394,34 +401,58 @@ class MainActivity : Activity() {
         val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
         geofenceRadius.setText(radius.toString())
         val existingZones = loadSavedZoneObjects()
-        val zones = JSONArray()
-        val workZones = mutableListOf<WorkZone>()
-        val failedAddresses = mutableListOf<String>()
-        val geocoder = Geocoder(this, Locale.FRANCE)
-        addresses.forEach { address ->
-            val result = runCatching { geocoder.getFromLocationName(address, 1) }.getOrNull()?.firstOrNull()
-            if (result != null) {
-                val id = existingZoneIdForAddress(address, existingZones) ?: UUID.randomUUID().toString()
-                zones.put(JSONObject().put("id", id).put("address", address).put("latitude", result.latitude).put("longitude", result.longitude).put("radius", radius))
-                workZones += WorkZone(id, result.latitude, result.longitude, radius.toFloat())
-            } else failedAddresses += address
-        }
-        gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
-            .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString()).remove("active_zones").apply()
-        if (failedAddresses.isNotEmpty()) Toast.makeText(this, "${failedAddresses.size} adresse(s) n'ont pas pu être localisées.", Toast.LENGTH_LONG).show()
-        if (autoGpsSwitch.isChecked) {
-            if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
-            else if (GeofenceManager.hasRequiredPermissions(this)) {
-                GeofenceManager.registerAll(this, workZones) { success, message -> runOnUiThread {
-                    gpsStatusText.text = if (success) "GPS automatique actif" else message
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                } }
-            } else requestLocationAccess()
-        } else {
-            GeofenceManager.remove(this)
-            Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
-        }
-        updateGpsStatus()
+        val storedAddressBeforeRequest = gpsPrefs.getString("address", "")
+        val storedRadiusBeforeRequest = gpsPrefs.getInt("radius", 150)
+        val storedZonesBeforeRequest = gpsPrefs.getString("zones", "[]")
+        val storedEnabledBeforeRequest = gpsPrefs.getBoolean("enabled", false)
+        val requestId = ++gpsSaveRequestId
+        val appContext = applicationContext
+        gpsStatusText.text = "Localisation des adresses…"
+
+        Thread {
+            val zones = JSONArray()
+            val workZones = mutableListOf<WorkZone>()
+            val failedAddresses = mutableListOf<String>()
+            val geocoder = Geocoder(appContext, Locale.FRANCE)
+            addresses.forEach { address ->
+                val result = runCatching { geocoder.getFromLocationName(address, 1) }.getOrNull()?.firstOrNull()
+                if (result != null) {
+                    val id = existingZoneIdForAddress(address, existingZones) ?: UUID.randomUUID().toString()
+                    zones.put(JSONObject().put("id", id).put("address", address).put("latitude", result.latitude).put("longitude", result.longitude).put("radius", radius))
+                    workZones += WorkZone(id, result.latitude, result.longitude, radius.toFloat())
+                } else failedAddresses += address
+            }
+
+            runOnUiThread finishGeocoding@{
+                if (requestId != gpsSaveRequestId || isFinishing || isDestroyed) return@finishGeocoding
+                val settingsChangedElsewhere =
+                    gpsPrefs.getString("address", "") != storedAddressBeforeRequest ||
+                        gpsPrefs.getInt("radius", 150) != storedRadiusBeforeRequest ||
+                        gpsPrefs.getString("zones", "[]") != storedZonesBeforeRequest ||
+                        gpsPrefs.getBoolean("enabled", false) != storedEnabledBeforeRequest
+                if (settingsChangedElsewhere) {
+                    updateGpsStatus()
+                    return@finishGeocoding
+                }
+
+                gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
+                    .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString()).remove("active_zones").apply()
+                if (failedAddresses.isNotEmpty()) Toast.makeText(this, "${failedAddresses.size} adresse(s) n'ont pas pu être localisées.", Toast.LENGTH_LONG).show()
+                if (autoGpsSwitch.isChecked) {
+                    if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
+                    else if (GeofenceManager.hasRequiredPermissions(this)) {
+                        GeofenceManager.registerAll(this, workZones) { success, message -> runOnUiThread {
+                            gpsStatusText.text = if (success) "GPS automatique actif" else message
+                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                        } }
+                    } else requestLocationAccess()
+                } else {
+                    GeofenceManager.remove(this)
+                    Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
+                }
+                updateGpsStatus()
+            }
+        }.start()
     }
 
     private fun requestLocationAccess() {
@@ -445,6 +476,7 @@ class MainActivity : Activity() {
     }
 
     private fun disableAutomaticGps(message: String) {
+        gpsSaveRequestId++
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
         gpsPrefs.edit().putBoolean("enabled", false).remove("active_zones").apply()
         GeofenceManager.remove(this)
