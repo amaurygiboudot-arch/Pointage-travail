@@ -17,6 +17,7 @@ import com.amaury.pointage.v2.CompanyAgreementIngestionV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
+import com.amaury.pointage.v2.OfficialAgreementCandidateVerifierV2
 import com.amaury.pointage.v2.OfficialAgreementContentParserV2
 import com.amaury.pointage.v2.OfficialAgreementResultStoreV2
 import com.amaury.pointage.v2.OfficialAgreementSearchParserV2
@@ -199,22 +200,29 @@ class SalaryCompanyDetailsView(
             LegifranceFunctionClientV2.request("/search", body)
                 .addOnSuccessListener { result ->
                     OfficialAgreementResultStoreV2.save(context, company.id, siret, result.data)
-                    val found = OfficialAgreementSearchParserV2.parse(result.data, siret)
-                    if (found.isNotEmpty()) {
-                        val existing = CompanyAgreementStoreV2.list(context, company.id).associateBy { it.id }
-                        val merged = (existing.values + found.filterNot { existing.containsKey(it.id) })
-                        CompanyAgreementStoreV2.save(context, company.id, merged)
-                    }
-                    SalaryCompanyStore.prefs(context, company.id).edit()
-                        .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
-                        .commit()
-                    Toast.makeText(
-                        context,
-                        if (found.isEmpty()) "Recherche terminée — aucun accord avec SIRET vérifié dans cette réponse."
-                        else "${found.size} accord(s) Légifrance trouvé(s) — validation nécessaire.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    showAgreements()
+                    val candidates = OfficialAgreementSearchParserV2.parseCandidates(result.data)
+                    OfficialAgreementCandidateVerifierV2.verify(candidates, siret)
+                        .addOnSuccessListener { verification ->
+                            val found = verification.verified
+                            if (found.isNotEmpty()) {
+                                val existing = CompanyAgreementStoreV2.list(context, company.id).associateBy { it.id }
+                                val merged = existing.values + found.filterNot { existing.containsKey(it.id) }
+                                CompanyAgreementStoreV2.save(context, company.id, merged)
+                            }
+                            SalaryCompanyStore.prefs(context, company.id).edit()
+                                .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
+                                .commit()
+                            Toast.makeText(
+                                context,
+                                if (found.isEmpty()) "Recherche terminée — aucun accord vérifié pour ce SIRET."
+                                else "${found.size} accord(s) Légifrance vérifié(s) pour ce SIRET${if (verification.rejectedCount > 0) " — ${verification.rejectedCount} candidat(s) écarté(s)" else ""}.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                            showAgreements()
+                        }
+                        .addOnFailureListener { error ->
+                            Toast.makeText(context, "Vérification des accords impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
+                        }
                 }
                 .addOnFailureListener { error ->
                     Toast.makeText(context, "Recherche Légifrance impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
