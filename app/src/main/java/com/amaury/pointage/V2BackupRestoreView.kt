@@ -26,7 +26,7 @@ class V2BackupRestoreView @JvmOverloads constructor(
             textSize = 15f
         })
         addView(TextView(context).apply {
-            text = "Sauvegarde les pointages et réglages fonctionnels. Les jetons de connexion ne sont jamais exportés."
+            text = "Sauvegarde les pointages et réglages fonctionnels. Les jetons de connexion, le PIN et le verrouillage restent uniquement sur ce téléphone."
             textSize = 12f
             setPadding(0, dp(4), 0, dp(6))
         })

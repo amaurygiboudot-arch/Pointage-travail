@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import android.net.Uri
 import android.provider.DocumentsContract
+import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.DriveBackupManager
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,7 +16,7 @@ object V2BackupManager {
     private const val FILE_NAME = "HoraTrack_backup.json"
     private const val LEGACY_FILE_NAME = "HoraTrack_V2_backup.json"
     private val executor = Executors.newSingleThreadExecutor()
-    private val preferenceFiles = listOf("horatrack_v2_test_runtime","horatrack_v2_integration","horatrack_v2_migration","horatrack_v2_legal_sources","horatrack_v2_rights","horatrack_v2_payslips","horatrack_v2_company_pause","horatrack_v2_gps_state","v2_app_lock","salary_settings","gps_settings","shift_profiles","appearance_settings","widget_style","place_names","smart_setup","welcome_preview")
+    private val preferenceFiles = listOf("horatrack_v2_test_runtime","horatrack_v2_integration","horatrack_v2_migration","horatrack_v2_legal_sources","horatrack_v2_rights","horatrack_v2_payslips","horatrack_v2_company_pause","horatrack_v2_gps_state","salary_settings","gps_settings","shift_profiles","appearance_settings","widget_style","place_names","smart_setup","welcome_preview").filter(BackupSecurityPolicy::canTransferPreferenceFile)
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
 
     fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
