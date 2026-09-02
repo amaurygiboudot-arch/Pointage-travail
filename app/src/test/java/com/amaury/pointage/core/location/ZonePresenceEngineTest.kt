@@ -8,21 +8,58 @@ class ZonePresenceEngineTest {
     private val minute = 60_000L
 
     @Test
-    fun `entree puis sortie d'une zone produit un fait ferme`() {
+    fun `entree puis sortie stables produisent un fait ferme`() {
         val zone = circle("paris-site", 48.8566, 2.3522, 120.0)
         val result = ZonePresenceEngine.evaluate(
             zones = listOf(zone),
             observations = listOf(
                 observation(8 * 60 * minute, 48.8580, 2.3522),
                 observation(8 * 60 * minute + 5 * minute, 48.8566, 2.3522),
+                observation(8 * 60 * minute + 6 * minute, 48.8566, 2.3522),
                 observation(16 * 60 * minute, 48.8566, 2.3522),
-                observation(16 * 60 * minute + 5 * minute, 48.8580, 2.3522)
+                observation(16 * 60 * minute + 5 * minute, 48.8580, 2.3522),
+                observation(16 * 60 * minute + 6 * minute, 48.8580, 2.3522)
             )
         )
 
         assertEquals(1, result.size)
         assertEquals(8 * 60 * minute + 5 * minute, result.single().enteredAtMs)
         assertEquals(16 * 60 * minute + 5 * minute, result.single().exitedAtMs)
+    }
+
+    @Test
+    fun `un rebond unique pres de la frontiere ne ferme pas la presence`() {
+        val zone = circle("paris-site", 48.8566, 2.3522, 120.0)
+        val result = ZonePresenceEngine.evaluate(
+            zones = listOf(zone),
+            observations = listOf(
+                observation(8 * 60 * minute, 48.8566, 2.3522),
+                observation(12 * 60 * minute, 48.8580, 2.3522),
+                observation(12 * 60 * minute + minute, 48.8566, 2.3522),
+                observation(16 * 60 * minute, 48.8566, 2.3522)
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(8 * 60 * minute, result.single().enteredAtMs)
+        assertNull(result.single().exitedAtMs)
+    }
+
+    @Test
+    fun `une transition confirmee conserve la premiere heure observee`() {
+        val zone = circle("paris-bureau", 48.8566, 2.3522, 80.0)
+        val result = ZonePresenceEngine.evaluate(
+            zones = listOf(zone),
+            observations = listOf(
+                observation(8 * 60 * minute, 48.8580, 2.3522),
+                observation(9 * 60 * minute, 48.8566, 2.3522),
+                observation(9 * 60 * minute + minute, 48.8566, 2.3522)
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(9 * 60 * minute, result.single().enteredAtMs)
+        assertNull(result.single().exitedAtMs)
     }
 
     @Test
@@ -49,7 +86,9 @@ class ZonePresenceEngineTest {
             observations = listOf(
                 observation(8 * 60 * minute, 48.8566, 2.3522),
                 observation(10 * 60 * minute, 48.8584, 2.3522),
-                observation(12 * 60 * minute, 48.8610, 2.3522)
+                observation(10 * 60 * minute + minute, 48.8584, 2.3522),
+                observation(12 * 60 * minute, 48.8610, 2.3522),
+                observation(12 * 60 * minute + minute, 48.8610, 2.3522)
             )
         )
 
@@ -71,6 +110,24 @@ class ZonePresenceEngineTest {
 
         assertEquals(1, result.size)
         assertEquals("paris-site", result.single().zoneId)
+    }
+
+    @Test
+    fun `la politique peut exiger trois confirmations`() {
+        val zone = circle("paris-site", 48.8566, 2.3522, 120.0)
+        val result = ZonePresenceEngine.evaluate(
+            zones = listOf(zone),
+            observations = listOf(
+                observation(8 * 60 * minute, 48.8580, 2.3522),
+                observation(9 * 60 * minute, 48.8566, 2.3522),
+                observation(9 * 60 * minute + minute, 48.8566, 2.3522),
+                observation(9 * 60 * minute + 2 * minute, 48.8566, 2.3522)
+            ),
+            policy = ZonePresencePolicy(confirmationSamples = 3)
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(9 * 60 * minute, result.single().enteredAtMs)
     }
 
     private fun circle(id: String, lat: Double, lon: Double, radius: Double) = WorkplaceZone(
