@@ -130,6 +130,41 @@ class ZonePresenceEngineTest {
         assertEquals(9 * 60 * minute, result.single().enteredAtMs)
     }
 
+    @Test
+    fun `un point trop imprecis ne peut pas fermer une presence`() {
+        val zone = circle("paris-site", 48.8566, 2.3522, 120.0)
+        val result = ZonePresenceEngine.evaluate(
+            zones = listOf(zone),
+            observations = listOf(
+                observation(8 * 60 * minute, 48.8566, 2.3522, 5f),
+                observation(12 * 60 * minute, 48.8580, 2.3522, 80f),
+                observation(12 * 60 * minute + minute, 48.8580, 2.3522, 80f),
+                observation(16 * 60 * minute, 48.8566, 2.3522, 5f)
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(8 * 60 * minute, result.single().enteredAtMs)
+        assertNull(result.single().exitedAtMs)
+    }
+
+    @Test
+    fun `seuls les points fiables comptent dans les confirmations`() {
+        val zone = circle("paris-site", 48.8566, 2.3522, 120.0)
+        val result = ZonePresenceEngine.evaluate(
+            zones = listOf(zone),
+            observations = listOf(
+                observation(8 * 60 * minute, 48.8580, 2.3522, 5f),
+                observation(9 * 60 * minute, 48.8566, 2.3522, 5f),
+                observation(9 * 60 * minute + minute, 48.8566, 2.3522, 80f),
+                observation(9 * 60 * minute + 2 * minute, 48.8566, 2.3522, 5f)
+            )
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(9 * 60 * minute, result.single().enteredAtMs)
+    }
+
     private fun circle(id: String, lat: Double, lon: Double, radius: Double) = WorkplaceZone(
         id = id,
         name = id,
@@ -137,6 +172,6 @@ class ZonePresenceEngineTest {
         geometry = WorkplaceGeometry.Circle(GeoPoint(lat, lon), radius)
     )
 
-    private fun observation(at: Long, lat: Double, lon: Double) =
-        LocationObservation(at, GeoPoint(lat, lon), accuracyMeters = 10f)
+    private fun observation(at: Long, lat: Double, lon: Double, accuracy: Float = 10f) =
+        LocationObservation(at, GeoPoint(lat, lon), accuracyMeters = accuracy)
 }
