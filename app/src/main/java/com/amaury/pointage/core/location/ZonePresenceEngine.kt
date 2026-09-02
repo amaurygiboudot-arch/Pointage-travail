@@ -1,29 +1,37 @@
 package com.amaury.pointage.core.location
 
 /**
- * Politique de stabilisation des transitions GPS.
+ * Politique de stabilisation et de qualité des transitions GPS.
  *
  * Une entrée ou une sortie doit être observée plusieurs fois de suite avant d'être
- * confirmée. Le fait conserve toutefois l'heure de la première observation de la
- * transition confirmée afin de ne pas déplacer artificiellement l'heure réelle.
+ * confirmée. Une observation trop imprécise est ignorée : elle ne peut donc ni ouvrir,
+ * ni fermer, ni confirmer une présence.
+ *
+ * Le fait conserve l'heure de la première observation fiable de la transition confirmée
+ * afin de ne pas déplacer artificiellement l'heure réelle.
  */
 data class ZonePresencePolicy(
-    val confirmationSamples: Int = 2
+    val confirmationSamples: Int = 2,
+    val maxAccuracyMeters: Float = 50f
 ) {
     init {
         require(confirmationSamples >= 1) { "confirmationSamples must be >= 1" }
+        require(maxAccuracyMeters > 0f) { "maxAccuracyMeters must be > 0" }
     }
+
+    fun accepts(observation: LocationObservation): Boolean =
+        observation.accuracyMeters == null || observation.accuracyMeters <= maxAccuracyMeters
 }
 
 /**
- * Transforme une suite d'observations GPS en faits d'entrée/sortie de zones.
+ * Transforme une suite d'observations GPS fiables en faits d'entrée/sortie de zones.
  *
  * Ce moteur ne crée aucun pointage de travail. Il décrit seulement où le téléphone
  * a été observé et à quel moment les transitions de zone ont eu lieu.
  *
- * La première observation établit l'état initial d'une zone. Ensuite, toute transition
- * doit être confirmée par plusieurs observations consécutives afin d'éviter les rebonds
- * entrée/sortie provoqués par l'imprécision GPS près d'une frontière.
+ * La première observation fiable établit l'état initial d'une zone. Ensuite, toute
+ * transition doit être confirmée par plusieurs observations fiables consécutives afin
+ * d'éviter les rebonds entrée/sortie provoqués par l'imprécision GPS près d'une frontière.
  */
 object ZonePresenceEngine {
     private data class ZoneState(
@@ -44,7 +52,13 @@ object ZonePresenceEngine {
         val enabledZones = zones.filter { it.enabled }
         if (enabledZones.isEmpty()) return emptyList()
 
-        val ordered = observations.sortedBy { it.occurredAtMs }
+        val ordered = observations
+            .asSequence()
+            .filter(policy::accepts)
+            .sortedBy { it.occurredAtMs }
+            .toList()
+        if (ordered.isEmpty()) return emptyList()
+
         val states = linkedMapOf<String, ZoneState>()
         val facts = mutableListOf<ZonePresenceFact>()
 
