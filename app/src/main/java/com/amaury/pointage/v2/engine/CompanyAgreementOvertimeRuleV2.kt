@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.CompanyAgreementRuleExtractorV2
+
 /**
  * Règle d'heures supplémentaires prête à être proposée au moteur de paie.
  * Le taux et la tranche doivent provenir du même extrait déjà validé.
@@ -13,6 +15,7 @@ object CompanyAgreementOvertimeRuleV2 {
 
     fun from(source: CompanyAgreementStructuredRuleV2.Rule): Rule? {
         if (!source.calculationReady) return null
+        if (source.source.category != CompanyAgreementRuleExtractorV2.Category.OVERTIME) return null
         val value = source.value ?: return null
         if (value.type != CompanyAgreementStructuredRuleV2.ValueType.PERCENT) return null
         val band = CompanyAgreementOvertimeBandV2.parse(source.source.excerpt) ?: return null
