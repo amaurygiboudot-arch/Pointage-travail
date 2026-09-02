@@ -317,7 +317,7 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
     }
 
     private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
-    private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_DECIMAL or InputType.TYPE_NUMBER_FLAG_DECIMAL) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
+    private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
     private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { click() } }
     private fun row() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
