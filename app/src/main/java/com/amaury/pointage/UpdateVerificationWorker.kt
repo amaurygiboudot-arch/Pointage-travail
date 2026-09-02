@@ -39,6 +39,10 @@ class UpdateVerificationWorker(
             ApkUpdateVerifier.verify(context, apk, version)
             UpdateChecker.validateApk(context, apk)
             UpdateChecker.markDownloadReady(context, apk)
+            if (prefs.getBoolean(UpdateChecker.KEY_RECOVERY_REPAIR, false)) {
+                CrashRecoveryManager.clear(context)
+                prefs.edit().remove(UpdateChecker.KEY_RECOVERY_REPAIR).apply()
+            }
             prefs.edit().putBoolean(UpdateChecker.KEY_VERIFICATION_PENDING, false).apply()
             notifyReady(context)
             Result.success()

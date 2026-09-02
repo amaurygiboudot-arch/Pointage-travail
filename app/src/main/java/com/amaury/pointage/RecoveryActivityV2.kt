@@ -6,6 +6,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,17 +25,40 @@ class RecoveryActivityV2 : Activity() {
     private lateinit var adminButton: Button
     private var ownerTapCount = 0
     private val requestEnroll = 7401
+    private val updateMonitorHandler = Handler(Looper.getMainLooper())
+    private var monitoringUpdate = false
+    private val updateMonitor = object : Runnable {
+        override fun run() {
+            if (!monitoringUpdate || isFinishing || isDestroyed) return
+            if (UpdateChecker.tryInstallReady(this@RecoveryActivityV2)) {
+                monitoringUpdate = false
+                CrashRecoveryManager.clear(this@RecoveryActivityV2)
+                status.text = "Mise à jour vérifiée. Ouverture de l’installateur Android…"
+                retry.text = "CONTINUER L’INSTALLATION"
+                setRetryEnabled(true)
+                return
+            }
+            if (UpdateChecker.hasActiveDownload(this@RecoveryActivityV2)) {
+                updateMonitorHandler.postDelayed(this, UPDATE_MONITOR_DELAY_MS)
+                return
+            }
+            monitoringUpdate = false
+            progress.isIndeterminate = false
+            progress.progress = 0
+            status.text = "La mise à jour a été interrompue. Tu peux réessayer."
+            setRetryEnabled(true)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.alpha = 1f
         window.setBackgroundDrawableResource(android.R.color.white)
         buildUi()
-        RecoveryUpdater.checkAndRepair(this, status, progress, retry)
+        checkAndRepair()
     }
 
     private fun buildUi() {
-        fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
         fun buttonBg(enabled: Boolean = true) = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(12).toFloat()
@@ -142,7 +167,7 @@ class RecoveryActivityV2 : Activity() {
             text = "RÉESSAYER LA RÉPARATION"
             isEnabled = false
             styleButton(this)
-            setOnClickListener { RecoveryUpdater.checkAndRepair(this@RecoveryActivityV2, status, progress, this) }
+            setOnClickListener { checkAndRepair() }
         }
         content.addView(retry, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
@@ -157,6 +182,88 @@ class RecoveryActivityV2 : Activity() {
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(10) })
 
         setContentView(root)
+    }
+
+    private fun checkAndRepair() {
+        monitoringUpdate = false
+        updateMonitorHandler.removeCallbacks(updateMonitor)
+        retry.visibility = View.VISIBLE
+        retry.text = "RÉESSAYER LA RÉPARATION"
+        setRetryEnabled(false)
+        progress.visibility = View.VISIBLE
+        progress.progress = 0
+        progress.isIndeterminate = true
+
+        UpdateChecker.check(
+            activity = this,
+            silent = true,
+            askBeforeDownload = false,
+            recoveryRepair = true
+        ) { updateStatus, message ->
+            status.text = message
+            when (updateStatus) {
+                UpdateChecker.Status.DISABLED -> {
+                    progress.isIndeterminate = false
+                    progress.visibility = View.GONE
+                    retry.visibility = View.GONE
+                }
+                UpdateChecker.Status.CHECKING -> {
+                    progress.visibility = View.VISIBLE
+                    progress.isIndeterminate = true
+                    setRetryEnabled(false)
+                }
+                UpdateChecker.Status.BUSY -> {
+                    progress.isIndeterminate = false
+                    progress.progress = 0
+                    setRetryEnabled(true)
+                }
+                UpdateChecker.Status.DOWNLOADING -> {
+                    progress.visibility = View.VISIBLE
+                    progress.isIndeterminate = true
+                    setRetryEnabled(false)
+                    startUpdateMonitor()
+                }
+                UpdateChecker.Status.INSTALLING -> {
+                    monitoringUpdate = false
+                    updateMonitorHandler.removeCallbacks(updateMonitor)
+                    CrashRecoveryManager.clear(this)
+                    progress.isIndeterminate = false
+                    progress.progress = 100
+                    retry.text = "CONTINUER L’INSTALLATION"
+                    setRetryEnabled(true)
+                }
+                UpdateChecker.Status.NO_UPDATE,
+                UpdateChecker.Status.ERROR -> {
+                    progress.isIndeterminate = false
+                    progress.progress = 0
+                    setRetryEnabled(true)
+                }
+            }
+        }
+    }
+
+    private fun startUpdateMonitor() {
+        if (monitoringUpdate) return
+        monitoringUpdate = true
+        updateMonitorHandler.postDelayed(updateMonitor, UPDATE_MONITOR_DELAY_MS)
+    }
+
+    private fun setRetryEnabled(enabled: Boolean) {
+        retry.isEnabled = enabled
+        retry.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(12).toFloat()
+            setColor(if (enabled) Color.rgb(24, 24, 24) else Color.rgb(105, 105, 105))
+        }
+        retry.setTextColor(Color.WHITE)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    override fun onDestroy() {
+        monitoringUpdate = false
+        updateMonitorHandler.removeCallbacks(updateMonitor)
+        super.onDestroy()
     }
 
     private fun requestOwnerEnrollment() {
@@ -181,5 +288,9 @@ class RecoveryActivityV2 : Activity() {
             adminButton.visibility = View.VISIBLE
             Toast.makeText(this, "Zone développeur privée activée sur ce téléphone.", Toast.LENGTH_LONG).show()
         }
+    }
+
+    private companion object {
+        const val UPDATE_MONITOR_DELAY_MS = 750L
     }
 }

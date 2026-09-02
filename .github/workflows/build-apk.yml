@@ -39,6 +39,9 @@ jobs:
       - name: Verifier les icones launcher
         run: python scripts/verify_launcher_icons.py
 
+      - name: Verifier le chemin unique de mise a jour
+        run: python scripts/verify_update_architecture.py
+
       - name: Tests unitaires et controle Google Play
         run: |
           gradle :app:testDebugUnitTest :app:assemblePlay --stacktrace

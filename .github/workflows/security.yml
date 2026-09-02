@@ -90,6 +90,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
+      - name: Verify single APK update path
+        run: python scripts/verify_update_architecture.py
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
 

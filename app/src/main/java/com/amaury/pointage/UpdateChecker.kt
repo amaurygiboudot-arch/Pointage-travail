@@ -17,6 +17,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object UpdateChecker {
+    enum class Status {
+        DISABLED,
+        CHECKING,
+        BUSY,
+        DOWNLOADING,
+        INSTALLING,
+        NO_UPDATE,
+        ERROR
+    }
+
     /**
      * Interrupteur central du moteur de mise à jour APK interne.
      * La variante interne l'active, tandis que la variante Google Play le désactive
@@ -35,6 +45,7 @@ object UpdateChecker {
     internal const val KEY_READY_FILE = "ready_file"
     internal const val KEY_READY_VERSION = "ready_version"
     internal const val KEY_VERIFICATION_PENDING = "verification_pending"
+    internal const val KEY_RECOVERY_REPAIR = "recovery_repair"
 
     @Volatile private var updateInProgress = false
     @Volatile private var installerOpening = false
@@ -76,12 +87,32 @@ object UpdateChecker {
             .onFailure { installerOpening = false; Toast.makeText(activity, "Impossible d'ouvrir l'installateur Android.", Toast.LENGTH_LONG).show() }
     }
 
-    fun check(activity: Activity, silent: Boolean = true, askBeforeDownload: Boolean = false) {
-        if (!INTERNAL_APK_UPDATES_ENABLED) return
-        if (tryInstallReady(activity)) return
-        if (hasActiveDownload(activity)) { if (!silent) Toast.makeText(activity, "La mise à jour continue en arrière-plan", Toast.LENGTH_LONG).show(); return }
-        if (updateInProgress || promptShowing) { if (!silent && updateInProgress) Toast.makeText(activity, "Vérification déjà en cours", Toast.LENGTH_SHORT).show(); return }
+    fun check(
+        activity: Activity,
+        silent: Boolean = true,
+        askBeforeDownload: Boolean = false,
+        recoveryRepair: Boolean = false,
+        onStatus: ((Status, String) -> Unit)? = null
+    ) {
+        if (!INTERNAL_APK_UPDATES_ENABLED) {
+            showStatus(activity, silent, Status.DISABLED, "Les mises à jour sont gérées par Google Play.", onStatus)
+            return
+        }
+        if (tryInstallReady(activity)) {
+            showStatus(activity, true, Status.INSTALLING, "Mise à jour vérifiée. Ouverture de l’installateur Android…", onStatus)
+            return
+        }
+        if (hasActiveDownload(activity)) {
+            if (recoveryRepair) markRecoveryRepairRequested(activity)
+            showStatus(activity, silent, Status.DOWNLOADING, "Le téléchargement ou la vérification sécurisée continue en arrière-plan.", onStatus)
+            return
+        }
+        if (updateInProgress || promptShowing) {
+            showStatus(activity, silent, Status.BUSY, "Une vérification est déjà en cours.", onStatus)
+            return
+        }
         updateInProgress = true
+        showStatus(activity, true, Status.CHECKING, "Recherche d’une mise à jour sécurisée…", onStatus)
         Thread {
             var connection: HttpURLConnection? = null
             try {
@@ -104,20 +135,46 @@ object UpdateChecker {
                 } else if (code == 403 || code == 429) {
                     connection.disconnect(); connection = null
                     val fallback = resolveLatestReleaseWithoutApi(); versionName = fallback.first; apkUrl = fallback.second
-                } else { showStatus(activity, silent, "Vérification temporairement indisponible"); return@Thread }
-                if (versionName.isNullOrBlank()) { showStatus(activity, silent, "Version de mise à jour introuvable"); return@Thread }
+                } else {
+                    showStatus(activity, silent, Status.ERROR, "Vérification temporairement indisponible", onStatus)
+                    return@Thread
+                }
+                if (versionName.isNullOrBlank()) {
+                    showStatus(activity, silent, Status.ERROR, "Version de mise à jour introuvable", onStatus)
+                    return@Thread
+                }
                 val currentVersion = activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty()
-                if (compareVersions(versionName, currentVersion) <= 0) { showStatus(activity, silent, "Aucune mise à jour disponible"); return@Thread }
+                if (compareVersions(versionName, currentVersion) <= 0) {
+                    showStatus(activity, silent, Status.NO_UPDATE, "Aucune mise à jour disponible", onStatus)
+                    return@Thread
+                }
                 val finalUrl = apkUrl ?: LATEST_APK_FALLBACK
-                activity.runOnUiThread { if (askBeforeDownload) showUpdatePrompt(activity, versionName, finalUrl) else enqueueBackgroundDownload(activity, finalUrl, versionName, silent) }
+                activity.runOnUiThread {
+                    if (askBeforeDownload) {
+                        showUpdatePrompt(activity, versionName, finalUrl, recoveryRepair, onStatus)
+                    } else {
+                        enqueueBackgroundDownload(activity, finalUrl, versionName, silent, recoveryRepair, onStatus)
+                    }
+                }
             } catch (e: Exception) {
                 val fallback = runCatching { resolveLatestReleaseWithoutApi() }.getOrNull()
                 if (fallback != null) {
                     val versionName = fallback.first
                     val currentVersion = runCatching { activity.packageManager.getPackageInfo(activity.packageName, 0).versionName.orEmpty() }.getOrDefault("")
-                    if (versionName.isNotBlank() && compareVersions(versionName, currentVersion) > 0) activity.runOnUiThread { if (askBeforeDownload) showUpdatePrompt(activity, versionName, fallback.second) else enqueueBackgroundDownload(activity, fallback.second, versionName, silent) }
-                    else showStatus(activity, silent, "Aucune mise à jour disponible")
-                } else showStatus(activity, silent, "Vérification temporairement indisponible")
+                    if (versionName.isNotBlank() && compareVersions(versionName, currentVersion) > 0) {
+                        activity.runOnUiThread {
+                            if (askBeforeDownload) {
+                                showUpdatePrompt(activity, versionName, fallback.second, recoveryRepair, onStatus)
+                            } else {
+                                enqueueBackgroundDownload(activity, fallback.second, versionName, silent, recoveryRepair, onStatus)
+                            }
+                        }
+                    } else {
+                        showStatus(activity, silent, Status.NO_UPDATE, "Aucune mise à jour disponible", onStatus)
+                    }
+                } else {
+                    showStatus(activity, silent, Status.ERROR, "Vérification temporairement indisponible", onStatus)
+                }
             } finally { updateInProgress = false; connection?.disconnect() }
         }.start()
     }
@@ -137,21 +194,40 @@ object UpdateChecker {
         } finally { c.disconnect() }
     }
 
-    private fun showUpdatePrompt(activity: Activity, versionName: String, apkUrl: String) {
+    private fun showUpdatePrompt(
+        activity: Activity,
+        versionName: String,
+        apkUrl: String,
+        recoveryRepair: Boolean,
+        onStatus: ((Status, String) -> Unit)?
+    ) {
         if (!INTERNAL_APK_UPDATES_ENABLED) return
         if (promptShowing || activity.isFinishing || activity.isDestroyed) return
         promptShowing = true
         val dialog = AlertDialog.Builder(activity).setTitle("Mise à jour disponible")
             .setMessage("HoraTrack $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
-            .setPositiveButton("TÉLÉCHARGER") { _, _ -> enqueueBackgroundDownload(activity, apkUrl, versionName, false) }
+            .setPositiveButton("TÉLÉCHARGER") { _, _ ->
+                enqueueBackgroundDownload(activity, apkUrl, versionName, false, recoveryRepair, onStatus)
+            }
             .setNegativeButton("PLUS TARD", null).create()
         dialog.setOnDismissListener { promptShowing = false }
         dialog.show()
     }
 
-    private fun enqueueBackgroundDownload(activity: Activity, apkUrl: String, versionName: String, silent: Boolean) {
+    private fun enqueueBackgroundDownload(
+        activity: Activity,
+        apkUrl: String,
+        versionName: String,
+        silent: Boolean,
+        recoveryRepair: Boolean,
+        onStatus: ((Status, String) -> Unit)?
+    ) {
         if (!INTERNAL_APK_UPDATES_ENABLED) return
-        if (hasActiveDownload(activity)) { if (!silent) Toast.makeText(activity, "Une mise à jour est déjà en cours", Toast.LENGTH_LONG).show(); return }
+        if (hasActiveDownload(activity)) {
+            if (recoveryRepair) markRecoveryRepairRequested(activity)
+            showStatus(activity, silent, Status.DOWNLOADING, "Une mise à jour est déjà en cours", onStatus)
+            return
+        }
         try {
             val fileName = "HoraTrack-$versionName.apk"
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
@@ -164,15 +240,26 @@ object UpdateChecker {
             }
             val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
             val downloadId = manager.enqueue(request)
-            activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            val editor = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_DOWNLOAD_ID, downloadId).putString(KEY_VERSION, versionName).putString(KEY_FILE_NAME, fileName)
                 .putBoolean(KEY_VERIFICATION_PENDING, false)
-                .remove(KEY_READY_FILE).remove(KEY_READY_VERSION).apply()
-            if (!silent) Toast.makeText(activity, "Téléchargement de la mise à jour lancé", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) { if (!silent) Toast.makeText(activity, "Mise à jour impossible : ${shortError(e)}", Toast.LENGTH_LONG).show() }
+                .remove(KEY_READY_FILE).remove(KEY_READY_VERSION)
+            if (recoveryRepair) editor.putBoolean(KEY_RECOVERY_REPAIR, true)
+            else editor.remove(KEY_RECOVERY_REPAIR)
+            editor.apply()
+            showStatus(
+                activity,
+                silent,
+                Status.DOWNLOADING,
+                "Téléchargement sécurisé de HoraTrack $versionName lancé. L’installation sera proposée après vérification.",
+                onStatus
+            )
+        } catch (e: Exception) {
+            showStatus(activity, silent, Status.ERROR, "Mise à jour impossible : ${shortError(e)}", onStatus)
+        }
     }
 
-    private fun hasActiveDownload(context: Context): Boolean {
+    internal fun hasActiveDownload(context: Context): Boolean {
         if (!INTERNAL_APK_UPDATES_ENABLED) return false
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_VERIFICATION_PENDING, false)) return true
@@ -222,7 +309,14 @@ object UpdateChecker {
     internal fun clearDownloadState(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_VERIFICATION_PENDING, false)
-            .remove(KEY_DOWNLOAD_ID).remove(KEY_VERSION).remove(KEY_FILE_NAME).apply()
+            .remove(KEY_DOWNLOAD_ID).remove(KEY_VERSION).remove(KEY_FILE_NAME)
+            .remove(KEY_RECOVERY_REPAIR).apply()
+    }
+
+    private fun markRecoveryRepairRequested(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_RECOVERY_REPAIR, true)
+            .apply()
     }
 
     private fun clearReadyState(context: Context, deleteFile: Boolean) {
@@ -252,12 +346,6 @@ object UpdateChecker {
         }
     }
 
-    fun openInstaller(activity: Activity, apk: File) {
-        if (!INTERNAL_APK_UPDATES_ENABLED) return
-        markDownloadReady(activity, apk)
-        tryInstallReady(activity)
-    }
-
     private fun openConnection(url: String, connectTimeout: Int, readTimeout: Int): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true; this.connectTimeout = connectTimeout; this.readTimeout = readTimeout
@@ -265,8 +353,18 @@ object UpdateChecker {
             setRequestProperty("User-Agent", "HP-Travail-Android"); setRequestProperty("Cache-Control", "no-cache"); connect()
         }
 
-    private fun showStatus(activity: Activity, silent: Boolean, message: String) {
-        if (!silent) activity.runOnUiThread { if (!activity.isFinishing && !activity.isDestroyed) Toast.makeText(activity, message, Toast.LENGTH_LONG).show() }
+    private fun showStatus(
+        activity: Activity,
+        silent: Boolean,
+        status: Status,
+        message: String,
+        onStatus: ((Status, String) -> Unit)?
+    ) {
+        activity.runOnUiThread {
+            if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+            onStatus?.invoke(status, message)
+            if (!silent) Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun shortError(e: Exception): String = e.message?.trim().takeUnless { it.isNullOrBlank() }?.take(120) ?: e.javaClass.simpleName
