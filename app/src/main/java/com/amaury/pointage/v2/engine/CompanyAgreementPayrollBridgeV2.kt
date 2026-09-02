@@ -42,7 +42,9 @@ object CompanyAgreementPayrollBridgeV2 {
             rule.source.category == CompanyAgreementRuleExtractorV2.Category.OVERTIME &&
                 rule.value?.type == CompanyAgreementStructuredRuleV2.ValueType.PERCENT
         }
-        val overtime = overtimePercent.mapNotNull(CompanyAgreementOvertimeRuleV2::from)
+        val overtime = CompanyAgreementOvertimeDeduplicatorV2.deduplicate(
+            overtimePercent.mapNotNull(CompanyAgreementOvertimeRuleV2::from)
+        )
         val conflictCheck = CompanyAgreementOvertimeConflictV2.check(overtime)
         return Snapshot(
             referenceDate = referenceDate,
