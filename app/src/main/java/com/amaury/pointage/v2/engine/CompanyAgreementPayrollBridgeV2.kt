@@ -19,7 +19,8 @@ object CompanyAgreementPayrollBridgeV2 {
         val overtimePercentRules: List<CompanyAgreementStructuredRuleV2.Rule>,
         val overtimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
         val safeOvertimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
-        val conflictingOvertimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>
+        val conflictingOvertimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
+        val periodSegments: List<CompanyAgreementPayrollSegmentsV2.Segment> = emptyList()
     ) {
         val hasApplicableRules: Boolean get() = applicableRules.isNotEmpty()
         val hasCalculationReadyRules: Boolean get() = calculationReadyRules.isNotEmpty()
@@ -27,12 +28,14 @@ object CompanyAgreementPayrollBridgeV2 {
         val hasOvertimeRules: Boolean get() = overtimeRules.isNotEmpty()
         val hasSafeOvertimeRules: Boolean get() = safeOvertimeRules.isNotEmpty()
         val hasOvertimeConflicts: Boolean get() = conflictingOvertimeRules.isNotEmpty()
+        val hasPeriodChanges: Boolean get() = periodSegments.size > 1
     }
 
     fun load(
         context: Context,
         companyId: String,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        period: PayrollPeriodV2.Period? = null
     ): Snapshot {
         val applicable = ApplicableCompanyAgreementRulesV2.list(context, companyId, referenceDate)
         val calculationReady = applicable
@@ -46,6 +49,9 @@ object CompanyAgreementPayrollBridgeV2 {
             overtimePercent.mapNotNull(CompanyAgreementOvertimeRuleV2::from)
         )
         val conflictCheck = CompanyAgreementOvertimeConflictV2.check(overtime)
+        val periodSegments = period?.let {
+            CompanyAgreementPayrollSegmentsV2.load(context, companyId, it)
+        }.orEmpty()
         return Snapshot(
             referenceDate = referenceDate,
             applicableRules = applicable,
@@ -53,7 +59,8 @@ object CompanyAgreementPayrollBridgeV2 {
             overtimePercentRules = overtimePercent,
             overtimeRules = overtime,
             safeOvertimeRules = conflictCheck.safeRules,
-            conflictingOvertimeRules = conflictCheck.conflictingRules
+            conflictingOvertimeRules = conflictCheck.conflictingRules,
+            periodSegments = periodSegments
         )
     }
 }
