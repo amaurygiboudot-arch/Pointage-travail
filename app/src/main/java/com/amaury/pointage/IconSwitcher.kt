@@ -33,9 +33,9 @@ object IconSwitcher {
     )
 
     private val icons = listOf(
-        LauncherIcon(IconState.DEFAULT, "com.amaury.pointage.IconRed"),
-        LauncherIcon(IconState.WORKING, "com.amaury.pointage.IconGreen"),
-        LauncherIcon(IconState.PAUSED, "com.amaury.pointage.IconOrange")
+        LauncherIcon(IconState.DEFAULT, "com.amaury.pointage.IconRedV2"),
+        LauncherIcon(IconState.WORKING, "com.amaury.pointage.IconGreenV2"),
+        LauncherIcon(IconState.PAUSED, "com.amaury.pointage.IconOrangeV2")
     )
 
     private val fallbackIcon: LauncherIcon

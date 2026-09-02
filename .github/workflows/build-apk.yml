@@ -2,6 +2,11 @@ name: Compiler HoraTrack APK et AAB
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/icon-build-trigger.txt"
 
 concurrency:
   group: horatrack-apk-aab
@@ -30,6 +35,9 @@ jobs:
         with:
           gradle-version: "8.13"
           cache-cleanup: on-success
+
+      - name: Verifier les icones launcher
+        run: python scripts/verify_launcher_icons.py
 
       - name: Tests unitaires et controle Google Play
         run: |
@@ -121,6 +129,19 @@ jobs:
         run: |
           echo "La compilation Gradle a echoue. Le log complet est disponible dans l'artefact diagnostic-compilation-${{ github.run_number }}."
           exit 1
+
+      - name: Verifier les icones dans l APK final
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 -type f | sort -V | tail -1)
+          test -n "$AAPT2" || (echo "aapt2 introuvable" && exit 1)
+          "$AAPT2" dump resources app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/horatrack-resources.txt"
+          for color in red green orange; do
+            grep -q "mipmap/horatrack_icon_${color}_v2" "$RUNNER_TEMP/horatrack-resources.txt" || {
+              echo "Icone ${color} absente de l APK final"
+              exit 1
+            }
+          done
+          echo "Les trois icones HoraTrack valides sont presentes dans l APK final."
 
       - name: Verifier la signature APK
         run: |
