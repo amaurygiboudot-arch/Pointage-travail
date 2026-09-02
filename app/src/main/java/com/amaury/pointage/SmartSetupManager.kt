@@ -121,11 +121,12 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
         gps.edit()
             .putString("zones", zones.toString())
-            .putBoolean("enabled", true)
             .putBoolean("smart_setup_candidate_created", true)
             .apply()
 
-        if (GeofenceManager.hasRequiredPermissions(context)) registerStoredZones(context)
+        if (gps.getBoolean("enabled", false) && GeofenceManager.hasRequiredPermissions(context)) {
+            registerStoredZones(context)
+        }
     }
 
     fun isCandidateZone(context: Context, zoneId: String): Boolean {

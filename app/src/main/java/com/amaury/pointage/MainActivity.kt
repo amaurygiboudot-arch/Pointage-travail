@@ -123,7 +123,7 @@ class MainActivity : Activity() {
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
                 gpsPrefs.edit().remove("active_zones").apply()
-                GeofenceManager.unregisterAll(this)
+                GeofenceManager.remove(this)
                 updateGpsStatus()
                 Toast.makeText(this, "Pointage automatique GPS désactivé", Toast.LENGTH_SHORT).show()
             } else if (!GeofenceManager.hasRequiredPermissions(this)) {
@@ -418,7 +418,7 @@ class MainActivity : Activity() {
                 } }
             } else requestLocationAccess()
         } else {
-            GeofenceManager.unregisterAll(this)
+            GeofenceManager.remove(this)
             Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
         }
         updateGpsStatus()
@@ -447,7 +447,7 @@ class MainActivity : Activity() {
     private fun disableAutomaticGps(message: String) {
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
         gpsPrefs.edit().putBoolean("enabled", false).remove("active_zones").apply()
-        GeofenceManager.unregisterAll(this)
+        GeofenceManager.remove(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }

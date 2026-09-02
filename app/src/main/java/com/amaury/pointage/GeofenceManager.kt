@@ -20,10 +20,28 @@ data class WorkZone(
     val radius: Float
 )
 
+internal fun shouldRegisterAutomaticGps(enabled: Boolean): Boolean = enabled
+
+internal fun shouldRecoverAutomaticGpsZones(
+    enabled: Boolean,
+    currentZoneCount: Int,
+    currentAddresses: Set<String>,
+    backupAddresses: Set<String>
+): Boolean = enabled &&
+    currentZoneCount == 0 &&
+    currentAddresses.isNotEmpty() &&
+    currentAddresses == backupAddresses
+
 object GeofenceManager {
     private const val GPS_PREFS = "gps_settings"
     private const val LAST_GOOD_ZONES = "zones_last_good"
     private const val MAX_ZONES = 10
+
+    private fun isAutomaticGpsEnabled(context: Context): Boolean =
+        shouldRegisterAutomaticGps(
+            context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
+                .getBoolean("enabled", false)
+        )
 
     private fun pendingIntent(context: Context): PendingIntent {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT
@@ -71,6 +89,12 @@ object GeofenceManager {
         zones: List<WorkZone>,
         onResult: (Boolean, String) -> Unit = { _, _ -> }
     ) {
+        if (!isAutomaticGpsEnabled(context)) {
+            remove(context)
+            onResult(false, "GPS automatique désactivé")
+            return
+        }
+
         if (!hasLocationHardware(context)) {
             onResult(false, "Aucun service de localisation disponible sur cet appareil")
             return
@@ -113,9 +137,18 @@ object GeofenceManager {
         try {
             val client = LocationServices.getGeofencingClient(context)
             client.removeGeofences(pendingIntent(context)).addOnCompleteListener {
+                if (!isAutomaticGpsEnabled(context)) {
+                    onResult(false, "GPS automatique désactivé")
+                    return@addOnCompleteListener
+                }
                 try {
                     client.addGeofences(request, pendingIntent(context))
                         .addOnSuccessListener {
+                            if (!isAutomaticGpsEnabled(context)) {
+                                remove(context)
+                                onResult(false, "GPS automatique désactivé")
+                                return@addOnSuccessListener
+                            }
                             rememberLastGoodZones(context)
                             onResult(true, "${geofences.size} zone(s) GPS activée(s)")
                         }
@@ -141,6 +174,7 @@ object GeofenceManager {
     }
 
     private fun rememberLastGoodZones(context: Context) {
+        if (!isAutomaticGpsEnabled(context)) return
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val raw = prefs.getString("zones", "[]") ?: "[]"
         val hasZones = runCatching { JSONArray(raw).length() > 0 }.getOrDefault(false)
@@ -159,7 +193,6 @@ object GeofenceManager {
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         val currentZones = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }
             .getOrElse { JSONArray() }
-        if (currentZones.length() > 0) return emptyList()
 
         val currentAddresses = prefs.getString("address", "")
             .orEmpty()
@@ -168,7 +201,6 @@ object GeofenceManager {
             .filter { it.isNotBlank() }
             .map { it.lowercase() }
             .toSet()
-        if (currentAddresses.isEmpty()) return emptyList()
 
         val backup = runCatching { JSONArray(prefs.getString(LAST_GOOD_ZONES, "[]") ?: "[]") }
             .getOrElse { JSONArray() }
@@ -180,7 +212,13 @@ object GeofenceManager {
                 if (address.isNotBlank()) add(address.lowercase())
             }
         }
-        if (backupAddresses != currentAddresses) return emptyList()
+        if (!shouldRecoverAutomaticGpsZones(
+                enabled = prefs.getBoolean("enabled", false),
+                currentZoneCount = currentZones.length(),
+                currentAddresses = currentAddresses,
+                backupAddresses = backupAddresses
+            )
+        ) return emptyList()
 
         val radius = prefs.getInt("radius", 150).coerceIn(50, 1000)
         val restoredJson = JSONArray()
@@ -197,11 +235,10 @@ object GeofenceManager {
             restoredZones += WorkZone(id, latitude, longitude, radius.toFloat())
         }
 
-        if (restoredZones.isEmpty()) return emptyList()
+        if (restoredZones.isEmpty() || !isAutomaticGpsEnabled(context)) return emptyList()
 
         prefs.edit()
             .putString("zones", restoredJson.toString())
-            .putBoolean("enabled", true)
             .remove("active_zones")
             .apply()
 
@@ -213,7 +250,10 @@ object GeofenceManager {
             val client = LocationServices.getGeofencingClient(context)
             val recoveredZones = recoverRadiusOnlyUpdate(context)
             client.removeGeofences(pendingIntent(context)).addOnCompleteListener {
-                if (recoveredZones.isNotEmpty() && hasRequiredPermissions(context)) {
+                if (recoveredZones.isNotEmpty() &&
+                    isAutomaticGpsEnabled(context) &&
+                    hasRequiredPermissions(context)
+                ) {
                     registerAll(context, recoveredZones)
                 }
             }
