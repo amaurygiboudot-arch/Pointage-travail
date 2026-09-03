@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -18,6 +19,7 @@ import com.amaury.pointage.v2.CompanyAgreementDocumentStoreV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
+import com.amaury.pointage.v2.PisteAccessSetupV2
 import com.amaury.pointage.v2.OfficialAgreementCandidateVerifierV2
 import com.amaury.pointage.v2.OfficialAgreementContentParserV2
 import com.amaury.pointage.v2.OfficialAgreementResultStoreV2
@@ -247,6 +249,29 @@ class SalaryCompanyDetailsView(
                 .addOnFailureListener { error ->
                     Toast.makeText(context, "Recherche Légifrance impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
                 }
+        })
+        addView(button("ME CONNECTER À PISTE") {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, PisteAccessSetupV2.loginUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir PISTE sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
+        })
+        addView(button("CRÉER / OUVRIR MON COMPTE PISTE") {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, PisteAccessSetupV2.registrationUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Toast.makeText(context, PisteAccessSetupV2.SETUP_REQUIRED_MESSAGE, Toast.LENGTH_LONG).show()
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir PISTE sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
+        })
+        addView(button("OUVRIR MES APPLICATIONS PISTE") {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, PisteAccessSetupV2.applicationsUri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                Toast.makeText(context, "Connecte-toi à PISTE puis ouvre Applications pour configurer l’API Légifrance.", Toast.LENGTH_LONG).show()
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(context, "Impossible d’ouvrir PISTE sur cet appareil.", Toast.LENGTH_LONG).show()
+            }
         })
         addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
             SalaryCompanyStore.prefs(context, company.id).edit()
