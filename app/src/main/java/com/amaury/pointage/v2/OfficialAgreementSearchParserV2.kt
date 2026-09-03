@@ -8,9 +8,16 @@ object OfficialAgreementSearchParserV2 {
 
         return results.mapNotNull { raw ->
             val item = raw as? Map<*, *> ?: return@mapNotNull null
-            val id = firstString(item, "id", "cid", "idAccord")
+            val nestedTitle = firstNestedTitle(item)
+            val id = (
+                firstString(item, "id", "cid", "idAccord")
+                    ?: nestedTitle?.let { firstString(it, "id", "cid", "idAccord") }
+                )
                 ?.takeIf { it.startsWith("ACCOTEXT") } ?: return@mapNotNull null
-            val title = firstString(item, "titre", "title", "libelle")
+            val title = (
+                firstString(item, "titre", "title", "libelle")
+                    ?: nestedTitle?.let { firstString(it, "titre", "title", "libelle") }
+                )
                 ?.takeIf { it.isNotBlank() } ?: "Accord d’entreprise"
             val signatureDate = firstString(item, "dateSignature", "signatureDate", "date")
                 ?.take(10)
@@ -40,9 +47,16 @@ object OfficialAgreementSearchParserV2 {
                 ?.filter(Char::isDigit)
             if (returnedSiret != siret) return@mapNotNull null
 
-            val id = firstString(item, "id", "cid", "idAccord")
+            val nestedTitle = firstNestedTitle(item)
+            val id = (
+                firstString(item, "id", "cid", "idAccord")
+                    ?: nestedTitle?.let { firstString(it, "id", "cid", "idAccord") }
+                )
                 ?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val title = firstString(item, "titre", "title", "libelle")
+            val title = (
+                firstString(item, "titre", "title", "libelle")
+                    ?: nestedTitle?.let { firstString(it, "titre", "title", "libelle") }
+                )
                 ?.takeIf { it.isNotBlank() } ?: "Accord d’entreprise"
             val signatureDate = firstString(item, "dateSignature", "signatureDate", "date")
                 ?.take(10)
@@ -58,6 +72,13 @@ object OfficialAgreementSearchParserV2 {
                 notes = "SIRET vérifié dans la réponse officielle. Contenu et période d’application à valider."
             )
         }.distinctBy { it.id }
+    }
+
+    private fun firstNestedTitle(item: Map<*, *>): Map<*, *>? {
+        val titles = item.entries
+            .firstOrNull { it.key?.toString()?.equals("titles", ignoreCase = true) == true }
+            ?.value as? List<*> ?: return null
+        return titles.firstNotNullOfOrNull { it as? Map<*, *> }
     }
 
     private fun firstString(map: Map<*, *>, vararg keys: String): String? {
