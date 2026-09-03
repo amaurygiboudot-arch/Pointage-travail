@@ -46,14 +46,17 @@ object WorkReportCalculator {
     private fun buildDay(context: Context, dayStart: Long, items: List<JSONObject>): Day {
         val sorted = items.sortedBy { it.optLong("entry", Long.MAX_VALUE) }
         val first = sorted.first()
-        val shiftId = first.optString("shiftType", ShiftProfileManager.detect(first.optLong("entry")).id)
-        val shift = when (shiftId) {
-            ShiftType.MORNING.id -> ShiftType.MORNING
-            ShiftType.AFTERNOON.id -> ShiftType.AFTERNOON
-            ShiftType.NIGHT.id -> ShiftType.NIGHT
-            else -> ShiftType.DAY
+        // Les anciens profils de poste ne pilotent plus aucun calcul. Un identifiant déjà
+        // enregistré reste seulement affichable pour ne pas réécrire l'historique.
+        val shiftId = first.optString("shiftType").trim()
+        val shiftLabel = when (shiftId) {
+            "morning" -> "Matin"
+            "day" -> "Journée"
+            "afternoon" -> "Après-midi"
+            "night" -> "Nuit"
+            else -> "Non défini"
         }
-        val teamShift = shift != ShiftType.DAY
+        val teamShift = shiftId == "morning" || shiftId == "afternoon" || shiftId == "night"
         var presence = 0L
         var unpaid = 0L
         var paidTeamPause = 0L
@@ -70,13 +73,7 @@ object WorkReportCalculator {
             presence += rawPresence
 
             val storedPauseMinutes = item.optInt("autoPauseMinutes", 0).coerceIn(0, 240)
-            val fallbackPauseMinutes = ShiftProfileManager.pauseMinutes(context, shift).coerceIn(0, 240)
-            val configuredMinutes = when {
-                storedPauseMinutes > 0 -> storedPauseMinutes
-                shift == ShiftType.DAY -> fallbackPauseMinutes
-                else -> storedPauseMinutes
-            }
-            val configured = configuredMinutes * 60_000L
+            val configured = storedPauseMinutes * 60_000L
             val actualPause = actualPauseMs(item, entry, exit)
 
             if (teamShift) {
@@ -93,7 +90,7 @@ object WorkReportCalculator {
                 paidWork += (rawPresence - toDeduct).coerceAtLeast(0L)
             }
 
-            if (ShiftProfileManager.mealEnabled(context, shift)) meals++
+            if (item.optBoolean("mealEnabled", false)) meals++
             item.optString("zoneAddress").trim().takeIf { it.isNotBlank() }?.let { places += it }
             manual = manual || item.optBoolean("manual", false)
         }
@@ -102,7 +99,7 @@ object WorkReportCalculator {
         val counted = sorted.map { it.optLong("entry", -1L) }.filter { it > 0L }.minOrNull() ?: arrival
         val lastExit = sorted.map { it.optLong("exit", -1L) }.filter { it > 0L }.maxOrNull() ?: counted
         return Day(
-            dayStart, SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(dayStart), shift.id, shift.label,
+            dayStart, SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE).format(dayStart), shiftId, shiftLabel,
             arrival, counted, lastExit, presence, unpaid, paidTeamPause, paidWork, meals, places.toList(), sorted.size, manual
         )
     }

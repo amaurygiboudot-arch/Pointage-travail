@@ -153,11 +153,8 @@ object PointageStore {
         val finalId = zoneId ?: detected?.first
         val raw = zoneAddress ?: detected?.second
         val finalAddress = raw?.trim()?.takeIf { it.isNotBlank() }?.let { PlaceNames.display(context, it) }
-        val shift = ShiftProfileManager.resolve(context, now)
         val slot = resolveCompanySlot(context, raw)
-        val companyPause = CompanyBasePauseSettings.baseMinutes(context, slot)
-        val fallback = ShiftProfileManager.pauseMinutes(context, shift)
-        val base = if (companyPause > 0) companyPause else fallback
+        val base = CompanyBasePauseSettings.baseMinutes(context, slot)
         val countedEntry = hiringTimeFromArrival(now)
 
         val changed = synchronized(storageLock) {
@@ -171,7 +168,6 @@ object PointageStore {
                     .put("exitTime", JSONObject.NULL)
                     .put("exit", JSONObject.NULL)
                     .put("pauses", JSONArray())
-                    .put("shiftType", shift.id)
                     .put("companySlot", slot)
                     .put("autoPauseMinutes", base)
                 if (!finalId.isNullOrBlank()) item.put("zoneId", finalId)

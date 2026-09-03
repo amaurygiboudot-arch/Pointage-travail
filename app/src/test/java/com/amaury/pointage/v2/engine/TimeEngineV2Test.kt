@@ -60,6 +60,21 @@ class TimeEngineV2Test {
     }
 
     @Test
+    fun `huit heures moins une heure de pause donnent sept heures payees`() {
+        val session = closedSession(
+            pauses = listOf(
+                PauseV2(base + 5 * 60 * minute, base + 6 * 60 * minute, false, EventSourceV2.SYSTEM)
+            )
+        )
+
+        val result = DefaultTimeEngineV2.calculate(session)
+
+        assertEquals(8 * 60 * minute, result.countedSpanMs)
+        assertEquals(60 * minute, result.unpaidPauseMs)
+        assertEquals(7 * 60 * minute, result.paidWorkMs)
+    }
+
+    @Test
     fun `pause a confirmer nest pas deduite et produit un avertissement`() {
         val session = closedSession(
             pauses = listOf(

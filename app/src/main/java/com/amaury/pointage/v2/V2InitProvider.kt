@@ -24,6 +24,9 @@ class V2InitProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         val app = context?.applicationContext as? Application ?: return true
         if (HoraTrackV2.ENABLED) {
+            // Le système « Poste du jour » a été retiré. Ses anciennes préférences ne doivent
+            // plus réapparaître après une mise à jour ni influencer un calcul indirect.
+            app.getSharedPreferences("shift_profiles", Context.MODE_PRIVATE).edit().clear().apply()
             V2RuntimeStore.bind(app)
             V2TestDataPolicy.ensurePreservation(app)
             V2ProfileStore.bind(app)

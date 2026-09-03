@@ -20,7 +20,6 @@ object V2AutoBackupCoordinator {
         "v2_app_lock",
         "salary_settings",
         "gps_settings",
-        "shift_profiles",
         "appearance_settings",
         "widget_style",
         "place_names",

@@ -46,7 +46,6 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         val gpsPanel = root.findViewById<View>(R.id.gpsSettingsPanel)
         val statusCard = root.findViewById<View>(R.id.statusCard)
         val pointageButtons = root.findViewById<View>(R.id.pointageButtons)
-        val shiftControl = root.findViewById<ShiftControlView>(R.id.shiftControlView)
 
         context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE).edit().putString("active_tab", "salary").apply()
 
@@ -65,8 +64,6 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         historyText?.visibility = View.GONE
         analyticsPanel?.visibility = View.GONE
         gpsPanel?.visibility = View.GONE
-        shiftControl?.visibility = View.VISIBLE
-        shiftControl?.refresh()
         contentTitle?.visibility = View.VISIBLE
         contentTitle?.text = "S A L A I R E"
         salaryPanel.visibility = View.VISIBLE
@@ -77,7 +74,7 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
 
     private fun installSalaryAutoHide() {
         val root = rootView ?: return; val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
-        fun scheduleCheck() { if (autoHidePosted) return; autoHidePosted = true; post { autoHidePosted = false; val salary=contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG); val info=contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG); val shift=root.findViewById<View>(R.id.shiftControlView); val other=root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE; if(other){salary?.visibility=View.GONE;info?.visibility=View.GONE;shift?.visibility=View.GONE}; syncSelectedTabFromVisiblePanel() } }
+        fun scheduleCheck() { if (autoHidePosted) return; autoHidePosted = true; post { autoHidePosted = false; val salary=contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG); val info=contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG); val other=root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE; if(other){salary?.visibility=View.GONE;info?.visibility=View.GONE}; syncSelectedTabFromVisiblePanel() } }
         listOf(root.findViewById<View>(R.id.pointageButtons),root.findViewById<View>(R.id.historyText),root.findViewById<View>(R.id.analyticsPdfPanel),root.findViewById<View>(R.id.gpsSettingsPanel)).forEach{v->v?.addOnLayoutChangeListener{_,_,_,_,_,_,_,_,_->scheduleCheck()}}
     }
     private fun applyTabTypography(){listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->rootView.findViewById<TextView>(id)?.apply{textSize=12f;typeface=Typeface.create("sans-serif-condensed",Typeface.BOLD);maxLines=2;ellipsize=TextUtils.TruncateAt.END;includeFontPadding=false;gravity=Gravity.CENTER;setPadding(dp(4),dp(3),dp(4),dp(3));minimumWidth=0;minWidth=0;val raw=text.toString();val br=raw.indexOf('\n');if(br>0&&text !is SpannableString){val s=SpannableString(raw);s.setSpan(RelativeSizeSpan(1.45f),0,br,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);text=s}}}}

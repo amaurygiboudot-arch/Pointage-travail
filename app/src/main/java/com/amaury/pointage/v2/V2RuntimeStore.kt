@@ -59,7 +59,6 @@ object V2RuntimeStore {
         if (companySlot != null) V2ProfileStore.setActiveCompanySlot(context, slot)
         val employerId = V2ProfileStore.load(context, slot).employer?.id
         val knownExpected = expectedEndMs?.takeIf { it > nowMs }
-            ?: V2ScheduleStore.expectedEndForEntry(context, nowMs)?.takeIf { it > nowMs }
 
         val editor = prefs.edit()
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
@@ -155,7 +154,6 @@ object V2RuntimeStore {
 
         val knownExpectedEnd = expectedEndMs
             ?: safeLong(prefs.all[KEY_EXPECTED_END]).takeIf { it > 0L }
-            ?: V2ScheduleStore.expectedEnd(context, entry, nowMs)
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(nowMs, knownExpectedEnd)
 
         prefs.edit()

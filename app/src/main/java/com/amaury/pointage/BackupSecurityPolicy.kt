@@ -11,6 +11,7 @@ object BackupSecurityPolicy {
         "firebase_device_registry",
         "pointage",
         "recovery_state",
+        "shift_profiles",
         "update_download",
         "update_push",
         "v2_app_lock"

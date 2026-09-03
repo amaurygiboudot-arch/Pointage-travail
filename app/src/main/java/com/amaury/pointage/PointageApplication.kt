@@ -49,7 +49,6 @@ class PointageApplication : Application(), Application.ActivityLifecycleCallback
             // ouvre immédiatement l'installateur au retour dans l'application.
             UpdateChecker.checkAutomatically(activity)
             activity.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
-            activity.findViewById<ShiftControlView>(R.id.shiftControlView)?.refresh()
             PointageWidgetProvider.updateAll(activity)
             QuickActionsWidgetProvider.updateAll(activity)
         }
