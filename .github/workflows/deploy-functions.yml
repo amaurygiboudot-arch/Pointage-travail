@@ -1,14 +1,6 @@
 name: Deploy Firebase Functions
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - functions/**
-      - firebase.json
-      - .firebaserc
-      - .github/workflows/deploy-functions.yml
   workflow_dispatch:
 
 permissions:
@@ -33,19 +25,20 @@ jobs:
 
       - name: Check Firebase credentials secret
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_POINTAGE_TRAVAIL }}
         run: |
           if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "Missing GitHub secret: FIREBASE_SERVICE_ACCOUNT_JSON"
+            echo "Missing GitHub secret: FIREBASE_SERVICE_ACCOUNT_POINTAGE_TRAVAIL"
             exit 1
           fi
 
       - name: Prepare Google credentials
         env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_POINTAGE_TRAVAIL }}
         run: |
           printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/firebase-service-account.json"
           chmod 600 "$RUNNER_TEMP/firebase-service-account.json"
+          node -e 'const fs=require("fs"); const value=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/firebase-service-account.json","utf8")); console.log("Firebase deploy account:", value.client_email); console.log("Required IAM role: roles/secretmanager.viewer");'
 
       - name: Install and test functions
         run: |
