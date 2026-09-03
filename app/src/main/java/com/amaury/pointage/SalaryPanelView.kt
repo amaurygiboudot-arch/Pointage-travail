@@ -141,7 +141,7 @@ class SalaryPanelView @JvmOverloads constructor(
 
         addView(sectionTitle("PANIER").apply { setPadding(0, dp(18), 0, dp(5)) })
         addView(TextView(context).apply {
-            text = "Le montant est défini ici. Les postes donnant droit au panier (matin, journée, après-midi, nuit) se choisissent dans Aujourd'hui > Pauses et paniers par poste."
+            text = "Le montant est défini ici. L'attribution automatique par ancien profil de poste est supprimée : aucun panier n'est inventé sans règle applicable."
             textSize = 14f
         })
         addView(label("MONTANT D'UN PANIER (€)").apply { setPadding(0, dp(12), 0, dp(4)) })
@@ -340,12 +340,7 @@ class SalaryPanelView @JvmOverloads constructor(
             val current = firstItemByDay[key]
             if (current == null || entry < current.optLong("entry", Long.MAX_VALUE)) firstItemByDay[key] = item
         }
-        val count = firstItemByDay.values.count { item ->
-            val entry = item.optLong("entry", -1L)
-            val stored = item.optString("shiftType").trim()
-            val shift = ShiftType.values().firstOrNull { it.id == stored } ?: ShiftProfileManager.detect(entry)
-            ShiftProfileManager.mealEnabled(context, shift)
-        }
+        val count = firstItemByDay.values.count { it.optBoolean("mealEnabled", false) }
         return count to count * amount
     }
 

@@ -74,8 +74,8 @@ object V2ValidationSuite {
             HoraTrackV2.time.countedEntryFromRealArrival(base + 6L * 60_000L) == base + slotMs
         )
         addCheck(
-            "Sortie +20 -> prévue",
-            HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 20L * 60_000L, expectedEnd) == expectedEnd
+            "Sortie +20 -> réelle",
+            HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 20L * 60_000L, expectedEnd) == expectedEnd + 20L * 60_000L
         )
         addCheck(
             "Sortie +21 -> réelle",

@@ -17,6 +17,7 @@ class BackupSecurityPolicyTest {
             "firebase_device_registry",
             "drive_backup",
             "pointage",
+            "shift_profiles",
             " V2_APP_LOCK "
         ).forEach { name ->
             assertFalse(name, BackupSecurityPolicy.canTransferPreferenceFile(name))
@@ -40,7 +41,6 @@ class BackupSecurityPolicyTest {
         listOf(
             "horatrack_v2_test_runtime",
             "gps_settings",
-            "shift_profiles",
             "appearance_settings",
             "widget_style",
             "place_names",

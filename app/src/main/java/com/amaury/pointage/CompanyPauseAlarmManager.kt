@@ -27,6 +27,8 @@ object CompanyPauseAlarmManager {
     private const val EXTRA_COMPANY = "companySlot"
     private const val EXTRA_PAUSE = "pauseIndex"
     private const val EXTRA_EVENT = "pauseEvent"
+    private const val EXTRA_SCHEDULED_AT = "scheduledAt"
+    private const val EXTRA_WINDOW_END_AT = "windowEndAt"
     private const val EVENT_START = "start"
     private const val EVENT_END = "end"
     private const val CHANNEL_ID = "pause_reminders"
@@ -35,39 +37,49 @@ object CompanyPauseAlarmManager {
     fun scheduleAll(context: Context) {
         ensureNotificationChannel(context)
         cancelAll(context)
+        val now = System.currentTimeMillis()
         for (company in 1..2) for (pauseIndex in 1..2) {
             val pause = CompanyBasePauseSettings.pause(context, company, pauseIndex) ?: continue
-            scheduleOne(context, company, pauseIndex, EVENT_START, pause.startMinute)
-            scheduleOne(context, company, pauseIndex, EVENT_END, pause.endMinute)
+            val startAt = nextOccurrence(now, pause.startMinute)
+            val endAt = nextOccurrence(now, pause.endMinute)
+            scheduleOne(context, company, pauseIndex, EVENT_START, startAt, endForStart(startAt, pause))
+            scheduleOne(context, company, pauseIndex, EVENT_END, endAt, 0L)
         }
     }
 
     fun cancelAll(context: Context) {
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         for (company in 1..2) for (pauseIndex in 1..2) {
-            alarm.cancel(pending(context, company, pauseIndex, EVENT_START))
-            alarm.cancel(pending(context, company, pauseIndex, EVENT_END))
+            alarm.cancel(pending(context, company, pauseIndex, EVENT_START, 0L, 0L))
+            alarm.cancel(pending(context, company, pauseIndex, EVENT_END, 0L, 0L))
         }
     }
 
-    private fun scheduleOne(context: Context, company: Int, pauseIndex: Int, event: String, minuteOfDay: Int) {
+    private fun scheduleOne(
+        context: Context,
+        company: Int,
+        pauseIndex: Int,
+        event: String,
+        scheduledAt: Long,
+        windowEndAt: Long
+    ) {
         val alarm = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val whenCal = Calendar.getInstance(Locale.FRANCE).apply {
-            set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
-            set(Calendar.MINUTE, minuteOfDay % 60)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-            if (timeInMillis <= System.currentTimeMillis()) add(Calendar.DAY_OF_YEAR, 1)
-        }
-        val pi = pending(context, company, pauseIndex, event)
+        val pi = pending(context, company, pauseIndex, event, scheduledAt, windowEndAt)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarm.canScheduleExactAlarms()) {
-            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduledAt, pi)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
-        } else alarm.setExact(AlarmManager.RTC_WAKEUP, whenCal.timeInMillis, pi)
+            alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, scheduledAt, pi)
+        } else alarm.setExact(AlarmManager.RTC_WAKEUP, scheduledAt, pi)
     }
 
-    private fun pending(context: Context, company: Int, pauseIndex: Int, event: String): PendingIntent {
+    private fun pending(
+        context: Context,
+        company: Int,
+        pauseIndex: Int,
+        event: String,
+        scheduledAt: Long,
+        windowEndAt: Long
+    ): PendingIntent {
         val eventOffset = if (event == EVENT_END) 1 else 0
         val requestCode = 5200 + company * 100 + pauseIndex * 10 + eventOffset
         return PendingIntent.getBroadcast(
@@ -77,7 +89,9 @@ object CompanyPauseAlarmManager {
                 .setAction(ACTION)
                 .putExtra(EXTRA_COMPANY, company)
                 .putExtra(EXTRA_PAUSE, pauseIndex)
-                .putExtra(EXTRA_EVENT, event),
+                .putExtra(EXTRA_EVENT, event)
+                .putExtra(EXTRA_SCHEDULED_AT, scheduledAt)
+                .putExtra(EXTRA_WINDOW_END_AT, windowEndAt),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
@@ -85,8 +99,48 @@ object CompanyPauseAlarmManager {
     internal fun company(intent: Intent) = intent.getIntExtra(EXTRA_COMPANY, 0)
     internal fun pauseIndex(intent: Intent) = intent.getIntExtra(EXTRA_PAUSE, 0)
     internal fun event(intent: Intent) = intent.getStringExtra(EXTRA_EVENT).orEmpty()
+    internal fun scheduledAt(intent: Intent) = intent.getLongExtra(EXTRA_SCHEDULED_AT, 0L)
+    internal fun windowEndAt(intent: Intent) = intent.getLongExtra(EXTRA_WINDOW_END_AT, 0L)
     internal fun isStart(event: String) = event == EVENT_START
     internal fun isEnd(event: String) = event == EVENT_END
+
+    internal fun nextOccurrence(referenceMs: Long, minuteOfDay: Int): Long =
+        Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = referenceMs
+            set(Calendar.HOUR_OF_DAY, minuteOfDay / 60)
+            set(Calendar.MINUTE, minuteOfDay % 60)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= referenceMs) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+
+    internal fun endForStart(startAtMs: Long, pause: CompanyBasePauseSettings.PauseSlot): Long =
+        Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = startAtMs
+            set(Calendar.HOUR_OF_DAY, pause.endMinute / 60)
+            set(Calendar.MINUTE, pause.endMinute % 60)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            if (timeInMillis <= startAtMs) add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
+
+    /** Utilise l'heure programmée, pas l'heure de livraison retardée par Android. */
+    internal fun automaticStartTime(
+        realEntryMs: Long,
+        deliveredAtMs: Long,
+        scheduledAtMs: Long,
+        windowEndAtMs: Long
+    ): Long? {
+        val start = scheduledAtMs.takeIf { it > 0L } ?: deliveredAtMs
+        if (windowEndAtMs > start && deliveredAtMs >= windowEndAtMs) return null
+        return maxOf(start, realEntryMs).takeIf { it <= deliveredAtMs }
+    }
+
+    /** Ferme la pause à l'heure prévue même si l'alarme de fin arrive en retard. */
+    internal fun automaticEndTime(pauseStartMs: Long, deliveredAtMs: Long, scheduledAtMs: Long): Long? {
+        val scheduled = scheduledAtMs.takeIf { it > pauseStartMs && it <= deliveredAtMs }
+        return scheduled ?: deliveredAtMs.takeIf { it > pauseStartMs }
+    }
 
     internal fun activeCompanySlot(context: Context): Int? {
         if (HoraTrackV2.ENABLED) {
@@ -150,6 +204,8 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
         val company = CompanyPauseAlarmManager.company(intent)
         val pauseIndex = CompanyPauseAlarmManager.pauseIndex(intent)
         val event = CompanyPauseAlarmManager.event(intent)
+        val deliveredAt = System.currentTimeMillis()
+        val scheduledAt = CompanyPauseAlarmManager.scheduledAt(intent)
 
         if (company !in 1..2 || pauseIndex !in 1..2 || CompanyPauseAlarmManager.activeCompanySlot(context) != company) {
             CompanyPauseAlarmManager.scheduleAll(context)
@@ -160,13 +216,21 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             CompanyPauseAlarmManager.isStart(event) -> {
                 val started = if (HoraTrackV2.ENABLED) {
                     val snap = V2RuntimeStore.snapshot(context).session
-                    if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) {
-                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                    val startAt = snap?.realArrivalMs?.let { realEntry ->
+                        CompanyPauseAlarmManager.automaticStartTime(
+                            realEntryMs = realEntry,
+                            deliveredAtMs = deliveredAt,
+                            scheduledAtMs = scheduledAt,
+                            windowEndAtMs = CompanyPauseAlarmManager.windowEndAt(intent)
+                        )
+                    }
+                    if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null } && startAt != null) {
+                        V2RuntimeStore.togglePause(context, nowMs = startAt, source = EventSourceV2.SYSTEM, paid = false)
                     } else false
                 } else false
                 if (started) CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, true)
 
-                if (CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
+                if (started && CompanyBasePauseSettings.alarmEnabled(context, company, pauseIndex)) {
                     CompanyPauseAlarmManager.showNotification(context, company, pauseIndex)
                     val selected = PauseAlarmSoundCatalog.resolve(context, CompanyBasePauseSettings.alarmSound(context, company, pauseIndex))
                     val ringtone = runCatching { RingtoneManager.getRingtone(context.applicationContext, selected.uri) }.getOrNull()
@@ -186,11 +250,14 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
             CompanyPauseAlarmManager.isEnd(event) -> {
                 if (HoraTrackV2.ENABLED && CompanyPauseAlarmManager.isAutomaticPause(context, company, pauseIndex)) {
                     val snap = V2RuntimeStore.snapshot(context).session
-                    val automaticPauseOpen = snap != null && snap.realExitMs == null && snap.pauses.any {
+                    val automaticPause = snap?.pauses?.lastOrNull {
                         it.endMs == null && it.source == EventSourceV2.SYSTEM
                     }
-                    if (automaticPauseOpen) {
-                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                    val endAt = automaticPause?.let {
+                        CompanyPauseAlarmManager.automaticEndTime(it.startMs, deliveredAt, scheduledAt)
+                    }
+                    if (snap != null && snap.realExitMs == null && endAt != null) {
+                        V2RuntimeStore.togglePause(context, nowMs = endAt, source = EventSourceV2.SYSTEM, paid = false)
                     }
                     CompanyPauseAlarmManager.markAutomaticPause(context, company, pauseIndex, false)
                 }

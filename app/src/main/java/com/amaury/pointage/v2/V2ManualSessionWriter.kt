@@ -23,8 +23,7 @@ object V2ManualSessionWriter {
         val slot = companySlot.coerceIn(1, 2)
         val employerId = V2ProfileStore.load(context, slot).employer?.id
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
-        val expectedEnd = V2ScheduleStore.expectedEnd(context, realStartMs, realEndMs)
-        val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
+        val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, null)
         val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
