@@ -31,6 +31,7 @@
         <provider android:name=".PrimaryDiamond3DInitProvider" android:authorities="${applicationId}.primary-diamond-3d-init" android:exported="false" android:initOrder="55" />
         <provider android:name=".FirstStepsInitProvider" android:authorities="${applicationId}.first-steps-init" android:exported="false" android:initOrder="50" />
         <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.update-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
+        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.agreement-files" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/company_agreement_file_paths" /></provider>
         <service android:name=".HpFirebaseMessagingService" android:exported="false"><intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter></service>
         <activity android:name=".LaunchActivity" android:exported="true" android:noHistory="true" android:icon="@mipmap/horatrack_icon_red_v2" android:label="HoraTrack" />
         <activity-alias android:name=".IconRedV2" android:enabled="true" android:exported="true" android:icon="@mipmap/horatrack_icon_red_v2" android:label="HoraTrack" android:targetActivity=".LaunchActivity"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
@@ -47,6 +48,7 @@
         <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
         <activity android:name=".V2RestoreActivity" android:exported="false" />
         <activity android:name=".V2PayslipImportActivity" android:exported="false" />
+        <activity android:name=".CompanyAgreementImportActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity android:name=".SalaryPayslipPhotoActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
         <activity android:name=".BackgroundPickerActivity" android:exported="false" />

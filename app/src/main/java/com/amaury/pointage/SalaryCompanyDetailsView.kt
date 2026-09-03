@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Typeface
 import android.text.InputType
 import android.view.ViewGroup
@@ -12,6 +14,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementIngestionV2
+import com.amaury.pointage.v2.CompanyAgreementDocumentStoreV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
@@ -27,9 +30,13 @@ class SalaryCompanyDetailsView(
     private val onChanged: (SalaryCompanyStore.Company) -> Unit,
     private val onDelete: (SalaryCompanyStore.Company) -> Unit
 ) : LinearLayout(context) {
+    private var showingAgreements = false
+    private var agreementRevision = 0L
+
     init { orientation = VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(16)); showSummary() }
 
     private fun showSummary() {
+        showingAgreements = false
         removeAllViews()
         addView(text("Nom : ${company.name.ifBlank { "Non renseigné" }}\nSIRET : ${company.siret.ifBlank { "Non renseigné" }}\nAdresse : ${company.address.ifBlank { "Non renseignée" }}\nConvention : ${company.conventionName.ifBlank { if (company.idcc.isBlank()) "Non renseignée" else "IDCC ${company.idcc}" }}"))
         addView(button("MODIFIER LES INFORMATIONS") { showEditor() })
@@ -38,6 +45,8 @@ class SalaryCompanyDetailsView(
     }
 
     private fun showAgreements() {
+        showingAgreements = true
+        agreementRevision = SalaryCompanyStore.prefs(context, company.id).getLong("company_agreement_import_revision", 0L)
         removeAllViews()
         addView(text("ACCORDS D’ENTREPRISE\n\nHoraTrack recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
         val agreements = CompanyAgreementStoreV2.list(context, company.id)
@@ -55,8 +64,14 @@ class SalaryCompanyDetailsView(
                     agreement.effectiveFrom?.let { "Début : $it" },
                     agreement.effectiveTo?.let { "Fin : $it" }
                 ).joinToString(" — ")
-                addView(text("${agreement.title.ifBlank { "Accord sans titre" }}\nÉtat : $status${if (dates.isBlank()) "" else "\n$dates"}${if (agreement.sourceLabel.isBlank()) "" else "\nSource : ${agreement.sourceLabel}"}"))
+                addView(text("${agreement.title.ifBlank { "Accord sans titre" }}\nÉtat : $status${if (dates.isBlank()) "" else "\n$dates"}${if (agreement.sourceLabel.isBlank()) "" else "\nSource : ${agreement.sourceLabel}"}${if (agreement.documentName.isBlank()) "" else "\nDocument : ${agreement.documentName}"}"))
+                if (agreement.documentPath.isNotBlank()) {
+                    addView(button("OUVRIR LE DOCUMENT ORIGINAL") { openAgreementDocument(agreement) })
+                }
                 val candidates = CompanyAgreementRuleStoreV2.list(context, company.id).filter { it.agreementId == agreement.id }
+                if (agreement.id.startsWith("LOCAL-ACCO-") && candidates.isEmpty()) {
+                    addView(text("Aucune règle candidate n’a été détectée. Le document reste conservé : vérifie son contenu avant toute saisie manuelle."))
+                }
                 candidates.forEach { candidate ->
                     val confidence = (candidate.confidence * 100).toInt().coerceIn(0, 100)
                     val structured = CompanyAgreementStructuredRuleV2.structure(candidate)
@@ -234,13 +249,21 @@ class SalaryCompanyDetailsView(
                 }
         })
         addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
-            SalaryCompanyStore.prefs(context, company.id).edit().putBoolean("company_agreement_import_requested", true).commit()
-            Toast.makeText(context, "Import d’accord : étape document à connecter", Toast.LENGTH_LONG).show()
+            SalaryCompanyStore.prefs(context, company.id).edit()
+                .putBoolean("company_agreement_import_requested", true)
+                .putLong("company_agreement_import_requested_at", System.currentTimeMillis())
+                .commit()
+            val intent = Intent(context, CompanyAgreementImportActivity::class.java)
+                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_ID, company.id)
+                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_NAME, company.name)
+            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
         })
         addView(button("RETOUR") { showSummary() })
     }
 
     private fun showEditor() {
+        showingAgreements = false
         removeAllViews()
         val name = field("Nom de l’entreprise", company.name)
         val siret = field("SIRET — 14 chiffres", company.siret, InputType.TYPE_CLASS_NUMBER)
@@ -267,6 +290,29 @@ class SalaryCompanyDetailsView(
     }
 
     private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
+
+    private fun openAgreementDocument(agreement: CompanyAgreementStoreV2.Agreement) {
+        val uri = CompanyAgreementDocumentStoreV2.contentUri(context, agreement.documentPath)
+        if (uri == null) {
+            Toast.makeText(context, "Le document original n’est plus accessible sur cet appareil.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val open = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, agreement.documentMimeType.ifBlank { "application/octet-stream" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(open, "Ouvrir l’accord").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { context.startActivity(chooser) }
+            .onFailure { Toast.makeText(context, "Aucune application ne peut ouvrir ce document.", Toast.LENGTH_LONG).show() }
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus || !showingAgreements) return
+        val current = SalaryCompanyStore.prefs(context, company.id).getLong("company_agreement_import_revision", 0L)
+        if (current != agreementRevision) showAgreements()
+    }
+
     private fun field(h: String, v: String, type: Int = InputType.TYPE_CLASS_TEXT) = EditText(context).apply { hint = h; setText(v); inputType = type; isSingleLine = true; setPadding(dp(10), dp(6), dp(10), dp(6)) }
     private fun button(label: String, click: () -> Unit) = Button(context).apply { text = label; isAllCaps = false; setOnClickListener { click() } }
     private fun row() = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }

@@ -19,24 +19,38 @@ object CompanyAgreementRuleStoreV2 {
         val calculationValueVerified: Boolean = false
     )
 
-    private const val KEY = "company_agreement_rule_candidates_v2"
+    internal const val KEY = "company_agreement_rule_candidates_v2"
 
     fun replaceForAgreement(
         context: Context,
         companyId: String,
         agreementId: String,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
-    ): Boolean {
-        val kept = list(context, companyId).filterNot { it.agreementId == agreementId }
-        val merged = kept + candidates.map {
+    ): Boolean = save(context, companyId, mergePreservingValidation(list(context, companyId), agreementId, candidates))
+
+    internal fun mergePreservingValidation(
+        existing: List<StoredCandidate>,
+        agreementId: String,
+        candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
+    ): List<StoredCandidate> {
+        if (candidates.isEmpty()) return existing
+        val previous = existing.filter { it.agreementId == agreementId }.associateBy { it.category to it.excerpt }
+        val kept = existing.filterNot { it.agreementId == agreementId }
+        val refreshed = candidates.map { candidate ->
+            val old = previous[candidate.category to candidate.excerpt]
             StoredCandidate(
                 agreementId = agreementId,
-                category = it.category,
-                excerpt = it.excerpt,
-                confidence = it.confidence
+                category = candidate.category,
+                excerpt = candidate.excerpt,
+                confidence = candidate.confidence,
+                verified = old?.verified ?: false,
+                effectiveFrom = old?.effectiveFrom,
+                effectiveTo = old?.effectiveTo,
+                scope = old?.scope,
+                calculationValueVerified = old?.calculationValueVerified ?: false
             )
         }
-        return save(context, companyId, merged)
+        return kept + refreshed
     }
 
     fun list(context: Context, companyId: String): List<StoredCandidate> {
@@ -129,7 +143,10 @@ object CompanyAgreementRuleStoreV2 {
         return matched && save(context, companyId, updated)
     }
 
-    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
+    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean =
+        SalaryCompanyStore.prefs(context, companyId).edit().putString(KEY, encode(values)).commit()
+
+    internal fun encode(values: List<StoredCandidate>): String {
         val array = JSONArray()
         values.forEach { value ->
             array.put(JSONObject().apply {
@@ -144,9 +161,6 @@ object CompanyAgreementRuleStoreV2 {
                 put("calculationValueVerified", value.calculationValueVerified)
             })
         }
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, array.toString())
-            .commit()
+        return array.toString()
     }
 }
