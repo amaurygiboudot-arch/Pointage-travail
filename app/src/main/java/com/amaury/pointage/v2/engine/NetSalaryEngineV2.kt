@@ -34,6 +34,7 @@ object NetSalaryEngineV2 {
                 contractualWeeklyMinutes = company.contractualWeeklyMinutes,
                 complementaryMinutes = complementaryMinutes,
                 entryDate = company.entryDate,
+                unpaidAbsenceDays = company.unpaidAbsenceDays,
                 forfaitAnnualDays = company.forfaitAnnualDays
             )
         )
