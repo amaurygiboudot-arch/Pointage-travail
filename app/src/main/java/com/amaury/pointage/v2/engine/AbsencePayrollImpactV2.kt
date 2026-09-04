@@ -34,26 +34,30 @@ object AbsencePayrollImpactV2 {
         val warnings = mutableListOf<String>()
 
         absences.forEach { absence ->
+            if (acceptedEmployerIds.isNotEmpty() && absence.employerId !in acceptedEmployerIds) return@forEach
+            if (absence.endMs <= absence.startMs) return@forEach
+
+            val startDate = Instant.ofEpochMilli(absence.startMs).atZone(zoneId).toLocalDate()
+            val endExclusiveDate = Instant.ofEpochMilli(absence.endMs).atZone(zoneId).toLocalDate()
+            val overlapsMonth = startDate.isBefore(monthEndExclusive) && endExclusiveDate.isAfter(monthStart)
+            if (!overlapsMonth) return@forEach
+
             if (absence.status != DecisionStatusV2.CONFIRMED) {
-                warnings += "Absence à confirmer : aucun impact automatique sur la paie."
+                warnings += "Absence à confirmer sur cette période : aucun impact automatique sur la paie."
                 return@forEach
             }
-            if (acceptedEmployerIds.isNotEmpty() && absence.employerId !in acceptedEmployerIds) return@forEach
             if (absence.salaryTreatment != AbsenceSalaryTreatmentV2.UNPAID) return@forEach
+
             hasUnpaid = true
             if (!absence.fullDay) {
                 warnings += "Absence non rémunérée partielle : le plafond SS n'est pas réduit automatiquement."
                 return@forEach
             }
-            if (absence.endMs <= absence.startMs) {
-                warnings += "Absence non rémunérée : période invalide ignorée."
-                return@forEach
-            }
 
-            var day = Instant.ofEpochMilli(absence.startMs).atZone(zoneId).toLocalDate()
-            val endExclusive = Instant.ofEpochMilli(absence.endMs).atZone(zoneId).toLocalDate()
-            while (day.isBefore(endExclusive)) {
-                if (!day.isBefore(monthStart) && day.isBefore(monthEndExclusive)) unpaidDays += day
+            var day = maxOf(startDate, monthStart)
+            val lastExclusive = minOf(endExclusiveDate, monthEndExclusive)
+            while (day.isBefore(lastExclusive)) {
+                unpaidDays += day
                 day = day.plusDays(1)
             }
         }
