@@ -71,9 +71,12 @@ object V2RightsStore {
         require(absence.employerId?.isNotBlank()==true){"Entreprise de l'absence manquante"}
         require(absence.endMs>absence.startMs){"Période d'absence invalide"}
         when(absence.providentTreatment){
-            AbsenceProvidentTreatmentV2.TO_CONFIRM -> require(absence.employerProvidentOverlapNetAmount==null){"Prévoyance à confirmer : aucun montant ne doit être figé"}
-            AbsenceProvidentTreatmentV2.NONE_CONFIRMED -> require(absence.employerProvidentOverlapNetAmount==null || absence.employerProvidentOverlapNetAmount==0.0){"Aucune prévoyance chevauchante : montant incohérent"}
-            AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED -> require(absence.employerProvidentOverlapNetAmount?.let{it.isFinite()&&it>=0.0}==true){"Montant net de prévoyance chevauchante manquant ou invalide"}
+            AbsenceProvidentTreatmentV2.TO_CONFIRM ->
+                require(absence.employerProvidentOverlapNetAmount==null){"Prévoyance à confirmer : aucun montant ne doit être figé"}
+            AbsenceProvidentTreatmentV2.NONE_CONFIRMED ->
+                require(absence.employerProvidentOverlapNetAmount==null || absence.employerProvidentOverlapNetAmount==0.0){"Aucune prévoyance chevauchante : montant incohérent"}
+            AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED ->
+                require(absence.employerProvidentOverlapNetAmount?.let{it.isFinite()&&it>=0.0}==true){"Montant net de prévoyance chevauchante manquant ou invalide"}
         }
         val list=absences(context).toMutableList()
         val index=list.indexOfFirst{it.id==absence.id}
@@ -122,33 +125,46 @@ object V2RightsStore {
                 val amount=V2PayslipStore.sicknessTheoreticalNetForAbsence(context,companyId,absence)
                 val relay=V2PayslipStore.sicknessProvidentRelayForAbsence(context,companyId,absence)
                 val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
-                val lines=mutableListOf<String>()
-                when{
-                    !result.eligibilityConfirmed -> lines += result.warnings.firstOrNull()
-                        ?:"Maintien Plasturgie du ${start.format(display)} : éligibilité à confirmer."
-                    result.annualLimitDays==0 -> lines += result.warnings.firstOrNull()
-                        ?:"Maintien Plasturgie du ${start.format(display)} : aucun maintien conventionnel ouvert."
+                val lines=when{
+                    !result.eligibilityConfirmed -> listOf(result.warnings.firstOrNull()
+                        ?:"Maintien Plasturgie du ${start.format(display)} : éligibilité à confirmer.")
+                    result.annualLimitDays==0 -> listOf(result.warnings.firstOrNull()
+                        ?:"Maintien Plasturgie du ${start.format(display)} : aucun maintien conventionnel ouvert.")
                     else -> {
                         val bands=if(result.bands.isEmpty())"aucun jour conventionnel restant" else result.bands.joinToString(" + "){band->
                             "${band.calendarDays} j à ${(band.targetNetRate*100).toInt()} % du net de référence"
                         }
-                        lines += buildString{
+                        listOf(buildString{
                             append("Maintien Plasturgie — arrêt du ").append(start.format(display)).append(" : ")
                             append(bands)
                             result.employerWaitingDays?.let{append(" • carence employeur ").append(it).append(" j")}
                             result.annualLimitDays?.let{limit->append(" • plafond annuel ").append(limit).append(" j")}
                             result.alreadyConsumedIndemnifiedDays?.let{used->append(" • déjà consommés ").append(used).append(" j")}
-                            amount?.theoreticalIndemnifiableNet?.let{append(" • base nette théorique ").append(String.format(Locale.FRANCE,"%.2f €",it))}
-                            amount?.targetMaintenanceNet?.let{append(" • cible conventionnelle ").append(String.format(Locale.FRANCE,"%.2f €",it))}
-                            amount?.ijssNetDeductedOnce?.let{append(" • IJSS nettes déduites une fois ").append(String.format(Locale.FRANCE,"%.2f €",it))}
-                            amount?.employerComplementBeforeProvidentNet?.let{append(" • complément avant prévoyance ").append(String.format(Locale.FRANCE,"%.2f €",it))}
+                            amount?.theoreticalIndemnifiableNet?.let{
+                                append(" • base nette théorique ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.targetMaintenanceNet?.let{
+                                append(" • cible conventionnelle ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.ijssNetDeductedOnce?.let{
+                                append(" • IJSS nettes déduites une fois ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.employerComplementBeforeProvidentNet?.let{
+                                append(" • complément employeur avant prévoyance ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            } ?: append(" • complément employeur en euros encore incomplet")
                             if(amount?.finalComplementReliable==true){
-                                amount.employerProvidentNetDeducted?.let{append(" • prévoyance chevauchante déduite ").append(String.format(Locale.FRANCE,"%.2f €",it))}
-                                amount.employerComplementFinalNet?.let{append(" • complément employeur final ").append(String.format(Locale.FRANCE,"%.2f € net avant PAS",it))}
-                            }else append(" • complément final à confirmer (prévoyance chevauchante non confirmée)")
-                        }
+                                amount.employerProvidentNetDeducted?.let{
+                                    append(" • prévoyance chevauchante déduite ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                                }
+                                amount.employerComplementFinalNet?.let{
+                                    append(" • complément employeur final ").append(String.format(Locale.FRANCE,"%.2f € net avant PAS",it))
+                                }
+                            }else if(amount?.employerComplementBeforeProvidentNet!=null){
+                                append(" • complément final à confirmer (prévoyance chevauchante non confirmée)")
+                            }
+                        })
                     }
-                }
+                }.toMutableList()
                 if(relay?.potentiallyCovered==true){
                     lines += buildString{
                         append("Prévoyance Plasturgie : relais de branche potentiel à au moins 60 % du brut, après le maintien employeur")
@@ -210,10 +226,18 @@ object V2RightsStore {
                 val id=o.optString("id").trim()
                 if(id.isBlank())continue
                 add(Balance(
-                    id,o.optString("label",id),nullableDouble(o,"acquired"),nullableDouble(o,"available"),
-                    nullableDouble(o,"taken"),nullableDouble(o,"anticipated"),nullableDouble(o,"remaining"),
-                    o.optString("unit","jours"),o.optLong("referenceStartMs",0L),o.optLong("referenceEndMs",Long.MAX_VALUE),
-                    o.optString("source","MANUAL"),o.optString("companyId")
+                    id,
+                    o.optString("label",id),
+                    nullableDouble(o,"acquired"),
+                    nullableDouble(o,"available"),
+                    nullableDouble(o,"taken"),
+                    nullableDouble(o,"anticipated"),
+                    nullableDouble(o,"remaining"),
+                    o.optString("unit","jours"),
+                    o.optLong("referenceStartMs",0L),
+                    o.optLong("referenceEndMs",Long.MAX_VALUE),
+                    o.optString("source","MANUAL"),
+                    o.optString("companyId")
                 ))
             }
         }
@@ -229,14 +253,29 @@ object V2RightsStore {
                 val start=o.optLong("startMs",-1L)
                 val end=o.optLong("endMs",-1L)
                 if(id.isBlank()||employerId==null||start<0L||end<=start)continue
-                val treatment=runCatching{AbsenceSalaryTreatmentV2.valueOf(o.optString("salaryTreatment",AbsenceSalaryTreatmentV2.TO_CONFIRM.name))}.getOrDefault(AbsenceSalaryTreatmentV2.TO_CONFIRM)
-                val status=runCatching{DecisionStatusV2.valueOf(o.optString("status",DecisionStatusV2.CONFIRMED.name))}.getOrDefault(DecisionStatusV2.TO_CONFIRM)
-                val subrogation=runCatching{AbsenceSubrogationV2.valueOf(o.optString("subrogation",AbsenceSubrogationV2.TO_CONFIRM.name))}.getOrDefault(AbsenceSubrogationV2.TO_CONFIRM)
-                val provident=runCatching{AbsenceProvidentTreatmentV2.valueOf(o.optString("providentTreatment",AbsenceProvidentTreatmentV2.TO_CONFIRM.name))}.getOrDefault(AbsenceProvidentTreatmentV2.TO_CONFIRM)
+                val treatment=runCatching{
+                    AbsenceSalaryTreatmentV2.valueOf(o.optString("salaryTreatment",AbsenceSalaryTreatmentV2.TO_CONFIRM.name))
+                }.getOrDefault(AbsenceSalaryTreatmentV2.TO_CONFIRM)
+                val status=runCatching{
+                    DecisionStatusV2.valueOf(o.optString("status",DecisionStatusV2.CONFIRMED.name))
+                }.getOrDefault(DecisionStatusV2.TO_CONFIRM)
+                val subrogation=runCatching{
+                    AbsenceSubrogationV2.valueOf(o.optString("subrogation",AbsenceSubrogationV2.TO_CONFIRM.name))
+                }.getOrDefault(AbsenceSubrogationV2.TO_CONFIRM)
+                val provident=runCatching{
+                    AbsenceProvidentTreatmentV2.valueOf(o.optString("providentTreatment",AbsenceProvidentTreatmentV2.TO_CONFIRM.name))
+                }.getOrDefault(AbsenceProvidentTreatmentV2.TO_CONFIRM)
                 val providentAmount=nullableDouble(o,"employerProvidentOverlapNetAmount")?.takeIf{it>=0.0}
                 add(AbsenceV2(
-                    id=id,employerId=employerId,type=o.optString("type","ABSENCE"),startMs=start,endMs=end,
-                    salaryTreatment=treatment,fullDay=o.optBoolean("fullDay",false),status=status,subrogation=subrogation,
+                    id=id,
+                    employerId=employerId,
+                    type=o.optString("type","ABSENCE"),
+                    startMs=start,
+                    endMs=end,
+                    salaryTreatment=treatment,
+                    fullDay=o.optBoolean("fullDay",false),
+                    status=status,
+                    subrogation=subrogation,
                     providentTreatment=provident,
                     employerProvidentOverlapNetAmount=if(provident==AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED)providentAmount else null
                 ))
