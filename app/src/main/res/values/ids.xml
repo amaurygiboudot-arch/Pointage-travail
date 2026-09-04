@@ -1,4 +1,6 @@
 <resources>
     <item name="locationManagementView" type="id" />
     <item name="true3d_internal_tag" type="id" />
+    <!-- Identifiant conservé temporairement pour les appels V1 restants. Aucun composant n'est affiché. -->
+    <item name="shiftControlView" type="id" />
 </resources>
