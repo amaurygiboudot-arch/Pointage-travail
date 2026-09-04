@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.RightsEngineV2
 import com.amaury.pointage.v2.engine.RightsSnapshotV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
@@ -10,6 +11,10 @@ import com.amaury.pointage.v2.model.CounterV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * Stockage V2 des droits et absences.
@@ -92,7 +97,43 @@ object V2RightsStore {
             }
             if(b.available!=null&&b.remaining!=null&&b.available<0.0)add("${b.label} : disponible négatif à vérifier")
         }}
-        return base.copy(warnings=base.warnings+consistency)
+        val maintenance=companyId?.let{maintenanceWarnings(context,nowMs,it)}.orEmpty()
+        return base.copy(warnings=(base.warnings+consistency+maintenance).distinct())
+    }
+
+    private fun maintenanceWarnings(context:Context,nowMs:Long,companyId:String):List<String>{
+        val zone=ZoneId.systemDefault()
+        val currentYear=Instant.ofEpochMilli(nowMs).atZone(zone).year
+        val display=DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE)
+        return absencesForCompany(context,companyId)
+            .filter{it.type==AbsencePayrollImpactV2.TYPE_SICKNESS}
+            .filter{Instant.ofEpochMilli(it.startMs).atZone(zone).year==currentYear}
+            .sortedByDescending{it.startMs}
+            .flatMap{absence->
+                val result=V2PayslipStore.sicknessMaintenanceForAbsence(context,companyId,absence)
+                    ?:return@flatMap emptyList()
+                if(!result.applicable)return@flatMap emptyList()
+                val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
+                when{
+                    !result.eligibilityConfirmed -> listOf(result.warnings.firstOrNull()
+                        ?:"Maintien Plasturgie du ${start.format(display)} : éligibilité à confirmer.")
+                    result.annualLimitDays==0 -> listOf(result.warnings.firstOrNull()
+                        ?:"Maintien Plasturgie du ${start.format(display)} : aucun maintien conventionnel ouvert.")
+                    else -> {
+                        val bands=if(result.bands.isEmpty())"aucun jour conventionnel restant" else result.bands.joinToString(" + "){band->
+                            "${band.calendarDays} j à ${(band.targetNetRate*100).toInt()} % du net de référence"
+                        }
+                        listOf(buildString{
+                            append("Maintien Plasturgie — arrêt du ").append(start.format(display)).append(" : ")
+                            append(bands)
+                            result.employerWaitingDays?.let{append(" • carence employeur ").append(it).append(" j")}
+                            result.annualLimitDays?.let{limit->append(" • plafond annuel ").append(limit).append(" j")}
+                            result.alreadyConsumedIndemnifiedDays?.let{used->append(" • déjà consommés ").append(used).append(" j")}
+                            append(" • montant employeur en euros à confirmer (base nette, IJSS et prévoyance).")
+                        })
+                    }
+                }
+            }
     }
 
     private fun counter(b:Balance,suffix:String,label:String,value:Double)=
