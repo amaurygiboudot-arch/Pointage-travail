@@ -4,6 +4,7 @@ import android.app.Activity
 import android.view.View
 import android.widget.TextView
 import com.amaury.pointage.R
+import com.amaury.pointage.SalaryV2RootView
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
@@ -21,7 +22,7 @@ object V2LegacyIsolationUi {
         val today = root.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE
         val analytics = root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE
         val settings = root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
-        val salary = root.findViewWithTag<View>("integrated_salary_panel")?.visibility == View.VISIBLE
+        val salary = root.findViewWithTag<View>(SalaryV2RootView.TAG)?.visibility == View.VISIBLE
 
         when {
             today -> {
