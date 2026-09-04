@@ -43,7 +43,20 @@ data class OfficialSourceV2(val id:String,val title:String,val url:String,val ch
 data class PremiumV2(val id:String,val label:String,val amount:Double,val periodicity:PeriodicityV2,val taxable:Boolean=true)
 data class BasketV2(val id:String,val label:String,val amount:Double,val night:Boolean=false)
 data class DeductionV2(val id:String,val label:String,val amount:Double,val recurring:Boolean)
-data class AbsenceV2(val id:String,val employerId:String?,val type:String,val startMs:Long,val endMs:Long,val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED)
+/**
+ * Absence canonique V2. endMs est exclusif.
+ * fullDay doit être vrai pour qu'une absence non rémunérée puisse réduire le plafond SS.
+ */
+data class AbsenceV2(
+    val id:String,
+    val employerId:String?,
+    val type:String,
+    val startMs:Long,
+    val endMs:Long,
+    val salaryTreatment:AbsenceSalaryTreatmentV2=AbsenceSalaryTreatmentV2.TO_CONFIRM,
+    val fullDay:Boolean=false,
+    val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED
+)
 data class PayrollPeriodV2(val id:String,val employerId:String,val startMs:Long,val endMs:Long,val cutoffMs:Long?)
 data class PayslipLineV2(val label:String,val quantity:Double?=null,val rate:Double?=null,val amount:Double?=null,val confidence:Double=1.0)
 data class PayslipV2(val id:String,val employerId:String,val periodId:String,val lines:List<PayslipLineV2>,val gross:Double?,val net:Double?)
@@ -59,4 +72,5 @@ enum class ContractTypeV2 { FULL_TIME, PART_TIME, FORFAIT_HOURS, FORFAIT_DAYS, F
 enum class ForfaitHoursPeriodV2 { WEEK, MONTH, YEAR }
 enum class SourceTypeV2 { OFFICIAL, COLLECTIVE_AGREEMENT, COMPANY_AGREEMENT, MANUAL }
 enum class PeriodicityV2 { ONE_OFF, DAILY, WEEKLY, MONTHLY, YEARLY }
+enum class AbsenceSalaryTreatmentV2 { FULLY_MAINTAINED, UNPAID, TO_CONFIRM }
 enum class DiscrepancyStatusV2 { TO_VERIFY, CONFIRMED, SET_ASIDE, EXPLAINED, RESOLVED }
