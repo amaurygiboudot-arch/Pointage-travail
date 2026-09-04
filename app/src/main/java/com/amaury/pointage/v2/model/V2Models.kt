@@ -49,6 +49,8 @@ data class DeductionV2(val id:String,val label:String,val amount:Double,val recu
  * subrogation décrit uniquement le destinataire des IJSS ; elle ne vaut jamais règle de maintien.
  * providentTreatment concerne uniquement une prestation de prévoyance financée par l'employeur
  * qui CHEVAUCHE la période de maintien. Le relais conventionnel après maintien est traité à part.
+ * Les trois champs providentRelay* servent uniquement à contrôler un décompte réel sur une même
+ * période/base ; HoraTrack ne reconstruit pas seul une périodisation de la prestation assureur.
  */
 data class AbsenceV2(
     val id:String,
@@ -61,7 +63,10 @@ data class AbsenceV2(
     val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED,
     val subrogation:AbsenceSubrogationV2=AbsenceSubrogationV2.TO_CONFIRM,
     val providentTreatment:AbsenceProvidentTreatmentV2=AbsenceProvidentTreatmentV2.TO_CONFIRM,
-    val employerProvidentOverlapNetAmount:Double?=null
+    val employerProvidentOverlapNetAmount:Double?=null,
+    val providentRelayTargetGross60Amount:Double?=null,
+    val providentRelaySocialSecurityGrossAmount:Double?=null,
+    val providentRelayObservedGrossAmount:Double?=null
 )
 data class PayrollPeriodV2(val id:String,val employerId:String,val startMs:Long,val endMs:Long,val cutoffMs:Long?)
 data class PayslipLineV2(val label:String,val quantity:Double?=null,val rate:Double?=null,val amount:Double?=null,val confidence:Double=1.0)
