@@ -50,7 +50,7 @@ object WorkTimePolicyV2 {
         val hour = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = countedEntryMs }
             .get(Calendar.HOUR_OF_DAY)
         return when (hour) {
-            6 -> ShiftKind.MORNING
+            in 5..6 -> ShiftKind.MORNING
             in 7..11 -> ShiftKind.DAY
             in 12..20 -> ShiftKind.AFTERNOON
             else -> ShiftKind.NIGHT
