@@ -39,11 +39,7 @@ object SocialContributionCatalogV2 {
         val warnings: List<String>
     )
 
-    // PASS 2026 = 48 060 EUR ; PMSS = 4 005 EUR.
     private const val MONTHLY_PASS_2026 = 4005.0
-    // L'abattement de 1,75 % CSG/CRDS est limité à 4 PASS.
-    // Au-delà, la fraction excédentaire reste dans l'assiette à 100 %.
-    private const val CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026 = MONTHLY_PASS_2026 * 4.0
 
     private val rules2026 = listOf(
         Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
@@ -59,21 +55,21 @@ object SocialContributionCatalogV2 {
     }
 
     /**
-     * Assiette CSG/CRDS de base sur le salaire brut seul :
-     * - 98,25 % jusqu'à 4 PMSS ;
-     * - 100 % de la fraction au-delà.
-     *
-     * Les contributions patronales de prévoyance/santé qui doivent être
-     * réintégrées dans l'assiette ne sont pas inventées ici : elles seront
-     * ajoutées quand la couche entreprise dispose de ces montants.
+     * Assiette CSG/CRDS sur le salaire brut seul : 98,25 % jusqu'à quatre fois
+     * le plafond social applicable au salarié, puis 100 % au-delà.
      */
-    private fun csgCrdsBase2026(gross: Double): Double {
-        val abatedPart = min(gross, CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026)
-        val excess = (gross - CSG_CRDS_MONTHLY_ABATEMENT_CAP_2026).coerceAtLeast(0.0)
+    private fun csgCrdsBase2026(gross: Double, applicableMonthlyPass: Double): Double {
+        val cap = (applicableMonthlyPass * 4.0).coerceAtLeast(0.0)
+        val abatedPart = min(gross, cap)
+        val excess = (gross - cap).coerceAtLeast(0.0)
         return abatedPart * 0.9825 + excess
     }
 
-    fun estimateEmployeeDeductions(gross: Double, year: Int): Estimate {
+    fun estimateEmployeeDeductions(
+        gross: Double,
+        year: Int,
+        ceiling: SocialSecurityCeilingV2.Snapshot? = null
+    ): Estimate {
         val safeGross = gross.coerceAtLeast(0.0)
         val rules = employeeRules(year)
         if (rules.isEmpty()) {
@@ -86,11 +82,15 @@ object SocialContributionCatalogV2 {
             )
         }
 
-        val monthlyPass = if (year == 2026) MONTHLY_PASS_2026 else Double.POSITIVE_INFINITY
+        val monthlyPass = when {
+            year != 2026 -> Double.POSITIVE_INFINITY
+            ceiling != null -> ceiling.applicableMonthly
+            else -> MONTHLY_PASS_2026
+        }
         val lines = rules.map { rule ->
             val base = when (rule.base) {
                 Base.GROSS -> safeGross
-                Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross)
+                Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross, monthlyPass)
                 Base.GROSS_CAPPED_MONTHLY_PASS -> min(safeGross, monthlyPass)
             }
             Line(rule.id, rule.label, base, rule.employeeRate, base * rule.employeeRate, rule.source)
@@ -101,11 +101,12 @@ object SocialContributionCatalogV2 {
             employeeDeductions = total,
             netBeforeIncomeTax = (safeGross - total).coerceAtLeast(0.0),
             lines = lines,
-            warnings = listOf(
-                "Couche 1/6 : ce net est volontairement partiel.",
-                "L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.",
-                "Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes."
-            )
+            warnings = buildList {
+                add("Couche 1/6 : ce net est volontairement partiel.")
+                add("L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.")
+                add("Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes.")
+                ceiling?.warnings?.let(::addAll)
+            }.distinct()
         )
     }
 }
