@@ -8,6 +8,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 
 class AbsencePayrollImpactV2Test {
@@ -103,6 +104,26 @@ class AbsencePayrollImpactV2Test {
             setOf("company-a"),
             zone
         )
+        assertEquals(0, result.unpaidFullCalendarDays)
+        assertTrue(result.hasUnpaidAbsence)
+        assertTrue(result.warnings.any { it.contains("partielle") })
+    }
+
+    @Test
+    fun `absence partielle de quelques heures le meme jour est detectee sans prorata plafond`() {
+        val start = LocalDateTime.of(2026, 9, 14, 9, 0).atZone(zone).toInstant().toEpochMilli()
+        val end = LocalDateTime.of(2026, 9, 14, 12, 0).atZone(zone).toInstant().toEpochMilli()
+        val partial = AbsenceV2(
+            id = "partial",
+            employerId = "company-a",
+            type = "ABSENCE_NON_REMUNEREE",
+            startMs = start,
+            endMs = end,
+            salaryTreatment = AbsenceSalaryTreatmentV2.UNPAID,
+            fullDay = false,
+            status = DecisionStatusV2.CONFIRMED
+        )
+        val result = AbsencePayrollImpactV2.forMonth(listOf(partial), reference, setOf("company-a"), zone)
         assertEquals(0, result.unpaidFullCalendarDays)
         assertTrue(result.hasUnpaidAbsence)
         assertTrue(result.warnings.any { it.contains("partielle") })
