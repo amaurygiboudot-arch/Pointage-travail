@@ -13,7 +13,7 @@ import java.time.ZoneId
 
 class TimeEngineV2Test {
     private val minute = 60_000L
-    private val zone = ZoneId.of("Europe/Paris")
+    private val zone = ZoneId.systemDefault()
     private val dayBase = at(8, 0)
     private val morningBase = at(6, 0)
 
