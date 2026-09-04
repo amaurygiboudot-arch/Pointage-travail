@@ -7,7 +7,7 @@ import java.util.Locale
  * Extraction locale et prudente des trois montants nécessaires au contrôle du relais prévoyance.
  *
  * Le texte OCR complet n'est jamais stocké par cette couche. Un montant n'est proposé que si une
- * ligne (ou une ligne + sa voisine) contient des libellés suffisamment explicites et un seul montant.
+ * ligne (ou la ligne immédiatement suivante) est clairement rattachée au libellé recherché.
  * L'utilisateur doit toujours confirmer les valeurs avant qu'elles soient utilisées par HoraTrack.
  */
 object ProvidentRelayDocumentParserV2 {
@@ -40,16 +40,9 @@ object ProvidentRelayDocumentParserV2 {
             .take(2_000)
             .toList()
 
-        val windows = buildList {
-            lines.forEachIndexed { index, line ->
-                add(line)
-                if (index + 1 < lines.size) add("$line ${lines[index + 1]}")
-            }
-        }.distinct()
-
-        val target = best(windows, ::targetScore)
-        val ss = best(windows, ::socialSecurityScore)
-        val provident = best(windows, ::providentScore)
+        val target = best(lines, ::targetScore)
+        val ss = best(lines, ::socialSecurityScore)
+        val provident = best(lines, ::providentScore)
         val warnings = buildList {
             if (!target.highConfidence) add("60 % du salaire brut de référence : extraction automatique insuffisamment sûre.")
             if (!ss.highConfidence) add("Prestations Sécurité sociale brutes : extraction automatique insuffisamment sûre.")
@@ -58,19 +51,38 @@ object ProvidentRelayDocumentParserV2 {
         return Result(target, ss, provident, warnings)
     }
 
-    private fun best(windows: List<String>, scorer: (String) -> Double): Candidate {
+    private fun best(lines: List<String>, scorer: (String) -> Double): Candidate {
         val found = mutableListOf<Scored>()
-        windows.forEach { original ->
-            val score = scorer(normalize(original))
-            if (score <= 0.0) return@forEach
-            val amounts = extractMoneyAmounts(original)
-            if (amounts.size != 1) return@forEach
-            found += Scored(amounts.first(), score, original.take(180))
+
+        lines.forEachIndexed { index, line ->
+            val score = scorer(normalize(line))
+            if (score <= 0.0) return@forEachIndexed
+
+            val sameLineAmounts = extractMoneyAmounts(line)
+            when {
+                sameLineAmounts.size == 1 -> {
+                    found += Scored(sameLineAmounts.first(), score, line.take(180))
+                }
+                sameLineAmounts.isEmpty() && index + 1 < lines.size -> {
+                    val next = lines[index + 1]
+                    val nextAmounts = extractMoneyAmounts(next)
+                    if (nextAmounts.size == 1) {
+                        found += Scored(
+                            nextAmounts.first(),
+                            score,
+                            "$line ${next.take(100)}".take(180)
+                        )
+                    }
+                }
+            }
         }
+
         if (found.isEmpty()) return Candidate(null, 0.0)
         val sorted = found.sortedByDescending { it.score }
         val best = sorted.first()
-        val competing = sorted.drop(1).firstOrNull { it.score >= best.score - 0.05 && kotlin.math.abs(it.amount - best.amount) > 0.01 }
+        val competing = sorted.drop(1).firstOrNull {
+            it.score >= best.score - 0.10 && kotlin.math.abs(it.amount - best.amount) > 0.01
+        }
         return if (competing != null) {
             Candidate(null, (best.score - 0.35).coerceAtLeast(0.0), best.label)
         } else {
