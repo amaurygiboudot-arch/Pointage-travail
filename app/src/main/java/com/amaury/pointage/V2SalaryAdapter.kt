@@ -5,12 +5,15 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.CompanyAgreementOvertimeOverlayV2
+import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
 import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
+import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.model.ContractTypeV2
@@ -61,13 +64,18 @@ object V2SalaryAdapter {
    forfaitAnnualDays=if(type==ContractTypeV2.FORFAIT_DAYS)forfaitDays else null,
    monthlyGrossSalary=if(type==ContractTypeV2.FORFAIT_HOURS||type==ContractTypeV2.FORFAIT_DAYS)monthlyGross else null
   ) else null
-  return calculateCore(contract,missing,V2RuntimeStore.allSessions(context),year,month,rate?:0.0,convention,ruleHistory?:V2ConventionRuleStore.history(context),SalaryCompanyStore.acceptedEmployerIds(context,company.id))
+  val period=PayrollPeriodV2.month(year,month)
+  val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
+  return calculateCore(
+   contract,missing,V2RuntimeStore.allSessions(context),year,month,rate?:0.0,convention,
+   ruleHistory?:V2ConventionRuleStore.history(context),SalaryCompanyStore.acceptedEmployerIds(context,company.id),companyAgreement
+  )
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2));return calculateCore(p.contract,p.missing,V2RuntimeStore.allSessions(context),year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),p.contract?.let{setOf(it.employerId)}.orEmpty())}
  fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty())}
 
- private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>):Result {
+ private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null):Result {
   if(contract==null)return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val ids=acceptedEmployerIds.ifEmpty{setOf(contract.employerId)}
   val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
@@ -128,7 +136,10 @@ object V2SalaryAdapter {
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
-  val payrollRules=if(isPartTime||isFullTime)baseRules.copy(overtimeTiers=emptyList()) else baseRules
+  val agreementOverlay=if(isFullTime&&companyAgreementSnapshot!=null)CompanyAgreementOvertimeOverlayV2.fromSnapshot(baseRules.overtimeTiers,companyAgreementSnapshot)else null
+  agreementOverlay?.warnings?.let(warnings::addAll)
+  val effectiveRules=if(agreementOverlay!=null)baseRules.copy(overtimeTiers=agreementOverlay.tiers)else baseRules
+  val payrollRules=if(isPartTime||isFullTime)effectiveRules.copy(overtimeTiers=emptyList()) else effectiveRules
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},payrollRules)
 
   val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
@@ -143,7 +154,7 @@ object V2SalaryAdapter {
     regularWeeklyLimit=regularLimit,
     paidWeeks=weeks.values.map{it.paid},
     grossHourlyRate=rate,
-    overtimeTiers=baseRules.overtimeTiers
+    overtimeTiers=effectiveRules.overtimeTiers
    )
   }else null
   fullTime?.let{ft->warnings+=ft.warnings;if((contract.contractualWeeklyMinutes?:0)>regularLimit)warnings+="Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."}
