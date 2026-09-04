@@ -241,6 +241,7 @@ object V2PayslipStore {
    expectedValues[PayslipDocumentParserV2.KEY_GROSS]=expected.monthlyEstimatedGross
    expectedValues[PayslipDocumentParserV2.KEY_OVERTIME_GROSS]=expected.overtimeGross
    expectedValues[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]=expected.premiumsGross
+   expected.mealBasketTotal?.let{expectedValues[PayslipDocumentParserV2.KEY_MEAL_BASKETS]=it}
 
    val referenceDate=YearMonth.of(record.year,record.month+1).atEndOfMonth()
    val overrides=CompanyPayrollOverridesV2.load(context,company.id,referenceDate)
