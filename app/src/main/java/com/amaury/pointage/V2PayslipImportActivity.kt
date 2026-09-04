@@ -44,7 +44,8 @@ class V2PayslipImportActivity : Activity() {
         super.onCreate(savedInstanceState)
         val existing = intent.getStringExtra(EXTRA_SOURCE_URI)?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         if (existing != null) {
-            inspectDocument(existing, intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing))
+            val mime = intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing)
+            if (shouldInspectForProvident()) inspectDocument(existing, mime) else askConfirmedValues(existing, mime)
             return
         }
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -60,7 +61,19 @@ class V2PayslipImportActivity : Activity() {
         if (resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        inspectDocument(uri, contentResolver.getType(uri))
+        val mime = contentResolver.getType(uri)
+        if (shouldInspectForProvident()) inspectDocument(uri, mime) else askConfirmedValues(uri, mime)
+    }
+
+    private fun shouldInspectForProvident(): Boolean {
+        if (companyId.isBlank()) return false
+        return V2RightsStore.absencesForCompany(this, companyId)
+            .asSequence()
+            .filter { it.type == AbsencePayrollImpactV2.TYPE_SICKNESS }
+            .any { absence ->
+                val relay = V2PayslipStore.sicknessProvidentRelayForAbsence(this, companyId, absence)
+                relay?.potentiallyCovered == true && relay.eligibilityConfirmed && relay.relayReached == true
+            }
     }
 
     /**
@@ -80,7 +93,7 @@ class V2PayslipImportActivity : Activity() {
             var temporary: java.io.File? = null
             try {
                 val document = CompanyAgreementDocumentReaderV2.read(this, uri) { message ->
-                    runOnUiThread { status?.text = message }
+                    runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
                 }
                 temporary = document.temporaryFile
                 val parsed = ProvidentRelayDocumentParserV2.parse(document.extractedText)
@@ -90,14 +103,17 @@ class V2PayslipImportActivity : Activity() {
                 val looksLikeProvident = parsed.targetGross60.highConfidence &&
                     (parsed.socialSecurityGross.highConfidence || parsed.observedProvidentGross.highConfidence)
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     if (looksLikeProvident && companyId.isNotBlank()) {
                         offerProvidentLink(uri, document.mimeType, document.displayName, parsed)
                     } else {
                         askConfirmedValues(uri, mime ?: document.mimeType)
                     }
                 }
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
             } catch (_: Throwable) {
-                runOnUiThread { askConfirmedValues(uri, mime) }
+                runOnUiThread { if (!isFinishing && !isDestroyed) askConfirmedValues(uri, mime) }
             } finally {
                 temporary?.delete()
             }
@@ -119,13 +135,7 @@ class V2PayslipImportActivity : Activity() {
             .sortedByDescending { it.startMs }
 
         if (eligible.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Décompte prévoyance détecté")
-                .setMessage("Le document ressemble à un décompte de prévoyance, mais aucun arrêt maladie avec relais prévoyance atteint n'est actuellement disponible pour ${companyName.ifBlank { "cette entreprise" }}.")
-                .setPositiveButton("TRAITER COMME BULLETIN") { _, _ -> askConfirmedValues(uri, mime) }
-                .setNegativeButton("ANNULER") { _, _ -> finish() }
-                .setOnCancelListener { finish() }
-                .show()
+            askConfirmedValues(uri, mime)
             return
         }
         if (eligible.size == 1) {
