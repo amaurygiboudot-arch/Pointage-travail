@@ -21,7 +21,7 @@ import android.widget.TextView
 
 class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) : TextView(context, attrs, defStyleAttr) {
     companion object {
-        private const val SALARY_PANEL_TAG = "integrated_salary_panel"
+        private const val LEGACY_SALARY_PANEL_TAG = "integrated_salary_panel"
         private const val INFO_SHEET_TAG = SalaryInformationSheetView.TAG
         private const val CONTROL_HEIGHT_DP = 54
     }
@@ -31,9 +31,8 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
-        // Au retour de SalaryAuthActivity, MainActivity peut avoir brièvement restauré Aujourd'hui.
-        // Si une entreprise vient d'être autorisée, Salaire reprend la main avant que le watcher
-        // consomme l'identifiant et ouvre l'espace entreprise.
+        // Au retour de SalaryAuthActivity, Salaire reprend la main puis la racine V2 consomme
+        // l'autorisation et ouvre l'espace de l'entreprise sélectionnée.
         if (hasWindowFocus && PendingSalaryCompanyAccess.authorizedCompanyId != null) post { showIntegratedSalaryTab() }
     }
 
@@ -50,14 +49,19 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
 
         context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE).edit().putString("active_tab", "salary").apply()
 
-        // SalaryPanelView est conservé temporairement comme conteneur de migration. Son ancienne
-        // interface reste masquée par V2SalaryExtrasWatcher jusqu'à validation de la parité V2.
-        var salaryPanel = contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)
-        if (salaryPanel == null) {
-            salaryPanel = SalaryPanelView(context).apply { tag = SALARY_PANEL_TAG; visibility = View.GONE }
-            contentPanel.addView(salaryPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) })
+        // La V2 possède désormais sa propre racine. L'ancien SalaryPanelView reste dans le code
+        // comme filet de migration mais n'est plus utilisé comme conteneur de l'interface V2.
+        var salaryRoot = contentPanel.findViewWithTag<SalaryV2RootView>(SalaryV2RootView.TAG)
+        if (salaryRoot == null) {
+            salaryRoot = SalaryV2RootView(context).apply { visibility = View.GONE }
+            contentPanel.addView(
+                salaryRoot,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = dp(6)
+                }
+            )
         }
-        CompanyBasePauseInstaller.install(salaryPanel)
+        contentPanel.findViewWithTag<SalaryPanelView>(LEGACY_SALARY_PANEL_TAG)?.visibility = View.GONE
         contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG)?.visibility = View.GONE
 
         statusCard?.visibility = View.GONE
@@ -69,20 +73,22 @@ class SalaryTabTextView @JvmOverloads constructor(context: Context, attrs: Attri
         shiftControl?.refresh()
         contentTitle?.visibility = View.VISIBLE
         contentTitle?.text = "S A L A I R E"
-        salaryPanel.visibility = View.VISIBLE
-        salaryPanel.requestLayout()
+        salaryRoot.visibility = View.VISIBLE
+        salaryRoot.refresh()
+        salaryRoot.requestLayout()
         selectTab(R.id.tabSalary)
         normalizeFrameSizes()
+        salaryRoot.consumeAuthorizedAccess()
     }
 
     private fun installSalaryAutoHide() {
         val root = rootView ?: return; val contentPanel = root.findViewById<LinearLayout>(R.id.contentPanel) ?: return
-        fun scheduleCheck() { if (autoHidePosted) return; autoHidePosted = true; post { autoHidePosted = false; val salary=contentPanel.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG); val info=contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG); val shift=root.findViewById<View>(R.id.shiftControlView); val other=root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE; if(other){salary?.visibility=View.GONE;info?.visibility=View.GONE;shift?.visibility=View.GONE}; syncSelectedTabFromVisiblePanel() } }
+        fun scheduleCheck() { if (autoHidePosted) return; autoHidePosted = true; post { autoHidePosted = false; val salary=contentPanel.findViewWithTag<SalaryV2RootView>(SalaryV2RootView.TAG); val legacy=contentPanel.findViewWithTag<SalaryPanelView>(LEGACY_SALARY_PANEL_TAG); val info=contentPanel.findViewWithTag<SalaryInformationSheetView>(INFO_SHEET_TAG); val shift=root.findViewById<View>(R.id.shiftControlView); val other=root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.historyText)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE || root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE; if(other){salary?.visibility=View.GONE;legacy?.visibility=View.GONE;info?.visibility=View.GONE;shift?.visibility=View.GONE}; syncSelectedTabFromVisiblePanel() } }
         listOf(root.findViewById<View>(R.id.pointageButtons),root.findViewById<View>(R.id.historyText),root.findViewById<View>(R.id.analyticsPdfPanel),root.findViewById<View>(R.id.gpsSettingsPanel)).forEach{v->v?.addOnLayoutChangeListener{_,_,_,_,_,_,_,_,_->scheduleCheck()}}
     }
     private fun applyTabTypography(){listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->rootView.findViewById<TextView>(id)?.apply{textSize=12f;typeface=Typeface.create("sans-serif-condensed",Typeface.BOLD);maxLines=2;ellipsize=TextUtils.TruncateAt.END;includeFontPadding=false;gravity=Gravity.CENTER;setPadding(dp(4),dp(3),dp(4),dp(3));minimumWidth=0;minWidth=0;val raw=text.toString();val br=raw.indexOf('\n');if(br>0&&text !is SpannableString){val s=SpannableString(raw);s.setSpan(RelativeSizeSpan(1.45f),0,br,Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);text=s}}}}
     private fun installTabButtonStyle(){listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->val tab=rootView.findViewById<TextView>(id)?:return@forEach;tab.setOnTouchListener{_,e->if(e.actionMasked==MotionEvent.ACTION_UP)selectTab(id);false}};syncSelectedTabFromVisiblePanel()}
-    private fun syncSelectedTabFromVisiblePanel(){val root=rootView?:return;val id=when{root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE->R.id.tabSettings;root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE->R.id.tabAnalytics;root.findViewById<LinearLayout>(R.id.contentPanel)?.findViewWithTag<SalaryPanelView>(SALARY_PANEL_TAG)?.visibility==View.VISIBLE->R.id.tabSalary;root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE->R.id.tabToday;else->R.id.tabHistory};selectTab(id)}
+    private fun syncSelectedTabFromVisiblePanel(){val root=rootView?:return;val content=root.findViewById<LinearLayout>(R.id.contentPanel);val salaryVisible=content?.findViewWithTag<SalaryV2RootView>(SalaryV2RootView.TAG)?.visibility==View.VISIBLE || content?.findViewWithTag<SalaryPanelView>(LEGACY_SALARY_PANEL_TAG)?.visibility==View.VISIBLE;val id=when{root.findViewById<View>(R.id.gpsSettingsPanel)?.visibility==View.VISIBLE->R.id.tabSettings;root.findViewById<View>(R.id.analyticsPdfPanel)?.visibility==View.VISIBLE->R.id.tabAnalytics;salaryVisible->R.id.tabSalary;root.findViewById<View>(R.id.pointageButtons)?.visibility==View.VISIBLE->R.id.tabToday;else->R.id.tabHistory};selectTab(id)}
     private fun selectTab(activeId:Int){listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->rootView.findViewById<TextView>(id)?.let{val selected=id==activeId;if(it.isSelected!=selected)it.isSelected=selected;styleTab(it,selected)}}}
     private fun styleTab(tab:TextView,active:Boolean){val theme=AppThemeCatalog.current(context);val dark=AppThemeCatalog.useDarkPalette(context);val activeText=if(dark)theme.darkText else theme.lightText;val inactiveText=if(dark)theme.darkHint else theme.lightHint;tab.elevation=if(active)3f*resources.displayMetrics.density else 0f;tab.alpha=if(active)1f else .78f;tab.setTextColor(if(active)activeText else inactiveText);tab.backgroundTintList=null;when(theme.id){"natural_carbon"->if(tab.background !is CarbonCompositeDrawable)tab.background=CarbonCompositeDrawable(context);"signature_gold"->if(tab.background is CarbonCompositeDrawable||tab.background==null)tab.background=context.getDrawable(R.drawable.hp_panel)?.mutate()}}
     private fun normalizeFrameSizes(){val root=rootView?:return;normalizeRecursive(root);listOf(R.id.tabToday,R.id.tabHistory,R.id.tabAnalytics,R.id.tabSalary,R.id.tabSettings).forEach{id->root.findViewById<TextView>(id)?.let{fitText(it,true)}};ThemeFrameStyler.apply(root)}
