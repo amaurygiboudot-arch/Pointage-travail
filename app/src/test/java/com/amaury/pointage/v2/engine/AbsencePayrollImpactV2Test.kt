@@ -59,6 +59,43 @@ class AbsencePayrollImpactV2Test {
     }
 
     @Test
+    fun `absence qui traverse deux mois ne compte que septembre`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(absence(LocalDate.of(2026, 8, 30), LocalDate.of(2026, 9, 2))),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(2, result.unpaidFullCalendarDays)
+        assertTrue(result.hasUnpaidAbsence)
+    }
+
+    @Test
+    fun `absence d'un autre mois est totalement ignoree`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(absence(LocalDate.of(2026, 8, 7), LocalDate.of(2026, 8, 9))),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(0, result.unpaidFullCalendarDays)
+        assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `absence non confirmee d'un autre mois ne cree pas d'alerte`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(absence(LocalDate.of(2026, 8, 7), LocalDate.of(2026, 8, 7), status = DecisionStatusV2.TO_CONFIRM)),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
     fun `absence partielle ne reduit pas le plafond`() {
         val result = AbsencePayrollImpactV2.forMonth(
             listOf(absence(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 7), fullDay = false)),
