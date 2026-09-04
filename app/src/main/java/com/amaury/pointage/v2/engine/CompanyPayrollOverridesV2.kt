@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.V2RightsStore
+import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.ContractTypeV2
 import java.time.Instant
 import java.time.LocalDate
@@ -72,10 +73,12 @@ object CompanyPayrollOverridesV2 {
         val employeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val tax=number("income_tax_rate_percent")?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
+        val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val absenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
             referenceDate=referenceDate,
-            acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
+            acceptedEmployerIds=acceptedEmployerIds,
+            workSessions=V2RuntimeStore.allSessions(context)
         )
         val warnings=buildList {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
