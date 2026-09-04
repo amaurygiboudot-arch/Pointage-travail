@@ -55,9 +55,17 @@ object V2RuntimeStore {
         val open = safeLong(prefs.all[KEY_REAL_ENTRY]) > 0L && safeLong(prefs.all[KEY_REAL_EXIT]) == 0L
         if (open) return false
 
-        val slot = (companySlot ?: V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
-        if (companySlot != null) V2ProfileStore.setActiveCompanySlot(context, slot)
-        val employerId = V2ProfileStore.load(context, slot).employer?.id
+        // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
+        // l'identifiant stable de l'entreprise active, ce qui permet plus de deux entreprises.
+        val profile = if (companySlot != null) {
+            val slot = companySlot.coerceIn(1, 2)
+            V2ProfileStore.setActiveCompanySlot(context, slot)
+            V2ProfileStore.load(context, slot)
+        } else {
+            V2ProfileStore.loadActive(context)
+        }
+        val employerId = profile.employer?.id
+        val legacySlot = profile.companySlot.takeIf { it in 1..2 }
         val knownExpected = expectedEndMs?.takeIf { it > nowMs }
             ?: V2ScheduleStore.expectedEndForEntry(context, nowMs)?.takeIf { it > nowMs }
 
@@ -68,10 +76,10 @@ object V2RuntimeStore {
             .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSES)
             .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .putString(KEY_ID, UUID.randomUUID().toString())
-            .putInt(KEY_COMPANY_SLOT, slot)
             .putLong(KEY_REAL_ENTRY, nowMs)
             .putLong(KEY_COUNTED_ENTRY, HoraTrackV2.time.countedEntryFromRealArrival(nowMs))
             .putString(KEY_PAUSES, "[]")
+        legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
         editor.apply()
@@ -188,8 +196,10 @@ object V2RuntimeStore {
         safeLong(prefs.all[KEY_PAUSE_START]).takeIf { it > 0L }?.let {
             pauses += PauseV2(it, null, paid = false, source = parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)))
         }
-        val slot = safeInt(prefs.all[KEY_COMPANY_SLOT], V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
-        val employerId = prefs.getString(KEY_EMPLOYER_ID, null) ?: V2ProfileStore.load(context, slot).employer?.id
+        val storedSlot = safeInt(prefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
+        val employerId = prefs.getString(KEY_EMPLOYER_ID, null)
+            ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
+            ?: V2ProfileStore.loadActive(context).employer?.id
         val placeId = prefs.getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
         val placeLabel = prefs.getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
         val session = WorkSessionV2(
@@ -221,15 +231,15 @@ object V2RuntimeStore {
         val prefs = prefs(context)
         val a = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
         for (i in 0 until a.length()) if (a.optJSONObject(i)?.optString("id") == session.id) return
-        val slot = safeInt(prefs.all[KEY_COMPANY_SLOT], V2ProfileStore.activeCompanySlot(context)).coerceIn(1, 2)
-        a.put(sessionToJson(session, slot))
+        val legacySlot = safeInt(prefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
+        a.put(sessionToJson(session, legacySlot))
         prefs.edit().putString(KEY_HISTORY, a.toString()).apply()
     }
 
-    private fun sessionToJson(session: WorkSessionV2, companySlot: Int) = JSONObject()
+    private fun sessionToJson(session: WorkSessionV2, companySlot: Int?) = JSONObject()
         .put("id", session.id)
         .put("employerId", session.employerId ?: JSONObject.NULL)
-        .put("companySlot", companySlot)
+        .apply { companySlot?.let { put("companySlot", it) } }
         .put("realEntry", session.realArrivalMs ?: JSONObject.NULL)
         .put("countedEntry", session.countedEntryMs ?: JSONObject.NULL)
         .put("realExit", session.realExitMs ?: JSONObject.NULL)
