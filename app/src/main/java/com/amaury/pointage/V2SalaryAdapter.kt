@@ -7,6 +7,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
+import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
 import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
@@ -68,14 +69,26 @@ object V2SalaryAdapter {
  private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>):Result {
   if(contract==null)return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val ids=acceptedEmployerIds.ifEmpty{setOf(contract.employerId)}
-  val selected=sessions.filter{s->val end=s.realExitMs?:return@filter false;val start=s.countedEntryMs?:s.realArrivalMs?:return@filter false;val c=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=start};s.employerId in ids&&end>start&&c.get(Calendar.YEAR)==year&&c.get(Calendar.MONTH)==month}
+  val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
+  val monthEnd=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0);add(Calendar.MONTH,1)}.timeInMillis
+  val selected=sessions.filter{s->val start=s.countedEntryMs?:return@filter false;val end=s.countedExitMs?:return@filter false;s.employerId in ids&&s.realExitMs!=null&&end>start&&start<monthEnd&&end>monthStart}
   val warnings=mutableListOf<String>()
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
   val nightRule=if(historical)null else ConventionNightRules.forIdcc(convention.idcc)
   var nightMs=0L;var satMs=0L;var sunMs=0L
-  selected.forEach{s->val start=s.countedEntryMs?:s.realArrivalMs?:return@forEach;val end=s.countedExitMs?:s.realExitMs?:return@forEach;if(end<=start)return@forEach;val paid=HoraTrackV2.time.calculate(s).paidWorkMs;val mins=(paid/60000).toInt();val c=Calendar.getInstance(Locale.FRANCE).apply{firstDayOfWeek=Calendar.MONDAY;minimalDaysInFirstWeek=4;timeInMillis=start};val w=weeks.getOrPut(c.getWeekYear() to c.get(Calendar.WEEK_OF_YEAR)){W()};w.paid+=mins;nightRule?.let{r->val n=((nightOverlap(start,end,r.startMinute,r.endMinute).toDouble()/(end-start))*paid).toLong().coerceIn(0,paid);w.night+=(n/60000).toInt();nightMs+=n};val sat=((dayOverlap(start,end,Calendar.SATURDAY).toDouble()/(end-start))*paid).toLong().coerceIn(0,paid);val sun=((dayOverlap(start,end,Calendar.SUNDAY).toDouble()/(end-start))*paid).toLong().coerceIn(0,paid);w.sat+=(sat/60000).toInt();w.sun+=(sun/60000).toInt();satMs+=sat;sunMs+=sun}
+  selected.forEach{s->
+   PaidWorkAllocationV2.splitByIsoWeek(s,monthStart,monthEnd).forEach{slice->
+    val paidMinutes=(slice.paidMs/60000L).toInt()
+    val w=weeks.getOrPut(slice.weekYear to slice.weekOfYear){W()}
+    w.paid+=paidMinutes
+    nightRule?.let{r->val n=nightPaidOverlap(s,slice.startMs,slice.endMs,r.startMinute,r.endMinute);w.night+=(n/60000L).toInt();nightMs+=n}
+    val sat=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SATURDAY)
+    val sun=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SUNDAY)
+    w.sat+=(sat/60000L).toInt();w.sun+=(sun/60000L).toInt();satMs+=sat;sunMs+=sun
+   }
+  }
 
   if(contract.type==ContractTypeV2.FORFAIT_HOURS||contract.type==ContractTypeV2.FORFAIT_DAYS){
    val worked=PayrollEngineV2.calculate(contract,weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},PayrollRulesV2())
@@ -128,7 +141,7 @@ object V2SalaryAdapter {
   return Result((monthlyMinutes?.times(60000)?.toLong()?:regular.toLong()*60000),displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000,base?:worked.regularGross,if(isPartTime)complementaryGross else worked.overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,selected.size,warnings+worked.traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,0,0,0,0,w)
- private fun nightOverlap(entry:Long,exit:Long,startMinute:Int,endMinute:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};total+=overlap(entry,exit,s.timeInMillis,e.timeInMillis);day.add(Calendar.DAY_OF_YEAR,1)};return total}
- internal fun dayOverlap(entry:Long,exit:Long,dayOfWeek:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};total+=overlap(entry,exit,day.timeInMillis,next.timeInMillis)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
- private fun overlap(a:Long,b:Long,c:Long,d:Long)=(minOf(b,d)-maxOf(a,c)).coerceAtLeast(0)
+ private fun nightPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,startMinute:Int,endMinute:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,s.timeInMillis);val to=minOf(rangeEnd,e.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to);day.add(Calendar.DAY_OF_YEAR,1)};return total}
+ private fun dayPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,dayOfWeek:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,day.timeInMillis);val to=minOf(rangeEnd,next.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
+ internal fun dayOverlap(entry:Long,exit:Long,dayOfWeek:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};total+=(minOf(exit,next.timeInMillis)-maxOf(entry,day.timeInMillis)).coerceAtLeast(0L)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
 }
