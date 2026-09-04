@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.EnterpriseIdccParserV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -185,7 +186,7 @@ class EnterpriseLookupView @JvmOverloads constructor(
                 val establishment = findMatchingEstablishment(result, siret)
                 val address = firstNonBlank(establishment?.optString("adresse"), establishment?.optString("adresse_complete"), result.optString("adresse"))
                 val ape = firstNonBlank(establishment?.optString("activite_principale"), result.optString("activite_principale"))
-                val idcc = findIdccs(result).firstOrNull().orEmpty()
+                val idcc = EnterpriseIdccParserV2.find(result, siret).firstOrNull().orEmpty()
                 val convention = ConventionCatalog.findByIdcc(idcc)
                 val conventionName = convention?.fullName.orEmpty()
                 val agreements = fetchCompanyAgreementSummary(siren, name)
@@ -340,35 +341,6 @@ class EnterpriseLookupView @JvmOverloads constructor(
         .replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"")
         .replace("&#39;", "'").replace("&eacute;", "é").replace("&Eacute;", "É")
         .replace("&agrave;", "à").replace("&ccedil;", "ç")
-
-    private fun findIdccs(result: JSONObject): List<String> {
-        val values = linkedSetOf<String>()
-        result.optJSONObject("complements")?.optJSONArray("liste_idcc")?.let { list ->
-            for (i in 0 until list.length()) normalizeIdcc(list.optString(i)).takeIf { it.isNotBlank() }?.let(values::add)
-        }
-        fun collect(obj: JSONObject) {
-            listOf(obj.optString("idcc"), obj.optString("numero_idcc"), obj.optString("id_convention_collective"))
-                .forEach { normalizeIdcc(it).takeIf(String::isNotBlank)?.let(values::add) }
-            obj.optJSONArray("conventions_collectives")?.let { conventions ->
-                for (i in 0 until conventions.length()) {
-                    val item = conventions.optJSONObject(i) ?: continue
-                    normalizeIdcc(firstNonBlank(item.optString("idcc"), item.optString("numero_idcc"), item.optString("id_convention_collective")))
-                        .takeIf(String::isNotBlank)?.let(values::add)
-                }
-            }
-        }
-        collect(result)
-        result.optJSONObject("siege")?.let(::collect)
-        result.optJSONArray("matching_etablissements")?.let { matching ->
-            for (i in 0 until matching.length()) matching.optJSONObject(i)?.let(::collect)
-        }
-        return values.toList()
-    }
-
-    private fun normalizeIdcc(raw: String): String {
-        val digits = raw.filter(Char::isDigit)
-        return if (digits.isBlank()) "" else digits.padStart(4, '0').takeLast(4)
-    }
 
     private fun findMatchingEstablishment(result: JSONObject, siret: String): JSONObject? {
         val siege = result.optJSONObject("siege")

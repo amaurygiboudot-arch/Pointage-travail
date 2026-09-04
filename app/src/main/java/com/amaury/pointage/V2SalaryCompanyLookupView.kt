@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.EnterpriseIdccParserV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -97,7 +98,8 @@ class V2SalaryCompanyLookupView(
         val siret = firstNonBlank(establishment?.optString("siret"), result.optJSONObject("siege")?.optString("siret")).filter(Char::isDigit)
         val siren = result.optString("siren").filter(Char::isDigit)
         val address = firstNonBlank(establishment?.optString("adresse"), establishment?.optString("adresse_complete"), result.optString("adresse"))
-        val idcc = findIdccs(result).firstOrNull().orEmpty(); val conventionName = ConventionCatalog.findByIdcc(idcc)?.fullName.orEmpty()
+        val idcc = EnterpriseIdccParserV2.find(result, siret).firstOrNull().orEmpty()
+        val conventionName = ConventionCatalog.findByIdcc(idcc)?.fullName.orEmpty()
         val id = when { siret.isNotBlank() -> "siret_$siret"; siren.isNotBlank() -> "siren_$siren"; else -> "name_${name.lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_')}" }
         return SalaryCompanyStore.Company(id, name.ifBlank { "Entreprise" }, siret, address, conventionName, idcc)
     }
@@ -109,8 +111,6 @@ class V2SalaryCompanyLookupView(
         val siege = result.optJSONObject("siege"); if (siege?.optString("siret")?.filter(Char::isDigit) == siret) return siege
         return matching.optJSONObject(0) ?: siege
     }
-    private fun findIdccs(result: JSONObject): List<String> { val out = LinkedHashSet<String>(); result.optJSONArray("complements")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { collectIdcc(it, out) } }; collectIdcc(result, out); return out.toList() }
-    private fun collectIdcc(obj: JSONObject, out: MutableSet<String>) { listOf("idcc", "idcc_principal").forEach { key -> obj.optString(key).filter(Char::isDigit).takeIf { it.isNotBlank() }?.let(out::add) }; val ids = obj.optJSONArray("idccs") ?: return; for (i in 0 until ids.length()) ids.optString(i).filter(Char::isDigit).takeIf { it.isNotBlank() }?.let(out::add) }
     private fun firstNonBlank(vararg values: String?): String = values.firstOrNull { !it.isNullOrBlank() }.orEmpty().trim()
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }

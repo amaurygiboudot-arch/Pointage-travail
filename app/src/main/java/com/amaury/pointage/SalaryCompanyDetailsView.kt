@@ -19,6 +19,7 @@ import com.amaury.pointage.v2.CompanyAgreementIngestionV2
 import com.amaury.pointage.v2.CompanyAgreementDocumentStoreV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
+import com.amaury.pointage.v2.EnterpriseIdccParserV2
 import com.amaury.pointage.v2.LegifranceFunctionClientV2
 import com.amaury.pointage.v2.PisteAccessSetupV2
 import com.amaury.pointage.v2.OfficialAgreementCandidateVerifierV2
@@ -29,6 +30,12 @@ import com.amaury.pointage.v2.OfficialConventionCatalogParserV2
 import com.amaury.pointage.v2.OfficialConventionContainerParserV2
 import com.amaury.pointage.v2.OfficialConventionResultStoreV2
 import com.amaury.pointage.v2.engine.CompanyAgreementStructuredRuleV2
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 class SalaryCompanyDetailsView(
     context: Context,
@@ -57,7 +64,12 @@ class SalaryCompanyDetailsView(
         addView(text("CONVENTION COLLECTIVE — KALI\n\nHoraTrack vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
         val expectedIdcc = OfficialConventionCatalogParserV2.normalizeIdcc(company.idcc)
         if (expectedIdcc == null) {
-            addView(text("État : IDCC non renseigné ou invalide.\n\nModifie les informations de l’entreprise avant de lancer la vérification KALI."))
+            addView(text("État : IDCC non renseigné ou invalide."))
+            if (company.siret.filter(Char::isDigit).length == 14) {
+                addView(button("RECHERCHER L’IDCC AUTOMATIQUEMENT") { lookupMissingIdcc() })
+            } else {
+                addView(text("Renseigne d’abord le SIRET de l’entreprise pour retrouver automatiquement sa convention."))
+            }
             addView(button("RETOUR") { showSummary() })
             return
         }
@@ -77,6 +89,64 @@ class SalaryCompanyDetailsView(
             verifyConvention(expectedIdcc)
         })
         addView(button("RETOUR") { showSummary() })
+    }
+
+    private fun lookupMissingIdcc() {
+        val siret = company.siret.filter(Char::isDigit)
+        if (siret.length != 14) {
+            Toast.makeText(context, "Le SIRET doit contenir 14 chiffres.", Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(context, "Recherche automatique de l’IDCC…", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                val encoded = URLEncoder.encode(siret, StandardCharsets.UTF_8.name())
+                val connection = URL("https://recherche-entreprises.api.gouv.fr/search?q=$encoded&per_page=1")
+                    .openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 15_000
+                connection.setRequestProperty("Accept", "application/json")
+                connection.setRequestProperty("User-Agent", "HoraTrack-Android")
+                val response = try {
+                    val status = connection.responseCode
+                    val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+                    status to stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                } finally {
+                    connection.disconnect()
+                }
+                val (status, responseBody) = response
+                if (status !in 200..299) throw IllegalStateException("service indisponible ($status)")
+
+                val results = JSONObject(responseBody).optJSONArray("results") ?: JSONArray()
+                val result = results.optJSONObject(0)
+                    ?: throw IllegalStateException("entreprise introuvable")
+                val idcc = EnterpriseIdccParserV2.find(result, siret).firstOrNull()
+                    ?: throw IllegalStateException("aucune convention déclarée pour ce SIRET")
+                val conventionName = ConventionCatalog.findByIdcc(context, idcc)?.fullName.orEmpty()
+                val updated = company.copy(
+                    idcc = idcc,
+                    conventionName = conventionName
+                )
+                if (!SalaryCompanyStore.upsert(context, updated)) {
+                    throw IllegalStateException("enregistrement impossible")
+                }
+                post {
+                    company = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id } ?: updated
+                    onChanged(company)
+                    Toast.makeText(context, "IDCC $idcc trouvé automatiquement. Tu peux maintenant le vérifier dans KALI.", Toast.LENGTH_LONG).show()
+                    showConvention()
+                }
+            } catch (error: Exception) {
+                post {
+                    Toast.makeText(
+                        context,
+                        "Recherche automatique impossible : ${error.message ?: "erreur inconnue"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     private fun verifyConvention(expectedIdcc: String) {
