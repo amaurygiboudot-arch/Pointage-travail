@@ -106,7 +106,7 @@ object SalaryExamplePdfV2 {
 
         if (Field.ESTIMATED_GROSS in fields) {
             section("ESTIMATION DE RÉMUNÉRATION", listOf(
-                "Brut estimé HoraTrack" to (salary?.monthlyEstimatedGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"),
+                "Brut estimé HoraTrack" to (salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"),
                 "Majoration heures supplémentaires" to (salary?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"),
                 "Cotisations / net" to "Non inventés : à confirmer depuis des sources applicables"
             ))
