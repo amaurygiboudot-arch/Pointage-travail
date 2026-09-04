@@ -4,7 +4,9 @@ import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyAgreementOvertimeOverlayV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
@@ -66,17 +68,29 @@ object V2SalaryAdapter {
    monthlyGrossSalary=if(type==ContractTypeV2.FORFAIT_HOURS||type==ContractTypeV2.FORFAIT_DAYS)monthlyGross else null
   ) else null
   val period=PayrollPeriodV2.month(year,month)
+  val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
+  val absenceImpact=AbsencePayrollImpactV2.forMonth(
+   V2RightsStore.absences(context),
+   period.referenceDate,
+   acceptedIds
+  )
   val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
   return calculateCore(
    contract,missing,V2RuntimeStore.allSessions(context),year,month,rate?:0.0,convention,
-   ruleHistory?:V2ConventionRuleStore.history(context),SalaryCompanyStore.acceptedEmployerIds(context,company.id),companyAgreement
+   ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact
   )
  }
 
- fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2));return calculateCore(p.contract,p.missing,V2RuntimeStore.allSessions(context),year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),p.contract?.let{setOf(it.employerId)}.orEmpty())}
+ fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
+  val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
+  val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
+  val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
+  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids)
+  return calculateCore(p.contract,p.missing,V2RuntimeStore.allSessions(context),year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact)
+ }
  fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty())}
 
- private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null):Result {
+ private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null):Result {
   if(contract==null)return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val ids=acceptedEmployerIds.ifEmpty{setOf(contract.employerId)}
   val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
@@ -87,6 +101,11 @@ object V2SalaryAdapter {
   val entryDate=contract.hireDateEpochDay?.let(LocalDate::ofEpochDay)
   val grossAssessment=MonthlySalaryProrationV2.assess(entryDate,referenceDate)
   grossAssessment.warning?.let(warnings::add)
+  absenceImpact?.warnings?.let(warnings::addAll)
+  if(absenceImpact?.hasUnpaidAbsence==true){
+   warnings+="Absence non rémunérée enregistrée : le brut exact exige les heures de travail prévues dans l'entreprise pour ce mois. Aucun montant de retenue n'est inventé."
+  }
+  val monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.hasUnpaidAbsence!=true
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
@@ -115,7 +134,7 @@ object V2SalaryAdapter {
     ContractTypeV2.FORFAIT_DAYS->"Forfait jours : la rémunération n'est pas convertie en taux horaire ; les pointages servent au suivi du temps et de la charge."
     else->""
    }
-   if(selected.isEmpty())warnings+="Aucune session pointée sur la période : la rémunération forfaitaire contractuelle est conservée ; les absences non rémunérées ne sont pas encore déduites automatiquement."
+   if(selected.isEmpty())warnings+="Aucune session pointée sur la période : la rémunération forfaitaire contractuelle reste une base théorique ; les absences enregistrées sont contrôlées séparément."
    return Result(
     regularMs=contractualMonthlyMinutes?.toLong()?.times(60000L)?:0L,
     overtimeTiers=emptyList(),
@@ -124,7 +143,7 @@ object V2SalaryAdapter {
     overtimeGross=0.0,
     premiumsGross=worked.premiumsGross+worked.fixedPremiumsGross,
     monthlyEstimatedGross=worked.grossEstimate,
-    monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable,
+    monthlyGrossReliable=monthlyGrossReliable,
     nightMs=nightMs,
     saturdayMs=satMs,
     sundayMs=sunMs,
@@ -175,7 +194,7 @@ object V2SalaryAdapter {
    if(isFullTime)warnings+="Salaire de base mensualisé : durée légale/référence + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat."
    else warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables."
   }
-  if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée conservée ; les absences non rémunérées ne sont pas encore déduites automatiquement."
+  if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée théorique conservée ; les absences enregistrées sont contrôlées séparément."
 
   var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
   val displayedTiers=when{
@@ -190,7 +209,7 @@ object V2SalaryAdapter {
   val regularGross=when{isFullTime->(fullTime?.monthlyRegularMinutes?:0.0)/60.0*rate;else->baseGross?:worked.regularGross}
   val overtimeGross=when{isFullTime->(fullTime?.structuralOvertimeGross?:0.0)+(fullTime?.variableOvertimeGross?:0.0);isPartTime->complementaryGross;else->worked.overtimeGross}
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
-  return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,grossAssessment.exactMonthlyGrossAvailable,nightMs,satMs,sunMs,complementaryMinutes,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
+  return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,monthlyGrossReliable,nightMs,satMs,sunMs,complementaryMinutes,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,false,0,0,0,0,0,w)
  private fun nightPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,startMinute:Int,endMinute:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,s.timeInMillis);val to=minOf(rangeEnd,e.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to);day.add(Calendar.DAY_OF_YEAR,1)};return total}
