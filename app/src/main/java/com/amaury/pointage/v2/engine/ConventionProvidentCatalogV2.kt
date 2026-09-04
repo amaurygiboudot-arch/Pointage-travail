@@ -22,7 +22,6 @@ object ConventionProvidentCatalogV2 {
         val warnings: List<String>
     )
 
-    private const val PMSS_2026 = 4005.0
     private const val SOURCE_PLASTURGIE = "Légifrance — IDCC 292, accord du 29/10/2014 modifié par avenant du 19/12/2024, étendu"
 
     /**
@@ -43,9 +42,8 @@ object ConventionProvidentCatalogV2 {
         val status = professionalStatus?.trim()?.uppercase()
 
         if (convention != "292") return Estimate(emptyList(), 0.0, 0.0, emptyList())
-        if (year != 2026) {
-            return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year."))
-        }
+        val full = SocialSecurityCeilingV2.fullMonthly(year)
+            ?: return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year."))
         if (status == null) {
             return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : statut professionnel à préciser."))
         }
@@ -57,7 +55,7 @@ object ConventionProvidentCatalogV2 {
         }
         if (seniorityMonths < 3 || g <= 0.0) return Estimate(emptyList(), 0.0, 0.0, emptyList())
 
-        val max4 = ceiling?.fourTimesApplicable ?: PMSS_2026 * 4.0
+        val max4 = ceiling?.fourTimesApplicable ?: full * 4.0
         val base = min(g, max4)
         val employeeRate = 0.004
         val employerRate = 0.004
