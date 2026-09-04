@@ -39,7 +39,12 @@ object CompanyPayrollOverridesV2 {
         val warnings:List<String>
     )
 
-    fun load(context:Context,companyId:String,referenceDate:LocalDate=selectedPayrollReferenceDate(context)):Snapshot {
+    fun load(
+        context:Context,
+        companyId:String,
+        referenceDate:LocalDate=selectedPayrollReferenceDate(context),
+        ignoreAbsencesForTheoreticalBase:Boolean=false
+    ):Snapshot {
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=p.getString(key,"").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>=0.0}
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
@@ -74,12 +79,21 @@ object CompanyPayrollOverridesV2 {
         val tax=number("income_tax_rate_percent")?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
-        val absenceImpact=AbsencePayrollImpactV2.forMonth(
+        val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
             referenceDate=referenceDate,
             acceptedEmployerIds=acceptedEmployerIds,
             workSessions=V2RuntimeStore.allSessions(context)
         )
+        val absenceImpact=if(ignoreAbsencesForTheoreticalBase){
+            AbsencePayrollImpactV2.Snapshot(
+                unpaidFullCalendarDays=0,
+                hasUnpaidAbsence=false,
+                hasCompensatedAbsence=false,
+                requiresPayrollReview=false,
+                warnings=emptyList()
+            )
+        }else observedAbsenceImpact
         val warnings=buildList {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
             addAll(absenceImpact.warnings)
@@ -90,6 +104,9 @@ object CompanyPayrollOverridesV2 {
             if(employeeProvidentNonDeductible==null)add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
+            if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
+                add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
+            }
         }
         return Snapshot(
             companyId=companyId,
