@@ -38,10 +38,14 @@ object PauseScheduleManager {
 
     data class EndConfirmation(val endAtMs: Long, val deadlineMs: Long)
 
+    /** Le nouveau moteur V2 ne laisse plus un profil de poste créer/supprimer des pauses. */
+    private fun automaticSchedulingAllowed(): Boolean =
+        !HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)
+
     fun load(context: Context): Schedule {
         val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         return Schedule(
-            p.getBoolean(KEY_ENABLED, false),
+            p.getBoolean(KEY_ENABLED, false) && automaticSchedulingAllowed(),
             p.getInt(KEY_START_HOUR, 10),
             p.getInt(KEY_START_MINUTE, 0),
             p.getInt(KEY_END_HOUR, 10),
@@ -57,8 +61,9 @@ object PauseScheduleManager {
         endMinute: Int,
         enabled: Boolean = true
     ) {
+        val effectiveEnabled = enabled && automaticSchedulingAllowed()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_ENABLED, effectiveEnabled)
             .putInt(KEY_START_HOUR, startHour)
             .putInt(KEY_START_MINUTE, startMinute)
             .putInt(KEY_END_HOUR, endHour)
@@ -69,21 +74,26 @@ object PauseScheduleManager {
     }
 
     fun setEnabled(context: Context, enabled: Boolean) {
+        val effectiveEnabled = enabled && automaticSchedulingAllowed()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_ENABLED, enabled)
+            .putBoolean(KEY_ENABLED, effectiveEnabled)
             .apply()
-        if (enabled) {
+        if (effectiveEnabled) {
             schedule(context)
             applyCurrentWindow(context)
         } else {
             cancel(context)
             clearEndConfirmation(context)
-            if (isScheduledPauseActive(context)) resumeScheduledPause(context)
             updateWidgets(context)
         }
     }
 
     fun schedule(context: Context) {
+        if (!automaticSchedulingAllowed()) {
+            cancel(context)
+            clearEndConfirmation(context)
+            return
+        }
         val s = load(context)
         if (!s.enabled) {
             cancel(context)
@@ -100,6 +110,7 @@ object PauseScheduleManager {
     }
 
     fun applyCurrentWindow(context: Context) {
+        if (!automaticSchedulingAllowed()) return
         val s = load(context)
         if (!s.enabled || !hasOpenSession(context)) return
 
@@ -123,6 +134,10 @@ object PauseScheduleManager {
     }
 
     fun pendingEndConfirmation(context: Context, nowMs: Long = System.currentTimeMillis()): EndConfirmation? {
+        if (!automaticSchedulingAllowed()) {
+            clearEndConfirmation(context)
+            return null
+        }
         val p = context.applicationContext.getSharedPreferences(CONFIRM_PREFS, Context.MODE_PRIVATE)
         val endAt = p.getLong(KEY_CONFIRM_END_AT, 0L)
         val deadline = p.getLong(KEY_CONFIRM_DEADLINE, 0L)
@@ -138,6 +153,7 @@ object PauseScheduleManager {
     }
 
     fun confirmStillPaused(context: Context): Boolean {
+        if (!automaticSchedulingAllowed()) return false
         val pending = pendingEndConfirmation(context) ?: return false
         val now = System.currentTimeMillis()
         clearEndConfirmation(context)
@@ -156,6 +172,10 @@ object PauseScheduleManager {
     }
 
     internal fun onScheduledEnd(context: Context) {
+        if (!automaticSchedulingAllowed()) {
+            clearEndConfirmation(context)
+            return
+        }
         if (!isScheduledPauseActive(context)) return
         val scheduledEnd = scheduledEndNearNow(context)
         val resumed = resumeScheduledPause(context, scheduledEnd)
