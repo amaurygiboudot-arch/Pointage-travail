@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceSubrogationV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
@@ -78,7 +79,7 @@ object AbsencePayrollImpactV2 {
                     if (absence.type != TYPE_UNPAID) {
                         hasCompensated = true
                         requiresReview = true
-                        warnings += compensatedWarning(absence.type, absence.salaryTreatment)
+                        warnings += compensatedWarning(absence)
                     }
                     return@forEach
                 }
@@ -132,10 +133,13 @@ object AbsencePayrollImpactV2 {
         else -> "Absence"
     }
 
-    private fun compensatedWarning(type: String, treatment: AbsenceSalaryTreatmentV2): String {
-        val level = if (treatment == AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED) "maintien partiel" else "maintien"
-        return when (type) {
-            TYPE_SICKNESS -> "Arrêt maladie avec $level : IJSS, carence, subrogation et règle de maintien restent à vérifier avant le calcul précis."
+    private fun compensatedWarning(absence: AbsenceV2): String {
+        val level = if (absence.salaryTreatment == AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED) "maintien partiel" else "maintien"
+        return when (absence.type) {
+            TYPE_SICKNESS -> {
+                val subrogation = if (absence.subrogation == AbsenceSubrogationV2.TO_CONFIRM) ", subrogation" else ""
+                "Arrêt maladie avec $level : IJSS, carence$subrogation et règle de maintien restent à vérifier avant le calcul précis."
+            }
             TYPE_PAID_LEAVE -> "Congé payé : l'indemnité doit être contrôlée selon la méthode applicable ; aucun montant n'est inventé."
             TYPE_WORK_ACCIDENT -> "Accident du travail avec $level : indemnisation et maintien applicables restent à vérifier."
             TYPE_PARENTAL -> "Maternité / paternité avec $level : indemnisation et éventuel maintien employeur restent à vérifier."
