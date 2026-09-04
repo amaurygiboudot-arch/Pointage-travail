@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
 import com.amaury.pointage.v2.engine.GpsEngineV2
 import com.amaury.pointage.v2.engine.TimeEngineV2
 import com.amaury.pointage.v2.engine.WorkTimePolicyV2
+import java.util.Calendar
 
 object HoraTrackV2 {
     const val ENABLED = true
@@ -58,10 +59,15 @@ object V2ValidationSuite {
             checks += name to value
         }
 
+        fun localTime(hour: Int): Long = Calendar.getInstance().apply {
+            set(2026, Calendar.SEPTEMBER, 4, hour, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
         val slotMs = 30L * 60_000L
-        val base = 7L * 60L * 60L * 1000L
-        val morning = 6L * 60L * 60L * 1000L
-        val expectedEnd = 16L * 60L * 60L * 1000L
+        val base = localTime(7)
+        val morning = localTime(6)
+        val expectedEnd = localTime(16)
 
         addCheck(
             "Entrée 07:00 -> 07:00",
