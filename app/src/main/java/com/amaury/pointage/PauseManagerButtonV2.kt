@@ -13,27 +13,18 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import com.amaury.pointage.v2.PlannedPauseStoreV2
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
 /**
- * Gestionnaire V2 : une journée -> pauses confirmées + pauses prévues ->
- * ajout / modification / suppression / confirmation.
- *
- * Les pauses prévues restent hors des sessions de travail jusqu'à confirmation explicite.
+ * Gestionnaire V2 volontairement simple : une journée -> liste des pauses enregistrées ->
+ * ajout / modification / suppression. Aucun profil de poste ne pilote ces données.
  */
 class PauseManagerButtonV2 @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : Button(context, attrs) {
-
-    private data class PauseItem(
-        var startMs: Long,
-        var endMs: Long,
-        var planned: Boolean
-    )
 
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
@@ -50,7 +41,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }
-        val items = mutableListOf<PauseItem>()
+        val ranges = mutableListOf<Pair<Long, Long>>()
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
         val background = if (dark) theme.darkBackground else theme.lightBackground
@@ -84,7 +75,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             setPadding(0, 0, 0, dp(6))
         })
         body.addView(TextView(context).apply {
-            text = "Tu peux enregistrer une pause à l'avance. Une pause prévue reste hors du calcul des heures tant qu'elle n'a pas été confirmée. Les anciennes pauses programmées peuvent aussi être corrigées ou supprimées ici."
+            text = "Les pauses ci-dessous sont enregistrées pour cette journée. Une pause future peut provenir d'une ancienne programmation et n'est pas considérée comme déjà effectuée. Tu peux les corriger ou les supprimer sans modifier le panier ni les horaires de travail."
             textSize = 13f
             setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
@@ -139,28 +130,15 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         }
 
         fun updateTotal() {
-            val confirmedMs = items.filter { !it.planned }.sumOf { (it.endMs - it.startMs).coerceAtLeast(0L) }
-            val plannedMs = items.filter { it.planned }.sumOf { (it.endMs - it.startMs).coerceAtLeast(0L) }
-            val confirmedMinutes = confirmedMs / 60_000L
-            val plannedMinutes = plannedMs / 60_000L
-            totalText.text = if (plannedMs > 0L) {
-                String.format(
-                    Locale.FRANCE,
-                    "CONFIRMÉ : %02dh %02dm   •   PRÉVU / À CONFIRMER : %02dh %02dm",
-                    confirmedMinutes / 60L,
-                    confirmedMinutes % 60L,
-                    plannedMinutes / 60L,
-                    plannedMinutes % 60L
-                )
-            } else {
-                String.format(Locale.FRANCE, "CONFIRMÉ : %02dh %02dm", confirmedMinutes / 60L, confirmedMinutes % 60L)
-            }
-            addButton.isEnabled = items.size < 5
+            val total = ranges.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
+            val minutes = total / 60_000L
+            totalText.text = String.format(Locale.FRANCE, "TOTAL : %02dh %02dm", minutes / 60L, minutes % 60L)
+            addButton.isEnabled = ranges.size < 5
             addButton.alpha = if (addButton.isEnabled) 1f else .45f
         }
 
-        fun overlaps(candidate: Pair<Long, Long>, ignoredIndex: Int?): Boolean = items.withIndex().any { (index, existing) ->
-            index != ignoredIndex && candidate.first < existing.endMs && existing.startMs < candidate.second
+        fun overlaps(candidate: Pair<Long, Long>, ignoredIndex: Int?): Boolean = ranges.withIndex().any { (index, existing) ->
+            index != ignoredIndex && candidate.first < existing.second && existing.first < candidate.second
         }
 
         var render: (() -> Unit)? = null
@@ -183,32 +161,13 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        fun defaultStartMinute(): Int {
-            val now = Calendar.getInstance(Locale.FRANCE)
-            val sameDay = now.get(Calendar.YEAR) == selectedDate.get(Calendar.YEAR) &&
-                now.get(Calendar.DAY_OF_YEAR) == selectedDate.get(Calendar.DAY_OF_YEAR)
-            return if (sameDay) now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE) else 10 * 60
-        }
-
         editRange = { index ->
-            val existing = index?.let { items.getOrNull(it) }
-            val startCal = Calendar.getInstance(Locale.FRANCE).apply {
-                if (existing != null) timeInMillis = existing.startMs
-            }
-            val initialStart = if (existing != null) {
-                startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE)
-            } else {
-                defaultStartMinute()
-            }
+            val existing = index?.let { ranges.getOrNull(it) }
+            val startCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.first }
+            val initialStart = if (existing != null) startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE) else 10 * 60
             pickMinute(initialStart, startPick@{ startMinute ->
-                val endCal = Calendar.getInstance(Locale.FRANCE).apply {
-                    if (existing != null) timeInMillis = existing.endMs
-                }
-                val initialEnd = if (existing != null) {
-                    endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
-                } else {
-                    (startMinute + 15).coerceAtMost(23 * 60 + 59)
-                }
+                val endCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.second }
+                val initialEnd = if (existing != null) endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE) else (startMinute + 15).coerceAtMost(23 * 60 + 59)
                 pickMinute(initialEnd, endPick@{ endMinute ->
                     if (endMinute <= startMinute) {
                         Toast.makeText(context, "La fin doit être après le début de la pause", Toast.LENGTH_LONG).show()
@@ -219,23 +178,13 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                         Toast.makeText(context, "Cette pause chevauche déjà une autre pause", Toast.LENGTH_LONG).show()
                         return@endPick
                     }
-
-                    val nowMs = System.currentTimeMillis()
-                    val planned = when {
-                        existing?.planned == true -> true
-                        candidate.second > nowMs -> true
-                        else -> false
-                    }
-
                     if (index == null) {
-                        if (items.size >= 5) return@endPick
-                        items += PauseItem(candidate.first, candidate.second, planned)
+                        if (ranges.size >= 5) return@endPick
+                        ranges += candidate
                     } else {
-                        items[index].startMs = candidate.first
-                        items[index].endMs = candidate.second
-                        items[index].planned = planned
+                        ranges[index] = candidate
                     }
-                    items.sortBy { it.startMs }
+                    ranges.sortBy { it.first }
                     render?.invoke()
                 })
             })
@@ -243,7 +192,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
 
         render = {
             listBox.removeAllViews()
-            if (items.isEmpty()) {
+            if (ranges.isEmpty()) {
                 listBox.addView(TextView(context).apply {
                     text = "Aucune pause enregistrée pour cette journée."
                     textSize = 14f
@@ -252,46 +201,30 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                 })
             } else {
                 val now = System.currentTimeMillis()
-                items.forEachIndexed { index, item ->
+                ranges.forEachIndexed { index, range ->
                     val card = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
                         setPadding(dp(10), dp(8), dp(10), dp(8))
                         setBackgroundColor(panel)
                     }
                     card.addView(TextView(context).apply {
-                        val label = when {
-                            !item.planned -> "Pause confirmée ${index + 1}"
-                            item.endMs > now -> "Pause prévue ${index + 1}"
-                            else -> "Pause à confirmer ${index + 1}"
-                        }
-                        text = "$label  •  ${timeLabel(item.startMs)} → ${timeLabel(item.endMs)}  •  ${durationLabel(item.startMs, item.endMs)}"
+                        val label = if (range.first > now) "Pause programmée ${index + 1}" else "Pause ${index + 1}"
+                        text = "$label  •  ${timeLabel(range.first)} → ${timeLabel(range.second)}  •  ${durationLabel(range.first, range.second)}"
                         textSize = 14f
                         setTypeface(typeface, Typeface.BOLD)
                         setTextColor(textColor)
                     })
-
                     val actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
                     val modify = styledButton("MODIFIER").apply { setOnClickListener { editRange?.invoke(index) } }
                     val delete = styledButton("SUPPRIMER").apply {
                         setOnClickListener {
-                            items.removeAt(index)
+                            ranges.removeAt(index)
                             render?.invoke()
                         }
                     }
                     actions.addView(modify, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
                     actions.addView(delete, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4) })
                     card.addView(actions, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(7) })
-
-                    if (item.planned && item.endMs <= now) {
-                        val confirm = styledButton("CONFIRMER CETTE PAUSE").apply {
-                            setOnClickListener {
-                                item.planned = false
-                                render?.invoke()
-                            }
-                        }
-                        card.addView(confirm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(7) })
-                    }
-
                     listBox.addView(card, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
                 }
             }
@@ -300,21 +233,9 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
 
         fun loadDay() {
             val (start, end) = dayBounds()
-            val now = System.currentTimeMillis()
-            val merged = linkedMapOf<Pair<Long, Long>, PauseItem>()
-
-            // Les anciennes pauses SYSTEM/MANUAL futures sont volontairement reclassées comme
-            // « prévues » dans l'interface. Au prochain enregistrement elles quittent la session
-            // de travail et sont migrées vers PlannedPauseStoreV2.
-            ManualPauseBatchStore.editableForDay(context, start, end).forEach { range ->
-                merged[range] = PauseItem(range.first, range.second, planned = range.second > now)
-            }
-            PlannedPauseStoreV2.forDay(context, start, end).forEach { range ->
-                merged[range] = PauseItem(range.first, range.second, planned = true)
-            }
-
-            items.clear()
-            items += merged.values.sortedBy { it.startMs }
+            ranges.clear()
+            ranges += ManualPauseBatchStore.editableForDay(context, start, end)
+            ranges.sortBy { it.first }
             dateButton.text = "JOURNÉE : ${dateFormat.format(selectedDate.time)}"
             render?.invoke()
         }
@@ -336,32 +257,11 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         cancelButton.setOnClickListener { dialog.dismiss() }
         saveButton.setOnClickListener {
             val (start, end) = dayBounds()
-            val actualRanges = items.filter { !it.planned }.map { it.startMs to it.endMs }
-            val plannedRanges = items.filter { it.planned }.map { it.startMs to it.endMs }
-
-            if (!ManualPauseBatchStore.replaceDay(context, start, end, actualRanges)) {
-                Toast.makeText(
-                    context,
-                    "Impossible d'enregistrer une pause confirmée : elle doit être comprise dans une période de travail enregistrée.",
-                    Toast.LENGTH_LONG
-                ).show()
+            if (!ManualPauseBatchStore.replaceDay(context, start, end, ranges.toList())) {
+                Toast.makeText(context, "Impossible d'enregistrer : chaque pause doit être comprise dans une journée de travail existante.", Toast.LENGTH_LONG).show()
                 return@setOnClickListener
             }
-            if (!PlannedPauseStoreV2.replaceDay(context, start, end, plannedRanges)) {
-                Toast.makeText(
-                    context,
-                    "Les pauses confirmées sont enregistrées, mais les pauses prévues n'ont pas pu être sauvegardées.",
-                    Toast.LENGTH_LONG
-                ).show()
-                return@setOnClickListener
-            }
-
-            val message = when {
-                items.isEmpty() -> "Pauses supprimées pour cette journée"
-                plannedRanges.isNotEmpty() && actualRanges.isNotEmpty() -> "Pauses confirmées et prévues enregistrées"
-                plannedRanges.isNotEmpty() -> "Pauses prévues enregistrées — aucune heure n'est encore déduite"
-                else -> "Pauses confirmées enregistrées"
-            }
+            val message = if (ranges.isEmpty()) "Pauses supprimées pour cette journée" else "Pauses enregistrées pour cette journée"
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
             dialog.dismiss()
         }
