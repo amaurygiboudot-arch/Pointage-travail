@@ -23,52 +23,33 @@ object SicknessProvidentOffsetV2 {
         confirmedOverlapNetAmount: Double?
     ): Result {
         val before = employerComplementBeforeProvidentNet?.takeIf { it.isFinite() && it >= 0.0 }
-            ?: return Result(
-                overlapConfirmed = false,
-                providentNetDeducted = null,
-                finalEmployerComplementNet = null,
-                warnings = listOf("Prévoyance : complément employeur avant prévoyance indisponible.")
-            )
+            ?: return Result(false,null,null,listOf("Prévoyance : complément employeur avant prévoyance indisponible."))
 
         return when (treatment) {
             AbsenceProvidentTreatmentV2.TO_CONFIRM -> Result(
-                overlapConfirmed = false,
-                providentNetDeducted = null,
-                finalEmployerComplementNet = null,
-                warnings = listOf(
-                    "Prévoyance employeur pendant le maintien : à confirmer. HoraTrack conserve le complément avant prévoyance sans inventer de montant final."
-                )
+                false,null,null,
+                listOf("Prévoyance employeur pendant le maintien : à confirmer. HoraTrack conserve le complément avant prévoyance sans inventer de montant final.")
             )
-
             AbsenceProvidentTreatmentV2.NONE_CONFIRMED -> Result(
-                overlapConfirmed = true,
-                providentNetDeducted = 0.0,
-                finalEmployerComplementNet = before,
-                warnings = listOf(
-                    "Aucune prestation de prévoyance financée par l'employeur ne chevauche le maintien pour cet arrêt : aucune déduction supplémentaire."
-                )
+                true,0.0,before,
+                listOf("Aucune prestation de prévoyance financée par l'employeur ne chevauche le maintien pour cet arrêt : aucune déduction supplémentaire.")
             )
-
             AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED -> {
                 val amount = confirmedOverlapNetAmount?.takeIf { it.isFinite() && it >= 0.0 }
-                    ?: return Result(
+                    ?: return Result(false,null,null,listOf("Prévoyance : montant net chevauchant le maintien manquant ou invalide."))
+                if (amount > before + 0.01) {
+                    return Result(
                         overlapConfirmed = false,
                         providentNetDeducted = null,
                         finalEmployerComplementNet = null,
-                        warnings = listOf("Prévoyance : montant net chevauchant le maintien manquant ou invalide.")
+                        warnings = listOf("Prévoyance déclarée supérieure au complément employeur avant prévoyance : donnée incohérente, complément final laissé à confirmer.")
                     )
-                val deducted = amount.coerceAtMost(before)
-                val warnings = buildList {
-                    add("Prestation de prévoyance employeur déduite une seule fois du complément de maintien.")
-                    if (amount > before + 0.01) {
-                        add("Prévoyance déclarée supérieure au complément employeur avant prévoyance : complément ramené à 0 €, montant à vérifier.")
-                    }
                 }
                 Result(
                     overlapConfirmed = true,
-                    providentNetDeducted = deducted,
-                    finalEmployerComplementNet = (before - deducted).coerceAtLeast(0.0),
-                    warnings = warnings
+                    providentNetDeducted = amount,
+                    finalEmployerComplementNet = (before - amount).coerceAtLeast(0.0),
+                    warnings = listOf("Prestation de prévoyance employeur déduite une seule fois du complément de maintien.")
                 )
             }
         }
