@@ -10,6 +10,7 @@ object V2ManualSessionWriter {
     private const val PREFS = "horatrack_v2_test_runtime"
     private const val KEY_HISTORY = "history"
 
+    /** Compatibilité temporaire avec les anciens écrans encore basés sur les slots 1/2. */
     fun add(
         context: Context,
         realStartMs: Long,
@@ -17,11 +18,37 @@ object V2ManualSessionWriter {
         companySlot: Int,
         place: String? = null
     ): Boolean {
+        val slot = companySlot.coerceIn(1, 2)
+        val employerId = V2ProfileStore.load(context, slot).employer?.id ?: return false
+        return addInternal(context, realStartMs, realEndMs, employerId, slot, place)
+    }
+
+    /** Écriture V2 canonique : l'entreprise est identifiée par son ID stable et non par sa position. */
+    fun addForCompany(
+        context: Context,
+        realStartMs: Long,
+        realEndMs: Long,
+        companyId: String,
+        place: String? = null
+    ): Boolean {
+        val profile = V2ProfileStore.loadCompany(context, companyId) ?: return false
+        val employerId = profile.employer?.id ?: return false
+        V2ProfileStore.setActiveCompanyId(context, companyId)
+        val legacySlot = profile.companySlot.takeIf { it in 1..2 }
+        return addInternal(context, realStartMs, realEndMs, employerId, legacySlot, place)
+    }
+
+    private fun addInternal(
+        context: Context,
+        realStartMs: Long,
+        realEndMs: Long,
+        employerId: String,
+        legacySlot: Int?,
+        place: String?
+    ): Boolean {
         if (!HoraTrackV2.ENABLED || realStartMs <= 0L || realEndMs <= realStartMs) return false
         V2RuntimeStore.bind(context)
         V2MigrationManager.ensureMigrated(context)
-        val slot = companySlot.coerceIn(1, 2)
-        val employerId = V2ProfileStore.load(context, slot).employer?.id
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
         val expectedEnd = V2ScheduleStore.expectedEnd(context, realStartMs, realEndMs)
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
@@ -29,18 +56,21 @@ object V2ManualSessionWriter {
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val history = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
-        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$slot"
+        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerId"
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: continue
-            val existing = "${o.optLong("realEntry", 0L)}:${o.optLong("realExit", 0L)}:${o.optLong("countedEntry", 0L)}:${o.optLong("countedExit", 0L)}:${o.optInt("companySlot", 1)}"
+            val existingEmployer = o.optString("employerId")
+                .takeIf { it.isNotBlank() && it != "null" }
+                ?: "slot:${o.optInt("companySlot", 1).coerceIn(1, 2)}"
+            val existing = "${o.optLong("realEntry", 0L)}:${o.optLong("realExit", 0L)}:${o.optLong("countedEntry", 0L)}:${o.optLong("countedExit", 0L)}:$existingEmployer"
             if (existing == signature) return false
         }
 
         history.put(
             JSONObject()
                 .put("id", "manual-${UUID.randomUUID()}")
-                .put("employerId", employerId ?: JSONObject.NULL)
-                .put("companySlot", slot)
+                .put("employerId", employerId)
+                .apply { legacySlot?.let { put("companySlot", it) } }
                 .put("realEntry", realStartMs)
                 .put("countedEntry", countedEntry)
                 .put("realExit", realEndMs)
