@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import com.amaury.pointage.v2.model.EventSourceV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -13,7 +14,10 @@ object V2MigrationManager {
     private const val LEGACY_PREFS = "pointage"
     private const val LEGACY_KEY = "data"
     private const val HISTORY_KEY = "history"
-    private const val VERSION = 4
+    private const val VERSION = 5
+
+    private const val RUNTIME_REAL_ENTRY = "real_entry"
+    private const val RUNTIME_COUNTED_ENTRY = "counted_entry"
 
     data class Result(val imported: Int, val skipped: Int, val legacyCount: Int, val v2Count: Int)
 
@@ -29,6 +33,11 @@ object V2MigrationManager {
         val app = context.applicationContext
         val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
         val history = runCatching { JSONArray(runtime.getString(HISTORY_KEY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+
+        // Réparation strictement ciblée de la régression 15 min / 5 min. Les valeurs
+        // manuelles ou historiques qui ne correspondent pas exactement à ce bug restent intactes.
+        repairKnownCountedEntries(runtime, history)
+
         val signatures = mutableSetOf<String>()
         for (i in 0 until history.length()) history.optJSONObject(i)?.let { signatures += signatureV2(it) }
 
@@ -75,6 +84,38 @@ object V2MigrationManager {
             .putLong("checked_at", System.currentTimeMillis())
             .apply()
         return Result(imported, skipped, legacy.length(), history.length())
+    }
+
+    private fun repairKnownCountedEntries(runtime: android.content.SharedPreferences, history: JSONArray) {
+        var historyChanged = false
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            val realEntry = positive(item, "realEntry")
+            val stored = positive(item, "countedEntry")
+            val repaired = WorkTimePolicyV2.repairKnownCountedEntry(realEntry, stored)
+            if (repaired != null && stored != null && repaired != stored) {
+                item.put("countedEntry", repaired)
+                historyChanged = true
+            }
+        }
+
+        val currentReal = when (val value = runtime.all[RUNTIME_REAL_ENTRY]) {
+            is Number -> value.toLong().takeIf { it > 0L }
+            is String -> value.toLongOrNull()?.takeIf { it > 0L }
+            else -> null
+        }
+        val currentStored = when (val value = runtime.all[RUNTIME_COUNTED_ENTRY]) {
+            is Number -> value.toLong().takeIf { it > 0L }
+            is String -> value.toLongOrNull()?.takeIf { it > 0L }
+            else -> null
+        }
+        val currentRepaired = WorkTimePolicyV2.repairKnownCountedEntry(currentReal, currentStored)
+        val editor = runtime.edit()
+        if (historyChanged) editor.putString(HISTORY_KEY, history.toString())
+        if (currentRepaired != null && currentStored != null && currentRepaired != currentStored) {
+            editor.putLong(RUNTIME_COUNTED_ENTRY, currentRepaired)
+        }
+        editor.apply()
     }
 
     private fun migratePauses(old: JSONObject, basePauseMinutes: Int): JSONArray {
