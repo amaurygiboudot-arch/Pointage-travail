@@ -7,6 +7,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
+import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
@@ -106,14 +107,25 @@ object V2SalaryAdapter {
 
   val rate=contract.grossHourlyRate?:fallbackRate.takeIf{it>0}?:return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val date=LocalDate.of(year,month+1,1);val snap=ruleHistory?.applicable(convention.idcc,date.toEpochDay());val hr=snap?.rules
-  val tiers=when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()};if(historical&&snap==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Paliers d'heures supplémentaires non confirmés pour cette convention"
-  val regularLimit=hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()?:return empty(warnings+"Durée hebdomadaire de référence absente")
-  val rules=hr?.copy(weeklyRegularMinutes=hr.weeklyRegularMinutes?:regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
+  val isPartTime=contract.type==ContractTypeV2.PART_TIME
+  val tiers=if(isPartTime) emptyList() else when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()}
+  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Paliers d'heures supplémentaires non confirmés pour cette convention"}
+  val regularLimit=if(isPartTime) contract.contractualWeeklyMinutes else hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()
+  if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
+  val baseRules=hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
+  val rules=if(isPartTime)baseRules.copy(overtimeTiers=emptyList()) else baseRules
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},rules)
-  val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0};val base=when(contract.type){ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME->monthlyMinutes?.div(60.0)?.times(rate);else->null};val gross=base?.plus(worked.overtimeGross+worked.premiumsGross)?:worked.grossEstimate
+  val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
+  val complementaryGross=complementary.sumOf{it.grossToAdd}
+  warnings+=complementary.flatMap{it.warnings}.distinct()
+  if(isPartTime)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
+  val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
+  val base=when(contract.type){ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME->monthlyMinutes?.div(60.0)?.times(rate);else->null}
+  val gross=when(contract.type){ContractTypeV2.PART_TIME->base?.plus(complementaryGross+worked.premiumsGross);ContractTypeV2.FULL_TIME->base?.plus(worked.overtimeGross+worked.premiumsGross);else->null}?:worked.grossEstimate
   if(base!=null)warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables.";if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée conservée ; les absences non rémunérées ne sont pas encore déduites automatiquement."
   var regular=0;val tm=LongArray(rules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);rules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
-  return Result((monthlyMinutes?.times(60000)?.toLong()?:regular.toLong()*60000),rules.overtimeTiers.mapIndexed{i,t->TierDuration("Heures sup. +${((t.multiplier-1)*100).roundToInt()} %",tm[i]*60000,t.multiplier)},weeks.values.sumOf{it.paid}.toLong()*60000,base?:worked.regularGross,worked.overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,selected.size,warnings+worked.traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
+  val displayedTiers=if(isPartTime){complementary.flatMap{it.tiers}.groupBy{it.label to it.multiplier}.map{(key,values)->TierDuration(key.first,values.sumOf{it.minutes}.toLong()*60000L,key.second)}}else rules.overtimeTiers.mapIndexed{i,t->TierDuration("Heures sup. +${((t.multiplier-1)*100).roundToInt()} %",tm[i]*60000,t.multiplier)}
+  return Result((monthlyMinutes?.times(60000)?.toLong()?:regular.toLong()*60000),displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000,base?:worked.regularGross,if(isPartTime)complementaryGross else worked.overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,selected.size,warnings+worked.traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,0,0,0,0,w)
  private fun nightOverlap(entry:Long,exit:Long,startMinute:Int,endMinute:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};total+=overlap(entry,exit,s.timeInMillis,e.timeInMillis);day.add(Calendar.DAY_OF_YEAR,1)};return total}
