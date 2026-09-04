@@ -7,7 +7,6 @@ object ComplementaryRetirementCatalogV2 {
     data class Line(val id:String,val label:String,val baseAmount:Double,val employeeRate:Double,val amount:Double,val source:String)
     data class Estimate(val lines:List<Line>,val employeeDeductions:Double,val warnings:List<String>)
 
-    private const val PMSS_2026 = 4005.0
     private const val SOURCE = "Agirc-Arrco — barèmes applicables au 01/01/2026"
 
     /**
@@ -21,11 +20,12 @@ object ComplementaryRetirementCatalogV2 {
         ceiling:SocialSecurityCeilingV2.Snapshot?=null
     ):Estimate {
         val g=gross.coerceAtLeast(0.0)
-        if(year!=2026) return Estimate(emptyList(),0.0,listOf("Agirc-Arrco : barème non intégré pour $year"))
+        val full=SocialSecurityCeilingV2.fullMonthly(year)
+            ?: return Estimate(emptyList(),0.0,listOf("Agirc-Arrco : barème non intégré pour $year"))
         val status=professionalStatus?.trim()?.uppercase()
-        val applicable=ceiling?.applicableMonthly ?: PMSS_2026
-        val max4=ceiling?.fourTimesApplicable ?: PMSS_2026*4.0
-        val max8=ceiling?.eightTimesApplicable ?: PMSS_2026*8.0
+        val applicable=ceiling?.applicableMonthly ?: full
+        val max4=ceiling?.fourTimesApplicable ?: full*4.0
+        val max8=ceiling?.eightTimesApplicable ?: full*8.0
         val t1=min(g,applicable)
         val t2=(min(g,max8)-applicable).coerceAtLeast(0.0)
         val lines=buildList {
