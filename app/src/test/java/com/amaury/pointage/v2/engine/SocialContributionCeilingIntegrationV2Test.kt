@@ -29,6 +29,19 @@ class SocialContributionCeilingIntegrationV2Test {
     }
 
     @Test
+    fun `abattement csg crds utilise quatre fois le plafond proratisé`() {
+        val ceiling = partTime28hCeiling()
+        val gross = 15000.0
+        val estimate = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, 2026, ceiling)
+        val line = estimate.lines.firstOrNull { it.id == "csg_deductible" }
+        val cap = 3204.0 * 4.0
+        val expectedBase = cap * 0.9825 + (gross - cap)
+
+        assertNotNull(line)
+        assertEquals(expectedBase, line!!.baseAmount, 0.001)
+    }
+
+    @Test
     fun `agirc arrco utilise le meme plafond proratisé pour T1 et T2`() {
         val ceiling = partTime28hCeiling()
         val estimate = ComplementaryRetirementCatalogV2.estimate(5000.0, 2026, "NON_CADRE", ceiling)
