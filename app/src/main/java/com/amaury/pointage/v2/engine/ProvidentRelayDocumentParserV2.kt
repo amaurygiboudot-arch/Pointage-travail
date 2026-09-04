@@ -126,13 +126,19 @@ object ProvidentRelayDocumentParserV2 {
     }
 
     private fun extractMoneyAmounts(raw: String): List<Double> {
-        val regex = Regex("(?<![\\d/])([+-]?\\d{1,3}(?:[ .\\u00A0]\\d{3})*|[+-]?\\d+)(?:[,.](\\d{2}))\\s*(?:€|eur|euros?)?", RegexOption.IGNORE_CASE)
+        val regex = Regex(
+            "(?<![\\d/.])([+-]?(?:\\d{1,3}(?:[ .\\u00A0]\\d{3})+|\\d+))(?:[,.](\\d{2}))?\\s*(€|eur|euros?)?(?![\\d.])",
+            RegexOption.IGNORE_CASE
+        )
         return regex.findAll(raw).mapNotNull { match ->
+            val decimals = match.groupValues[2]
+            val currency = match.groupValues[3]
+            if (decimals.isBlank() && currency.isBlank()) return@mapNotNull null
             val tail = raw.substring(match.range.last + 1).trimStart()
             if (tail.startsWith("%")) return@mapNotNull null
             val integer = match.groupValues[1].replace(" ", "").replace(".", "").replace("\u00A0", "")
-            val decimals = match.groupValues[2]
-            "$integer.$decimals".toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
+            val normalized = if (decimals.isBlank()) integer else "$integer.$decimals"
+            normalized.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..10_000_000.0 }
         }.distinct().toList()
     }
 
