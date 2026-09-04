@@ -18,7 +18,7 @@ import java.util.Calendar
 import java.util.Locale
 
 /**
- * Gestionnaire V2 volontairement simple : une journée -> liste des pauses réelles ->
+ * Gestionnaire V2 volontairement simple : une journée -> liste des pauses enregistrées ->
  * ajout / modification / suppression. Aucun profil de poste ne pilote ces données.
  */
 class PauseManagerButtonV2 @JvmOverloads constructor(
@@ -75,7 +75,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             setPadding(0, 0, 0, dp(6))
         })
         body.addView(TextView(context).apply {
-            text = "Les pauses ci-dessous sont celles réellement enregistrées. Tu peux les corriger ou les supprimer sans modifier le poste, le panier ou les horaires prévus."
+            text = "Les pauses ci-dessous sont enregistrées pour cette journée. Une pause future peut provenir d'une ancienne programmation et n'est pas considérée comme déjà effectuée. Tu peux les corriger ou les supprimer sans modifier le panier ni les horaires de travail."
             textSize = 13f
             setTextColor(textColor)
             setPadding(0, 0, 0, dp(12))
@@ -200,6 +200,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                     setPadding(0, dp(10), 0, dp(10))
                 })
             } else {
+                val now = System.currentTimeMillis()
                 ranges.forEachIndexed { index, range ->
                     val card = LinearLayout(context).apply {
                         orientation = LinearLayout.VERTICAL
@@ -207,7 +208,8 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                         setBackgroundColor(panel)
                     }
                     card.addView(TextView(context).apply {
-                        text = "Pause ${index + 1}  •  ${timeLabel(range.first)} → ${timeLabel(range.second)}  •  ${durationLabel(range.first, range.second)}"
+                        val label = if (range.first > now) "Pause programmée ${index + 1}" else "Pause ${index + 1}"
+                        text = "$label  •  ${timeLabel(range.first)} → ${timeLabel(range.second)}  •  ${durationLabel(range.first, range.second)}"
                         textSize = 14f
                         setTypeface(typeface, Typeface.BOLD)
                         setTextColor(textColor)
