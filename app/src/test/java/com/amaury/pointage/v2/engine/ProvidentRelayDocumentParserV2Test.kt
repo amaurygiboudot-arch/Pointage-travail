@@ -43,6 +43,37 @@ class ProvidentRelayDocumentParserV2Test {
     }
 
     @Test
+    fun `accepte les montants entiers avec symbole euro`() {
+        val result = ProvidentRelayDocumentParserV2.parse(
+            """
+            Garantie 60 % du salaire brut de référence : 1 800 €
+            Prestations Sécurité sociale brutes déduites : 600 €
+            Prestation prévoyance brute versée : 1 200 €
+            """.trimIndent()
+        )
+
+        assertTrue(result.allHighConfidence)
+        assertEquals(1800.0, result.targetGross60.amount!!, 0.001)
+        assertEquals(600.0, result.socialSecurityGross.amount!!, 0.001)
+        assertEquals(1200.0, result.observedProvidentGross.amount!!, 0.001)
+    }
+
+    @Test
+    fun `une date n est jamais prise pour un montant`() {
+        val result = ProvidentRelayDocumentParserV2.parse(
+            """
+            Période du 01.09.2026 au 30.09.2026
+            Garantie 60 % du salaire brut de référence : 1 800,00 €
+            Prestations Sécurité sociale brutes déduites : 600,00 €
+            Prestation prévoyance brute versée : 1 200,00 €
+            """.trimIndent()
+        )
+
+        assertTrue(result.allHighConfidence)
+        assertEquals(1800.0, result.targetGross60.amount!!, 0.001)
+    }
+
+    @Test
     fun `ne confond pas le minimum 60 pourcent avec la prestation observee`() {
         val result = ProvidentRelayDocumentParserV2.parse(
             """
