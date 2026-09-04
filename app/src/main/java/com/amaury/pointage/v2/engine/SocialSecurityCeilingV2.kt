@@ -15,6 +15,12 @@ object SocialSecurityCeilingV2 {
     private const val LEGAL_WEEKLY_MINUTES = 35 * 60
     private const val FULL_TIME_ANNUAL_DAYS_REFERENCE = 218.0
 
+    /** Valeur mensuelle non proratisée du plafond pour une année connue. */
+    fun fullMonthly(year: Int): Double? = when (year) {
+        2026 -> PMSS_2026
+        else -> null
+    }
+
     data class Input(
         val year: Int,
         /** N'importe quel jour du mois de paie concerné. */
@@ -43,7 +49,8 @@ object SocialSecurityCeilingV2 {
     )
 
     fun calculate(input: Input): Snapshot {
-        if (input.year != 2026) {
+        val fullMonthly = fullMonthly(input.year)
+        if (fullMonthly == null) {
             return Snapshot(
                 fullMonthly = 0.0,
                 applicableMonthly = 0.0,
@@ -124,13 +131,13 @@ object SocialSecurityCeilingV2 {
             else -> 1.0
         }
 
-        val applicable = (PMSS_2026 * presenceRatio * workTimeRatio).coerceIn(0.0, PMSS_2026)
-        if (applicable + 0.01 < PMSS_2026) {
-            warnings += "Plafond SS 2026 appliqué : ${String.format(java.util.Locale.FRANCE, "%.2f", applicable)} € au lieu de 4 005,00 €."
+        val applicable = (fullMonthly * presenceRatio * workTimeRatio).coerceIn(0.0, fullMonthly)
+        if (applicable + 0.01 < fullMonthly) {
+            warnings += "Plafond SS ${input.year} appliqué : ${String.format(java.util.Locale.FRANCE, "%.2f", applicable)} € au lieu de ${String.format(java.util.Locale.FRANCE, "%.2f", fullMonthly)} €."
         }
 
         return Snapshot(
-            fullMonthly = PMSS_2026,
+            fullMonthly = fullMonthly,
             applicableMonthly = applicable,
             fourTimesApplicable = applicable * 4.0,
             eightTimesApplicable = applicable * 8.0,
