@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.RightsEngineV2
 import com.amaury.pointage.v2.engine.RightsSnapshotV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceSubrogationV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.CounterV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
@@ -127,7 +128,8 @@ object V2RightsStore {
                 .put("endMs",absence.endMs)
                 .put("salaryTreatment",absence.salaryTreatment.name)
                 .put("fullDay",absence.fullDay)
-                .put("status",absence.status.name))
+                .put("status",absence.status.name)
+                .put("subrogation",absence.subrogation.name))
         }
         context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
             .edit().putString(KEY_ABSENCES,a.toString()).apply()
@@ -174,6 +176,9 @@ object V2RightsStore {
                 val status=runCatching{
                     DecisionStatusV2.valueOf(o.optString("status",DecisionStatusV2.CONFIRMED.name))
                 }.getOrDefault(DecisionStatusV2.TO_CONFIRM)
+                val subrogation=runCatching{
+                    AbsenceSubrogationV2.valueOf(o.optString("subrogation",AbsenceSubrogationV2.TO_CONFIRM.name))
+                }.getOrDefault(AbsenceSubrogationV2.TO_CONFIRM)
                 add(AbsenceV2(
                     id=id,
                     employerId=employerId,
@@ -182,7 +187,8 @@ object V2RightsStore {
                     endMs=end,
                     salaryTreatment=treatment,
                     fullDay=o.optBoolean("fullDay",false),
-                    status=status
+                    status=status,
+                    subrogation=subrogation
                 ))
             }
         }
