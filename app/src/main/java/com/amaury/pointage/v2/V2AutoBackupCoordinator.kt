@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import com.amaury.pointage.SalaryCompanyStore
 import java.io.File
 
 /**
@@ -62,9 +63,11 @@ object V2AutoBackupCoordinator {
 
     @Synchronized
     private fun registerDynamicSalaryFiles(app: Context) {
-        sharedPreferenceFileNames(app)
-            .filter { it.startsWith(SALARY_COMPANY_PREFIX) }
-            .forEach { register(app, it) }
+        val expectedFromCompanies = SalaryCompanyStore.list(app).map { company ->
+            SALARY_COMPANY_PREFIX + company.id.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        }
+        val existingOnDisk = sharedPreferenceFileNames(app).filter { it.startsWith(SALARY_COMPANY_PREFIX) }
+        (expectedFromCompanies + existingOnDisk).distinct().forEach { register(app, it) }
     }
 
     private fun sharedPreferenceFileNames(context: Context): List<String> {
