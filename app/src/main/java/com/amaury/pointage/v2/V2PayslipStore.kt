@@ -8,13 +8,17 @@ import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
+import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Instant
+import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.UUID
 
 /** Stockage local des bulletins. Chaque nouveau bulletin peut être rattaché à une entreprise. */
@@ -45,6 +49,32 @@ object V2PayslipStore {
     if(ym !in grossByMonth) grossByMonth[ym]=record.gross!!
    }
   return SicknessDailyAllowanceV2.calculate(start,endExclusive,grossByMonth)
+ }
+
+ /**
+  * Renvoie le barème de maintien maladie Plasturgie pour cette absence et cette
+  * entreprise. L'ancienneté et l'IDCC sont lus une seule fois ici pour éviter
+  * que chaque écran reconstruise sa propre interprétation.
+  */
+ fun sicknessMaintenanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieSicknessMaintenanceV2.Result?{
+  if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
+  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
+  val prefs=SalaryCompanyStore.prefs(context,companyId)
+  val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
+      ?:prefs.getString("company_idcc","").orEmpty()
+  val entryDate=runCatching{
+   prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
+    LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
+   }
+  }.getOrNull()
+  return PlasturgieSicknessMaintenanceV2.calculate(
+   idcc=idcc,
+   currentAbsence=absence,
+   allAbsences=V2RightsStore.absencesForCompany(context,companyId),
+   entryDate=entryDate,
+   acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId),
+   zoneId=ZoneId.systemDefault()
+  )
  }
 
  fun remove(context:Context,id:String){val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);val kept=all(context).filterNot{it.id==id};val a=JSONArray();kept.sortedBy{it.importedAtMs}.forEach{a.put(toJson(it))};p.edit().putString(KEY_ITEMS,a.toString()).apply()}
