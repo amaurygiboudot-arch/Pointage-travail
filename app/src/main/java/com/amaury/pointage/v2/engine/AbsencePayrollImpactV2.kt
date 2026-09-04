@@ -29,6 +29,8 @@ object AbsencePayrollImpactV2 {
     ): Snapshot {
         val monthStart = referenceDate.withDayOfMonth(1)
         val monthEndExclusive = monthStart.plusMonths(1)
+        val monthStartMs = monthStart.atStartOfDay(zoneId).toInstant().toEpochMilli()
+        val monthEndMs = monthEndExclusive.atStartOfDay(zoneId).toInstant().toEpochMilli()
         val unpaidDays = linkedSetOf<LocalDate>()
         var hasUnpaid = false
         val warnings = mutableListOf<String>()
@@ -36,11 +38,7 @@ object AbsencePayrollImpactV2 {
         absences.forEach { absence ->
             if (acceptedEmployerIds.isNotEmpty() && absence.employerId !in acceptedEmployerIds) return@forEach
             if (absence.endMs <= absence.startMs) return@forEach
-
-            val startDate = Instant.ofEpochMilli(absence.startMs).atZone(zoneId).toLocalDate()
-            val endExclusiveDate = Instant.ofEpochMilli(absence.endMs).atZone(zoneId).toLocalDate()
-            val overlapsMonth = startDate.isBefore(monthEndExclusive) && endExclusiveDate.isAfter(monthStart)
-            if (!overlapsMonth) return@forEach
+            if (absence.startMs >= monthEndMs || absence.endMs <= monthStartMs) return@forEach
 
             if (absence.status != DecisionStatusV2.CONFIRMED) {
                 warnings += "Absence à confirmer sur cette période : aucun impact automatique sur la paie."
@@ -54,6 +52,8 @@ object AbsencePayrollImpactV2 {
                 return@forEach
             }
 
+            val startDate = Instant.ofEpochMilli(absence.startMs).atZone(zoneId).toLocalDate()
+            val endExclusiveDate = Instant.ofEpochMilli(absence.endMs).atZone(zoneId).toLocalDate()
             var day = maxOf(startDate, monthStart)
             val lastExclusive = minOf(endExclusiveDate, monthEndExclusive)
             while (day.isBefore(lastExclusive)) {
