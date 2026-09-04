@@ -19,7 +19,7 @@ object V2ManualSessionWriter {
         place: String? = null
     ): Boolean {
         val slot = companySlot.coerceIn(1, 2)
-        val employerId = V2ProfileStore.load(context, slot).employer?.id ?: return false
+        val employerId = V2ProfileStore.load(context, slot).employer?.id
         return addInternal(context, realStartMs, realEndMs, employerId, slot, place)
     }
 
@@ -42,7 +42,7 @@ object V2ManualSessionWriter {
         context: Context,
         realStartMs: Long,
         realEndMs: Long,
-        employerId: String,
+        employerId: String?,
         legacySlot: Int?,
         place: String?
     ): Boolean {
@@ -56,7 +56,8 @@ object V2ManualSessionWriter {
 
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val history = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
-        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerId"
+        val employerKey = employerId ?: "slot:${legacySlot ?: 1}"
+        val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerKey"
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: continue
             val existingEmployer = o.optString("employerId")
@@ -69,7 +70,7 @@ object V2ManualSessionWriter {
         history.put(
             JSONObject()
                 .put("id", "manual-${UUID.randomUUID()}")
-                .put("employerId", employerId)
+                .put("employerId", employerId ?: JSONObject.NULL)
                 .apply { legacySlot?.let { put("companySlot", it) } }
                 .put("realEntry", realStartMs)
                 .put("countedEntry", countedEntry)
