@@ -23,7 +23,6 @@ object ConventionProvidentCatalogV2 {
     )
 
     private const val PMSS_2026 = 4005.0
-    private const val MAX_4_PMSS_2026 = 16020.0
     private const val SOURCE_PLASTURGIE = "Légifrance — IDCC 292, accord du 29/10/2014 modifié par avenant du 19/12/2024, étendu"
 
     /**
@@ -36,7 +35,8 @@ object ConventionProvidentCatalogV2 {
         year: Int,
         idcc: String?,
         professionalStatus: String?,
-        seniorityMonths: Int?
+        seniorityMonths: Int?,
+        ceiling: SocialSecurityCeilingV2.Snapshot? = null
     ): Estimate {
         val g = gross.coerceAtLeast(0.0)
         val convention = idcc?.trim()
@@ -57,7 +57,8 @@ object ConventionProvidentCatalogV2 {
         }
         if (seniorityMonths < 3 || g <= 0.0) return Estimate(emptyList(), 0.0, 0.0, emptyList())
 
-        val base = min(g, MAX_4_PMSS_2026)
+        val max4 = ceiling?.fourTimesApplicable ?: PMSS_2026 * 4.0
+        val base = min(g, max4)
         val employeeRate = 0.004
         val employerRate = 0.004
         val line = Line(
@@ -74,7 +75,7 @@ object ConventionProvidentCatalogV2 {
             lines = listOf(line),
             employeeDeductions = line.employeeAmount,
             employerContributions = line.employerAmount,
-            warnings = emptyList()
+            warnings = ceiling?.warnings.orEmpty()
         )
     }
 }
