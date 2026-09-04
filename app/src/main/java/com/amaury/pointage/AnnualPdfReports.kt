@@ -160,11 +160,12 @@ object AnnualPdfReports {
                 V2SalaryAdapter.calculate(context, year, month, rate, convention)
             } else null
             val overtime = salary?.overtimeTiers?.sumOf { it.durationMs } ?: 0L
-            val gross = salary?.monthlyEstimatedGross
+            val gross = salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross
             val state = when {
                 profile.contract == null -> "Contrat à compléter"
                 rate == null || rate <= 0.0 -> "Taux manquant"
                 convention == null -> "Convention à confirmer"
+                salary?.monthlyGrossReliable == false -> "Brut à confirmer"
                 salary?.warnings?.isNotEmpty() == true -> "À confirmer"
                 else -> "OK"
             }
