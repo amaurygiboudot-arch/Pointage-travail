@@ -9,6 +9,7 @@ import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
+import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.PlasturgieProvidentIncapacityV2
@@ -216,9 +217,17 @@ object V2PayslipStore {
   return result.copy(warnings=(result.warnings+bridgeWarnings).distinct())
  }
 
- fun remove(context:Context,id:String){val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);val kept=all(context).filterNot{it.id==id};val a=JSONArray();kept.sortedBy{it.importedAtMs}.forEach{a.put(toJson(it))};p.edit().putString(KEY_ITEMS,a.toString()).apply()}
+ fun remove(context:Context,id:String){
+  PayslipObservedValuesStoreV2.remove(context,id)
+  val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+  val kept=all(context).filterNot{it.id==id};val a=JSONArray();kept.sortedBy{it.importedAtMs}.forEach{a.put(toJson(it))};p.edit().putString(KEY_ITEMS,a.toString()).apply()
+ }
+
  fun comparison(context:Context,record:Record):PayslipComparisonV2?{
-  val observed=linkedMapOf<String,Double>();record.gross?.let{observed["Brut"]=it};if(observed.isEmpty())return null
+  val stored=PayslipObservedValuesStoreV2.get(context,record.id).toMutableMap()
+  record.gross?.let{stored.putIfAbsent(PayslipDocumentParserV2.KEY_GROSS,it)}
+  if(stored.isEmpty())return null
+
   if(record.companyId.isNotBlank()){
    val company=SalaryCompanyStore.list(context).firstOrNull{it.id==record.companyId}?:return null
    val prefs=SalaryCompanyStore.prefs(context,company.id)
@@ -227,9 +236,36 @@ object V2PayslipStore {
    val expected=runCatching{V2SalaryAdapter.calculateForCompany(context,company,record.year,record.month,convention)}.getOrNull()?:return null
    if(!expected.monthlyGrossReliable)return null
    if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null
-   return PayslipEngineV2.compare(mapOf("Brut" to expected.monthlyEstimatedGross),observed,0.02)
+
+   val expectedValues=linkedMapOf<String,Double>()
+   expectedValues[PayslipDocumentParserV2.KEY_GROSS]=expected.monthlyEstimatedGross
+   expectedValues[PayslipDocumentParserV2.KEY_OVERTIME_GROSS]=expected.overtimeGross
+   expectedValues[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]=expected.premiumsGross
+
+   val referenceDate=YearMonth.of(record.year,record.month+1).atEndOfMonth()
+   val overrides=CompanyPayrollOverridesV2.load(context,company.id,referenceDate)
+   val net=runCatching{
+    NetSalaryEngineV2.calculate(expected.monthlyEstimatedGross,record.year,overrides,expected.complementaryMinutes)
+   }.getOrNull()
+   net?.let{calculated->
+    expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=calculated.netBeforeIncomeTax
+    calculated.netTaxable?.let{expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it}
+   }
+   overrides.mutualEmployeeAmount?.let{expectedValues[PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE]=it}
+   val providentExpected=overrides.providentEmployeeAmount ?: net?.conventionProvidentEmployee?.takeIf{it>0.0}
+   providentExpected?.let{expectedValues[PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE]=it}
+
+   // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
+   // Elle n'est simplement pas transformée en anomalie tant qu'aucune valeur attendue sûre n'existe.
+   val comparableObserved=stored.filterKeys{it in expectedValues.keys}
+   if(comparableObserved.isEmpty())return null
+   val comparableExpected=expectedValues.filterKeys{it in comparableObserved.keys}
+   return PayslipEngineV2.compare(comparableExpected,comparableObserved,0.02)
   }
-  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,record.year,record.month,rate,convention);if(!expected.monthlyGrossReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf("Brut" to expected.monthlyEstimatedGross),observed,0.02)
+
+  // Compatibilité des anciens bulletins sans entreprise stable : comparaison brut uniquement.
+  val observedGross=stored[PayslipDocumentParserV2.KEY_GROSS]?:return null
+  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,record.year,record.month,rate,convention);if(!expected.monthlyGrossReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf(PayslipDocumentParserV2.KEY_GROSS to expected.monthlyEstimatedGross),mapOf(PayslipDocumentParserV2.KEY_GROSS to observedGross),0.02)
  }
  private fun toJson(r:Record)=JSONObject().put("id",r.id).put("year",r.year).put("month",r.month).put("uri",r.sourceUri).put("mime",r.sourceMime?:JSONObject.NULL).put("gross",r.gross?:JSONObject.NULL).put("net",r.net?:JSONObject.NULL).put("confidence",r.extractionConfidence).put("confirmed",r.confirmedByUser).put("importedAt",r.importedAtMs).put("companyId",r.companyId)
  private fun fromJson(o:JSONObject):Record?{val id=o.optString("id").takeIf{it.isNotBlank()}?:return null;val year=o.optInt("year",0).takeIf{it in 2000..2200}?:return null;val month=o.optInt("month",-1).takeIf{it in 0..11}?:return null;val uri=o.optString("uri").takeIf{it.isNotBlank()}?:return null;return Record(id,year,month,uri,o.optString("mime").takeIf{it.isNotBlank()&&it!="null"},o.opt("gross").let{(it as? Number)?.toDouble()},o.opt("net").let{(it as? Number)?.toDouble()},o.optDouble("confidence",0.0).coerceIn(0.0,1.0),o.optBoolean("confirmed",false),o.optLong("importedAt",0L),o.optString("companyId"))}
