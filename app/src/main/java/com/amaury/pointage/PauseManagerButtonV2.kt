@@ -55,7 +55,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             isAllCaps = false
             textSize = 14f
             setTextColor(accent)
-            background = context.getDrawable(R.drawable.hp_panel)?.mutate()
+            this.background = context.getDrawable(R.drawable.hp_panel)?.mutate()
             minHeight = 0
             minimumHeight = 0
         }
