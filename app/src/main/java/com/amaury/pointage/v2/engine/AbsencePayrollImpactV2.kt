@@ -17,11 +17,23 @@ import java.util.Locale
  * réduisent le nombre de jours rémunérés utilisé pour le plafond SS.
  * Une absence partielle n'est jamais convertie en journée entière.
  * Un jour comportant aussi un pointage est exclu du prorata automatique.
+ *
+ * Les absences avec maintien/indemnisation sont détectées mais aucun montant
+ * d'IJSS, de maintien employeur ou d'indemnité de congés payés n'est inventé.
  */
 object AbsencePayrollImpactV2 {
+    const val TYPE_UNPAID = "ABSENCE_NON_REMUNEREE"
+    const val TYPE_SICKNESS = "ARRET_MALADIE"
+    const val TYPE_PAID_LEAVE = "CONGE_PAYE"
+    const val TYPE_WORK_ACCIDENT = "ACCIDENT_TRAVAIL"
+    const val TYPE_PARENTAL = "MATERNITE_PATERNITE"
+    const val TYPE_OTHER = "AUTRE"
+
     data class Snapshot(
         val unpaidFullCalendarDays: Int,
         val hasUnpaidAbsence: Boolean,
+        val hasCompensatedAbsence: Boolean,
+        val requiresPayrollReview: Boolean,
         val warnings: List<String>
     )
 
@@ -39,6 +51,8 @@ object AbsencePayrollImpactV2 {
         val workedDays = workedCalendarDays(workSessions, acceptedEmployerIds, monthStartMs, monthEndMs, zoneId)
         val unpaidDays = linkedSetOf<LocalDate>()
         var hasUnpaid = false
+        var hasCompensated = false
+        var requiresReview = false
         val warnings = mutableListOf<String>()
         val displayDate = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE)
 
@@ -48,12 +62,33 @@ object AbsencePayrollImpactV2 {
             if (absence.startMs >= monthEndMs || absence.endMs <= monthStartMs) return@forEach
 
             if (absence.status != DecisionStatusV2.CONFIRMED) {
+                requiresReview = true
                 warnings += "Absence à confirmer sur cette période : aucun impact automatique sur la paie."
                 return@forEach
             }
-            if (absence.salaryTreatment != AbsenceSalaryTreatmentV2.UNPAID) return@forEach
+
+            when (absence.salaryTreatment) {
+                AbsenceSalaryTreatmentV2.TO_CONFIRM -> {
+                    requiresReview = true
+                    warnings += "${label(absence.type)} : maintien de salaire à confirmer avant le calcul précis."
+                    return@forEach
+                }
+                AbsenceSalaryTreatmentV2.FULLY_MAINTAINED -> {
+                    if (absence.type != TYPE_UNPAID) {
+                        hasCompensated = true
+                        requiresReview = true
+                        warnings += compensatedWarning(absence.type)
+                    }
+                    return@forEach
+                }
+                AbsenceSalaryTreatmentV2.UNPAID -> Unit
+            }
 
             hasUnpaid = true
+            requiresReview = true
+            if (absence.type == TYPE_SICKNESS || absence.type == TYPE_WORK_ACCIDENT || absence.type == TYPE_PARENTAL) {
+                warnings += "${label(absence.type)} sans maintien employeur : IJSS/indemnisation éventuelle à intégrer avant de calculer le net exact."
+            }
             if (!absence.fullDay) {
                 warnings += "Absence non rémunérée partielle : le plafond SS n'est pas réduit automatiquement."
                 return@forEach
@@ -80,8 +115,28 @@ object AbsencePayrollImpactV2 {
         return Snapshot(
             unpaidFullCalendarDays = unpaidDays.size,
             hasUnpaidAbsence = hasUnpaid,
+            hasCompensatedAbsence = hasCompensated,
+            requiresPayrollReview = requiresReview,
             warnings = warnings.distinct()
         )
+    }
+
+    fun label(type: String): String = when (type) {
+        TYPE_UNPAID -> "Absence non rémunérée"
+        TYPE_SICKNESS -> "Arrêt maladie"
+        TYPE_PAID_LEAVE -> "Congé payé"
+        TYPE_WORK_ACCIDENT -> "Accident du travail"
+        TYPE_PARENTAL -> "Maternité / paternité"
+        TYPE_OTHER -> "Autre absence"
+        else -> "Absence"
+    }
+
+    private fun compensatedWarning(type: String): String = when (type) {
+        TYPE_SICKNESS -> "Arrêt maladie avec maintien : IJSS, carence, subrogation et règle de maintien restent à vérifier avant le calcul précis."
+        TYPE_PAID_LEAVE -> "Congé payé : l'indemnité doit être contrôlée selon la méthode applicable ; aucun montant n'est inventé."
+        TYPE_WORK_ACCIDENT -> "Accident du travail avec maintien : indemnisation et maintien applicables restent à vérifier."
+        TYPE_PARENTAL -> "Maternité / paternité : indemnisation et éventuel maintien employeur restent à vérifier."
+        else -> "Absence avec maintien : traitement de paie à vérifier avant le calcul précis."
     }
 
     private fun workedCalendarDays(
