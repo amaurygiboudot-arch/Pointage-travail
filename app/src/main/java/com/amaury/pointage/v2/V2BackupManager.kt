@@ -7,16 +7,39 @@ import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.DriveBackupManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 
 /** Sauvegarde des données fonctionnelles HoraTrack, sans jetons d'authentification. */
 object V2BackupManager {
-    private const val FORMAT_VERSION = 3
+    private const val FORMAT_VERSION = 4
     private const val ROOT_FOLDER = "Pointage Travail"
     private const val FILE_NAME = "HoraTrack_backup.json"
     private const val LEGACY_FILE_NAME = "HoraTrack_V2_backup.json"
+    private const val SALARY_COMPANIES_PREFS = "salary_companies_v2"
+    private const val SALARY_COMPANY_PREFIX = "salary_company_"
     private val executor = Executors.newSingleThreadExecutor()
-    private val preferenceFiles = listOf("horatrack_v2_test_runtime","horatrack_v2_integration","horatrack_v2_migration","horatrack_v2_legal_sources","horatrack_v2_rights","horatrack_v2_payslips","horatrack_v2_company_pause","horatrack_v2_gps_state","salary_settings","gps_settings","shift_profiles","appearance_settings","widget_style","place_names","smart_setup","welcome_preview").filter(BackupSecurityPolicy::canTransferPreferenceFile)
+
+    private val basePreferenceFiles = listOf(
+        "horatrack_v2_test_runtime",
+        "horatrack_v2_integration",
+        "horatrack_v2_migration",
+        "horatrack_v2_legal_sources",
+        "horatrack_v2_rights",
+        "horatrack_v2_payslips",
+        "horatrack_v2_company_pause",
+        "horatrack_v2_gps_state",
+        SALARY_COMPANIES_PREFS,
+        "salary_settings",
+        "gps_settings",
+        "shift_profiles",
+        "appearance_settings",
+        "widget_style",
+        "place_names",
+        "smart_setup",
+        "welcome_preview"
+    )
+
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
 
     fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
@@ -28,7 +51,9 @@ object V2BackupManager {
     fun restoreFromJson(context:Context,raw:String):Result<RestoreResult> = runCatching {
         val root=JSONObject(raw);require(isSupportedFormatVersion(root.optInt("formatVersion",0))){"Format de sauvegarde non reconnu"};val files=root.optJSONObject("preferences")?:error("Sauvegarde incomplète")
         var restored=0;var merged=0
-        preferenceFiles.forEach{name->val saved=files.optJSONObject(name)?:return@forEach;if(name=="horatrack_v2_test_runtime")merged+=restoreRuntime(context,saved) else mergePreferences(context,name,saved);restored++}
+        val savedNames=files.keys().asSequence().filter(::isManagedPreferenceFileName).filter(BackupSecurityPolicy::canTransferPreferenceFile).toList()
+            .sortedWith(compareBy<String> { if (it == SALARY_COMPANIES_PREFS) 0 else if (it.startsWith(SALARY_COMPANY_PREFIX)) 1 else 2 }.thenBy { it })
+        savedNames.forEach{name->val saved=files.optJSONObject(name)?:return@forEach;if(name=="horatrack_v2_test_runtime")merged+=restoreRuntime(context,saved) else mergePreferences(context,name,saved);restored++}
         V2ProfileStore.bind(context);V2MigrationManager.ensureMigrated(context);RestoreResult(restored,merged)
     }
 
@@ -36,9 +61,43 @@ object V2BackupManager {
     fun importLegacyPointageJson(context:Context,legacy:JSONArray):Int =
         V2MigrationManager.importLegacyArray(context.applicationContext, legacy).imported
 
-    fun snapshot(context:Context):JSONObject { val all=JSONObject();preferenceFiles.forEach{all.put(it,encodePreferences(context,it))};return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all) }
+    fun snapshot(context:Context):JSONObject {
+        val all=JSONObject()
+        transferablePreferenceFiles(context).forEach{all.put(it,encodePreferences(context,it))}
+        return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all)
+    }
+
     internal fun isSupportedFormatVersion(version:Int):Boolean = version in 1..FORMAT_VERSION
-    private fun isFreshInstall(context:Context):Boolean { val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE);val legacy=context.getSharedPreferences("pointage",Context.MODE_PRIVATE).getString("data","[]").orEmpty();val salary=context.getSharedPreferences("salary_settings",Context.MODE_PRIVATE);val hasRuntime=numeric(runtime.all["real_entry"])>0L||runCatching{JSONArray(runtime.getString("history","[]")?:"[]").length()>0}.getOrDefault(false);val hasLegacy=runCatching{JSONArray(legacy.ifBlank{"[]"}).length()>0}.getOrDefault(false);return !hasRuntime&&!hasLegacy&&salary.all.isEmpty() }
+
+    /** Noms que ce format de sauvegarde est autorisé à restaurer. */
+    internal fun isManagedPreferenceFileName(name:String):Boolean =
+        name in basePreferenceFiles || name.startsWith(SALARY_COMPANY_PREFIX)
+
+    private fun transferablePreferenceFiles(context:Context):List<String> {
+        val dynamicSalaryFiles = sharedPreferenceFileNames(context).filter { it.startsWith(SALARY_COMPANY_PREFIX) }
+        return (basePreferenceFiles + dynamicSalaryFiles)
+            .distinct()
+            .filter(::isManagedPreferenceFileName)
+            .filter(BackupSecurityPolicy::canTransferPreferenceFile)
+            .sorted()
+    }
+
+    private fun sharedPreferenceFileNames(context:Context):List<String> {
+        val dir=File(context.applicationInfo.dataDir,"shared_prefs")
+        return dir.listFiles().orEmpty()
+            .filter{it.isFile&&it.name.endsWith(".xml")}
+            .map{it.name.removeSuffix(".xml")}
+    }
+
+    private fun isFreshInstall(context:Context):Boolean {
+        val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE)
+        val legacy=context.getSharedPreferences("pointage",Context.MODE_PRIVATE).getString("data","[]").orEmpty()
+        val salary=context.getSharedPreferences("salary_settings",Context.MODE_PRIVATE)
+        val salaryV2=context.getSharedPreferences(SALARY_COMPANIES_PREFS,Context.MODE_PRIVATE)
+        val hasRuntime=numeric(runtime.all["real_entry"])>0L||runCatching{JSONArray(runtime.getString("history","[]")?:"[]").length()>0}.getOrDefault(false)
+        val hasLegacy=runCatching{JSONArray(legacy.ifBlank{"[]"}).length()>0}.getOrDefault(false)
+        return !hasRuntime&&!hasLegacy&&salary.all.isEmpty()&&salaryV2.all.isEmpty()
+    }
     private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess { val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null;val root=treeRootDocumentUri(tree);val folder=findChild(context,root,ROOT_FOLDER,DocumentsContract.Document.MIME_TYPE_DIR)?:return@withStorageAccess null;findChild(context,folder,FILE_NAME,"application/json")?:findChild(context,folder,LEGACY_FILE_NAME,"application/json") }
     private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit();val keys=saved.keys();while(keys.hasNext()){val k=keys.next();val i=saved.optJSONObject(k)?:continue;when(i.optString("t")){"s"->editor.putString(k,i.optString("v"));"b"->editor.putBoolean(k,i.optBoolean("v"));"i"->editor.putInt(k,i.optInt("v"));"l"->editor.putLong(k,i.optLong("v"));"f"->editor.putFloat(k,i.optDouble("v").toFloat());"set"->{val a=i.optJSONArray("v")?:JSONArray();val set=buildSet{for(x in 0 until a.length())a.optString(x).takeIf{it.isNotBlank()}?.let(::add)};editor.putStringSet(k,set)}}};editor.apply()}
