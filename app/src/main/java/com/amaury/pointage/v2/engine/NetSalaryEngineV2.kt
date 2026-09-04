@@ -4,6 +4,8 @@ package com.amaury.pointage.v2.engine
 object NetSalaryEngineV2 {
     data class Result(
         val gross: Double,
+        val socialSecurityCeiling: Double?,
+        val socialSecurityCeilingComplete: Boolean,
         val statutory: Double,
         val complementaryRetirement: Double,
         val conventionProvidentEmployee: Double,
@@ -18,16 +20,33 @@ object NetSalaryEngineV2 {
         val warnings: List<String>
     )
 
-    fun calculate(gross: Double, year: Int, company: CompanyPayrollOverridesV2.Snapshot): Result {
-        val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year)
-        val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus)
-        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(gross, year, company.professionalStatus)
+    fun calculate(
+        gross: Double,
+        year: Int,
+        company: CompanyPayrollOverridesV2.Snapshot,
+        complementaryMinutes: Int? = null
+    ): Result {
+        val ceiling = SocialSecurityCeilingV2.calculate(
+            SocialSecurityCeilingV2.Input(
+                year = year,
+                referenceDate = company.referenceDate,
+                contractType = company.contractType,
+                contractualWeeklyMinutes = company.contractualWeeklyMinutes,
+                complementaryMinutes = complementaryMinutes,
+                entryDate = company.entryDate,
+                forfaitAnnualDays = company.forfaitAnnualDays
+            )
+        )
+        val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year, ceiling)
+        val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus, ceiling)
+        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(gross, year, company.professionalStatus, ceiling)
         val conventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = gross,
             year = year,
             idcc = company.idcc,
             professionalStatus = company.professionalStatus,
-            seniorityMonths = company.seniorityMonths
+            seniorityMonths = company.seniorityMonths,
+            ceiling = ceiling
         )
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
@@ -71,6 +90,7 @@ object NetSalaryEngineV2 {
         } else null
 
         val warnings = buildList {
+            addAll(ceiling.warnings)
             addAll(statutory.warnings)
             addAll(retirement.warnings)
             addAll(statusContributions.warnings)
@@ -88,6 +108,8 @@ object NetSalaryEngineV2 {
 
         return Result(
             gross = gross,
+            socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
+            socialSecurityCeilingComplete = ceiling.complete,
             statutory = statutory.employeeDeductions,
             complementaryRetirement = retirement.employeeDeductions,
             conventionProvidentEmployee = if (company.providentEmployeeAmount == null) conventionProvident.employeeDeductions else 0.0,
