@@ -84,12 +84,11 @@ class V2PayslipImportActivity : Activity() {
                 }
                 temporary = document.temporaryFile
                 val parsed = ProvidentRelayDocumentParserV2.parse(document.extractedText)
-                val normalized = document.extractedText.lowercase(Locale.FRANCE)
-                val highCount = listOf(parsed.targetGross60, parsed.socialSecurityGross, parsed.observedProvidentGross)
-                    .count { it.highConfidence }
-                val looksLikeProvident = highCount >= 2 ||
-                    (normalized.contains("prévoyance") || normalized.contains("prevoyance")) &&
-                    (normalized.contains("incapacité") || normalized.contains("incapacite") || normalized.contains("ijss") || normalized.contains("sécurité sociale") || normalized.contains("securite sociale"))
+                // Un bulletin de paie peut lui aussi contenir « prévoyance », « incapacité » ou « IJSS ».
+                // On ne bascule donc automatiquement vers le décompte assureur que si la ligne
+                // spécifique des 60 % du brut de référence est reconnue avec forte confiance.
+                val looksLikeProvident = parsed.targetGross60.highConfidence &&
+                    (parsed.socialSecurityGross.highConfidence || parsed.observedProvidentGross.highConfidence)
                 runOnUiThread {
                     if (looksLikeProvident && companyId.isNotBlank()) {
                         offerProvidentLink(uri, document.mimeType, document.displayName, parsed)
