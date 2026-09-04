@@ -141,9 +141,17 @@ class SalaryV2RootView @JvmOverloads constructor(
     }
 
     private fun showInformationSheet(company: SalaryCompanyStore.Company) {
+        val content = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(SalaryInformationSheetView(context).bindCompany(company.id))
+            addView(
+                CompanyPauseSettingsV2View(context, company.id),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            )
+        }
         themedDialog("Fiche de renseignements — ${company.name.ifBlank { "Entreprise" }}", ScrollView(context).apply {
             isFillViewport = true
-            addView(SalaryInformationSheetView(context).bindCompany(company.id))
+            addView(content)
         })
     }
 
