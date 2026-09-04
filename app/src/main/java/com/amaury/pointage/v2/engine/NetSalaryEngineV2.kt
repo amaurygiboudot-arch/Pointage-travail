@@ -40,7 +40,13 @@ object NetSalaryEngineV2 {
         )
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year, ceiling)
         val retirement = ComplementaryRetirementCatalogV2.estimate(gross, year, company.professionalStatus, ceiling)
-        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(gross, year, company.professionalStatus, ceiling)
+        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(
+            gross = gross,
+            year = year,
+            professionalStatus = company.professionalStatus,
+            ceiling = ceiling,
+            protectionCategory = company.protectionCategory
+        )
         val conventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = gross,
             year = year,
