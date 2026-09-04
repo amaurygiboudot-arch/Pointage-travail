@@ -6,10 +6,13 @@ import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
+import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
+import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
+import com.amaury.pointage.v2.engine.SicknessTheoreticalNetV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -75,6 +78,83 @@ object V2PayslipStore {
    acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId),
    zoneId=ZoneId.systemDefault()
   )
+ }
+
+ /**
+  * Reconstruit la rémunération NETTE AVANT PAS que le salarié aurait perçue sans
+  * l'arrêt, puis la prorate sur les jours calendaires de la période indemnisable.
+  *
+  * La base contractuelle exclut volontairement les paniers/remboursements de frais,
+  * les heures supplémentaires variables et les majorations de pointage qui ne sont
+  * pas certaines pendant l'absence. Les heures supplémentaires structurelles d'un
+  * contrat temps plein sont conservées car elles appartiennent à la mensualisation.
+  */
+ fun sicknessTheoreticalNetForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessTheoreticalNetV2.Result?{
+  if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
+  val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)?:return null
+  val allowance=sicknessAllowanceForAbsence(context,companyId,absence)
+  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}?:return null
+  val prefs=SalaryCompanyStore.prefs(context,companyId)
+  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim()
+  val convention=ConventionCatalog.findByIdcc(context,idcc)
+  val zone=ZoneId.systemDefault()
+  val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
+  val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
+  val monthlyNet=linkedMapOf<YearMonth,Double>()
+  val bridgeWarnings=mutableListOf<String>()
+
+  if(convention==null){
+   return SicknessTheoreticalNetV2.calculate(start,endExclusive,maintenance,emptyMap(),allowance)
+    .copy(warnings=listOf("Base nette maladie : convention collective introuvable pour l'IDCC $idcc."))
+  }
+
+  var ym=YearMonth.from(start)
+  val last=YearMonth.from(endExclusive.minusDays(1))
+  while(!ym.isAfter(last)){
+   val calc=runCatching{
+    V2SalaryAdapter.calculateForCompany(context,company,ym.year,ym.monthValue-1,convention)
+   }.getOrNull()
+   val rawType=prefs.getString("contract_type","").orEmpty().trim().uppercase(Locale.ROOT)
+   val hourlyRate=prefs.getString("hourly_rate","").orEmpty().replace(',','.').toDoubleOrNull()
+   val contractualGross=when(rawType){
+    "FULL_TIME" -> {
+     val structural=if(hourlyRate!=null && hourlyRate>0.0){
+      calc?.overtimeTiers.orEmpty()
+       .filter{it.label.contains("structurelles",ignoreCase=true)}
+       .sumOf{tier->tier.durationMs/3_600_000.0*hourlyRate*tier.multiplier}
+     }else 0.0
+     calc?.regularGross?.plus(structural)
+    }
+    "PART_TIME","FORFAIT_HEURES","FORFAIT_JOURS" -> calc?.regularGross
+    else -> null
+   }?.takeIf{it>0.0}
+
+   if(contractualGross==null){
+    bridgeWarnings += "Base nette maladie : rémunération contractuelle théorique indisponible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
+   }else{
+    val overrides=CompanyPayrollOverridesV2.load(
+     context=context,
+     companyId=companyId,
+     referenceDate=ym.atEndOfMonth(),
+     ignoreAbsencesForTheoreticalBase=true
+    )
+    val net=runCatching{
+     NetSalaryEngineV2.calculate(contractualGross,ym.year,overrides,complementaryMinutes=0)
+    }.getOrNull()
+    if(net==null){
+     bridgeWarnings += "Base nette maladie : conversion brut/net impossible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
+    }else{
+     monthlyNet[ym]=net.netBeforeIncomeTax
+    }
+   }
+   ym=ym.plusMonths(1)
+  }
+
+  if(monthlyNet.isNotEmpty()){
+   bridgeWarnings += "Base nette maladie : salaire contractuel mensualisé retenu ; paniers/remboursements, heures supplémentaires variables et majorations non certaines pendant l'arrêt sont exclus."
+  }
+  val result=SicknessTheoreticalNetV2.calculate(start,endExclusive,maintenance,monthlyNet,allowance)
+  return result.copy(warnings=(result.warnings+bridgeWarnings).distinct())
  }
 
  fun remove(context:Context,id:String){val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);val kept=all(context).filterNot{it.id==id};val a=JSONArray();kept.sortedBy{it.importedAtMs}.forEach{a.put(toJson(it))};p.edit().putString(KEY_ITEMS,a.toString()).apply()}
