@@ -23,6 +23,8 @@ class SicknessDailyAllowanceV2Test {
         assertEquals(32.8767, result.dailyGross!!, 0.001)
         assertEquals(4, result.payableDays)
         assertEquals(131.5068, result.estimatedGrossTotal!!, 0.01)
+        assertEquals(30.6740, result.dailyNetBeforeIncomeTax!!, 0.001)
+        assertEquals(122.6959, result.estimatedNetBeforeIncomeTaxTotal!!, 0.01)
     }
 
     @Test
@@ -39,6 +41,7 @@ class SicknessDailyAllowanceV2Test {
         assertTrue(result.complete)
         assertEquals(42.967, result.dailyGross!!, 0.01)
         assertEquals(7, result.payableDays)
+        assertEquals(40.091, result.dailyNetBeforeIncomeTax!!, 0.01)
     }
 
     @Test
@@ -55,6 +58,7 @@ class SicknessDailyAllowanceV2Test {
         assertTrue(result.complete)
         assertEquals(0, result.payableDays)
         assertEquals(0.0, result.estimatedGrossTotal!!, 0.001)
+        assertEquals(0.0, result.estimatedNetBeforeIncomeTaxTotal!!, 0.001)
     }
 
     @Test
@@ -69,6 +73,7 @@ class SicknessDailyAllowanceV2Test {
         )
         assertFalse(result.complete)
         assertEquals(null, result.dailyGross)
+        assertEquals(null, result.dailyNetBeforeIncomeTax)
         assertTrue(result.warnings.any { it.contains("07/2026") })
     }
 
