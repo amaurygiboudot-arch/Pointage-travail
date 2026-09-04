@@ -53,7 +53,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             V2ManualEntryInstaller.install(activity)
             installEmployerSelector(activity)
             installOwnerShortcut(activity)
-            installSalaryExtrasWatcher(activity)
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
             installSecuritySettings(activity)
@@ -156,13 +155,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
                 }
             }
         })
-    }
-
-    private fun installSalaryExtrasWatcher(activity: MainActivity) {
-        val content = activity.findViewById<LinearLayout>(R.id.contentPanel) ?: return
-        if (content.findViewWithTag<View>(V2SalaryExtrasWatcher.TAG) == null) {
-            content.addView(V2SalaryExtrasWatcher(activity), ViewGroup.LayoutParams(1, 1))
-        }
     }
 
     private fun installGpsZoneTypeSelector(activity: MainActivity) {
