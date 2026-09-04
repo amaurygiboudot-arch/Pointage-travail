@@ -20,6 +20,10 @@ object CompanyPayrollOverridesV2 {
         val mutualEmployeeAmount:Double?,
         val providentEmployeeAmount:Double?,
         val transportEmployeeAmount:Double?,
+        /** Part employeur de protection sociale complémentaire réintégrée au net imposable. */
+        val employerProtectionTaxableAmount:Double?,
+        /** Part salariale de prévoyance explicitement non déductible fiscalement. */
+        val employeeProvidentNonDeductibleAmount:Double?,
         val incomeTaxRate:Double?,
         val professionalStatus:String?,
         val warnings:List<String>
@@ -42,6 +46,8 @@ object CompanyPayrollOverridesV2 {
         val mutual=number("mutual_employee_amount")
         val provident=number("provident_employee_amount")
         val transport=number("transport_employee_amount")
+        val employerProtectionTaxable=number("employer_protection_taxable_amount")
+        val employeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val tax=number("income_tax_rate_percent")?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val warnings=buildList {
@@ -49,10 +55,26 @@ object CompanyPayrollOverridesV2 {
             if(mutual==null)add("Mutuelle salariale : à confirmer")
             if(provident==null)add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null)add("Retenue transport : à confirmer")
+            if(employerProtectionTaxable==null)add("Part employeur mutuelle/prévoyance réintégrable au net imposable : à confirmer")
+            if(employeeProvidentNonDeductible==null)add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
         }
-        return Snapshot(companyId,idcc,entryDate,seniorityMonths,number("meal_amount"),mutual,provident,transport,tax,professionalStatus,warnings)
+        return Snapshot(
+            companyId=companyId,
+            idcc=idcc,
+            entryDate=entryDate,
+            seniorityMonths=seniorityMonths,
+            mealAmount=number("meal_amount"),
+            mutualEmployeeAmount=mutual,
+            providentEmployeeAmount=provident,
+            transportEmployeeAmount=transport,
+            employerProtectionTaxableAmount=employerProtectionTaxable,
+            employeeProvidentNonDeductibleAmount=employeeProvidentNonDeductible,
+            incomeTaxRate=tax,
+            professionalStatus=professionalStatus,
+            warnings=warnings
+        )
     }
 
     /** Utilise la fin du mois actuellement sélectionné dans l'espace bulletin. */
