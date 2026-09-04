@@ -26,9 +26,10 @@ object PayslipObservedValuesStoreV2 {
         PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE
     )
 
+    // Les paniers disposent désormais d'une valeur attendue V2 sûre. Les primes restent
+    // hors comparaison tant que toutes leurs sources contractuelles/conventionnelles ne sont pas intégrées.
     private val comparisonReadyKeys = allowedKeys - setOf(
-        PayslipDocumentParserV2.KEY_PREMIUMS_GROSS,
-        PayslipDocumentParserV2.KEY_MEAL_BASKETS
+        PayslipDocumentParserV2.KEY_PREMIUMS_GROSS
     )
 
     fun put(context: Context, recordId: String, values: Map<String, Double>) {
