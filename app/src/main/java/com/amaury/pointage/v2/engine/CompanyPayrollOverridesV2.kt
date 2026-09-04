@@ -2,20 +2,26 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
+import com.amaury.pointage.v2.model.ContractTypeV2
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /** Couche 4/6 — paramètres salarié/entreprise. Les valeurs absentes restent explicitement inconnues. */
 object CompanyPayrollOverridesV2 {
     data class Snapshot(
         val companyId:String,
         val idcc:String?,
+        val referenceDate:LocalDate,
         val entryDate:LocalDate?,
         val seniorityMonths:Int?,
+        val contractType:ContractTypeV2?,
+        val contractualWeeklyMinutes:Int?,
+        val forfaitAnnualDays:Double?,
         val mealAmount:Double?,
         val mutualEmployeeAmount:Double?,
         val providentEmployeeAmount:Double?,
@@ -43,6 +49,19 @@ object CompanyPayrollOverridesV2 {
         val seniorityMonths=entryDate?.let { start ->
             if(start.isAfter(referenceDate)) 0 else ChronoUnit.MONTHS.between(start,referenceDate).toInt().coerceAtLeast(0)
         }
+        val contractType=when(p.getString("contract_type","").orEmpty().trim().uppercase(Locale.ROOT)) {
+            "FULL_TIME" -> ContractTypeV2.FULL_TIME
+            "PART_TIME" -> ContractTypeV2.PART_TIME
+            "FORFAIT_HEURES" -> ContractTypeV2.FORFAIT_HOURS
+            "FORFAIT_JOURS" -> ContractTypeV2.FORFAIT_DAYS
+            "FORFAIT" -> ContractTypeV2.FORFAIT
+            "OTHER" -> ContractTypeV2.OTHER
+            else -> null
+        }
+        val contractualWeeklyMinutes=number("contract_weekly_hours")
+            ?.takeIf { it > 0.0 }
+            ?.let { (it * 60.0).roundToInt() }
+        val forfaitAnnualDays=number("forfait_annual_days")?.takeIf { it > 0.0 }
         val mutual=number("mutual_employee_amount")
         val provident=number("provident_employee_amount")
         val transport=number("transport_employee_amount")
@@ -51,7 +70,7 @@ object CompanyPayrollOverridesV2 {
         val tax=number("income_tax_rate_percent")?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val warnings=buildList {
-            if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté")
+            if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
             if(mutual==null)add("Mutuelle salariale : à confirmer")
             if(provident==null)add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null)add("Retenue transport : à confirmer")
@@ -63,8 +82,12 @@ object CompanyPayrollOverridesV2 {
         return Snapshot(
             companyId=companyId,
             idcc=idcc,
+            referenceDate=referenceDate,
             entryDate=entryDate,
             seniorityMonths=seniorityMonths,
+            contractType=contractType,
+            contractualWeeklyMinutes=contractualWeeklyMinutes,
+            forfaitAnnualDays=forfaitAnnualDays,
             mealAmount=number("meal_amount"),
             mutualEmployeeAmount=mutual,
             providentEmployeeAmount=provident,
