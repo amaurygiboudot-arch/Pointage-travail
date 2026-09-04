@@ -141,8 +141,8 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             index != ignoredIndex && candidate.first < existing.second && existing.first < candidate.second
         }
 
-        lateinit var render: () -> Unit
-        lateinit var editRange: (Int?) -> Unit
+        var render: (() -> Unit)? = null
+        var editRange: ((Int?) -> Unit)? = null
 
         fun pickMinute(initial: Int, onPicked: (Int) -> Unit) {
             TimePickerDialog(
@@ -161,33 +161,33 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
-        editRange = edit@{ index ->
+        editRange = { index ->
             val existing = index?.let { ranges.getOrNull(it) }
             val startCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.first }
             val initialStart = if (existing != null) startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE) else 10 * 60
-            pickMinute(initialStart) { startMinute ->
+            pickMinute(initialStart, startPick@{ startMinute ->
                 val endCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.second }
                 val initialEnd = if (existing != null) endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE) else (startMinute + 15).coerceAtMost(23 * 60 + 59)
-                pickMinute(initialEnd) { endMinute ->
+                pickMinute(initialEnd, endPick@{ endMinute ->
                     if (endMinute <= startMinute) {
                         Toast.makeText(context, "La fin doit être après le début de la pause", Toast.LENGTH_LONG).show()
-                        return@pickMinute
+                        return@endPick
                     }
                     val candidate = millisForMinute(startMinute) to millisForMinute(endMinute)
                     if (overlaps(candidate, index)) {
                         Toast.makeText(context, "Cette pause chevauche déjà une autre pause", Toast.LENGTH_LONG).show()
-                        return@pickMinute
+                        return@endPick
                     }
                     if (index == null) {
-                        if (ranges.size >= 5) return@pickMinute
+                        if (ranges.size >= 5) return@endPick
                         ranges += candidate
                     } else {
                         ranges[index] = candidate
                     }
                     ranges.sortBy { it.first }
-                    render()
-                }
-            }
+                    render?.invoke()
+                })
+            })
         }
 
         render = {
@@ -213,11 +213,11 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                         setTextColor(textColor)
                     })
                     val actions = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
-                    val modify = styledButton("MODIFIER").apply { setOnClickListener { editRange(index) } }
+                    val modify = styledButton("MODIFIER").apply { setOnClickListener { editRange?.invoke(index) } }
                     val delete = styledButton("SUPPRIMER").apply {
                         setOnClickListener {
                             ranges.removeAt(index)
-                            render()
+                            render?.invoke()
                         }
                     }
                     actions.addView(modify, LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(4) })
@@ -232,10 +232,10 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         fun loadDay() {
             val (start, end) = dayBounds()
             ranges.clear()
-            ranges += ManualPauseBatchStore.editableForDay(context, start, end).take(5)
+            ranges += ManualPauseBatchStore.editableForDay(context, start, end)
             ranges.sortBy { it.first }
             dateButton.text = "JOURNÉE : ${dateFormat.format(selectedDate.time)}"
-            render()
+            render?.invoke()
         }
 
         dateButton.setOnClickListener {
@@ -251,7 +251,7 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                 selectedDate.get(Calendar.DAY_OF_MONTH)
             ).show()
         }
-        addButton.setOnClickListener { editRange(null) }
+        addButton.setOnClickListener { editRange?.invoke(null) }
         cancelButton.setOnClickListener { dialog.dismiss() }
         saveButton.setOnClickListener {
             val (start, end) = dayBounds()
