@@ -15,6 +15,7 @@ import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
+import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.RestEngineV2
 import com.amaury.pointage.v2.engine.SicknessPaymentFlowV2
 import com.amaury.pointage.v2.model.AbsenceProvidentTreatmentV2
@@ -179,6 +180,9 @@ class V2RightsRestView @JvmOverloads constructor(
             val relay = if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
                 V2PayslipStore.sicknessProvidentRelayForAbsence(context, companyId, absence)
             } else null
+            val relayControl = if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+                V2PayslipStore.sicknessProvidentRelayControlForAbsence(context, companyId, absence)
+            } else null
             val row = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 setPadding(0, dp(6), 0, 0)
@@ -239,10 +243,27 @@ class V2RightsRestView @JvmOverloads constructor(
                     } else if (sicknessAmount?.employerComplementBeforeProvidentNet != null) {
                         append('\n').append("  Complément final : à confirmer tant que la prévoyance chevauchante n'est pas renseignée")
                     }
+                    if (relay?.applicableConvention == true) {
+                        append('\n').append("  Catégorie prévoyance : ")
+                            .append(PlasturgieProtectionCategoryV2.label(relay.protectionCategory))
+                    }
                     if (relay?.potentiallyCovered == true) {
                         append('\n').append("  Relais prévoyance Plasturgie : ≥ 60 % du brut après maintien employeur")
                         relay.earliestContinuousStopDay?.let { append(" • dès le ").append(it).append("e jour continu") }
-                        if (!relay.eligibilityConfirmed) append(" • catégorie ANI à confirmer")
+                        relay.relayReached?.let { append(if (it) " • relais atteint" else " • relais non encore atteint") }
+                    }
+                    if (relayControl?.complete == true) {
+                        relayControl.expectedMinimumProvidentGross?.let {
+                            append('\n').append("  Minimum prévoyance contrôlé : ")
+                                .append(String.format(Locale.FRANCE, "%.2f € brut", it))
+                        }
+                        relayControl.observedProvidentGross?.let {
+                            append(" • observé ").append(String.format(Locale.FRANCE, "%.2f € brut", it))
+                        }
+                        relayControl.differenceGross?.let {
+                            append(" • écart ").append(String.format(Locale.FRANCE, "%+.2f €", it))
+                        }
+                        append(if (relayControl.meetsBranchMinimum == true) " • minimum respecté" else " • écart à vérifier")
                     }
                 }
                 textSize = 13f
@@ -255,6 +276,22 @@ class V2RightsRestView @JvmOverloads constructor(
                 setOnClickListener { confirmDeleteAbsence(absence, start, end) }
             }, LayoutParams(dp(108), dp(48)))
             absenceBox.addView(row)
+
+            if (relay?.relayReached == true && relay.potentiallyCovered && relay.eligibilityConfirmed) {
+                val controlAlreadyEntered = absence.providentRelayTargetGross60Amount != null &&
+                    absence.providentRelaySocialSecurityGrossAmount != null &&
+                    absence.providentRelayObservedGrossAmount != null
+                absenceBox.addView(
+                    Button(context).apply {
+                        text = if (controlAlreadyEntered) "MODIFIER LE CONTRÔLE PRÉVOYANCE" else "CONTRÔLER LE RELAIS PRÉVOYANCE"
+                        isAllCaps = false
+                        textSize = 13f
+                        setBackgroundResource(R.drawable.hp_panel)
+                        setOnClickListener { showProvidentRelayControlDialog(absence) }
+                    },
+                    LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
+                )
+            }
         }
     }
 
@@ -455,6 +492,69 @@ class V2RightsRestView @JvmOverloads constructor(
                     return@setOnClickListener
                 }
                 onConfirmed(value)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun showProvidentRelayControlDialog(absence: AbsenceV2) {
+        fun amountField(hintText: String, initial: Double?) = EditText(context).apply {
+            hint = hintText
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            isSingleLine = true
+            initial?.let { setText(String.format(Locale.FRANCE, "%.2f", it)) }
+        }
+        val target60 = amountField("60 % du salaire brut de référence — même période", absence.providentRelayTargetGross60Amount)
+        val socialSecurity = amountField("Prestations SS brutes déduites — même période", absence.providentRelaySocialSecurityGrossAmount)
+        val observed = amountField("Prévoyance brute réellement versée — même période", absence.providentRelayObservedGrossAmount)
+        val box = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(18), dp(8), dp(18), 0)
+            addView(TextView(context).apply {
+                text = "Recopie les 3 montants du même décompte et de la même période. HoraTrack contrôle 60 % brut − prestations SS brutes sans inventer de conversion annuelle ou journalière."
+                textSize = 12f
+                setPadding(0, 0, 0, dp(8))
+            })
+            addView(target60, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+            addView(socialSecurity, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+            addView(observed, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Contrôle relais prévoyance")
+            .setView(box)
+            .setPositiveButton("ENREGISTRER", null)
+            .setNeutralButton("EFFACER", null)
+            .setNegativeButton("ANNULER", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val values = listOf(target60, socialSecurity, observed).map { parse(it.text.toString()) }
+                if (values.any { it == null || it < 0.0 }) {
+                    Toast.makeText(context, "Renseigne les trois montants bruts du même décompte", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                V2RightsStore.upsertAbsence(
+                    context,
+                    absence.copy(
+                        providentRelayTargetGross60Amount = values[0],
+                        providentRelaySocialSecurityGrossAmount = values[1],
+                        providentRelayObservedGrossAmount = values[2]
+                    )
+                )
+                refresh()
+                dialog.dismiss()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                V2RightsStore.upsertAbsence(
+                    context,
+                    absence.copy(
+                        providentRelayTargetGross60Amount = null,
+                        providentRelaySocialSecurityGrossAmount = null,
+                        providentRelayObservedGrossAmount = null
+                    )
+                )
+                refresh()
                 dialog.dismiss()
             }
         }
