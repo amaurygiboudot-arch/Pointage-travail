@@ -33,6 +33,7 @@ class NetSalaryEngineV2Test {
         employeeProvidentNonDeductibleAmount=employeeNonDeductible,
         incomeTaxRate=0.05,
         professionalStatus="NON_CADRE",
+        protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null),
         warnings=emptyList()
     )
 
