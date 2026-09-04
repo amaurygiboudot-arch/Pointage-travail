@@ -3,6 +3,8 @@ package com.amaury.pointage
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.engine.WorkTimePolicyV2
+import java.util.Calendar
+import java.util.Locale
 
 enum class ShiftType(val id: String, val label: String) {
     MORNING("morning", "Matin"),
@@ -25,12 +27,24 @@ object ShiftProfileManager {
     /**
      * Détection automatique indicative par heure d'embauche comptée.
      * En V2, WorkTimePolicyV2 reste la source unique de classification des postes.
+     * V1 conserve son ancienne détection tant qu'elle reste présente dans le dépôt.
      */
-    fun detect(entryMs: Long): ShiftType = when (WorkTimePolicyV2.shiftKind(entryMs)) {
-        WorkTimePolicyV2.ShiftKind.MORNING -> ShiftType.MORNING
-        WorkTimePolicyV2.ShiftKind.DAY -> ShiftType.DAY
-        WorkTimePolicyV2.ShiftKind.AFTERNOON -> ShiftType.AFTERNOON
-        WorkTimePolicyV2.ShiftKind.NIGHT -> ShiftType.NIGHT
+    fun detect(entryMs: Long): ShiftType {
+        if (HoraTrackV2.ENABLED) {
+            return when (WorkTimePolicyV2.shiftKind(entryMs)) {
+                WorkTimePolicyV2.ShiftKind.MORNING -> ShiftType.MORNING
+                WorkTimePolicyV2.ShiftKind.DAY -> ShiftType.DAY
+                WorkTimePolicyV2.ShiftKind.AFTERNOON -> ShiftType.AFTERNOON
+                WorkTimePolicyV2.ShiftKind.NIGHT -> ShiftType.NIGHT
+            }
+        }
+        val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
+        return when (cal.get(Calendar.HOUR_OF_DAY)) {
+            6 -> ShiftType.MORNING
+            in 7..11 -> ShiftType.DAY
+            in 12..20 -> ShiftType.AFTERNOON
+            else -> ShiftType.NIGHT
+        }
     }
 
     fun resolve(context: Context, entryMs: Long): ShiftType {
