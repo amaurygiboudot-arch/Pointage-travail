@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.RestEngineV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
 import com.amaury.pointage.v2.model.AbsenceV2
@@ -67,24 +68,34 @@ class V2RightsRestView @JvmOverloads constructor(
         })
 
         addView(TextView(context).apply {
-            text = "ABSENCES NON RÉMUNÉRÉES"
+            text = "ABSENCES"
             textSize = 15f
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "Enregistre ici uniquement des journées entières sans maintien de salaire. Une demi-journée ou quelques heures ne réduit pas automatiquement le plafond social."
+            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel mais n’invente ni IJSS ni maintien employeur."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
         addView(
             Button(context).apply {
-                text = "➕ AJOUTER UNE ABSENCE NON RÉMUNÉRÉE"
+                text = "➕ ABSENCE NON RÉMUNÉRÉE"
                 isAllCaps = false
                 textSize = 14f
                 setBackgroundResource(R.drawable.hp_panel)
-                setOnClickListener { showUnpaidAbsenceDialog() }
+                setOnClickListener { showAbsencePeriodDialog(AbsencePayrollImpactV2.TYPE_UNPAID, AbsenceSalaryTreatmentV2.UNPAID, true) }
             },
             LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52))
+        )
+        addView(
+            Button(context).apply {
+                text = "➕ AUTRE ABSENCE"
+                isAllCaps = false
+                textSize = 14f
+                setBackgroundResource(R.drawable.hp_panel)
+                setOnClickListener { chooseAbsenceType() }
+            },
+            LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) }
         )
         absenceBox.orientation = VERTICAL
         addView(absenceBox)
@@ -138,16 +149,11 @@ class V2RightsRestView @JvmOverloads constructor(
 
     private fun refreshAbsences() {
         absenceBox.removeAllViews()
-        val absences = if (companyId.isBlank()) {
-            emptyList()
-        } else {
-            V2RightsStore.absencesForCompany(context, companyId)
-                .filter { it.salaryTreatment == AbsenceSalaryTreatmentV2.UNPAID }
-                .sortedByDescending { it.startMs }
-        }
+        val absences = if (companyId.isBlank()) emptyList() else
+            V2RightsStore.absencesForCompany(context, companyId).sortedByDescending { it.startMs }
         if (absences.isEmpty()) {
             absenceBox.addView(TextView(context).apply {
-                text = "Aucune absence non rémunérée enregistrée pour cette entreprise."
+                text = "Aucune absence enregistrée pour cette entreprise."
                 textSize = 13f
                 setPadding(0, dp(8), 0, 0)
             })
@@ -162,7 +168,12 @@ class V2RightsRestView @JvmOverloads constructor(
                 setPadding(0, dp(6), 0, 0)
             }
             row.addView(TextView(context).apply {
-                text = "• ${start.format(dateFormat)} → ${end.format(dateFormat)}\n  $days jour${if (days > 1) "s" else ""} entier${if (days > 1) "s" else ""} non rémunéré${if (days > 1) "s" else ""}"
+                text = buildString {
+                    append("• ").append(AbsencePayrollImpactV2.label(absence.type)).append('\n')
+                    append("  ").append(start.format(dateFormat)).append(" → ").append(end.format(dateFormat))
+                    append(" • ").append(days).append(" jour").append(if (days > 1) "s" else "")
+                    append('\n').append("  ").append(treatmentLabel(absence.salaryTreatment))
+                }
                 textSize = 13f
             }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(Button(context).apply {
@@ -176,24 +187,47 @@ class V2RightsRestView @JvmOverloads constructor(
         }
     }
 
-    private fun showUnpaidAbsenceDialog() {
+    private fun chooseAbsenceType() {
+        if (companyId.isBlank()) {
+            Toast.makeText(context, "Choisis d’abord une entreprise", Toast.LENGTH_LONG).show()
+            return
+        }
+        val labels = arrayOf("Arrêt maladie", "Congé payé", "Accident du travail", "Maternité / paternité", "Autre absence")
+        val types = arrayOf(
+            AbsencePayrollImpactV2.TYPE_SICKNESS,
+            AbsencePayrollImpactV2.TYPE_PAID_LEAVE,
+            AbsencePayrollImpactV2.TYPE_WORK_ACCIDENT,
+            AbsencePayrollImpactV2.TYPE_PARENTAL,
+            AbsencePayrollImpactV2.TYPE_OTHER
+        )
+        AlertDialog.Builder(context)
+            .setTitle("Type d’absence")
+            .setItems(labels) { _, which ->
+                showAbsencePeriodDialog(types[which], AbsenceSalaryTreatmentV2.TO_CONFIRM, false)
+            }
+            .setNegativeButton("ANNULER", null)
+            .show()
+    }
+
+    private fun showAbsencePeriodDialog(
+        type: String,
+        initialTreatment: AbsenceSalaryTreatmentV2,
+        treatmentLocked: Boolean
+    ) {
         if (companyId.isBlank()) {
             Toast.makeText(context, "Choisis d’abord une entreprise", Toast.LENGTH_LONG).show()
             return
         }
         var start = LocalDate.now()
         var end = start
-        val startButton = Button(context).apply {
-            isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
-        }
-        val endButton = Button(context).apply {
-            isAllCaps = false
-            setBackgroundResource(R.drawable.hp_panel)
-        }
+        var treatment = initialTreatment
+        val startButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
+        val endButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
+        val treatmentButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
         fun updateLabels() {
             startButton.text = "Début : ${start.format(dateFormat)}"
             endButton.text = "Fin : ${end.format(dateFormat)}"
+            treatmentButton.text = "Rémunération : ${treatmentLabel(treatment)}"
         }
         fun pick(initial: LocalDate, onPicked: (LocalDate) -> Unit) {
             DatePickerDialog(
@@ -205,32 +239,39 @@ class V2RightsRestView @JvmOverloads constructor(
             ).show()
         }
         startButton.setOnClickListener {
-            pick(start) { picked ->
-                start = picked
-                if (end.isBefore(start)) end = start
-                updateLabels()
-            }
+            pick(start) { picked -> start = picked; if (end.isBefore(start)) end = start; updateLabels() }
         }
-        endButton.setOnClickListener {
-            pick(end) { picked ->
-                end = picked
-                updateLabels()
+        endButton.setOnClickListener { pick(end) { picked -> end = picked; updateLabels() } }
+        if (!treatmentLocked) {
+            treatmentButton.setOnClickListener {
+                val labels = arrayOf("Maintien complet confirmé", "Sans maintien employeur", "À confirmer")
+                val values = arrayOf(
+                    AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                    AbsenceSalaryTreatmentV2.UNPAID,
+                    AbsenceSalaryTreatmentV2.TO_CONFIRM
+                )
+                AlertDialog.Builder(context)
+                    .setTitle("Traitement de l’absence")
+                    .setItems(labels) { _, which -> treatment = values[which]; updateLabels() }
+                    .setNegativeButton("ANNULER", null)
+                    .show()
             }
-        }
+        } else treatmentButton.isEnabled = false
         updateLabels()
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), 0)
             addView(TextView(context).apply {
-                text = "Journée(s) entière(s) sans maintien de salaire. La date de fin est incluse."
+                text = "${AbsencePayrollImpactV2.label(type)} — journée(s) entière(s). La date de fin est incluse. Les IJSS et règles de maintien ne sont jamais déduites automatiquement sans données suffisantes."
                 textSize = 12f
                 setPadding(0, 0, 0, dp(8))
             })
             addView(startButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
             addView(endButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+            addView(treatmentButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
         }
         val dialog = AlertDialog.Builder(context)
-            .setTitle("Absence non rémunérée")
+            .setTitle(AbsencePayrollImpactV2.label(type))
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)
@@ -247,10 +288,10 @@ class V2RightsRestView @JvmOverloads constructor(
                     AbsenceV2(
                         id = "absence-${UUID.randomUUID()}",
                         employerId = companyId,
-                        type = "ABSENCE_NON_REMUNEREE",
+                        type = type,
                         startMs = start.atStartOfDay(zone).toInstant().toEpochMilli(),
                         endMs = end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
-                        salaryTreatment = AbsenceSalaryTreatmentV2.UNPAID,
+                        salaryTreatment = treatment,
                         fullDay = true,
                         status = DecisionStatusV2.CONFIRMED
                     )
@@ -262,10 +303,16 @@ class V2RightsRestView @JvmOverloads constructor(
         dialog.show()
     }
 
+    private fun treatmentLabel(value: AbsenceSalaryTreatmentV2): String = when (value) {
+        AbsenceSalaryTreatmentV2.FULLY_MAINTAINED -> "maintien complet confirmé"
+        AbsenceSalaryTreatmentV2.UNPAID -> "sans maintien employeur"
+        AbsenceSalaryTreatmentV2.TO_CONFIRM -> "rémunération à confirmer"
+    }
+
     private fun confirmDeleteAbsence(absence: AbsenceV2, start: LocalDate, end: LocalDate) {
         AlertDialog.Builder(context)
             .setTitle("Supprimer cette absence ?")
-            .setMessage("${start.format(dateFormat)} → ${end.format(dateFormat)}")
+            .setMessage("${AbsencePayrollImpactV2.label(absence.type)}\n${start.format(dateFormat)} → ${end.format(dateFormat)}")
             .setNegativeButton("ANNULER", null)
             .setPositiveButton("SUPPRIMER") { _, _ ->
                 V2RightsStore.removeAbsence(context, absence.id)
