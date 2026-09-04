@@ -109,18 +109,26 @@ object PlasturgieSicknessMaintenanceV2 {
             .sortedBy { it.startMs }
             .toList()
 
+        fun durationDays(absence: AbsenceV2): Int {
+            val s = localDate(absence.startMs, zoneId)
+            val e = localDate(absence.endMs, zoneId)
+            return if (e.isAfter(s)) ChronoUnit.DAYS.between(s, e).toInt().coerceAtLeast(0) else 0
+        }
+
+        fun waitingForStop(index: Int): Int = when {
+            index == 0 -> 0
+            index == 1 && recordedStops.firstOrNull()?.let(::durationDays)?.let { it < 3 } == true ->
+                durationDays(recordedStops.first())
+            else -> 3
+        }
+
         val firstRecordedStop = recordedStops.isEmpty()
-        // Article 13 : pas de carence conventionnelle sur le premier arrêt de l'année.
-        // Pour les suivants, 3 jours, hors exceptions (ALD notamment) qui restent à confirmer.
-        val waiting = if (firstRecordedStop) 0 else 3
+        val waiting = if (firstRecordedStop) 0 else waitingForStop(recordedStops.size)
 
         var consumed = 0
         recordedStops.forEachIndexed { index, absence ->
-            val s = localDate(absence.startMs, zoneId)
-            val e = localDate(absence.endMs, zoneId)
-            if (!e.isAfter(s)) return@forEachIndexed
-            val days = ChronoUnit.DAYS.between(s, e).toInt().coerceAtLeast(0)
-            val priorWaiting = if (index == 0) 0 else 3
+            val days = durationDays(absence)
+            val priorWaiting = waitingForStop(index)
             consumed += (days - priorWaiting).coerceAtLeast(0)
         }
         consumed = consumed.coerceAtMost(annualLimit)
@@ -139,8 +147,12 @@ object PlasturgieSicknessMaintenanceV2 {
         }
 
         val warnings = buildList {
-            add("Barème Plasturgie calculé sur les arrêts enregistrés dans HoraTrack pour cette entreprise et cette année.")
-            if (!firstRecordedStop) add("Carence conventionnelle de 3 jours appliquée ; les exceptions (notamment ALD) restent à confirmer.")
+            add("Barème Plasturgie calculé sur les arrêts maladie enregistrés dans HoraTrack pour cette entreprise et cette année.")
+            if (!firstRecordedStop) {
+                if (waiting < 3) add("Carence conventionnelle de $waiting jour(s) appliquée car le premier arrêt enregistré de l'année a duré moins de 3 jours.")
+                else add("Carence conventionnelle de 3 jours appliquée ; les exceptions (notamment ALD) restent à confirmer.")
+            }
+            if (currentCalendarDays > 3) add("Arrêt supérieur à 3 jours : la prise en charge par la Sécurité sociale doit être confirmée pour sécuriser l'indemnisation conventionnelle.")
             add("Le montant exact du complément employeur exige la rémunération nette qui aurait été perçue sur la période, puis la déduction des IJSS et des prestations de prévoyance financées par l'employeur.")
             if (consumed >= annualLimit) add("Plafond annuel conventionnel déjà atteint selon les absences enregistrées dans HoraTrack.")
         }
