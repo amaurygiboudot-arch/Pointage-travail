@@ -70,7 +70,9 @@ object PlasturgieProtectionCategoryV2 {
         return Result(category, true, coefficient, warning)
     }
 
-    fun label(result: Result): String = when (result.category) {
+    fun label(result: Result): String = label(result.category)
+
+    fun label(category: Category): String = when (category) {
         Category.ARTICLE_2_1 -> "ANI 2.1 — cadre"
         Category.ARTICLE_2_2 -> "ANI 2.2 — assimilé cadre"
         Category.EXTENSION_ELIGIBLE -> "Hors ANI 2.1/2.2 — extension régime cadres possible"
