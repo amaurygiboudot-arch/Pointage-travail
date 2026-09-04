@@ -113,6 +113,7 @@ object V2RightsStore {
                 val result=V2PayslipStore.sicknessMaintenanceForAbsence(context,companyId,absence)
                     ?:return@flatMap emptyList()
                 if(!result.applicable)return@flatMap emptyList()
+                val amount=V2PayslipStore.sicknessTheoreticalNetForAbsence(context,companyId,absence)
                 val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
                 when{
                     !result.eligibilityConfirmed -> listOf(result.warnings.firstOrNull()
@@ -129,7 +130,18 @@ object V2RightsStore {
                             result.employerWaitingDays?.let{append(" • carence employeur ").append(it).append(" j")}
                             result.annualLimitDays?.let{limit->append(" • plafond annuel ").append(limit).append(" j")}
                             result.alreadyConsumedIndemnifiedDays?.let{used->append(" • déjà consommés ").append(used).append(" j")}
-                            append(" • montant employeur en euros à confirmer (base nette, IJSS et prévoyance).")
+                            amount?.theoreticalIndemnifiableNet?.let{
+                                append(" • base nette théorique ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.targetMaintenanceNet?.let{
+                                append(" • cible conventionnelle ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.ijssNetDeductedOnce?.let{
+                                append(" • IJSS nettes déduites une fois ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            }
+                            amount?.employerComplementBeforeProvidentNet?.let{
+                                append(" • complément employeur avant prévoyance ").append(String.format(Locale.FRANCE,"%.2f €",it))
+                            } ?: append(" • complément employeur en euros encore incomplet")
                         })
                     }
                 }
