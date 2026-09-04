@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.AbsenceProvidentTreatmentV2
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -10,13 +11,10 @@ import java.time.YearMonth
  * le salarié aurait perçue en travaillant normalement et les périodes indemnisées
  * sont décomptées en jours calendaires.
  *
- * La base mensuelle fournie doit être un net avant prélèvement à la source et ne
- * doit pas contenir de remboursements de frais. Chaque mois est proratisé par son
- * nombre réel de jours calendaires, puis les bandes 100 % / 75 % sont appliquées.
- *
- * Les IJSS sont ensuite retranchées UNE SEULE FOIS, uniquement sur les journées
- * qui sont à la fois indemnisables par l'employeur et payables par la Sécurité
- * sociale. La prévoyance employeur reste volontairement hors de cette étape.
+ * Les IJSS sont retranchées UNE SEULE FOIS sur les journées qui chevauchent le
+ * maintien. Une prestation de prévoyance employeur n'est retranchée ensuite que
+ * si son chevauchement avec le maintien a été explicitement confirmé.
+ * Le relais de branche après maintien n'entre jamais dans cette déduction.
  */
 object SicknessTheoreticalNetV2 {
     data class MonthlyBase(
@@ -35,8 +33,13 @@ object SicknessTheoreticalNetV2 {
         /** IJSS nettes avant impôt retranchées une seule fois sur la même période. */
         val ijssNetDeductedOnce: Double?,
         val ijssDaysDeducted: Int?,
-        /** Complément employeur estimable avant éventuelle prestation de prévoyance. */
+        /** Complément employeur après IJSS, avant éventuelle prévoyance chevauchante. */
         val employerComplementBeforeProvidentNet: Double?,
+        /** Prestation employeur chevauchante effectivement retranchée. */
+        val employerProvidentNetDeducted: Double?,
+        /** Complément final uniquement si la prévoyance chevauchante est confirmée. */
+        val employerComplementFinalNet: Double?,
+        val finalComplementReliable: Boolean,
         val indemnifiableDays: Int,
         val monthlyBases: List<MonthlyBase>,
         val warnings: List<String>
@@ -47,7 +50,9 @@ object SicknessTheoreticalNetV2 {
         absenceEndExclusive: LocalDate,
         maintenance: PlasturgieSicknessMaintenanceV2.Result,
         monthlyNetBeforeIncomeTax: Map<YearMonth, Double>,
-        allowance: SicknessDailyAllowanceV2.Result?
+        allowance: SicknessDailyAllowanceV2.Result?,
+        providentTreatment: AbsenceProvidentTreatmentV2 = AbsenceProvidentTreatmentV2.TO_CONFIRM,
+        employerProvidentOverlapNetAmount: Double? = null
     ): Result {
         if (!absenceEndExclusive.isAfter(absenceStart)) {
             return unavailable("Base nette maladie : période d'arrêt invalide.")
@@ -70,6 +75,9 @@ object SicknessTheoreticalNetV2 {
                 ijssNetDeductedOnce = null,
                 ijssDaysDeducted = null,
                 employerComplementBeforeProvidentNet = null,
+                employerProvidentNetDeducted = null,
+                employerComplementFinalNet = null,
+                finalComplementReliable = false,
                 indemnifiableDays = maintenance.bands.sumOf { it.calendarDays.coerceAtLeast(0) },
                 monthlyBases = normalizedMonthly.map { MonthlyBase(it.key, it.value) },
                 warnings = listOf(
@@ -121,6 +129,9 @@ object SicknessTheoreticalNetV2 {
                 ijssNetDeductedOnce = null,
                 ijssDaysDeducted = null,
                 employerComplementBeforeProvidentNet = null,
+                employerProvidentNetDeducted = null,
+                employerComplementFinalNet = null,
+                finalComplementReliable = false,
                 indemnifiableDays = indemnifiedDates.size,
                 monthlyBases = normalizedMonthly.map { MonthlyBase(it.key, it.value) },
                 warnings = warnings.distinct()
@@ -147,18 +158,32 @@ object SicknessTheoreticalNetV2 {
         val complementBeforeProvident = ijssNet?.let { (targetNet - it).coerceAtLeast(0.0) }
         if (complementBeforeProvident != null) {
             warnings += "IJSS déduites une seule fois de la cible nette conventionnelle ; la subrogation change le destinataire, pas cette déduction."
-            warnings += "Complément employeur affichable avant prévoyance : une éventuelle prestation financée par l'employeur doit encore être retranchée séparément."
         }
+
+        val provident = SicknessProvidentOffsetV2.apply(
+            employerComplementBeforeProvidentNet = complementBeforeProvident,
+            treatment = providentTreatment,
+            confirmedOverlapNetAmount = employerProvidentOverlapNetAmount
+        )
+        warnings += provident.warnings
         warnings += "Base nette théorique proratisée en jours calendaires ; les remboursements de frais doivent rester exclus de la base mensuelle."
 
+        val preProvidentComplete = complementBeforeProvident != null &&
+            warnings.none { it.contains("dépasse la période réelle") }
+        val finalReliable = preProvidentComplete && provident.overlapConfirmed &&
+            provident.finalEmployerComplementNet != null
+
         return Result(
-            complete = complementBeforeProvident != null && warnings.none { it.contains("dépasse la période réelle") },
+            complete = preProvidentComplete,
             theoreticalAbsenceNet = wholeAbsenceNet,
             theoreticalIndemnifiableNet = indemnifiableNet,
             targetMaintenanceNet = targetNet,
             ijssNetDeductedOnce = ijssNet,
             ijssDaysDeducted = ijssDays,
             employerComplementBeforeProvidentNet = complementBeforeProvident,
+            employerProvidentNetDeducted = provident.providentNetDeducted,
+            employerComplementFinalNet = provident.finalEmployerComplementNet,
+            finalComplementReliable = finalReliable,
             indemnifiableDays = indemnifiedDates.size,
             monthlyBases = normalizedMonthly.map { MonthlyBase(it.key, it.value) },
             warnings = warnings.distinct()
@@ -184,6 +209,9 @@ object SicknessTheoreticalNetV2 {
         ijssNetDeductedOnce = null,
         ijssDaysDeducted = null,
         employerComplementBeforeProvidentNet = null,
+        employerProvidentNetDeducted = null,
+        employerComplementFinalNet = null,
+        finalComplementReliable = false,
         indemnifiableDays = 0,
         monthlyBases = emptyList(),
         warnings = listOf(message)
