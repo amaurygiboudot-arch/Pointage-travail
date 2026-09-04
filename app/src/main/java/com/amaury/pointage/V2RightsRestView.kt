@@ -11,6 +11,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
@@ -73,7 +74,7 @@ class V2RightsRestView @JvmOverloads constructor(
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel mais n’invente ni IJSS ni maintien employeur."
+            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel. Pour un arrêt maladie, les IJSS ne sont estimées qu’avec 3 bulletins bruts réels confirmés ; le maintien employeur reste séparé."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
@@ -163,6 +164,9 @@ class V2RightsRestView @JvmOverloads constructor(
             val start = localDate(absence.startMs)
             val end = localDate(absence.endMs - 1L)
             val days = java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt() + 1
+            val sickness = if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+                V2PayslipStore.sicknessAllowanceForAbsence(context, companyId, absence)
+            } else null
             val row = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 setPadding(0, dp(6), 0, 0)
@@ -173,6 +177,16 @@ class V2RightsRestView @JvmOverloads constructor(
                     append("  ").append(start.format(dateFormat)).append(" → ").append(end.format(dateFormat))
                     append(" • ").append(days).append(" jour").append(if (days > 1) "s" else "")
                     append('\n').append("  ").append(treatmentLabel(absence.salaryTreatment))
+                    if (sickness != null) {
+                        append('\n').append("  IJSS maladie : ")
+                        if (sickness.complete && sickness.dailyGross != null && sickness.payableDays != null && sickness.estimatedGrossTotal != null) {
+                            append(String.format(Locale.FRANCE, "%.2f € brut/jour • %d jour(s) indemnisable(s) • %.2f € brut estimés", sickness.dailyGross, sickness.payableDays, sickness.estimatedGrossTotal))
+                            append(" (si droits ouverts)")
+                        } else {
+                            append("à confirmer")
+                            sickness.warnings.firstOrNull()?.let { append(" — ").append(it) }
+                        }
+                    }
                 }
                 textSize = 13f
             }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
