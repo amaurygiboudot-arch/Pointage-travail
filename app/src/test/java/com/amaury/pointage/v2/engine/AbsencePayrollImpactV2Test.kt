@@ -22,11 +22,12 @@ class AbsencePayrollImpactV2Test {
         treatment: AbsenceSalaryTreatmentV2 = AbsenceSalaryTreatmentV2.UNPAID,
         fullDay: Boolean = true,
         status: DecisionStatusV2 = DecisionStatusV2.CONFIRMED,
-        employerId: String = "company-a"
+        employerId: String = "company-a",
+        type: String = AbsencePayrollImpactV2.TYPE_UNPAID
     ) = AbsenceV2(
-        id = "a-${start}",
+        id = "a-${start}-$type",
         employerId = employerId,
-        type = "ABSENCE_NON_REMUNEREE",
+        type = type,
         startMs = start.atStartOfDay(zone).toInstant().toEpochMilli(),
         endMs = endInclusive.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
         salaryTreatment = treatment,
@@ -57,6 +58,7 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(3, result.unpaidFullCalendarDays)
         assertTrue(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
     }
 
     @Test
@@ -121,6 +123,7 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(0, result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
+        assertFalse(result.requiresPayrollReview)
         assertTrue(result.warnings.isEmpty())
     }
 
@@ -133,6 +136,7 @@ class AbsencePayrollImpactV2Test {
             zone
         )
         assertFalse(result.hasUnpaidAbsence)
+        assertFalse(result.requiresPayrollReview)
         assertTrue(result.warnings.isEmpty())
     }
 
@@ -146,6 +150,7 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(0, result.unpaidFullCalendarDays)
         assertTrue(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
         assertTrue(result.warnings.any { it.contains("partielle") })
     }
 
@@ -156,7 +161,7 @@ class AbsencePayrollImpactV2Test {
         val partial = AbsenceV2(
             id = "partial",
             employerId = "company-a",
-            type = "ABSENCE_NON_REMUNEREE",
+            type = AbsencePayrollImpactV2.TYPE_UNPAID,
             startMs = start,
             endMs = end,
             salaryTreatment = AbsenceSalaryTreatmentV2.UNPAID,
@@ -170,7 +175,7 @@ class AbsencePayrollImpactV2Test {
     }
 
     @Test
-    fun `absence maintenue ne devient pas non remuneree`() {
+    fun `absence maintenue non remuneree ne devient pas retenue`() {
         val result = AbsencePayrollImpactV2.forMonth(
             listOf(absence(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 7), treatment = AbsenceSalaryTreatmentV2.FULLY_MAINTAINED)),
             reference,
@@ -179,6 +184,70 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(0, result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
+    }
+
+    @Test
+    fun `conge paye maintenu ne reduit pas le plafond mais bloque le brut precis`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 14),
+                    LocalDate.of(2026, 9, 18),
+                    treatment = AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                    type = AbsencePayrollImpactV2.TYPE_PAID_LEAVE
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(0, result.unpaidFullCalendarDays)
+        assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.hasCompensatedAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("Congé payé") })
+    }
+
+    @Test
+    fun `arret maladie a confirmer bloque la paie sans inventer de retenue`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 21),
+                    LocalDate.of(2026, 9, 23),
+                    treatment = AbsenceSalaryTreatmentV2.TO_CONFIRM,
+                    type = AbsencePayrollImpactV2.TYPE_SICKNESS
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(0, result.unpaidFullCalendarDays)
+        assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("Arrêt maladie") })
+    }
+
+    @Test
+    fun `arret maladie sans maintien garde le prorata plafond et signale les IJSS`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 21),
+                    LocalDate.of(2026, 9, 23),
+                    treatment = AbsenceSalaryTreatmentV2.UNPAID,
+                    type = AbsencePayrollImpactV2.TYPE_SICKNESS
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(3, result.unpaidFullCalendarDays)
+        assertTrue(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("IJSS") })
     }
 
     @Test
@@ -191,6 +260,7 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(0, result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
+        assertFalse(result.requiresPayrollReview)
     }
 
     @Test
@@ -203,6 +273,7 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(0, result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
         assertTrue(result.warnings.any { it.contains("à confirmer") })
     }
 }
