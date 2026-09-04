@@ -6,6 +6,7 @@ import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
+import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
 import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
@@ -121,24 +122,56 @@ object V2SalaryAdapter {
   val rate=contract.grossHourlyRate?:fallbackRate.takeIf{it>0}?:return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val date=LocalDate.of(year,month+1,1);val snap=ruleHistory?.applicable(convention.idcc,date.toEpochDay());val hr=snap?.rules
   val isPartTime=contract.type==ContractTypeV2.PART_TIME
+  val isFullTime=contract.type==ContractTypeV2.FULL_TIME
   val tiers=if(isPartTime) emptyList() else when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()}
-  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Paliers d'heures supplémentaires non confirmés pour cette convention"}
-  val regularLimit=if(isPartTime) contract.contractualWeeklyMinutes else hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()
+  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Barème conventionnel d'heures supplémentaires non intégré : HoraTrack conserve au minimum la majoration légale de 10 % sur les heures non couvertes."}
+  val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
-  val rules=if(isPartTime)baseRules.copy(overtimeTiers=emptyList()) else baseRules
-  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},rules)
+  val payrollRules=if(isPartTime||isFullTime)baseRules.copy(overtimeTiers=emptyList()) else baseRules
+  val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},payrollRules)
+
   val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
   val complementaryGross=complementary.sumOf{it.grossToAdd}
   warnings+=complementary.flatMap{it.warnings}.distinct()
   if(isPartTime)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
+
+  val fullTime=if(isFullTime){
+   val contractual=contract.contractualWeeklyMinutes?:regularLimit
+   FullTimeStructuralOvertimeV2.calculate(
+    contractualWeeklyMinutes=contractual,
+    regularWeeklyLimit=regularLimit,
+    paidWeeks=weeks.values.map{it.paid},
+    grossHourlyRate=rate,
+    overtimeTiers=baseRules.overtimeTiers
+   )
+  }else null
+  fullTime?.let{ft->warnings+=ft.warnings;if((contract.contractualWeeklyMinutes?:0)>regularLimit)warnings+="Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."}
+
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
-  val base=when(contract.type){ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME->monthlyMinutes?.div(60.0)?.times(rate);else->null}
-  val gross=when(contract.type){ContractTypeV2.PART_TIME->base?.plus(complementaryGross+worked.premiumsGross);ContractTypeV2.FULL_TIME->base?.plus(worked.overtimeGross+worked.premiumsGross);else->null}?:worked.grossEstimate
-  if(base!=null)warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables.";if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée conservée ; les absences non rémunérées ne sont pas encore déduites automatiquement."
-  var regular=0;val tm=LongArray(rules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);rules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
-  val displayedTiers=if(isPartTime){complementary.flatMap{it.tiers}.groupBy{it.label to it.multiplier}.map{(key,values)->TierDuration(key.first,values.sumOf{it.minutes}.toLong()*60000L,key.second)}}else rules.overtimeTiers.mapIndexed{i,t->TierDuration("Heures sup. +${((t.multiplier-1)*100).roundToInt()} %",tm[i]*60000,t.multiplier)}
-  return Result((monthlyMinutes?.times(60000)?.toLong()?:regular.toLong()*60000),displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000,base?:worked.regularGross,if(isPartTime)complementaryGross else worked.overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,selected.size,warnings+worked.traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
+  val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
+  val baseGross=when{isFullTime->fullTime?.monthlyBaseGross;isPartTime->partTimeBase;else->null}
+  val gross=when{isPartTime->baseGross?.plus(complementaryGross+worked.premiumsGross);isFullTime->baseGross?.plus((fullTime?.variableOvertimeGross?:0.0)+worked.premiumsGross);else->worked.grossEstimate}?:worked.grossEstimate
+  if(baseGross!=null){
+   if(isFullTime)warnings+="Salaire de base mensualisé : durée légale/référence + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat."
+   else warnings+="Salaire de base mensualisé : ${String.format(Locale.FRANCE,"%.2f",monthlyMinutes!!/60.0)} h × ${String.format(Locale.FRANCE,"%.2f",rate)} € ; pointages utilisés pour les éléments variables."
+  }
+  if(selected.isEmpty())warnings+="Aucune session pointée : base mensualisée conservée ; les absences non rémunérées ne sont pas encore déduites automatiquement."
+
+  var regular=0;val tm=LongArray(payrollRules.overtimeTiers.size);weeks.values.forEach{w->regular+=minOf(w.paid,regularLimit);payrollRules.overtimeTiers.forEachIndexed{i,t->tm[i]+=(minOf(w.paid,t.toMinutes?:Int.MAX_VALUE)-maxOf(regularLimit,t.fromMinutes)).coerceAtLeast(0)}}
+  val displayedTiers=when{
+   isPartTime->complementary.flatMap{it.tiers}.groupBy{it.label to it.multiplier}.map{(key,values)->TierDuration(key.first,values.sumOf{it.minutes}.toLong()*60000L,key.second)}
+   isFullTime->buildList{
+    fullTime?.structuralTiers?.forEach{t->add(TierDuration("Heures sup. structurelles +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))}
+    fullTime?.variableTiers?.forEach{t->add(TierDuration("Heures sup. variables +${((t.multiplier-1.0)*100).roundToInt()} %",(t.minutes*60000.0).toLong(),t.multiplier))}
+   }
+   else->payrollRules.overtimeTiers.mapIndexed{i,t->TierDuration("Heures sup. +${((t.multiplier-1)*100).roundToInt()} %",tm[i]*60000,t.multiplier)}
+  }
+  val regularMs=when{isFullTime->((fullTime?.monthlyRegularMinutes?:0.0)*60000.0).toLong();isPartTime->(monthlyMinutes?.times(60000.0)?.toLong()?:regular.toLong()*60000L);else->regular.toLong()*60000L}
+  val regularGross=when{isFullTime->(fullTime?.monthlyRegularMinutes?:0.0)/60.0*rate;else->baseGross?:worked.regularGross}
+  val overtimeGross=when{isFullTime->(fullTime?.structuralOvertimeGross?:0.0)+(fullTime?.variableOvertimeGross?:0.0);isPartTime->complementaryGross;else->worked.overtimeGross}
+  val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
+  return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,0,0,0,0,w)
  private fun nightPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,startMinute:Int,endMinute:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,s.timeInMillis);val to=minOf(rangeEnd,e.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to);day.add(Calendar.DAY_OF_YEAR,1)};return total}
