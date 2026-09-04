@@ -12,7 +12,8 @@ class NetSalaryEngineV2Test {
         employerProtection: Double?,
         employeeNonDeductible: Double?,
         contractType: ContractTypeV2 = ContractTypeV2.FULL_TIME,
-        weeklyMinutes: Int? = 35 * 60
+        weeklyMinutes: Int? = 35 * 60,
+        unpaidAbsenceDays: Int = 0
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId="company",
         idcc=null,
@@ -22,6 +23,8 @@ class NetSalaryEngineV2Test {
         contractType=contractType,
         contractualWeeklyMinutes=weeklyMinutes,
         forfaitAnnualDays=null,
+        unpaidAbsenceDays=unpaidAbsenceDays,
+        hasUnpaidAbsence=unpaidAbsenceDays>0,
         mealAmount=0.0,
         mutualEmployeeAmount=0.0,
         providentEmployeeAmount=0.0,
@@ -56,6 +59,12 @@ class NetSalaryEngineV2Test {
     fun fullTimeKeepsFull2026SocialSecurityCeiling() {
         val result=NetSalaryEngineV2.calculate(4500.0,2026,snapshot(0.0,0.0))
         assertEquals(4005.0,result.socialSecurityCeiling!!,0.001)
+    }
+
+    @Test
+    fun unpaidFullDaysReduceSocialSecurityCeiling() {
+        val result=NetSalaryEngineV2.calculate(4500.0,2026,snapshot(0.0,0.0,unpaidAbsenceDays=3))
+        assertEquals(4005.0*28.0/31.0,result.socialSecurityCeiling!!,0.001)
     }
 
     @Test
