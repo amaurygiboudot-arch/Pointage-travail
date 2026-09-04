@@ -18,6 +18,30 @@ function findSiret(recherche) {
 
 function normalizeLegifranceBody(path, body) {
   const safeBody = isPlainObject(body) ? body : {};
+  if (path === "/consult/kaliContIdcc") {
+    const digits = String(safeBody.id ?? "").replace(/\D/g, "");
+    if (!digits || digits.length > 4) return {};
+    return { id: String(Number(digits)) };
+  }
+
+  if (path === "/list/conventions") {
+    const pageNumber = Math.min(20, Math.max(1, Number.parseInt(safeBody.pageNumber, 10) || 1));
+    const pageSize = Math.min(100, Math.max(1, Number.parseInt(safeBody.pageSize, 10) || 100));
+    const allowedStatuses = new Set(["VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_DIFF"]);
+    const legalStatus = Array.isArray(safeBody.legalStatus)
+      ? safeBody.legalStatus.filter((value) => allowedStatuses.has(value))
+      : [];
+    return {
+      pageNumber,
+      pageSize,
+      sort: "DATE_UPDATE",
+      ...(legalStatus.length ? { legalStatus } : {}),
+      ...(typeof safeBody.searchValue === "string" && safeBody.searchValue.trim()
+        ? { searchValue: safeBody.searchValue.trim().slice(0, 120) }
+        : {}),
+    };
+  }
+
   if (path !== "/search" || safeBody.fond !== "ACCO" || !isPlainObject(safeBody.recherche)) {
     return safeBody;
   }
@@ -46,7 +70,16 @@ function normalizeLegifranceBody(path, body) {
   };
 }
 
-function publicFailureMessage(stage, status) {
+function isValidLegifranceBody(path, body) {
+  if (!isPlainObject(body)) return false;
+  if (path === "/consult/kaliContIdcc") {
+    const digits = String(body.id ?? "").replace(/\D/g, "");
+    return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
+  }
+  return true;
+}
+
+function publicFailureMessage(stage, status, path = "") {
   if (stage === "configuration") {
     return "Configuration PISTE absente côté serveur.";
   }
@@ -57,7 +90,10 @@ function publicFailureMessage(stage, status) {
     return `Service OAuth PISTE indisponible${status ? ` (HTTP ${status})` : ""}.`;
   }
   if (stage === "api") {
-    if (status === 400) return "Requête ACCO refusée par Légifrance (HTTP 400).";
+    if (status === 400) {
+      const source = path.includes("kali") || path === "/list/conventions" ? "KALI" : "ACCO";
+      return `Requête ${source} refusée par Légifrance (HTTP 400).`;
+    }
     if (status === 401 || status === 403) {
       return `Accès à l’API Légifrance refusé (HTTP ${status}). Vérifie l’abonnement PISTE à l’API.`;
     }
@@ -69,4 +105,4 @@ function publicFailureMessage(stage, status) {
   return "Connexion à PISTE/Légifrance impossible.";
 }
 
-module.exports = { normalizeLegifranceBody, publicFailureMessage };
+module.exports = { isValidLegifranceBody, normalizeLegifranceBody, publicFailureMessage };

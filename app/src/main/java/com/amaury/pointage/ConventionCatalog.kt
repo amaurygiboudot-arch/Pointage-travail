@@ -3,12 +3,10 @@ package com.amaury.pointage
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.amaury.pointage.v2.LegifranceFunctionClientV2
+import com.amaury.pointage.v2.OfficialConventionCatalogParserV2
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
 
 object ConventionCatalog {
     data class OvertimeTier(val fromHour: Double, val toHour: Double?, val multiplier: Double)
@@ -97,9 +95,9 @@ object ConventionCatalog {
 
     private const val PREFS = "convention_catalog"
     private const val CACHE = "kali_cache"
-    private const val SOURCE_BASE = "https://www.legifrance.gouv.fr/liste/idcc?facetteTexteBase=TEXTE_BASE&pageSize=100&sortValue=DATE_UPDATE&page="
+    private const val PAGE_SIZE = 100
+    private const val MAX_PAGES = 20
 
-    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     @Volatile private var current: List<Convention> = builtIns
     @Volatile private var refreshRunning = false
     val conventions: List<Convention> get() = current
@@ -137,6 +135,28 @@ object ConventionCatalog {
         return current.firstOrNull { it.idcc.padStart(4, '0') == normalized }
     }
 
+    /** Ajoute immédiatement une convention dont l'IDCC a été vérifié par KALI. */
+    fun rememberOfficialConvention(context: Context, idcc: String, title: String): Boolean {
+        val normalized = OfficialConventionCatalogParserV2.normalizeIdcc(idcc) ?: return false
+        if (title.isBlank()) return false
+        val app = context.applicationContext
+        val cached = decodeCache(app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(CACHE, null))
+            .filterNot { it.idcc.padStart(4, '0') == normalized }
+            .toMutableList()
+        cached += Convention(
+            normalized,
+            shortTitle(title),
+            title.trim(),
+            false,
+            cautions = listOf("Convention vérifiée via l’API officielle KALI. Règles salariales spécifiques non encore validées : régime légal provisoire.")
+        )
+        val saved = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(CACHE, encodeCache(cached))
+            .commit()
+        if (saved) current = mergeWithBuiltIns(cached)
+        return saved
+    }
+
     fun refreshAsync(context: Context, onDone: (Int) -> Unit = {}) {
         if (refreshRunning) {
             Handler(Looper.getMainLooper()).post { onDone(current.count { it.idcc.isNotBlank() }) }
@@ -144,9 +164,8 @@ object ConventionCatalog {
         }
         refreshRunning = true
         val app = context.applicationContext
-        executor.execute {
-            val parsed = downloadCatalog()
-            if (parsed.isNotEmpty()) {
+        downloadOfficialCatalogPage(1, linkedMapOf()) { parsed ->
+            if (!parsed.isNullOrEmpty()) {
                 app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putString(CACHE, encodeCache(parsed))
@@ -154,61 +173,46 @@ object ConventionCatalog {
                 current = mergeWithBuiltIns(parsed)
             }
             refreshRunning = false
-            val count = if (parsed.isEmpty()) current.count { it.idcc.isNotBlank() } else parsed.size
+            val count = if (parsed.isNullOrEmpty()) current.count { it.idcc.isNotBlank() } else parsed.size
             Handler(Looper.getMainLooper()).post { onDone(count) }
         }
     }
 
-    private fun downloadCatalog(): List<Convention> = runCatching {
-        val byId = linkedMapOf<String, Convention>()
-        var page = 1
-        var pagesWithoutNewItems = 0
-
-        while (page <= 20 && pagesWithoutNewItems < 2) {
-            val html = downloadHtml(SOURCE_BASE + page)
-            if (html.isBlank()) break
-            val before = byId.size
-            parseLegifrancePage(html).forEach { byId[it.idcc] = it }
-            pagesWithoutNewItems = if (byId.size == before) pagesWithoutNewItems + 1 else 0
-            page++
-        }
-        byId.values.toList()
-    }.getOrElse { emptyList() }
-
-    private fun downloadHtml(url: String): String {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 12000
-            readTimeout = 15000
-            requestMethod = "GET"
-            setRequestProperty("User-Agent", "HP-Travail-Android/1.0")
-            setRequestProperty("Accept", "text/html,application/xhtml+xml")
-        }
-        return try {
-            if (connection.responseCode !in 200..299) ""
-            else connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-        } finally {
-            connection.disconnect()
-        }
-    }
-
-    private fun parseLegifrancePage(html: String): List<Convention> {
-        val result = linkedMapOf<String, Convention>()
-        val blockRegex = Regex("(?is)<h2[^>]*>(.*?)</h2>(.*?)(?=<h2|$)")
-        val idccRegex = Regex("(?i)IDCC(?:\\s|&nbsp;|&#160;)*(\\d{1,4})")
-        blockRegex.findAll(html).forEach { match ->
-            val title = cleanHtml(match.groupValues[1])
-            val body = match.groupValues[2]
-            val id = idccRegex.find(body)?.groupValues?.getOrNull(1)?.padStart(4, '0') ?: return@forEach
-            if (title.isBlank()) return@forEach
-            result[id] = Convention(
-                id,
-                shortTitle(title),
-                title,
-                false,
-                cautions = listOf("Convention issue du catalogue officiel Légifrance (DILA). Règles salariales spécifiques non encore intégrées : régime légal provisoire.")
-            )
-        }
-        return result.values.toList()
+    private fun downloadOfficialCatalogPage(
+        pageNumber: Int,
+        byId: LinkedHashMap<String, Convention>,
+        onDone: (List<Convention>?) -> Unit
+    ) {
+        val body = mapOf(
+            "pageNumber" to pageNumber,
+            "pageSize" to PAGE_SIZE,
+            "sort" to "DATE_UPDATE",
+            "legalStatus" to listOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_DIFF")
+        )
+        LegifranceFunctionClientV2.request("/list/conventions", body)
+            .addOnSuccessListener { result ->
+                val parsed = OfficialConventionCatalogParserV2.parse(result.data)
+                parsed.items.forEach { item ->
+                    byId[item.idcc] = Convention(
+                        item.idcc,
+                        shortTitle(item.title),
+                        item.title,
+                        false,
+                        cautions = listOf("Convention issue de l’API officielle KALI (DILA). Règles salariales spécifiques non encore validées : régime légal provisoire.")
+                    )
+                }
+                val reachedTotal = parsed.totalResultNumber?.let { pageNumber * PAGE_SIZE >= it } ?: false
+                val hasAnotherPage = pageNumber < MAX_PAGES &&
+                    (parsed.totalResultNumber?.let { pageNumber * PAGE_SIZE < it }
+                        ?: (parsed.rawResultCount == PAGE_SIZE)) &&
+                    !reachedTotal
+                when {
+                    hasAnotherPage -> downloadOfficialCatalogPage(pageNumber + 1, byId, onDone)
+                    byId.isNotEmpty() -> onDone(byId.values.toList())
+                    else -> onDone(null)
+                }
+            }
+            .addOnFailureListener { onDone(null) }
     }
 
     private fun shortTitle(title: String): String {
@@ -219,17 +223,6 @@ object ConventionCatalog {
         if (t.length > 110) t = t.take(107).trimEnd() + "…"
         return t.ifBlank { title }
     }
-
-    private fun cleanHtml(value: String): String = value
-        .replace(Regex("(?is)<[^>]+>"), " ")
-        .replace("&nbsp;", " ")
-        .replace("&#160;", " ")
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'")
-        .replace(Regex("\\s+"), " ")
-        .trim()
 
     private fun encodeCache(items: List<Convention>): String {
         val a = JSONArray()

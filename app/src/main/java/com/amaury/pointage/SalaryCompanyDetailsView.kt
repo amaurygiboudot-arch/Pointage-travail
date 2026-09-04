@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.text.InputType
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
@@ -24,6 +25,9 @@ import com.amaury.pointage.v2.OfficialAgreementCandidateVerifierV2
 import com.amaury.pointage.v2.OfficialAgreementContentParserV2
 import com.amaury.pointage.v2.OfficialAgreementResultStoreV2
 import com.amaury.pointage.v2.OfficialAgreementSearchParserV2
+import com.amaury.pointage.v2.OfficialConventionCatalogParserV2
+import com.amaury.pointage.v2.OfficialConventionContainerParserV2
+import com.amaury.pointage.v2.OfficialConventionResultStoreV2
 import com.amaury.pointage.v2.engine.CompanyAgreementStructuredRuleV2
 
 class SalaryCompanyDetailsView(
@@ -42,8 +46,86 @@ class SalaryCompanyDetailsView(
         removeAllViews()
         addView(text("Nom : ${company.name.ifBlank { "Non renseigné" }}\nSIRET : ${company.siret.ifBlank { "Non renseigné" }}\nAdresse : ${company.address.ifBlank { "Non renseignée" }}\nConvention : ${company.conventionName.ifBlank { if (company.idcc.isBlank()) "Non renseignée" else "IDCC ${company.idcc}" }}"))
         addView(button("MODIFIER LES INFORMATIONS") { showEditor() })
+        addView(button("CONVENTION COLLECTIVE (KALI)") { showConvention() })
         addView(button("ACCORDS D’ENTREPRISE") { showAgreements() })
         addView(button("SUPPRIMER L’ENTREPRISE") { onDelete(company) })
+    }
+
+    private fun showConvention() {
+        showingAgreements = false
+        removeAllViews()
+        addView(text("CONVENTION COLLECTIVE — KALI\n\nHoraTrack vérifie la convention correspondant exactement à l’IDCC de cette entreprise. Cette vérification n’applique encore aucune règle au calcul."))
+        val expectedIdcc = OfficialConventionCatalogParserV2.normalizeIdcc(company.idcc)
+        if (expectedIdcc == null) {
+            addView(text("État : IDCC non renseigné ou invalide.\n\nModifie les informations de l’entreprise avant de lancer la vérification KALI."))
+            addView(button("RETOUR") { showSummary() })
+            return
+        }
+
+        val stored = OfficialConventionResultStoreV2.load(context, company.id)
+            ?.takeIf { it.idcc == expectedIdcc }
+        if (stored == null) {
+            addView(text("État : convention IDCC $expectedIdcc à vérifier dans KALI."))
+        } else {
+            addView(text("État : convention vérifiée dans la source officielle KALI.\n\n${stored.title}\nIDCC : ${stored.idcc}\nRéférence : ${stored.containerId}\n\nLes règles de paie restent à analyser et à dater avant toute application."))
+            OfficialConventionContainerParserV2.publicUrl(stored.containerId)?.let { url ->
+                addView(button("OUVRIR LA CONVENTION SUR LÉGIFRANCE") { openOfficialUrl(url) })
+            }
+        }
+
+        addView(button(if (stored == null) "VÉRIFIER DANS KALI" else "REVÉRIFIER DANS KALI") {
+            verifyConvention(expectedIdcc)
+        })
+        addView(button("RETOUR") { showSummary() })
+    }
+
+    private fun verifyConvention(expectedIdcc: String) {
+        val apiId = OfficialConventionContainerParserV2.apiId(expectedIdcc)
+        if (apiId == null) {
+            Toast.makeText(context, "IDCC invalide.", Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(context, "Vérification KALI en cours…", Toast.LENGTH_SHORT).show()
+        LegifranceFunctionClientV2.request("/consult/kaliContIdcc", mapOf("id" to apiId))
+            .addOnSuccessListener { result ->
+                val verified = OfficialConventionContainerParserV2.parseVerified(result.data, expectedIdcc)
+                if (verified == null) {
+                    Toast.makeText(context, "Convention refusée : l’IDCC ou la référence KALI ne correspond pas.", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                val officialRemembered = ConventionCatalog.rememberOfficialConvention(
+                    context,
+                    verified.idcc,
+                    verified.title
+                )
+                val updated = company.copy(
+                    conventionName = verified.title,
+                    idcc = verified.idcc
+                )
+                val companySaved = SalaryCompanyStore.upsert(context, updated)
+                val sourceSaved = OfficialConventionResultStoreV2.save(context, company.id, verified)
+                if (!officialRemembered || !companySaved || !sourceSaved) {
+                    Toast.makeText(context, "KALI a répondu, mais HoraTrack n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
+                    return@addOnSuccessListener
+                }
+                company = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id } ?: updated
+                onChanged(company)
+                Toast.makeText(context, "Convention KALI vérifiée. Aucune règle n’a été appliquée automatiquement.", Toast.LENGTH_LONG).show()
+                showConvention()
+            }
+            .addOnFailureListener { error ->
+                Toast.makeText(context, "Vérification KALI impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
+            }
+    }
+
+    private fun openOfficialUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(context, "Impossible d’ouvrir Légifrance sur cet appareil.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun showAgreements() {

@@ -2,7 +2,11 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { normalizeLegifranceBody, publicFailureMessage } = require("./legifranceProxy");
+const {
+  isValidLegifranceBody,
+  normalizeLegifranceBody,
+  publicFailureMessage,
+} = require("./legifranceProxy");
 
 function accoBody() {
   return {
@@ -44,8 +48,31 @@ test("never changes KALI payloads", () => {
   assert.strictEqual(normalizeLegifranceBody("/search", body), body);
 });
 
+test("normalizes a KALI container lookup to a numeric IDCC", () => {
+  assert.deepEqual(normalizeLegifranceBody("/consult/kaliContIdcc", { id: "IDCC 0292", ignored: true }), {
+    id: "292",
+  });
+  assert.equal(isValidLegifranceBody("/consult/kaliContIdcc", { id: "0292" }), true);
+  assert.equal(isValidLegifranceBody("/consult/kaliContIdcc", { id: "not-an-idcc" }), false);
+});
+
+test("bounds the official convention catalogue request", () => {
+  assert.deepEqual(normalizeLegifranceBody("/list/conventions", {
+    pageNumber: 50,
+    pageSize: 500,
+    sort: "UNSUPPORTED",
+    legalStatus: ["VIGUEUR", "ABROGE"],
+  }), {
+    pageNumber: 20,
+    pageSize: 100,
+    sort: "DATE_UPDATE",
+    legalStatus: ["VIGUEUR"],
+  });
+});
+
 test("returns actionable messages without upstream response bodies", () => {
   assert.match(publicFailureMessage("oauth", 401), /OAuth 401/);
   assert.match(publicFailureMessage("api", 403), /HTTP 403/);
+  assert.match(publicFailureMessage("api", 400, "/consult/kaliContIdcc"), /KALI/);
   assert.match(publicFailureMessage("timeout", 0), /délai dépassé/);
 });

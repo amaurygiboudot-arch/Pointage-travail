@@ -2,7 +2,11 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
-const { normalizeLegifranceBody, publicFailureMessage } = require("./legifranceProxy");
+const {
+  isValidLegifranceBody,
+  normalizeLegifranceBody,
+  publicFailureMessage,
+} = require("./legifranceProxy");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
 const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
@@ -10,7 +14,12 @@ const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
 const TOKEN_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
 const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
 const REQUEST_TIMEOUT_MS = 15_000;
-const ALLOWED_PATHS = new Set(["/search", "/consult/acco"]);
+const ALLOWED_PATHS = new Set([
+  "/search",
+  "/consult/acco",
+  "/consult/kaliContIdcc",
+  "/list/conventions",
+]);
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
@@ -87,6 +96,9 @@ exports.legifranceRequest = onCall(
     if (!ALLOWED_PATHS.has(path)) {
       throw new HttpsError("invalid-argument", "Route Légifrance non autorisée.");
     }
+    if (!isValidLegifranceBody(path, request.data?.body)) {
+      throw new HttpsError("invalid-argument", "Paramètres Légifrance invalides.");
+    }
 
     try {
       const token = await pisteAccessToken();
@@ -111,7 +123,7 @@ exports.legifranceRequest = onCall(
         status,
         upstreamCode: error instanceof UpstreamError ? safeUpstreamCode(error.upstreamBody) : "",
       });
-      throw new HttpsError("unavailable", publicFailureMessage(stage, status), { stage, status });
+      throw new HttpsError("unavailable", publicFailureMessage(stage, status, path), { stage, status });
     }
   }
 );
