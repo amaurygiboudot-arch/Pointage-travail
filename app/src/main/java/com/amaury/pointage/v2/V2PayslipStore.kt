@@ -12,6 +12,7 @@ import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.PlasturgieProvidentIncapacityV2
+import com.amaury.pointage.v2.engine.PlasturgieProvidentRelayControlV2
 import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
 import com.amaury.pointage.v2.engine.SicknessTheoreticalNetV2
@@ -114,6 +115,22 @@ object V2PayslipStore {
    protectionCategory=protectionCategory,
    maintenance=maintenance,
    absenceCalendarDays=absenceDays
+  )
+ }
+
+ /** Contrôle un décompte assureur réel sans reconstruire sa périodisation. */
+ fun sicknessProvidentRelayControlForAbsence(
+  context:Context,
+  companyId:String,
+  absence:AbsenceV2
+ ):PlasturgieProvidentRelayControlV2.Result?{
+  if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
+  val relay=sicknessProvidentRelayForAbsence(context,companyId,absence)?:return null
+  return PlasturgieProvidentRelayControlV2.calculate(
+   relay=relay,
+   grossTargetAtSixtyPercentAmount=absence.providentRelayTargetGross60Amount,
+   socialSecurityGrossAmount=absence.providentRelaySocialSecurityGrossAmount,
+   observedProvidentGrossAmount=absence.providentRelayObservedGrossAmount
   )
  }
 
