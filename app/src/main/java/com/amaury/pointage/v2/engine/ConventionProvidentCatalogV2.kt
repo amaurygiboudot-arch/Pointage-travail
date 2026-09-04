@@ -33,27 +33,29 @@ object ConventionProvidentCatalogV2 {
         gross: Double,
         year: Int,
         idcc: String?,
-        professionalStatus: String?,
+        protectionCategory: PlasturgieProtectionCategoryV2.Result,
         seniorityMonths: Int?,
         ceiling: SocialSecurityCeilingV2.Snapshot? = null
     ): Estimate {
         val g = gross.coerceAtLeast(0.0)
         val convention = idcc?.trim()
-        val status = professionalStatus?.trim()?.uppercase()
 
         if (convention != "292") return Estimate(emptyList(), 0.0, 0.0, emptyList())
         val full = SocialSecurityCeilingV2.fullMonthly(year)
             ?: return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year."))
-        if (status == null) {
-            return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : statut professionnel à préciser."))
+        if (!protectionCategory.confirmed || protectionCategory.category == PlasturgieProtectionCategoryV2.Category.TO_CONFIRM) {
+            return Estimate(emptyList(), 0.0, 0.0, protectionCategory.warnings.ifEmpty {
+                listOf("Prévoyance Plasturgie : catégorie ANI 2.1/2.2 à confirmer avant calcul.")
+            })
         }
-        if (status != "NON_CADRE") {
+        if (protectionCategory.category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 ||
+            protectionCategory.category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_2) {
             return Estimate(emptyList(), 0.0, 0.0, emptyList())
         }
         if (seniorityMonths == null) {
-            return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie non-cadre : ancienneté à confirmer avant calcul."))
+            return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie hors ANI 2.1/2.2 : ancienneté à confirmer avant calcul."))
         }
-        if (seniorityMonths < 3 || g <= 0.0) return Estimate(emptyList(), 0.0, 0.0, emptyList())
+        if (seniorityMonths < 3 || g <= 0.0) return Estimate(emptyList(), 0.0, 0.0, protectionCategory.warnings)
 
         val max4 = ceiling?.fourTimesApplicable ?: full * 4.0
         val base = min(g, max4)
@@ -61,7 +63,7 @@ object ConventionProvidentCatalogV2 {
         val employerRate = 0.004
         val line = Line(
             id = "plasturgie_292_non_cadre_provident",
-            label = "Prévoyance Plasturgie non-cadre",
+            label = "Prévoyance Plasturgie hors ANI 2.1/2.2",
             baseAmount = base,
             employeeRate = employeeRate,
             employerRate = employerRate,
@@ -73,7 +75,7 @@ object ConventionProvidentCatalogV2 {
             lines = listOf(line),
             employeeDeductions = line.employeeAmount,
             employerContributions = line.employerAmount,
-            warnings = ceiling?.warnings.orEmpty()
+            warnings = (ceiling?.warnings.orEmpty() + protectionCategory.warnings).distinct()
         )
     }
 }
