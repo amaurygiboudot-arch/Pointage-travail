@@ -8,10 +8,10 @@ import java.util.Locale
 /**
  * Répartition calendaire du temps payé d'une session fermée.
  *
- * Les pauses non payées confirmées sont retirées à leur position réelle.
- * Une ancienne déduction fixe importée n'ayant pas de position horaire connue est
- * répartie proportionnellement sur le temps restant, ce qui préserve le total sans
- * inventer l'emplacement historique de cette pause.
+ * Les postes d'équipe conservent jusqu'à 30 minutes de pause comme temps payé.
+ * Aucune pause n'est créée automatiquement : l'allocation s'applique uniquement
+ * aux pauses réellement enregistrées. Une ancienne déduction fixe importée reste
+ * une déduction fixe et n'est jamais reclassée arbitrairement.
  */
 object PaidWorkAllocationV2 {
     data class WeekSlice(
@@ -23,7 +23,7 @@ object PaidWorkAllocationV2 {
     )
 
     fun paidOverlap(session: WorkSessionV2, rangeStartMs: Long, rangeEndMs: Long): Long {
-        val sessionStart = session.countedEntryMs ?: return 0L
+        val sessionStart = effectiveSessionStart(session) ?: return 0L
         val sessionEnd = session.countedExitMs ?: return 0L
         if (sessionEnd <= sessionStart || rangeEndMs <= rangeStartMs) return 0L
 
@@ -31,7 +31,7 @@ object PaidWorkAllocationV2 {
         val end = minOf(sessionEnd, rangeEndMs)
         if (end <= start) return 0L
 
-        val unpaid = mergeIntervals(
+        val rawUnpaid = mergeIntervals(
             session.pauses
                 .filter { it.status == DecisionStatusV2.CONFIRMED && it.paid == false }
                 .mapNotNull { pause ->
@@ -41,6 +41,9 @@ object PaidWorkAllocationV2 {
                     if (pEnd > pStart) pStart to pEnd else null
                 }
         )
+        val unpaid = if (WorkTimePolicyV2.isTeamShift(sessionStart)) {
+            removePaidAllowance(rawUnpaid, WorkTimePolicyV2.TEAM_PAID_PAUSE_ALLOWANCE_MS)
+        } else rawUnpaid
 
         val fullSpan = sessionEnd - sessionStart
         val explicitUnpaidFull = overlapDuration(unpaid, sessionStart, sessionEnd)
@@ -66,7 +69,7 @@ object PaidWorkAllocationV2 {
         rangeStartMs: Long,
         rangeEndMs: Long
     ): List<WeekSlice> {
-        val sessionStart = session.countedEntryMs ?: return emptyList()
+        val sessionStart = effectiveSessionStart(session) ?: return emptyList()
         val sessionEnd = session.countedExitMs ?: return emptyList()
         var cursor = maxOf(sessionStart, rangeStartMs)
         val limit = minOf(sessionEnd, rangeEndMs)
@@ -84,6 +87,32 @@ object PaidWorkAllocationV2 {
             cursor = end
         }
         return out
+    }
+
+    private fun effectiveSessionStart(session: WorkSessionV2): Long? =
+        WorkTimePolicyV2.repairKnownCountedEntry(session.realArrivalMs, session.countedEntryMs)
+
+    /** Retire chronologiquement la franchise de pause payée des intervalles non payés. */
+    private fun removePaidAllowance(
+        intervals: List<Pair<Long, Long>>,
+        allowanceMs: Long
+    ): List<Pair<Long, Long>> {
+        var remaining = allowanceMs.coerceAtLeast(0L)
+        if (remaining == 0L) return intervals
+        return buildList {
+            intervals.forEach { (start, end) ->
+                val duration = (end - start).coerceAtLeast(0L)
+                when {
+                    duration == 0L -> Unit
+                    remaining == 0L -> add(start to end)
+                    remaining >= duration -> remaining -= duration
+                    else -> {
+                        add((start + remaining) to end)
+                        remaining = 0L
+                    }
+                }
+            }
+        }
     }
 
     private fun nextIsoWeekStart(atMs: Long): Long {
