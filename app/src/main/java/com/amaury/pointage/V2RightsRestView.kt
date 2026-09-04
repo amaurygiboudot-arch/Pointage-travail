@@ -16,7 +16,9 @@ import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.RestEngineV2
+import com.amaury.pointage.v2.engine.SicknessPaymentFlowV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceSubrogationV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import java.time.Instant
@@ -74,7 +76,7 @@ class V2RightsRestView @JvmOverloads constructor(
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel. Pour un arrêt maladie, les IJSS ne sont estimées qu’avec 3 bulletins bruts réels confirmés ; le maintien employeur reste séparé."
+            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel. Pour un arrêt maladie, les IJSS, le maintien employeur et la subrogation restent séparés pour éviter tout double compte."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
@@ -167,6 +169,9 @@ class V2RightsRestView @JvmOverloads constructor(
             val sickness = if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
                 V2PayslipStore.sicknessAllowanceForAbsence(context, companyId, absence)
             } else null
+            val sicknessFlow = if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+                SicknessPaymentFlowV2.resolve(absence, sickness)
+            } else null
             val row = LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 setPadding(0, dp(6), 0, 0)
@@ -177,6 +182,9 @@ class V2RightsRestView @JvmOverloads constructor(
                     append("  ").append(start.format(dateFormat)).append(" → ").append(end.format(dateFormat))
                     append(" • ").append(days).append(" jour").append(if (days > 1) "s" else "")
                     append('\n').append("  ").append(treatmentLabel(absence.salaryTreatment))
+                    if (absence.type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+                        append('\n').append("  Subrogation : ").append(subrogationLabel(absence.subrogation))
+                    }
                     if (sickness != null) {
                         append('\n').append("  IJSS maladie : ")
                         if (sickness.complete && sickness.dailyGross != null && sickness.payableDays != null && sickness.estimatedGrossTotal != null) {
@@ -186,6 +194,26 @@ class V2RightsRestView @JvmOverloads constructor(
                             append("à confirmer")
                             sickness.warnings.firstOrNull()?.let { append(" — ").append(it) }
                         }
+                    }
+                    if (sicknessFlow != null) {
+                        append('\n').append("  Circuit IJSS : ")
+                        when (sicknessFlow.ijssRecipient) {
+                            SicknessPaymentFlowV2.IjssRecipient.EMPLOYER -> {
+                                append("versées à l'employeur")
+                                sicknessFlow.employerIjssReimbursementGross?.let {
+                                    append(String.format(Locale.FRANCE, " • %.2f € brut estimés", it))
+                                }
+                                append(" • ne pas les ajouter une 2e fois au salarié")
+                            }
+                            SicknessPaymentFlowV2.IjssRecipient.EMPLOYEE -> {
+                                append("versées directement au salarié")
+                                sicknessFlow.directEmployeeIjssGross?.let {
+                                    append(String.format(Locale.FRANCE, " • %.2f € brut estimés", it))
+                                }
+                            }
+                            SicknessPaymentFlowV2.IjssRecipient.TO_CONFIRM -> append("destination à confirmer")
+                        }
+                        sicknessFlow.warnings.firstOrNull()?.let { append('\n').append("  ⚠ ").append(it) }
                     }
                 }
                 textSize = 13f
@@ -235,13 +263,16 @@ class V2RightsRestView @JvmOverloads constructor(
         var start = LocalDate.now()
         var end = start
         var treatment = initialTreatment
+        var subrogation = AbsenceSubrogationV2.TO_CONFIRM
         val startButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
         val endButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
         val treatmentButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
+        val subrogationButton = Button(context).apply { isAllCaps = false; setBackgroundResource(R.drawable.hp_panel) }
         fun updateLabels() {
             startButton.text = "Début : ${start.format(dateFormat)}"
             endButton.text = "Fin : ${end.format(dateFormat)}"
             treatmentButton.text = "Rémunération : ${treatmentLabel(treatment)}"
+            subrogationButton.text = "Subrogation : ${subrogationLabel(subrogation)}"
         }
         fun pick(initial: LocalDate, onPicked: (LocalDate) -> Unit) {
             DatePickerDialog(
@@ -258,9 +289,10 @@ class V2RightsRestView @JvmOverloads constructor(
         endButton.setOnClickListener { pick(end) { picked -> end = picked; updateLabels() } }
         if (!treatmentLocked) {
             treatmentButton.setOnClickListener {
-                val labels = arrayOf("Maintien complet confirmé", "Sans maintien employeur", "À confirmer")
+                val labels = arrayOf("Maintien complet confirmé", "Maintien partiel", "Sans maintien employeur", "À confirmer")
                 val values = arrayOf(
                     AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                    AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED,
                     AbsenceSalaryTreatmentV2.UNPAID,
                     AbsenceSalaryTreatmentV2.TO_CONFIRM
                 )
@@ -271,6 +303,17 @@ class V2RightsRestView @JvmOverloads constructor(
                     .show()
             }
         } else treatmentButton.isEnabled = false
+        if (type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+            subrogationButton.setOnClickListener {
+                val labels = arrayOf("Oui — IJSS versées à l'employeur", "Non — IJSS versées au salarié", "À confirmer")
+                val values = arrayOf(AbsenceSubrogationV2.YES, AbsenceSubrogationV2.NO, AbsenceSubrogationV2.TO_CONFIRM)
+                AlertDialog.Builder(context)
+                    .setTitle("Subrogation")
+                    .setItems(labels) { _, which -> subrogation = values[which]; updateLabels() }
+                    .setNegativeButton("ANNULER", null)
+                    .show()
+            }
+        }
         updateLabels()
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -283,6 +326,9 @@ class V2RightsRestView @JvmOverloads constructor(
             addView(startButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
             addView(endButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
             addView(treatmentButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+            if (type == AbsencePayrollImpactV2.TYPE_SICKNESS) {
+                addView(subrogationButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+            }
         }
         val dialog = AlertDialog.Builder(context)
             .setTitle(AbsencePayrollImpactV2.label(type))
@@ -307,7 +353,8 @@ class V2RightsRestView @JvmOverloads constructor(
                         endMs = end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
                         salaryTreatment = treatment,
                         fullDay = true,
-                        status = DecisionStatusV2.CONFIRMED
+                        status = DecisionStatusV2.CONFIRMED,
+                        subrogation = if (type == AbsencePayrollImpactV2.TYPE_SICKNESS) subrogation else AbsenceSubrogationV2.TO_CONFIRM
                     )
                 )
                 refresh()
@@ -319,8 +366,15 @@ class V2RightsRestView @JvmOverloads constructor(
 
     private fun treatmentLabel(value: AbsenceSalaryTreatmentV2): String = when (value) {
         AbsenceSalaryTreatmentV2.FULLY_MAINTAINED -> "maintien complet confirmé"
+        AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED -> "maintien partiel — montant à confirmer"
         AbsenceSalaryTreatmentV2.UNPAID -> "sans maintien employeur"
         AbsenceSalaryTreatmentV2.TO_CONFIRM -> "rémunération à confirmer"
+    }
+
+    private fun subrogationLabel(value: AbsenceSubrogationV2): String = when (value) {
+        AbsenceSubrogationV2.YES -> "oui — IJSS à l'employeur"
+        AbsenceSubrogationV2.NO -> "non — IJSS au salarié"
+        AbsenceSubrogationV2.TO_CONFIRM -> "à confirmer"
     }
 
     private fun confirmDeleteAbsence(absence: AbsenceV2, start: LocalDate, end: LocalDate) {
