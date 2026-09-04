@@ -21,22 +21,11 @@ data class TimeResultV2(
 )
 
 object DefaultTimeEngineV2 : TimeEngineV2 {
-    private const val ENTRY_SLOT_MS = 15L * 60L * 1000L
-    private const val ENTRY_GRACE_MS = 5L * 60L * 1000L
+    override fun countedEntryFromRealArrival(realArrivalMs: Long): Long =
+        WorkTimePolicyV2.countedEntry(realArrivalMs)
 
-    override fun countedEntryFromRealArrival(realArrivalMs: Long): Long {
-        require(realArrivalMs > 0L) { "realArrivalMs doit être positif" }
-        val remainder = Math.floorMod(realArrivalMs, ENTRY_SLOT_MS)
-        val currentSlot = realArrivalMs - remainder
-        return if (remainder == 0L || remainder <= ENTRY_GRACE_MS) currentSlot else currentSlot + ENTRY_SLOT_MS
-    }
-
-    override fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long {
-        require(realExitMs > 0L) { "realExitMs doit être positif" }
-        // La fin prévue reste une information de planning. Elle ne doit jamais écraser
-        // une sortie réellement pointée ni supprimer du temps réellement travaillé.
-        return realExitMs
-    }
+    override fun countedExitFromRealExit(realExitMs: Long, expectedEndMs: Long?): Long =
+        WorkTimePolicyV2.countedExit(realExitMs, expectedEndMs)
 
     override fun calculate(session: WorkSessionV2, nowMs: Long): TimeResultV2 {
         val warnings = mutableListOf<String>()
@@ -48,7 +37,7 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
             if (realEnd == null) warnings += "Sortie réelle manquante"
         }
 
-        val countedStart = session.countedEntryMs
+        val countedStart = WorkTimePolicyV2.repairKnownCountedEntry(realStart, session.countedEntryMs)
         val countedEnd = session.countedExitMs ?: if (session.status.name == "OPEN") nowMs else null
         val countedSpanMs = validDuration(countedStart, countedEnd).also {
             if (countedStart == null) warnings += "Entrée comptée manquante"
@@ -71,12 +60,19 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         )
 
         val explicitUnpaidMs = duration(unpaidIntervals)
+        val teamPaidAllowanceMs = if (WorkTimePolicyV2.isTeamShift(countedStart)) {
+            explicitUnpaidMs.coerceAtMost(WorkTimePolicyV2.TEAM_PAID_PAUSE_ALLOWANCE_MS)
+        } else 0L
+        val effectiveExplicitUnpaidMs = (explicitUnpaidMs - teamPaidAllowanceMs).coerceAtLeast(0L)
+        if (teamPaidAllowanceMs > 0L) warnings += "Pause d'équipe : ${teamPaidAllowanceMs / 60_000L} min comptées comme temps payé"
+
         val importedFixedMs = session.legacyFixedUnpaidPauseMs.coerceAtLeast(0L)
         if (importedFixedMs > 0L) warnings += "Déduction fixe historique importée"
-        val unpaidPauseMs = (explicitUnpaidMs + importedFixedMs).coerceAtMost(countedSpanMs)
+        val unpaidPauseMs = (effectiveExplicitUnpaidMs + importedFixedMs).coerceAtMost(countedSpanMs)
 
-        val paidPauseMs = (duration(paidIntervals) - overlapDuration(paidIntervals, unpaidIntervals))
+        val explicitPaidMs = (duration(paidIntervals) - overlapDuration(paidIntervals, unpaidIntervals))
             .coerceAtLeast(0L)
+        val paidPauseMs = (explicitPaidMs + teamPaidAllowanceMs)
             .coerceAtMost(countedSpanMs - unpaidPauseMs)
 
         return TimeResultV2(
