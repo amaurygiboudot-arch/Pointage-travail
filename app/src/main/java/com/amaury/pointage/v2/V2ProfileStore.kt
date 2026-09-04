@@ -13,6 +13,9 @@ import java.util.Locale
 
 object V2ProfileStore {
     private const val LEGACY_PREFS = "salary_settings"
+    private const val INTEGRATION_PREFS = "horatrack_v2_integration"
+    private const val KEY_ACTIVE_COMPANY_SLOT = "active_company_slot"
+    private const val KEY_ACTIVE_COMPANY_ID = "active_company_id"
 
     @Volatile private var boundContext: Context? = null
 
@@ -38,19 +41,73 @@ object V2ProfileStore {
         return loadLegacyFallback(context, slot)
     }
 
+    /** Charge directement une entreprise V2 par son identifiant stable, sans limite à deux sociétés. */
+    fun loadCompany(context: Context, companyId: String): Profile? {
+        bind(context)
+        val companies = SalaryCompanyStore.list(context)
+        val index = companies.indexOfFirst { it.id == companyId }
+        if (index < 0) return null
+        return loadV2Company(context, companies[index], index + 1)
+    }
+
+    /**
+     * Identifiant stable de l'entreprise active. Tant que les anciens appels par slot existent,
+     * la première lecture reprend le slot historique puis mémorise l'identifiant correspondant.
+     */
+    fun activeCompanyId(context: Context): String? {
+        bind(context)
+        val companies = SalaryCompanyStore.list(context)
+        if (companies.isEmpty()) return null
+        val prefs = integrationPrefs(context)
+        val stored = prefs.getString(KEY_ACTIVE_COMPANY_ID, null)
+        if (!stored.isNullOrBlank() && companies.any { it.id == stored }) return stored
+
+        val legacySlot = safeLong(prefs.all[KEY_ACTIVE_COMPANY_SLOT])?.toInt()?.coerceIn(1, 2) ?: 1
+        val resolved = companies.getOrNull(legacySlot - 1)?.id ?: companies.first().id
+        prefs.edit().putString(KEY_ACTIVE_COMPANY_ID, resolved).apply()
+        return resolved
+    }
+
+    /** Sélectionne une entreprise V2 par ID et garde le slot 1/2 synchronisé quand c'est possible. */
+    fun setActiveCompanyId(context: Context, companyId: String): Boolean {
+        bind(context)
+        val companies = SalaryCompanyStore.list(context)
+        val index = companies.indexOfFirst { it.id == companyId }
+        if (index < 0) return false
+        val editor = integrationPrefs(context).edit().putString(KEY_ACTIVE_COMPANY_ID, companyId)
+        if (index in 0..1) editor.putInt(KEY_ACTIVE_COMPANY_SLOT, index + 1)
+        editor.apply()
+        return true
+    }
+
+    /** Profil de l'entreprise active par identifiant stable, avec repli historique uniquement si nécessaire. */
+    fun loadActive(context: Context): Profile {
+        val companyId = activeCompanyId(context)
+        return companyId?.let { loadCompany(context, it) } ?: load(context, 1)
+    }
+
     fun primaryEmployerId(context: Context): String? = load(context, 1).employer?.id
 
+    /** Compatibilité temporaire avec les composants historiques encore basés sur deux slots. */
     fun activeCompanySlot(context: Context): Int {
         bind(context)
-        val prefs = context.applicationContext.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
-        return safeLong(prefs.all["active_company_slot"])?.toInt()?.coerceIn(1, 2) ?: 1
+        val prefs = integrationPrefs(context)
+        return safeLong(prefs.all[KEY_ACTIVE_COMPANY_SLOT])?.toInt()?.coerceIn(1, 2) ?: 1
     }
 
+    /** Compatibilité temporaire : synchronise aussi l'identifiant V2 pour les deux premiers employeurs. */
     fun setActiveCompanySlot(context: Context, slot: Int) {
         bind(context)
-        context.applicationContext.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE).edit()
-            .putInt("active_company_slot", slot.coerceIn(1, 2)).apply()
+        val normalized = slot.coerceIn(1, 2)
+        val editor = integrationPrefs(context).edit().putInt(KEY_ACTIVE_COMPANY_SLOT, normalized)
+        SalaryCompanyStore.list(context).getOrNull(normalized - 1)?.id?.let {
+            editor.putString(KEY_ACTIVE_COMPANY_ID, it)
+        }
+        editor.apply()
     }
+
+    private fun integrationPrefs(context: Context) =
+        context.applicationContext.getSharedPreferences(INTEGRATION_PREFS, Context.MODE_PRIVATE)
 
     private fun loadV2Company(context: Context, company: SalaryCompanyStore.Company, slot: Int): Profile {
         val prefs = SalaryCompanyStore.prefs(context, company.id)
