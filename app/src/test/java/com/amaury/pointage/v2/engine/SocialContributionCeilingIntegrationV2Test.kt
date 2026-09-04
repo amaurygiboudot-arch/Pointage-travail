@@ -66,6 +66,38 @@ class SocialContributionCeilingIntegrationV2Test {
     }
 
     @Test
+    fun `assimile cadre 830 recoit le minimum employeur ANI meme si statut non cadre`() {
+        val ceiling = partTime28hCeiling()
+        val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 830)
+        val estimate = ProfessionalStatusContributionCatalogV2.estimate(
+            gross = 5000.0,
+            year = 2026,
+            professionalStatus = "NON_CADRE",
+            ceiling = ceiling,
+            protectionCategory = category
+        )
+        val line = estimate.lines.firstOrNull { it.id == "cadre_provident_employer_minimum" }
+
+        assertNotNull(line)
+        assertEquals(3204.0, line!!.baseAmount, 0.001)
+        assertEquals(3204.0 * 0.015, line.employerAmount, 0.001)
+    }
+
+    @Test
+    fun `hors ANI 700 ne recoit pas le 1 50 par simple statut cadre`() {
+        val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 700)
+        val estimate = ProfessionalStatusContributionCatalogV2.estimate(
+            gross = 5000.0,
+            year = 2026,
+            professionalStatus = "CADRE",
+            ceiling = partTime28hCeiling(),
+            protectionCategory = category
+        )
+
+        assertNull(estimate.lines.firstOrNull { it.id == "cadre_provident_employer_minimum" })
+    }
+
+    @Test
     fun `prevoyance plasturgie utilise quatre fois le plafond proratisé hors ANI`() {
         val ceiling = partTime28hCeiling()
         val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 700)
