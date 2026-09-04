@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.app.AlertDialog
+import android.app.DatePickerDialog
 import android.content.Context
 import android.text.InputType
 import android.util.AttributeSet
@@ -13,6 +14,13 @@ import android.widget.Toast
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.RestEngineV2
+import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceV2
+import com.amaury.pointage.v2.model.DecisionStatusV2
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 
@@ -27,6 +35,8 @@ class V2RightsRestView @JvmOverloads constructor(
     }
 
     private val content = TextView(context)
+    private val absenceBox = LinearLayout(context)
+    private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE)
 
     init {
         tag = TAG
@@ -55,6 +65,29 @@ class V2RightsRestView @JvmOverloads constructor(
             textSize = 13f
             setPadding(0, dp(8), 0, 0)
         })
+
+        addView(TextView(context).apply {
+            text = "ABSENCES NON RÉMUNÉRÉES"
+            textSize = 15f
+            setPadding(0, dp(18), 0, dp(4))
+        })
+        addView(TextView(context).apply {
+            text = "Enregistre ici uniquement des journées entières sans maintien de salaire. Une demi-journée ou quelques heures ne réduit pas automatiquement le plafond social."
+            textSize = 12f
+            setPadding(0, 0, 0, dp(6))
+        })
+        addView(
+            Button(context).apply {
+                text = "➕ AJOUTER UNE ABSENCE NON RÉMUNÉRÉE"
+                isAllCaps = false
+                textSize = 14f
+                setBackgroundResource(R.drawable.hp_panel)
+                setOnClickListener { showUnpaidAbsenceDialog() }
+            },
+            LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52))
+        )
+        absenceBox.orientation = VERTICAL
+        addView(absenceBox)
         refresh()
     }
 
@@ -100,6 +133,145 @@ class V2RightsRestView @JvmOverloads constructor(
                 append("\n\n⚠ ").append(warnings.joinToString("\n⚠ "))
             }
         }
+        refreshAbsences()
+    }
+
+    private fun refreshAbsences() {
+        absenceBox.removeAllViews()
+        val absences = if (companyId.isBlank()) {
+            emptyList()
+        } else {
+            V2RightsStore.absencesForCompany(context, companyId)
+                .filter { it.salaryTreatment == AbsenceSalaryTreatmentV2.UNPAID }
+                .sortedByDescending { it.startMs }
+        }
+        if (absences.isEmpty()) {
+            absenceBox.addView(TextView(context).apply {
+                text = "Aucune absence non rémunérée enregistrée pour cette entreprise."
+                textSize = 13f
+                setPadding(0, dp(8), 0, 0)
+            })
+            return
+        }
+        absences.forEach { absence ->
+            val start = localDate(absence.startMs)
+            val end = localDate(absence.endMs - 1L)
+            val days = java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt() + 1
+            val row = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                setPadding(0, dp(6), 0, 0)
+            }
+            row.addView(TextView(context).apply {
+                text = "• ${start.format(dateFormat)} → ${end.format(dateFormat)}\n  $days jour${if (days > 1) "s" else ""} entier${if (days > 1) "s" else ""} non rémunéré${if (days > 1) "s" else ""}"
+                textSize = 13f
+            }, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(Button(context).apply {
+                text = "SUPPRIMER"
+                isAllCaps = false
+                textSize = 11f
+                setBackgroundResource(R.drawable.hp_panel)
+                setOnClickListener { confirmDeleteAbsence(absence, start, end) }
+            }, LayoutParams(dp(108), dp(48)))
+            absenceBox.addView(row)
+        }
+    }
+
+    private fun showUnpaidAbsenceDialog() {
+        if (companyId.isBlank()) {
+            Toast.makeText(context, "Choisis d’abord une entreprise", Toast.LENGTH_LONG).show()
+            return
+        }
+        var start = LocalDate.now()
+        var end = start
+        val startButton = Button(context).apply {
+            isAllCaps = false
+            setBackgroundResource(R.drawable.hp_panel)
+        }
+        val endButton = Button(context).apply {
+            isAllCaps = false
+            setBackgroundResource(R.drawable.hp_panel)
+        }
+        fun updateLabels() {
+            startButton.text = "Début : ${start.format(dateFormat)}"
+            endButton.text = "Fin : ${end.format(dateFormat)}"
+        }
+        fun pick(initial: LocalDate, onPicked: (LocalDate) -> Unit) {
+            DatePickerDialog(
+                context,
+                { _, year, month, day -> onPicked(LocalDate.of(year, month + 1, day)) },
+                initial.year,
+                initial.monthValue - 1,
+                initial.dayOfMonth
+            ).show()
+        }
+        startButton.setOnClickListener {
+            pick(start) { picked ->
+                start = picked
+                if (end.isBefore(start)) end = start
+                updateLabels()
+            }
+        }
+        endButton.setOnClickListener {
+            pick(end) { picked ->
+                end = picked
+                updateLabels()
+            }
+        }
+        updateLabels()
+        val box = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(18), dp(8), dp(18), 0)
+            addView(TextView(context).apply {
+                text = "Journée(s) entière(s) sans maintien de salaire. La date de fin est incluse."
+                textSize = 12f
+                setPadding(0, 0, 0, dp(8))
+            })
+            addView(startButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+            addView(endButton, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(6) })
+        }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Absence non rémunérée")
+            .setView(box)
+            .setPositiveButton("ENREGISTRER", null)
+            .setNegativeButton("ANNULER", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                if (end.isBefore(start)) {
+                    Toast.makeText(context, "La date de fin doit être après le début", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val zone = ZoneId.systemDefault()
+                V2RightsStore.upsertAbsence(
+                    context,
+                    AbsenceV2(
+                        id = "absence-${UUID.randomUUID()}",
+                        employerId = companyId,
+                        type = "ABSENCE_NON_REMUNEREE",
+                        startMs = start.atStartOfDay(zone).toInstant().toEpochMilli(),
+                        endMs = end.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli(),
+                        salaryTreatment = AbsenceSalaryTreatmentV2.UNPAID,
+                        fullDay = true,
+                        status = DecisionStatusV2.CONFIRMED
+                    )
+                )
+                refresh()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun confirmDeleteAbsence(absence: AbsenceV2, start: LocalDate, end: LocalDate) {
+        AlertDialog.Builder(context)
+            .setTitle("Supprimer cette absence ?")
+            .setMessage("${start.format(dateFormat)} → ${end.format(dateFormat)}")
+            .setNegativeButton("ANNULER", null)
+            .setPositiveButton("SUPPRIMER") { _, _ ->
+                V2RightsStore.removeAbsence(context, absence.id)
+                refresh()
+            }
+            .show()
     }
 
     private fun showCounterDialog() {
@@ -175,6 +347,9 @@ class V2RightsRestView @JvmOverloads constructor(
         }
         dialog.show()
     }
+
+    private fun localDate(ms: Long): LocalDate =
+        Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate()
 
     private fun parse(raw: String) = raw.trim().replace(',', '.').toDoubleOrNull()
 
