@@ -39,8 +39,6 @@ object SocialContributionCatalogV2 {
         val warnings: List<String>
     )
 
-    private const val MONTHLY_PASS_2026 = 4005.0
-
     private val rules2026 = listOf(
         Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
         Rule("old_age_capped", "Assurance vieillesse plafonnée", 0.0690, Base.GROSS_CAPPED_MONTHLY_PASS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
@@ -82,11 +80,9 @@ object SocialContributionCatalogV2 {
             )
         }
 
-        val monthlyPass = when {
-            year != 2026 -> Double.POSITIVE_INFINITY
-            ceiling != null -> ceiling.applicableMonthly
-            else -> MONTHLY_PASS_2026
-        }
+        val monthlyPass = ceiling?.applicableMonthly
+            ?: SocialSecurityCeilingV2.fullMonthly(year)
+            ?: Double.POSITIVE_INFINITY
         val lines = rules.map { rule ->
             val base = when (rule.base) {
                 Base.GROSS -> safeGross
