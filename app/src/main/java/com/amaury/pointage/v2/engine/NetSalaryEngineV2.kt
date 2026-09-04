@@ -45,7 +45,7 @@ object NetSalaryEngineV2 {
             gross = gross,
             year = year,
             idcc = company.idcc,
-            professionalStatus = company.professionalStatus,
+            protectionCategory = company.protectionCategory,
             seniorityMonths = company.seniorityMonths,
             ceiling = ceiling
         )
@@ -53,8 +53,10 @@ object NetSalaryEngineV2 {
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
         // Le minimum n'est donc jamais ajouté une seconde fois.
         val effectiveProvident = company.providentEmployeeAmount ?: conventionProvident.employeeDeductions
+        val outsideAni = company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.OUTSIDE_2_1_2_2 ||
+            company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE
         val conventionProvidentKnown = year == 2026 && company.idcc == "292" &&
-            company.professionalStatus == "NON_CADRE" && company.seniorityMonths != null
+            company.protectionCategory.confirmed && outsideAni && company.seniorityMonths != null
         val companyKnown = listOfNotNull(
             company.mutualEmployeeAmount,
             effectiveProvident,
