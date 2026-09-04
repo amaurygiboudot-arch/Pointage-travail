@@ -26,6 +26,11 @@ object PayslipObservedValuesStoreV2 {
         PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE
     )
 
+    private val comparisonReadyKeys = allowedKeys - setOf(
+        PayslipDocumentParserV2.KEY_PREMIUMS_GROSS,
+        PayslipDocumentParserV2.KEY_MEAL_BASKETS
+    )
+
     fun put(context: Context, recordId: String, values: Map<String, Double>) {
         require(recordId.isNotBlank()) { "Bulletin sans identifiant" }
         val safe = values.filter { (key, value) ->
@@ -43,7 +48,12 @@ object PayslipObservedValuesStoreV2 {
         prefs.edit().putString(KEY, root.toString()).apply()
     }
 
-    fun get(context: Context, recordId: String): Map<String, Double> {
+    /** Valeurs actuellement autorisées à entrer dans la comparaison automatique. */
+    fun get(context: Context, recordId: String): Map<String, Double> =
+        getAll(context, recordId).filterKeys { it in comparisonReadyKeys }
+
+    /** Toutes les valeurs confirmées restent disponibles pour affichage/audit futur. */
+    fun getAll(context: Context, recordId: String): Map<String, Double> {
         if (recordId.isBlank()) return emptyMap()
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val root = runCatching { JSONObject(prefs.getString(KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
