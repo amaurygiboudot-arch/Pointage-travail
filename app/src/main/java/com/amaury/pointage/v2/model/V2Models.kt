@@ -46,6 +46,7 @@ data class DeductionV2(val id:String,val label:String,val amount:Double,val recu
 /**
  * Absence canonique V2. endMs est exclusif.
  * fullDay doit être vrai pour qu'une absence non rémunérée puisse réduire le plafond SS.
+ * subrogation décrit uniquement le destinataire des IJSS ; elle ne vaut jamais règle de maintien.
  */
 data class AbsenceV2(
     val id:String,
@@ -55,7 +56,8 @@ data class AbsenceV2(
     val endMs:Long,
     val salaryTreatment:AbsenceSalaryTreatmentV2=AbsenceSalaryTreatmentV2.TO_CONFIRM,
     val fullDay:Boolean=false,
-    val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED
+    val status:DecisionStatusV2=DecisionStatusV2.CONFIRMED,
+    val subrogation:AbsenceSubrogationV2=AbsenceSubrogationV2.TO_CONFIRM
 )
 data class PayrollPeriodV2(val id:String,val employerId:String,val startMs:Long,val endMs:Long,val cutoffMs:Long?)
 data class PayslipLineV2(val label:String,val quantity:Double?=null,val rate:Double?=null,val amount:Double?=null,val confidence:Double=1.0)
@@ -72,5 +74,6 @@ enum class ContractTypeV2 { FULL_TIME, PART_TIME, FORFAIT_HOURS, FORFAIT_DAYS, F
 enum class ForfaitHoursPeriodV2 { WEEK, MONTH, YEAR }
 enum class SourceTypeV2 { OFFICIAL, COLLECTIVE_AGREEMENT, COMPANY_AGREEMENT, MANUAL }
 enum class PeriodicityV2 { ONE_OFF, DAILY, WEEKLY, MONTHLY, YEARLY }
-enum class AbsenceSalaryTreatmentV2 { FULLY_MAINTAINED, UNPAID, TO_CONFIRM }
+enum class AbsenceSalaryTreatmentV2 { FULLY_MAINTAINED, PARTIALLY_MAINTAINED, UNPAID, TO_CONFIRM }
+enum class AbsenceSubrogationV2 { YES, NO, TO_CONFIRM }
 enum class DiscrepancyStatusV2 { TO_VERIFY, CONFIRMED, SET_ASIDE, EXPLAINED, RESOLVED }
