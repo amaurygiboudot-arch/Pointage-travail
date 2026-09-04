@@ -189,8 +189,8 @@ object V2RuntimeStore {
         val history = runCatching { JSONArray(p.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
         val currentEntry = safeLong(p.all[KEY_REAL_ENTRY])
         val currentExit = safeLong(p.all[KEY_REAL_EXIT]).takeIf { it > 0L }
+        val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { it > currentEntry }
         val currentId = p.getString(KEY_ID, null)
-        val now = System.currentTimeMillis()
 
         data class Target(val historyIndex: Int? = null, val current: Boolean = false)
 
@@ -202,7 +202,7 @@ object V2RuntimeStore {
 
         fun currentContains(start: Long, end: Long): Boolean {
             if (currentEntry <= 0L || start < currentEntry) return false
-            val limit = currentExit ?: now
+            val limit = currentExit ?: currentExpectedEnd ?: dayEnd
             return end <= limit
         }
 
