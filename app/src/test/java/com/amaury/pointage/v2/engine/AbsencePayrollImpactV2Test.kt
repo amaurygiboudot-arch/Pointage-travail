@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
+import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,6 +34,19 @@ class AbsencePayrollImpactV2Test {
         status = status
     )
 
+    private fun session(day: LocalDate, employerId: String = "company-a"): WorkSessionV2 {
+        val start = day.atTime(5, 0).atZone(zone).toInstant().toEpochMilli()
+        val end = day.atTime(13, 0).atZone(zone).toInstant().toEpochMilli()
+        return WorkSessionV2(
+            id = "s-$day",
+            employerId = employerId,
+            realArrivalMs = start,
+            countedEntryMs = start,
+            countedExitMs = end,
+            realExitMs = end
+        )
+    }
+
     @Test
     fun `compte uniquement les jours complets non remuneres du mois`() {
         val result = AbsencePayrollImpactV2.forMonth(
@@ -43,6 +57,32 @@ class AbsencePayrollImpactV2Test {
         )
         assertEquals(3, result.unpaidFullCalendarDays)
         assertTrue(result.hasUnpaidAbsence)
+    }
+
+    @Test
+    fun `jour avec pointage est exclu du prorata absence complete`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            absences = listOf(absence(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 9))),
+            referenceDate = reference,
+            acceptedEmployerIds = setOf("company-a"),
+            zoneId = zone,
+            workSessions = listOf(session(LocalDate.of(2026, 9, 8)))
+        )
+        assertEquals(2, result.unpaidFullCalendarDays)
+        assertTrue(result.hasUnpaidAbsence)
+        assertTrue(result.warnings.any { it.contains("pointage le 08/09/2026") })
+    }
+
+    @Test
+    fun `pointage autre entreprise ne bloque pas l'absence`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            absences = listOf(absence(LocalDate.of(2026, 9, 8), LocalDate.of(2026, 9, 8))),
+            referenceDate = reference,
+            acceptedEmployerIds = setOf("company-a"),
+            zoneId = zone,
+            workSessions = listOf(session(LocalDate.of(2026, 9, 8), employerId = "company-b"))
+        )
+        assertEquals(1, result.unpaidFullCalendarDays)
     }
 
     @Test
