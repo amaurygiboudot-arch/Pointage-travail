@@ -9,6 +9,7 @@ import com.amaury.pointage.v2.engine.CompanyAgreementOvertimeOverlayV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
+import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
 import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
@@ -29,7 +30,7 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>)
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>)
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   require(HoraTrackV2.ENABLED)
@@ -82,6 +83,10 @@ object V2SalaryAdapter {
   val monthEnd=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0);add(Calendar.MONTH,1)}.timeInMillis
   val selected=sessions.filter{s->val start=s.countedEntryMs?:return@filter false;val end=s.countedExitMs?:return@filter false;s.employerId in ids&&s.realExitMs!=null&&end>start&&start<monthEnd&&end>monthStart}
   val warnings=mutableListOf<String>()
+  val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
+  val entryDate=contract.hireDateEpochDay?.let(LocalDate::ofEpochDay)
+  val grossAssessment=MonthlySalaryProrationV2.assess(entryDate,referenceDate)
+  grossAssessment.warning?.let(warnings::add)
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
@@ -119,6 +124,7 @@ object V2SalaryAdapter {
     overtimeGross=0.0,
     premiumsGross=worked.premiumsGross+worked.fixedPremiumsGross,
     monthlyEstimatedGross=worked.grossEstimate,
+    monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable,
     nightMs=nightMs,
     saturdayMs=satMs,
     sundayMs=sunMs,
@@ -184,9 +190,9 @@ object V2SalaryAdapter {
   val regularGross=when{isFullTime->(fullTime?.monthlyRegularMinutes?:0.0)/60.0*rate;else->baseGross?:worked.regularGross}
   val overtimeGross=when{isFullTime->(fullTime?.structuralOvertimeGross?:0.0)+(fullTime?.variableOvertimeGross?:0.0);isPartTime->complementaryGross;else->worked.overtimeGross}
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
-  return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,nightMs,satMs,sunMs,complementaryMinutes,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
+  return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,grossAssessment.exactMonthlyGrossAvailable,nightMs,satMs,sunMs,complementaryMinutes,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
- private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,0,0,0,0,0,w)
+ private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,false,0,0,0,0,0,w)
  private fun nightPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,startMinute:Int,endMinute:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,s.timeInMillis);val to=minOf(rangeEnd,e.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to);day.add(Calendar.DAY_OF_YEAR,1)};return total}
  private fun dayPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,dayOfWeek:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,day.timeInMillis);val to=minOf(rangeEnd,next.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
  internal fun dayOverlap(entry:Long,exit:Long,dayOfWeek:Int):Long{if(exit<=entry)return 0;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=entry;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=exit;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};total+=(minOf(exit,next.timeInMillis)-maxOf(entry,day.timeInMillis)).coerceAtLeast(0L)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
