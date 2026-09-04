@@ -44,10 +44,8 @@ object V2ManualEntryInstaller {
     private fun showDialog(activity: Activity) {
         val selectedDate = Calendar.getInstance(Locale.FRANCE)
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-        val salary = activity.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        val company1 = salary.getString("company_name", "").orEmpty().ifBlank { "Entreprise 1" }
-        val company2 = salary.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
-        val company2Exists = salary.getString("company2_name", "").orEmpty().isNotBlank() || salary.getString("company2_siret", "").orEmpty().isNotBlank()
+        val companyList = SalaryCompanyStore.list(activity)
+        val activeCompanyId = V2ProfileStore.activeCompanyId(activity)
 
         val body = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -72,15 +70,32 @@ object V2ManualEntryInstaller {
             isSingleLine = true
         }
         val companies = RadioGroup(activity).apply { orientation = RadioGroup.VERTICAL }
-        val c1 = RadioButton(activity).apply { id = View.generateViewId(); text = company1; isChecked = true }
-        val c2 = RadioButton(activity).apply { id = View.generateViewId(); text = company2; isEnabled = company2Exists }
-        companies.addView(c1); companies.addView(c2)
+        val companyByButtonId = linkedMapOf<Int, String>()
+        companyList.forEachIndexed { index, company ->
+            val button = RadioButton(activity).apply {
+                id = View.generateViewId()
+                text = buildString {
+                    append(company.name.ifBlank { "Entreprise ${index + 1}" })
+                    if (company.siret.isNotBlank()) append(" — SIRET ${company.siret}")
+                }
+                isChecked = company.id == activeCompanyId || (activeCompanyId == null && index == 0)
+            }
+            companyByButtonId[button.id] = company.id
+            companies.addView(button)
+        }
 
         body.addView(dateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 52)))
         body.addView(start)
         body.addView(end)
         body.addView(TextView(activity).apply { text = "Entreprise"; textSize = 14f; setPadding(0, dp(activity, 8), 0, 0) })
-        body.addView(companies)
+        if (companyList.isEmpty()) {
+            body.addView(TextView(activity).apply {
+                text = "Aucune entreprise configurée — la plage restera sans employeur associé."
+                textSize = 13f
+            })
+        } else {
+            body.addView(companies)
+        }
         body.addView(place)
 
         dateButton.setOnClickListener {
@@ -102,9 +117,20 @@ object V2ManualEntryInstaller {
                 if (startMs == null) { start.error = "Format HH:mm"; return@setOnClickListener }
                 if (endMs0 == null) { end.error = "Format HH:mm"; return@setOnClickListener }
                 val endMs = if (endMs0 <= startMs) endMs0 + 24L * 60L * 60L * 1000L else endMs0
-                val slot = if (companies.checkedRadioButtonId == c2.id && company2Exists) 2 else 1
-                V2ProfileStore.setActiveCompanySlot(activity, slot)
-                val ok = V2ManualSessionWriter.add(activity, startMs, endMs, slot, place.text.toString().trim())
+                val selectedCompanyId = companyByButtonId[companies.checkedRadioButtonId]
+                val ok = if (selectedCompanyId != null) {
+                    V2ProfileStore.setActiveCompanyId(activity, selectedCompanyId)
+                    V2ManualSessionWriter.addForCompany(
+                        activity,
+                        startMs,
+                        endMs,
+                        selectedCompanyId,
+                        place.text.toString().trim()
+                    )
+                } else {
+                    // Compatibilité : sans entreprise configurée, le comportement historique reste possible.
+                    V2ManualSessionWriter.add(activity, startMs, endMs, 1, place.text.toString().trim())
+                }
                 Toast.makeText(activity, if (ok) "Heures ajoutées dans HoraTrack V2" else "Cette plage existe déjà ou est invalide", Toast.LENGTH_LONG).show()
                 if (ok) {
                     PointageWidgetProvider.updateAll(activity)
