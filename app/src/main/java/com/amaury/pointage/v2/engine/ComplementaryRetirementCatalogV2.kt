@@ -10,19 +10,29 @@ object ComplementaryRetirementCatalogV2 {
     private const val SOURCE = "Agirc-Arrco — barèmes applicables au 01/01/2026"
 
     /**
-     * professionalStatus : CADRE, NON_CADRE ou null/valeur inconnue.
-     * L'APEC n'est appliquée que si le statut CADRE est explicitement confirmé.
+     * Pour la Plasturgie, la catégorie ANI 2.1/2.2 déduite du coefficient prime
+     * sur le simple libellé CADRE/NON_CADRE pour déterminer l'APEC.
      */
     fun estimate(
         gross:Double,
         year:Int,
         professionalStatus:String?=null,
-        ceiling:SocialSecurityCeilingV2.Snapshot?=null
+        ceiling:SocialSecurityCeilingV2.Snapshot?=null,
+        protectionCategory:PlasturgieProtectionCategoryV2.Result?=null
     ):Estimate {
         val g=gross.coerceAtLeast(0.0)
         val full=SocialSecurityCeilingV2.fullMonthly(year)
             ?: return Estimate(emptyList(),0.0,listOf("Agirc-Arrco : barème non intégré pour $year"))
         val status=professionalStatus?.trim()?.uppercase()
+        val category=protectionCategory?.category
+        val categoryControlsApec=category!=null && category!=PlasturgieProtectionCategoryV2.Category.NOT_APPLICABLE
+        val apecApplicable=when {
+            !categoryControlsApec -> status=="CADRE"
+            protectionCategory?.confirmed!=true -> false
+            category==PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 -> true
+            category==PlasturgieProtectionCategoryV2.Category.ARTICLE_2_2 -> true
+            else -> false
+        }
         val applicable=ceiling?.applicableMonthly ?: full
         val max4=ceiling?.fourTimesApplicable ?: full*4.0
         val max8=ceiling?.eightTimesApplicable ?: full*8.0
@@ -37,14 +47,21 @@ object ComplementaryRetirementCatalogV2 {
                 val cetBase=min(g,max8)
                 add(Line("cet","CET",cetBase,0.0014,cetBase*0.0014,SOURCE))
             }
-            if(status=="CADRE" && g>0.0) {
+            if(apecApplicable && g>0.0) {
                 val apecBase=min(g,max4)
-                add(Line("apec","APEC cadre",apecBase,0.00024,apecBase*0.00024,SOURCE))
+                add(Line("apec","APEC cadre / assimilé cadre",apecBase,0.00024,apecBase*0.00024,SOURCE))
             }
         }
         val warnings=buildList {
             add("Les répartitions conventionnelles ou d'entreprise supérieures/dérogatoires restent à confirmer lorsqu'elles existent.")
-            if(status!="CADRE" && status!="NON_CADRE") add("Statut professionnel à préciser : APEC non appliquée tant que le statut cadre n'est pas confirmé.")
+            when {
+                categoryControlsApec && protectionCategory?.confirmed!=true ->
+                    add("Catégorie ANI 2.1/2.2 à confirmer : APEC non appliquée automatiquement.")
+                category==PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE ->
+                    add("Extension régime cadres possible : APEC non appliquée automatiquement car cette catégorie reste hors ANI 2.1/2.2.")
+                !categoryControlsApec && status!="CADRE" && status!="NON_CADRE" ->
+                    add("Statut professionnel à préciser : APEC non appliquée tant que le statut cadre n'est pas confirmé.")
+            }
             ceiling?.warnings?.let(::addAll)
         }.distinct()
         return Estimate(lines,lines.sumOf{it.amount},warnings)
