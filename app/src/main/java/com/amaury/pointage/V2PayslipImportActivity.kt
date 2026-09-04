@@ -10,13 +10,16 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.CompanyAgreementDocumentReaderV2
+import com.amaury.pointage.v2.PayslipObservedValuesStoreV2
 import com.amaury.pointage.v2.ProvidentRelaySourceStoreV2
 import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
+import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import com.amaury.pointage.v2.engine.ProvidentRelayDocumentParserV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import java.text.SimpleDateFormat
@@ -44,8 +47,7 @@ class V2PayslipImportActivity : Activity() {
         super.onCreate(savedInstanceState)
         val existing = intent.getStringExtra(EXTRA_SOURCE_URI)?.takeIf { it.isNotBlank() }?.let(Uri::parse)
         if (existing != null) {
-            val mime = intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing)
-            if (shouldInspectForProvident()) inspectDocument(existing, mime) else askConfirmedValues(existing, mime)
+            inspectDocument(existing, intent.getStringExtra(EXTRA_SOURCE_MIME) ?: contentResolver.getType(existing))
             return
         }
         startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
@@ -61,8 +63,7 @@ class V2PayslipImportActivity : Activity() {
         if (resultCode != RESULT_OK) { finish(); return }
         val uri = data?.data ?: run { finish(); return }
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
-        val mime = contentResolver.getType(uri)
-        if (shouldInspectForProvident()) inspectDocument(uri, mime) else askConfirmedValues(uri, mime)
+        inspectDocument(uri, contentResolver.getType(uri))
     }
 
     private fun shouldInspectForProvident(): Boolean {
@@ -77,9 +78,8 @@ class V2PayslipImportActivity : Activity() {
     }
 
     /**
-     * Lit localement le PDF/la photo avant de décider s'il s'agit d'un bulletin ou d'un décompte
-     * prévoyance. Une erreur OCR ne bloque jamais l'import historique du bulletin : on retombe alors
-     * sur la confirmation manuelle brut/net existante.
+     * Lecture locale commune aux bulletins et, si nécessaire, aux décomptes prévoyance.
+     * Une erreur OCR n'empêche jamais l'import : le formulaire manuel reste disponible.
      */
     private fun inspectDocument(uri: Uri, mime: String?) {
         val label = TextView(this).apply {
@@ -96,24 +96,26 @@ class V2PayslipImportActivity : Activity() {
                     runOnUiThread { if (!isFinishing && !isDestroyed) status?.text = message }
                 }
                 temporary = document.temporaryFile
-                val parsed = ProvidentRelayDocumentParserV2.parse(document.extractedText)
-                // Un bulletin de paie peut lui aussi contenir « prévoyance », « incapacité » ou « IJSS ».
-                // On ne bascule donc automatiquement vers le décompte assureur que si la ligne
-                // spécifique des 60 % du brut de référence est reconnue avec forte confiance.
-                val looksLikeProvident = parsed.targetGross60.highConfidence &&
-                    (parsed.socialSecurityGross.highConfidence || parsed.observedProvidentGross.highConfidence)
+                val payslipParsed = PayslipDocumentParserV2.parse(document.extractedText)
+                val providentParsed = if (shouldInspectForProvident()) {
+                    ProvidentRelayDocumentParserV2.parse(document.extractedText)
+                } else null
+                val looksLikeProvident = providentParsed?.let { parsed ->
+                    parsed.targetGross60.highConfidence &&
+                        (parsed.socialSecurityGross.highConfidence || parsed.observedProvidentGross.highConfidence)
+                } == true
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (looksLikeProvident && companyId.isNotBlank()) {
-                        offerProvidentLink(uri, document.mimeType, document.displayName, parsed)
+                    if (looksLikeProvident && companyId.isNotBlank() && providentParsed != null) {
+                        offerProvidentLink(uri, document.mimeType, document.displayName, providentParsed, payslipParsed)
                     } else {
-                        askConfirmedValues(uri, mime ?: document.mimeType)
+                        askConfirmedValues(uri, mime ?: document.mimeType, payslipParsed)
                     }
                 }
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             } catch (_: Throwable) {
-                runOnUiThread { if (!isFinishing && !isDestroyed) askConfirmedValues(uri, mime) }
+                runOnUiThread { if (!isFinishing && !isDestroyed) askConfirmedValues(uri, mime, null) }
             } finally {
                 temporary?.delete()
             }
@@ -124,7 +126,8 @@ class V2PayslipImportActivity : Activity() {
         uri: Uri,
         mime: String?,
         displayName: String,
-        parsed: ProvidentRelayDocumentParserV2.Result
+        parsed: ProvidentRelayDocumentParserV2.Result,
+        payslipParsed: PayslipDocumentParserV2.Result?
     ) {
         val eligible = V2RightsStore.absencesForCompany(this, companyId)
             .filter { it.type == AbsencePayrollImpactV2.TYPE_SICKNESS }
@@ -135,7 +138,7 @@ class V2PayslipImportActivity : Activity() {
             .sortedByDescending { it.startMs }
 
         if (eligible.isEmpty()) {
-            askConfirmedValues(uri, mime)
+            askConfirmedValues(uri, mime, payslipParsed)
             return
         }
         if (eligible.size == 1) {
@@ -155,7 +158,7 @@ class V2PayslipImportActivity : Activity() {
             .setItems(labels.toTypedArray()) { _, which ->
                 showProvidentConfirmation(uri, mime, displayName, parsed, eligible[which])
             }
-            .setNeutralButton("TRAITER COMME BULLETIN") { _, _ -> askConfirmedValues(uri, mime) }
+            .setNeutralButton("TRAITER COMME BULLETIN") { _, _ -> askConfirmedValues(uri, mime, payslipParsed) }
             .setNegativeButton("ANNULER") { _, _ -> finish() }
             .setOnCancelListener { finish() }
             .show()
@@ -236,38 +239,100 @@ class V2PayslipImportActivity : Activity() {
         dialog.show()
     }
 
-    private fun askConfirmedValues(uri: Uri, mime: String?) {
+    private fun askConfirmedValues(
+        uri: Uri,
+        mime: String?,
+        parsed: PayslipDocumentParserV2.Result?
+    ) {
+        fun amountField(label: String, candidate: PayslipDocumentParserV2.Candidate? = null) = EditText(this).apply {
+            hint = label
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            isSingleLine = true
+            if (candidate?.highConfidence == true) candidate.amount?.let { setText(String.format(Locale.FRANCE, "%.2f", it)) }
+        }
+
         val month = Calendar.getInstance(Locale.FRANCE).apply { set(Calendar.DAY_OF_MONTH, 1) }
         val monthButton = Button(this).apply {
             text = SimpleDateFormat("MMMM yyyy", Locale.FRANCE).format(month.time).replaceFirstChar { it.uppercase() }
             isAllCaps = false
             setBackgroundResource(R.drawable.hp_panel)
         }
-        val gross = EditText(this).apply { hint = "Brut du bulletin (€)"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        val net = EditText(this).apply { hint = "Net du bulletin (€) — facultatif"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        val gross = amountField("Brut du bulletin (€) — requis", parsed?.gross)
+        val netBeforeTax = amountField("Net à payer avant PAS (€)", parsed?.netBeforeTax)
+        val netTaxable = amountField("Net imposable / fiscal (€)", parsed?.netTaxable)
+        val overtime = amountField("Heures supplémentaires — montant brut (€)", parsed?.overtimeGross)
+        val premiums = amountField("Primes / majorations — montant brut (€)", parsed?.premiumsGross)
+        val baskets = amountField("Paniers / indemnités repas (€)", parsed?.mealBaskets)
+        val mutual = amountField("Mutuelle — part salariale (€)", parsed?.mutualEmployee)
+        val provident = amountField("Prévoyance — part salariale (€)", parsed?.providentEmployee)
+
+        val info = TextView(this).apply {
+            text = buildString {
+                append("Lecture locale du bulletin. Vérifie les valeurs avant validation : seules les valeurs confirmées sont enregistrées.")
+                parsed?.warnings?.takeIf { it.isNotEmpty() }?.let {
+                    append("\n\n⚠ ").append(it.joinToString("\n⚠ "))
+                }
+            }
+            textSize = 12f
+            setPadding(0, 0, 0, dp(8))
+        }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(8), dp(18), 0)
-            addView(monthButton); addView(gross); addView(net)
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+            addView(info)
+            addView(monthButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+            listOf(gross, netBeforeTax, netTaxable, overtime, premiums, baskets, mutual, provident).forEach { field ->
+                addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(4) })
+            }
         }
+        val scroll = ScrollView(this).apply { addView(box) }
         monthButton.setOnClickListener { chooseMonth(month, monthButton) }
         val title = if (companyName.isBlank()) "Contrôle du bulletin" else "Bulletin — $companyName"
         val dialog = AlertDialog.Builder(this)
             .setTitle(title)
-            .setMessage("Le document original est conservé. Confirme la période et les montants visibles : HoraTrack ne doit pas inventer une extraction incertaine.")
-            .setView(box)
-            .setPositiveButton("Enregistrer", null)
-            .setNegativeButton("Annuler") { _, _ -> finish() }
+            .setView(scroll)
+            .setPositiveButton("ENREGISTRER", null)
+            .setNegativeButton("ANNULER") { _, _ -> finish() }
             .setOnCancelListener { finish() }
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val grossValue = parseAmount(gross.text.toString())
-                val netValue = parseAmount(net.text.toString())
-                if (grossValue == null || grossValue < 0.0) { gross.error = "Montant brut requis"; return@setOnClickListener }
-                V2PayslipStore.add(this, month.get(Calendar.YEAR), month.get(Calendar.MONTH), uri, mime, grossValue, netValue, true, companyId)
-                Toast.makeText(this, "Bulletin importé • comparaison disponible", Toast.LENGTH_LONG).show()
-                dialog.setOnCancelListener(null); dialog.dismiss(); finish()
+                if (grossValue == null || grossValue < 0.0) {
+                    gross.error = "Montant brut requis"
+                    return@setOnClickListener
+                }
+                val fields = linkedMapOf(
+                    PayslipDocumentParserV2.KEY_GROSS to grossValue,
+                    PayslipDocumentParserV2.KEY_NET_BEFORE_TAX to parseAmount(netBeforeTax.text.toString()),
+                    PayslipDocumentParserV2.KEY_NET_TAXABLE to parseAmount(netTaxable.text.toString()),
+                    PayslipDocumentParserV2.KEY_OVERTIME_GROSS to parseAmount(overtime.text.toString()),
+                    PayslipDocumentParserV2.KEY_PREMIUMS_GROSS to parseAmount(premiums.text.toString()),
+                    PayslipDocumentParserV2.KEY_MEAL_BASKETS to parseAmount(baskets.text.toString()),
+                    PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE to parseAmount(mutual.text.toString()),
+                    PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to parseAmount(provident.text.toString())
+                )
+                if (fields.values.filterNotNull().any { it < 0.0 || !it.isFinite() }) {
+                    Toast.makeText(this, "Un montant du bulletin est invalide", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val confirmed = fields.mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
+                val record = V2PayslipStore.add(
+                    this,
+                    month.get(Calendar.YEAR),
+                    month.get(Calendar.MONTH),
+                    uri,
+                    mime,
+                    grossValue,
+                    confirmed[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX],
+                    true,
+                    companyId
+                )
+                PayslipObservedValuesStoreV2.put(this, record.id, confirmed)
+                Toast.makeText(this, "Bulletin importé • valeurs confirmées enregistrées", Toast.LENGTH_LONG).show()
+                dialog.setOnCancelListener(null)
+                dialog.dismiss()
+                finish()
             }
         }
         dialog.show()
