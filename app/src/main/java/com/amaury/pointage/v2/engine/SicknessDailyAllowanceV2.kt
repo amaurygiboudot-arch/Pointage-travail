@@ -13,6 +13,9 @@ import kotlin.math.min
  * Les exceptions de carence, l'ouverture des droits et la subrogation restent à confirmer.
  */
 object SicknessDailyAllowanceV2 {
+    private const val CSG_RATE = 0.062
+    private const val CRDS_RATE = 0.005
+
     data class SalaryMonth(val period: YearMonth, val gross: Double)
 
     data class Result(
@@ -21,7 +24,11 @@ object SicknessDailyAllowanceV2 {
         val payableDays: Int?,
         val estimatedGrossTotal: Double?,
         val referenceMonths: List<SalaryMonth>,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /** IJSS après CSG/CRDS, avant prélèvement à la source. */
+        val dailyNetBeforeIncomeTax: Double? = null,
+        /** Total IJSS après CSG/CRDS, avant prélèvement à la source. */
+        val estimatedNetBeforeIncomeTaxTotal: Double? = null
     )
 
     fun calculate(
@@ -70,6 +77,13 @@ object SicknessDailyAllowanceV2 {
         val payableDays = (calendarDays - 3).coerceAtLeast(0)
         val total = daily * payableDays
 
+        // Référence Urssaf : les IJSS supportent 6,20 % de CSG + 0,50 % de CRDS,
+        // sans abattement de 1,75 %. Le PAS est volontairement exclu ici afin de
+        // comparer une rémunération nette avant impôt à une IJSS nette avant impôt.
+        val socialFactor = 1.0 - CSG_RATE - CRDS_RATE
+        val dailyNetBeforeIncomeTax = (daily * socialFactor).coerceAtLeast(0.0)
+        val totalNetBeforeIncomeTax = dailyNetBeforeIncomeTax * payableDays
+
         return Result(
             complete = true,
             dailyGross = daily,
@@ -79,8 +93,11 @@ object SicknessDailyAllowanceV2 {
             warnings = listOf(
                 "IJSS maladie : estimation du cas général si les droits Assurance Maladie sont ouverts.",
                 "Carence de 3 jours appliquée ; les exceptions (ALD, reprise de moins de 48 h, etc.) restent à confirmer.",
+                "IJSS nette avant impôt estimée après CSG 6,20 % et CRDS 0,50 %, sans abattement.",
                 "Subrogation et complément/maintien employeur non déduits de cette estimation IJSS."
-            )
+            ),
+            dailyNetBeforeIncomeTax = dailyNetBeforeIncomeTax,
+            estimatedNetBeforeIncomeTaxTotal = totalNetBeforeIncomeTax
         )
     }
 
