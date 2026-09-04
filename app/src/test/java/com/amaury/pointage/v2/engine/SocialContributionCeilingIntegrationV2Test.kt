@@ -84,9 +84,33 @@ class SocialContributionCeilingIntegrationV2Test {
     }
 
     @Test
-    fun `hors ANI 700 ne recoit pas le 1 50 par simple statut cadre`() {
+    fun `assimile cadre 830 cotise aussi a APEC meme si statut visible non cadre`() {
+        val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 830)
+        val estimate = ComplementaryRetirementCatalogV2.estimate(
+            gross = 5000.0,
+            year = 2026,
+            professionalStatus = "NON_CADRE",
+            ceiling = partTime28hCeiling(),
+            protectionCategory = category
+        )
+        val apec = estimate.lines.firstOrNull { it.id == "apec" }
+
+        assertNotNull(apec)
+        assertEquals(5000.0, apec!!.baseAmount, 0.001)
+        assertEquals(5000.0 * 0.00024, apec.amount, 0.001)
+    }
+
+    @Test
+    fun `hors ANI 700 ne recoit ni 1 50 ni APEC par simple statut cadre`() {
         val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 700)
-        val estimate = ProfessionalStatusContributionCatalogV2.estimate(
+        val minimum = ProfessionalStatusContributionCatalogV2.estimate(
+            gross = 5000.0,
+            year = 2026,
+            professionalStatus = "CADRE",
+            ceiling = partTime28hCeiling(),
+            protectionCategory = category
+        )
+        val retirement = ComplementaryRetirementCatalogV2.estimate(
             gross = 5000.0,
             year = 2026,
             professionalStatus = "CADRE",
@@ -94,7 +118,8 @@ class SocialContributionCeilingIntegrationV2Test {
             protectionCategory = category
         )
 
-        assertNull(estimate.lines.firstOrNull { it.id == "cadre_provident_employer_minimum" })
+        assertNull(minimum.lines.firstOrNull { it.id == "cadre_provident_employer_minimum" })
+        assertNull(retirement.lines.firstOrNull { it.id == "apec" })
     }
 
     @Test
