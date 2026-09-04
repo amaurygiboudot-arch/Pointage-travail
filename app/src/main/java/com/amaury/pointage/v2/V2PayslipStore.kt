@@ -10,6 +10,7 @@ import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
+import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.PlasturgieProvidentIncapacityV2
 import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
@@ -92,7 +93,9 @@ object V2PayslipStore {
   val prefs=SalaryCompanyStore.prefs(context,companyId)
   val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
       ?:prefs.getString("company_idcc","").orEmpty()
-  val start=Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate()
+  val zone=ZoneId.systemDefault()
+  val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
+  val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
   val entryDate=runCatching{
    prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
     LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
@@ -101,12 +104,16 @@ object V2PayslipStore {
   val seniorityMonths=entryDate?.let{entry->
    if(entry.isAfter(start))0 else ChronoUnit.MONTHS.between(entry,start).toInt().coerceAtLeast(0)
   }
-  val professionalStatus=prefs.getString("professional_status","").orEmpty()
-   .trim().uppercase(Locale.ROOT).takeIf{it.isNotBlank()}
+  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
+  val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,start,coefficient)
+  val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)
+  val absenceDays=ChronoUnit.DAYS.between(start,endExclusive).toInt().coerceAtLeast(0)
   return PlasturgieProvidentIncapacityV2.assess(
    idcc=idcc,
    seniorityMonths=seniorityMonths,
-   professionalStatus=professionalStatus
+   protectionCategory=protectionCategory,
+   maintenance=maintenance,
+   absenceCalendarDays=absenceDays
   )
  }
 
