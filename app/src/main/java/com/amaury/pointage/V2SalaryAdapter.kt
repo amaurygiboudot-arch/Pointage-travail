@@ -69,14 +69,16 @@ object V2SalaryAdapter {
   ) else null
   val period=PayrollPeriodV2.month(year,month)
   val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
+  val runtimeSessions=V2RuntimeStore.allSessions(context)
   val absenceImpact=AbsencePayrollImpactV2.forMonth(
    V2RightsStore.absences(context),
    period.referenceDate,
-   acceptedIds
+   acceptedIds,
+   workSessions=runtimeSessions
   )
   val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
   return calculateCore(
-   contract,missing,V2RuntimeStore.allSessions(context),year,month,rate?:0.0,convention,
+   contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
    ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact
   )
  }
@@ -85,8 +87,9 @@ object V2SalaryAdapter {
   val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
   val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
-  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids)
-  return calculateCore(p.contract,p.missing,V2RuntimeStore.allSessions(context),year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact)
+  val runtimeSessions=V2RuntimeStore.allSessions(context)
+  val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
+  return calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact)
  }
  fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty())}
 
