@@ -39,6 +39,23 @@ class SocialSecurityCeilingV2Test {
     }
 
     @Test
+    fun `absence non remuneree complete reduit le plafond selon les jours calendaires`() {
+        val result = SocialSecurityCeilingV2.calculate(
+            SocialSecurityCeilingV2.Input(
+                year = 2026,
+                referenceDate = LocalDate.of(2026, 9, 30),
+                contractType = ContractTypeV2.FULL_TIME,
+                contractualWeeklyMinutes = 35 * 60,
+                entryDate = LocalDate.of(2020, 1, 1),
+                unpaidAbsenceDays = 3
+            )
+        )
+
+        assertEquals(4005.0 * 27.0 / 30.0, result.applicableMonthly, 0.001)
+        assertTrue(result.warnings.any { it.contains("3 jour(s) d'absence") })
+    }
+
+    @Test
     fun `temps partiel 28 heures applique quatre vingt pour cent du plafond`() {
         val result = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
