@@ -73,11 +73,12 @@ object AbsencePayrollImpactV2 {
                     warnings += "${label(absence.type)} : maintien de salaire à confirmer avant le calcul précis."
                     return@forEach
                 }
-                AbsenceSalaryTreatmentV2.FULLY_MAINTAINED -> {
+                AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED -> {
                     if (absence.type != TYPE_UNPAID) {
                         hasCompensated = true
                         requiresReview = true
-                        warnings += compensatedWarning(absence.type)
+                        warnings += compensatedWarning(absence.type, absence.salaryTreatment)
                     }
                     return@forEach
                 }
@@ -131,12 +132,15 @@ object AbsencePayrollImpactV2 {
         else -> "Absence"
     }
 
-    private fun compensatedWarning(type: String): String = when (type) {
-        TYPE_SICKNESS -> "Arrêt maladie avec maintien : IJSS, carence, subrogation et règle de maintien restent à vérifier avant le calcul précis."
-        TYPE_PAID_LEAVE -> "Congé payé : l'indemnité doit être contrôlée selon la méthode applicable ; aucun montant n'est inventé."
-        TYPE_WORK_ACCIDENT -> "Accident du travail avec maintien : indemnisation et maintien applicables restent à vérifier."
-        TYPE_PARENTAL -> "Maternité / paternité : indemnisation et éventuel maintien employeur restent à vérifier."
-        else -> "Absence avec maintien : traitement de paie à vérifier avant le calcul précis."
+    private fun compensatedWarning(type: String, treatment: AbsenceSalaryTreatmentV2): String {
+        val level = if (treatment == AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED) "maintien partiel" else "maintien"
+        return when (type) {
+            TYPE_SICKNESS -> "Arrêt maladie avec $level : IJSS, carence, subrogation et règle de maintien restent à vérifier avant le calcul précis."
+            TYPE_PAID_LEAVE -> "Congé payé : l'indemnité doit être contrôlée selon la méthode applicable ; aucun montant n'est inventé."
+            TYPE_WORK_ACCIDENT -> "Accident du travail avec $level : indemnisation et maintien applicables restent à vérifier."
+            TYPE_PARENTAL -> "Maternité / paternité avec $level : indemnisation et éventuel maintien employeur restent à vérifier."
+            else -> "Absence avec $level : traitement de paie à vérifier avant le calcul précis."
+        }
     }
 
     private fun workedCalendarDays(
