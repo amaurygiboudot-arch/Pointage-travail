@@ -28,6 +28,7 @@ object V2BackupManager {
         "horatrack_v2_rights",
         "horatrack_v2_payslips",
         "horatrack_v2_company_pause",
+        "horatrack_v2_planned_pauses",
         "horatrack_v2_gps_state",
         SALARY_COMPANIES_PREFS,
         "salary_settings",
