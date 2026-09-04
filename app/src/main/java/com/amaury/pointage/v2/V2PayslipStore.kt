@@ -10,6 +10,7 @@ import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
+import com.amaury.pointage.v2.engine.PlasturgieProvidentIncapacityV2
 import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
 import com.amaury.pointage.v2.engine.SicknessTheoreticalNetV2
@@ -21,6 +22,7 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Locale
 import java.util.UUID
 
@@ -54,22 +56,14 @@ object V2PayslipStore {
   return SicknessDailyAllowanceV2.calculate(start,endExclusive,grossByMonth)
  }
 
- /**
-  * Renvoie le barème de maintien maladie Plasturgie pour cette absence et cette
-  * entreprise. L'ancienneté et l'IDCC sont lus une seule fois ici pour éviter
-  * que chaque écran reconstruise sa propre interprétation.
-  */
+ /** Barème conventionnel de maintien maladie Plasturgie. */
  fun sicknessMaintenanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieSicknessMaintenanceV2.Result?{
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
   val prefs=SalaryCompanyStore.prefs(context,companyId)
   val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
       ?:prefs.getString("company_idcc","").orEmpty()
-  val entryDate=runCatching{
-   prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
-    LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
-   }
-  }.getOrNull()
+  val entryDate=parseEntryDate(prefs)
   return PlasturgieSicknessMaintenanceV2.calculate(
    idcc=idcc,
    currentAbsence=absence,
@@ -81,13 +75,28 @@ object V2PayslipStore {
  }
 
  /**
+  * Décrit le relais de prévoyance minimum de la branche Plasturgie sans le
+  * confondre avec une prestation d'entreprise qui chevaucherait le maintien.
+  */
+ fun sicknessProvidentRelayForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieProvidentIncapacityV2.Result?{
+  if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
+  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
+  val prefs=SalaryCompanyStore.prefs(context,companyId)
+  val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
+      ?:prefs.getString("company_idcc","").orEmpty()
+  val start=Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate()
+  val entry=parseEntryDate(prefs)
+  val seniorityMonths=entry?.let{
+   if(it.isAfter(start))0 else ChronoUnit.MONTHS.between(it,start).toInt().coerceAtLeast(0)
+  }
+  val professionalStatus=prefs.getString("professional_status","").orEmpty().trim().uppercase(Locale.ROOT).ifBlank{null}
+  return PlasturgieProvidentIncapacityV2.assess(idcc,seniorityMonths,professionalStatus)
+ }
+
+ /**
   * Reconstruit la rémunération NETTE AVANT PAS que le salarié aurait perçue sans
   * l'arrêt, puis la prorate sur les jours calendaires de la période indemnisable.
-  *
-  * La base contractuelle exclut volontairement les paniers/remboursements de frais,
-  * les heures supplémentaires variables et les majorations de pointage qui ne sont
-  * pas certaines pendant l'absence. Les heures supplémentaires structurelles d'un
-  * contrat temps plein sont conservées car elles appartiennent à la mensualisation.
+  * Les paniers/remboursements et variables non certaines restent exclus.
   */
  fun sicknessTheoreticalNetForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessTheoreticalNetV2.Result?{
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
@@ -104,8 +113,10 @@ object V2PayslipStore {
   val bridgeWarnings=mutableListOf<String>()
 
   if(convention==null){
-   return SicknessTheoreticalNetV2.calculate(start,endExclusive,maintenance,emptyMap(),allowance)
-    .copy(warnings=listOf("Base nette maladie : convention collective introuvable pour l'IDCC $idcc."))
+   return SicknessTheoreticalNetV2.calculate(
+    start,endExclusive,maintenance,emptyMap(),allowance,
+    absence.providentTreatment,absence.employerProvidentOverlapNetAmount
+   ).copy(warnings=listOf("Base nette maladie : convention collective introuvable pour l'IDCC $idcc."))
   }
 
   var ym=YearMonth.from(start)
@@ -153,7 +164,10 @@ object V2PayslipStore {
   if(monthlyNet.isNotEmpty()){
    bridgeWarnings += "Base nette maladie : salaire contractuel mensualisé retenu ; paniers/remboursements, heures supplémentaires variables et majorations non certaines pendant l'arrêt sont exclus."
   }
-  val result=SicknessTheoreticalNetV2.calculate(start,endExclusive,maintenance,monthlyNet,allowance)
+  val result=SicknessTheoreticalNetV2.calculate(
+   start,endExclusive,maintenance,monthlyNet,allowance,
+   absence.providentTreatment,absence.employerProvidentOverlapNetAmount
+  )
   return result.copy(warnings=(result.warnings+bridgeWarnings).distinct())
  }
 
@@ -172,6 +186,11 @@ object V2PayslipStore {
   }
   val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,record.year,record.month,rate,convention);if(!expected.monthlyGrossReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf("Brut" to expected.monthlyEstimatedGross),observed,0.02)
  }
+ private fun parseEntryDate(prefs:android.content.SharedPreferences):LocalDate?=runCatching{
+  prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
+   LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
+  }
+ }.getOrNull()
  private fun toJson(r:Record)=JSONObject().put("id",r.id).put("year",r.year).put("month",r.month).put("uri",r.sourceUri).put("mime",r.sourceMime?:JSONObject.NULL).put("gross",r.gross?:JSONObject.NULL).put("net",r.net?:JSONObject.NULL).put("confidence",r.extractionConfidence).put("confirmed",r.confirmedByUser).put("importedAt",r.importedAtMs).put("companyId",r.companyId)
  private fun fromJson(o:JSONObject):Record?{val id=o.optString("id").takeIf{it.isNotBlank()}?:return null;val year=o.optInt("year",0).takeIf{it in 2000..2200}?:return null;val month=o.optInt("month",-1).takeIf{it in 0..11}?:return null;val uri=o.optString("uri").takeIf{it.isNotBlank()}?:return null;return Record(id,year,month,uri,o.optString("mime").takeIf{it.isNotBlank()&&it!="null"},o.opt("gross").let{(it as? Number)?.toDouble()},o.opt("net").let{(it as? Number)?.toDouble()},o.optDouble("confidence",0.0).coerceIn(0.0,1.0),o.optBoolean("confirmed",false),o.optLong("importedAt",0L),o.optString("companyId"))}
 }
