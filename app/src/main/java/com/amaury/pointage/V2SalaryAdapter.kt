@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.engine.CompanyAgreementOvertimeOverlayV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
+import com.amaury.pointage.v2.engine.MealBasketPolicyV2
 import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
@@ -32,7 +33,7 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>)
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null)
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   require(HoraTrackV2.ENABLED)
@@ -77,9 +78,17 @@ object V2SalaryAdapter {
    workSessions=runtimeSessions
   )
   val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
-  return calculateCore(
+  val calculated=calculateCore(
    contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
    ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact
+  )
+  val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
+  val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
+  return calculated.copy(
+   mealBasketCount=meals.count,
+   mealBasketAmount=meals.amountPerBasket,
+   mealBasketTotal=meals.totalAmount,
+   warnings=(calculated.warnings+meals.warnings).distinct()
   )
  }
 
