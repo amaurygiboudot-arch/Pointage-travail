@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
 import com.amaury.pointage.v2.engine.GpsEngineV2
 import com.amaury.pointage.v2.engine.TimeEngineV2
+import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 
 object HoraTrackV2 {
     const val ENABLED = true
@@ -57,8 +58,9 @@ object V2ValidationSuite {
             checks += name to value
         }
 
-        val slotMs = 15L * 60_000L
+        val slotMs = 30L * 60_000L
         val base = 7L * 60L * 60L * 1000L
+        val morning = 6L * 60L * 60L * 1000L
         val expectedEnd = 16L * 60L * 60L * 1000L
 
         addCheck(
@@ -66,12 +68,12 @@ object V2ValidationSuite {
             HoraTrackV2.time.countedEntryFromRealArrival(base) == base
         )
         addCheck(
-            "Entrée 07:05 -> 07:00",
-            HoraTrackV2.time.countedEntryFromRealArrival(base + 5L * 60_000L) == base
+            "Entrée 07:10 -> 07:00",
+            HoraTrackV2.time.countedEntryFromRealArrival(base + 10L * 60_000L) == base
         )
         addCheck(
-            "Entrée 07:06 -> 07:15",
-            HoraTrackV2.time.countedEntryFromRealArrival(base + 6L * 60_000L) == base + slotMs
+            "Entrée 07:11 -> 07:30",
+            HoraTrackV2.time.countedEntryFromRealArrival(base + 11L * 60_000L) == base + slotMs
         )
         addCheck(
             "Sortie +20 -> prévue",
@@ -84,6 +86,14 @@ object V2ValidationSuite {
         addCheck(
             "Sortie sans horaire prévu -> réelle",
             HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 5L * 60_000L, null) == expectedEnd + 5L * 60_000L
+        )
+        addCheck(
+            "Poste matin -> panier automatique",
+            WorkTimePolicyV2.hasAutomaticMorningBasket(morning)
+        )
+        addCheck(
+            "Poste journée -> pas de panier automatique",
+            !WorkTimePolicyV2.hasAutomaticMorningBasket(base)
         )
         addCheck(
             "Toutes les couches V2 actives",
