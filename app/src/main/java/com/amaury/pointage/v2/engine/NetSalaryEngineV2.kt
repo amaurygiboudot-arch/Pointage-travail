@@ -50,10 +50,20 @@ object NetSalaryEngineV2 {
 
         val providentDataComplete = company.providentEmployeeAmount != null || conventionProvidentKnown
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
-            providentDataComplete && company.transportEmployeeAmount != null
+            providentDataComplete &&
+            company.transportEmployeeAmount != null &&
+            company.employerProtectionTaxableAmount != null &&
+            company.employeeProvidentNonDeductibleAmount != null
 
+        // Référence Urssaf / DSN : net + CSG/CRDS non déductible + part employeur de
+        // prévoyances complémentaires + éventuelle part salariale de prévoyance non déductible.
         val netTaxable = if (taxableCompanyDataComplete) {
-            (beforeTax + nonDeductibleCsgCrds).coerceAtLeast(0.0)
+            (
+                beforeTax +
+                    nonDeductibleCsgCrds +
+                    company.employerProtectionTaxableAmount!! +
+                    company.employeeProvidentNonDeductibleAmount!!
+                ).coerceAtLeast(0.0)
         } else null
 
         val tax = if (netTaxable != null && company.incomeTaxRate != null) {
@@ -72,7 +82,7 @@ object NetSalaryEngineV2 {
                 company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
                 add("Prévoyance salariale renseignée inférieure au minimum conventionnel Plasturgie calculé : vérifier le bulletin ou le régime d’entreprise.")
             }
-            if (!taxableCompanyDataComplete) add("Net imposable/PAS : données entreprise incomplètes, aucun montant fiscal n'est inventé.")
+            if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
 
