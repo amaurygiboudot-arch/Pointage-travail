@@ -108,7 +108,7 @@ object V2SalaryAdapter {
   if(absenceImpact?.hasUnpaidAbsence==true){
    warnings+="Absence non rémunérée enregistrée : le brut exact exige les heures de travail prévues dans l'entreprise pour ce mois. Aucun montant de retenue n'est inventé."
   }
-  val monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.hasUnpaidAbsence!=true
+  val monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
