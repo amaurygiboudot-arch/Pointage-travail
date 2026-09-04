@@ -78,6 +78,17 @@ object V2RightsStore {
             AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED ->
                 require(absence.employerProvidentOverlapNetAmount?.let{it.isFinite()&&it>=0.0}==true){"Montant net de prévoyance chevauchante manquant ou invalide"}
         }
+        val relayValues=listOf(
+            absence.providentRelayTargetGross60Amount,
+            absence.providentRelaySocialSecurityGrossAmount,
+            absence.providentRelayObservedGrossAmount
+        )
+        val relayAny=relayValues.any{it!=null}
+        val relayAll=relayValues.all{it!=null}
+        require(!relayAny || relayAll){"Contrôle relais prévoyance incomplet : les trois montants doivent être renseignés ensemble"}
+        if(relayAll){
+            require(relayValues.all{it!!.isFinite()&&it>=0.0}){"Contrôle relais prévoyance : montant invalide"}
+        }
         val list=absences(context).toMutableList()
         val index=list.indexOfFirst{it.id==absence.id}
         if(index>=0)list[index]=absence else list+=absence
@@ -124,6 +135,7 @@ object V2RightsStore {
                 if(!result.applicable)return@flatMap emptyList()
                 val amount=V2PayslipStore.sicknessTheoreticalNetForAbsence(context,companyId,absence)
                 val relay=V2PayslipStore.sicknessProvidentRelayForAbsence(context,companyId,absence)
+                val relayControl=V2PayslipStore.sicknessProvidentRelayControlForAbsence(context,companyId,absence)
                 val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
                 val lines=when{
                     !result.eligibilityConfirmed -> listOf(result.warnings.firstOrNull()
@@ -167,9 +179,19 @@ object V2RightsStore {
                 }.toMutableList()
                 if(relay?.potentiallyCovered==true){
                     lines += buildString{
-                        append("Prévoyance Plasturgie : relais de branche potentiel à au moins 60 % du brut, après le maintien employeur")
+                        append("Prévoyance Plasturgie : relais de branche à au moins 60 % du brut, après le maintien employeur")
                         relay.earliestContinuousStopDay?.let{append(" • à partir du ").append(it).append("e jour d'arrêt continu")}
-                        if(!relay.eligibilityConfirmed)append(" • catégorie ANI 2.1/2.2 à confirmer")
+                        relay.relayReached?.let{append(if(it)" • relais atteint" else " • relais non encore atteint")}
+                    }
+                }
+                if(relayControl?.complete==true){
+                    lines += buildString{
+                        append("Contrôle prévoyance : minimum ")
+                            .append(String.format(Locale.FRANCE,"%.2f € brut",relayControl.expectedMinimumProvidentGross))
+                        append(" • observé ")
+                            .append(String.format(Locale.FRANCE,"%.2f € brut",relayControl.observedProvidentGross))
+                        relayControl.differenceGross?.let{append(" • écart ").append(String.format(Locale.FRANCE,"%+.2f €",it))}
+                        append(if(relayControl.meetsBranchMinimum==true)" • minimum de branche respecté" else " • écart à vérifier")
                     }
                 }
                 lines
@@ -212,7 +234,10 @@ object V2RightsStore {
                 .put("status",absence.status.name)
                 .put("subrogation",absence.subrogation.name)
                 .put("providentTreatment",absence.providentTreatment.name)
-                .put("employerProvidentOverlapNetAmount",absence.employerProvidentOverlapNetAmount?:JSONObject.NULL))
+                .put("employerProvidentOverlapNetAmount",absence.employerProvidentOverlapNetAmount?:JSONObject.NULL)
+                .put("providentRelayTargetGross60Amount",absence.providentRelayTargetGross60Amount?:JSONObject.NULL)
+                .put("providentRelaySocialSecurityGrossAmount",absence.providentRelaySocialSecurityGrossAmount?:JSONObject.NULL)
+                .put("providentRelayObservedGrossAmount",absence.providentRelayObservedGrossAmount?:JSONObject.NULL))
         }
         context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
             .edit().putString(KEY_ABSENCES,a.toString()).apply()
@@ -266,6 +291,10 @@ object V2RightsStore {
                     AbsenceProvidentTreatmentV2.valueOf(o.optString("providentTreatment",AbsenceProvidentTreatmentV2.TO_CONFIRM.name))
                 }.getOrDefault(AbsenceProvidentTreatmentV2.TO_CONFIRM)
                 val providentAmount=nullableDouble(o,"employerProvidentOverlapNetAmount")?.takeIf{it>=0.0}
+                val relayTarget=nullableDouble(o,"providentRelayTargetGross60Amount")?.takeIf{it>=0.0}
+                val relaySs=nullableDouble(o,"providentRelaySocialSecurityGrossAmount")?.takeIf{it>=0.0}
+                val relayObserved=nullableDouble(o,"providentRelayObservedGrossAmount")?.takeIf{it>=0.0}
+                val relayComplete=relayTarget!=null&&relaySs!=null&&relayObserved!=null
                 add(AbsenceV2(
                     id=id,
                     employerId=employerId,
@@ -277,7 +306,10 @@ object V2RightsStore {
                     status=status,
                     subrogation=subrogation,
                     providentTreatment=provident,
-                    employerProvidentOverlapNetAmount=if(provident==AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED)providentAmount else null
+                    employerProvidentOverlapNetAmount=if(provident==AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED)providentAmount else null,
+                    providentRelayTargetGross60Amount=relayTarget.takeIf{relayComplete},
+                    providentRelaySocialSecurityGrossAmount=relaySs.takeIf{relayComplete},
+                    providentRelayObservedGrossAmount=relayObserved.takeIf{relayComplete}
                 ))
             }
         }
