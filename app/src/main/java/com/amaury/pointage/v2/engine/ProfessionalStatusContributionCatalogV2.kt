@@ -22,16 +22,22 @@ object ProfessionalStatusContributionCatalogV2 {
     private const val PMSS_2026 = 4005.0
     private const val SOURCE = "Urssaf — prévoyance obligatoire des cadres, règle 2026"
 
-    fun estimate(gross: Double, year: Int, professionalStatus: String?): Estimate {
+    fun estimate(
+        gross: Double,
+        year: Int,
+        professionalStatus: String?,
+        ceiling: SocialSecurityCeilingV2.Snapshot? = null
+    ): Estimate {
         val g = gross.coerceAtLeast(0.0)
         if (year != 2026) {
             return Estimate(emptyList(), 0.0, listOf("Prévoyance cadre : barème non intégré pour $year"))
         }
 
         val status = professionalStatus?.trim()?.uppercase()
+        val applicable = ceiling?.applicableMonthly ?: PMSS_2026
         val lines = buildList {
             if (status == "CADRE" && g > 0.0) {
-                val base = min(g, PMSS_2026)
+                val base = min(g, applicable)
                 add(
                     Line(
                         id = "cadre_provident_employer_minimum",
@@ -49,7 +55,8 @@ object ProfessionalStatusContributionCatalogV2 {
             if (status != "CADRE" && status != "NON_CADRE") {
                 add("Statut professionnel à préciser : prévoyance cadre minimale non calculée.")
             }
-        }
+            ceiling?.warnings?.let(::addAll)
+        }.distinct()
 
         return Estimate(
             lines = lines,
