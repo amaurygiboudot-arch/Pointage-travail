@@ -62,6 +62,18 @@ class PlasturgieSicknessMaintenanceV2Test {
     }
 
     @Test
+    fun `premier arret de deux jours limite la carence du deuxieme a deux jours`() {
+        val first=sickness("first",LocalDate.of(2026,2,1),2)
+        val current=sickness("current",LocalDate.of(2026,9,10),10)
+        val result=PlasturgieSicknessMaintenanceV2.calculate(
+            "292",current,listOf(first,current),LocalDate.of(2022,5,1),setOf("company-a"),zone
+        )
+        assertEquals(2,result.employerWaitingDays)
+        assertEquals(2,result.alreadyConsumedIndemnifiedDays)
+        assertEquals(8,result.currentIndemnifiableDays)
+    }
+
+    @Test
     fun `jours deja consommes font basculer le nouvel arret vers 75 pour cent`() {
         val first=sickness("first",LocalDate.of(2026,1,1),45)
         val current=sickness("current",LocalDate.of(2026,9,10),10)
