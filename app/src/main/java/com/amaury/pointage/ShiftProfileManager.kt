@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.HoraTrackV2
 import java.util.Calendar
 import java.util.Locale
 
@@ -63,13 +64,20 @@ object ShiftProfileManager {
             .edit().putInt("pause_${shift.id}", minutes.coerceIn(0, 240)).apply()
     }
 
+    /**
+     * En V2, le panier du poste du matin est automatique et ne dépend plus du vieux
+     * réglage global shift_profiles. Le chemin historique reste seulement disponible
+     * quand V2 est désactivée, jusqu'à la suppression finale de V1.
+     */
     fun mealEnabled(context: Context, shift: ShiftType): Boolean {
+        if (HoraTrackV2.ENABLED) return shift == ShiftType.MORNING
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val default = shift == ShiftType.MORNING
         return prefs.getBoolean("meal_${shift.id}", default)
     }
 
     fun setMealEnabled(context: Context, shift: ShiftType, enabled: Boolean) {
+        if (HoraTrackV2.ENABLED) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putBoolean("meal_${shift.id}", enabled).apply()
     }
