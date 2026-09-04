@@ -32,6 +32,22 @@ class TimeEngineV2Test {
     }
 
     @Test
+    fun `poste matin commence aussi a cinq heures et ouvre le panier automatique`() {
+        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 0)))
+        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 30)))
+        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(6, 30)))
+        assertEquals(WorkTimePolicyV2.ShiftKind.DAY, WorkTimePolicyV2.shiftKind(at(7, 0)))
+        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(at(5, 0)))
+    }
+
+    @Test
+    fun `ancienne entree cinq heures quinze est reparee et reste un poste matin`() {
+        val repaired = WorkTimePolicyV2.repairKnownCountedEntry(at(5, 8), at(5, 15))
+        assertEquals(at(5, 0), repaired)
+        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(repaired!!))
+    }
+
+    @Test
     fun `sortie jusque vingt minutes apres reste heure prevue puis devient reelle`() {
         val expected = at(13, 0)
         assertEquals(expected, DefaultTimeEngineV2.countedExitFromRealExit(expected, expected))
@@ -86,6 +102,30 @@ class TimeEngineV2Test {
         assertEquals(30 * minute, result.paidPauseMs)
         assertEquals(8 * 60 * minute, result.paidWorkMs)
         assertTrue(result.warnings.any { it.contains("Pause d'équipe") })
+    }
+
+    @Test
+    fun `journee signalee six huit treize trente sept compte sept heures trente sept`() {
+        val session = WorkSessionV2(
+            id = "reported-day",
+            employerId = "employer",
+            realArrivalMs = at(6, 8),
+            countedEntryMs = at(6, 15),
+            countedExitMs = at(13, 37),
+            realExitMs = at(13, 37),
+            pauses = listOf(
+                PauseV2(at(10, 0), at(10, 30), false, EventSourceV2.MANUAL)
+            ),
+            status = SessionStatusV2.CLOSED
+        )
+
+        val result = DefaultTimeEngineV2.calculate(session)
+
+        assertEquals(7 * 60 * minute + 37 * minute, result.countedSpanMs)
+        assertEquals(0L, result.unpaidPauseMs)
+        assertEquals(30 * minute, result.paidPauseMs)
+        assertEquals(7 * 60 * minute + 37 * minute, result.paidWorkMs)
+        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(at(6, 0)))
     }
 
     @Test
