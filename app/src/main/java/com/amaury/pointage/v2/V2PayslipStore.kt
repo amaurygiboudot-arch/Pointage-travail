@@ -5,10 +5,16 @@ import android.net.Uri
 import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
+import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
+import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
+import com.amaury.pointage.v2.model.AbsenceV2
 import org.json.JSONArray
 import org.json.JSONObject
+import java.time.Instant
+import java.time.YearMonth
+import java.time.ZoneId
 import java.util.UUID
 
 /** Stockage local des bulletins. Chaque nouveau bulletin peut être rattaché à une entreprise. */
@@ -20,6 +26,27 @@ object V2PayslipStore {
  fun forCompany(context:Context,companyId:String):List<Record> = all(context).filter { it.companyId == companyId || (it.companyId.isBlank() && companyId.isBlank()) }
  fun latest(context:Context)=all(context).firstOrNull()
  fun latestForCompany(context:Context,companyId:String)=forCompany(context,companyId).firstOrNull()
+
+ /**
+  * Calcule l'IJSS maladie uniquement à partir de bulletins réels confirmés.
+  * Aucun brut estimé HoraTrack n'est injecté dans cette base de référence.
+  */
+ fun sicknessAllowanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):SicknessDailyAllowanceV2.Result?{
+  if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
+  val zone=ZoneId.systemDefault()
+  val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
+  val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
+  val grossByMonth=linkedMapOf<YearMonth,Double>()
+  forCompany(context,companyId)
+   .asSequence()
+   .filter{it.confirmedByUser && it.gross!=null}
+   .forEach{record->
+    val ym=YearMonth.of(record.year,record.month+1)
+    if(ym !in grossByMonth) grossByMonth[ym]=record.gross!!
+   }
+  return SicknessDailyAllowanceV2.calculate(start,endExclusive,grossByMonth)
+ }
+
  fun remove(context:Context,id:String){val p=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE);val kept=all(context).filterNot{it.id==id};val a=JSONArray();kept.sortedBy{it.importedAtMs}.forEach{a.put(toJson(it))};p.edit().putString(KEY_ITEMS,a.toString()).apply()}
  fun comparison(context:Context,record:Record):PayslipComparisonV2?{
   val observed=linkedMapOf<String,Double>();record.gross?.let{observed["Brut"]=it};if(observed.isEmpty())return null
