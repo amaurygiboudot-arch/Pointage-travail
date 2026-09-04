@@ -145,6 +145,137 @@ object V2RuntimeStore {
         return added
     }
 
+    /**
+     * Pauses réellement éditables par l'utilisateur : pauses non rémunérées créées
+     * manuellement ou par l'ancien programmateur automatique. Les pauses payées sont préservées.
+     */
+    fun editablePauseRangesForDay(context: Context, dayStart: Long, dayEnd: Long): List<Pair<Long, Long>> {
+        if (dayStart <= 0L || dayEnd <= dayStart) return emptyList()
+        return allSessions(context)
+            .flatMap { it.pauses }
+            .filter { pause ->
+                pause.paid != true &&
+                    (pause.source == EventSourceV2.MANUAL || pause.source == EventSourceV2.SYSTEM)
+            }
+            .mapNotNull { pause ->
+                val end = pause.endMs ?: return@mapNotNull null
+                if (pause.startMs in dayStart until dayEnd && end > pause.startMs) pause.startMs to end else null
+            }
+            .distinct()
+            .sortedBy { it.first }
+    }
+
+    /**
+     * Remplace atomiquement les pauses éditables d'une journée. Les pauses payées ou provenant
+     * d'autres sources restent intactes. Une liste vide supprime toutes les pauses éditables du jour.
+     */
+    fun replaceEditablePausesForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long,
+        ranges: List<Pair<Long, Long>>
+    ): Boolean {
+        bind(context)
+        V2MigrationManager.ensureMigrated(context)
+        if (dayStart <= 0L || dayEnd <= dayStart) return false
+
+        val clean = ranges
+            .filter { (start, end) -> start > 0L && end > start }
+            .distinct()
+            .sortedBy { it.first }
+        if (clean.any { (start, end) -> start !in dayStart until dayEnd || end > dayEnd }) return false
+
+        val p = prefs(context)
+        val history = runCatching { JSONArray(p.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val currentEntry = safeLong(p.all[KEY_REAL_ENTRY])
+        val currentExit = safeLong(p.all[KEY_REAL_EXIT]).takeIf { it > 0L }
+        val currentId = p.getString(KEY_ID, null)
+        val now = System.currentTimeMillis()
+
+        data class Target(val historyIndex: Int? = null, val current: Boolean = false)
+
+        fun historyContains(o: JSONObject, start: Long, end: Long): Boolean {
+            val entry = positive(o, "realEntry") ?: return false
+            val exit = positive(o, "realExit") ?: return false
+            return start >= entry && end <= exit
+        }
+
+        fun currentContains(start: Long, end: Long): Boolean {
+            if (currentEntry <= 0L || start < currentEntry) return false
+            val limit = currentExit ?: now
+            return end <= limit
+        }
+
+        val targets = mutableListOf<Target>()
+        for ((start, end) in clean) {
+            var found: Target? = null
+            for (i in 0 until history.length()) {
+                val session = history.optJSONObject(i) ?: continue
+                if (historyContains(session, start, end)) {
+                    found = Target(historyIndex = i)
+                    break
+                }
+            }
+            if (found == null && currentContains(start, end)) found = Target(current = true)
+            if (found == null) return false
+            targets += found
+        }
+
+        fun filtered(raw: JSONArray): JSONArray = JSONArray().apply {
+            for (i in 0 until raw.length()) {
+                val item = raw.optJSONObject(i) ?: continue
+                val start = positive(item, "start")
+                val source = parseSource(item.optString("source"))
+                val editable = start != null &&
+                    start in dayStart until dayEnd &&
+                    !item.optBoolean("paid", false) &&
+                    (source == EventSourceV2.MANUAL || source == EventSourceV2.SYSTEM)
+                if (!editable) put(item)
+            }
+        }
+
+        for (i in 0 until history.length()) {
+            val session = history.optJSONObject(i) ?: continue
+            val pauses = session.optJSONArray("pauses") ?: JSONArray()
+            session.put("pauses", filtered(pauses))
+        }
+
+        var currentPauses = filtered(runCatching { JSONArray(p.getString(KEY_PAUSES, "[]") ?: "[]") }.getOrElse { JSONArray() })
+
+        clean.zip(targets).forEach { (range, target) ->
+            val pause = JSONObject()
+                .put("start", range.first)
+                .put("end", range.second)
+                .put("source", EventSourceV2.MANUAL.name)
+                .put("paid", false)
+            when {
+                target.historyIndex != null -> {
+                    val session = history.optJSONObject(target.historyIndex) ?: return false
+                    val pauses = session.optJSONArray("pauses") ?: JSONArray().also { session.put("pauses", it) }
+                    pauses.put(pause)
+                }
+                target.current -> currentPauses.put(pause)
+            }
+        }
+
+        // Une session clôturée reste aussi dans les clés runtime courantes. On la garde synchronisée
+        // avec sa copie d'historique afin qu'une modification ne réapparaisse pas après redémarrage.
+        if (!currentId.isNullOrBlank() && currentEntry > 0L) {
+            for (i in 0 until history.length()) {
+                val session = history.optJSONObject(i) ?: continue
+                if (session.optString("id") == currentId) {
+                    currentPauses = session.optJSONArray("pauses") ?: JSONArray()
+                    break
+                }
+            }
+        }
+
+        return p.edit()
+            .putString(KEY_HISTORY, history.toString())
+            .putString(KEY_PAUSES, currentPauses.toString())
+            .commit()
+    }
+
     fun exit(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
