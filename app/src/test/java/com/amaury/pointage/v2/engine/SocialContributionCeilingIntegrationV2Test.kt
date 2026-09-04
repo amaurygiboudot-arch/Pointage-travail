@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
 
@@ -65,13 +66,14 @@ class SocialContributionCeilingIntegrationV2Test {
     }
 
     @Test
-    fun `prevoyance plasturgie utilise quatre fois le plafond proratisé`() {
+    fun `prevoyance plasturgie utilise quatre fois le plafond proratisé hors ANI`() {
         val ceiling = partTime28hCeiling()
+        val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 700)
         val estimate = ConventionProvidentCatalogV2.estimate(
             gross = 15000.0,
             year = 2026,
             idcc = "292",
-            professionalStatus = "NON_CADRE",
+            protectionCategory = category,
             seniorityMonths = 12,
             ceiling = ceiling
         )
@@ -79,6 +81,22 @@ class SocialContributionCeilingIntegrationV2Test {
 
         assertNotNull(line)
         assertEquals(12816.0, line!!.baseAmount, 0.001)
+    }
+
+    @Test
+    fun `assimile cadre 830 ne recoit pas le minimum non cadre`() {
+        val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 830)
+        val estimate = ConventionProvidentCatalogV2.estimate(
+            gross = 3000.0,
+            year = 2026,
+            idcc = "292",
+            protectionCategory = category,
+            seniorityMonths = 12,
+            ceiling = partTime28hCeiling()
+        )
+
+        assertNull(estimate.lines.firstOrNull { it.id == "plasturgie_292_non_cadre_provident" })
+        assertEquals(0.0, estimate.employeeDeductions, 0.001)
     }
 
     @Test
