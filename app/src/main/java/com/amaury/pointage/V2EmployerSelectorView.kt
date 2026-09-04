@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.AttributeSet
@@ -10,13 +11,15 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.amaury.pointage.v2.V2ProfileStore
 
-/** Sélecteur affiché seulement lorsqu'une seconde entreprise existe. */
+/** Sélecteur V2 de l'entreprise utilisée pour les nouveaux pointages. */
 class V2EmployerSelectorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
 ) : LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
     companion object { const val TAG = "v2_employer_selector" }
-    private val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+
+    private val companiesPrefs = context.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE)
+    private val integrationPrefs = context.getSharedPreferences("horatrack_v2_integration", Context.MODE_PRIVATE)
     private val label = TextView(context)
     private val button = Button(context)
 
@@ -29,7 +32,7 @@ class V2EmployerSelectorView @JvmOverloads constructor(
             isAllCaps = false
             textSize = 14f
             setBackgroundResource(R.drawable.hp_panel)
-            setOnClickListener { switchCompany() }
+            setOnClickListener { chooseCompany() }
         }
         addView(label)
         addView(button, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(3) })
@@ -38,40 +41,65 @@ class V2EmployerSelectorView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        salary.registerOnSharedPreferenceChangeListener(this)
+        companiesPrefs.registerOnSharedPreferenceChangeListener(this)
+        integrationPrefs.registerOnSharedPreferenceChangeListener(this)
         refresh()
     }
 
     override fun onDetachedFromWindow() {
-        salary.unregisterOnSharedPreferenceChangeListener(this)
+        companiesPrefs.unregisterOnSharedPreferenceChangeListener(this)
+        integrationPrefs.unregisterOnSharedPreferenceChangeListener(this)
         super.onDetachedFromWindow()
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
-        if (key?.startsWith("company") == true) post { refresh() }
+        post { refresh() }
     }
 
     fun refresh() {
-        val company2Exists = salary.getString("company2_name", "").orEmpty().isNotBlank() ||
-            salary.getString("company2_siret", "").orEmpty().isNotBlank()
-        visibility = if (company2Exists) View.VISIBLE else View.GONE
-        if (!company2Exists) {
-            V2ProfileStore.setActiveCompanySlot(context, 1)
-            return
+        val companies = SalaryCompanyStore.list(context)
+        when {
+            companies.isEmpty() -> {
+                visibility = View.GONE
+                button.text = "Aucune entreprise"
+            }
+            companies.size == 1 -> {
+                V2ProfileStore.setActiveCompanyId(context, companies.first().id)
+                visibility = View.GONE
+                button.text = companies.first().name.ifBlank { "Entreprise" }
+            }
+            else -> {
+                visibility = View.VISIBLE
+                val activeId = V2ProfileStore.activeCompanyId(context)
+                val active = companies.firstOrNull { it.id == activeId } ?: companies.first()
+                if (active.id != activeId) V2ProfileStore.setActiveCompanyId(context, active.id)
+                button.text = active.name.ifBlank { "Entreprise" }
+            }
         }
-        val slot = V2ProfileStore.activeCompanySlot(context)
-        button.text = if (slot == 2) companyName(2) else companyName(1)
     }
 
-    private fun switchCompany() {
-        val next = if (V2ProfileStore.activeCompanySlot(context) == 1) 2 else 1
-        V2ProfileStore.setActiveCompanySlot(context, next)
-        refresh()
-    }
+    private fun chooseCompany() {
+        val companies = SalaryCompanyStore.list(context)
+        if (companies.size <= 1) return
+        val activeId = V2ProfileStore.activeCompanyId(context)
+        val selected = companies.indexOfFirst { it.id == activeId }.coerceAtLeast(0)
+        val labels = companies.map { company ->
+            buildString {
+                append(company.name.ifBlank { "Entreprise" })
+                if (company.siret.isNotBlank()) append(" — SIRET ${company.siret}")
+            }
+        }.toTypedArray()
 
-    private fun companyName(slot: Int): String {
-        val prefix = if (slot == 2) "company2_" else "company_"
-        return salary.getString(prefix + "name", "").orEmpty().ifBlank { "Entreprise $slot" }
+        AlertDialog.Builder(context)
+            .setTitle("Entreprise du pointage")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                val company = companies.getOrNull(which) ?: return@setSingleChoiceItems
+                V2ProfileStore.setActiveCompanyId(context, company.id)
+                refresh()
+                dialog.dismiss()
+            }
+            .setNegativeButton("ANNULER", null)
+            .show()
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
