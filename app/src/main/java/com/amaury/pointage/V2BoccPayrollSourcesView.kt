@@ -10,6 +10,7 @@ import android.widget.Toast
 import com.amaury.pointage.v2.BoccPayrollAuditV2
 import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -70,7 +71,7 @@ class V2BoccPayrollSourcesView(
                 append(records.size).append(" référence(s) BOCC vérifiée(s)\n")
                 records.take(12).forEach { record ->
                     append("• ").append(record.title)
-                    val details = listOfNotNull(record.bulletinNumber, record.publicationDate)
+                    val details = listOfNotNull(record.bulletinNumber, formatPublicationDate(record.publicationDate))
                     if (details.isNotEmpty()) append(" — ").append(details.joinToString(" · "))
                     append('\n')
                 }
@@ -99,6 +100,20 @@ class V2BoccPayrollSourcesView(
                 verifyButton.isEnabled = company.idcc.filter(Char::isDigit).isNotBlank()
                 status.text = "Vérification BOCC impossible : ${error.message ?: "erreur inconnue"}"
             }
+    }
+
+    private fun formatPublicationDate(raw: String?): String? {
+        val value = raw?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val epochMs = value.toLongOrNull()
+        if (epochMs != null && epochMs > 0L) {
+            return runCatching {
+                Instant.ofEpochMilli(epochMs)
+                    .atZone(ZoneId.systemDefault())
+                    .toLocalDate()
+                    .format(DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE))
+            }.getOrNull() ?: value
+        }
+        return value
     }
 
     private data class Reference(val atMs: Long, val label: String)
