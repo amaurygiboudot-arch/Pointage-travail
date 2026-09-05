@@ -16,6 +16,17 @@ function findSiret(recherche) {
   return null;
 }
 
+function boundedInt(value, min, max, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function normalizedOfficialId(value, prefix) {
+  const id = String(value ?? "").trim().toUpperCase();
+  return new RegExp(`^${prefix}\\d+$`).test(id) ? id : "";
+}
+
 function normalizeLegifranceBody(path, body) {
   const safeBody = isPlainObject(body) ? body : {};
   if (path === "/consult/kaliContIdcc") {
@@ -40,6 +51,37 @@ function normalizeLegifranceBody(path, body) {
         ? { searchValue: safeBody.searchValue.trim().slice(0, 120) }
         : {}),
     };
+  }
+
+  if (path === "/consult/getArticle") {
+    const id = normalizedOfficialId(safeBody.id, "LEGIARTI");
+    return id ? { id } : {};
+  }
+
+  if (path === "/consult/legiPart") {
+    const textId = normalizedOfficialId(safeBody.textId, "LEGITEXT");
+    const date = Number(safeBody.date);
+    return textId && Number.isFinite(date) && date > 0 ? { date: Math.trunc(date), textId } : {};
+  }
+
+  if (path === "/consult/lastNJo") {
+    return { nbElement: boundedInt(safeBody.nbElement, 1, 100, 5) };
+  }
+
+  if (path === "/consult/jorfCont") {
+    const id = normalizedOfficialId(safeBody.id, "JORFCONT");
+    if (!id) return {};
+    return {
+      highlightActivated: safeBody.highlightActivated !== false,
+      id,
+      pageNumber: boundedInt(safeBody.pageNumber, 1, 100, 1),
+      pageSize: boundedInt(safeBody.pageSize, 1, 100, 25),
+    };
+  }
+
+  if (path === "/consult/jorf") {
+    const textCid = normalizedOfficialId(safeBody.textCid, "JORFTEXT");
+    return textCid ? { textCid } : {};
   }
 
   if (path !== "/search" || safeBody.fond !== "ACCO" || !isPlainObject(safeBody.recherche)) {
@@ -76,6 +118,22 @@ function isValidLegifranceBody(path, body) {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
   }
+  if (path === "/consult/getArticle") {
+    return Boolean(normalizedOfficialId(body.id, "LEGIARTI"));
+  }
+  if (path === "/consult/legiPart") {
+    return Boolean(normalizedOfficialId(body.textId, "LEGITEXT")) && Number.isFinite(Number(body.date)) && Number(body.date) > 0;
+  }
+  if (path === "/consult/lastNJo") {
+    const count = Number(body.nbElement);
+    return Number.isFinite(count) && count >= 1 && count < 2500;
+  }
+  if (path === "/consult/jorfCont") {
+    return Boolean(normalizedOfficialId(body.id, "JORFCONT"));
+  }
+  if (path === "/consult/jorf") {
+    return Boolean(normalizedOfficialId(body.textCid, "JORFTEXT"));
+  }
   return true;
 }
 
@@ -91,7 +149,14 @@ function publicFailureMessage(stage, status, path = "") {
   }
   if (stage === "api") {
     if (status === 400) {
-      const source = path.includes("kali") || path === "/list/conventions" ? "KALI" : "ACCO";
+      const lowerPath = path.toLowerCase();
+      const source = lowerPath.includes("kali") || path === "/list/conventions"
+        ? "KALI"
+        : lowerPath.includes("jorf") || lowerPath.includes("lastnjo")
+          ? "JORF"
+          : lowerPath.includes("legi") || lowerPath.includes("getarticle")
+            ? "LEGI"
+            : "ACCO";
       return `Requête ${source} refusée par Légifrance (HTTP 400).`;
     }
     if (status === 401 || status === 403) {
