@@ -32,6 +32,10 @@ object BoccPayrollAuditV2 {
                 Summary(atMs, "", 0, 0, 0, 0, false, listOf("BOCC : IDCC de l'entreprise requis."))
             )
         }
+        val normalizedIdcc = idcc.toIntOrNull()?.takeIf { it > 0 }?.toString()
+            ?: return Tasks.forResult(
+                Summary(atMs, idcc, 0, 0, 0, 0, false, listOf("BOCC : IDCC de l'entreprise invalide."))
+            )
 
         val zone = ZoneId.systemDefault()
         val referenceDate = Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate()
@@ -51,7 +55,12 @@ object BoccPayrollAuditV2 {
                         )
                     )
                 }
-                val candidates = OfficialBoccSourceV2.parseCandidates(searchTask.result?.data)
+                val allCandidates = OfficialBoccSourceV2.parseCandidates(searchTask.result?.data)
+                val candidates = allCandidates.filter { candidate ->
+                    candidate.idccs.isEmpty() || candidate.idccs.any { raw ->
+                        raw.filter(Char::isDigit).toIntOrNull()?.takeIf { it > 0 }?.toString() == normalizedIdcc
+                    }
+                }
                 val relevant = candidates.filter(OfficialBoccSourceV2::isPayrollRelevant)
                 if (relevant.isEmpty()) {
                     val saved = BoccPayrollSourceStoreV2.replaceSnapshot(app, company.id, atMs, idcc, emptyList())
@@ -66,7 +75,7 @@ object BoccPayrollAuditV2 {
                             saved = saved,
                             warnings = listOf(
                                 if (candidates.isEmpty())
-                                    "BOCC : aucune publication trouvée pour cet IDCC sur la fenêtre contrôlée."
+                                    "BOCC : aucune publication correspondant à cet IDCC sur la fenêtre contrôlée."
                                 else
                                     "BOCC : publications trouvées, mais aucun titre ne touche directement les thèmes de paie suivis."
                             )
@@ -95,6 +104,9 @@ object BoccPayrollAuditV2 {
                         saved = saved,
                         warnings = buildList {
                             addAll(result.warnings)
+                            if (allCandidates.size != candidates.size) {
+                                add("BOCC : ${allCandidates.size - candidates.size} publication(s) écartée(s) car l'IDCC ne correspondait pas.")
+                            }
                             if (result.verified.isEmpty()) {
                                 add("BOCC : aucun document paie n'a été confirmé par les métadonnées officielles.")
                             }
