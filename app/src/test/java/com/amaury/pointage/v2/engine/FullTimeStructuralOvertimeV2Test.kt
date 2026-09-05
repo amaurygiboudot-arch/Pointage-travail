@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FullTimeStructuralOvertimeV2Test {
@@ -50,5 +51,20 @@ class FullTimeStructuralOvertimeV2Test {
 
         assertEquals(1516.6667,result.monthlyBaseGross,0.01)
         assertEquals(50.0,result.variableOvertimeGross,0.001)
+    }
+
+    @Test
+    fun missingTiersUseTenPercentOnlyAsAProvisionalFloor() {
+        val result=FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes=39*60,
+            regularWeeklyLimit=35*60,
+            paidWeeks=emptyList(),
+            grossHourlyRate=10.0,
+            overtimeTiers=emptyList()
+        )
+
+        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertTrue(result.warnings.any { it.contains("plancher de +10 %") })
+        assertTrue(result.warnings.any { it.contains("n'est pas le barème supplétif de +25 % puis +50 %") })
     }
 }
