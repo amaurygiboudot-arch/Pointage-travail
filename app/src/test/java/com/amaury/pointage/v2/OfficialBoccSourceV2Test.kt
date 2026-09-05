@@ -82,6 +82,26 @@ class OfficialBoccSourceV2Test {
     }
 
     @Test
+    fun `controle title et enteteTitle pour la pertinence paie`() {
+        val response = mapOf(
+            "texts" to listOf(
+                mapOf(
+                    "title" to "Avenant n° 12",
+                    "enteteTitle" to "Salaires minima conventionnels",
+                    "fileName" to "boc_20260017_0012_p000.pdf",
+                    "idccs" to listOf("292")
+                )
+            )
+        )
+
+        val candidate = OfficialBoccSourceV2.parseCandidates(response).single()
+
+        assertEquals("Avenant n° 12", candidate.title)
+        assertEquals("Salaires minima conventionnels", candidate.headerTitle)
+        assertTrue(OfficialBoccSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
     fun `ignore les entrees BOCC sans fichier PDF sur`() {
         val response = mapOf(
             "texts" to listOf(
