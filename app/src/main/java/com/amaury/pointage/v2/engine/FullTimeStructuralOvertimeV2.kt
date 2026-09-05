@@ -11,6 +11,7 @@ object FullTimeStructuralOvertimeV2 {
         val variableOvertimeGross:Double,
         val structuralTiers:List<TierAmount>,
         val variableTiers:List<TierAmount>,
+        val provisionalRateUsed:Boolean,
         val warnings:List<String>
     )
 
@@ -51,7 +52,8 @@ object FullTimeStructuralOvertimeV2 {
             )
         }
         val variableGross=variableParts.sumOf{it.gross}
-        val warnings=(listOf(structuralWeekly)+variableParts).flatMap{it.warnings}.distinct()
+        val allRated=listOf(structuralWeekly)+variableParts
+        val warnings=allRated.flatMap{it.warnings}.distinct()
 
         fun aggregate(parts:List<Rated>,monthly:Boolean):List<TierAmount> = parts
             .flatMap{it.tiers}
@@ -70,12 +72,19 @@ object FullTimeStructuralOvertimeV2 {
             variableOvertimeGross=variableGross,
             structuralTiers=aggregate(listOf(structuralWeekly),true),
             variableTiers=aggregate(variableParts,false),
+            provisionalRateUsed=allRated.any{it.provisionalRateUsed},
             warnings=warnings
         )
     }
 
     private data class Piece(val multiplier:Double,val minutes:Double,val gross:Double)
-    private data class Rated(val minutes:Double,val gross:Double,val tiers:List<Piece>,val warnings:List<String>)
+    private data class Rated(
+        val minutes:Double,
+        val gross:Double,
+        val tiers:List<Piece>,
+        val provisionalRateUsed:Boolean,
+        val warnings:List<String>
+    )
 
     /** Rémunère la tranche (lower, upper] sans jamais laisser disparaître une minute. */
     private fun ratedBetween(
@@ -85,10 +94,11 @@ object FullTimeStructuralOvertimeV2 {
         tiers:List<OvertimeTierV2>,
         fallbackMultiplier:Double
     ):Rated {
-        if(upper<=lower)return Rated(0.0,0.0,emptyList(),emptyList())
+        if(upper<=lower)return Rated(0.0,0.0,emptyList(),false,emptyList())
         val sorted=tiers.sortedBy{it.fromMinutes}
         var cursor=lower
         var gross=0.0
+        var provisionalRateUsed=false
         val pieces=mutableListOf<Piece>()
         val warnings=mutableListOf<String>()
 
@@ -100,7 +110,10 @@ object FullTimeStructuralOvertimeV2 {
             gross+=amount
         }
 
-        fun warnFallback(){
+        fun addFallback(from:Int,to:Int){
+            if(to<=from)return
+            add(from,to,fallbackMultiplier)
+            provisionalRateUsed=true
             warnings+="Palier d'heures supplémentaires incomplet : valorisation provisoire au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le taux exact reste à vérifier."
         }
 
@@ -110,8 +123,7 @@ object FullTimeStructuralOvertimeV2 {
             val tierEnd=minOf(upper,tier.toMinutes?:Int.MAX_VALUE)
             if(tierEnd<=cursor||tierEnd<=tierStart)return@forEach
             if(tierStart>cursor){
-                add(cursor,minOf(tierStart,upper),fallbackMultiplier)
-                warnFallback()
+                addFallback(cursor,minOf(tierStart,upper))
                 cursor=minOf(tierStart,upper)
             }
             if(cursor<upper&&tierEnd>cursor){
@@ -119,10 +131,7 @@ object FullTimeStructuralOvertimeV2 {
                 cursor=tierEnd
             }
         }
-        if(cursor<upper){
-            add(cursor,upper,fallbackMultiplier)
-            warnFallback()
-        }
-        return Rated((upper-lower).toDouble(),gross,pieces,warnings.distinct())
+        if(cursor<upper)addFallback(cursor,upper)
+        return Rated((upper-lower).toDouble(),gross,pieces,provisionalRateUsed,warnings.distinct())
     }
 }
