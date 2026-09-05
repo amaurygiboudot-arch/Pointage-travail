@@ -37,7 +37,53 @@ class OfficialLegalCodeVerifierV2Test {
         assertEquals(candidate.articleId, verified!!.articleId)
         assertEquals("L3121-36", verified.articleNumber)
         assertEquals(topic, verified.topic)
+        assertEquals("VIGUEUR", verified.status)
         assertEquals(1788566400000, verified.referenceAtMs)
+    }
+
+    @Test
+    fun `accepte une vigueur differee devenue applicable a la date de paie`() {
+        val article = OfficialLegalCodeSourceV2.Article(
+            articleId = candidate.articleId,
+            articleNumber = "L3121-36",
+            status = "VIGUEUR_DIFF",
+            content = "Version future officielle applicable à la date de paie.",
+            effectiveFrom = "2026-09-20T00:00:00Z",
+            effectiveTo = "2999-01-01T00:00:00Z"
+        )
+
+        val verified = OfficialLegalCodeVerifierV2.validate(
+            topic,
+            candidate,
+            article,
+            atMs = 1790726400000,
+            checkedAtMs = 1788600000000
+        )
+
+        assertNotNull(verified)
+        assertEquals("VIGUEUR_DIFF", verified!!.status)
+    }
+
+    @Test
+    fun `rejette une vigueur differee pas encore applicable a la date de paie`() {
+        val article = OfficialLegalCodeSourceV2.Article(
+            articleId = candidate.articleId,
+            articleNumber = "L3121-36",
+            status = "VIGUEUR_DIFF",
+            content = "Version future officielle.",
+            effectiveFrom = "2026-10-10T00:00:00Z",
+            effectiveTo = null
+        )
+
+        assertNull(
+            OfficialLegalCodeVerifierV2.validate(
+                topic,
+                candidate,
+                article,
+                atMs = 1790726400000,
+                checkedAtMs = 1788600000000
+            )
+        )
     }
 
     @Test
