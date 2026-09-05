@@ -125,7 +125,7 @@ function normalizeLegifranceBody(path, body) {
     };
   }
 
-  if (path === "/list/boccsAndTexts") {
+  if (path === "/list/boccAndTexts") {
     const idcc = normalizedIdcc(safeBody.idcc);
     const intervalPublication = normalizedBoccInterval(safeBody.intervalPublication);
     if (!idcc || !intervalPublication) return {};
@@ -218,7 +218,7 @@ function isValidLegifranceBody(path, body) {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
   }
-  if (path === "/list/boccsAndTexts") {
+  if (path === "/list/boccAndTexts") {
     return Boolean(normalizedIdcc(body.idcc)) && Boolean(normalizedBoccInterval(body.intervalPublication));
   }
   if (path === "/consult/getBoccTextPdfMetadata") {
