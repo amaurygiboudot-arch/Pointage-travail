@@ -64,7 +64,7 @@ object LegalPayrollAuditV2 {
                         val saved = LegalPayrollSourceStoreV2.replaceTopicSnapshot(app, topic, atMs, verified)
                         val warnings = buildList {
                             if (candidates.isEmpty()) add("LEGI ${topic.label} : aucun article candidat trouvé pour cette date.")
-                            else if (verified.isEmpty()) add("LEGI ${topic.label} : aucun candidat n'a passé les contrôles ID / VIGUEUR / période.")
+                            else if (verified.isEmpty()) add("LEGI ${topic.label} : aucun candidat n'a passé les contrôles ID / état juridique / période d'application.")
                             if (!saved) add("LEGI ${topic.label} : résultat vérifié mais stockage local impossible.")
                         }
                         TopicResult(
