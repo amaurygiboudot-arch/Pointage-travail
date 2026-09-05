@@ -24,7 +24,8 @@ object OfficialBoccSourceV2 {
         val idMainBocc: String?,
         val idccs: List<String>,
         val department: String?,
-        val displaySize: String?
+        val displaySize: String?,
+        val headerTitle: String? = null
     )
 
     data class PdfMetadata(
@@ -105,15 +106,19 @@ object OfficialBoccSourceV2 {
         val fileName = value(text, "fileName", "filename", "id")
             ?.trim()
             ?.takeIf(::isPdfFileName) ?: return null
-        val title = value(text, "enteteTitle", "enteteTitre", "title", "titre")
+        val title = value(text, "title", "titre")
             ?.trim()
-            ?.takeIf { it.isNotBlank() } ?: return null
+            ?.takeIf { it.isNotBlank() }
+        val headerTitle = value(text, "enteteTitle", "enteteTitre")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val displayTitle = title ?: headerTitle ?: return null
         val idccs = (text["idccs"] as? List<*>)
             ?.mapNotNull { raw -> raw?.toString()?.filter(Char::isDigit)?.takeIf { it.isNotBlank() } }
             ?.distinct()
             .orEmpty()
         return Candidate(
-            title = title,
+            title = displayTitle,
             fileName = fileName,
             pathFile = value(text, "pathFile", "pathToFile", "path")?.takeIf { it.isNotBlank() },
             publicationDate = value(text, "dateParution", "publicationDate", "datePublication")
@@ -123,7 +128,8 @@ object OfficialBoccSourceV2 {
             idMainBocc = value(text, "idMainBocc", "mainBoccId")?.takeIf { it.isNotBlank() },
             idccs = idccs,
             department = value(text, "department", "departement")?.takeIf { it.isNotBlank() },
-            displaySize = value(text, "displaySize", "size")?.takeIf { it.isNotBlank() }
+            displaySize = value(text, "displaySize", "size")?.takeIf { it.isNotBlank() },
+            headerTitle = headerTitle
         )
     }
 
@@ -145,10 +151,14 @@ object OfficialBoccSourceV2 {
         )
     }
 
-    /** Filtre documentaire uniquement : aucune règle de paie n'est déduite de ces mots-clés. */
+    /** Filtre documentaire uniquement : on contrôle title ET enteteTitle sans déduire de règle chiffrée. */
     fun isPayrollRelevant(candidate: Candidate): Boolean {
-        val text = normalize(candidate.title)
-        return PAYROLL_KEYWORDS.any(text::contains)
+        val searchable = normalize(
+            listOfNotNull(candidate.title, candidate.headerTitle)
+                .distinct()
+                .joinToString(" ")
+        )
+        return PAYROLL_KEYWORDS.any(searchable::contains)
     }
 
     private fun value(map: Map<*, *>?, vararg keys: String): String? {
