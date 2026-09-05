@@ -30,7 +30,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état VIGUEUR et la période sont confirmés. Aucun taux n'est inventé à partir d'un texte ambigu. La couverture des thèmes est une piste d'audit, pas une certification d'exhaustivité juridique."
+            text = "HoraTrack recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état juridique compatible (VIGUEUR ou VIGUEUR_DIFF) et la période d'application sont confirmés pour cette date. Aucun taux n'est inventé à partir d'un texte ambigu. La couverture des thèmes est une piste d'audit, pas une certification d'exhaustivité juridique."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
