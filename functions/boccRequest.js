@@ -28,8 +28,8 @@ function boundedInt(value, min, max, fallback) {
 }
 
 /**
- * /list/boccTexts n'exige que pageNumber/pageSize. On transmet uniquement les filtres utiles
- * documentés et on laisse de côté les drapeaux de recherche optionnels du portail web.
+ * /list/boccsAndTexts utilise BoccAndTextListRequest : un IDCC scalaire,
+ * une période de publication et la pagination.
  */
 function normalizeBoccRequest(body) {
   const safeBody = body && typeof body === "object" && !Array.isArray(body) ? body : {};
@@ -37,7 +37,7 @@ function normalizeBoccRequest(body) {
   const intervalPublication = normalizedInterval(safeBody.intervalPublication);
   if (!idcc || !intervalPublication) return {};
   return {
-    idccs: [idcc],
+    idcc,
     intervalPublication,
     pageNumber: boundedInt(safeBody.pageNumber, 1, 100, 1),
     pageSize: boundedInt(safeBody.pageSize, 1, 100, 50),
