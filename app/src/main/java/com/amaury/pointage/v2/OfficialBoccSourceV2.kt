@@ -52,8 +52,6 @@ object OfficialBoccSourceV2 {
             "intervalPublication" to "${from.format(intervalFormatter)} > ${to.format(intervalFormatter)}",
             "pageNumber" to pageNumber.coerceIn(1, 100),
             "pageSize" to pageSize.coerceIn(1, 100),
-            "searchForGlobalBocc" to false,
-            "searchForTextsBocc" to true,
             "sortValue" to "BOCC_SORT_DESC"
         )
     }
