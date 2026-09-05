@@ -1,1 +1,1 @@
-Deploy Firebase Functions - ajout BOCC Salaire V2 - 2026-09-05 20:07 UTC
+Deploy Firebase Functions - correction BOCC boccTexts - 2026-09-05 20:29 UTC
