@@ -167,7 +167,7 @@ object OfficialJorfSourceV2 {
 
     /** Filtre documentaire uniquement ; aucune règle de paie n'est créée à partir de ces mots-clés. */
     fun isPayrollRelevant(candidate: Candidate): Boolean {
-        val text = normalize(listOfNotNull(candidate.title, candidate.nature, candidate.ministry).joinToString(" "))
+        val text = normalize(listOfNotNull(candidate.title, candidate.nature).joinToString(" "))
         return PAYROLL_KEYWORDS.any(text::contains)
     }
 
@@ -214,14 +214,14 @@ object OfficialJorfSourceV2 {
     private fun normalize(value: String): String = Normalizer.normalize(
         value.lowercase(Locale.FRANCE),
         Normalizer.Form.NFD
-    ).replace(Regex("\\p{Mn}+"), " ")
+    ).replace(Regex("\\p{Mn}+"), "")
         .replace(Regex("\\s+"), " ")
         .trim()
 
     private val PAYROLL_KEYWORDS = listOf(
         "salaire", "remuneration", "smic", "minimum", "minima", "prime", "cotisation",
-        "securite sociale", "travail", "emploi", "heures supplementaires", "temps de travail",
-        "conge", "repos", "rtt", "indemnite", "majoration", "travail de nuit", "paie",
-        "bulletin de paie", "apprentissage", "alternance", "licenciement", "retraite"
+        "securite sociale", "temps de travail", "heures supplementaires", "conge", "repos", "rtt",
+        "indemnite", "majoration", "travail de nuit", "paie", "bulletin de paie", "apprentissage",
+        "alternance", "licenciement", "retraite", "duree du travail"
     )
 }
