@@ -5,10 +5,14 @@ import com.amaury.pointage.SalaryCompanyStore
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /** Chaîne BOCC : publications IDCC -> filtre documentaire paie -> métadonnées PDF -> stockage d'audit. */
 object BoccPayrollAuditV2 {
+    private const val PAGE_SIZE = 100
+    private const val MAX_PAGES = 5
+
     data class Summary(
         val referenceAtMs: Long,
         val idcc: String,
@@ -17,6 +21,14 @@ object BoccPayrollAuditV2 {
         val verified: Int,
         val rejectedOrSkipped: Int,
         val saved: Boolean,
+        val warnings: List<String> = emptyList()
+    )
+
+    private data class SearchBatch(
+        val candidates: List<OfficialBoccSourceV2.Candidate>,
+        val expectedTotal: Int?,
+        val pagesRead: Int,
+        val partial: Boolean,
         val warnings: List<String> = emptyList()
     )
 
@@ -42,10 +54,9 @@ object BoccPayrollAuditV2 {
         // KALI porte l'état conventionnel consolidé. BOCC sert ici de piste récente de publication :
         // on borne volontairement la recherche aux 24 mois précédant la date de paie.
         val from = referenceDate.minusMonths(24)
-        val body = OfficialBoccSourceV2.listBody(idcc, from, referenceDate, pageSize = 100)
         val app = context.applicationContext
 
-        return LegifranceFunctionClientV2.request("/list/boccAndTexts", body)
+        return fetchPages(idcc, from, referenceDate)
             .continueWithTask { searchTask ->
                 if (!searchTask.isSuccessful) {
                     return@continueWithTask Tasks.forResult(
@@ -55,7 +66,8 @@ object BoccPayrollAuditV2 {
                         )
                     )
                 }
-                val allCandidates = OfficialBoccSourceV2.parseCandidates(searchTask.result?.data)
+                val batch = searchTask.result
+                val allCandidates = batch.candidates
                 val candidates = allCandidates.filter { candidate ->
                     candidate.idccs.isEmpty() || candidate.idccs.any { raw ->
                         raw.filter(Char::isDigit).toIntOrNull()?.takeIf { it > 0 }?.toString() == normalizedIdcc
@@ -73,12 +85,15 @@ object BoccPayrollAuditV2 {
                             verified = 0,
                             rejectedOrSkipped = 0,
                             saved = saved,
-                            warnings = listOf(
-                                if (candidates.isEmpty())
-                                    "BOCC : aucune publication correspondant à cet IDCC sur la fenêtre contrôlée."
-                                else
-                                    "BOCC : publications trouvées, mais aucun titre ne touche directement les thèmes de paie suivis."
-                            )
+                            warnings = buildList {
+                                addAll(batch.warnings)
+                                add(
+                                    if (candidates.isEmpty())
+                                        "BOCC : aucune publication correspondant à cet IDCC sur la fenêtre contrôlée."
+                                    else
+                                        "BOCC : publications trouvées, mais aucun titre ne touche directement les thèmes de paie suivis."
+                                )
+                            }
                         )
                     )
                 }
@@ -87,7 +102,7 @@ object BoccPayrollAuditV2 {
                     if (!verifyTask.isSuccessful) {
                         return@continueWith Summary(
                             atMs, idcc, candidates.size, relevant.size, 0, relevant.size, false,
-                            listOf("BOCC : vérification des métadonnées PDF impossible.")
+                            batch.warnings + "BOCC : vérification des métadonnées PDF impossible."
                         )
                     }
                     val result = verifyTask.result
@@ -103,6 +118,7 @@ object BoccPayrollAuditV2 {
                         rejectedOrSkipped = result.rejectedOrSkippedCount,
                         saved = saved,
                         warnings = buildList {
+                            addAll(batch.warnings)
                             addAll(result.warnings)
                             if (allCandidates.size != candidates.size) {
                                 add("BOCC : ${allCandidates.size - candidates.size} publication(s) écartée(s) car l'IDCC ne correspondait pas.")
@@ -112,6 +128,71 @@ object BoccPayrollAuditV2 {
                             }
                             if (!saved) add("BOCC : résultat vérifié mais stockage local impossible.")
                         }
+                    )
+                }
+            }
+    }
+
+    /** Lecture séquentielle et bornée pour ne pas provoquer de rafale PISTE. */
+    private fun fetchPages(
+        idcc: String,
+        from: LocalDate,
+        to: LocalDate,
+        pageNumber: Int = 1,
+        accumulated: List<OfficialBoccSourceV2.Candidate> = emptyList(),
+        expectedTotal: Int? = null
+    ): Task<SearchBatch> {
+        val body = OfficialBoccSourceV2.listBody(
+            idcc = idcc,
+            from = from,
+            to = to,
+            pageSize = PAGE_SIZE,
+            pageNumber = pageNumber
+        )
+        return LegifranceFunctionClientV2.request("/list/boccAndTexts", body)
+            .continueWithTask { task ->
+                if (!task.isSuccessful) {
+                    if (pageNumber == 1) {
+                        return@continueWithTask Tasks.forException(
+                            task.exception ?: IllegalStateException("BOCC : première page inaccessible")
+                        )
+                    }
+                    return@continueWithTask Tasks.forResult(
+                        SearchBatch(
+                            candidates = accumulated.distinctBy { it.fileName },
+                            expectedTotal = expectedTotal,
+                            pagesRead = pageNumber - 1,
+                            partial = true,
+                            warnings = listOf("BOCC : pagination interrompue après ${pageNumber - 1} page(s).")
+                        )
+                    )
+                }
+
+                val pageCandidates = OfficialBoccSourceV2.parseCandidates(task.result?.data)
+                val total = expectedTotal ?: OfficialBoccSourceV2.totalResultNumber(task.result?.data)
+                val combined = (accumulated + pageCandidates).distinctBy { it.fileName }
+                val completeByCount = total != null && combined.size >= total
+                val noMoreResults = pageCandidates.isEmpty()
+                val reachedLimit = pageNumber >= MAX_PAGES
+                val shouldContinue = total != null && !completeByCount && !noMoreResults && !reachedLimit
+
+                if (shouldContinue) {
+                    fetchPages(idcc, from, to, pageNumber + 1, combined, total)
+                } else {
+                    val partial = (total != null && combined.size < total) ||
+                        (reachedLimit && pageCandidates.isNotEmpty() && total == null)
+                    Tasks.forResult(
+                        SearchBatch(
+                            candidates = combined,
+                            expectedTotal = total,
+                            pagesRead = pageNumber,
+                            partial = partial,
+                            warnings = buildList {
+                                if (partial) {
+                                    add("BOCC : lecture bornée à $pageNumber page(s) ; la piste de publication peut être partielle.")
+                                }
+                            }
+                        )
                     )
                 }
             }
