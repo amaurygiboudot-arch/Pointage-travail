@@ -22,7 +22,7 @@ const ALLOWED_PATHS = new Set([
   "/list/conventions",
   "/consult/getArticle",
   "/consult/legiPart",
-  "/list/boccTexts",
+  "/list/boccsAndTexts",
   "/consult/getBoccTextPdfMetadata",
   "/consult/lastNJo",
   "/consult/jorfCont",
@@ -110,7 +110,7 @@ exports.legifranceRequest = onCall(
 
     try {
       const token = await pisteAccessToken();
-      const body = path === "/list/boccTexts"
+      const body = path === "/list/boccsAndTexts"
         ? normalizeBoccRequest(request.data?.body)
         : normalizeLegifranceBody(path, request.data?.body);
       const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
