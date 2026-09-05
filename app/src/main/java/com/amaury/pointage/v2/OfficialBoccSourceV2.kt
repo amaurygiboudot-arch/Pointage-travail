@@ -48,10 +48,12 @@ object OfficialBoccSourceV2 {
             ?: throw IllegalArgumentException("IDCC BOCC invalide")
         require(!from.isAfter(to)) { "Période BOCC invalide" }
         return mapOf(
-            "idcc" to normalizedIdcc.toInt().toString(),
+            "idccs" to listOf(normalizedIdcc.toInt().toString()),
             "intervalPublication" to "${from.format(intervalFormatter)} > ${to.format(intervalFormatter)}",
             "pageNumber" to pageNumber.coerceIn(1, 100),
             "pageSize" to pageSize.coerceIn(1, 100),
+            "searchForGlobalBocc" to false,
+            "searchForTextsBocc" to true,
             "sortValue" to "BOCC_SORT_DESC"
         )
     }
@@ -69,6 +71,16 @@ object OfficialBoccSourceV2 {
 
     fun parseCandidates(data: Any?): List<Candidate> {
         val root = data as? Map<*, *> ?: return emptyList()
+
+        // Réponse officielle de /list/boccTexts : les textes unitaires sont directement dans "texts".
+        val directTexts = root.entries.firstOrNull {
+            it.key?.toString()?.equals("texts", ignoreCase = true) == true
+        }?.value as? List<*>
+        if (directTexts != null) {
+            return directTexts.mapNotNull(::parseTextCandidate).distinctBy { it.fileName }
+        }
+
+        // Repli défensif pour l'ancienne forme boccAndTexts déjà couverte par les fixtures historiques.
         val results = root["results"] as? List<*> ?: return emptyList()
         return buildList {
             results.forEach resultLoop@{ rawResult ->
@@ -78,37 +90,43 @@ object OfficialBoccSourceV2 {
                 val bulletinNumber = value(global, "numParution", "numeroParution", "number")
                 val texts = result["texts"] as? List<*> ?: emptyList<Any?>()
                 texts.forEach textLoop@{ rawText ->
-                    val text = rawText as? Map<*, *> ?: return@textLoop
-                    val fileName = value(text, "fileName", "filename", "id")
-                        ?.trim()
-                        ?.takeIf(::isPdfFileName) ?: return@textLoop
-                    // enteteTitle est souvent plus descriptif que le titre technique court du texte.
-                    val title = value(text, "enteteTitle", "enteteTitre", "title", "titre")
-                        ?.trim()
-                        ?.takeIf { it.isNotBlank() } ?: return@textLoop
-                    val idccs = (text["idccs"] as? List<*>)
-                        ?.mapNotNull { raw -> raw?.toString()?.filter(Char::isDigit)?.takeIf { it.isNotBlank() } }
-                        ?.distinct()
-                        .orEmpty()
+                    val candidate = parseTextCandidate(rawText) ?: return@textLoop
                     add(
-                        Candidate(
-                            title = title,
-                            fileName = fileName,
-                            pathFile = value(text, "pathFile", "pathToFile", "path")?.takeIf { it.isNotBlank() },
-                            publicationDate = value(text, "dateParution", "publicationDate")
-                                ?.takeIf { it.isNotBlank() } ?: publicationDate,
-                            textDate = value(text, "texteDate", "textDate", "dateTexte")?.takeIf { it.isNotBlank() },
-                            bulletinNumber = value(text, "numParution", "numeroParution")
-                                ?.takeIf { it.isNotBlank() } ?: bulletinNumber,
-                            idMainBocc = value(text, "idMainBocc", "mainBoccId")?.takeIf { it.isNotBlank() },
-                            idccs = idccs,
-                            department = value(text, "department", "departement")?.takeIf { it.isNotBlank() },
-                            displaySize = value(text, "displaySize", "size")?.takeIf { it.isNotBlank() }
+                        candidate.copy(
+                            publicationDate = candidate.publicationDate ?: publicationDate,
+                            bulletinNumber = candidate.bulletinNumber ?: bulletinNumber
                         )
                     )
                 }
             }
         }.distinctBy { it.fileName }
+    }
+
+    private fun parseTextCandidate(rawText: Any?): Candidate? {
+        val text = rawText as? Map<*, *> ?: return null
+        val fileName = value(text, "fileName", "filename", "id")
+            ?.trim()
+            ?.takeIf(::isPdfFileName) ?: return null
+        val title = value(text, "enteteTitle", "enteteTitre", "title", "titre")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() } ?: return null
+        val idccs = (text["idccs"] as? List<*>)
+            ?.mapNotNull { raw -> raw?.toString()?.filter(Char::isDigit)?.takeIf { it.isNotBlank() } }
+            ?.distinct()
+            .orEmpty()
+        return Candidate(
+            title = title,
+            fileName = fileName,
+            pathFile = value(text, "pathFile", "pathToFile", "path")?.takeIf { it.isNotBlank() },
+            publicationDate = value(text, "dateParution", "publicationDate", "datePublication")
+                ?.takeIf { it.isNotBlank() },
+            textDate = value(text, "texteDate", "textDate", "dateTexte")?.takeIf { it.isNotBlank() },
+            bulletinNumber = value(text, "numParution", "numeroParution")?.takeIf { it.isNotBlank() },
+            idMainBocc = value(text, "idMainBocc", "mainBoccId")?.takeIf { it.isNotBlank() },
+            idccs = idccs,
+            department = value(text, "department", "departement")?.takeIf { it.isNotBlank() },
+            displaySize = value(text, "displaySize", "size")?.takeIf { it.isNotBlank() }
+        )
     }
 
     fun parsePdfMetadata(data: Any?): PdfMetadata? {
@@ -123,8 +141,8 @@ object OfficialBoccSourceV2 {
             fileName = fileName,
             pathToFile = path,
             title = value(root, "title", "titre")?.takeIf { it.isNotBlank() },
-            publicationDate = value(root, "dateParution", "publicationDate")?.takeIf { it.isNotBlank() },
-            bulletinNumber = value(root, "numParution", "numeroParution")?.takeIf { it.isNotBlank() },
+            publicationDate = value(root, "dateParution", "datePubli", "publicationDate")?.takeIf { it.isNotBlank() },
+            bulletinNumber = value(root, "numParution", "numeroParution", "num")?.takeIf { it.isNotBlank() },
             displaySize = value(root, "displaySize", "size")?.takeIf { it.isNotBlank() }
         )
     }
