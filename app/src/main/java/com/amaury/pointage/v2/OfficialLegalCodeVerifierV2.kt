@@ -9,8 +9,8 @@ import java.time.ZoneOffset
  * Vérifie les candidats LEGI par consultation de l'article officiel.
  *
  * Cette couche ne déduit aucun taux ni aucune règle chiffrée du texte : elle confirme seulement
- * l'identifiant officiel (version ou CID), l'état juridique et la période d'application à la date
- * de paie contrôlée.
+ * l'identifiant officiel (version ou CID), l'état juridique compatible et la période d'application
+ * à la date de paie contrôlée.
  */
 object OfficialLegalCodeVerifierV2 {
     data class VerifiedArticle(
@@ -115,9 +115,8 @@ object OfficialLegalCodeVerifierV2 {
         if (!candidateMatchesVersion && !candidateMatchesCid) return "identifiant LEGI différent"
 
         val normalizedStatus = article.status?.trim()?.uppercase().orEmpty()
-        if (normalizedStatus.isBlank()) return "état juridique absent"
-        if (normalizedStatus in setOf("ANNULE", "SANS_ETAT", "MODIFIE_MORT_NE")) {
-            return "état juridique $normalizedStatus"
+        if (normalizedStatus !in setOf("VIGUEUR", "VIGUEUR_DIFF")) {
+            return if (normalizedStatus.isBlank()) "état juridique absent" else "état juridique $normalizedStatus"
         }
 
         val from = parseDateMs(article.effectiveFrom) ?: return "date de début absente ou invalide"
