@@ -133,17 +133,15 @@ function normalizeLegifranceBody(path, body) {
     };
   }
 
-  if (path === "/list/boccTexts") {
+  if (path === "/list/boccsAndTexts") {
     const idcc = firstBoccIdcc(safeBody);
     const intervalPublication = normalizedBoccInterval(safeBody.intervalPublication);
     if (!idcc || !intervalPublication) return {};
     return {
-      idccs: [idcc],
+      idcc,
       intervalPublication,
       pageNumber: boundedInt(safeBody.pageNumber, 1, 100, 1),
       pageSize: boundedInt(safeBody.pageSize, 1, 100, 50),
-      searchForGlobalBocc: false,
-      searchForTextsBocc: true,
       sortValue: safeBody.sortValue === "BOCC_SORT_ASC" ? "BOCC_SORT_ASC" : "BOCC_SORT_DESC",
     };
   }
@@ -225,7 +223,7 @@ function isValidLegifranceBody(path, body) {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
   }
-  if (path === "/list/boccTexts") {
+  if (path === "/list/boccsAndTexts") {
     return Boolean(firstBoccIdcc(body)) && Boolean(normalizedBoccInterval(body.intervalPublication));
   }
   if (path === "/consult/getBoccTextPdfMetadata") {
