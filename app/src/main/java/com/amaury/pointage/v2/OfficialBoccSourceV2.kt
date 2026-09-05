@@ -48,7 +48,7 @@ object OfficialBoccSourceV2 {
             ?: throw IllegalArgumentException("IDCC BOCC invalide")
         require(!from.isAfter(to)) { "Période BOCC invalide" }
         return mapOf(
-            "idccs" to listOf(normalizedIdcc.toInt().toString()),
+            "idcc" to normalizedIdcc.toInt().toString(),
             "intervalPublication" to "${from.format(intervalFormatter)} > ${to.format(intervalFormatter)}",
             "pageNumber" to pageNumber.coerceIn(1, 100),
             "pageSize" to pageSize.coerceIn(1, 100),
@@ -70,7 +70,7 @@ object OfficialBoccSourceV2 {
     fun parseCandidates(data: Any?): List<Candidate> {
         val root = data as? Map<*, *> ?: return emptyList()
 
-        // Réponse officielle de /list/boccTexts : les textes unitaires sont directement dans "texts".
+        // Forme unitaire éventuelle : les textes sont directement dans "texts".
         val directTexts = root.entries.firstOrNull {
             it.key?.toString()?.equals("texts", ignoreCase = true) == true
         }?.value as? List<*>
@@ -78,7 +78,7 @@ object OfficialBoccSourceV2 {
             return directTexts.mapNotNull(::parseTextCandidate).distinctBy { it.fileName }
         }
 
-        // Repli défensif pour l'ancienne forme boccAndTexts déjà couverte par les fixtures historiques.
+        // Forme de /list/boccsAndTexts : bulletin global + textes unitaires.
         val results = root["results"] as? List<*> ?: return emptyList()
         return buildList {
             results.forEach resultLoop@{ rawResult ->
