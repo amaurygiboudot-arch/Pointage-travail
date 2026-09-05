@@ -41,7 +41,7 @@ object BoccPayrollAuditV2 {
         val body = OfficialBoccSourceV2.listBody(idcc, from, referenceDate, pageSize = 100)
         val app = context.applicationContext
 
-        return LegifranceFunctionClientV2.request("/list/boccsAndTexts", body)
+        return LegifranceFunctionClientV2.request("/list/boccAndTexts", body)
             .continueWithTask { searchTask ->
                 if (!searchTask.isSuccessful) {
                     return@continueWithTask Tasks.forResult(
