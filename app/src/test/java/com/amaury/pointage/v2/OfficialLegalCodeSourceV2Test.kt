@@ -32,7 +32,43 @@ class OfficialLegalCodeSourceV2Test {
     }
 
     @Test
-    fun `extrait uniquement les candidats article LEGI`() {
+    fun `extrait les articles depuis sections extracts du format CODE_DATE`() {
+        val response = mapOf(
+            "results" to listOf(
+                mapOf(
+                    "titles" to listOf(
+                        mapOf("id" to "LEGITEXT000006072050", "title" to "Code du travail")
+                    ),
+                    "sections" to listOf(
+                        mapOf(
+                            "extracts" to listOf(
+                                mapOf(
+                                    "id" to "LEGIARTI000033020341",
+                                    "num" to "L3121-36",
+                                    "values" to listOf("A défaut d'accord", "les heures supplémentaires")
+                                ),
+                                mapOf(
+                                    "id" to "LEGIARTI000033020339",
+                                    "num" to "L3121-33",
+                                    "values" to listOf("Une convention ou un accord collectif")
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val candidates = OfficialLegalCodeSourceV2.parseCandidates(response)
+
+        assertEquals(2, candidates.size)
+        assertEquals("LEGIARTI000033020341", candidates[0].articleId)
+        assertEquals("L3121-36", candidates[0].articleNumber)
+        assertTrue(candidates[0].snippet!!.contains("heures supplémentaires"))
+    }
+
+    @Test
+    fun `extrait uniquement les candidats article LEGI avec le repli historique`() {
         val response = mapOf(
             "results" to listOf(
                 mapOf(
@@ -56,7 +92,33 @@ class OfficialLegalCodeSourceV2Test {
     }
 
     @Test
-    fun `parse un article officiel sans en deduire de regle`() {
+    fun `parse la reponse getArticle officielle avec id cid et texte`() {
+        val response = mapOf(
+            "executionTime" to 12,
+            "article" to mapOf(
+                "id" to "LEGIARTI000051234567",
+                "cid" to "LEGIARTI000033020341",
+                "num" to "L3121-36",
+                "etat" to "VIGUEUR",
+                "dateDebut" to "2016-08-10T00:00:00.000+0000",
+                "dateFin" to "2999-01-01T00:00:00.000+0000",
+                "texte" to "<p>Texte juridique vérifié.</p>"
+            )
+        )
+
+        val article = OfficialLegalCodeSourceV2.parseArticle(response)
+
+        assertNotNull(article)
+        assertEquals("LEGIARTI000051234567", article!!.articleId)
+        assertEquals("LEGIARTI000033020341", article.articleCid)
+        assertEquals("L3121-36", article.articleNumber)
+        assertEquals("VIGUEUR", article.status)
+        assertEquals("Texte juridique vérifié.", article.content)
+        assertEquals("2016-08-10T00:00:00.000+0000", article.effectiveFrom)
+    }
+
+    @Test
+    fun `parse aussi un article officiel avec les anciens noms de champs`() {
         val response = mapOf(
             "executionTime" to 12,
             "article" to mapOf(
