@@ -26,6 +26,7 @@ object OfficialLegalCodeSourceV2 {
 
     data class Article(
         val articleId: String,
+        val articleCid: String?,
         val articleNumber: String?,
         val status: String?,
         val content: String,
@@ -69,6 +70,40 @@ object OfficialLegalCodeSourceV2 {
     fun parseCandidates(data: Any?): List<Candidate> {
         val root = data as? Map<*, *> ?: return emptyList()
         val results = root["results"] as? List<*> ?: return emptyList()
+
+        val extracts = buildList {
+            results.forEach { rawResult ->
+                val result = rawResult as? Map<*, *> ?: return@forEach
+                val title = firstValue(result, "title", "titre", "libelle")?.takeIf { it.isNotBlank() }
+                val sections = result["sections"] as? List<*> ?: emptyList<Any?>()
+                sections.forEach { rawSection ->
+                    val section = rawSection as? Map<*, *> ?: return@forEach
+                    val sectionExtracts = section["extracts"] as? List<*> ?: emptyList<Any?>()
+                    sectionExtracts.forEach { rawExtract ->
+                        val extract = rawExtract as? Map<*, *> ?: return@forEach
+                        val id = firstValue(extract, "id")?.takeIf(::isLegiArticleId) ?: return@forEach
+                        val values = extract["values"] as? List<*>
+                        val snippet = values
+                            ?.joinToString(" ") { it?.toString().orEmpty() }
+                            ?.let(::cleanText)
+                            ?.takeIf { it.isNotBlank() }
+                            ?.take(500)
+                        add(
+                            Candidate(
+                                articleId = id,
+                                articleNumber = firstValue(extract, "num", "numArticle", "numeroArticle", "numero")
+                                    ?.takeIf { it.isNotBlank() },
+                                title = title,
+                                snippet = snippet
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        if (extracts.isNotEmpty()) return extracts.distinctBy { it.articleId }
+
+        // Repli défensif pour les anciennes formes de réponse déjà vues dans les tests/fixtures.
         return results.mapNotNull { raw ->
             val item = raw as? Map<*, *> ?: return@mapNotNull null
             val id = findString(item) { _, value -> value.startsWith("LEGIARTI") }
@@ -89,15 +124,23 @@ object OfficialLegalCodeSourceV2 {
     /** Parse la réponse POST /consult/getArticle sans en déduire automatiquement une règle. */
     fun parseArticle(data: Any?): Article? {
         val root = data as? Map<*, *> ?: return null
-        val articleMap = findMap(root) { map ->
+        val explicitArticle = root.entries.firstOrNull {
+            it.key?.toString()?.equals("article", ignoreCase = true) == true
+        }?.value as? Map<*, *>
+        val articleMap = explicitArticle ?: findMap(root) { map ->
             map.values.any { value -> value?.toString()?.let(::isLegiArticleId) == true }
         } ?: return null
-        val id = findString(articleMap) { _, value -> isLegiArticleId(value) } ?: return null
-        val content = firstValue(articleMap, "content", "contenu", "texte")
+
+        val id = firstValue(articleMap, "id")?.takeIf(::isLegiArticleId)
+            ?: findString(articleMap) { key, value -> key.equals("id", ignoreCase = true) && isLegiArticleId(value) }
+            ?: return null
+        val cid = firstValue(articleMap, "cid")?.takeIf(::isLegiArticleId)
+        val content = firstValue(articleMap, "texte", "content", "contenu", "texteHtml")
             ?.let(::cleanText)
             ?.takeIf { it.isNotBlank() } ?: return null
         return Article(
             articleId = id,
+            articleCid = cid,
             articleNumber = firstValue(articleMap, "num", "numero", "numArticle", "numeroArticle")
                 ?.takeIf { it.isNotBlank() },
             status = firstValue(articleMap, "etat", "status", "legalStatus")?.takeIf { it.isNotBlank() },
