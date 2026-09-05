@@ -27,6 +27,61 @@ function normalizedOfficialId(value, prefix) {
   return new RegExp(`^${prefix}\\d+$`).test(id) ? id : "";
 }
 
+function firstSearchCriterionValue(recherche) {
+  if (!isPlainObject(recherche) || !Array.isArray(recherche.champs)) return "";
+  for (const champ of recherche.champs) {
+    if (!isPlainObject(champ) || !Array.isArray(champ.criteres)) continue;
+    for (const critere of champ.criteres) {
+      const value = typeof critere?.valeur === "string" ? critere.valeur.trim().replace(/\s+/g, " ") : "";
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
+function codeDateVersion(recherche) {
+  if (!isPlainObject(recherche) || !Array.isArray(recherche.filtres)) return 0;
+  const filter = recherche.filtres.find(
+    (item) => isPlainObject(item) && item.facette === "DATE_VERSION"
+  );
+  const date = Number(filter?.singleDate);
+  return Number.isFinite(date) && date > 0 ? Math.trunc(date) : 0;
+}
+
+function normalizeCodeDateSearch(safeBody) {
+  const recherche = isPlainObject(safeBody.recherche) ? safeBody.recherche : {};
+  const query = firstSearchCriterionValue(recherche).slice(0, 120);
+  const date = codeDateVersion(recherche);
+  if (!query || !date) return {};
+  return {
+    fond: "CODE_DATE",
+    recherche: {
+      champs: [{
+        typeChamp: "ARTICLE",
+        criteres: [{ typeRecherche: "UN_DES_MOTS", valeur: query, operateur: "ET" }],
+        operateur: "ET",
+      }],
+      filtres: [
+        { facette: "NOM_CODE", valeurs: ["Code du travail"] },
+        { facette: "DATE_VERSION", singleDate: date },
+        { facette: "TEXT_LEGAL_STATUS", valeur: "VIGUEUR" },
+      ],
+      pageNumber: 1,
+      pageSize: boundedInt(recherche.pageSize, 1, 25, 10),
+      operateur: "ET",
+      sort: "PERTINENCE",
+      typePagination: "ARTICLE",
+    },
+  };
+}
+
+function isValidCodeDateSearch(body) {
+  if (body.fond !== "CODE_DATE" || !isPlainObject(body.recherche)) return false;
+  const query = firstSearchCriterionValue(body.recherche);
+  const date = codeDateVersion(body.recherche);
+  return query.length > 0 && query.length <= 120 && date > 0;
+}
+
 function normalizeLegifranceBody(path, body) {
   const safeBody = isPlainObject(body) ? body : {};
   if (path === "/consult/kaliContIdcc") {
@@ -84,6 +139,10 @@ function normalizeLegifranceBody(path, body) {
     return textCid ? { textCid } : {};
   }
 
+  if (path === "/search" && safeBody.fond === "CODE_DATE") {
+    return normalizeCodeDateSearch(safeBody);
+  }
+
   if (path !== "/search" || safeBody.fond !== "ACCO" || !isPlainObject(safeBody.recherche)) {
     return safeBody;
   }
@@ -114,6 +173,9 @@ function normalizeLegifranceBody(path, body) {
 
 function isValidLegifranceBody(path, body) {
   if (!isPlainObject(body)) return false;
+  if (path === "/search" && body.fond === "CODE_DATE") {
+    return isValidCodeDateSearch(body);
+  }
   if (path === "/consult/kaliContIdcc") {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
