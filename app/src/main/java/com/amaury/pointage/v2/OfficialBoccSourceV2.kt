@@ -59,22 +59,22 @@ object OfficialBoccSourceV2 {
         val root = data as? Map<*, *> ?: return emptyList()
         val results = root["results"] as? List<*> ?: return emptyList()
         return buildList {
-            results.forEach { rawResult ->
-                val result = rawResult as? Map<*, *> ?: return@forEach
+            results.forEach resultLoop@{ rawResult ->
+                val result = rawResult as? Map<*, *> ?: return@resultLoop
                 val global = result["globalBocc"] as? Map<*, *>
                 val publicationDate = value(global, "dateParution", "publicationDate", "datePublication")
                 val bulletinNumber = value(global, "numParution", "numeroParution", "number")
                 val texts = result["texts"] as? List<*> ?: emptyList<Any?>()
-                texts.forEach { rawText ->
-                    val text = rawText as? Map<*, *> ?: return@forEach
+                texts.forEach textLoop@{ rawText ->
+                    val text = rawText as? Map<*, *> ?: return@textLoop
                     val fileName = value(text, "fileName", "filename", "id")
                         ?.trim()
-                        ?.takeIf(::isPdfFileName) ?: return@forEach
+                        ?.takeIf(::isPdfFileName) ?: return@textLoop
                     val title = value(text, "title", "titre", "enteteTitle", "enteteTitre")
                         ?.trim()
-                        ?.takeIf { it.isNotBlank() } ?: return@forEach
+                        ?.takeIf { it.isNotBlank() } ?: return@textLoop
                     val idccs = (text["idccs"] as? List<*>)
-                        ?.mapNotNull { it?.toString()?.filter(Char::isDigit)?.takeIf(String::isNotBlank) }
+                        ?.mapNotNull { raw -> raw?.toString()?.filter(Char::isDigit)?.takeIf { it.isNotBlank() } }
                         ?.distinct()
                         .orEmpty()
                     add(
