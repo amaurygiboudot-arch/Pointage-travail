@@ -8,7 +8,7 @@ const {
   publicFailureMessage,
 } = require("./legifranceProxy");
 
-test("normalizes BOCC text listing to one IDCC and a bounded publication window", () => {
+test("normalizes BOCC listing to one scalar IDCC and a bounded publication window", () => {
   const body = {
     idccs: ["IDCC 3248"],
     intervalPublication: "01/09/2024   >   30/09/2026",
@@ -17,35 +17,33 @@ test("normalizes BOCC text listing to one IDCC and a bounded publication window"
     sortValue: "UNSUPPORTED",
   };
 
-  assert.equal(isValidLegifranceBody("/list/boccTexts", body), true);
-  assert.deepEqual(normalizeLegifranceBody("/list/boccTexts", body), {
-    idccs: ["3248"],
+  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", body), true);
+  assert.deepEqual(normalizeLegifranceBody("/list/boccsAndTexts", body), {
+    idcc: "3248",
     intervalPublication: "01/09/2024 > 30/09/2026",
     pageNumber: 1,
     pageSize: 100,
-    searchForGlobalBocc: false,
-    searchForTextsBocc: true,
     sortValue: "BOCC_SORT_DESC",
   });
 
-  assert.equal(isValidLegifranceBody("/list/boccTexts", {
-    idccs: ["3248"],
+  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", {
+    idcc: "3248",
     intervalPublication: "2024-09-01 to 2026-09-30",
   }), false);
-  assert.equal(isValidLegifranceBody("/list/boccTexts", {
-    idccs: ["aucun"],
+  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", {
+    idcc: "aucun",
     intervalPublication: "01/09/2024 > 30/09/2026",
   }), false);
 });
 
-test("accepts a legacy scalar IDCC but emits the official idccs array", () => {
-  const normalized = normalizeLegifranceBody("/list/boccTexts", {
-    idcc: "0292",
+test("accepts a legacy idccs array but emits the boccsAndTexts scalar idcc", () => {
+  const normalized = normalizeLegifranceBody("/list/boccsAndTexts", {
+    idccs: ["0292"],
     intervalPublication: "01/09/2024 > 30/09/2026",
     pageNumber: 1,
     pageSize: 25,
   });
-  assert.deepEqual(normalized.idccs, ["292"]);
+  assert.equal(normalized.idcc, "292");
 });
 
 test("accepts only safe BOCC PDF metadata identifiers", () => {
