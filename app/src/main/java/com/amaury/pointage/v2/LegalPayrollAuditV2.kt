@@ -60,18 +60,26 @@ object LegalPayrollAuditV2 {
                                 warnings = listOf("LEGI ${topic.label} : consultation des articles impossible.")
                             )
                         }
-                        val verified = verifyTask.result.verified
+                        val verification = verifyTask.result
+                        val verified = verification.verified
                         val saved = LegalPayrollSourceStoreV2.replaceTopicSnapshot(app, topic, atMs, verified)
                         val warnings = buildList {
-                            if (candidates.isEmpty()) add("LEGI ${topic.label} : aucun article candidat trouvé pour cette date.")
-                            else if (verified.isEmpty()) add("LEGI ${topic.label} : aucun candidat n'a passé les contrôles ID / état juridique / période d'application.")
+                            if (candidates.isEmpty()) {
+                                add("LEGI ${topic.label} : aucun article candidat trouvé pour cette date.")
+                            } else if (verified.isEmpty()) {
+                                val detail = verification.rejectionReasons.joinToString(", ").takeIf { it.isNotBlank() }
+                                add(
+                                    "LEGI ${topic.label} : aucun candidat n'a passé les contrôles ID / état juridique / période d'application" +
+                                        (detail?.let { " ($it)." } ?: ".")
+                                )
+                            }
                             if (!saved) add("LEGI ${topic.label} : résultat vérifié mais stockage local impossible.")
                         }
                         TopicResult(
                             topic = topic,
                             candidates = candidates.size,
                             verified = verified.size,
-                            rejectedOrSkipped = verifyTask.result.rejectedOrSkippedCount,
+                            rejectedOrSkipped = verification.rejectedOrSkippedCount,
                             saved = saved,
                             warnings = warnings
                         )
