@@ -27,6 +27,22 @@ function normalizedOfficialId(value, prefix) {
   return new RegExp(`^${prefix}\\d+$`).test(id) ? id : "";
 }
 
+function normalizedIdcc(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits || digits.length > 4 || Number(digits) <= 0) return "";
+  return String(Number(digits));
+}
+
+function normalizedBoccInterval(value) {
+  const interval = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return /^\d{2}\/\d{2}\/\d{4} > \d{2}\/\d{2}\/\d{4}$/.test(interval) ? interval : "";
+}
+
+function normalizedBoccFileName(value) {
+  const fileName = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z0-9_.-]{1,160}\.pdf$/i.test(fileName) ? fileName : "";
+}
+
 function firstSearchCriterionValue(recherche) {
   if (!isPlainObject(recherche) || !Array.isArray(recherche.champs)) return "";
   for (const champ of recherche.champs) {
@@ -109,6 +125,27 @@ function normalizeLegifranceBody(path, body) {
     };
   }
 
+  if (path === "/list/boccsAndTexts") {
+    const idcc = normalizedIdcc(safeBody.idcc);
+    const intervalPublication = normalizedBoccInterval(safeBody.intervalPublication);
+    if (!idcc || !intervalPublication) return {};
+    return {
+      idcc,
+      intervalPublication,
+      pageNumber: boundedInt(safeBody.pageNumber, 1, 100, 1),
+      pageSize: boundedInt(safeBody.pageSize, 1, 100, 50),
+      sortValue: safeBody.sortValue === "BOCC_SORT_ASC" ? "BOCC_SORT_ASC" : "BOCC_SORT_DESC",
+      ...(typeof safeBody.titre === "string" && safeBody.titre.trim()
+        ? { titre: safeBody.titre.trim().replace(/\s+/g, " ").slice(0, 120) }
+        : {}),
+    };
+  }
+
+  if (path === "/consult/getBoccTextPdfMetadata") {
+    const id = normalizedBoccFileName(safeBody.id);
+    return id ? { id, forGlobalBocc: false } : {};
+  }
+
   if (path === "/consult/getArticle") {
     const id = normalizedOfficialId(safeBody.id, "LEGIARTI");
     return id ? { id } : {};
@@ -181,6 +218,12 @@ function isValidLegifranceBody(path, body) {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
   }
+  if (path === "/list/boccsAndTexts") {
+    return Boolean(normalizedIdcc(body.idcc)) && Boolean(normalizedBoccInterval(body.intervalPublication));
+  }
+  if (path === "/consult/getBoccTextPdfMetadata") {
+    return Boolean(normalizedBoccFileName(body.id));
+  }
   if (path === "/consult/getArticle") {
     return Boolean(normalizedOfficialId(body.id, "LEGIARTI"));
   }
@@ -213,13 +256,15 @@ function publicFailureMessage(stage, status, path = "") {
   if (stage === "api") {
     if (status === 400) {
       const lowerPath = path.toLowerCase();
-      const source = lowerPath.includes("kali") || path === "/list/conventions"
-        ? "KALI"
-        : lowerPath.includes("jorf") || lowerPath.includes("lastnjo")
-          ? "JORF"
-          : lowerPath.includes("legi") || lowerPath.includes("getarticle")
-            ? "LEGI"
-            : "ACCO";
+      const source = lowerPath.includes("bocc")
+        ? "BOCC"
+        : lowerPath.includes("kali") || path === "/list/conventions"
+          ? "KALI"
+          : lowerPath.includes("jorf") || lowerPath.includes("lastnjo")
+            ? "JORF"
+            : lowerPath.includes("legi") || lowerPath.includes("getarticle")
+              ? "LEGI"
+              : "ACCO";
       return `Requête ${source} refusée par Légifrance (HTTP 400).`;
     }
     if (status === 401 || status === 403) {
