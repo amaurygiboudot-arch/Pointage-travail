@@ -72,6 +72,27 @@ class MealBasketPolicyV2Test {
     }
 
     @Test
+    fun `alias historique et identifiant V2 de la meme entreprise ne doublonnent pas le panier`() {
+        val sessions = listOf(
+            session("legacy", at(4, 5, 0), at(4, 5, 0), "company_1"),
+            session("v2", at(4, 6, 0), at(4, 6, 0), "siret_12345678901234"),
+            session("other", at(4, 5, 30), at(4, 5, 30), "other_company")
+        )
+
+        val result = MealBasketPolicyV2.calculate(
+            sessions = sessions,
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("company_1", "siret_12345678901234"),
+            amountPerBasket = 5.38,
+            zoneId = zone
+        )
+
+        assertEquals(1, result.count)
+        assertEquals(5.38, result.totalAmount!!, 0.0001)
+    }
+
+    @Test
     fun `nombre de paniers reste connu quand le montant manque`() {
         val result = MealBasketPolicyV2.calculate(
             listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
