@@ -2,6 +2,8 @@ package com.amaury.pointage
 
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
+import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
@@ -25,6 +27,7 @@ import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
@@ -84,11 +87,20 @@ object V2SalaryAdapter {
   )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
+  val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+  val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
+  val legalWarnings=buildList{
+   if(legalSnapshot.records.isEmpty()){
+    add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
+   }else if(!legalSnapshot.complete){
+    add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
+   }
+  }
   return calculated.copy(
    mealBasketCount=meals.count,
    mealBasketAmount=meals.amountPerBasket,
    mealBasketTotal=meals.totalAmount,
-   warnings=(calculated.warnings+meals.warnings).distinct()
+   warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct()
   )
  }
 
@@ -170,7 +182,7 @@ object V2SalaryAdapter {
   val isPartTime=contract.type==ContractTypeV2.PART_TIME
   val isFullTime=contract.type==ContractTypeV2.FULL_TIME
   val tiers=if(isPartTime) emptyList() else when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()}
-  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Barème conventionnel d'heures supplémentaires non intégré : HoraTrack conserve au minimum la majoration légale de 10 % sur les heures non couvertes."}
+  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."}
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
