@@ -61,16 +61,17 @@ function normalizeCodeDateSearch(safeBody) {
         criteres: [{ typeRecherche: "UN_DES_MOTS", valeur: query, operateur: "ET" }],
         operateur: "ET",
       }],
+      // Pour une recherche large par mots-clés dans CODE_DATE, on colle au body
+      // documenté par Légifrance : NOM_CODE + DATE_VERSION, pagination DEFAUT.
       filtres: [
         { facette: "NOM_CODE", valeurs: ["Code du travail"] },
         { facette: "DATE_VERSION", singleDate: date },
-        { facette: "TEXT_LEGAL_STATUS", valeur: "VIGUEUR" },
       ],
       pageNumber: 1,
       pageSize: boundedInt(recherche.pageSize, 1, 25, 10),
       operateur: "ET",
       sort: "PERTINENCE",
-      typePagination: "ARTICLE",
+      typePagination: "DEFAUT",
     },
   };
 }
