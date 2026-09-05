@@ -93,6 +93,62 @@ class OfficialJorfSourceV2Test {
     }
 
     @Test
+    fun `ecarte les admissions individuelles a la retraite`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333334",
+            title = "Décret portant admission à la retraite - M. Dupont",
+            nature = "DECRET",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-05T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `ecarte les prix pharmaceutiques malgre la securite sociale`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333335",
+            title = "Avis relatif aux prix de spécialités pharmaceutiques publiés en application du code de la sécurité sociale",
+            nature = "AVIS",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-05T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `ecarte une indemnite reservee aux fonctionnaires de police`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333336",
+            title = "Arrêté fixant une indemnité de responsabilité et de performance allouée aux fonctionnaires de la police nationale",
+            nature = "ARRETE",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-05T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `conserve un vrai texte national de paie`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333337",
+            title = "Décret portant relèvement du salaire minimum interprofessionnel de croissance",
+            nature = "DECRET",
+            legalState = null,
+            ministry = "Ministère du travail",
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-05T00:00:00Z"
+        )
+        assertTrue(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
     fun `parse un contenu JORF officiel consulte`() {
         val document = OfficialJorfSourceV2.parseDocument(
             mapOf(
