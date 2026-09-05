@@ -49,7 +49,7 @@ object LegalPayrollSourceStoreV2 {
         val current = all(context).toMutableList()
         current.removeAll { it.topic == topic && sameReferenceDay(it.referenceAtMs, referenceAtMs) }
         current += verified
-            .filter { it.topic == topic && it.referenceAtMs == referenceAtMs }
+            .filter { it.topic == topic && sameReferenceDay(it.referenceAtMs, referenceAtMs) }
             .map {
                 Record(
                     topic = it.topic,
@@ -59,7 +59,7 @@ object LegalPayrollSourceStoreV2 {
                     excerpt = it.excerpt.take(1_200),
                     effectiveFromMs = it.effectiveFromMs,
                     effectiveToMs = it.effectiveToMs,
-                    referenceAtMs = it.referenceAtMs,
+                    referenceAtMs = referenceAtMs,
                     checkedAtMs = it.checkedAtMs
                 )
             }
@@ -70,10 +70,11 @@ object LegalPayrollSourceStoreV2 {
         return save(context, kept)
     }
 
-    /** Sources déjà vérifiées et applicables à la date demandée, quel que soit le mois où elles ont été auditées. */
+    /** Sources vérifiées spécifiquement pour la même date de paie demandée. */
     fun applicableAt(context: Context, atMs: Long): List<Record> {
         if (atMs <= 0L) return emptyList()
         return all(context)
+            .filter { sameReferenceDay(it.referenceAtMs, atMs) }
             .filter { it.status.equals("VIGUEUR", ignoreCase = true) }
             .filter { atMs >= it.effectiveFromMs && (it.effectiveToMs == null || atMs <= it.effectiveToMs) }
             .groupBy { it.topic to it.articleId }
