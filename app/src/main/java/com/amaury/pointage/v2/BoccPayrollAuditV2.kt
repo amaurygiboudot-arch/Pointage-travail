@@ -10,7 +10,7 @@ import java.time.ZoneId
 
 /** Chaîne BOCC : publications IDCC -> filtre documentaire paie -> métadonnées PDF -> stockage d'audit. */
 object BoccPayrollAuditV2 {
-    private const val PAGE_SIZE = 100
+    private const val PAGE_SIZE = 50
     private const val MAX_PAGES = 5
 
     data class Summary(
@@ -51,10 +51,14 @@ object BoccPayrollAuditV2 {
 
         val zone = ZoneId.systemDefault()
         val referenceDate = Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate()
-        val from = referenceDate.minusMonths(24)
+        val today = LocalDate.now(zone)
+        // Un BOCC est une publication : pour une paie future, on ne demande jamais à PISTE
+        // une date de publication qui n'existe pas encore. La date de paie reste inchangée pour le stockage.
+        val publicationEnd = minOf(referenceDate, today)
+        val publicationStart = referenceDate.minusMonths(24).coerceAtMost(publicationEnd)
         val app = context.applicationContext
 
-        return fetchPages(idcc, from, referenceDate)
+        return fetchPages(idcc, publicationStart, publicationEnd)
             .continueWithTask { searchTask ->
                 if (!searchTask.isSuccessful) {
                     return@continueWithTask Tasks.forResult(
