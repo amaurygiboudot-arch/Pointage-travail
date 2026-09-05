@@ -18,7 +18,7 @@ class OfficialBoccSourceV2Test {
             pageSize = 500
         )
 
-        assertEquals(listOf("3248"), body["idccs"])
+        assertEquals("3248", body["idcc"])
         assertEquals("30/09/2024 > 30/09/2026", body["intervalPublication"])
         assertEquals(1, body["pageNumber"])
         assertEquals(100, body["pageSize"])
@@ -28,7 +28,7 @@ class OfficialBoccSourceV2Test {
     }
 
     @Test
-    fun `parse la reponse officielle boccTexts`() {
+    fun `parse la reponse unitaire BOCC si elle est renvoyee`() {
         val response = mapOf(
             "totalResultNumber" to 1,
             "texts" to listOf(
@@ -57,7 +57,7 @@ class OfficialBoccSourceV2Test {
     }
 
     @Test
-    fun `conserve le repli ancienne forme boccAndTexts`() {
+    fun `parse la forme officielle boccsAndTexts`() {
         val response = mapOf(
             "results" to listOf(
                 mapOf(
