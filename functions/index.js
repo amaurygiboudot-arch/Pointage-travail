@@ -21,7 +21,7 @@ const ALLOWED_PATHS = new Set([
   "/list/conventions",
   "/consult/getArticle",
   "/consult/legiPart",
-  "/list/boccAndTexts",
+  "/list/boccTexts",
   "/consult/getBoccTextPdfMetadata",
   "/consult/lastNJo",
   "/consult/jorfCont",
