@@ -9,7 +9,7 @@ import java.time.ZoneOffset
  * Vérifie les candidats LEGI par consultation de l'article officiel.
  *
  * Cette couche ne déduit aucun taux ni aucune règle chiffrée du texte : elle confirme seulement
- * l'identifiant, l'état VIGUEUR et la période d'application à la date de paie contrôlée.
+ * l'identifiant, l'état juridique compatible et la période d'application à la date de paie contrôlée.
  */
 object OfficialLegalCodeVerifierV2 {
     data class VerifiedArticle(
@@ -68,7 +68,8 @@ object OfficialLegalCodeVerifierV2 {
         checkedAtMs: Long
     ): VerifiedArticle? {
         if (article.articleId != candidate.articleId) return null
-        if (!article.status.equals("VIGUEUR", ignoreCase = true)) return null
+        val normalizedStatus = article.status?.trim()?.uppercase().orEmpty()
+        if (normalizedStatus !in setOf("VIGUEUR", "VIGUEUR_DIFF")) return null
         val from = parseDateMs(article.effectiveFrom) ?: return null
         val to = parseDateMs(article.effectiveTo)
         if (atMs < from || (to != null && atMs > to)) return null
@@ -78,7 +79,7 @@ object OfficialLegalCodeVerifierV2 {
             topic = topic,
             articleId = article.articleId,
             articleNumber = article.articleNumber ?: candidate.articleNumber,
-            status = "VIGUEUR",
+            status = normalizedStatus,
             excerpt = excerpt,
             effectiveFromMs = from,
             effectiveToMs = to,
