@@ -8,6 +8,7 @@ import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.PdfVisualStyle
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
+import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
@@ -122,6 +123,9 @@ object SalaryExamplePdfV2 {
             .toInstant()
             .toEpochMilli()
         val legalSnapshot = LegalPayrollSourceStoreV2.snapshot(context, legalReferenceAtMs)
+        val boccSnapshot = if (company != null && idcc.isNotBlank()) {
+            BoccPayrollSourceStoreV2.snapshot(context, company.id, legalReferenceAtMs, idcc)
+        } else emptyList()
 
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -224,6 +228,13 @@ object SalaryExamplePdfV2 {
                 legalRefs.size <= 6 -> legalRefs.joinToString(", ")
                 else -> legalRefs.take(6).joinToString(", ") + " +${legalRefs.size - 6}"
             }
+            val boccRefs = boccSnapshot.mapNotNull { it.bulletinNumber ?: it.fileName }.distinct()
+            val boccRefText = when {
+                company == null || idcc.isBlank() -> "IDCC / entreprise à confirmer"
+                boccRefs.isEmpty() -> "Non vérifié pour cette entreprise et cette date"
+                boccRefs.size <= 4 -> boccRefs.joinToString(", ")
+                else -> boccRefs.take(4).joinToString(", ") + " +${boccRefs.size - 4}"
+            }
             section("SOURCES & CONTRÔLES", buildList {
                 add("Source des heures" to "Moteur HoraTrack V2")
                 add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
@@ -236,6 +247,14 @@ object SalaryExamplePdfV2 {
                     }
                 )
                 add("Références LEGI" to legalRefText)
+                add(
+                    "Publications conventionnelles — BOCC" to if (boccSnapshot.isEmpty()) {
+                        "Non vérifiées pour cette entreprise et cette date"
+                    } else {
+                        "${boccSnapshot.size} référence(s) PDF officielle(s) vérifiée(s)"
+                    }
+                )
+                add("Références BOCC" to boccRefText)
                 add("Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • "))
             })
         }
