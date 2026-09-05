@@ -70,7 +70,8 @@ object OfficialBoccSourceV2 {
                     val fileName = value(text, "fileName", "filename", "id")
                         ?.trim()
                         ?.takeIf(::isPdfFileName) ?: return@textLoop
-                    val title = value(text, "title", "titre", "enteteTitle", "enteteTitre")
+                    // enteteTitle est souvent plus descriptif que le titre technique court du texte.
+                    val title = value(text, "enteteTitle", "enteteTitre", "title", "titre")
                         ?.trim()
                         ?.takeIf { it.isNotBlank() } ?: return@textLoop
                     val idccs = (text["idccs"] as? List<*>)
@@ -143,6 +144,8 @@ object OfficialBoccSourceV2 {
     private val PAYROLL_KEYWORDS = listOf(
         "salaire", "remuneration", "minima", "minimum", "prime", "anciennete",
         "heure", "horaire", "travail de nuit", "repos", "conge", "rtt", "indemnite",
-        "panier", "majoration", "temps de travail", "astreinte"
+        "panier", "majoration", "temps de travail", "astreinte", "classification", "coefficient",
+        "valeur du point", "grille", "garantie", "13e mois", "treizieme mois", "repas",
+        "deplacement", "frais professionnel"
     )
 }
