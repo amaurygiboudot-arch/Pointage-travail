@@ -51,8 +51,6 @@ object BoccPayrollAuditV2 {
 
         val zone = ZoneId.systemDefault()
         val referenceDate = Instant.ofEpochMilli(atMs).atZone(zone).toLocalDate()
-        // KALI porte l'état conventionnel consolidé. BOCC sert ici de piste récente de publication :
-        // on borne volontairement la recherche aux 24 mois précédant la date de paie.
         val from = referenceDate.minusMonths(24)
         val app = context.applicationContext
 
@@ -149,7 +147,7 @@ object BoccPayrollAuditV2 {
             pageSize = PAGE_SIZE,
             pageNumber = pageNumber
         )
-        return LegifranceFunctionClientV2.request("/list/boccAndTexts", body)
+        return LegifranceFunctionClientV2.request("/list/boccTexts", body)
             .continueWithTask { task ->
                 if (!task.isSuccessful) {
                     if (pageNumber == 1) {
