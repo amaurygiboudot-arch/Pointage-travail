@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -21,8 +22,8 @@ class OfficialBoccSourceV2Test {
         assertEquals("30/09/2024 > 30/09/2026", body["intervalPublication"])
         assertEquals(1, body["pageNumber"])
         assertEquals(100, body["pageSize"])
-        assertEquals(false, body["searchForGlobalBocc"])
-        assertEquals(true, body["searchForTextsBocc"])
+        assertNull(body["searchForGlobalBocc"])
+        assertNull(body["searchForTextsBocc"])
         assertEquals("BOCC_SORT_DESC", body["sortValue"])
     }
 
