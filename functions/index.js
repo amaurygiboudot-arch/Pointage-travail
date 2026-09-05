@@ -19,6 +19,11 @@ const ALLOWED_PATHS = new Set([
   "/consult/acco",
   "/consult/kaliContIdcc",
   "/list/conventions",
+  "/consult/getArticle",
+  "/consult/legiPart",
+  "/consult/lastNJo",
+  "/consult/jorfCont",
+  "/consult/jorf",
 ]);
 
 let cachedToken = null;
