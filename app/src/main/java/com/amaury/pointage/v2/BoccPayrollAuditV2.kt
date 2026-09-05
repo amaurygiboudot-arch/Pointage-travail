@@ -151,7 +151,7 @@ object BoccPayrollAuditV2 {
             pageSize = PAGE_SIZE,
             pageNumber = pageNumber
         )
-        return LegifranceFunctionClientV2.request("/list/boccTexts", body)
+        return LegifranceFunctionClientV2.request("/list/boccsAndTexts", body)
             .continueWithTask { task ->
                 if (!task.isSuccessful) {
                     if (pageNumber == 1) {
