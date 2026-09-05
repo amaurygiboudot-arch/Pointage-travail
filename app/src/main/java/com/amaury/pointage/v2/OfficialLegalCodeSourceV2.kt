@@ -26,12 +26,12 @@ object OfficialLegalCodeSourceV2 {
 
     data class Article(
         val articleId: String,
-        val articleCid: String?,
         val articleNumber: String?,
         val status: String?,
         val content: String,
         val effectiveFrom: String?,
-        val effectiveTo: String?
+        val effectiveTo: String?,
+        val articleCid: String? = null
     )
 
     /** Corps officiel POST /search dans CODE_DATE, borné au Code du travail et à la date choisie. */
@@ -140,13 +140,13 @@ object OfficialLegalCodeSourceV2 {
             ?.takeIf { it.isNotBlank() } ?: return null
         return Article(
             articleId = id,
-            articleCid = cid,
             articleNumber = firstValue(articleMap, "num", "numero", "numArticle", "numeroArticle")
                 ?.takeIf { it.isNotBlank() },
             status = firstValue(articleMap, "etat", "status", "legalStatus")?.takeIf { it.isNotBlank() },
             content = content,
             effectiveFrom = firstValue(articleMap, "dateDebut", "dateStart", "startDate")?.takeIf { it.isNotBlank() },
-            effectiveTo = firstValue(articleMap, "dateFin", "dateEnd", "endDate")?.takeIf { it.isNotBlank() }
+            effectiveTo = firstValue(articleMap, "dateFin", "dateEnd", "endDate")?.takeIf { it.isNotBlank() },
+            articleCid = cid
         )
     }
 
