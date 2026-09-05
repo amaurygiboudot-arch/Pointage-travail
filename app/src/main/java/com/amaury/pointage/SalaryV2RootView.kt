@@ -177,6 +177,7 @@ class SalaryV2RootView @JvmOverloads constructor(
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
             addView(actionButton("SOURCES LÉGALES (LEGI)") { showLegalSources() }, buttonLp())
+            addView(actionButton("SOURCES CONVENTIONNELLES (BOCC)") { showBoccSources(company) }, buttonLp())
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
         }
         themedDialog("Espace entreprise", ScrollView(context).apply { addView(box) })
@@ -214,6 +215,13 @@ class SalaryV2RootView @JvmOverloads constructor(
         themedDialog("Sources légales — LEGI", ScrollView(context).apply {
             isFillViewport = true
             addView(V2LegalPayrollSourcesView(context))
+        })
+    }
+
+    private fun showBoccSources(company: SalaryCompanyStore.Company) {
+        themedDialog("Sources conventionnelles — BOCC", ScrollView(context).apply {
+            isFillViewport = true
+            addView(V2BoccPayrollSourcesView(context, company))
         })
     }
 
