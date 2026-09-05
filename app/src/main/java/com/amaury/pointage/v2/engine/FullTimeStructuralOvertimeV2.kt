@@ -100,6 +100,10 @@ object FullTimeStructuralOvertimeV2 {
             gross+=amount
         }
 
+        fun warnFallback(){
+            warnings+="Palier d'heures supplémentaires incomplet : valorisation provisoire au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le taux exact reste à vérifier."
+        }
+
         sorted.forEach{tier->
             if(cursor>=upper)return@forEach
             val tierStart=maxOf(lower,tier.fromMinutes)
@@ -107,7 +111,7 @@ object FullTimeStructuralOvertimeV2 {
             if(tierEnd<=cursor||tierEnd<=tierStart)return@forEach
             if(tierStart>cursor){
                 add(cursor,minOf(tierStart,upper),fallbackMultiplier)
-                warnings+="Palier d'heures supplémentaires incomplet : majoration minimale de 10 % appliquée provisoirement aux minutes non couvertes."
+                warnFallback()
                 cursor=minOf(tierStart,upper)
             }
             if(cursor<upper&&tierEnd>cursor){
@@ -117,7 +121,7 @@ object FullTimeStructuralOvertimeV2 {
         }
         if(cursor<upper){
             add(cursor,upper,fallbackMultiplier)
-            warnings+="Palier d'heures supplémentaires incomplet : majoration minimale de 10 % appliquée provisoirement aux minutes non couvertes."
+            warnFallback()
         }
         return Rated((upper-lower).toDouble(),gross,pieces,warnings.distinct())
     }
