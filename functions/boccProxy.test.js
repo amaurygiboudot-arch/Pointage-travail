@@ -18,8 +18,8 @@ test("normalizes BOCC listing to one IDCC and a bounded publication window", () 
     titre: "  salaires   minima  ",
   };
 
-  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", body), true);
-  assert.deepEqual(normalizeLegifranceBody("/list/boccsAndTexts", body), {
+  assert.equal(isValidLegifranceBody("/list/boccAndTexts", body), true);
+  assert.deepEqual(normalizeLegifranceBody("/list/boccAndTexts", body), {
     idcc: "3248",
     intervalPublication: "01/09/2024 > 30/09/2026",
     pageNumber: 1,
@@ -28,11 +28,11 @@ test("normalizes BOCC listing to one IDCC and a bounded publication window", () 
     titre: "salaires minima",
   });
 
-  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", {
+  assert.equal(isValidLegifranceBody("/list/boccAndTexts", {
     idcc: "3248",
     intervalPublication: "2024-09-01 to 2026-09-30",
   }), false);
-  assert.equal(isValidLegifranceBody("/list/boccsAndTexts", {
+  assert.equal(isValidLegifranceBody("/list/boccAndTexts", {
     idcc: "aucun",
     intervalPublication: "01/09/2024 > 30/09/2026",
   }), false);
