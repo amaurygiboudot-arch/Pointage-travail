@@ -1,1 +1,1 @@
-Rebuild HoraTrack - test LEGI validation future date - 2026-09-05 19:14 UTC
+Rebuild HoraTrack - test LEGI parser CID diagnostic - 2026-09-05 19:31 UTC
