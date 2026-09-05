@@ -26,6 +26,28 @@ function accoBody() {
   };
 }
 
+function codeDateBody() {
+  return {
+    fond: "CODE_DATE",
+    recherche: {
+      champs: [{
+        typeChamp: "ARTICLE",
+        criteres: [{ typeRecherche: "UN_DES_MOTS", valeur: "heures supplémentaires", operateur: "ET" }],
+        operateur: "ET",
+      }],
+      filtres: [
+        { facette: "NOM_CODE", valeurs: ["Code du travail"] },
+        { facette: "DATE_VERSION", singleDate: 1788566400000 },
+        { facette: "TEXT_LEGAL_STATUS", valeur: "VIGUEUR" },
+      ],
+      pageNumber: 7,
+      pageSize: 500,
+      sort: "DATE_DESC",
+      typePagination: "DEFAUT",
+    },
+  };
+}
+
 test("adds the official SIRET filter to legacy ACCO searches", () => {
   const normalized = normalizeLegifranceBody("/search", accoBody());
   assert.deepEqual(normalized.recherche.filtres, [
@@ -46,6 +68,38 @@ test("does not duplicate an existing SIRET filter", () => {
 test("never changes KALI payloads", () => {
   const body = { fond: "KALI", recherche: { sort: "PERTINENCE" } };
   assert.strictEqual(normalizeLegifranceBody("/search", body), body);
+});
+
+test("rebuilds CODE_DATE searches as Code du travail article searches only", () => {
+  const body = codeDateBody();
+  assert.equal(isValidLegifranceBody("/search", body), true);
+
+  const normalized = normalizeLegifranceBody("/search", body);
+  assert.equal(normalized.fond, "CODE_DATE");
+  assert.equal(normalized.recherche.pageNumber, 1);
+  assert.equal(normalized.recherche.pageSize, 25);
+  assert.equal(normalized.recherche.sort, "PERTINENCE");
+  assert.equal(normalized.recherche.typePagination, "ARTICLE");
+  assert.deepEqual(normalized.recherche.filtres, [
+    { facette: "NOM_CODE", valeurs: ["Code du travail"] },
+    { facette: "DATE_VERSION", singleDate: 1788566400000 },
+    { facette: "TEXT_LEGAL_STATUS", valeur: "VIGUEUR" },
+  ]);
+  assert.deepEqual(normalized.recherche.champs, [{
+    typeChamp: "ARTICLE",
+    criteres: [{ typeRecherche: "UN_DES_MOTS", valeur: "heures supplémentaires", operateur: "ET" }],
+    operateur: "ET",
+  }]);
+});
+
+test("rejects CODE_DATE searches without query or reference date", () => {
+  const missingDate = codeDateBody();
+  missingDate.recherche.filtres = missingDate.recherche.filtres.filter((item) => item.facette !== "DATE_VERSION");
+  assert.equal(isValidLegifranceBody("/search", missingDate), false);
+
+  const missingQuery = codeDateBody();
+  missingQuery.recherche.champs[0].criteres[0].valeur = "   ";
+  assert.equal(isValidLegifranceBody("/search", missingQuery), false);
 });
 
 test("normalizes a KALI container lookup to a numeric IDCC", () => {
