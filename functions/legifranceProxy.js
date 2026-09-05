@@ -33,6 +33,16 @@ function normalizedIdcc(value) {
   return String(Number(digits));
 }
 
+function firstBoccIdcc(body) {
+  if (Array.isArray(body?.idccs)) {
+    for (const raw of body.idccs) {
+      const value = normalizedIdcc(raw);
+      if (value) return value;
+    }
+  }
+  return normalizedIdcc(body?.idcc);
+}
+
 function normalizedBoccInterval(value) {
   const interval = typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
   return /^\d{2}\/\d{2}\/\d{4} > \d{2}\/\d{2}\/\d{4}$/.test(interval) ? interval : "";
@@ -77,8 +87,6 @@ function normalizeCodeDateSearch(safeBody) {
         criteres: [{ typeRecherche: "UN_DES_MOTS", valeur: query, operateur: "ET" }],
         operateur: "ET",
       }],
-      // Pour une recherche large par mots-clés dans CODE_DATE, on colle au body
-      // documenté par Légifrance : NOM_CODE + DATE_VERSION, pagination DEFAUT.
       filtres: [
         { facette: "NOM_CODE", valeurs: ["Code du travail"] },
         { facette: "DATE_VERSION", singleDate: date },
@@ -125,19 +133,18 @@ function normalizeLegifranceBody(path, body) {
     };
   }
 
-  if (path === "/list/boccAndTexts") {
-    const idcc = normalizedIdcc(safeBody.idcc);
+  if (path === "/list/boccTexts") {
+    const idcc = firstBoccIdcc(safeBody);
     const intervalPublication = normalizedBoccInterval(safeBody.intervalPublication);
     if (!idcc || !intervalPublication) return {};
     return {
-      idcc,
+      idccs: [idcc],
       intervalPublication,
       pageNumber: boundedInt(safeBody.pageNumber, 1, 100, 1),
       pageSize: boundedInt(safeBody.pageSize, 1, 100, 50),
+      searchForGlobalBocc: false,
+      searchForTextsBocc: true,
       sortValue: safeBody.sortValue === "BOCC_SORT_ASC" ? "BOCC_SORT_ASC" : "BOCC_SORT_DESC",
-      ...(typeof safeBody.titre === "string" && safeBody.titre.trim()
-        ? { titre: safeBody.titre.trim().replace(/\s+/g, " ").slice(0, 120) }
-        : {}),
     };
   }
 
@@ -218,8 +225,8 @@ function isValidLegifranceBody(path, body) {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
   }
-  if (path === "/list/boccAndTexts") {
-    return Boolean(normalizedIdcc(body.idcc)) && Boolean(normalizedBoccInterval(body.intervalPublication));
+  if (path === "/list/boccTexts") {
+    return Boolean(firstBoccIdcc(body)) && Boolean(normalizedBoccInterval(body.intervalPublication));
   }
   if (path === "/consult/getBoccTextPdfMetadata") {
     return Boolean(normalizedBoccFileName(body.id));
