@@ -40,7 +40,8 @@ object OfficialBoccSourceV2 {
         idcc: String,
         from: LocalDate,
         to: LocalDate,
-        pageSize: Int = 50
+        pageSize: Int = 50,
+        pageNumber: Int = 1
     ): Map<String, Any> {
         val normalizedIdcc = idcc.filter(Char::isDigit)
             .takeIf { it.isNotBlank() && it.length <= 4 && it.toIntOrNull()?.let { n -> n > 0 } == true }
@@ -49,10 +50,21 @@ object OfficialBoccSourceV2 {
         return mapOf(
             "idcc" to normalizedIdcc.toInt().toString(),
             "intervalPublication" to "${from.format(intervalFormatter)} > ${to.format(intervalFormatter)}",
-            "pageNumber" to 1,
+            "pageNumber" to pageNumber.coerceIn(1, 100),
             "pageSize" to pageSize.coerceIn(1, 100),
             "sortValue" to "BOCC_SORT_DESC"
         )
+    }
+
+    fun totalResultNumber(data: Any?): Int? {
+        val root = data as? Map<*, *> ?: return null
+        val raw = root.entries.firstOrNull {
+            it.key?.toString()?.equals("totalResultNumber", ignoreCase = true) == true
+        }?.value ?: return null
+        return when (raw) {
+            is Number -> raw.toInt()
+            else -> raw.toString().toIntOrNull()
+        }?.takeIf { it >= 0 }
     }
 
     fun parseCandidates(data: Any?): List<Candidate> {
