@@ -176,6 +176,7 @@ class SalaryV2RootView @JvmOverloads constructor(
             addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) })
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
+            addView(actionButton("SOURCES LÉGALES (LEGI)") { showLegalSources() }, buttonLp())
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
         }
         themedDialog("Espace entreprise", ScrollView(context).apply { addView(box) })
@@ -206,6 +207,13 @@ class SalaryV2RootView @JvmOverloads constructor(
     private fun showPayslipWorkspace(company: SalaryCompanyStore.Company) {
         themedDialog("Fiche de salaire", ScrollView(context).apply {
             addView(SalaryPayslipWorkspaceView(context, company))
+        })
+    }
+
+    private fun showLegalSources() {
+        themedDialog("Sources légales — LEGI", ScrollView(context).apply {
+            isFillViewport = true
+            addView(V2LegalPayrollSourcesView(context))
         })
     }
 
