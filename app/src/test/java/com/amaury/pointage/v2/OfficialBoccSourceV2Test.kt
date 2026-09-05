@@ -17,15 +17,46 @@ class OfficialBoccSourceV2Test {
             pageSize = 500
         )
 
-        assertEquals("3248", body["idcc"])
+        assertEquals(listOf("3248"), body["idccs"])
         assertEquals("30/09/2024 > 30/09/2026", body["intervalPublication"])
         assertEquals(1, body["pageNumber"])
         assertEquals(100, body["pageSize"])
+        assertEquals(false, body["searchForGlobalBocc"])
+        assertEquals(true, body["searchForTextsBocc"])
         assertEquals("BOCC_SORT_DESC", body["sortValue"])
     }
 
     @Test
-    fun `parse les textes BOCC unitaires et leurs metadonnees`() {
+    fun `parse la reponse officielle boccTexts`() {
+        val response = mapOf(
+            "totalResultNumber" to 1,
+            "texts" to listOf(
+                mapOf(
+                    "title" to "Avenant relatif aux salaires minima",
+                    "fileName" to "boc_20260017_0001_p000.pdf",
+                    "pathFile" to "/BOCC/2026/0017/boc_20260017_0001_p000.pdf",
+                    "idccs" to listOf("3248"),
+                    "texteDate" to "2026-07-01T00:00:00.000Z",
+                    "idMainBocc" to "CCO20260017",
+                    "department" to "Ministère chargé du travail",
+                    "displaySize" to "112 Ko"
+                )
+            )
+        )
+
+        val candidates = OfficialBoccSourceV2.parseCandidates(response)
+
+        assertEquals(1, candidates.size)
+        val candidate = candidates.single()
+        assertEquals("boc_20260017_0001_p000.pdf", candidate.fileName)
+        assertEquals(listOf("3248"), candidate.idccs)
+        assertEquals("CCO20260017", candidate.idMainBocc)
+        assertTrue(OfficialBoccSourceV2.isPayrollRelevant(candidate))
+        assertEquals(1, OfficialBoccSourceV2.totalResultNumber(response))
+    }
+
+    @Test
+    fun `conserve le repli ancienne forme boccAndTexts`() {
         val response = mapOf(
             "results" to listOf(
                 mapOf(
@@ -37,37 +68,24 @@ class OfficialBoccSourceV2Test {
                         mapOf(
                             "title" to "Avenant relatif aux salaires minima",
                             "fileName" to "boc_20260017_0001_p000.pdf",
-                            "pathFile" to "/BOCC/2026/0017/boc_20260017_0001_p000.pdf",
-                            "idccs" to listOf("3248"),
-                            "texteDate" to "01/07/2026",
-                            "displaySize" to "112 Ko"
+                            "idccs" to listOf("3248")
                         )
                     )
                 )
             )
         )
 
-        val candidates = OfficialBoccSourceV2.parseCandidates(response)
-
-        assertEquals(1, candidates.size)
-        val candidate = candidates.single()
-        assertEquals("boc_20260017_0001_p000.pdf", candidate.fileName)
+        val candidate = OfficialBoccSourceV2.parseCandidates(response).single()
         assertEquals("2026/0017", candidate.bulletinNumber)
         assertEquals("22/07/2026", candidate.publicationDate)
-        assertEquals(listOf("3248"), candidate.idccs)
-        assertTrue(OfficialBoccSourceV2.isPayrollRelevant(candidate))
     }
 
     @Test
     fun `ignore les entrees BOCC sans fichier PDF sur`() {
         val response = mapOf(
-            "results" to listOf(
-                mapOf(
-                    "texts" to listOf(
-                        mapOf("title" to "Salaires", "fileName" to "document.txt"),
-                        mapOf("title" to "Salaires", "fileName" to "nom avec espace.pdf")
-                    )
-                )
+            "texts" to listOf(
+                mapOf("title" to "Salaires", "fileName" to "document.txt"),
+                mapOf("title" to "Salaires", "fileName" to "nom avec espace.pdf")
             )
         )
 
