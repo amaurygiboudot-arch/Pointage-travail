@@ -23,9 +23,11 @@ import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionPayrollReferenceV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
+import com.amaury.pointage.v2.engine.SalaryExamplePdfV2
 import com.amaury.pointage.v2.engine.SicknessPaymentFlowV2
 import com.amaury.pointage.v2.engine.SocialSecurityCeilingV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import java.io.File
 import java.text.DateFormatSymbols
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -43,11 +45,37 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
  private val pageBox=LinearLayout(context)
  private val indicator=TextView(context)
  private val gesture=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){override fun onDown(e:MotionEvent)=true;override fun onFling(e1:MotionEvent?,e2:MotionEvent,velocityX:Float,velocityY:Float):Boolean{if(e1==null||abs(e2.x-e1.x)<80)return false;if(e2.x<e1.x)next() else previous();return true}})
- init{orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12));addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))});addButtonTop("CHOISIR LE MOIS"){choosePeriod()};pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()}
+ init{orientation=VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(12));addView(TextView(context).apply{text="FICHE DE SALAIRE";textSize=18f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="L’estimation utilise le moteur V2 et les données de cette entreprise uniquement.";textSize=12f;setPadding(0,dp(5),0,dp(8))});addButtonTop("CHOISIR LE MOIS"){choosePeriod()};addButtonTop("CRÉER UNE FICHE DE PAIE EXEMPLE"){choosePdfFields()};pageBox.orientation=VERTICAL;pageBox.setOnTouchListener{_,e->gesture.onTouchEvent(e)};addView(pageBox,LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));indicator.gravity=Gravity.CENTER;indicator.textSize=14f;indicator.setPadding(0,dp(8),0,dp(8));indicator.setOnClickListener{choosePage()};addView(indicator);render()}
  private fun records()=V2PayslipStore.forCompany(context,company.id)
  private fun render(){val total=records().size+1;page=page.coerceIn(0,total-1);pageBox.removeAllViews();if(page==0)renderEstimate() else renderReal(records()[page-1]);indicator.text="${page+1} / $total"}
  private fun selectedPeriod():Pair<Int,Int>{val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L);val c=Calendar.getInstance(Locale.FRANCE);if(ms>0)c.timeInMillis=ms;return c.get(Calendar.YEAR) to c.get(Calendar.MONTH)}
  private fun choosePeriod(){val labels=ArrayList<String>();val values=ArrayList<Long>();val c=Calendar.getInstance(Locale.FRANCE).apply{set(Calendar.DAY_OF_MONTH,1);set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};repeat(36){labels+=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(c.time).replaceFirstChar{it.uppercase()};values+=c.timeInMillis;c.add(Calendar.MONTH,-1)};AlertDialog.Builder(context).setTitle("Choisir le mois").setItems(labels.toTypedArray()){_,which->context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).edit().putLong("report_month_ms",values[which]).apply();render()}.setNegativeButton("ANNULER",null).show()}
+ private fun choosePdfFields(){
+  val activity=context as? Activity?:return
+  val fields=SalaryExamplePdfV2.Field.entries
+  val labels=arrayOf("Entreprise et convention","Contrat et taux horaire","Heures normales / supplémentaires","Pauses déduites","Estimation brute","Compteurs de droits","Sources et éléments à vérifier")
+  val selected=BooleanArray(fields.size){true}
+  AlertDialog.Builder(activity)
+   .setTitle("Éléments à afficher sur le PDF")
+   .setMessage("Ces cases servent uniquement à choisir le contenu. Elles ne seront pas imprimées sur la fiche.")
+   .setMultiChoiceItems(labels,selected){_,which,checked->selected[which]=checked}
+   .setPositiveButton("OUVRIR LE PDF"){_,_->
+    val chosen=fields.filterIndexed{index,_->selected[index]}.toSet()
+    if(chosen.isEmpty())Toast.makeText(activity,"Choisis au moins un élément",Toast.LENGTH_LONG).show() else generatePdf(activity,chosen)
+   }
+   .setNegativeButton("ANNULER",null)
+   .show()
+ }
+ private fun generatePdf(activity:Activity,fields:Set<SalaryExamplePdfV2.Field>){
+  val(year,month)=selectedPeriod()
+  val companyToken=company.siret.ifBlank{company.id}.replace(Regex("[^A-Za-z0-9_-]"),"_").take(32).ifBlank{"entreprise"}
+  val fileName="Fiche_paie_exemple_HoraTrack_${companyToken}_${year}_${month+1}.pdf"
+  runCatching{
+   val file=File(activity.cacheDir,fileName)
+   file.outputStream().use{SalaryExamplePdfV2.write(activity,company,year,month,fields,it)}
+   activity.startActivity(Intent(activity,PdfPreviewActivity::class.java).apply{putExtra("pdf_path",file.absolutePath);putExtra("pdf_name",fileName)})
+  }.onFailure{Toast.makeText(activity,"Impossible de générer la fiche exemple",Toast.LENGTH_LONG).show()}
+ }
  private fun renderEstimate(){
   val prefs=SalaryCompanyStore.prefs(context,company.id);val weekly=prefs.getString("contract_weekly_hours","").orEmpty();val(year,month)=selectedPeriod();val period=SimpleDateFormat("MMMM yyyy",Locale.FRANCE).format(Calendar.getInstance(Locale.FRANCE).apply{set(year,month,1)}.time).replaceFirstChar{it.uppercase()}
   add(TextView(context).apply{text="FICHE DE PAIE ESTIMATIVE";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER;setPadding(0,dp(10),0,dp(4))})
