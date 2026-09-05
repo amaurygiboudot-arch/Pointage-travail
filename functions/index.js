@@ -7,6 +7,7 @@ const {
   normalizeLegifranceBody,
   publicFailureMessage,
 } = require("./legifranceProxy");
+const { normalizeBoccRequest } = require("./boccRequest");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
 const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
@@ -109,7 +110,9 @@ exports.legifranceRequest = onCall(
 
     try {
       const token = await pisteAccessToken();
-      const body = normalizeLegifranceBody(path, request.data?.body);
+      const body = path === "/list/boccTexts"
+        ? normalizeBoccRequest(request.data?.body)
+        : normalizeLegifranceBody(path, request.data?.body);
       const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
         method: "POST",
         headers: {
