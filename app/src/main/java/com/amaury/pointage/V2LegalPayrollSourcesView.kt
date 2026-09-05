@@ -30,7 +30,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état VIGUEUR et la période sont confirmés. Aucun taux n'est inventé à partir d'un texte ambigu."
+            text = "HoraTrack recherche les articles du Code du travail à la date de paie, consulte chaque candidat et ne conserve que les articles dont l'identifiant, l'état VIGUEUR et la période sont confirmés. Aucun taux n'est inventé à partir d'un texte ambigu. La couverture des thèmes est une piste d'audit, pas une certification d'exhaustivité juridique."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -69,7 +69,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
                     append("À compléter : ")
                     append(snapshot.missingTopics.sortedBy { it.ordinal }.joinToString(", ") { it.label })
                 } else {
-                    append("Contrôle LEGI complet pour les thèmes Salaire V2.")
+                    append("Les 7 thèmes Salaire V2 disposent d'au moins une référence LEGI vérifiée. Vérification humaine requise avant toute nouvelle règle chiffrée.")
                 }
             }
         }
