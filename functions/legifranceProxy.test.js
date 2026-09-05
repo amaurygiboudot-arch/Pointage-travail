@@ -70,9 +70,60 @@ test("bounds the official convention catalogue request", () => {
   });
 });
 
+test("accepts only official LEGI identifiers for article consultation", () => {
+  assert.equal(isValidLegifranceBody("/consult/getArticle", { id: "LEGIARTI000033219357" }), true);
+  assert.equal(isValidLegifranceBody("/consult/getArticle", { id: "JORFTEXT000033219357" }), false);
+  assert.deepEqual(normalizeLegifranceBody("/consult/getArticle", { id: " legiarti000033219357 ", ignored: true }), {
+    id: "LEGIARTI000033219357",
+  });
+});
+
+test("validates and minimizes LEGI full text requests", () => {
+  const date = 1788566400000;
+  assert.equal(isValidLegifranceBody("/consult/legiPart", { textId: "LEGITEXT000038359719", date }), true);
+  assert.equal(isValidLegifranceBody("/consult/legiPart", { textId: "LEGITEXTbad", date }), false);
+  assert.deepEqual(normalizeLegifranceBody("/consult/legiPart", {
+    textId: " legitext000038359719 ",
+    date,
+    ignored: "secret",
+  }), {
+    date,
+    textId: "LEGITEXT000038359719",
+  });
+});
+
+test("bounds JORF container requests and validates official IDs", () => {
+  assert.equal(isValidLegifranceBody("/consult/lastNJo", { nbElement: 5 }), true);
+  assert.equal(isValidLegifranceBody("/consult/lastNJo", { nbElement: 2500 }), false);
+  assert.deepEqual(normalizeLegifranceBody("/consult/lastNJo", { nbElement: 500 }), { nbElement: 100 });
+
+  assert.equal(isValidLegifranceBody("/consult/jorfCont", { id: "JORFCONT000022470431" }), true);
+  assert.deepEqual(normalizeLegifranceBody("/consult/jorfCont", {
+    id: "jorfcont000022470431",
+    pageNumber: -2,
+    pageSize: 500,
+    highlightActivated: false,
+  }), {
+    highlightActivated: false,
+    id: "JORFCONT000022470431",
+    pageNumber: 1,
+    pageSize: 100,
+  });
+});
+
+test("accepts only JORFTEXT identifiers for JORF content", () => {
+  assert.equal(isValidLegifranceBody("/consult/jorf", { textCid: "JORFTEXT000033736934" }), true);
+  assert.equal(isValidLegifranceBody("/consult/jorf", { textCid: "LEGITEXT000033736934" }), false);
+  assert.deepEqual(normalizeLegifranceBody("/consult/jorf", { textCid: " jorftext000033736934 ", ignored: true }), {
+    textCid: "JORFTEXT000033736934",
+  });
+});
+
 test("returns actionable messages without upstream response bodies", () => {
   assert.match(publicFailureMessage("oauth", 401), /OAuth 401/);
   assert.match(publicFailureMessage("api", 403), /HTTP 403/);
   assert.match(publicFailureMessage("api", 400, "/consult/kaliContIdcc"), /KALI/);
+  assert.match(publicFailureMessage("api", 400, "/consult/getArticle"), /LEGI/);
+  assert.match(publicFailureMessage("api", 400, "/consult/jorf"), /JORF/);
   assert.match(publicFailureMessage("timeout", 0), /délai dépassé/);
 });
