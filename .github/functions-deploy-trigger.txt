@@ -1,1 +1,1 @@
-Deploy Firebase Functions - correction BOCC date future + requête minimale - 2026-09-05 20:47 UTC
+Deploy Firebase Functions - correction BOCC boccsAndTexts - 2026-09-05 21:11 UTC
