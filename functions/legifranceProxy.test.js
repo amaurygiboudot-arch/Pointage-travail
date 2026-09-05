@@ -43,7 +43,7 @@ function codeDateBody() {
       pageNumber: 7,
       pageSize: 500,
       sort: "DATE_DESC",
-      typePagination: "DEFAUT",
+      typePagination: "ARTICLE",
     },
   };
 }
@@ -70,7 +70,7 @@ test("never changes KALI payloads", () => {
   assert.strictEqual(normalizeLegifranceBody("/search", body), body);
 });
 
-test("rebuilds CODE_DATE searches as Code du travail article searches only", () => {
+test("rebuilds CODE_DATE keyword searches with the documented Code du travail shape", () => {
   const body = codeDateBody();
   assert.equal(isValidLegifranceBody("/search", body), true);
 
@@ -79,11 +79,10 @@ test("rebuilds CODE_DATE searches as Code du travail article searches only", () 
   assert.equal(normalized.recherche.pageNumber, 1);
   assert.equal(normalized.recherche.pageSize, 25);
   assert.equal(normalized.recherche.sort, "PERTINENCE");
-  assert.equal(normalized.recherche.typePagination, "ARTICLE");
+  assert.equal(normalized.recherche.typePagination, "DEFAUT");
   assert.deepEqual(normalized.recherche.filtres, [
     { facette: "NOM_CODE", valeurs: ["Code du travail"] },
     { facette: "DATE_VERSION", singleDate: 1788566400000 },
-    { facette: "TEXT_LEGAL_STATUS", valeur: "VIGUEUR" },
   ]);
   assert.deepEqual(normalized.recherche.champs, [{
     typeChamp: "ARTICLE",
