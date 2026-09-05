@@ -42,6 +42,30 @@ class OfficialLegalCodeVerifierV2Test {
     }
 
     @Test
+    fun `accepte un candidat CODE_DATE correspondant au CID de la version consultee`() {
+        val article = OfficialLegalCodeSourceV2.Article(
+            articleId = "LEGIARTI000051234567",
+            articleNumber = "L3121-36",
+            status = "VIGUEUR",
+            content = "Version officielle consultée.",
+            effectiveFrom = "2016-08-10T00:00:00Z",
+            effectiveTo = "2999-01-01T00:00:00Z",
+            articleCid = candidate.articleId
+        )
+
+        val verified = OfficialLegalCodeVerifierV2.validate(
+            topic,
+            candidate,
+            article,
+            atMs = 1788566400000,
+            checkedAtMs = 1788600000000
+        )
+
+        assertNotNull(verified)
+        assertEquals("LEGIARTI000051234567", verified!!.articleId)
+    }
+
+    @Test
     fun `accepte une vigueur differee devenue applicable a la date de paie`() {
         val article = OfficialLegalCodeSourceV2.Article(
             articleId = candidate.articleId,
