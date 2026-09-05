@@ -9,11 +9,14 @@ import com.amaury.pointage.PdfVisualStyle
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
+import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import java.io.OutputStream
 import java.text.DateFormatSymbols
+import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -114,6 +117,11 @@ object SalaryExamplePdfV2 {
         }
         val pauseMs = sessions.sumOf { HoraTrackV2.time.calculate(it).unpaidPauseMs }
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
+        val legalReferenceAtMs = PayrollPeriodV2.month(year, month).referenceDate
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        val legalSnapshot = LegalPayrollSourceStoreV2.snapshot(context, legalReferenceAtMs)
 
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -210,12 +218,26 @@ object SalaryExamplePdfV2 {
 
         if (Field.SOURCES in fields) {
             val warnings = salary?.warnings.orEmpty()
-            section("SOURCES & CONTRÔLES", listOf(
-                "Source des heures" to "Moteur HoraTrack V2",
-                "Entreprise de calcul" to if (company != null) companyName else "Profil historique principal",
-                "Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer",
-                "Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • ")
-            ))
+            val legalRefs = legalSnapshot.records.mapNotNull { it.articleNumber }.distinct()
+            val legalRefText = when {
+                legalRefs.isEmpty() -> "Non vérifié pour la date de paie"
+                legalRefs.size <= 6 -> legalRefs.joinToString(", ")
+                else -> legalRefs.take(6).joinToString(", ") + " +${legalRefs.size - 6}"
+            }
+            section("SOURCES & CONTRÔLES", buildList {
+                add("Source des heures" to "Moteur HoraTrack V2")
+                add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
+                add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
+                add(
+                    "Code du travail — LEGI" to if (legalSnapshot.records.isEmpty()) {
+                        "Non vérifié pour cette date"
+                    } else {
+                        "${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes vérifiés"
+                    }
+                )
+                add("Références LEGI" to legalRefText)
+                add("Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • "))
+            })
         }
 
         canvas.drawText("© HoraTrack • FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, 816f, muted)
