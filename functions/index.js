@@ -1,6 +1,7 @@
 "use strict";
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { getApps, initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
@@ -11,6 +12,7 @@ const {
 } = require("./legifranceProxy");
 const { normalizeBoccRequest } = require("./boccRequest");
 const { resolveWithLegalCache } = require("./legalKaliCache");
+const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
 const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
@@ -18,6 +20,7 @@ const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
 const TOKEN_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
 const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
 const REQUEST_TIMEOUT_MS = 15_000;
+const LEGAL_WATCH_BATCH_SIZE = 12;
 const ALLOWED_PATHS = new Set([
   "/search",
   "/consult/acco",
@@ -75,7 +78,7 @@ function legalCacheDb() {
     const app = getApps().length ? getApps()[0] : initializeApp();
     firestoreDb = getFirestore(app);
   } catch (error) {
-    console.warn("Legal KALI cache Firestore init failed", {
+    console.warn("Legal cache Firestore init failed", {
       error: String(error?.message || error || "unknown"),
     });
     firestoreDb = null;
@@ -117,6 +120,21 @@ async function pisteAccessToken() {
   return cachedToken;
 }
 
+async function fetchOfficialLegifrance(path, body) {
+  const token = await pisteAccessToken();
+  const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  return readJsonResponse(response, "api");
+}
+
 exports.legifranceRequest = onCall(
   { secrets: [pisteClientId, pisteClientSecret], timeoutSeconds: 30 },
   async (request) => {
@@ -140,20 +158,7 @@ exports.legifranceRequest = onCall(
         path,
         body,
         logger: console,
-        fetchOfficial: async () => {
-          const token = await pisteAccessToken();
-          const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
-            method: "POST",
-            headers: {
-              Accept: "application/json",
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-          });
-          return readJsonResponse(response, "api");
-        },
+        fetchOfficial: () => fetchOfficialLegifrance(path, body),
       });
     } catch (error) {
       const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError";
@@ -166,5 +171,29 @@ exports.legifranceRequest = onCall(
       });
       throw new HttpsError("unavailable", publicFailureMessage(stage, status, path), { stage, status });
     }
+  }
+);
+
+exports.legalUpdateWatch = onSchedule(
+  {
+    schedule: "every 6 hours",
+    timeZone: "Europe/Paris",
+    secrets: [pisteClientId, pisteClientSecret],
+    timeoutSeconds: 300,
+  },
+  async () => {
+    const db = legalCacheDb();
+    if (!db) {
+      console.warn("Legal update watch skipped: Firestore unavailable");
+      return;
+    }
+
+    const summary = await refreshDueLegalWatches({
+      db,
+      fetchOfficial: fetchOfficialLegifrance,
+      logger: console,
+      batchSize: LEGAL_WATCH_BATCH_SIZE,
+    });
+    console.info("Legal update watch complete", summary);
   }
 );

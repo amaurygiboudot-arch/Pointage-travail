@@ -9,6 +9,7 @@ const LEGAL_CACHE_PARSER_VERSION = 1;
 
 const KALI_DOCUMENT_TTL_MS = 30 * DAY_MS;
 const KALI_SEARCH_TTL_MS = 7 * DAY_MS;
+const KALI_RULE_SEARCH_TTL_MS = 1 * DAY_MS;
 const ACCO_DOCUMENT_TTL_MS = 30 * DAY_MS;
 const ACCO_SEARCH_TTL_MS = 1 * DAY_MS;
 const LEGI_DOCUMENT_TTL_MS = 30 * DAY_MS;
@@ -35,9 +36,90 @@ function requestHash(body) {
   return crypto.createHash("sha256").update(canonicalJson(body ?? {})).digest("hex").slice(0, 40);
 }
 
+function payloadHash(payloadJson) {
+  return crypto.createHash("sha256").update(String(payloadJson ?? "")).digest("hex");
+}
+
 function officialId(value, prefix) {
   const id = String(value ?? "").trim().toUpperCase();
   return new RegExp(`^${prefix}\\d+$`).test(id) ? id : "";
+}
+
+function normalizedIdcc(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits || digits.length > 4 || Number(digits) <= 0) return "";
+  return String(Number(digits)).padStart(4, "0");
+}
+
+function findSearchCriterion(body, typeChamp) {
+  const champs = Array.isArray(body?.recherche?.champs) ? body.recherche.champs : [];
+  for (const champ of champs) {
+    if (String(champ?.typeChamp ?? "").toUpperCase() !== typeChamp) continue;
+    const criteres = Array.isArray(champ?.criteres) ? champ.criteres : [];
+    for (const critere of criteres) {
+      const value = String(critere?.valeur ?? "").trim();
+      if (value) return value;
+    }
+  }
+  return "";
+}
+
+function findSiret(body) {
+  const direct = findSearchCriterion(body, "SIRET_RAISON_SOCIALE").replace(/\D/g, "");
+  if (direct.length === 14) return direct;
+
+  const filtres = Array.isArray(body?.recherche?.filtres) ? body.recherche.filtres : [];
+  for (const filtre of filtres) {
+    if (String(filtre?.facette ?? "").toUpperCase() !== "SIRET_RAISON_SOCIALE") continue;
+    const values = Array.isArray(filtre?.valeurs) ? filtre.valeurs : [];
+    for (const raw of values) {
+      const digits = String(raw ?? "").replace(/\D/g, "");
+      if (digits.length === 14) return digits;
+    }
+  }
+
+  const allChamps = Array.isArray(body?.recherche?.champs) ? body.recherche.champs : [];
+  for (const champ of allChamps) {
+    const criteres = Array.isArray(champ?.criteres) ? champ.criteres : [];
+    for (const critere of criteres) {
+      const digits = String(critere?.valeur ?? "").replace(/\D/g, "");
+      if (digits.length === 14) return digits;
+    }
+  }
+  return "";
+}
+
+function requestScope(path, body) {
+  if (path === "/consult/kaliContIdcc") {
+    const idcc = normalizedIdcc(body?.id);
+    return idcc ? { scopeType: "IDCC", scopeValue: idcc } : null;
+  }
+
+  if (path === "/list/boccsAndTexts") {
+    const idcc = normalizedIdcc(body?.idcc);
+    return idcc ? { scopeType: "IDCC", scopeValue: idcc } : null;
+  }
+
+  if (path === "/search") {
+    const fond = String(body?.fond ?? "").trim().toUpperCase();
+    if (fond === "KALI") {
+      const idcc = normalizedIdcc(findSearchCriterion(body, "IDCC"));
+      return idcc ? { scopeType: "IDCC", scopeValue: idcc } : null;
+    }
+    if (fond === "ACCO") {
+      const siret = findSiret(body);
+      return siret ? { scopeType: "SIRET", scopeValue: siret } : null;
+    }
+    if (fond === "CODE_DATE") {
+      return { scopeType: "CODE", scopeValue: "CODE_DU_TRAVAIL" };
+    }
+  }
+
+  if (path === "/consult/lastNJo" || path === "/list/conventions") {
+    return { scopeType: "GLOBAL", scopeValue: "FRANCE" };
+  }
+
+  return null;
 }
 
 function cacheSpec(path, body) {
@@ -45,7 +127,7 @@ function cacheSpec(path, body) {
     const fond = String(body?.fond ?? "").trim().toUpperCase();
     const search = `search_${requestHash(body)}`;
     if (fond === "KALI") {
-      return { sourceFamily: "KALI", collection: "legal_kali_search", documentId: search, ttlMs: KALI_SEARCH_TTL_MS };
+      return { sourceFamily: "KALI", collection: "legal_kali_search", documentId: search, ttlMs: KALI_RULE_SEARCH_TTL_MS };
     }
     if (fond === "ACCO") {
       return { sourceFamily: "ACCO", collection: "legal_acco_search", documentId: search, ttlMs: ACCO_SEARCH_TTL_MS };
@@ -122,6 +204,21 @@ function cacheSpec(path, body) {
   return null;
 }
 
+function watchSpec(path, body) {
+  const spec = cacheSpec(path, body);
+  if (!spec) return null;
+
+  const watched =
+    path === "/consult/kaliContIdcc" ||
+    path === "/list/conventions" ||
+    path === "/list/boccsAndTexts" ||
+    path === "/consult/lastNJo" ||
+    (path === "/search" && ["KALI", "ACCO", "CODE_DATE"].includes(String(body?.fond ?? "").trim().toUpperCase()));
+
+  if (!watched) return null;
+  return { ...spec, ...(requestScope(path, body) || {}) };
+}
+
 function cachePayload(data, nowMs) {
   if (!data || data.schemaVersion !== LEGAL_CACHE_SCHEMA_VERSION) return null;
   if (data.parserVersion !== LEGAL_CACHE_PARSER_VERSION) return null;
@@ -140,6 +237,54 @@ function log(logger, level, message, details) {
   if (typeof fn === "function") fn.call(logger, message, details);
 }
 
+function nextCacheDocument({ previousData, spec, watch, path, body, payloadJson, checkedAtMs }) {
+  const currentHash = payloadHash(payloadJson);
+  const previousHash = typeof previousData?.payloadHash === "string"
+    ? previousData.payloadHash
+    : typeof previousData?.payloadJson === "string"
+      ? payloadHash(previousData.payloadJson)
+      : null;
+  const changed = Boolean(previousHash && previousHash !== currentHash);
+  const previousChangeCount = Number(previousData?.changeCount);
+
+  const document = {
+    schemaVersion: LEGAL_CACHE_SCHEMA_VERSION,
+    parserVersion: LEGAL_CACHE_PARSER_VERSION,
+    source: "legifrance-piste",
+    sourceFamily: spec.sourceFamily,
+    path,
+    cachedAtMs: checkedAtMs,
+    lastOfficialCheckAtMs: checkedAtMs,
+    expiresAtMs: checkedAtMs + spec.ttlMs,
+    payloadJson,
+    payloadHash: currentHash,
+    changeCount: Number.isFinite(previousChangeCount) && previousChangeCount >= 0 ? previousChangeCount : 0,
+  };
+
+  if (watch) {
+    document.watchEnabled = true;
+    document.requestJson = JSON.stringify(body ?? {});
+    document.nextCheckAtMs = checkedAtMs + spec.ttlMs;
+    if (watch.scopeType) document.scopeType = watch.scopeType;
+    if (watch.scopeValue) document.scopeValue = watch.scopeValue;
+  }
+
+  if (changed) {
+    document.previousPayloadHash = previousHash;
+    document.changeDetectedAtMs = checkedAtMs;
+    document.changeCount += 1;
+  } else {
+    if (typeof previousData?.previousPayloadHash === "string") {
+      document.previousPayloadHash = previousData.previousPayloadHash;
+    }
+    if (Number.isFinite(previousData?.changeDetectedAtMs)) {
+      document.changeDetectedAtMs = previousData.changeDetectedAtMs;
+    }
+  }
+
+  return { document, changed };
+}
+
 async function resolveWithLegalCache({
   db,
   path,
@@ -154,14 +299,17 @@ async function resolveWithLegalCache({
 
   const spec = cacheSpec(path, body);
   if (!spec || !db) return fetchOfficial();
+  const watch = watchSpec(path, body);
 
   const nowMs = Number(now());
   let ref = null;
+  let previousData = null;
   try {
     ref = db.collection(spec.collection).doc(spec.documentId);
     const snapshot = await ref.get();
     if (snapshot?.exists) {
-      const payload = cachePayload(snapshot.data(), nowMs);
+      previousData = snapshot.data();
+      const payload = cachePayload(previousData, nowMs);
       if (payload !== null) {
         log(logger, "info", `Legal ${spec.sourceFamily} cache hit`, { path, collection: spec.collection });
         return payload;
@@ -179,19 +327,27 @@ async function resolveWithLegalCache({
   const payloadJson = JSON.stringify(officialPayload);
   if (typeof payloadJson !== "string") return officialPayload;
 
-  const cachedAtMs = Number(now());
+  const checkedAtMs = Number(now());
   try {
     if (!ref) ref = db.collection(spec.collection).doc(spec.documentId);
-    await ref.set({
-      schemaVersion: LEGAL_CACHE_SCHEMA_VERSION,
-      parserVersion: LEGAL_CACHE_PARSER_VERSION,
-      source: "legifrance-piste",
-      sourceFamily: spec.sourceFamily,
+    const { document, changed } = nextCacheDocument({
+      previousData,
+      spec,
+      watch,
       path,
-      cachedAtMs,
-      expiresAtMs: cachedAtMs + spec.ttlMs,
+      body,
       payloadJson,
+      checkedAtMs,
     });
+    await ref.set(document);
+    if (changed) {
+      log(logger, "info", `Legal ${spec.sourceFamily} official change detected`, {
+        path,
+        collection: spec.collection,
+        scopeType: document.scopeType || null,
+        scopeValue: document.scopeValue || null,
+      });
+    }
   } catch (error) {
     log(logger, "warn", `Legal ${spec.sourceFamily} cache write failed`, {
       path,
@@ -208,6 +364,7 @@ module.exports = {
   LEGAL_CACHE_PARSER_VERSION,
   KALI_DOCUMENT_TTL_MS,
   KALI_SEARCH_TTL_MS,
+  KALI_RULE_SEARCH_TTL_MS,
   ACCO_DOCUMENT_TTL_MS,
   ACCO_SEARCH_TTL_MS,
   LEGI_DOCUMENT_TTL_MS,
@@ -217,5 +374,9 @@ module.exports = {
   JORF_DOCUMENT_TTL_MS,
   JORF_FEED_TTL_MS,
   cacheSpec,
+  watchSpec,
+  requestScope,
+  payloadHash,
+  nextCacheDocument,
   resolveWithLegalCache,
 };

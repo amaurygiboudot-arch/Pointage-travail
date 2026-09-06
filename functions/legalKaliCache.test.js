@@ -7,6 +7,7 @@ const {
   LEGAL_CACHE_PARSER_VERSION,
   KALI_DOCUMENT_TTL_MS,
   KALI_SEARCH_TTL_MS,
+  KALI_RULE_SEARCH_TTL_MS,
   ACCO_DOCUMENT_TTL_MS,
   ACCO_SEARCH_TTL_MS,
   LEGI_DOCUMENT_TTL_MS,
@@ -16,6 +17,9 @@ const {
   JORF_DOCUMENT_TTL_MS,
   JORF_FEED_TTL_MS,
   cacheSpec,
+  watchSpec,
+  requestScope,
+  payloadHash,
   resolveWithLegalCache,
 } = require("./legalKaliCache");
 
@@ -54,7 +58,7 @@ function fakeFirestore(initial = new Map(), options = {}) {
 
 const quietLogger = { info() {}, warn() {} };
 
-test("configure KALI avec 30 jours pour les documents et 7 jours pour les recherches", () => {
+test("configure KALI avec documents 30 jours, IDCC 7 jours et recherches de règles 1 jour", () => {
   assert.deepEqual(cacheSpec("/consult/kaliArticle", { id: "KALIARTI123" }), {
     sourceFamily: "KALI",
     collection: "legal_kali_articles",
@@ -74,7 +78,7 @@ test("configure KALI avec 30 jours pour les documents et 7 jours pour les recher
     ttlMs: KALI_SEARCH_TTL_MS,
   });
   assert.equal(cacheSpec("/list/conventions", { pageNumber: 1, pageSize: 100 }).collection, "legal_kali_search");
-  assert.equal(cacheSpec("/search", { fond: "KALI", recherche: { pageNumber: 1 } }).collection, "legal_kali_search");
+  assert.equal(cacheSpec("/search", { fond: "KALI", recherche: { pageNumber: 1 } }).ttlMs, KALI_RULE_SEARCH_TTL_MS);
 });
 
 test("configure le cache officiel ACCO, LEGI, BOCC et JORF avec des TTL adaptés", () => {
@@ -118,6 +122,40 @@ test("configure le cache officiel ACCO, LEGI, BOCC et JORF avec des TTL adaptés
   assert.equal(cacheSpec("/search", { fond: "UNKNOWN" }), null);
 });
 
+test("identifie le périmètre de veille IDCC, SIRET, LEGI et JORF", () => {
+  const kaliBody = {
+    fond: "KALI",
+    recherche: {
+      champs: [{ typeChamp: "IDCC", criteres: [{ valeur: "292" }] }],
+    },
+  };
+  const accoBody = {
+    fond: "ACCO",
+    recherche: {
+      filtres: [{ facette: "SIRET_RAISON_SOCIALE", valeurs: ["12345678901234"] }],
+    },
+  };
+
+  assert.deepEqual(requestScope("/search", kaliBody), { scopeType: "IDCC", scopeValue: "0292" });
+  assert.deepEqual(requestScope("/search", accoBody), { scopeType: "SIRET", scopeValue: "12345678901234" });
+  assert.deepEqual(requestScope("/list/boccsAndTexts", { idcc: "292" }), { scopeType: "IDCC", scopeValue: "0292" });
+  assert.deepEqual(requestScope("/search", { fond: "CODE_DATE" }), { scopeType: "CODE", scopeValue: "CODE_DU_TRAVAIL" });
+  assert.deepEqual(requestScope("/consult/lastNJo", { nbElement: 5 }), { scopeType: "GLOBAL", scopeValue: "FRANCE" });
+});
+
+test("seules les recherches et flux de veille sont marqués pour rafraîchissement planifié", () => {
+  assert.equal(watchSpec("/consult/kaliArticle", { id: "KALIARTI123" }), null);
+  assert.equal(watchSpec("/consult/acco", { id: "ACCOTEXT123" }), null);
+
+  const kaliWatch = watchSpec("/consult/kaliContIdcc", { id: "292" });
+  assert.equal(kaliWatch.collection, "legal_kali_search");
+  assert.equal(kaliWatch.scopeValue, "0292");
+
+  const jorfWatch = watchSpec("/consult/lastNJo", { nbElement: 5 });
+  assert.equal(jorfWatch.collection, "legal_jorf_feed");
+  assert.equal(jorfWatch.ttlMs, JORF_FEED_TTL_MS);
+});
+
 test("premier appel utilise Légifrance puis écrit Firestore; deuxième appel vient de Firestore", async () => {
   const firestore = fakeFirestore();
   let officialCalls = 0;
@@ -148,6 +186,73 @@ test("premier appel utilise Légifrance puis écrit Firestore; deuxième appel v
   assert.equal(stored.parserVersion, LEGAL_CACHE_PARSER_VERSION);
   assert.equal(stored.sourceFamily, "KALI");
   assert.equal(stored.expiresAtMs, nowMs + KALI_DOCUMENT_TTL_MS);
+  assert.equal(stored.payloadHash, payloadHash(stored.payloadJson));
+  assert.equal(stored.watchEnabled, undefined);
+});
+
+test("une recherche surveillée stocke la requête normalisée et sa prochaine vérification", async () => {
+  const firestore = fakeFirestore();
+  const nowMs = 1_800_000_000_000;
+  const body = {
+    fond: "ACCO",
+    recherche: {
+      filtres: [{ facette: "SIRET_RAISON_SOCIALE", valeurs: ["12345678901234"] }],
+      pageNumber: 1,
+    },
+  };
+
+  await resolveWithLegalCache({
+    db: firestore.db,
+    path: "/search",
+    body,
+    now: () => nowMs,
+    logger: quietLogger,
+    fetchOfficial: async () => ({ results: [] }),
+  });
+
+  const spec = cacheSpec("/search", body);
+  const stored = firestore.store.get(`${spec.collection}/${spec.documentId}`);
+  assert.equal(stored.watchEnabled, true);
+  assert.equal(stored.requestJson, JSON.stringify(body));
+  assert.equal(stored.scopeType, "SIRET");
+  assert.equal(stored.scopeValue, "12345678901234");
+  assert.equal(stored.nextCheckAtMs, nowMs + ACCO_SEARCH_TTL_MS);
+  assert.equal(stored.lastOfficialCheckAtMs, nowMs);
+});
+
+test("un changement officiel est détecté lors d'une nouvelle vérification sans inventer de règle", async () => {
+  const nowMs = 1_800_000_000_000;
+  const body = { id: "292" };
+  const key = "legal_kali_search/idcc_292";
+  const oldPayload = JSON.stringify({ title: "ancienne version" });
+  const firestore = fakeFirestore(new Map([[
+    key,
+    {
+      schemaVersion: LEGAL_CACHE_SCHEMA_VERSION,
+      parserVersion: LEGAL_CACHE_PARSER_VERSION,
+      sourceFamily: "KALI",
+      path: "/consult/kaliContIdcc",
+      expiresAtMs: nowMs - 1,
+      payloadJson: oldPayload,
+      payloadHash: payloadHash(oldPayload),
+      changeCount: 2,
+    },
+  ]]));
+
+  await resolveWithLegalCache({
+    db: firestore.db,
+    path: "/consult/kaliContIdcc",
+    body,
+    now: () => nowMs,
+    logger: quietLogger,
+    fetchOfficial: async () => ({ title: "nouvelle version" }),
+  });
+
+  const stored = firestore.store.get(key);
+  assert.equal(stored.changeCount, 3);
+  assert.equal(stored.changeDetectedAtMs, nowMs);
+  assert.equal(stored.previousPayloadHash, payloadHash(oldPayload));
+  assert.equal(stored.watchEnabled, true);
 });
 
 test("ACCO utilise le même résolveur commun et conserve sa famille de source", async () => {
