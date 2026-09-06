@@ -45,9 +45,12 @@ object OfficialKaliOvertimeRuleParserV2 {
     ): VerifiedArticle? {
         if (!isKaliArticleId(expectedArticleId)) return null
         val root = data as? Map<*, *> ?: return null
-        val article = findMap(root) { map ->
-            firstString(map, "id", "cid")?.equals(expectedArticleId, ignoreCase = true) == true
-        } ?: return null
+        val article = findMap(
+            root,
+            accept = { map ->
+                firstString(map, "id", "cid")?.equals(expectedArticleId, ignoreCase = true) == true
+            }
+        ) ?: return null
 
         val explicitId = firstString(article, "id", "cid")?.uppercase(Locale.ROOT) ?: return null
         if (explicitId != expectedArticleId.uppercase(Locale.ROOT)) return null
