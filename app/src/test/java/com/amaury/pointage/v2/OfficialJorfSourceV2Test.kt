@@ -135,6 +135,76 @@ class OfficialJorfSourceV2Test {
     }
 
     @Test
+    fun `ecarte la remuneration des volontaires dans les armees`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333338",
+            title = "Décret relatif à la rémunération des volontaires dans les armées et des appelés du service national",
+            nature = "DECRET",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-08-29T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `ecarte les remunerations de commissaires de justice`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333339",
+            title = "Arrêté fixant la liste des données statistiques du registre numérique des saisies des rémunérations transmises au ministère de la justice en application du statut de commissaire de justice",
+            nature = "ARRETE",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-03T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `ecarte les primes de transition energetique`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333340",
+            title = "Arrêté modifiant l'arrêté relatif à la prime de transition énergétique",
+            nature = "ARRETE",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-08-27T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `conserve la prise en charge des contrats d apprentissage`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333341",
+            title = "Décret fixant les niveaux de prise en charge des contrats d'apprentissage",
+            nature = "DECRET",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-08-30T00:00:00Z"
+        )
+        assertTrue(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `conserve une remuneration liee aux salaries`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333342",
+            title = "Décret relatif aux modalités de calcul de la rémunération des salariés",
+            nature = "DECRET",
+            legalState = null,
+            ministry = "Ministère du travail",
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-09-05T00:00:00Z"
+        )
+        assertTrue(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
     fun `conserve un vrai texte national de paie`() {
         val candidate = OfficialJorfSourceV2.Candidate(
             textCid = "JORFTEXT000052333337",
