@@ -64,6 +64,7 @@ async function refreshWatchDocument({
   ref,
   data,
   fetchOfficial,
+  onChange = null,
   now = () => Date.now(),
   logger = console,
 }) {
@@ -96,6 +97,20 @@ async function refreshWatchDocument({
   document.lastRefreshErrorAtMs = null;
   document.lastRefreshError = null;
 
+  if (changed && typeof onChange === "function") {
+    await onChange({
+      sourceFamily: request.spec.sourceFamily,
+      path: request.path,
+      collection,
+      documentId,
+      scopeType: document.scopeType || data?.scopeType || null,
+      scopeValue: document.scopeValue || data?.scopeValue || null,
+      previousPayloadHash: document.previousPayloadHash || data?.payloadHash || null,
+      currentPayloadHash: document.payloadHash,
+      detectedAtMs: checkedAtMs,
+    });
+  }
+
   await ref.set(document);
   log(logger, "info", `Legal ${request.spec.sourceFamily} watch refreshed`, {
     path: request.path,
@@ -115,6 +130,7 @@ async function refreshWatchDocument({
 async function refreshDueLegalWatches({
   db,
   fetchOfficial,
+  onChange = null,
   now = () => Date.now(),
   logger = console,
   batchSize = DEFAULT_BATCH_SIZE,
@@ -159,6 +175,7 @@ async function refreshDueLegalWatches({
           ref: doc.ref,
           data,
           fetchOfficial,
+          onChange,
           now,
           logger,
         });
