@@ -38,6 +38,22 @@ object OfficialKaliOvertimeRuleParserV2 {
         }
     }
 
+    enum class DiagnosticKind {
+        COMPLETE_SCHEDULE,
+        EXPLICIT_RATES_WITHOUT_35H,
+        THIRTY_FIVE_WITHOUT_STRUCTURED_RATES,
+        LEGAL_REFERENCE_ONLY,
+        OTHER
+    }
+
+    data class ArticleDiagnostic(
+        val article: VerifiedArticle,
+        val kind: DiagnosticKind,
+        val schedule: ParsedSchedule? = null,
+        val percentages: List<Double> = emptyList(),
+        val hourThresholds: List<Int> = emptyList()
+    )
+
     fun parseApplicableArticle(
         data: Any?,
         expectedArticleId: String,
@@ -83,17 +99,80 @@ object OfficialKaliOvertimeRuleParserV2 {
      * le seuil de 35 h et soit un taux unique pour toutes les heures supplémentaires, soit deux
      * tranches 36e-43e puis au-delà. Toute autre rédaction reste une preuve à examiner, jamais un calcul.
      */
-    fun parseCompleteSchedule(article: VerifiedArticle): ParsedSchedule? {
-        val text = normalize(article.content)
-        if (!mentionsOvertime(text) || !confirmsThirtyFiveHourThreshold(text)) return null
+    fun parseCompleteSchedule(article: VerifiedArticle): ParsedSchedule? = analyzeArticle(article).schedule
 
-        parseTwoTierSchedule(text)?.let { tiers ->
-            return ParsedSchedule(article, 35 * 60, tiers)
+    /**
+     * Classe les articles applicables sans jamais transformer un indice juridique en règle de calcul.
+     * Ce diagnostic permet notamment de distinguer un ancien seuil chiffré avec des taux explicites
+     * d'un véritable barème 35 h exploitable en 2026.
+     */
+    fun analyzeArticle(article: VerifiedArticle): ArticleDiagnostic {
+        val text = normalize(article.content)
+        if (!mentionsOvertime(text)) {
+            return ArticleDiagnostic(article, DiagnosticKind.OTHER)
         }
-        parseSingleRateSchedule(text)?.let { tier ->
-            return ParsedSchedule(article, 35 * 60, listOf(tier))
+
+        val percentages = extractPercentages(text)
+        val thresholds = extractHourThresholds(text)
+        val confirms35 = confirmsThirtyFiveHourThreshold(text)
+
+        if (confirms35) {
+            parseTwoTierSchedule(text)?.let { tiers ->
+                val schedule = ParsedSchedule(article, 35 * 60, tiers)
+                return ArticleDiagnostic(
+                    article = article,
+                    kind = DiagnosticKind.COMPLETE_SCHEDULE,
+                    schedule = schedule,
+                    percentages = percentages,
+                    hourThresholds = thresholds
+                )
+            }
+            parseSingleRateSchedule(text)?.let { tier ->
+                val schedule = ParsedSchedule(article, 35 * 60, listOf(tier))
+                return ArticleDiagnostic(
+                    article = article,
+                    kind = DiagnosticKind.COMPLETE_SCHEDULE,
+                    schedule = schedule,
+                    percentages = percentages,
+                    hourThresholds = thresholds
+                )
+            }
+            return ArticleDiagnostic(
+                article = article,
+                kind = if (referencesCurrentLaw(text) && percentages.isEmpty()) {
+                    DiagnosticKind.LEGAL_REFERENCE_ONLY
+                } else {
+                    DiagnosticKind.THIRTY_FIVE_WITHOUT_STRUCTURED_RATES
+                },
+                percentages = percentages,
+                hourThresholds = thresholds
+            )
         }
-        return null
+
+        if (percentages.isNotEmpty()) {
+            return ArticleDiagnostic(
+                article = article,
+                kind = DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H,
+                percentages = percentages,
+                hourThresholds = thresholds
+            )
+        }
+
+        if (referencesCurrentLaw(text)) {
+            return ArticleDiagnostic(
+                article = article,
+                kind = DiagnosticKind.LEGAL_REFERENCE_ONLY,
+                percentages = percentages,
+                hourThresholds = thresholds
+            )
+        }
+
+        return ArticleDiagnostic(
+            article = article,
+            kind = DiagnosticKind.OTHER,
+            percentages = percentages,
+            hourThresholds = thresholds
+        )
     }
 
     private fun parseTwoTierSchedule(text: String): List<OvertimeTierV2>? {
@@ -142,8 +221,32 @@ object OfficialKaliOvertimeRuleParserV2 {
             ?.takeIf { it in 0.0..200.0 }
     }
 
+    private fun extractPercentages(text: String): List<Double> = percentRegex.findAll(text)
+        .mapNotNull { match ->
+            match.groupValues.getOrNull(1)
+                ?.replace(',', '.')
+                ?.toDoubleOrNull()
+                ?.takeIf { it in 0.0..200.0 }
+        }
+        .distinct()
+        .take(8)
+        .toList()
+
+    private fun extractHourThresholds(text: String): List<Int> = hourThresholdRegex.findAll(text)
+        .mapNotNull { it.groupValues.getOrNull(1)?.toIntOrNull() }
+        .filter { it in 20..60 }
+        .distinct()
+        .take(8)
+        .toList()
+
     private fun mentionsOvertime(text: String): Boolean =
         text.contains("heure supplementaire") || text.contains("heures supplementaires")
+
+    private fun referencesCurrentLaw(text: String): Boolean =
+        text.contains("legislation en vigueur") ||
+            text.contains("dispositions legales") ||
+            text.contains("dispositions reglementaires") ||
+            text.contains("code du travail")
 
     private fun confirmsThirtyFiveHourThreshold(text: String): Boolean =
         Regex("(?:au[- ]dela de|a partir de|apres|superieure?s? a)\\s*35\\s*(?:h|heures?)").containsMatchIn(text) ||
@@ -151,6 +254,7 @@ object OfficialKaliOvertimeRuleParserV2 {
             text.contains("36e heure") || text.contains("de la 36e") || text.contains("de la 36eme")
 
     private val percentRegex = Regex("(\\d{1,3}(?:[,.]\\d+)?)\\s*%")
+    private val hourThresholdRegex = Regex("\\b(\\d{2})\\s*(?:h|heures?)\\b")
     private val activeStatuses = setOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_DIFF")
 
     private fun firstDate(map: Map<*, *>, vararg keys: String): LocalDate? =
