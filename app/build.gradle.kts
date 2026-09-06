@@ -83,6 +83,9 @@ dependencies {
     implementation("io.sentry:sentry-android:8.43.0")
 
     testImplementation("junit:junit:4.13.2")
+    // Android fournit org.json à l'exécution, mais les tests JVM utilisent android.jar où
+    // JSONObject/JSONArray sont des stubs. Cette dépendance donne l'implémentation réelle aux tests.
+    testImplementation("org.json:json:20240303")
 }
 
 kotlin { jvmToolchain(17) }
