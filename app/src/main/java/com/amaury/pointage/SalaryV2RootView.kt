@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.amaury.pointage.v2.LegalAutoUpdateCoordinatorV2
 
 /**
  * Racine autonome de l'onglet Salaire V2.
@@ -163,6 +164,11 @@ class SalaryV2RootView @JvmOverloads constructor(
     }
 
     private fun openCompanySpace(company: SalaryCompanyStore.Company) {
+        val legalWatchStatus = TextView(context).apply {
+            text = "Veille juridique : vérification automatique…"
+            textSize = 12f
+            setPadding(0, 0, 0, dp(10))
+        }
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(8), dp(14), dp(12))
@@ -173,6 +179,7 @@ class SalaryV2RootView @JvmOverloads constructor(
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(0, 0, 0, dp(10))
             })
+            addView(legalWatchStatus)
             addView(actionButton("FICHE DE RENSEIGNEMENTS") { showInformationSheet(company) })
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
@@ -183,6 +190,39 @@ class SalaryV2RootView @JvmOverloads constructor(
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
         }
         themedDialog("Espace entreprise", ScrollView(context).apply { addView(box) })
+        runLegalAutoUpdate(company, legalWatchStatus)
+    }
+
+    private fun runLegalAutoUpdate(company: SalaryCompanyStore.Company, statusView: TextView) {
+        LegalAutoUpdateCoordinatorV2.sync(context, company)
+            .addOnSuccessListener { summary ->
+                statusView.text = legalAutoStatus(summary)
+            }
+            .addOnFailureListener {
+                statusView.text = "Veille juridique : synchronisation différée."
+            }
+    }
+
+    private fun legalAutoStatus(summary: LegalAutoUpdateCoordinatorV2.Summary): String {
+        if (summary.warnings.any { it.contains("différée", ignoreCase = true) }) {
+            return "Veille juridique : synchronisation différée."
+        }
+        if (summary.hadAutomaticWork) {
+            val details = mutableListOf<String>()
+            if (summary.kaliAuditsRun > 0) {
+                details += if (summary.kaliRuleSaved) "KALI actualisé" else "KALI contrôlé"
+            }
+            if (summary.legiAuditsRun > 0) {
+                details += "LEGI contrôlé (${summary.legiVerifiedArticles} article(s))"
+            }
+            if (summary.unsupportedAccoJobs > 0) details += "ACCO à approfondir"
+            return "Veille juridique : ${details.joinToString(" · ")}"
+        }
+        if (summary.unsupportedAccoJobs > 0) {
+            return "Veille juridique : accord d’entreprise détecté — analyse paie détaillée en attente."
+        }
+        if (summary.readyJobs == 0) return "Veille juridique : à jour."
+        return "Veille juridique : mises à jour déjà analysées sur cet appareil."
     }
 
     private fun showCompanyInformation(company: SalaryCompanyStore.Company) {
