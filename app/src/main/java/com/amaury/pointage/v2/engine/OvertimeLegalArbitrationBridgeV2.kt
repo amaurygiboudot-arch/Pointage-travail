@@ -43,6 +43,7 @@ object OvertimeLegalArbitrationBridgeV2 {
         val resolution: PayrollLegalArbitratorV2.Resolution,
         val warnings: List<String>
     ) {
+        /** Barème complet uniquement. Un barème partiel n'arrive jamais jusqu'ici comme sélection. */
         val selectedSchedule: Schedule?
             get() = when (resolution.selected?.source) {
                 PayrollLegalArbitratorV2.Source.ACCO -> companySchedule
@@ -97,17 +98,22 @@ object OvertimeLegalArbitrationBridgeV2 {
                                 multiplier = 1.0 + rule.percent / 100.0
                             )
                         }
-                    val ids = agreement.safeOvertimeRules
-                        .map { it.source.source.agreementId }
-                        .distinct()
-                        .sorted()
-                    Schedule(
-                        source = PayrollLegalArbitratorV2.Source.ACCO,
-                        id = "ACCO:${ids.joinToString(",")}",
-                        effectiveFrom = referenceDate,
-                        effectiveTo = referenceDate,
-                        tiers = tiers
-                    )
+                    if (!coversWholeOvertimeRange(tiers)) {
+                        warnings += "ACCO : barème d'heures supplémentaires partiel ; il n'est pas utilisé comme barème complet tant que les tranches manquantes ne sont pas confirmées."
+                        null
+                    } else {
+                        val ids = agreement.safeOvertimeRules
+                            .map { it.source.source.agreementId }
+                            .distinct()
+                            .sorted()
+                        Schedule(
+                            source = PayrollLegalArbitratorV2.Source.ACCO,
+                            id = "ACCO:${ids.joinToString(",")}",
+                            effectiveFrom = referenceDate,
+                            effectiveTo = referenceDate,
+                            tiers = tiers
+                        )
+                    }
                 }
             }
         }
@@ -115,13 +121,19 @@ object OvertimeLegalArbitrationBridgeV2 {
         val branchSchedule = branchSnapshot
             ?.takeIf { it.rules.overtimeTiers.isNotEmpty() }
             ?.let { snapshot ->
-                Schedule(
-                    source = PayrollLegalArbitratorV2.Source.KALI,
-                    id = "KALI:${snapshot.versionId}:${snapshot.sourceId}",
-                    effectiveFrom = LocalDate.ofEpochDay(snapshot.effectiveFromEpochDay),
-                    effectiveTo = snapshot.effectiveToEpochDay?.let(LocalDate::ofEpochDay),
-                    tiers = snapshot.rules.overtimeTiers
-                )
+                val tiers = snapshot.rules.overtimeTiers
+                if (!coversWholeOvertimeRange(tiers)) {
+                    warnings += "KALI : barème conventionnel partiel ; l'arbitrage automatique est bloqué tant que toutes les tranches ne sont pas confirmées."
+                    null
+                } else {
+                    Schedule(
+                        source = PayrollLegalArbitratorV2.Source.KALI,
+                        id = "KALI:${snapshot.versionId}:${snapshot.sourceId}",
+                        effectiveFrom = LocalDate.ofEpochDay(snapshot.effectiveFromEpochDay),
+                        effectiveTo = snapshot.effectiveToEpochDay?.let(LocalDate::ofEpochDay),
+                        tiers = tiers
+                    )
+                }
             }
 
         val statutoryRule = StatutoryOvertimeRulesV2.fallbackRule(legalRecords, referenceDate)
@@ -166,5 +178,21 @@ object OvertimeLegalArbitrationBridgeV2 {
             resolution = resolution,
             warnings = warnings.distinct()
         )
+    }
+
+    /**
+     * Pour être considéré comme barème complet, la couverture commence après 35 h, reste continue
+     * et la dernière tranche est ouverte. Une règle partielle reste une piste mais ne remplace pas
+     * silencieusement les tranches absentes d'une autre source.
+     */
+    internal fun coversWholeOvertimeRange(tiers: List<OvertimeTierV2>): Boolean {
+        if (tiers.isEmpty()) return false
+        val sorted = tiers.sortedBy { it.fromMinutes }
+        if (sorted.first().fromMinutes != 35 * 60) return false
+        for (index in 0 until sorted.lastIndex) {
+            val end = sorted[index].toMinutes ?: return false
+            if (end != sorted[index + 1].fromMinutes) return false
+        }
+        return sorted.last().toMinutes == null
     }
 }
