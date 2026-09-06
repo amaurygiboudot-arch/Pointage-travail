@@ -1,1 +1,1 @@
-Deploy Firebase Functions - resilient legal watch pipeline - Node 22 - 2026-09-06 final
+Deploy Firebase Functions - legal reanalysis dispatcher - Node 22 - 2026-09-06
