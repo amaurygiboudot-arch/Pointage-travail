@@ -22,6 +22,7 @@ class V2KaliPayrollSourcesView(
 ) : LinearLayout(context) {
     private val status = TextView(context)
     private val verifyButton = Button(context)
+    private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE)
 
     init {
         orientation = VERTICAL
@@ -134,6 +135,5 @@ class V2KaliPayrollSourcesView(
     private fun formatPercent(value: Double): String =
         if (value % 1.0 == 0.0) value.toInt().toString() else String.format(Locale.FRANCE, "%.2f", value)
 
-    private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE)
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 }
