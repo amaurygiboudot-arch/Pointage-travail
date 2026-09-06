@@ -169,11 +169,9 @@ object OfficialJorfSourceV2 {
      * Filtre documentaire prudent : JORF doit repérer des règles générales utiles à la paie privée,
      * pas toute publication contenant les mots « rémunération », « prime » ou « indemnité ».
      *
-     * 1. Les actes individuels, la fonction publique et les aides/politiques publiques sans lien
-     *    avec le bulletin de salaire sont écartés explicitement.
-     * 2. Les notions typiquement paie/droit du travail sont acceptées directement.
-     * 3. Les mots génériques (prime, rémunération, indemnité, cotisation, majoration) ne passent que
-     *    s'ils sont accompagnés d'un ancrage salarié/employeur/Code du travail.
+     * Les arrêtés d'extension de branche sont volontairement laissés à KALI/BOCC, qui disposent
+     * du contexte conventionnel. JORF reste ainsi centré sur les règles nationales susceptibles
+     * d'affecter directement le calcul ou les droits d'un salarié du privé.
      */
     fun isPayrollRelevant(candidate: Candidate): Boolean {
         val title = normalize(candidate.title)
@@ -309,6 +307,9 @@ object OfficialJorfSourceV2 {
         "prime de transition energetique",
         "transition energetique",
         "performance energetique des logements",
-        "avances remboursables sans interet"
+        "avances remboursables sans interet",
+        "prise en charge des contrats d'apprentissage",
+        "niveaux de prise en charge des contrats d'apprentissage",
+        "portant extension"
     )
 }
