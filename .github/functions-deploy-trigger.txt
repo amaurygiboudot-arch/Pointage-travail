@@ -1,1 +1,1 @@
-Deploy Firebase Functions - shared KALI Firestore cache - 2026-09-06 16:40 CEST
+Deploy Firebase Functions - scheduled legal update watch - 2026-09-06 22:12 CEST
