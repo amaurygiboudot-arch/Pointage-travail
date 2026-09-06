@@ -56,7 +56,7 @@ object DevelopmentUpdateReleaseV2 {
 
     internal fun sha256Url(versionName: String): String? {
         val buildRevision = revision(versionName) ?: return null
-        return "$REPOSITORY_RELEASE_PREFIXdev-$buildRevision/SHA256-dev.txt"
+        return "${REPOSITORY_RELEASE_PREFIX}dev-$buildRevision/SHA256-dev.txt"
     }
 
     private fun parseVersionFromBody(body: String): String? = body.lineSequence()
