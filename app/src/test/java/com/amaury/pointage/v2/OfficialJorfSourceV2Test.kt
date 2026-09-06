@@ -177,7 +177,7 @@ class OfficialJorfSourceV2Test {
     }
 
     @Test
-    fun `conserve la prise en charge des contrats d apprentissage`() {
+    fun `ecarte le financement des contrats d apprentissage`() {
         val candidate = OfficialJorfSourceV2.Candidate(
             textCid = "JORFTEXT000052333341",
             title = "Décret fixant les niveaux de prise en charge des contrats d'apprentissage",
@@ -187,7 +187,21 @@ class OfficialJorfSourceV2Test {
             containerId = "JORFCONT000052345678",
             publicationDate = "2026-08-30T00:00:00Z"
         )
-        assertTrue(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
+    }
+
+    @Test
+    fun `ecarte les arretes d extension de branche geres par KALI et BOCC`() {
+        val candidate = OfficialJorfSourceV2.Candidate(
+            textCid = "JORFTEXT000052333343",
+            title = "Arrêté portant extension d'un avenant à une convention collective de travail réglementant la rémunération des salariés arboricoles",
+            nature = "ARRETE",
+            legalState = null,
+            ministry = null,
+            containerId = "JORFCONT000052345678",
+            publicationDate = "2026-08-08T00:00:00Z"
+        )
+        assertFalse(OfficialJorfSourceV2.isPayrollRelevant(candidate))
     }
 
     @Test
