@@ -148,7 +148,5 @@ jobs:
             HoraTrack-dev-version.txt \
             --target "$GITHUB_SHA" \
             --title "HoraTrack DEV $VERSION_NAME" \
-            --notes "DEV_VERSION=$VERSION_NAME
-CHANNEL=development
-BUILD_KIND=tests" \
+            --notes "DEV_VERSION=$VERSION_NAME | CHANNEL=development | BUILD_KIND=tests" \
             --prerelease
