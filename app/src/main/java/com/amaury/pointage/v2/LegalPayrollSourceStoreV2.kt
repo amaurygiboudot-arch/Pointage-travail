@@ -75,15 +75,16 @@ object LegalPayrollSourceStoreV2 {
         if (atMs <= 0L) return emptyList()
         return all(context)
             .filter { sameReferenceDay(it.referenceAtMs, atMs) }
-            .filter {
-                it.status.equals("VIGUEUR", ignoreCase = true) ||
-                    it.status.equals("VIGUEUR_DIFF", ignoreCase = true)
-            }
+            .filter { isApplicableStatus(it.status) }
             .filter { atMs >= it.effectiveFromMs && (it.effectiveToMs == null || atMs <= it.effectiveToMs) }
             .groupBy { it.topic to it.articleId }
             .mapNotNull { (_, values) -> values.maxByOrNull { it.checkedAtMs } }
             .sortedWith(compareBy<Record> { it.topic.ordinal }.thenBy { it.articleNumber.orEmpty() })
     }
+
+    internal fun isApplicableStatus(status: String): Boolean =
+        status.equals("VIGUEUR", ignoreCase = true) ||
+            status.equals("VIGUEUR_DIFF", ignoreCase = true)
 
     fun snapshot(context: Context, atMs: Long): Snapshot {
         val records = applicableAt(context, atMs)
