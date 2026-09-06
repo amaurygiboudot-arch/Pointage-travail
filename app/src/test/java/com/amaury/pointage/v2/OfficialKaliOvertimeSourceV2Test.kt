@@ -14,7 +14,9 @@ class OfficialKaliOvertimeSourceV2Test {
         val recherche = body["recherche"] as Map<*, *>
         assertEquals(2, recherche["pageNumber"])
         assertEquals(25, recherche["pageSize"])
-        assertEquals("ARTICLE", recherche["typePagination"])
+        assertEquals("DEFAUT", recherche["typePagination"])
+        assertEquals("PERTINENCE", recherche["sort"])
+        assertEquals("PERTINENCE", recherche["secondSort"])
 
         val champs = recherche["champs"] as List<*>
         val idcc = champs[0] as Map<*, *>
