@@ -12,6 +12,10 @@ import java.time.LocalDate
  * Les politiques ci-dessous ne prétendent pas créer une hiérarchie universelle : l'articulation
  * entreprise/branche dépend de la matière. Le moteur exige donc qu'une politique juridique soit
  * choisie explicitement pour chaque famille de règle.
+ *
+ * Autre garde-fou essentiel : l'absence d'une règle dans le stockage HoraTrack ne prouve jamais
+ * qu'aucune règle officielle n'existe. Un repli vers une source inférieure n'est autorisé que si
+ * l'absence de règle applicable dans la source prioritaire a été explicitement confirmée.
  */
 object PayrollLegalArbitratorV2 {
     enum class Source {
@@ -29,6 +33,16 @@ object PayrollLegalArbitratorV2 {
         COMPANY_AGREEMENT_RULE,
         PUBLICATION_EVIDENCE,
         CONTRACTUAL_RULE
+    }
+
+    /**
+     * État de connaissance lorsque la source ne fournit aucun candidat applicable.
+     * UNKNOWN interdit tout repli automatique. CONFIRMED_ABSENCE signifie que la source a été
+     * contrôlée pour la matière, le champ et la date concernés sans règle applicable trouvée.
+     */
+    enum class Knowledge {
+        UNKNOWN,
+        CONFIRMED_ABSENCE
     }
 
     enum class Policy {
@@ -100,7 +114,8 @@ object PayrollLegalArbitratorV2 {
     fun resolve(
         candidates: List<Candidate>,
         referenceDate: LocalDate,
-        policy: Policy
+        policy: Policy,
+        sourceKnowledge: Map<Source, Knowledge> = emptyMap()
     ): Resolution {
         val evidence = candidates.filter { role(it.source) == SourceRole.PUBLICATION_EVIDENCE }
         val applicable = candidates
@@ -122,21 +137,12 @@ object PayrollLegalArbitratorV2 {
             )
         }
 
-        if (applicable.isEmpty()) {
-            return Resolution(
-                State.NO_APPLICABLE_RULE,
-                null,
-                emptyList(),
-                evidence,
-                "Aucune règle consolidée, vérifiée, datée et applicable n'est disponible."
-            )
-        }
-
         return when (policy) {
             Policy.OVERTIME_RATE_L3121_33_36 -> resolveByPriority(
                 applicable,
                 evidence,
                 listOf(Source.ACCO, Source.KALI, Source.LEGI),
+                sourceKnowledge,
                 "Heures supplémentaires : accord d'entreprise/établissement, à défaut branche, à défaut règle légale supplétive."
             )
 
@@ -144,18 +150,20 @@ object PayrollLegalArbitratorV2 {
                 applicable,
                 evidence,
                 listOf(Source.ACCO, Source.KALI, Source.LEGI),
+                sourceKnowledge,
                 "Matière hors blocs L2253-1/L2253-2 : la règle d'entreprise est examinée avant la branche."
             )
 
-            Policy.BRANCH_BLOCK_L2253_1 -> resolveBranchProtected(applicable, evidence)
-            Policy.BRANCH_LOCK_L2253_2 -> resolveBranchLockable(applicable, evidence)
+            Policy.BRANCH_BLOCK_L2253_1 -> resolveBranchProtected(applicable, evidence, sourceKnowledge)
+            Policy.BRANCH_LOCK_L2253_2 -> resolveBranchLockable(applicable, evidence, sourceKnowledge)
             Policy.MANUAL_REVIEW -> error("déjà traité")
         }
     }
 
     private fun resolveBranchProtected(
         applicable: List<Candidate>,
-        evidence: List<Candidate>
+        evidence: List<Candidate>,
+        knowledge: Map<Source, Knowledge>
     ): Resolution {
         val branch = uniqueFor(Source.KALI, applicable)
         if (branch.state != null) return conflict(branch.state, applicable, evidence, branch.message)
@@ -174,18 +182,28 @@ object PayrollLegalArbitratorV2 {
                     "Bloc L2253-1 : l'équivalence des garanties doit être confirmée avant d'arbitrer entre branche et entreprise.")
             }
         }
-        if (branchRule != null) return resolved(branchRule, applicable, evidence,
-            "Bloc L2253-1 : règle de branche applicable.")
+        if (branchRule != null) {
+            if (!absenceConfirmed(Source.ACCO, knowledge)) {
+                return review(applicable, evidence,
+                    "Bloc L2253-1 : la branche est connue, mais l'absence d'un accord d'entreprise applicable n'est pas confirmée.")
+            }
+            return resolved(branchRule, applicable, evidence, "Bloc L2253-1 : règle de branche applicable.")
+        }
         if (companyRule != null) return review(applicable, evidence,
             "Bloc L2253-1 : une règle d'entreprise existe mais la garantie de branche applicable n'est pas disponible pour comparaison.")
 
+        if (!absenceConfirmed(Source.ACCO, knowledge) || !absenceConfirmed(Source.KALI, knowledge)) {
+            return review(applicable, evidence,
+                "Bloc L2253-1 : les sources entreprise et branche ne sont pas suffisamment contrôlées pour autoriser un repli.")
+        }
         return fallbackNational(applicable, evidence,
-            "Bloc L2253-1 : aucune règle de branche structurée applicable n'est disponible.")
+            "Bloc L2253-1 : absence de règle entreprise/branche applicable confirmée.")
     }
 
     private fun resolveBranchLockable(
         applicable: List<Candidate>,
-        evidence: List<Candidate>
+        evidence: List<Candidate>,
+        knowledge: Map<Source, Knowledge>
     ): Resolution {
         val branch = uniqueFor(Source.KALI, applicable)
         if (branch.state != null) return conflict(branch.state, applicable, evidence, branch.message)
@@ -195,16 +213,31 @@ object PayrollLegalArbitratorV2 {
         val branchRule = branch.candidate
         val companyRule = company.candidate
         if (branchRule == null) {
-            return if (companyRule != null) review(applicable, evidence,
-                "Bloc L2253-2 : impossible de savoir si la branche a verrouillé la matière tant que sa règle n'est pas structurée.")
-            else fallbackNational(applicable, evidence, "Bloc L2253-2 : aucune règle collective applicable disponible.")
+            if (!absenceConfirmed(Source.KALI, knowledge)) {
+                return review(applicable, evidence,
+                    "Bloc L2253-2 : le contenu de branche n'est pas assez connu pour déterminer l'existence d'un verrou.")
+            }
+            if (companyRule != null) {
+                return resolved(companyRule, applicable, evidence,
+                    "Bloc L2253-2 : absence de règle/verrou de branche applicable confirmée, règle d'entreprise retenue.")
+            }
+            if (!absenceConfirmed(Source.ACCO, knowledge)) {
+                return review(applicable, evidence,
+                    "Bloc L2253-2 : l'absence d'une règle d'entreprise applicable n'est pas confirmée.")
+            }
+            return fallbackNational(applicable, evidence,
+                "Bloc L2253-2 : absence de règle collective applicable confirmée.")
         }
 
         return when (branchRule.branchLockConfirmed) {
             true -> {
-                if (companyRule == null) resolved(branchRule, applicable, evidence,
-                    "Bloc L2253-2 verrouillé par la branche : règle de branche applicable.")
-                else when (companyRule.companyGuaranteesEquivalent) {
+                if (companyRule == null) {
+                    if (!absenceConfirmed(Source.ACCO, knowledge)) {
+                        review(applicable, evidence,
+                            "Bloc L2253-2 verrouillé : l'absence d'un accord d'entreprise assurant des garanties équivalentes n'est pas confirmée.")
+                    } else resolved(branchRule, applicable, evidence,
+                        "Bloc L2253-2 verrouillé par la branche : règle de branche applicable.")
+                } else when (companyRule.companyGuaranteesEquivalent) {
                     true -> resolved(companyRule, applicable, evidence,
                         "Bloc L2253-2 verrouillé : l'accord d'entreprise est retenu après confirmation explicite de garanties au moins équivalentes.")
                     false -> resolved(branchRule, applicable, evidence,
@@ -216,6 +249,8 @@ object PayrollLegalArbitratorV2 {
             false -> {
                 if (companyRule != null) resolved(companyRule, applicable, evidence,
                     "Bloc L2253-2 non verrouillé : la règle d'entreprise applicable est retenue.")
+                else if (!absenceConfirmed(Source.ACCO, knowledge)) review(applicable, evidence,
+                    "Bloc L2253-2 non verrouillé : l'absence d'une règle d'entreprise applicable n'est pas confirmée.")
                 else resolved(branchRule, applicable, evidence,
                     "Bloc L2253-2 non verrouillé : aucune règle d'entreprise applicable, règle de branche retenue.")
             }
@@ -228,13 +263,40 @@ object PayrollLegalArbitratorV2 {
         applicable: List<Candidate>,
         evidence: List<Candidate>,
         priority: List<Source>,
+        knowledge: Map<Source, Knowledge>,
         explanation: String
     ): Resolution {
-        priority.forEach { source ->
+        priority.forEachIndexed { index, source ->
             val choice = uniqueFor(source, applicable)
             if (choice.state != null) return conflict(choice.state, applicable, evidence, choice.message)
             choice.candidate?.let { return resolved(it, applicable, evidence, explanation) }
+
+            val lowerSourceExists = priority.drop(index + 1).any { lower ->
+                applicable.any { it.source == lower }
+            }
+            if (lowerSourceExists && source != Source.LEGI && !absenceConfirmed(source, knowledge)) {
+                return review(applicable, evidence,
+                    "${source.name} : aucune règle applicable structurée n'est disponible, mais son absence officielle n'est pas confirmée ; le repli vers une source inférieure est bloqué.")
+            }
         }
+
+        if (applicable.isEmpty()) {
+            val unknownPrioritySource = priority
+                .filter { it != Source.LEGI }
+                .firstOrNull { !absenceConfirmed(it, knowledge) }
+            if (unknownPrioritySource != null) {
+                return review(applicable, evidence,
+                    "${unknownPrioritySource.name} : source prioritaire encore inconnue ; impossible de conclure à l'absence de règle applicable.")
+            }
+            return Resolution(
+                State.NO_APPLICABLE_RULE,
+                null,
+                emptyList(),
+                evidence,
+                "Aucune règle consolidée, vérifiée, datée et applicable n'est disponible."
+            )
+        }
+
         return review(applicable, evidence,
             "Des règles applicables existent, mais aucune ne correspond aux sources autorisées par cette politique.")
     }
@@ -264,6 +326,9 @@ object PayrollLegalArbitratorV2 {
         return !referenceDate.isBefore(from) &&
             (candidate.effectiveTo == null || !referenceDate.isAfter(candidate.effectiveTo))
     }
+
+    private fun absenceConfirmed(source: Source, knowledge: Map<Source, Knowledge>): Boolean =
+        knowledge[source] == Knowledge.CONFIRMED_ABSENCE
 
     private fun fallbackNational(
         applicable: List<Candidate>,
