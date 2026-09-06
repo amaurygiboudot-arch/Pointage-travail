@@ -166,15 +166,24 @@ object OfficialJorfSourceV2 {
     }
 
     /**
-     * Filtre documentaire prudent : JORF sert ici à repérer des règles générales utiles à la paie
-     * privée. Les actes individuels et mesures sectorielles de fonction publique ne doivent pas
-     * polluer le moteur simplement parce que leur titre contient « retraite », « prime » ou
-     * « indemnité ».
+     * Filtre documentaire prudent : JORF doit repérer des règles générales utiles à la paie privée,
+     * pas toute publication contenant les mots « rémunération », « prime » ou « indemnité ».
+     *
+     * 1. Les actes individuels, la fonction publique et les aides/politiques publiques sans lien
+     *    avec le bulletin de salaire sont écartés explicitement.
+     * 2. Les notions typiquement paie/droit du travail sont acceptées directement.
+     * 3. Les mots génériques (prime, rémunération, indemnité, cotisation, majoration) ne passent que
+     *    s'ils sont accompagnés d'un ancrage salarié/employeur/Code du travail.
      */
     fun isPayrollRelevant(candidate: Candidate): Boolean {
         val title = normalize(candidate.title)
         if (EXCLUDED_TITLE_PATTERNS.any(title::contains)) return false
-        return STRONG_PAYROLL_KEYWORDS.any(title::contains)
+
+        if (DIRECT_PAYROLL_PATTERNS.any(title::contains)) return true
+
+        val hasGenericPayrollWord = GENERIC_PAYROLL_PATTERNS.any(title::contains)
+        val hasEmploymentAnchor = EMPLOYMENT_ANCHORS.any(title::contains)
+        return hasGenericPayrollWord && hasEmploymentAnchor
     }
 
     private fun hasDocumentContent(root: Map<*, *>): Boolean {
@@ -224,11 +233,52 @@ object OfficialJorfSourceV2 {
         .replace(Regex("\\s+"), " ")
         .trim()
 
-    private val STRONG_PAYROLL_KEYWORDS = listOf(
-        "salaire", "remuneration", "smic", "salaire minimum", "minima salariaux",
-        "prime", "cotisation", "heures supplementaires", "temps de travail", "duree du travail",
-        "conge paye", "conges payes", "repos compensateur", "rtt", "indemnite", "majoration",
-        "travail de nuit", "paie", "bulletin de paie", "apprentissage", "alternance", "licenciement"
+    private val DIRECT_PAYROLL_PATTERNS = listOf(
+        "smic",
+        "salaire minimum interprofessionnel",
+        "salaire minimum",
+        "minima salariaux",
+        "salaires minima",
+        "bulletin de paie",
+        "heures supplementaires",
+        "temps de travail",
+        "duree du travail",
+        "travail de nuit",
+        "conge paye",
+        "conges payes",
+        "repos compensateur",
+        "rtt",
+        "licenciement",
+        "contrat d'apprentissage",
+        "contrats d'apprentissage",
+        "apprentissage",
+        "alternance"
+    )
+
+    private val GENERIC_PAYROLL_PATTERNS = listOf(
+        "salaire",
+        "remuneration",
+        "prime",
+        "indemnite",
+        "cotisation",
+        "majoration",
+        "assiette"
+    )
+
+    private val EMPLOYMENT_ANCHORS = listOf(
+        "salarie",
+        "salaries",
+        "employeur",
+        "employeurs",
+        "entreprise",
+        "entreprises",
+        "contrat de travail",
+        "code du travail",
+        "convention collective",
+        "branche professionnelle",
+        "securite sociale",
+        "apprenti",
+        "apprentis"
     )
 
     private val EXCLUDED_TITLE_PATTERNS = listOf(
@@ -238,11 +288,27 @@ object OfficialJorfSourceV2 {
         "liste des postes difficiles",
         "prix de specialites pharmaceutiques",
         "prix des specialites pharmaceutiques",
+        "fonctionnaire",
         "fonctionnaires",
+        "fonction publique",
+        "magistrat",
         "magistrature",
         "police nationale",
+        "gendarmerie",
+        "militaire",
+        "militaires",
+        "dans les armees",
+        "service national",
         "tribunaux administratifs",
         "cours administratives d'appel",
-        "agents du ministere"
+        "conseil d'etat",
+        "agents du ministere",
+        "ministere de la justice",
+        "commissaire de justice",
+        "commissaires de justice",
+        "prime de transition energetique",
+        "transition energetique",
+        "performance energetique des logements",
+        "avances remboursables sans interet"
     )
 }
