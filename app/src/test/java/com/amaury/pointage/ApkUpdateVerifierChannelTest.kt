@@ -13,9 +13,9 @@ class ApkUpdateVerifierChannelTest {
     }
 
     @Test
-    fun `la prerelease de developpement utilise son SHA immuable`() {
+    fun `le canal de developpement utilise toujours le SHA de dev latest`() {
         assertEquals(
-            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-1788696000/SHA256-dev.txt",
+            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-latest/SHA256-dev.txt",
             ApkUpdateVerifier.expectedSha256Url("1.1440-dev-1788696000")
         )
     }

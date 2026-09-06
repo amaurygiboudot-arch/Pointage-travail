@@ -1,4 +1,4 @@
-name: Compiler HoraTrack APK rapide
+name: HoraTrack DEV - APK unique
 
 on:
   workflow_dispatch:
@@ -6,15 +6,15 @@ on:
     branches:
       - main
     paths:
-      - ".github/fast-build-trigger.txt"
+      - ".github/dev-build-trigger.txt"
 
 concurrency:
   group: horatrack-apk-dev
   cancel-in-progress: true
 
 jobs:
-  fast-build:
-    name: Compiler APK de developpement signe
+  dev-build:
+    name: Tester puis compiler l APK DEV unique
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -42,6 +42,9 @@ jobs:
           python scripts/verify_launcher_icons.py
           python scripts/verify_update_architecture.py
 
+      - name: Lancer les tests unitaires
+        run: gradle :app:testDebugUnitTest --build-cache --parallel --stacktrace
+
       - name: Restaurer la cle de signature HoraTrack
         env:
           KEYSTORE_B64: ${{ secrets.POINTAGE_KEYSTORE_B64 }}
@@ -59,7 +62,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="$(gh release view --json tagName --jq '.tagName' 2>/dev/null || true)"
+          TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
           PUBLIC_VERSION="${TAG#v}"
           VERSION_CODE="${PUBLIC_VERSION##*.}"
           if [ -z "$PUBLIC_VERSION" ] || ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || [ "$VERSION_CODE" -le 0 ]; then
@@ -67,17 +70,14 @@ jobs:
             VERSION_CODE="9"
           fi
           DEV_REVISION="$(date +%s)"
-          while gh release view "dev-${DEV_REVISION}" >/dev/null 2>&1; do
-            DEV_REVISION=$((DEV_REVISION + 1))
-          done
           VERSION_NAME="${PUBLIC_VERSION}-dev-${DEV_REVISION}"
           echo "PUBLIC_VERSION=$PUBLIC_VERSION" >> "$GITHUB_ENV"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "DEV_REVISION=$DEV_REVISION" >> "$GITHUB_ENV"
-          echo "Build dev rapide: $VERSION_NAME (code Android $VERSION_CODE)."
+          echo "Build DEV unique: $VERSION_NAME (code Android $VERSION_CODE)."
 
-      - name: Compilation APK release rapide
+      - name: Compiler APK release signe
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -100,7 +100,7 @@ jobs:
         if: steps.gradle_build.outputs.exit_code != '0'
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostic-build-rapide-${{ github.run_number }}
+          name: diagnostic-build-dev-${{ github.run_number }}
           path: build-error.log
           if-no-files-found: error
           retention-days: 7
@@ -115,37 +115,43 @@ jobs:
           test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer l APK de developpement
+      - name: Preparer l APK DEV unique
         run: |
           cp app/build/outputs/apk/release/app-release.apk HoraTrack-dev.apk
           sha256sum HoraTrack-dev.apk > SHA256-dev.txt
           printf '%s\n' "$VERSION_NAME" > HoraTrack-dev-version.txt
           test -s HoraTrack-dev.apk
           test -s SHA256-dev.txt
+          test -s HoraTrack-dev-version.txt
 
-      - name: Publier l artefact de developpement
-        uses: actions/upload-artifact@v4
-        with:
-          name: HoraTrack-APK-RAPIDE
-          path: |
-            HoraTrack-dev.apk
-            SHA256-dev.txt
-            HoraTrack-dev-version.txt
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Publier le canal de developpement
+      - name: Publier au seul emplacement DEV
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          DEV_TAG="dev-${DEV_REVISION}"
-          gh release create "$DEV_TAG" \
-            HoraTrack-dev.apk \
-            SHA256-dev.txt \
-            HoraTrack-dev-version.txt \
-            --target "$GITHUB_SHA" \
-            --title "HoraTrack DEV $VERSION_NAME" \
-            --notes "DEV_VERSION=$VERSION_NAME
-CHANNEL=development
-BUILD_KIND=fast" \
-            --prerelease
+          NOTES="DEV_VERSION=$VERSION_NAME
+          CHANNEL=development
+          BUILD_KIND=tested
+          SOURCE_SHA=$GITHUB_SHA"
+
+          if gh release view dev-latest >/dev/null 2>&1; then
+            gh release edit dev-latest \
+              --title "HoraTrack DEV - derniere APK" \
+              --notes "$NOTES" \
+              --prerelease
+            gh release upload dev-latest \
+              HoraTrack-dev.apk \
+              SHA256-dev.txt \
+              HoraTrack-dev-version.txt \
+              --clobber
+          else
+            gh release create dev-latest \
+              HoraTrack-dev.apk \
+              SHA256-dev.txt \
+              HoraTrack-dev-version.txt \
+              --target "$GITHUB_SHA" \
+              --title "HoraTrack DEV - derniere APK" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+          echo "APK DEV unique: https://github.com/$GITHUB_REPOSITORY/releases/tag/dev-latest"

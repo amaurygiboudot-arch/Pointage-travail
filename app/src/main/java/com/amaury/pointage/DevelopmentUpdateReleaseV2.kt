@@ -3,13 +3,16 @@ package com.amaury.pointage
 import org.json.JSONArray
 
 /**
- * Décrit le canal de développement HoraTrack publié via des prereleases GitHub dédiées.
- * Les versions publiques ne passent jamais par ce résolveur.
+ * Décrit le canal de développement HoraTrack.
+ *
+ * Une seule prerelease GitHub permanente, `dev-latest`, contient toujours le dernier APK
+ * de développement validé par le workflow DEV. Les anciennes prereleases numérotées sont
+ * ignorées afin de garder un point d'entrée unique pour l'application et pour les tests manuels.
  */
 object DevelopmentUpdateReleaseV2 {
+    private const val DEVELOPMENT_TAG = "dev-latest"
     private const val REPOSITORY_RELEASE_PREFIX =
-        "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/"
-    private val tagRegex = Regex("^dev-(\\d{9,10})$")
+        "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/$DEVELOPMENT_TAG/"
     private val versionRegex = Regex("^\\d+(?:\\.\\d+)+-dev-(\\d{9,10})$")
 
     data class Candidate(
@@ -32,10 +35,10 @@ object DevelopmentUpdateReleaseV2 {
             if (release.optBoolean("draft", false) || !release.optBoolean("prerelease", false)) continue
 
             val tag = release.optString("tag_name").trim()
-            val tagRevision = tagRegex.matchEntire(tag)?.groupValues?.getOrNull(1) ?: continue
+            if (tag != DEVELOPMENT_TAG) continue
+
             val versionName = parseVersionFromBody(release.optString("body")) ?: continue
             val versionRevision = revision(versionName) ?: continue
-            if (versionRevision != tagRevision) continue
 
             val assets = release.optJSONArray("assets") ?: continue
             var apkUrl: String? = null
@@ -43,20 +46,19 @@ object DevelopmentUpdateReleaseV2 {
                 val asset = assets.optJSONObject(assetIndex) ?: continue
                 if (!asset.optString("name").equals("HoraTrack-dev.apk", ignoreCase = true)) continue
                 val url = asset.optString("browser_download_url").trim()
-                val expectedPrefix = "$REPOSITORY_RELEASE_PREFIX$tag/"
-                if (url.startsWith(expectedPrefix)) {
+                if (url.startsWith(REPOSITORY_RELEASE_PREFIX)) {
                     apkUrl = url
                     break
                 }
             }
-            if (apkUrl != null) return Candidate(versionName, tagRevision, tag, apkUrl)
+            if (apkUrl != null) return Candidate(versionName, versionRevision, tag, apkUrl)
         }
         return null
     }
 
     internal fun sha256Url(versionName: String): String? {
-        val buildRevision = revision(versionName) ?: return null
-        return "${REPOSITORY_RELEASE_PREFIX}dev-$buildRevision/SHA256-dev.txt"
+        if (revision(versionName) == null) return null
+        return "${REPOSITORY_RELEASE_PREFIX}SHA256-dev.txt"
     }
 
     private fun parseVersionFromBody(body: String): String? = body.lineSequence()
