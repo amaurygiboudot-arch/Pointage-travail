@@ -16,6 +16,9 @@ VERIFICATION_WORKER = JAVA / "UpdateVerificationWorker.kt"
 LATEST_RELEASE_API = (
     "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases/latest"
 )
+DEVELOPMENT_RELEASES_API = (
+    "https://api.github.com/repos/amaurygiboudot-arch/Pointage-travail/releases?per_page=20"
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -38,6 +41,11 @@ def main() -> None:
         api_owners == [UPDATE_CHECKER],
         f"l API latest release doit appartenir uniquement a UpdateChecker: {api_owners}",
     )
+    dev_api_owners = [path for path, source in contents.items() if DEVELOPMENT_RELEASES_API in source]
+    require(
+        dev_api_owners == [UPDATE_CHECKER],
+        f"l API prerelease de developpement doit appartenir uniquement a UpdateChecker: {dev_api_owners}",
+    )
 
     recovery_source = contents[RECOVERY]
     require("UpdateChecker.check(" in recovery_source, "la recuperation ne passe pas par UpdateChecker")
@@ -55,6 +63,10 @@ def main() -> None:
     require(
         "BuildConfig.INTERNAL_APK_UPDATES_ENABLED" in checker_source,
         "l interrupteur Google Play n est plus centralise dans UpdateChecker",
+    )
+    require(
+        "DevelopmentUpdateReleaseV2.isDevelopmentVersion(BuildConfig.VERSION_NAME)" in checker_source,
+        "le canal de developpement n est plus derive de la version compilee",
     )
     require("fun openInstaller(" not in checker_source, "un contournement direct de la verification APK existe")
 
@@ -81,7 +93,7 @@ def main() -> None:
         "l ancien ecran de recuperation reste declare dans le manifeste",
     )
 
-    print("OK mises a jour: un seul chemin, controle APK complet et variante Play respectee")
+    print("OK mises a jour: canaux public/dev isoles, controle APK complet et variante Play respectee")
 
 
 if __name__ == "__main__":
