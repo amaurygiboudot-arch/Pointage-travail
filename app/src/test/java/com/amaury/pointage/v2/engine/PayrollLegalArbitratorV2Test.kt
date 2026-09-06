@@ -31,6 +31,9 @@ class PayrollLegalArbitratorV2Test {
         branchLockConfirmed = branchLock
     )
 
+    private fun absent(vararg sources: PayrollLegalArbitratorV2.Source) =
+        sources.associateWith { PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE }
+
     @Test
     fun `les sources BOCC et JORF restent des preuves de publication et ne pilotent jamais le calcul`() {
         val result = PayrollLegalArbitratorV2.resolve(
@@ -39,7 +42,8 @@ class PayrollLegalArbitratorV2Test {
                 candidate("jorf", PayrollLegalArbitratorV2.Source.JORF, "p25")
             ),
             date,
-            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36
+            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
+            absent(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI)
         )
 
         assertEquals(PayrollLegalArbitratorV2.State.NO_APPLICABLE_RULE, result.state)
@@ -64,28 +68,55 @@ class PayrollLegalArbitratorV2Test {
     }
 
     @Test
-    fun `heures supplementaires branche retenue en absence d accord entreprise`() {
+    fun `heures supplementaires branche retenue seulement si absence ACCO confirmee`() {
         val result = PayrollLegalArbitratorV2.resolve(
             listOf(
                 candidate("legi", PayrollLegalArbitratorV2.Source.LEGI, "25-50"),
                 candidate("kali", PayrollLegalArbitratorV2.Source.KALI, "20-30")
             ),
             date,
-            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36
+            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
+            absent(PayrollLegalArbitratorV2.Source.ACCO)
         )
 
         assertEquals(PayrollLegalArbitratorV2.Source.KALI, result.selected?.source)
     }
 
     @Test
-    fun `heures supplementaires loi retenue uniquement a defaut d accord`() {
+    fun `absence ACCO inconnue bloque le repli vers KALI`() {
         val result = PayrollLegalArbitratorV2.resolve(
-            listOf(candidate("legi", PayrollLegalArbitratorV2.Source.LEGI, "25-50")),
+            listOf(candidate("kali", PayrollLegalArbitratorV2.Source.KALI, "20-30")),
             date,
             PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36
         )
 
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.state)
+        assertNull(result.selected)
+    }
+
+    @Test
+    fun `heures supplementaires loi retenue uniquement apres absence ACCO et KALI confirmee`() {
+        val result = PayrollLegalArbitratorV2.resolve(
+            listOf(candidate("legi", PayrollLegalArbitratorV2.Source.LEGI, "25-50")),
+            date,
+            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
+            absent(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI)
+        )
+
         assertEquals(PayrollLegalArbitratorV2.Source.LEGI, result.selected?.source)
+    }
+
+    @Test
+    fun `absence KALI inconnue bloque le repli legal meme si ACCO est absente`() {
+        val result = PayrollLegalArbitratorV2.resolve(
+            listOf(candidate("legi", PayrollLegalArbitratorV2.Source.LEGI, "25-50")),
+            date,
+            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
+            absent(PayrollLegalArbitratorV2.Source.ACCO)
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.state)
+        assertNull(result.selected)
     }
 
     @Test
@@ -171,7 +202,8 @@ class PayrollLegalArbitratorV2Test {
                 candidate("legi", PayrollLegalArbitratorV2.Source.LEGI, "z")
             ),
             date,
-            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36
+            PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
+            absent(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI)
         )
 
         assertEquals(PayrollLegalArbitratorV2.Source.LEGI, result.selected?.source)
