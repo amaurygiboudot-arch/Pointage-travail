@@ -16,7 +16,7 @@ class DevelopmentUpdateReleaseV2Test {
     }
 
     @Test
-    fun `selectionne uniquement la prerelease permanente dev latest`() {
+    fun `selectionne uniquement la prerelease permanente dev latest et lie les assets a la revision`() {
         val json = """
             [
               {
@@ -51,13 +51,20 @@ class DevelopmentUpdateReleaseV2Test {
         assertEquals("1788696000", candidate?.revision)
         assertEquals("dev-latest", candidate?.tag)
         assertEquals(
-            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-latest/HoraTrack-dev.apk",
+            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-latest/HoraTrack-dev.apk?rev=1788696000",
             candidate?.apkUrl
         )
         assertEquals(
-            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-latest/SHA256-dev.txt",
+            "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/dev-latest/SHA256-dev.txt?rev=1788696000",
             DevelopmentUpdateReleaseV2.sha256Url(candidate!!.versionName)
         )
+    }
+
+    @Test
+    fun `deux builds dev utilisent des urls distinctes meme si le tag reste dev latest`() {
+        val first = DevelopmentUpdateReleaseV2.sha256Url("1.1440-dev-1788696000")
+        val second = DevelopmentUpdateReleaseV2.sha256Url("1.1440-dev-1788696001")
+        assertTrue(first != second)
     }
 
     @Test
