@@ -23,6 +23,7 @@ class V2KaliPayrollSourcesView(
     private val status = TextView(context)
     private val verifyButton = Button(context)
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE)
+    private var lastAuditSummary: KaliOvertimePayrollAuditV2.Summary? = null
 
     init {
         orientation = VERTICAL
@@ -89,6 +90,24 @@ class V2KaliPayrollSourcesView(
                     }
                 }
             }
+
+            lastAuditSummary?.let { summary ->
+                append("\n\nDERNIER AUDIT KALI\n")
+                append("Pages analysées : ").append(summary.pagesRead).append('\n')
+                append("Candidats trouvés : ").append(summary.candidates).append('\n')
+                append("Articles consultés : ").append(summary.articlesConsulted).append('\n')
+                append("Barèmes structurés : ").append(summary.structuredSchedules).append('\n')
+                append("Barème enregistré : ").append(if (summary.saved) "oui" else "non")
+                summary.selectedSourceId?.let {
+                    append("\nSource retenue : ").append(it)
+                }
+                if (summary.warnings.isNotEmpty()) {
+                    append("\n\nDiagnostic :")
+                    summary.warnings.forEach { warning ->
+                        append("\n• ").append(warning)
+                    }
+                }
+            }
         }
     }
 
@@ -97,10 +116,12 @@ class V2KaliPayrollSourcesView(
         val idcc = company.idcc.filter(Char::isDigit)
         if (idcc.isBlank()) return
         verifyButton.isEnabled = false
+        lastAuditSummary = null
         status.text = "Analyse KALI en cours pour ${referenceDate.format(dateFormat)}…"
         KaliOvertimePayrollAuditV2.audit(context, idcc, referenceDate)
             .addOnSuccessListener { summary ->
                 verifyButton.isEnabled = true
+                lastAuditSummary = summary
                 refresh()
                 val message = when {
                     summary.saved -> "KALI : barème conventionnel vérifié et enregistré."
@@ -112,6 +133,7 @@ class V2KaliPayrollSourcesView(
             }
             .addOnFailureListener { error ->
                 verifyButton.isEnabled = true
+                lastAuditSummary = null
                 status.text = "Analyse KALI impossible : ${error.message ?: "erreur inconnue"}"
             }
     }
