@@ -137,7 +137,7 @@ test("un changement ACCO direct devient prêt à analyser sans appel officiel re
   assert.equal(db.state.get("legal_acco_search/acco1").nextCheckAtMs, undefined);
 });
 
-test("un signal JORF global accélère LEGI mais laisse KALI en WAITING_SCOPE", async () => {
+test("un signal JORF global accélère uniquement LEGI et ne touche aucun cache KALI", async () => {
   const nowMs = 1_800_000_000_000;
   const db = makeDb({
     legal_reanalysis_jobs: {
@@ -146,10 +146,9 @@ test("un signal JORF global accélère LEGI mais laisse KALI en WAITING_SCOPE", 
         sourceFamily: "JORF",
         scopeType: "GLOBAL",
         scopeValue: "FRANCE",
-        targetSourceFamilies: ["LEGI", "KALI"],
+        targetSourceFamilies: ["LEGI"],
         revalidationTargets: [
           { sourceFamily: "LEGI", reason: "RECHECK_CONSOLIDATED_LAW" },
-          { sourceFamily: "KALI", reason: "CHECK_CONVENTION_EXTENSION_IMPACT" },
         ],
         triggerEventId: "evtJorf",
       },
@@ -164,12 +163,12 @@ test("un signal JORF global accélère LEGI mais laisse KALI en WAITING_SCOPE", 
   });
 
   const summary = await dispatchPendingLegalReanalysis({ db, now: () => nowMs, logger: quietLogger });
-  assert.equal(summary.waitingScope, 1);
+  assert.equal(summary.waitingScope, 0);
   assert.equal(summary.queuedWatches, 1);
 
   const job = db.state.get("legal_reanalysis_jobs/jobJorf");
-  assert.equal(job.status, "WAITING_SCOPE");
-  assert.deepEqual(job.unresolvedTargetSourceFamilies, ["KALI"]);
+  assert.equal(job.status, "REVALIDATION_QUEUED");
+  assert.deepEqual(job.unresolvedTargetSourceFamilies, []);
   assert.equal(db.state.get("legal_legi_search/law1").nextCheckAtMs, nowMs);
   assert.equal(db.state.get("legal_kali_search/kali292").nextCheckAtMs, undefined);
 });

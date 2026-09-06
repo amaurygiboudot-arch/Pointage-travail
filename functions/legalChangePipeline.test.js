@@ -130,7 +130,7 @@ test("BOCC est un signal de changement qui renvoie vers KALI consolidé", () => 
   assert.equal(docs.job.coalescedSignal, true);
 });
 
-test("JORF reste un signal et exige résolution du périmètre avant contrôle LEGI/KALI", () => {
+test("JORF reste un signal national et renvoie vers LEGI sans balayage KALI global", () => {
   const docs = buildChangeDocuments({
     sourceFamily: "JORF",
     path: "/consult/lastNJo",
@@ -143,8 +143,11 @@ test("JORF reste un signal et exige résolution du périmètre avant contrôle L
   }, 100);
 
   assert.equal(docs.event.sourceRole, "CHANGE_SIGNAL");
-  assert.deepEqual(docs.job.targetSourceFamilies, ["LEGI", "KALI"]);
-  assert.equal(docs.job.requiresScopeResolution, true);
+  assert.deepEqual(revalidationTargetsForSource("JORF"), [
+    { sourceFamily: "LEGI", reason: "RECHECK_CONSOLIDATED_LAW" },
+  ]);
+  assert.deepEqual(docs.job.targetSourceFamilies, ["LEGI"]);
+  assert.equal(docs.job.requiresScopeResolution, false);
   assert.equal(docs.job.autoApplyAllowed, false);
 });
 
@@ -179,4 +182,5 @@ test("plusieurs évolutions JORF gardent des événements séparés mais un seul
   assert.equal(job.previousTriggerEventId, first.eventId);
   assert.equal(job.latestTriggerEventId, second.eventId);
   assert.equal(job.status, "PENDING");
+  assert.deepEqual(job.targetSourceFamilies, ["LEGI"]);
 });

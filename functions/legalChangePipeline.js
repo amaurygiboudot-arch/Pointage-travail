@@ -59,10 +59,9 @@ function revalidationTargetsForSource(sourceFamily) {
     case "LEGI":
       return [{ sourceFamily: "LEGI", reason: "DIRECT_SOURCE_CHANGE" }];
     case "JORF":
-      return [
-        { sourceFamily: "LEGI", reason: "RECHECK_CONSOLIDATED_LAW" },
-        { sourceFamily: "KALI", reason: "CHECK_CONVENTION_EXTENSION_IMPACT" },
-      ];
+      // JORF is the national publication signal. Branch-extension monitoring is handled
+      // independently by BOCC rolling IDCC watches, which then revalidate KALI precisely.
+      return [{ sourceFamily: "LEGI", reason: "RECHECK_CONSOLIDATED_LAW" }];
     default:
       return [{ sourceFamily: family || "UNKNOWN", reason: "MANUAL_SOURCE_RESOLUTION" }];
   }
@@ -123,7 +122,7 @@ function buildChangeDocuments(change, detectedAtMs) {
   const matterHints = matterHintsForSource(normalized.sourceFamily);
   const revalidationTargets = revalidationTargetsForSource(normalized.sourceFamily);
   const targetSourceFamilies = [...new Set(revalidationTargets.map((target) => target.sourceFamily))];
-  const requiresScopeResolution = normalized.sourceFamily === "JORF" || normalized.scopeType === "UNKNOWN";
+  const requiresScopeResolution = normalized.scopeType === "UNKNOWN";
 
   return {
     eventId,
