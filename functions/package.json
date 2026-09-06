@@ -1,7 +1,7 @@
 {
   "name": "horatrack-functions",
   "private": true,
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "main": "index.js",
   "scripts": {
     "test": "node --test"
