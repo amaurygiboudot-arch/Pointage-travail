@@ -51,7 +51,8 @@ object OfficialKaliOvertimeRuleParserV2 {
         val kind: DiagnosticKind,
         val schedule: ParsedSchedule? = null,
         val percentages: List<Double> = emptyList(),
-        val hourThresholds: List<Int> = emptyList()
+        val hourThresholds: List<Int> = emptyList(),
+        val referencesCurrentLaw: Boolean = false
     )
 
     fun parseApplicableArticle(
@@ -84,7 +85,7 @@ object OfficialKaliOvertimeRuleParserV2 {
             ?: firstDate(root, "dateDebut", "dateDebutVersion", "dateStart", "startDate")
             ?: return null
         val to = firstDate(article, "dateFin", "dateFinVersion", "dateEnd", "endDate")
-            ?: firstDate(root, "dateFin", "dateFinVersion", "dateEnd", "endDate")
+            ?: firstDate(root, "dateFin", "dateEnd", "endDate")
 
         if (referenceDate.isBefore(from) || (to != null && referenceDate.isAfter(to))) return null
         if (status == "VIGUEUR_DIFF" && referenceDate.isBefore(from)) return null
@@ -94,17 +95,12 @@ object OfficialKaliOvertimeRuleParserV2 {
         return VerifiedArticle(explicitId, status, content, from, to, title)
     }
 
-    /**
-     * Pour l'instant on ne structure automatiquement que les formulations qui confirment clairement
-     * le seuil de 35 h et soit un taux unique pour toutes les heures supplémentaires, soit deux
-     * tranches 36e-43e puis au-delà. Toute autre rédaction reste une preuve à examiner, jamais un calcul.
-     */
     fun parseCompleteSchedule(article: VerifiedArticle): ParsedSchedule? = analyzeArticle(article).schedule
 
     /**
      * Classe les articles applicables sans jamais transformer un indice juridique en règle de calcul.
-     * Ce diagnostic permet notamment de distinguer un ancien seuil chiffré avec des taux explicites
-     * d'un véritable barème 35 h exploitable en 2026.
+     * Le drapeau referencesCurrentLaw sert au recoupement KALI/LEGI, mais ne suffit jamais à lui seul
+     * pour créer un barème.
      */
     fun analyzeArticle(article: VerifiedArticle): ArticleDiagnostic {
         val text = normalize(article.content)
@@ -115,6 +111,7 @@ object OfficialKaliOvertimeRuleParserV2 {
         val percentages = extractPercentages(text)
         val thresholds = extractHourThresholds(text)
         val confirms35 = confirmsThirtyFiveHourThreshold(text)
+        val lawReference = referencesCurrentLaw(text)
 
         if (confirms35) {
             parseTwoTierSchedule(text)?.let { tiers ->
@@ -124,7 +121,8 @@ object OfficialKaliOvertimeRuleParserV2 {
                     kind = DiagnosticKind.COMPLETE_SCHEDULE,
                     schedule = schedule,
                     percentages = percentages,
-                    hourThresholds = thresholds
+                    hourThresholds = thresholds,
+                    referencesCurrentLaw = lawReference
                 )
             }
             parseSingleRateSchedule(text)?.let { tier ->
@@ -134,18 +132,20 @@ object OfficialKaliOvertimeRuleParserV2 {
                     kind = DiagnosticKind.COMPLETE_SCHEDULE,
                     schedule = schedule,
                     percentages = percentages,
-                    hourThresholds = thresholds
+                    hourThresholds = thresholds,
+                    referencesCurrentLaw = lawReference
                 )
             }
             return ArticleDiagnostic(
                 article = article,
-                kind = if (referencesCurrentLaw(text) && percentages.isEmpty()) {
+                kind = if (lawReference && percentages.isEmpty()) {
                     DiagnosticKind.LEGAL_REFERENCE_ONLY
                 } else {
                     DiagnosticKind.THIRTY_FIVE_WITHOUT_STRUCTURED_RATES
                 },
                 percentages = percentages,
-                hourThresholds = thresholds
+                hourThresholds = thresholds,
+                referencesCurrentLaw = lawReference
             )
         }
 
@@ -154,16 +154,18 @@ object OfficialKaliOvertimeRuleParserV2 {
                 article = article,
                 kind = DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H,
                 percentages = percentages,
-                hourThresholds = thresholds
+                hourThresholds = thresholds,
+                referencesCurrentLaw = lawReference
             )
         }
 
-        if (referencesCurrentLaw(text)) {
+        if (lawReference) {
             return ArticleDiagnostic(
                 article = article,
                 kind = DiagnosticKind.LEGAL_REFERENCE_ONLY,
                 percentages = percentages,
-                hourThresholds = thresholds
+                hourThresholds = thresholds,
+                referencesCurrentLaw = true
             )
         }
 
