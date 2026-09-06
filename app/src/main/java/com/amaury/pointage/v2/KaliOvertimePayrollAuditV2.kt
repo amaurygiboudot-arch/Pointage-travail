@@ -48,7 +48,8 @@ object KaliOvertimePayrollAuditV2 {
     private data class ConsultBatch(
         val schedules: List<OfficialKaliOvertimeRuleParserV2.ParsedSchedule>,
         val consulted: Int,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val diagnostics: List<OfficialKaliOvertimeRuleParserV2.ArticleDiagnostic> = emptyList()
     )
 
     fun audit(
@@ -175,6 +176,7 @@ object KaliOvertimePayrollAuditV2 {
         consult: ConsultBatch
     ): Summary {
         val schedules = consult.schedules
+        val baseWarnings = (consult.warnings + diagnosticWarnings(consult.diagnostics)).distinct()
         if (schedules.isEmpty()) {
             return Summary(
                 idcc,
@@ -184,7 +186,7 @@ object KaliOvertimePayrollAuditV2 {
                 consult.consulted,
                 0,
                 false,
-                warnings = (consult.warnings + listOf(
+                warnings = (baseWarnings + listOf(
                     "KALI : aucun barème complet et daté n'a pu être structuré automatiquement.",
                     "KALI : une recherche ciblée vide ou non structurée ne prouve jamais l'absence officielle d'une règle d'heures supplémentaires."
                 )).distinct()
@@ -201,7 +203,7 @@ object KaliOvertimePayrollAuditV2 {
                 consult.consulted,
                 schedules.size,
                 false,
-                warnings = (consult.warnings +
+                warnings = (baseWarnings +
                     "KALI : plusieurs barèmes applicables incompatibles ont été trouvés ; aucun n'est enregistré automatiquement.").distinct()
             )
         }
@@ -231,7 +233,7 @@ object KaliOvertimePayrollAuditV2 {
                 consult.consulted,
                 schedules.size,
                 false,
-                warnings = (consult.warnings + "KALI : historique conventionnel existant incohérent ; aucun écrasement automatique.").distinct()
+                warnings = (baseWarnings + "KALI : historique conventionnel existant incohérent ; aucun écrasement automatique.").distinct()
             )
         }
         if (overlapping.isNotEmpty()) {
@@ -243,7 +245,7 @@ object KaliOvertimePayrollAuditV2 {
                 consult.consulted,
                 schedules.size,
                 false,
-                warnings = (consult.warnings +
+                warnings = (baseWarnings +
                     "KALI : un snapshot conventionnel couvre déjà cette période ; HoraTrack refuse de l'écraser sans arbitrage temporel explicite.").distinct()
             )
         }
@@ -276,7 +278,7 @@ object KaliOvertimePayrollAuditV2 {
             saved = saved,
             selectedSourceId = if (saved) sourceId else null,
             warnings = buildList {
-                addAll(consult.warnings)
+                addAll(baseWarnings)
                 if (!search.resultCountComplete) {
                     add("KALI : le total officiel de recherche n'a pas permis de certifier une pagination exhaustive ; cela n'empêche pas d'utiliser un article positivement vérifié, mais interdit toute conclusion d'absence.")
                 }
@@ -379,9 +381,12 @@ object KaliOvertimePayrollAuditV2 {
         index: Int = 0,
         schedules: List<OfficialKaliOvertimeRuleParserV2.ParsedSchedule> = emptyList(),
         consulted: Int = 0,
-        warnings: List<String> = emptyList()
+        warnings: List<String> = emptyList(),
+        diagnostics: List<OfficialKaliOvertimeRuleParserV2.ArticleDiagnostic> = emptyList()
     ): Task<ConsultBatch> {
-        if (index >= candidates.size) return Tasks.forResult(ConsultBatch(schedules, consulted, warnings))
+        if (index >= candidates.size) {
+            return Tasks.forResult(ConsultBatch(schedules, consulted, warnings, diagnostics))
+        }
         val candidate = candidates[index]
         return LegifranceFunctionClientV2.request("/consult/kaliArticle", mapOf("id" to candidate.id))
             .continueWithTask { task ->
@@ -392,7 +397,8 @@ object KaliOvertimePayrollAuditV2 {
                         index + 1,
                         schedules,
                         consulted + 1,
-                        warnings + "KALI : ${candidate.id} n'a pas pu être consulté."
+                        warnings + "KALI : ${candidate.id} n'a pas pu être consulté.",
+                        diagnostics
                     )
                 }
                 val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(
@@ -400,16 +406,60 @@ object KaliOvertimePayrollAuditV2 {
                     candidate.id,
                     referenceDate
                 )
-                val schedule = article?.let(OfficialKaliOvertimeRuleParserV2::parseCompleteSchedule)
+                val diagnostic = article?.let(OfficialKaliOvertimeRuleParserV2::analyzeArticle)
+                val schedule = diagnostic?.schedule
                 consultArticles(
                     candidates,
                     referenceDate,
                     index + 1,
                     if (schedule == null) schedules else schedules + schedule,
                     consulted + 1,
-                    warnings
+                    warnings,
+                    if (diagnostic == null) diagnostics else diagnostics + diagnostic
                 )
             }
+    }
+
+    private fun diagnosticWarnings(
+        diagnostics: List<OfficialKaliOvertimeRuleParserV2.ArticleDiagnostic>
+    ): List<String> = buildList {
+        val explicitRates = diagnostics.filter {
+            it.kind == OfficialKaliOvertimeRuleParserV2.DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H
+        }
+        if (explicitRates.isNotEmpty()) {
+            val samples = explicitRates.take(4).joinToString(" ; ") { diagnostic ->
+                val thresholds = diagnostic.hourThresholds.joinToString("/") { "$it h" }.ifBlank { "seuil non identifié" }
+                val rates = diagnostic.percentages.joinToString("/") { value ->
+                    val rendered = if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
+                    "$rendered %"
+                }.ifBlank { "taux non identifié" }
+                "${diagnostic.article.articleId} ($thresholds ; $rates)"
+            }
+            add(
+                "KALI : ${explicitRates.size} article(s) applicable(s) contiennent des taux explicites mais aucun seuil 35 h confirmé : $samples. " +
+                    "HoraTrack les conserve comme indices et ne les applique pas automatiquement."
+            )
+        }
+
+        val thirtyFiveUnstructured = diagnostics.filter {
+            it.kind == OfficialKaliOvertimeRuleParserV2.DiagnosticKind.THIRTY_FIVE_WITHOUT_STRUCTURED_RATES
+        }
+        if (thirtyFiveUnstructured.isNotEmpty()) {
+            add(
+                "KALI : ${thirtyFiveUnstructured.size} article(s) applicable(s) mentionnent 35 h mais leur rédaction ne fournit pas un barème numérique complet exploitable ; exemples : " +
+                    thirtyFiveUnstructured.take(4).joinToString(", ") { it.article.articleId } + "."
+            )
+        }
+
+        val legalReferences = diagnostics.filter {
+            it.kind == OfficialKaliOvertimeRuleParserV2.DiagnosticKind.LEGAL_REFERENCE_ONLY
+        }
+        if (legalReferences.isNotEmpty()) {
+            add(
+                "KALI : ${legalReferences.size} article(s) applicable(s) renvoient à la législation ou aux dispositions légales sans fixer eux-mêmes un barème complet ; exemples : " +
+                    legalReferences.take(4).joinToString(", ") { it.article.articleId } + "."
+            )
+        }
     }
 
     internal fun intervalsOverlap(
