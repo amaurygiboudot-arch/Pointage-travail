@@ -1,1 +1,1 @@
-Build HoraTrack avec tests - retest KALI recherche exacte heures supplementaires - 2026-09-06 11:12 CEST
+Build HoraTrack avec tests - expansion KALITEXT vers KALIARTI - 2026-09-06 11:39 CEST
