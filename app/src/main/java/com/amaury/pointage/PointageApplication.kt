@@ -225,6 +225,11 @@ object SettingsUiInstaller {
             tag = TAG
         }
 
+        section.addView(title(activity, "MISES À JOUR"))
+        section.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+            setOnClickListener { UpdateChecker.check(activity, silent = false) }
+        })
+
         section.addView(title(activity, "APPARENCE DE L'APPLICATION"))
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
@@ -314,11 +319,6 @@ object SettingsUiInstaller {
                 driveStatus.text = "Drive non configuré"
                 Toast.makeText(activity, "Sauvegarde Drive désactivée", Toast.LENGTH_SHORT).show()
             }
-        })
-
-        section.addView(title(activity, "MISES À JOUR"))
-        section.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
-            setOnClickListener { UpdateChecker.check(activity, silent = false) }
         })
 
         panel.addView(section)
