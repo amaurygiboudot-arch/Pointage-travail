@@ -115,6 +115,16 @@ function normalizeLegifranceBody(path, body) {
     return { id: String(Number(digits)) };
   }
 
+  if (path === "/consult/kaliArticle") {
+    const id = normalizedOfficialId(safeBody.id, "KALIARTI");
+    return id ? { id } : {};
+  }
+
+  if (path === "/consult/kaliText") {
+    const id = normalizedOfficialId(safeBody.id, "KALITEXT");
+    return id ? { id } : {};
+  }
+
   if (path === "/list/conventions") {
     const pageNumber = Math.min(20, Math.max(1, Number.parseInt(safeBody.pageNumber, 10) || 1));
     const pageSize = Math.min(100, Math.max(1, Number.parseInt(safeBody.pageSize, 10) || 100));
@@ -222,6 +232,12 @@ function isValidLegifranceBody(path, body) {
   if (path === "/consult/kaliContIdcc") {
     const digits = String(body.id ?? "").replace(/\D/g, "");
     return digits.length >= 1 && digits.length <= 4 && Number(digits) > 0;
+  }
+  if (path === "/consult/kaliArticle") {
+    return Boolean(normalizedOfficialId(body.id, "KALIARTI"));
+  }
+  if (path === "/consult/kaliText") {
+    return Boolean(normalizedOfficialId(body.id, "KALITEXT"));
   }
   if (path === "/list/boccsAndTexts") {
     return Boolean(firstBoccIdcc(body)) && Boolean(normalizedBoccInterval(body.intervalPublication));
