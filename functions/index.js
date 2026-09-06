@@ -23,6 +23,10 @@ const {
   dispatchPendingLegalReanalysis,
   reconcileQueuedLegalReanalysis,
 } = require("./legalReanalysisDispatcher");
+const {
+  normalizePlanRequest,
+  listReadyLegalReanalysis,
+} = require("./legalReanalysisPlan");
 const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
@@ -203,6 +207,36 @@ exports.legifranceRequest = onCall(
         upstreamCode: error instanceof UpstreamError ? safeUpstreamCode(error.upstreamBody) : "",
       });
       throw new HttpsError("unavailable", publicFailureMessage(stage, status, path), { stage, status });
+    }
+  }
+);
+
+exports.legalReanalysisPlan = onCall(
+  { timeoutSeconds: 15 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Connexion HoraTrack requise.");
+    const db = legalCacheDb();
+    if (!db) throw new HttpsError("unavailable", "Veille juridique momentanément indisponible.");
+
+    const scope = normalizePlanRequest(request.data);
+    try {
+      const jobs = await listReadyLegalReanalysis({
+        db,
+        idcc: scope.idcc,
+        siret: scope.siret,
+      });
+      return {
+        schemaVersion: 1,
+        generatedAtMs: Date.now(),
+        jobs,
+      };
+    } catch (error) {
+      console.warn("Legal reanalysis plan read failed", {
+        hasIdcc: Boolean(scope.idcc),
+        hasSiret: Boolean(scope.siret),
+        error: String(error?.message || error || "unknown"),
+      });
+      throw new HttpsError("unavailable", "Plan de mise à jour juridique indisponible.");
     }
   }
 );
