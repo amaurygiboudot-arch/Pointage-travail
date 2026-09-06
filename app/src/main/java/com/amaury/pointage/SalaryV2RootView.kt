@@ -177,6 +177,7 @@ class SalaryV2RootView @JvmOverloads constructor(
             addView(actionButton("INFORMATIONS ENTREPRISE") { showCompanyInformation(company) }, buttonLp())
             addView(actionButton("FICHE DE SALAIRE") { showPayslipWorkspace(company) }, buttonLp())
             addView(actionButton("SOURCES LÉGALES (LEGI)") { showLegalSources() }, buttonLp())
+            addView(actionButton("RÈGLES CONVENTIONNELLES (KALI)") { showKaliSources(company) }, buttonLp())
             addView(actionButton("SOURCES CONVENTIONNELLES (BOCC)") { showBoccSources(company) }, buttonLp())
             addView(actionButton("PUBLICATIONS OFFICIELLES (JORF)") { showJorfSources() }, buttonLp())
             addView(actionButton("DROITS, CONGÉS & REPOS") { showRights(company) }, buttonLp())
@@ -216,6 +217,13 @@ class SalaryV2RootView @JvmOverloads constructor(
         themedDialog("Sources légales — LEGI", ScrollView(context).apply {
             isFillViewport = true
             addView(V2LegalPayrollSourcesView(context))
+        })
+    }
+
+    private fun showKaliSources(company: SalaryCompanyStore.Company) {
+        themedDialog("Règles conventionnelles — KALI", ScrollView(context).apply {
+            isFillViewport = true
+            addView(V2KaliPayrollSourcesView(context, company))
         })
     }
 
