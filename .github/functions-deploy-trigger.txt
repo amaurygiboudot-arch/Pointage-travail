@@ -1,1 +1,1 @@
-Deploy Firebase Functions - legal watch backfill and reanalysis queue - 2026-09-06 22:35 CEST
+Deploy Firebase Functions - legal revalidation routing and BOCC-KALI invalidation - 2026-09-06 22:45 CEST
