@@ -60,8 +60,10 @@ object OfficialKaliOvertimeSourceV2 {
                 "fromAdvancedRecherche" to false,
                 "pageNumber" to pageNumber,
                 "pageSize" to pageSize.coerceIn(1, 25),
-                "typePagination" to "ARTICLE",
-                "secondSort" to "ID",
+                // L'API stable Légifrance documente DEFAUT pour les recherches KALI paginées.
+                // ARTICLE correspond à une navigation différente et peut échouer dès la page suivante.
+                "typePagination" to "DEFAUT",
+                "secondSort" to "PERTINENCE",
                 "operateur" to "ET"
             )
         )
