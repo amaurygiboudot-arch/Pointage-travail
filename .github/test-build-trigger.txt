@@ -1,1 +1,1 @@
-Build HoraTrack avec tests - expansion KALITEXT vers KALIARTI - 2026-09-06 11:39 CEST
+Build HoraTrack avec tests - canal de developpement distinct des releases publiques - 2026-09-06 12:18 CEST
