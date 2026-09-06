@@ -43,7 +43,7 @@ test("normalise uniquement un IDCC et un SIRET valides", () => {
   assert.deepEqual(normalizePlanRequest({ idcc: "0", siret: "123" }), { idcc: "", siret: "" });
 });
 
-test("déduit seulement les analyseurs déjà sûrs pour chaque famille", () => {
+test("déduit seulement les analyseurs sûrs ou les extractions candidates sans auto-application", () => {
   assert.deepEqual(analysisKindsForJob({
     sourceFamily: "KALI",
     targetSourceFamilies: ["KALI", "LEGI"],
@@ -55,23 +55,24 @@ test("déduit seulement les analyseurs déjà sûrs pour chaque famille", () => 
     matterHints: ["OVERTIME"],
   }), ["KALI_OVERTIME"]);
   assert.deepEqual(analysisKindsForJob({ sourceFamily: "JORF", targetSourceFamilies: ["LEGI"] }), ["LEGI_ALL"]);
-  assert.deepEqual(analysisKindsForJob({ sourceFamily: "ACCO" }), ["ACCO_PENDING_PARSER"]);
+  assert.deepEqual(analysisKindsForJob({ sourceFamily: "ACCO" }), ["ACCO_EXTRACT_CANDIDATES"]);
 });
 
 test("ne renvoie jamais les payloads, hashes ou une permission d'auto-application", () => {
   const safe = safeReadyJob("job1", {
     status: "READY_FOR_ANALYSIS",
-    sourceFamily: "KALI",
-    scopeType: "IDCC",
-    scopeValue: "0292",
-    matterHints: ["OVERTIME"],
-    targetSourceFamilies: ["KALI"],
+    sourceFamily: "ACCO",
+    scopeType: "SIRET",
+    scopeValue: "12345678901234",
+    matterHints: ["BONUSES_INDEMNITIES"],
+    targetSourceFamilies: ["ACCO"],
     payloadJson: "secret-payload",
     currentPayloadHash: "hash",
     autoApplyAllowed: true,
     lastQueuedAtMs: 1234,
   });
   assert.equal(safe.autoApplyAllowed, false);
+  assert.deepEqual(safe.analysisKinds, ["ACCO_EXTRACT_CANDIDATES"]);
   assert.equal(safe.revisionKey, "job1:1234");
   assert.equal("payloadJson" in safe, false);
   assert.equal("currentPayloadHash" in safe, false);
@@ -142,6 +143,7 @@ test("liste uniquement les jobs READY correspondant à l'IDCC, au SIRET ou au na
     siret: "12345678901234",
   });
   assert.deepEqual(jobs.map((job) => job.jobId), ["nationalReady", "idccReady", "siretReady", "codeReady"]);
+  assert.equal(jobs.find((job) => job.jobId === "siretReady")?.analysisKinds[0], "ACCO_EXTRACT_CANDIDATES");
   assert.equal(jobs.some((job) => job.jobId === "idccOther"), false);
   assert.equal(jobs.some((job) => job.jobId === "pending"), false);
 });

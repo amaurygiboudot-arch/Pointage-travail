@@ -43,7 +43,7 @@ function analysisKindsForJob(job) {
     kinds.push("LEGI_ALL");
   }
   if (sourceFamily === "ACCO") {
-    kinds.push("ACCO_PENDING_PARSER");
+    kinds.push("ACCO_EXTRACT_CANDIDATES");
   }
   return kinds;
 }

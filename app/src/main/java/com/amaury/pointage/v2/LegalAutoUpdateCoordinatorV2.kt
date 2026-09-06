@@ -27,9 +27,11 @@ object LegalAutoUpdateCoordinatorV2 {
         val legiAuditsRun: Int,
         val legiVerifiedArticles: Int,
         val unsupportedAccoJobs: Int,
+        val accoAuditsRun: Int = 0,
+        val accoCandidatesExtracted: Int = 0,
         val warnings: List<String> = emptyList()
     ) {
-        val hadAutomaticWork: Boolean get() = kaliAuditsRun > 0 || legiAuditsRun > 0
+        val hadAutomaticWork: Boolean get() = kaliAuditsRun > 0 || legiAuditsRun > 0 || accoAuditsRun > 0
     }
 
     fun referenceDate(context: Context): LocalDate {
@@ -50,7 +52,16 @@ object LegalAutoUpdateCoordinatorV2 {
             .continueWithTask { planTask ->
                 if (!planTask.isSuccessful) {
                     return@continueWithTask Tasks.forResult(
-                        Summary(0, 0, 0, false, 0, 0, 0, listOf("Veille juridique : synchronisation différée."))
+                        Summary(
+                            readyJobs = 0,
+                            alreadyHandledJobs = 0,
+                            kaliAuditsRun = 0,
+                            kaliRuleSaved = false,
+                            legiAuditsRun = 0,
+                            legiVerifiedArticles = 0,
+                            unsupportedAccoJobs = 0,
+                            warnings = listOf("Veille juridique : synchronisation différée.")
+                        )
                     )
                 }
 
@@ -64,7 +75,9 @@ object LegalAutoUpdateCoordinatorV2 {
     ): Triple<List<LegalReanalysisPlanClientV2.Job>, List<LegalReanalysisPlanClientV2.Job>, List<LegalReanalysisPlanClientV2.Job>> {
         val kali = jobs.filter { "KALI_OVERTIME" in it.analysisKinds }
         val legi = jobs.filter { "LEGI_ALL" in it.analysisKinds }
-        val acco = jobs.filter { "ACCO_PENDING_PARSER" in it.analysisKinds }
+        val acco = jobs.filter {
+            "ACCO_EXTRACT_CANDIDATES" in it.analysisKinds || "ACCO_PENDING_PARSER" in it.analysisKinds
+        }
         return Triple(kali, legi, acco)
     }
 
@@ -79,18 +92,28 @@ object LegalAutoUpdateCoordinatorV2 {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val kali = allKali.filter { canAttempt(prefs, it, "KALI_OVERTIME", nowMs) }
         val legi = allLegi.filter { canAttempt(prefs, it, "LEGI_ALL", nowMs) }
+        val acco = allAcco.filter {
+            "ACCO_EXTRACT_CANDIDATES" in it.analysisKinds &&
+                canAttempt(prefs, it, "ACCO_EXTRACT_CANDIDATES", nowMs)
+        }
+        val legacyAcco = allAcco.filter {
+            "ACCO_PENDING_PARSER" in it.analysisKinds && "ACCO_EXTRACT_CANDIDATES" !in it.analysisKinds
+        }
         val alreadyHandled = plan.jobs.count { job ->
             val kinds = job.analysisKinds.filter { it != "ACCO_PENDING_PARSER" }
             kinds.isNotEmpty() && kinds.all { isDone(prefs, job, it) }
         }
 
         val baseWarnings = buildList {
+            if (legacyAcco.isNotEmpty()) {
+                add("ACCO : ${legacyAcco.size} ancienne(s) mise(s) à jour restent en attente de la nouvelle extraction automatique.")
+            }
             if (allAcco.isNotEmpty()) {
-                add("ACCO : ${allAcco.size} mise(s) à jour prête(s), en attente du parseur de règles d'entreprise.")
+                add("ACCO : les règles extraites restent à valider avant toute utilisation dans la paie.")
             }
         }
 
-        if (kali.isEmpty() && legi.isEmpty()) {
+        if (kali.isEmpty() && legi.isEmpty() && acco.isEmpty()) {
             return Tasks.forResult(
                 Summary(
                     readyJobs = plan.jobs.size,
@@ -113,22 +136,32 @@ object LegalAutoUpdateCoordinatorV2 {
                     KaliOutcome(warnings = listOf("KALI : mise à jour automatique interrompue."))
                 }
                 runLegi(context, referenceDate, legi, nowMs)
-                    .continueWith { legiTask ->
+                    .continueWithTask { legiTask ->
                         val legiOutcome = if (legiTask.isSuccessful) {
                             legiTask.result ?: LegiOutcome()
                         } else {
                             LegiOutcome(warnings = listOf("LEGI : mise à jour automatique interrompue."))
                         }
-                        Summary(
-                            readyJobs = plan.jobs.size,
-                            alreadyHandledJobs = alreadyHandled,
-                            kaliAuditsRun = kaliOutcome.ran,
-                            kaliRuleSaved = kaliOutcome.saved,
-                            legiAuditsRun = legiOutcome.ran,
-                            legiVerifiedArticles = legiOutcome.verifiedArticles,
-                            unsupportedAccoJobs = allAcco.size,
-                            warnings = baseWarnings + kaliOutcome.warnings + legiOutcome.warnings
-                        )
+                        runAcco(context, company, acco, nowMs)
+                            .continueWith { accoTask ->
+                                val accoOutcome = if (accoTask.isSuccessful) {
+                                    accoTask.result ?: AccoOutcome()
+                                } else {
+                                    AccoOutcome(warnings = listOf("ACCO : mise à jour automatique interrompue."))
+                                }
+                                Summary(
+                                    readyJobs = plan.jobs.size,
+                                    alreadyHandledJobs = alreadyHandled,
+                                    kaliAuditsRun = kaliOutcome.ran,
+                                    kaliRuleSaved = kaliOutcome.saved,
+                                    legiAuditsRun = legiOutcome.ran,
+                                    legiVerifiedArticles = legiOutcome.verifiedArticles,
+                                    unsupportedAccoJobs = allAcco.size,
+                                    accoAuditsRun = accoOutcome.ran,
+                                    accoCandidatesExtracted = accoOutcome.extractedCandidates,
+                                    warnings = baseWarnings + kaliOutcome.warnings + legiOutcome.warnings + accoOutcome.warnings
+                                )
+                            }
                     }
             }
     }
@@ -195,6 +228,40 @@ object LegalAutoUpdateCoordinatorV2 {
                     ran = 1,
                     verifiedArticles = summary?.verifiedArticles ?: 0,
                     warnings = if (completed) emptyList() else listOf("LEGI : contrôle officiel à retenter ultérieurement.")
+                )
+            }
+    }
+
+    private data class AccoOutcome(
+        val ran: Int = 0,
+        val extractedCandidates: Int = 0,
+        val warnings: List<String> = emptyList()
+    )
+
+    private fun runAcco(
+        context: Context,
+        company: SalaryCompanyStore.Company,
+        jobs: List<LegalReanalysisPlanClientV2.Job>,
+        nowMs: Long
+    ): Task<AccoOutcome> {
+        if (jobs.isEmpty()) return Tasks.forResult(AccoOutcome())
+        val siret = company.siret.filter(Char::isDigit)
+        if (siret.length != 14) {
+            return Tasks.forResult(AccoOutcome(warnings = listOf("ACCO : SIRET requis pour la réanalyse automatique.")))
+        }
+        markAttempt(context, jobs, "ACCO_EXTRACT_CANDIDATES", nowMs)
+        return CompanyAgreementOfficialAuditV2.audit(context, company.id, siret)
+            .continueWith { task ->
+                if (!task.isSuccessful) {
+                    return@continueWith AccoOutcome(1, 0, listOf("ACCO : contrôle automatique impossible."))
+                }
+                val summary = task.result
+                if (summary?.completed == true) markDone(context, jobs, "ACCO_EXTRACT_CANDIDATES")
+                AccoOutcome(
+                    ran = 1,
+                    extractedCandidates = summary?.extractedCandidates ?: 0,
+                    warnings = summary?.warnings.orEmpty() +
+                        if (summary?.completed == true) emptyList() else listOf("ACCO : contrôle officiel à retenter ultérieurement.")
                 )
             }
     }

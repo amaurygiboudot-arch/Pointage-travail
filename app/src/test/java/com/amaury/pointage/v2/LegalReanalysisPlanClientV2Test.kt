@@ -41,7 +41,7 @@ class LegalReanalysisPlanClientV2Test {
     }
 
     @Test
-    fun `coordinateur separe KALI LEGI et ACCO sans transformer ACCO en regle`() {
+    fun `coordinateur separe KALI LEGI et ACCO sans auto valider ACCO`() {
         fun job(id: String, kind: String) = LegalReanalysisPlanClientV2.Job(
             jobId = id,
             revisionKey = "$id:1",
@@ -50,8 +50,8 @@ class LegalReanalysisPlanClientV2Test {
                 "LEGI_ALL" -> "JORF"
                 else -> "ACCO"
             },
-            scopeType = "IDCC",
-            scopeValue = "0292",
+            scopeType = if (kind.startsWith("ACCO")) "SIRET" else "IDCC",
+            scopeValue = if (kind.startsWith("ACCO")) "12345678901234" else "0292",
             matterHints = emptySet(),
             targetSourceFamilies = emptySet(),
             completedSourceFamilies = emptySet(),
@@ -61,12 +61,32 @@ class LegalReanalysisPlanClientV2Test {
         )
 
         val (kali, legi, acco) = LegalAutoUpdateCoordinatorV2.selectKinds(
-            listOf(job("k", "KALI_OVERTIME"), job("l", "LEGI_ALL"), job("a", "ACCO_PENDING_PARSER"))
+            listOf(job("k", "KALI_OVERTIME"), job("l", "LEGI_ALL"), job("a", "ACCO_EXTRACT_CANDIDATES"))
         )
 
         assertEquals(listOf("k"), kali.map { it.jobId })
         assertEquals(listOf("l"), legi.map { it.jobId })
         assertEquals(listOf("a"), acco.map { it.jobId })
-        assertTrue(acco.single().analysisKinds.contains("ACCO_PENDING_PARSER"))
+        assertTrue(acco.single().analysisKinds.contains("ACCO_EXTRACT_CANDIDATES"))
+    }
+
+    @Test
+    fun `coordinateur reconnait encore temporairement un ancien job ACCO`() {
+        val legacy = LegalReanalysisPlanClientV2.Job(
+            jobId = "legacy",
+            revisionKey = "legacy:1",
+            sourceFamily = "ACCO",
+            scopeType = "SIRET",
+            scopeValue = "12345678901234",
+            matterHints = emptySet(),
+            targetSourceFamilies = emptySet(),
+            completedSourceFamilies = emptySet(),
+            analysisKinds = setOf("ACCO_PENDING_PARSER"),
+            lastQueuedAtMs = 1L,
+            revalidationCompletedAtMs = 2L
+        )
+
+        val (_, _, acco) = LegalAutoUpdateCoordinatorV2.selectKinds(listOf(legacy))
+        assertEquals(listOf("legacy"), acco.map { it.jobId })
     }
 }
