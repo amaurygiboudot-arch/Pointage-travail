@@ -75,7 +75,10 @@ object LegalPayrollSourceStoreV2 {
         if (atMs <= 0L) return emptyList()
         return all(context)
             .filter { sameReferenceDay(it.referenceAtMs, atMs) }
-            .filter { it.status.equals("VIGUEUR", ignoreCase = true) }
+            .filter {
+                it.status.equals("VIGUEUR", ignoreCase = true) ||
+                    it.status.equals("VIGUEUR_DIFF", ignoreCase = true)
+            }
             .filter { atMs >= it.effectiveFromMs && (it.effectiveToMs == null || atMs <= it.effectiveToMs) }
             .groupBy { it.topic to it.articleId }
             .mapNotNull { (_, values) -> values.maxByOrNull { it.checkedAtMs } }
