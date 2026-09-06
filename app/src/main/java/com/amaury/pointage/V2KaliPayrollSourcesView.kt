@@ -95,7 +95,7 @@ class V2KaliPayrollSourcesView(
                 append("\n\nDERNIER AUDIT KALI\n")
                 append("Pages analysées : ").append(summary.pagesRead).append('\n')
                 append("Candidats trouvés : ").append(summary.candidates).append('\n')
-                append("Articles consultés : ").append(summary.articlesConsulted).append('\n')
+                append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
                 append("Barèmes structurés : ").append(summary.structuredSchedules).append('\n')
                 append("Barème enregistré : ").append(if (summary.saved) "oui" else "non")
                 summary.selectedSourceId?.let {
