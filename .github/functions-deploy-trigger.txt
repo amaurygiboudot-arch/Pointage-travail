@@ -1,1 +1,1 @@
-Deploy Firebase Functions - safe legal reanalysis plan - Node 22 - 2026-09-06
+Deploy Firebase Functions - automatic safe ACCO candidate extraction - Node 22 - 2026-09-06
