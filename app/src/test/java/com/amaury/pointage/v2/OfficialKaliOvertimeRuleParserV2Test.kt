@@ -63,6 +63,39 @@ class OfficialKaliOvertimeRuleParserV2Test {
     }
 
     @Test
+    fun `classe un ancien seuil avec taux sans le convertir en bareme 35h`() {
+        val data = response(
+            "Dans le cadre de la législation en vigueur, les heures supplémentaires effectuées au-delà de 40 heures " +
+                "donnent lieu à une majoration de 25 % pour les 8 premières heures supplémentaires et de 50 % au-delà."
+        )
+        val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(data, articleId, referenceDate)!!
+        val diagnostic = OfficialKaliOvertimeRuleParserV2.analyzeArticle(article)
+
+        assertNull(diagnostic.schedule)
+        assertEquals(
+            OfficialKaliOvertimeRuleParserV2.DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H,
+            diagnostic.kind
+        )
+        assertEquals(listOf(25.0, 50.0), diagnostic.percentages)
+        assertEquals(listOf(40), diagnostic.hourThresholds)
+    }
+
+    @Test
+    fun `classe un renvoi a la loi sans inventer de taux`() {
+        val data = response(
+            "Les heures supplémentaires sont décomptées au-delà de la durée légale de travail et traitées selon les dispositions légales et réglementaires en vigueur."
+        )
+        val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(data, articleId, referenceDate)!!
+        val diagnostic = OfficialKaliOvertimeRuleParserV2.analyzeArticle(article)
+
+        assertNull(diagnostic.schedule)
+        assertEquals(
+            OfficialKaliOvertimeRuleParserV2.DiagnosticKind.LEGAL_REFERENCE_ONLY,
+            diagnostic.kind
+        )
+    }
+
+    @Test
     fun `rejette une version future ou abrogee`() {
         assertNull(
             OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(
