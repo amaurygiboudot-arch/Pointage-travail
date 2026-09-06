@@ -288,12 +288,31 @@ class SalaryV2RootView @JvmOverloads constructor(
         button.setPadding(dp(10), dp(12), dp(10), dp(12))
     }
 
+    /**
+     * Les vues juridiques sont créées avec le contexte de l'activité. Selon le thème Android,
+     * certains TextView/Buttons héritent alors d'un texte sombre même quand le panneau du dialogue
+     * est sombre. On ne remplace que les couleurs réellement illisibles afin de préserver les
+     * accents déjà suffisamment contrastés.
+     */
+    private fun ensureDialogTextContrast(view: View, panel: Int) {
+        if (view is TextView && AppearanceManager.contrastRatio(view.currentTextColor, panel) < 4.5) {
+            view.setTextColor(AppearanceManager.bestTextColor(panel))
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                ensureDialogTextContrast(view.getChildAt(index), panel)
+            }
+        }
+    }
+
     private fun themedDialog(title: String, view: View): AlertDialog {
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
         val panel = if (dark) theme.darkPanel else theme.lightPanel
         val accent = if (dark) theme.accentLight else theme.accent
+        val readableText = AppearanceManager.bestTextColor(panel)
         view.setBackgroundColor(panel)
+        ensureDialogTextContrast(view, panel)
         val dialog = AlertDialog.Builder(context)
             .setTitle(title)
             .setView(view)
@@ -301,7 +320,10 @@ class SalaryV2RootView @JvmOverloads constructor(
             .create()
         dialog.setOnShowListener {
             dialog.window?.setBackgroundDrawable(ColorDrawable(panel))
+            val alertTitleId = resources.getIdentifier("alertTitle", "id", "android")
+            if (alertTitleId != 0) dialog.findViewById<TextView>(alertTitleId)?.setTextColor(readableText)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setTextColor(accent)
+            ensureDialogTextContrast(view, panel)
         }
         dialog.show()
         return dialog
