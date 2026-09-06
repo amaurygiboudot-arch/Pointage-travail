@@ -1,8 +1,10 @@
 package com.amaury.pointage.v2
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -47,7 +49,9 @@ class OfficialKaliOvertimeRuleParserV2Test {
             "Les huit premières heures supplémentaires sont majorées de 25 %. Les heures suivantes sont majorées de 50 %."
         )
         val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(data, articleId, referenceDate)!!
-        assertNull(OfficialKaliOvertimeRuleParserV2.parseCompleteSchedule(article))
+        val diagnostic = OfficialKaliOvertimeRuleParserV2.analyzeArticle(article)
+        assertNull(diagnostic.schedule)
+        assertFalse(diagnostic.referencesCurrentLaw)
     }
 
     @Test
@@ -78,6 +82,26 @@ class OfficialKaliOvertimeRuleParserV2Test {
         )
         assertEquals(listOf(25.0, 50.0), diagnostic.percentages)
         assertEquals(listOf(40), diagnostic.hourThresholds)
+        assertTrue(diagnostic.referencesCurrentLaw)
+    }
+
+    @Test
+    fun `marque les taux sans seuil qui renvoient a la legislation pour recoupement`() {
+        val data = response(
+            "Dans le cadre de la législation en vigueur, les huit premières heures supplémentaires " +
+                "sont majorées de 25 %. Les heures suivantes sont majorées de 50 %."
+        )
+        val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(data, articleId, referenceDate)!!
+        val diagnostic = OfficialKaliOvertimeRuleParserV2.analyzeArticle(article)
+
+        assertNull(diagnostic.schedule)
+        assertEquals(
+            OfficialKaliOvertimeRuleParserV2.DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H,
+            diagnostic.kind
+        )
+        assertTrue(diagnostic.referencesCurrentLaw)
+        assertEquals(emptyList<Int>(), diagnostic.hourThresholds)
+        assertEquals(listOf(25.0, 50.0), diagnostic.percentages)
     }
 
     @Test
@@ -93,6 +117,7 @@ class OfficialKaliOvertimeRuleParserV2Test {
             OfficialKaliOvertimeRuleParserV2.DiagnosticKind.LEGAL_REFERENCE_ONLY,
             diagnostic.kind
         )
+        assertTrue(diagnostic.referencesCurrentLaw)
     }
 
     @Test
