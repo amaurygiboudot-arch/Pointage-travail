@@ -1,1 +1,1 @@
-Build HoraTrack avec tests - canal de developpement distinct des releases publiques - 2026-09-06 12:18 CEST
+Build HoraTrack avec tests - correction tests JVM canal developpement - 2026-09-06 12:34 CEST
