@@ -13,6 +13,7 @@ const {
 const { normalizeBoccRequest } = require("./boccRequest");
 const { resolveWithLegalCache } = require("./legalKaliCache");
 const { ensureLegalWatchRegistration } = require("./legalWatchRegistration");
+const { ensureGlobalLegalWatchSeeds } = require("./legalWatchBootstrap");
 const { recordLegalChangeAndQueue } = require("./legalChangePipeline");
 const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
@@ -199,6 +200,7 @@ exports.legalUpdateWatch = onSchedule(
       return;
     }
 
+    const bootstrap = await ensureGlobalLegalWatchSeeds({ db, logger: console });
     const summary = await refreshDueLegalWatches({
       db,
       fetchOfficial: fetchOfficialLegifrance,
@@ -209,6 +211,6 @@ exports.legalUpdateWatch = onSchedule(
       logger: console,
       batchSize: LEGAL_WATCH_BATCH_SIZE,
     });
-    console.info("Legal update watch complete", summary);
+    console.info("Legal update watch complete", { bootstrap, ...summary });
   }
 );
