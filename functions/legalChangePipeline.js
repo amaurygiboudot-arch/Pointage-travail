@@ -110,11 +110,19 @@ function buildChangeDocuments(change, detectedAtMs) {
     normalized.previousPayloadHash,
     normalized.currentPayloadHash,
   ])}`;
-  const jobId = `job_${deterministicId([eventId, "REANALYZE"])}`;
+  const role = sourceRole(normalized.sourceFamily);
+  const coalescedSignal = role === "CHANGE_SIGNAL";
+  const jobId = coalescedSignal
+    ? `job_${deterministicId([
+      normalized.sourceFamily,
+      normalized.scopeType,
+      normalized.scopeValue,
+      "RESOLVE_CHANGE_SIGNAL",
+    ])}`
+    : `job_${deterministicId([eventId, "REANALYZE"])}`;
   const matterHints = matterHintsForSource(normalized.sourceFamily);
   const revalidationTargets = revalidationTargetsForSource(normalized.sourceFamily);
   const targetSourceFamilies = [...new Set(revalidationTargets.map((target) => target.sourceFamily))];
-  const role = sourceRole(normalized.sourceFamily);
   const requiresScopeResolution = normalized.sourceFamily === "JORF" || normalized.scopeType === "UNKNOWN";
 
   return {
@@ -144,18 +152,22 @@ function buildChangeDocuments(change, detectedAtMs) {
       schemaVersion: 1,
       status: "PENDING",
       createdAtMs: detectedAtMs,
+      lastQueuedAtMs: detectedAtMs,
       updatedAtMs: detectedAtMs,
       sourceFamily: normalized.sourceFamily,
       sourceRole: role,
       scopeType: normalized.scopeType,
       scopeValue: normalized.scopeValue,
       triggerEventId: eventId,
+      latestTriggerEventId: eventId,
       matterHints,
       revalidationTargets,
       targetSourceFamilies,
       requiresScopeResolution,
       requiresOfficialRevalidation: true,
       autoApplyAllowed: false,
+      coalescedSignal,
+      coalescedEventCount: 1,
       attemptCount: 0,
     },
   };
@@ -164,6 +176,26 @@ function buildChangeDocuments(change, detectedAtMs) {
 function log(logger, level, message, details) {
   const fn = logger?.[level];
   if (typeof fn === "function") fn.call(logger, message, details);
+}
+
+async function mergeExistingSignalJob(jobRef, job) {
+  if (!job.coalescedSignal || typeof jobRef?.get !== "function") return job;
+  try {
+    const snapshot = await jobRef.get();
+    if (!snapshot?.exists) return job;
+    const previous = snapshot.data() || {};
+    const previousCount = Number(previous.coalescedEventCount);
+    return {
+      ...job,
+      createdAtMs: Number.isFinite(previous.createdAtMs) ? previous.createdAtMs : job.createdAtMs,
+      previousTriggerEventId: String(previous.latestTriggerEventId || previous.triggerEventId || "") || null,
+      coalescedEventCount: Number.isFinite(previousCount) && previousCount >= 1 ? previousCount + 1 : 2,
+      attemptCount: 0,
+      status: "PENDING",
+    };
+  } catch (_error) {
+    return job;
+  }
 }
 
 async function recordLegalChangeAndQueue({
@@ -179,15 +211,16 @@ async function recordLegalChangeAndQueue({
 
   const eventRef = db.collection(CHANGE_COLLECTION).doc(docs.eventId);
   const jobRef = db.collection(REANALYSIS_COLLECTION).doc(docs.jobId);
+  const job = await mergeExistingSignalJob(jobRef, docs.job);
 
   if (typeof db.batch === "function") {
     const batch = db.batch();
     batch.set(eventRef, docs.event, { merge: true });
-    batch.set(jobRef, docs.job, { merge: true });
+    batch.set(jobRef, job, { merge: true });
     await batch.commit();
   } else {
     await eventRef.set(docs.event, { merge: true });
-    await jobRef.set(docs.job, { merge: true });
+    await jobRef.set(job, { merge: true });
   }
 
   log(logger, "info", "Legal change queued for reanalysis", {
@@ -196,7 +229,8 @@ async function recordLegalChangeAndQueue({
     sourceFamily: docs.event.sourceFamily,
     scopeType: docs.event.scopeType,
     scopeValue: docs.event.scopeValue,
-    targetSourceFamilies: docs.job.targetSourceFamilies,
+    targetSourceFamilies: job.targetSourceFamilies,
+    coalescedEventCount: job.coalescedEventCount,
   });
 
   return { eventId: docs.eventId, jobId: docs.jobId };
@@ -212,5 +246,6 @@ module.exports = {
   revalidationTargetsForSource,
   normalizeChange,
   buildChangeDocuments,
+  mergeExistingSignalJob,
   recordLegalChangeAndQueue,
 };

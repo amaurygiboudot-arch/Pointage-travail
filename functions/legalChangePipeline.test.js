@@ -19,11 +19,18 @@ function fakeDb() {
     collection(name) {
       return {
         doc(id) {
+          const key = `${name}/${id}`;
           return {
-            name,
-            id,
-            async set(value) {
-              docs.set(`${name}/${id}`, { ...value });
+            async get() {
+              const value = docs.get(key);
+              return { exists: Boolean(value), data: () => ({ ...(value || {}) }) };
+            },
+            async set(value, options) {
+              if (options?.merge && docs.has(key)) {
+                docs.set(key, { ...docs.get(key), ...value });
+              } else {
+                docs.set(key, { ...value });
+              }
             },
           };
         },
@@ -61,13 +68,14 @@ test("un changement KALI crée un événement et une réanalyse sans autoriser l
   assert.equal(job.status, "PENDING");
   assert.equal(job.requiresOfficialRevalidation, true);
   assert.equal(job.autoApplyAllowed, false);
+  assert.equal(job.coalescedSignal, false);
   assert.equal(job.requiresScopeResolution, false);
   assert.deepEqual(job.targetSourceFamilies, ["KALI", "LEGI"]);
   assert.ok(job.matterHints.includes("OVERTIME"));
   assert.equal("payloadJson" in event, false);
 });
 
-test("les identifiants sont déterministes pour éviter les doublons lors d'une nouvelle tentative", () => {
+test("les identifiants d'événement sont déterministes pour éviter les doublons lors d'une nouvelle tentative", () => {
   const change = {
     sourceFamily: "JORF",
     path: "/consult/lastNJo",
@@ -119,6 +127,7 @@ test("BOCC est un signal de changement qui renvoie vers KALI consolidé", () => 
   ]);
   assert.deepEqual(docs.job.targetSourceFamilies, ["KALI"]);
   assert.equal(docs.job.requiresScopeResolution, false);
+  assert.equal(docs.job.coalescedSignal, true);
 });
 
 test("JORF reste un signal et exige résolution du périmètre avant contrôle LEGI/KALI", () => {
@@ -137,4 +146,37 @@ test("JORF reste un signal et exige résolution du périmètre avant contrôle L
   assert.deepEqual(docs.job.targetSourceFamilies, ["LEGI", "KALI"]);
   assert.equal(docs.job.requiresScopeResolution, true);
   assert.equal(docs.job.autoApplyAllowed, false);
+});
+
+test("plusieurs évolutions JORF gardent des événements séparés mais un seul job global en attente", async () => {
+  const db = fakeDb();
+  const base = {
+    sourceFamily: "JORF",
+    path: "/consult/lastNJo",
+    collection: "legal_jorf_feed",
+    documentId: "last_5",
+    scopeType: "GLOBAL",
+    scopeValue: "FRANCE",
+  };
+
+  const first = await recordLegalChangeAndQueue({
+    db,
+    change: { ...base, previousPayloadHash: "a", currentPayloadHash: "b", detectedAtMs: 100 },
+    logger: quietLogger,
+  });
+  const second = await recordLegalChangeAndQueue({
+    db,
+    change: { ...base, previousPayloadHash: "b", currentPayloadHash: "c", detectedAtMs: 200 },
+    logger: quietLogger,
+  });
+
+  assert.notEqual(first.eventId, second.eventId);
+  assert.equal(first.jobId, second.jobId);
+  const job = db.docs.get(`${REANALYSIS_COLLECTION}/${first.jobId}`);
+  assert.equal(job.createdAtMs, 100);
+  assert.equal(job.lastQueuedAtMs, 200);
+  assert.equal(job.coalescedEventCount, 2);
+  assert.equal(job.previousTriggerEventId, first.eventId);
+  assert.equal(job.latestTriggerEventId, second.eventId);
+  assert.equal(job.status, "PENDING");
 });
