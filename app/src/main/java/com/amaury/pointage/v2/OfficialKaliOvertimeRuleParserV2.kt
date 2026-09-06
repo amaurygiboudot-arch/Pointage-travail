@@ -94,30 +94,22 @@ object OfficialKaliOvertimeRuleParserV2 {
     }
 
     private fun parseTwoTierSchedule(text: String): List<OvertimeTierV2>? {
-        val firstBandContext = listOf(
+        val firstAnchors = listOf(
             "huit premieres heures supplementaires",
             "8 premieres heures supplementaires",
             "de la 36e",
             "de la 36eme",
             "36e heure"
-        ).any(text::contains)
-        val secondBandContext = listOf(
+        )
+        val secondAnchors = listOf(
             "heures suivantes",
             "au dela de la 43e",
             "au-dela de la 43e",
             "a partir de la 44e",
             "44e heure"
-        ).any(text::contains)
-        if (!firstBandContext || !secondBandContext) return null
-
-        val percentages = percentRegex.findAll(text)
-            .mapNotNull { match -> match.groupValues[1].replace(',', '.').toDoubleOrNull() }
-            .filter { it in 0.0..200.0 }
-            .toList()
-        if (percentages.size < 2) return null
-
-        val first = percentages.first()
-        val second = percentages.drop(1).firstOrNull { it != first } ?: percentages.getOrNull(1) ?: return null
+        )
+        val first = percentageAfterAnyAnchor(text, firstAnchors) ?: return null
+        val second = percentageAfterAnyAnchor(text, secondAnchors) ?: return null
         if (first <= 0.0 || second <= 0.0) return null
         return listOf(
             OvertimeTierV2(35 * 60, 43 * 60, 1.0 + first / 100.0),
@@ -126,27 +118,32 @@ object OfficialKaliOvertimeRuleParserV2 {
     }
 
     private fun parseSingleRateSchedule(text: String): OvertimeTierV2? {
-        val allHours = listOf(
+        val anchors = listOf(
             "toutes les heures supplementaires",
             "chaque heure supplementaire",
             "l'ensemble des heures supplementaires",
             "ensemble des heures supplementaires"
-        ).any(text::contains)
-        if (!allHours) return null
-        val percentages = percentRegex.findAll(text)
-            .mapNotNull { it.groupValues[1].replace(',', '.').toDoubleOrNull() }
-            .filter { it in 0.0..200.0 }
-            .distinct()
-            .toList()
-        if (percentages.size != 1 || percentages.single() <= 0.0) return null
-        return OvertimeTierV2(35 * 60, null, 1.0 + percentages.single() / 100.0)
+        )
+        val percentage = percentageAfterAnyAnchor(text, anchors) ?: return null
+        if (percentage <= 0.0) return null
+        return OvertimeTierV2(35 * 60, null, 1.0 + percentage / 100.0)
+    }
+
+    private fun percentageAfterAnyAnchor(text: String, anchors: List<String>): Double? {
+        val position = anchors.map { text.indexOf(it) }.filter { it >= 0 }.minOrNull() ?: return null
+        val window = text.substring(position, minOf(text.length, position + 320))
+        return percentRegex.find(window)
+            ?.groupValues?.getOrNull(1)
+            ?.replace(',', '.')
+            ?.toDoubleOrNull()
+            ?.takeIf { it in 0.0..200.0 }
     }
 
     private fun mentionsOvertime(text: String): Boolean =
         text.contains("heure supplementaire") || text.contains("heures supplementaires")
 
     private fun confirmsThirtyFiveHourThreshold(text: String): Boolean =
-        Regex("(?:au[- ]dela de|a partir de|apres|superieure?s? a|35\\s*h(?:eures?)?)\\s*35\\s*(?:h|heures?)").containsMatchIn(text) ||
+        Regex("(?:au[- ]dela de|a partir de|apres|superieure?s? a)\\s*35\\s*(?:h|heures?)").containsMatchIn(text) ||
             text.contains("35 heures") || text.contains("35 h") ||
             text.contains("36e heure") || text.contains("de la 36e") || text.contains("de la 36eme")
 
