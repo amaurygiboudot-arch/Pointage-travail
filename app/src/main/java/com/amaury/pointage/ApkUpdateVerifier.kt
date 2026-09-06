@@ -27,11 +27,17 @@ object ApkUpdateVerifier {
         verifyPackageAndSigningCertificate(context, apk)
     }
 
-    private fun downloadExpectedSha256(versionName: String): String {
+    internal fun expectedSha256Url(versionName: String): String {
         val version = versionName.trim().removePrefix("v")
         if (version.isBlank()) throw IllegalStateException("version de mise à jour absente")
+        return DevelopmentUpdateReleaseV2.sha256Url(version)
+            ?: "$RELEASE_BASE/v$version/SHA256.txt"
+    }
+
+    private fun downloadExpectedSha256(versionName: String): String {
+        val url = expectedSha256Url(versionName)
         val connection = try {
-            (URL("$RELEASE_BASE/v$version/SHA256.txt").openConnection() as HttpURLConnection).apply {
+            (URL(url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 10_000
                 readTimeout = 15_000
