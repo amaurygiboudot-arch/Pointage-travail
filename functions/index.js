@@ -14,6 +14,10 @@ const { normalizeBoccRequest } = require("./boccRequest");
 const { resolveWithLegalCache } = require("./legalKaliCache");
 const { ensureLegalWatchRegistration } = require("./legalWatchRegistration");
 const { ensureGlobalLegalWatchSeeds } = require("./legalWatchBootstrap");
+const {
+  ensureDerivedLegalScopeWatches,
+  refreshDueLegalScopeWatches,
+} = require("./legalScopeWatch");
 const { recordLegalChangeAndQueue } = require("./legalChangePipeline");
 const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
@@ -25,6 +29,7 @@ const TOKEN_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
 const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
 const REQUEST_TIMEOUT_MS = 15_000;
 const LEGAL_WATCH_BATCH_SIZE = 12;
+const LEGAL_SCOPE_WATCH_BATCH_SIZE = 6;
 const ALLOWED_PATHS = new Set([
   "/search",
   "/consult/acco",
@@ -139,6 +144,11 @@ async function fetchOfficialLegifrance(path, body) {
   return readJsonResponse(response, "api");
 }
 
+async function handleLegalChange(db, change) {
+  await recordLegalChangeAndQueue({ db, change, logger: console });
+  await invalidateDependentLegalCaches({ db, change, logger: console });
+}
+
 exports.legifranceRequest = onCall(
   { secrets: [pisteClientId, pisteClientSecret], timeoutSeconds: 30 },
   async (request) => {
@@ -166,6 +176,12 @@ exports.legifranceRequest = onCall(
       });
 
       await ensureLegalWatchRegistration({
+        db,
+        path,
+        body,
+        logger: console,
+      });
+      await ensureDerivedLegalScopeWatches({
         db,
         path,
         body,
@@ -201,16 +217,21 @@ exports.legalUpdateWatch = onSchedule(
     }
 
     const bootstrap = await ensureGlobalLegalWatchSeeds({ db, logger: console });
-    const summary = await refreshDueLegalWatches({
+    const onChange = (change) => handleLegalChange(db, change);
+    const cacheWatches = await refreshDueLegalWatches({
       db,
       fetchOfficial: fetchOfficialLegifrance,
-      onChange: async (change) => {
-        await recordLegalChangeAndQueue({ db, change, logger: console });
-        await invalidateDependentLegalCaches({ db, change, logger: console });
-      },
+      onChange,
       logger: console,
       batchSize: LEGAL_WATCH_BATCH_SIZE,
     });
-    console.info("Legal update watch complete", { bootstrap, ...summary });
+    const scopeWatches = await refreshDueLegalScopeWatches({
+      db,
+      fetchOfficial: fetchOfficialLegifrance,
+      onChange,
+      logger: console,
+      batchSize: LEGAL_SCOPE_WATCH_BATCH_SIZE,
+    });
+    console.info("Legal update watch complete", { bootstrap, cacheWatches, scopeWatches });
   }
 );
