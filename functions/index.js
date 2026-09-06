@@ -12,6 +12,7 @@ const {
 } = require("./legifranceProxy");
 const { normalizeBoccRequest } = require("./boccRequest");
 const { resolveWithLegalCache } = require("./legalKaliCache");
+const { ensureLegalWatchRegistration } = require("./legalWatchRegistration");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
@@ -152,14 +153,22 @@ exports.legifranceRequest = onCall(
       const body = path === "/list/boccsAndTexts"
         ? normalizeBoccRequest(request.data?.body)
         : normalizeLegifranceBody(path, request.data?.body);
-
-      return await resolveWithLegalCache({
-        db: legalCacheDb(),
+      const db = legalCacheDb();
+      const result = await resolveWithLegalCache({
+        db,
         path,
         body,
         logger: console,
         fetchOfficial: () => fetchOfficialLegifrance(path, body),
       });
+
+      await ensureLegalWatchRegistration({
+        db,
+        path,
+        body,
+        logger: console,
+      });
+      return result;
     } catch (error) {
       const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       const stage = isTimeout ? "timeout" : error instanceof UpstreamError ? error.stage : "network";
