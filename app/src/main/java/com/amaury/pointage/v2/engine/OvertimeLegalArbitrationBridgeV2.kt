@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
+import com.amaury.pointage.v2.PayrollLegalSourceKnowledgeStoreV2
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import java.time.LocalDate
 import java.time.ZoneId
@@ -65,7 +66,18 @@ object OvertimeLegalArbitrationBridgeV2 {
         val branch = V2ConventionRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
         val atMs = referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val legalRecords = LegalPayrollSourceStoreV2.snapshot(context, atMs).records
-        return assemble(referenceDate, agreement, branch, legalRecords, sourceKnowledge)
+
+        // Une absence n'est jamais déduite d'un store vide. Seules les preuves d'audit officielles,
+        // exhaustives et couvrant réellement la date de paie peuvent déverrouiller le repli.
+        val storedKnowledge = PayrollLegalSourceKnowledgeStoreV2.knowledgeForOvertime(
+            context = context,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
+        )
+        val effectiveKnowledge = storedKnowledge + sourceKnowledge
+
+        return assemble(referenceDate, agreement, branch, legalRecords, effectiveKnowledge)
     }
 
     internal fun assemble(
