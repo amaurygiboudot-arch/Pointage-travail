@@ -2,11 +2,21 @@
 
 const crypto = require("node:crypto");
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 const LEGAL_CACHE_SCHEMA_VERSION = 1;
 const LEGAL_CACHE_PARSER_VERSION = 1;
+
 const KALI_DOCUMENT_TTL_MS = 30 * DAY_MS;
 const KALI_SEARCH_TTL_MS = 7 * DAY_MS;
+const ACCO_DOCUMENT_TTL_MS = 30 * DAY_MS;
+const ACCO_SEARCH_TTL_MS = 1 * DAY_MS;
+const LEGI_DOCUMENT_TTL_MS = 30 * DAY_MS;
+const LEGI_SEARCH_TTL_MS = 1 * DAY_MS;
+const BOCC_DOCUMENT_TTL_MS = 30 * DAY_MS;
+const BOCC_SEARCH_TTL_MS = 1 * DAY_MS;
+const JORF_DOCUMENT_TTL_MS = 30 * DAY_MS;
+const JORF_FEED_TTL_MS = 6 * HOUR_MS;
 
 function canonicalJson(value) {
   if (Array.isArray(value)) {
@@ -25,43 +35,88 @@ function requestHash(body) {
   return crypto.createHash("sha256").update(canonicalJson(body ?? {})).digest("hex").slice(0, 40);
 }
 
+function officialId(value, prefix) {
+  const id = String(value ?? "").trim().toUpperCase();
+  return new RegExp(`^${prefix}\\d+$`).test(id) ? id : "";
+}
+
 function cacheSpec(path, body) {
+  if (path === "/search") {
+    const fond = String(body?.fond ?? "").trim().toUpperCase();
+    const search = `search_${requestHash(body)}`;
+    if (fond === "KALI") {
+      return { sourceFamily: "KALI", collection: "legal_kali_search", documentId: search, ttlMs: KALI_SEARCH_TTL_MS };
+    }
+    if (fond === "ACCO") {
+      return { sourceFamily: "ACCO", collection: "legal_acco_search", documentId: search, ttlMs: ACCO_SEARCH_TTL_MS };
+    }
+    if (fond === "CODE_DATE") {
+      return { sourceFamily: "LEGI", collection: "legal_legi_search", documentId: search, ttlMs: LEGI_SEARCH_TTL_MS };
+    }
+    return null;
+  }
+
+  if (path === "/consult/acco") {
+    const id = officialId(body?.id, "ACCOTEXT");
+    return id ? { sourceFamily: "ACCO", collection: "legal_acco_texts", documentId: id, ttlMs: ACCO_DOCUMENT_TTL_MS } : null;
+  }
+
   if (path === "/consult/kaliArticle") {
-    const id = String(body?.id ?? "").trim().toUpperCase();
-    if (!/^KALIARTI\d+$/.test(id)) return null;
-    return {
-      collection: "legal_kali_articles",
-      documentId: id,
-      ttlMs: KALI_DOCUMENT_TTL_MS,
-    };
+    const id = officialId(body?.id, "KALIARTI");
+    return id ? { sourceFamily: "KALI", collection: "legal_kali_articles", documentId: id, ttlMs: KALI_DOCUMENT_TTL_MS } : null;
   }
 
   if (path === "/consult/kaliText") {
-    const id = String(body?.id ?? "").trim().toUpperCase();
-    if (!/^KALITEXT\d+$/.test(id)) return null;
-    return {
-      collection: "legal_kali_texts",
-      documentId: id,
-      ttlMs: KALI_DOCUMENT_TTL_MS,
-    };
+    const id = officialId(body?.id, "KALITEXT");
+    return id ? { sourceFamily: "KALI", collection: "legal_kali_texts", documentId: id, ttlMs: KALI_DOCUMENT_TTL_MS } : null;
   }
 
   if (path === "/consult/kaliContIdcc") {
     const digits = String(body?.id ?? "").replace(/\D/g, "");
     if (!digits || Number(digits) <= 0) return null;
-    return {
-      collection: "legal_kali_search",
-      documentId: `idcc_${Number(digits)}`,
-      ttlMs: KALI_SEARCH_TTL_MS,
-    };
+    return { sourceFamily: "KALI", collection: "legal_kali_search", documentId: `idcc_${Number(digits)}`, ttlMs: KALI_SEARCH_TTL_MS };
   }
 
   if (path === "/list/conventions") {
-    return {
-      collection: "legal_kali_search",
-      documentId: `conventions_${requestHash(body)}`,
-      ttlMs: KALI_SEARCH_TTL_MS,
-    };
+    return { sourceFamily: "KALI", collection: "legal_kali_search", documentId: `conventions_${requestHash(body)}`, ttlMs: KALI_SEARCH_TTL_MS };
+  }
+
+  if (path === "/consult/getArticle") {
+    const id = officialId(body?.id, "LEGIARTI");
+    return id ? { sourceFamily: "LEGI", collection: "legal_legi_articles", documentId: id, ttlMs: LEGI_DOCUMENT_TTL_MS } : null;
+  }
+
+  if (path === "/consult/legiPart") {
+    const textId = officialId(body?.textId, "LEGITEXT");
+    const date = Number(body?.date);
+    if (!textId || !Number.isFinite(date) || date <= 0) return null;
+    return { sourceFamily: "LEGI", collection: "legal_legi_parts", documentId: `${textId}_${Math.trunc(date)}`, ttlMs: LEGI_DOCUMENT_TTL_MS };
+  }
+
+  if (path === "/list/boccsAndTexts") {
+    return { sourceFamily: "BOCC", collection: "legal_bocc_search", documentId: `list_${requestHash(body)}`, ttlMs: BOCC_SEARCH_TTL_MS };
+  }
+
+  if (path === "/consult/getBoccTextPdfMetadata") {
+    const id = String(body?.id ?? "").trim();
+    if (!id) return null;
+    return { sourceFamily: "BOCC", collection: "legal_bocc_documents", documentId: `meta_${requestHash({ id })}`, ttlMs: BOCC_DOCUMENT_TTL_MS };
+  }
+
+  if (path === "/consult/lastNJo") {
+    const count = Number(body?.nbElement);
+    if (!Number.isFinite(count) || count <= 0) return null;
+    return { sourceFamily: "JORF", collection: "legal_jorf_feed", documentId: `last_${Math.trunc(count)}`, ttlMs: JORF_FEED_TTL_MS };
+  }
+
+  if (path === "/consult/jorfCont") {
+    const id = officialId(body?.id, "JORFCONT");
+    return id ? { sourceFamily: "JORF", collection: "legal_jorf_documents", documentId: `cont_${id}_${requestHash(body)}`, ttlMs: JORF_DOCUMENT_TTL_MS } : null;
+  }
+
+  if (path === "/consult/jorf") {
+    const id = officialId(body?.textCid, "JORFTEXT");
+    return id ? { sourceFamily: "JORF", collection: "legal_jorf_documents", documentId: id, ttlMs: JORF_DOCUMENT_TTL_MS } : null;
   }
 
   return null;
@@ -108,12 +163,12 @@ async function resolveWithLegalCache({
     if (snapshot?.exists) {
       const payload = cachePayload(snapshot.data(), nowMs);
       if (payload !== null) {
-        log(logger, "info", "Legal KALI cache hit", { path, collection: spec.collection });
+        log(logger, "info", `Legal ${spec.sourceFamily} cache hit`, { path, collection: spec.collection });
         return payload;
       }
     }
   } catch (error) {
-    log(logger, "warn", "Legal KALI cache read failed", {
+    log(logger, "warn", `Legal ${spec.sourceFamily} cache read failed`, {
       path,
       collection: spec.collection,
       error: String(error?.message || error || "unknown"),
@@ -131,13 +186,14 @@ async function resolveWithLegalCache({
       schemaVersion: LEGAL_CACHE_SCHEMA_VERSION,
       parserVersion: LEGAL_CACHE_PARSER_VERSION,
       source: "legifrance-piste",
+      sourceFamily: spec.sourceFamily,
       path,
       cachedAtMs,
       expiresAtMs: cachedAtMs + spec.ttlMs,
       payloadJson,
     });
   } catch (error) {
-    log(logger, "warn", "Legal KALI cache write failed", {
+    log(logger, "warn", `Legal ${spec.sourceFamily} cache write failed`, {
       path,
       collection: spec.collection,
       error: String(error?.message || error || "unknown"),
@@ -152,6 +208,14 @@ module.exports = {
   LEGAL_CACHE_PARSER_VERSION,
   KALI_DOCUMENT_TTL_MS,
   KALI_SEARCH_TTL_MS,
+  ACCO_DOCUMENT_TTL_MS,
+  ACCO_SEARCH_TTL_MS,
+  LEGI_DOCUMENT_TTL_MS,
+  LEGI_SEARCH_TTL_MS,
+  BOCC_DOCUMENT_TTL_MS,
+  BOCC_SEARCH_TTL_MS,
+  JORF_DOCUMENT_TTL_MS,
+  JORF_FEED_TTL_MS,
   cacheSpec,
   resolveWithLegalCache,
 };

@@ -7,6 +7,14 @@ const {
   LEGAL_CACHE_PARSER_VERSION,
   KALI_DOCUMENT_TTL_MS,
   KALI_SEARCH_TTL_MS,
+  ACCO_DOCUMENT_TTL_MS,
+  ACCO_SEARCH_TTL_MS,
+  LEGI_DOCUMENT_TTL_MS,
+  LEGI_SEARCH_TTL_MS,
+  BOCC_DOCUMENT_TTL_MS,
+  BOCC_SEARCH_TTL_MS,
+  JORF_DOCUMENT_TTL_MS,
+  JORF_FEED_TTL_MS,
   cacheSpec,
   resolveWithLegalCache,
 } = require("./legalKaliCache");
@@ -46,23 +54,68 @@ function fakeFirestore(initial = new Map(), options = {}) {
 
 const quietLogger = { info() {}, warn() {} };
 
-test("configure 30 jours pour KALIARTI/KALITEXT et 7 jours pour les recherches IDCC", () => {
+test("configure KALI avec 30 jours pour les documents et 7 jours pour les recherches", () => {
   assert.deepEqual(cacheSpec("/consult/kaliArticle", { id: "KALIARTI123" }), {
+    sourceFamily: "KALI",
     collection: "legal_kali_articles",
     documentId: "KALIARTI123",
     ttlMs: KALI_DOCUMENT_TTL_MS,
   });
   assert.deepEqual(cacheSpec("/consult/kaliText", { id: "KALITEXT456" }), {
+    sourceFamily: "KALI",
     collection: "legal_kali_texts",
     documentId: "KALITEXT456",
     ttlMs: KALI_DOCUMENT_TTL_MS,
   });
   assert.deepEqual(cacheSpec("/consult/kaliContIdcc", { id: "292" }), {
+    sourceFamily: "KALI",
     collection: "legal_kali_search",
     documentId: "idcc_292",
     ttlMs: KALI_SEARCH_TTL_MS,
   });
   assert.equal(cacheSpec("/list/conventions", { pageNumber: 1, pageSize: 100 }).collection, "legal_kali_search");
+  assert.equal(cacheSpec("/search", { fond: "KALI", recherche: { pageNumber: 1 } }).collection, "legal_kali_search");
+});
+
+test("configure le cache officiel ACCO, LEGI, BOCC et JORF avec des TTL adaptés", () => {
+  const accoSearch = cacheSpec("/search", { fond: "ACCO", recherche: { pageNumber: 1 } });
+  assert.equal(accoSearch.sourceFamily, "ACCO");
+  assert.equal(accoSearch.collection, "legal_acco_search");
+  assert.equal(accoSearch.ttlMs, ACCO_SEARCH_TTL_MS);
+  assert.deepEqual(cacheSpec("/consult/acco", { id: "ACCOTEXT123" }), {
+    sourceFamily: "ACCO",
+    collection: "legal_acco_texts",
+    documentId: "ACCOTEXT123",
+    ttlMs: ACCO_DOCUMENT_TTL_MS,
+  });
+
+  const legiSearch = cacheSpec("/search", { fond: "CODE_DATE", recherche: { pageNumber: 1 } });
+  assert.equal(legiSearch.sourceFamily, "LEGI");
+  assert.equal(legiSearch.collection, "legal_legi_search");
+  assert.equal(legiSearch.ttlMs, LEGI_SEARCH_TTL_MS);
+  assert.deepEqual(cacheSpec("/consult/getArticle", { id: "LEGIARTI123" }), {
+    sourceFamily: "LEGI",
+    collection: "legal_legi_articles",
+    documentId: "LEGIARTI123",
+    ttlMs: LEGI_DOCUMENT_TTL_MS,
+  });
+  assert.equal(cacheSpec("/consult/legiPart", { textId: "LEGITEXT456", date: 1800000000000 }).collection, "legal_legi_parts");
+
+  const boccSearch = cacheSpec("/list/boccsAndTexts", { idcc: "292", pageNumber: 1 });
+  assert.equal(boccSearch.sourceFamily, "BOCC");
+  assert.equal(boccSearch.collection, "legal_bocc_search");
+  assert.equal(boccSearch.ttlMs, BOCC_SEARCH_TTL_MS);
+  assert.equal(cacheSpec("/consult/getBoccTextPdfMetadata", { id: "bocc.pdf" }).ttlMs, BOCC_DOCUMENT_TTL_MS);
+
+  assert.deepEqual(cacheSpec("/consult/lastNJo", { nbElement: 5 }), {
+    sourceFamily: "JORF",
+    collection: "legal_jorf_feed",
+    documentId: "last_5",
+    ttlMs: JORF_FEED_TTL_MS,
+  });
+  assert.equal(cacheSpec("/consult/jorfCont", { id: "JORFCONT123", pageNumber: 1 }).ttlMs, JORF_DOCUMENT_TTL_MS);
+  assert.equal(cacheSpec("/consult/jorf", { textCid: "JORFTEXT456" }).collection, "legal_jorf_documents");
+  assert.equal(cacheSpec("/search", { fond: "UNKNOWN" }), null);
 });
 
 test("premier appel utilise Légifrance puis écrit Firestore; deuxième appel vient de Firestore", async () => {
@@ -93,7 +146,33 @@ test("premier appel utilise Légifrance puis écrit Firestore; deuxième appel v
   const stored = firestore.store.get("legal_kali_articles/KALIARTI123");
   assert.equal(stored.schemaVersion, LEGAL_CACHE_SCHEMA_VERSION);
   assert.equal(stored.parserVersion, LEGAL_CACHE_PARSER_VERSION);
+  assert.equal(stored.sourceFamily, "KALI");
   assert.equal(stored.expiresAtMs, nowMs + KALI_DOCUMENT_TTL_MS);
+});
+
+test("ACCO utilise le même résolveur commun et conserve sa famille de source", async () => {
+  const firestore = fakeFirestore();
+  let officialCalls = 0;
+  const nowMs = 1_800_000_000_000;
+  const request = {
+    db: firestore.db,
+    path: "/consult/acco",
+    body: { id: "ACCOTEXT123" },
+    now: () => nowMs,
+    logger: quietLogger,
+    fetchOfficial: async () => {
+      officialCalls += 1;
+      return { id: "ACCOTEXT123", content: "accord officiel" };
+    },
+  };
+
+  await resolveWithLegalCache(request);
+  await resolveWithLegalCache(request);
+
+  assert.equal(officialCalls, 1);
+  const stored = firestore.store.get("legal_acco_texts/ACCOTEXT123");
+  assert.equal(stored.sourceFamily, "ACCO");
+  assert.equal(stored.expiresAtMs, nowMs + ACCO_DOCUMENT_TTL_MS);
 });
 
 test("cache expiré déclenche une nouvelle vérification officielle et remplace la valeur", async () => {
