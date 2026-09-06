@@ -8,6 +8,10 @@ import org.json.JSONArray
  * Une seule prerelease GitHub permanente, `dev-latest`, contient toujours le dernier APK
  * de développement validé par le workflow DEV. Les anciennes prereleases numérotées sont
  * ignorées afin de garder un point d'entrée unique pour l'application et pour les tests manuels.
+ *
+ * Les assets de `dev-latest` sont remplacés à chaque build. Une révision unique est donc ajoutée
+ * aux URL de téléchargement afin d'empêcher un cache HTTP/CDN de mélanger l'APK d'un build avec
+ * le SHA-256 du build précédent.
  */
 object DevelopmentUpdateReleaseV2 {
     private const val DEVELOPMENT_TAG = "dev-latest"
@@ -47,7 +51,7 @@ object DevelopmentUpdateReleaseV2 {
                 if (!asset.optString("name").equals("HoraTrack-dev.apk", ignoreCase = true)) continue
                 val url = asset.optString("browser_download_url").trim()
                 if (url.startsWith(REPOSITORY_RELEASE_PREFIX)) {
-                    apkUrl = url
+                    apkUrl = cacheBoundUrl(url, versionRevision)
                     break
                 }
             }
@@ -57,9 +61,12 @@ object DevelopmentUpdateReleaseV2 {
     }
 
     internal fun sha256Url(versionName: String): String? {
-        if (revision(versionName) == null) return null
-        return "${REPOSITORY_RELEASE_PREFIX}SHA256-dev.txt"
+        val buildRevision = revision(versionName) ?: return null
+        return cacheBoundUrl("${REPOSITORY_RELEASE_PREFIX}SHA256-dev.txt", buildRevision)
     }
+
+    private fun cacheBoundUrl(url: String, buildRevision: String): String =
+        "$url?rev=$buildRevision"
 
     private fun parseVersionFromBody(body: String): String? = body.lineSequence()
         .map(String::trim)
