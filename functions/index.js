@@ -2,12 +2,15 @@
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
+const { getApps, initializeApp } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
 const {
   isValidLegifranceBody,
   normalizeLegifranceBody,
   publicFailureMessage,
 } = require("./legifranceProxy");
 const { normalizeBoccRequest } = require("./boccRequest");
+const { resolveWithLegalCache } = require("./legalKaliCache");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
 const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
@@ -33,6 +36,8 @@ const ALLOWED_PATHS = new Set([
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
+let firestoreDb = null;
+let firestoreInitAttempted = false;
 
 class UpstreamError extends Error {
   constructor(stage, status = 0, upstreamBody = "") {
@@ -61,6 +66,21 @@ async function readJsonResponse(response, stage) {
   } catch (_error) {
     throw new UpstreamError("response", response.status, "invalid-json");
   }
+}
+
+function legalCacheDb() {
+  if (firestoreInitAttempted) return firestoreDb;
+  firestoreInitAttempted = true;
+  try {
+    const app = getApps().length ? getApps()[0] : initializeApp();
+    firestoreDb = getFirestore(app);
+  } catch (error) {
+    console.warn("Legal KALI cache Firestore init failed", {
+      error: String(error?.message || error || "unknown"),
+    });
+    firestoreDb = null;
+  }
+  return firestoreDb;
 }
 
 async function pisteAccessToken() {
@@ -111,21 +131,30 @@ exports.legifranceRequest = onCall(
     }
 
     try {
-      const token = await pisteAccessToken();
       const body = path === "/list/boccsAndTexts"
         ? normalizeBoccRequest(request.data?.body)
         : normalizeLegifranceBody(path, request.data?.body);
-      const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+
+      return await resolveWithLegalCache({
+        db: legalCacheDb(),
+        path,
+        body,
+        logger: console,
+        fetchOfficial: async () => {
+          const token = await pisteAccessToken();
+          const response = await fetch(`${LEGIFRANCE_BASE_URL}${path}`, {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          });
+          return readJsonResponse(response, "api");
         },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
-      return await readJsonResponse(response, "api");
     } catch (error) {
       const isTimeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       const stage = isTimeout ? "timeout" : error instanceof UpstreamError ? error.stage : "network";
