@@ -27,7 +27,8 @@ class OfficialKaliOvertimeSourceV2Test {
         val article = champs[1] as Map<*, *>
         assertEquals("ARTICLE", article["typeChamp"])
         val articleCritere = (article["criteres"] as List<*>).first() as Map<*, *>
-        assertTrue(articleCritere["valeur"].toString().contains("heures supplémentaires"))
+        assertEquals("heures supplémentaires", articleCritere["valeur"])
+        assertEquals("EXACTE", articleCritere["typeRecherche"])
     }
 
     @Test
