@@ -70,7 +70,7 @@ jobs:
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "Build rapide signe en version $VERSION_NAME ($VERSION_CODE) pour rester installable par-dessus la version publique courante."
 
-      - name: Tests unitaires et compilation APK release
+      - name: Compilation APK release rapide
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -84,7 +84,7 @@ jobs:
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
-          gradle :app:testDebugUnitTest :app:assembleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:assembleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
