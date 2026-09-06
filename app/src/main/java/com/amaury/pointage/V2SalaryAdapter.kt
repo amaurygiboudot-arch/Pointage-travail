@@ -9,16 +9,17 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
-import com.amaury.pointage.v2.engine.CompanyAgreementOvertimeOverlayV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
 import com.amaury.pointage.v2.engine.MealBasketPolicyV2
 import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
+import com.amaury.pointage.v2.engine.OvertimeLegalArbitrationBridgeV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
 import com.amaury.pointage.v2.engine.PartTimeComplementaryHoursV2
 import com.amaury.pointage.v2.engine.PayrollEngineV2
+import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
@@ -81,9 +82,16 @@ object V2SalaryAdapter {
    workSessions=runtimeSessions
   )
   val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
+  val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(
+   context=context,
+   companyId=company.id,
+   idcc=convention.idcc,
+   referenceDate=period.referenceDate,
+   period=period
+  )
   val calculated=calculateCore(
    contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
-   ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact
+   ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact,overtimeArbitration
   )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
@@ -110,11 +118,11 @@ object V2SalaryAdapter {
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
   val runtimeSessions=V2RuntimeStore.allSessions(context)
   val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
-  return calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact)
+  return calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact,null)
  }
- fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty())}
+ fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty(),null,null,null)}
 
- private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null):Result {
+ private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null,overtimeArbitrationSnapshot:OvertimeLegalArbitrationBridgeV2.Snapshot?=null):Result {
   if(contract==null)return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val ids=acceptedEmployerIds.ifEmpty{setOf(contract.employerId)}
   val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
@@ -129,7 +137,7 @@ object V2SalaryAdapter {
   if(absenceImpact?.hasUnpaidAbsence==true){
    warnings+="Absence non rémunérée enregistrée : le brut exact exige les heures de travail prévues dans l'entreprise pour ce mois. Aucun montant de retenue n'est inventé."
   }
-  val monthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true
+  val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
@@ -167,7 +175,7 @@ object V2SalaryAdapter {
     overtimeGross=0.0,
     premiumsGross=worked.premiumsGross+worked.fixedPremiumsGross,
     monthlyEstimatedGross=worked.grossEstimate,
-    monthlyGrossReliable=monthlyGrossReliable,
+    monthlyGrossReliable=baseMonthlyGrossReliable,
     nightMs=nightMs,
     saturdayMs=satMs,
     sundayMs=sunMs,
@@ -186,9 +194,15 @@ object V2SalaryAdapter {
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)},nightMultiplier=nightRule?.premiumMultiplier)
-  val agreementOverlay=if(isFullTime&&companyAgreementSnapshot!=null)CompanyAgreementOvertimeOverlayV2.fromSnapshot(baseRules.overtimeTiers,companyAgreementSnapshot)else null
-  agreementOverlay?.warnings?.let(warnings::addAll)
-  val effectiveRules=if(agreementOverlay!=null)baseRules.copy(overtimeTiers=agreementOverlay.tiers)else baseRules
+  val arbitratedOvertime=if(isFullTime) overtimeArbitrationSnapshot?.selectedSchedule?.tiers else null
+  if(isFullTime&&overtimeArbitrationSnapshot!=null){
+   warnings+=overtimeArbitrationSnapshot.warnings
+   if(overtimeArbitrationSnapshot.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED){
+    val source=overtimeArbitrationSnapshot.resolution.selected?.source?.name.orEmpty()
+    if(source.isNotBlank())warnings+="Arbitrage juridique des heures supplémentaires : barème $source retenu pour la date de paie."
+   }
+  }
+  val effectiveRules=if(!arbitratedOvertime.isNullOrEmpty())baseRules.copy(overtimeTiers=arbitratedOvertime)else baseRules
   val payrollRules=if(isPartTime||isFullTime)effectiveRules.copy(overtimeTiers=emptyList()) else effectiveRules
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun)},payrollRules)
 
@@ -209,6 +223,19 @@ object V2SalaryAdapter {
    )
   }else null
   fullTime?.let{ft->warnings+=ft.warnings;if((contract.contractualWeeklyMinutes?:0)>regularLimit)warnings+="Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."}
+
+  val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(
+   fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0}
+  )
+  val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{
+   it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null
+  }==true
+  val monthlyGrossReliable=monthlyGrossReliability(
+   baseReliable=baseMonthlyGrossReliable,
+   provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,
+   arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,
+   arbitrationResolved=legalArbitrationResolved
+  )
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -235,6 +262,10 @@ object V2SalaryAdapter {
   val traces=worked.traces.filterNot{(isPartTime||isFullTime)&&it.startsWith("Aucune majoration d'heures supplémentaires")}
   return Result(regularMs,displayedTiers,weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross,overtimeGross,worked.premiumsGross,gross,monthlyGrossReliable,nightMs,satMs,sunMs,complementaryMinutes,selected.size,warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"}))
  }
+
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean):Boolean =
+  baseReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)
+
  private fun empty(w:List<String> = emptyList())=Result(0,emptyList(),0,0.0,0.0,0.0,0.0,false,0,0,0,0,0,w)
  private fun nightPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,startMinute:Int,endMinute:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,-1)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0);add(Calendar.DAY_OF_YEAR,1)};while(day.timeInMillis<=last.timeInMillis){val s=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,startMinute/60);set(Calendar.MINUTE,startMinute%60)};val e=(day.clone() as Calendar).apply{set(Calendar.HOUR_OF_DAY,endMinute/60);set(Calendar.MINUTE,endMinute%60);if(endMinute<=startMinute)add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,s.timeInMillis);val to=minOf(rangeEnd,e.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to);day.add(Calendar.DAY_OF_YEAR,1)};return total}
  private fun dayPaidOverlap(session:WorkSessionV2,rangeStart:Long,rangeEnd:Long,dayOfWeek:Int):Long{if(rangeEnd<=rangeStart)return 0L;var total=0L;val day=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeStart;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};val last=Calendar.getInstance(Locale.FRANCE).apply{timeInMillis=rangeEnd;set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0)};while(day.timeInMillis<=last.timeInMillis){if(day.get(Calendar.DAY_OF_WEEK)==dayOfWeek){val next=(day.clone() as Calendar).apply{add(Calendar.DAY_OF_YEAR,1)};val from=maxOf(rangeStart,day.timeInMillis);val to=minOf(rangeEnd,next.timeInMillis);if(to>from)total+=PaidWorkAllocationV2.paidOverlap(session,from,to)};day.add(Calendar.DAY_OF_YEAR,1)};return total}
