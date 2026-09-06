@@ -37,6 +37,37 @@ function matterHintsForSource(sourceFamily) {
   return ["LEGAL_REVIEW"];
 }
 
+function sourceRole(sourceFamily) {
+  const family = String(sourceFamily || "").toUpperCase();
+  if (["BOCC", "JORF"].includes(family)) return "CHANGE_SIGNAL";
+  if (["ACCO", "KALI", "LEGI"].includes(family)) return "CONSOLIDATED_OR_DIRECT_SOURCE";
+  return "UNKNOWN";
+}
+
+function revalidationTargetsForSource(sourceFamily) {
+  const family = String(sourceFamily || "").toUpperCase();
+  switch (family) {
+    case "ACCO":
+      return [{ sourceFamily: "ACCO", reason: "DIRECT_SOURCE_CHANGE" }];
+    case "KALI":
+      return [
+        { sourceFamily: "KALI", reason: "DIRECT_SOURCE_CHANGE" },
+        { sourceFamily: "LEGI", reason: "CROSS_CHECK_LEGAL_BASE" },
+      ];
+    case "BOCC":
+      return [{ sourceFamily: "KALI", reason: "RECHECK_CONSOLIDATED_CONVENTION" }];
+    case "LEGI":
+      return [{ sourceFamily: "LEGI", reason: "DIRECT_SOURCE_CHANGE" }];
+    case "JORF":
+      return [
+        { sourceFamily: "LEGI", reason: "RECHECK_CONSOLIDATED_LAW" },
+        { sourceFamily: "KALI", reason: "CHECK_CONVENTION_EXTENSION_IMPACT" },
+      ];
+    default:
+      return [{ sourceFamily: family || "UNKNOWN", reason: "MANUAL_SOURCE_RESOLUTION" }];
+  }
+}
+
 function deterministicId(parts) {
   return crypto.createHash("sha256").update(parts.join("|")).digest("hex").slice(0, 48);
 }
@@ -81,6 +112,10 @@ function buildChangeDocuments(change, detectedAtMs) {
   ])}`;
   const jobId = `job_${deterministicId([eventId, "REANALYZE"])}`;
   const matterHints = matterHintsForSource(normalized.sourceFamily);
+  const revalidationTargets = revalidationTargetsForSource(normalized.sourceFamily);
+  const targetSourceFamilies = [...new Set(revalidationTargets.map((target) => target.sourceFamily))];
+  const role = sourceRole(normalized.sourceFamily);
+  const requiresScopeResolution = normalized.sourceFamily === "JORF" || normalized.scopeType === "UNKNOWN";
 
   return {
     eventId,
@@ -92,6 +127,7 @@ function buildChangeDocuments(change, detectedAtMs) {
       detectedAtMs,
       lastSeenAtMs: detectedAtMs,
       sourceFamily: normalized.sourceFamily,
+      sourceRole: role,
       path: normalized.path,
       sourceCollection: normalized.sourceCollection,
       sourceDocumentId: normalized.sourceDocumentId,
@@ -100,6 +136,7 @@ function buildChangeDocuments(change, detectedAtMs) {
       previousPayloadHash: normalized.previousPayloadHash,
       currentPayloadHash: normalized.currentPayloadHash,
       matterHints,
+      revalidationTargets,
       reanalysisJobId: jobId,
       autoApplyAllowed: false,
     },
@@ -109,10 +146,14 @@ function buildChangeDocuments(change, detectedAtMs) {
       createdAtMs: detectedAtMs,
       updatedAtMs: detectedAtMs,
       sourceFamily: normalized.sourceFamily,
+      sourceRole: role,
       scopeType: normalized.scopeType,
       scopeValue: normalized.scopeValue,
       triggerEventId: eventId,
       matterHints,
+      revalidationTargets,
+      targetSourceFamilies,
+      requiresScopeResolution,
       requiresOfficialRevalidation: true,
       autoApplyAllowed: false,
       attemptCount: 0,
@@ -155,6 +196,7 @@ async function recordLegalChangeAndQueue({
     sourceFamily: docs.event.sourceFamily,
     scopeType: docs.event.scopeType,
     scopeValue: docs.event.scopeValue,
+    targetSourceFamilies: docs.job.targetSourceFamilies,
   });
 
   return { eventId: docs.eventId, jobId: docs.jobId };
@@ -166,6 +208,8 @@ module.exports = {
   CONVENTION_MATTERS,
   NATIONAL_MATTERS,
   matterHintsForSource,
+  sourceRole,
+  revalidationTargetsForSource,
   normalizeChange,
   buildChangeDocuments,
   recordLegalChangeAndQueue,

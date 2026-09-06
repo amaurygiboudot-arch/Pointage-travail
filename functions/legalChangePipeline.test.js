@@ -6,6 +6,8 @@ const {
   CHANGE_COLLECTION,
   REANALYSIS_COLLECTION,
   matterHintsForSource,
+  sourceRole,
+  revalidationTargetsForSource,
   buildChangeDocuments,
   recordLegalChangeAndQueue,
 } = require("./legalChangePipeline");
@@ -54,10 +56,13 @@ test("un changement KALI crée un événement et une réanalyse sans autoriser l
   const job = db.docs.get(`${REANALYSIS_COLLECTION}/${ids.jobId}`);
   assert.equal(event.status, "DETECTED");
   assert.equal(event.scopeValue, "0292");
+  assert.equal(event.sourceRole, "CONSOLIDATED_OR_DIRECT_SOURCE");
   assert.equal(event.autoApplyAllowed, false);
   assert.equal(job.status, "PENDING");
   assert.equal(job.requiresOfficialRevalidation, true);
   assert.equal(job.autoApplyAllowed, false);
+  assert.equal(job.requiresScopeResolution, false);
+  assert.deepEqual(job.targetSourceFamilies, ["KALI", "LEGI"]);
   assert.ok(job.matterHints.includes("OVERTIME"));
   assert.equal("payloadJson" in event, false);
 });
@@ -94,4 +99,42 @@ test("les familles conventionnelles et nationales reçoivent des pistes de réan
   assert.ok(matterHintsForSource("ACCO").includes("CLASSIFICATION"));
   assert.ok(matterHintsForSource("BOCC").includes("BONUSES_INDEMNITIES"));
   assert.ok(matterHintsForSource("JORF").includes("PAYROLL_LEGAL_BASE"));
+});
+
+test("BOCC est un signal de changement qui renvoie vers KALI consolidé", () => {
+  const docs = buildChangeDocuments({
+    sourceFamily: "BOCC",
+    path: "/list/boccsAndTexts",
+    collection: "legal_bocc_search",
+    documentId: "list_x",
+    scopeType: "IDCC",
+    scopeValue: "0292",
+    previousPayloadHash: "old",
+    currentPayloadHash: "new",
+  }, 100);
+
+  assert.equal(sourceRole("BOCC"), "CHANGE_SIGNAL");
+  assert.deepEqual(revalidationTargetsForSource("BOCC"), [
+    { sourceFamily: "KALI", reason: "RECHECK_CONSOLIDATED_CONVENTION" },
+  ]);
+  assert.deepEqual(docs.job.targetSourceFamilies, ["KALI"]);
+  assert.equal(docs.job.requiresScopeResolution, false);
+});
+
+test("JORF reste un signal et exige résolution du périmètre avant contrôle LEGI/KALI", () => {
+  const docs = buildChangeDocuments({
+    sourceFamily: "JORF",
+    path: "/consult/lastNJo",
+    collection: "legal_jorf_feed",
+    documentId: "last_5",
+    scopeType: "GLOBAL",
+    scopeValue: "FRANCE",
+    previousPayloadHash: "old",
+    currentPayloadHash: "new",
+  }, 100);
+
+  assert.equal(docs.event.sourceRole, "CHANGE_SIGNAL");
+  assert.deepEqual(docs.job.targetSourceFamilies, ["LEGI", "KALI"]);
+  assert.equal(docs.job.requiresScopeResolution, true);
+  assert.equal(docs.job.autoApplyAllowed, false);
 });
