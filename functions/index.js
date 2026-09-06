@@ -19,6 +19,8 @@ const ALLOWED_PATHS = new Set([
   "/search",
   "/consult/acco",
   "/consult/kaliContIdcc",
+  "/consult/kaliArticle",
+  "/consult/kaliText",
   "/list/conventions",
   "/consult/getArticle",
   "/consult/legiPart",
