@@ -19,6 +19,7 @@ const {
   refreshDueLegalScopeWatches,
 } = require("./legalScopeWatch");
 const { recordLegalChangeAndQueue } = require("./legalChangePipeline");
+const { dispatchPendingLegalReanalysis } = require("./legalReanalysisDispatcher");
 const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
@@ -30,6 +31,7 @@ const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine
 const REQUEST_TIMEOUT_MS = 15_000;
 const LEGAL_WATCH_BATCH_SIZE = 12;
 const LEGAL_SCOPE_WATCH_BATCH_SIZE = 6;
+const LEGAL_REANALYSIS_BATCH_SIZE = 8;
 const ALLOWED_PATHS = new Set([
   "/search",
   "/consult/acco",
@@ -218,6 +220,11 @@ exports.legalUpdateWatch = onSchedule(
 
     const bootstrap = await ensureGlobalLegalWatchSeeds({ db, logger: console });
     const onChange = (change) => handleLegalChange(db, change);
+    const dispatchBefore = await dispatchPendingLegalReanalysis({
+      db,
+      logger: console,
+      batchSize: LEGAL_REANALYSIS_BATCH_SIZE,
+    });
     const cacheWatches = await refreshDueLegalWatches({
       db,
       fetchOfficial: fetchOfficialLegifrance,
@@ -232,6 +239,39 @@ exports.legalUpdateWatch = onSchedule(
       logger: console,
       batchSize: LEGAL_SCOPE_WATCH_BATCH_SIZE,
     });
-    console.info("Legal update watch complete", { bootstrap, cacheWatches, scopeWatches });
+    const dispatchAfter = await dispatchPendingLegalReanalysis({
+      db,
+      logger: console,
+      batchSize: LEGAL_REANALYSIS_BATCH_SIZE,
+    });
+
+    let followUpCacheWatches = null;
+    if (dispatchAfter.queuedWatches > 0) {
+      followUpCacheWatches = await refreshDueLegalWatches({
+        db,
+        fetchOfficial: fetchOfficialLegifrance,
+        onChange,
+        logger: console,
+        batchSize: Math.min(LEGAL_WATCH_BATCH_SIZE, dispatchAfter.queuedWatches),
+      });
+    }
+
+    const dispatchFinal = followUpCacheWatches
+      ? await dispatchPendingLegalReanalysis({
+        db,
+        logger: console,
+        batchSize: LEGAL_REANALYSIS_BATCH_SIZE,
+      })
+      : null;
+
+    console.info("Legal update watch complete", {
+      bootstrap,
+      dispatchBefore,
+      cacheWatches,
+      scopeWatches,
+      dispatchAfter,
+      followUpCacheWatches,
+      dispatchFinal,
+    });
   }
 );
