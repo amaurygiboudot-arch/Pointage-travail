@@ -49,8 +49,11 @@ object OfficialKaliOvertimeSourceV2 {
                         "operateur" to "ET",
                         "criteres" to listOf(
                             mapOf(
-                                "valeur" to "heures supplémentaires majoration",
-                                "typeRecherche" to "UN_DES_MOTS",
+                                // Une recherche UN_DES_MOTS sur "heures supplémentaires majoration"
+                                // remontait tout article contenant seulement "heures" et produisait
+                                // des dizaines de faux candidats. On cible l'expression juridique.
+                                "valeur" to "heures supplémentaires",
+                                "typeRecherche" to "EXACTE",
                                 "operateur" to "ET"
                             )
                         )
@@ -61,7 +64,6 @@ object OfficialKaliOvertimeSourceV2 {
                 "pageNumber" to pageNumber,
                 "pageSize" to pageSize.coerceIn(1, 25),
                 // L'API stable Légifrance documente DEFAUT pour les recherches KALI paginées.
-                // ARTICLE correspond à une navigation différente et peut échouer dès la page suivante.
                 "typePagination" to "DEFAUT",
                 "secondSort" to "PERTINENCE",
                 "operateur" to "ET"
