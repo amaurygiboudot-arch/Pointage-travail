@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   dispatchPendingLegalReanalysis,
+  reconcileQueuedLegalReanalysis,
   targetScope,
 } = require("./legalReanalysisDispatcher");
 
@@ -108,6 +109,7 @@ test("un changement KALI ne rappelle pas KALI mais accélère son recoupement LE
   assert.equal(job.status, "REVALIDATION_QUEUED");
   assert.deepEqual(job.readySourceFamilies, ["KALI"]);
   assert.deepEqual(job.unresolvedTargetSourceFamilies, []);
+  assert.deepEqual(job.pendingSourceFamilies, ["LEGI"]);
   assert.equal(db.state.get("legal_kali_search/idcc_292").nextCheckAtMs, undefined);
   assert.equal(db.state.get("legal_legi_search/search_law").nextCheckAtMs, nowMs);
 });
@@ -171,4 +173,65 @@ test("un signal JORF global accélère uniquement LEGI et ne touche aucun cache 
   assert.deepEqual(job.unresolvedTargetSourceFamilies, []);
   assert.equal(db.state.get("legal_legi_search/law1").nextCheckAtMs, nowMs);
   assert.equal(db.state.get("legal_kali_search/kali292").nextCheckAtMs, undefined);
+});
+
+test("un job passe à READY_FOR_ANALYSIS seulement après tous les refresh officiels demandés", async () => {
+  const dispatchedAtMs = 1_800_000_000_000;
+  const db = makeDb({
+    legal_reanalysis_jobs: {
+      jobKali: {
+        status: "REVALIDATION_QUEUED",
+        sourceFamily: "KALI",
+        scopeType: "IDCC",
+        scopeValue: "0292",
+        targetSourceFamilies: ["KALI", "LEGI"],
+        readySourceFamilies: ["KALI"],
+        queuedWatchCountBySource: { KALI: 0, LEGI: 2 },
+        dispatchedAtMs,
+        triggerEventId: "evtKali",
+      },
+    },
+    legal_change_events: { evtKali: { status: "REVALIDATION_QUEUED" } },
+    legal_legi_search: {
+      law1: {
+        watchEnabled: true,
+        scopeType: "CODE",
+        scopeValue: "CODE_DU_TRAVAIL",
+        lastOfficialCheckAtMs: dispatchedAtMs + 10,
+      },
+      law2: {
+        watchEnabled: true,
+        scopeType: "CODE",
+        scopeValue: "CODE_DU_TRAVAIL",
+        lastOfficialCheckAtMs: dispatchedAtMs - 10,
+      },
+    },
+  });
+
+  const first = await reconcileQueuedLegalReanalysis({
+    db,
+    now: () => dispatchedAtMs + 20,
+    logger: quietLogger,
+  });
+  assert.equal(first.ready, 0);
+  assert.equal(first.pending, 1);
+  assert.equal(db.state.get("legal_reanalysis_jobs/jobKali").status, "REVALIDATION_QUEUED");
+
+  db.state.set("legal_legi_search/law2", {
+    ...db.state.get("legal_legi_search/law2"),
+    lastOfficialCheckAtMs: dispatchedAtMs + 30,
+  });
+
+  const second = await reconcileQueuedLegalReanalysis({
+    db,
+    now: () => dispatchedAtMs + 40,
+    logger: quietLogger,
+  });
+  assert.equal(second.ready, 1);
+  assert.equal(second.pending, 0);
+  const job = db.state.get("legal_reanalysis_jobs/jobKali");
+  assert.equal(job.status, "READY_FOR_ANALYSIS");
+  assert.deepEqual(job.completedSourceFamilies.sort(), ["KALI", "LEGI"]);
+  assert.deepEqual(job.pendingSourceFamilies, []);
+  assert.equal(db.state.get("legal_change_events/evtKali").status, "READY_FOR_ANALYSIS");
 });

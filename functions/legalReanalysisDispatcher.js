@@ -171,6 +171,8 @@ async function dispatchJob({
     queuedWatchCountBySource: perTarget,
     unresolvedTargetSourceFamilies: unresolvedTargets,
     readySourceFamilies: readySources,
+    completedSourceFamilies: readySources,
+    pendingSourceFamilies: targets.filter((family) => !readySources.includes(family) && !unresolvedTargets.includes(family)),
     autoApplyAllowed: false,
   };
   await db.collection(REANALYSIS_COLLECTION).doc(jobId).set(patch, { merge: true });
@@ -195,6 +197,157 @@ async function dispatchJob({
     readySources,
   });
   return { status, queuedWatches, unresolvedTargets, readySources };
+}
+
+async function completedTargetWatchCount({
+  db,
+  targetSourceFamily,
+  scope,
+  sinceMs,
+  limit = DEFAULT_TARGET_LIMIT,
+}) {
+  const family = String(targetSourceFamily || "").toUpperCase();
+  const collectionName = TARGET_COLLECTIONS[family];
+  if (!collectionName || !scope || !Number.isFinite(sinceMs)) return 0;
+  const boundedLimit = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || DEFAULT_TARGET_LIMIT));
+  const collection = db.collection(collectionName);
+  if (typeof collection.where !== "function") return 0;
+  const snapshot = await collection.where("scopeValue", "==", scope.scopeValue).limit(boundedLimit).get();
+  const docs = Array.isArray(snapshot?.docs) ? snapshot.docs : [];
+  return docs.reduce((count, doc) => {
+    const data = typeof doc.data === "function" ? doc.data() : null;
+    if (String(data?.scopeType || "").toUpperCase() !== scope.scopeType) return count;
+    if (data?.watchEnabled !== true) return count;
+    return Number(data?.lastOfficialCheckAtMs) >= sinceMs ? count + 1 : count;
+  }, 0);
+}
+
+async function reconcileJob({
+  db,
+  jobId,
+  job,
+  nowMs,
+  logger = console,
+  targetLimit = DEFAULT_TARGET_LIMIT,
+}) {
+  if (String(job?.status || "") !== "REVALIDATION_QUEUED") {
+    return { status: String(job?.status || ""), completed: false };
+  }
+
+  const targets = jobTargets(job);
+  const readySources = Array.isArray(job?.readySourceFamilies)
+    ? [...new Set(job.readySourceFamilies.map((value) => String(value || "").toUpperCase()).filter(Boolean))]
+    : [];
+  const completedSources = new Set(readySources);
+  const pendingSources = [];
+  const counts = {};
+  const expectedBySource = job?.queuedWatchCountBySource && typeof job.queuedWatchCountBySource === "object"
+    ? job.queuedWatchCountBySource
+    : {};
+  const sinceMs = Number(job?.dispatchedAtMs);
+
+  for (const family of targets) {
+    if (completedSources.has(family)) continue;
+    const expected = Math.max(0, Number.parseInt(expectedBySource?.[family], 10) || 0);
+    if (expected <= 0) {
+      pendingSources.push(family);
+      counts[family] = 0;
+      continue;
+    }
+    const scope = targetScope(job, family);
+    if (!scope) {
+      pendingSources.push(family);
+      counts[family] = 0;
+      continue;
+    }
+    const completedCount = await completedTargetWatchCount({
+      db,
+      targetSourceFamily: family,
+      scope,
+      sinceMs,
+      limit: Math.max(targetLimit, expected),
+    });
+    counts[family] = completedCount;
+    if (completedCount >= expected) completedSources.add(family);
+    else pendingSources.push(family);
+  }
+
+  const completed = pendingSources.length === 0 && targets.every((family) => completedSources.has(family));
+  const status = completed ? "READY_FOR_ANALYSIS" : "REVALIDATION_QUEUED";
+  const patch = {
+    status,
+    updatedAtMs: nowMs,
+    completedSourceFamilies: [...completedSources],
+    pendingSourceFamilies: pendingSources,
+    completedWatchCountBySource: counts,
+    ...(completed ? { revalidationCompletedAtMs: nowMs } : {}),
+  };
+  await db.collection(REANALYSIS_COLLECTION).doc(jobId).set(patch, { merge: true });
+
+  const eventId = String(job?.latestTriggerEventId || job?.triggerEventId || "").trim();
+  if (eventId && completed) {
+    await db.collection(CHANGE_COLLECTION).doc(eventId).set({
+      status,
+      updatedAtMs: nowMs,
+      reanalysisJobId: jobId,
+      revalidationCompletedAtMs: nowMs,
+    }, { merge: true });
+  }
+
+  log(logger, "info", "Legal reanalysis job reconciled", {
+    jobId,
+    status,
+    completedSources: [...completedSources],
+    pendingSources,
+  });
+  return { status, completed, completedSources: [...completedSources], pendingSources };
+}
+
+async function reconcileQueuedLegalReanalysis({
+  db,
+  now = () => Date.now(),
+  logger = console,
+  batchSize = DEFAULT_DISPATCH_BATCH_SIZE,
+  targetLimit = DEFAULT_TARGET_LIMIT,
+}) {
+  const summary = { scanned: 0, ready: 0, pending: 0, failed: 0 };
+  if (!db) return summary;
+  const boundedBatch = Math.max(1, Math.min(50, Number.parseInt(batchSize, 10) || DEFAULT_DISPATCH_BATCH_SIZE));
+  let snapshot;
+  try {
+    snapshot = await db.collection(REANALYSIS_COLLECTION).where("status", "==", "REVALIDATION_QUEUED").limit(boundedBatch).get();
+  } catch (error) {
+    summary.failed += 1;
+    log(logger, "warn", "Legal reanalysis reconciliation scan failed", {
+      error: String(error?.message || error || "unknown"),
+    });
+    return summary;
+  }
+
+  const docs = Array.isArray(snapshot?.docs) ? snapshot.docs : [];
+  for (const doc of docs) {
+    summary.scanned += 1;
+    const job = typeof doc.data === "function" ? doc.data() : null;
+    try {
+      const result = await reconcileJob({
+        db,
+        jobId: doc.id,
+        job,
+        nowMs: Number(now()),
+        logger,
+        targetLimit,
+      });
+      if (result.completed) summary.ready += 1;
+      else summary.pending += 1;
+    } catch (error) {
+      summary.failed += 1;
+      log(logger, "warn", "Legal reanalysis reconciliation failed", {
+        jobId: doc.id,
+        error: String(error?.message || error || "unknown"),
+      });
+    }
+  }
+  return summary;
 }
 
 async function dispatchPendingLegalReanalysis({
@@ -269,5 +422,8 @@ module.exports = {
   queueTargetWatches,
   jobTargets,
   dispatchJob,
+  completedTargetWatchCount,
+  reconcileJob,
+  reconcileQueuedLegalReanalysis,
   dispatchPendingLegalReanalysis,
 };

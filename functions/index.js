@@ -19,7 +19,10 @@ const {
   refreshDueLegalScopeWatches,
 } = require("./legalScopeWatch");
 const { recordLegalChangeAndQueue } = require("./legalChangePipeline");
-const { dispatchPendingLegalReanalysis } = require("./legalReanalysisDispatcher");
+const {
+  dispatchPendingLegalReanalysis,
+  reconcileQueuedLegalReanalysis,
+} = require("./legalReanalysisDispatcher");
 const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
@@ -239,6 +242,11 @@ exports.legalUpdateWatch = onSchedule(
       logger: console,
       batchSize: LEGAL_SCOPE_WATCH_BATCH_SIZE,
     });
+    const reconcileAfterRefresh = await reconcileQueuedLegalReanalysis({
+      db,
+      logger: console,
+      batchSize: LEGAL_REANALYSIS_BATCH_SIZE,
+    });
     const dispatchAfter = await dispatchPendingLegalReanalysis({
       db,
       logger: console,
@@ -256,6 +264,11 @@ exports.legalUpdateWatch = onSchedule(
       });
     }
 
+    const reconcileFinal = await reconcileQueuedLegalReanalysis({
+      db,
+      logger: console,
+      batchSize: LEGAL_REANALYSIS_BATCH_SIZE,
+    });
     const dispatchFinal = followUpCacheWatches
       ? await dispatchPendingLegalReanalysis({
         db,
@@ -269,8 +282,10 @@ exports.legalUpdateWatch = onSchedule(
       dispatchBefore,
       cacheWatches,
       scopeWatches,
+      reconcileAfterRefresh,
       dispatchAfter,
       followUpCacheWatches,
+      reconcileFinal,
       dispatchFinal,
     });
   }
