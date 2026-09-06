@@ -17,7 +17,8 @@ import java.time.LocalDate
 object KaliOvertimePayrollAuditV2 {
     private const val PAGE_SIZE = 25
     private const val MAX_PAGES = 20
-    private const val MAX_ARTICLES_TO_CONSULT = 40
+    private const val MAX_TEXTS_TO_EXPAND = 12
+    private const val MAX_ARTICLES_TO_CONSULT = 80
 
     data class Summary(
         val idcc: String,
@@ -35,6 +36,12 @@ object KaliOvertimePayrollAuditV2 {
         val candidates: List<OfficialKaliOvertimeSourceV2.Candidate>,
         val pagesRead: Int,
         val resultCountComplete: Boolean,
+        val warnings: List<String>
+    )
+
+    private data class TextExpansionBatch(
+        val articleIds: List<String>,
+        val textsConsulted: Int,
         val warnings: List<String>
     )
 
@@ -70,43 +77,92 @@ object KaliOvertimePayrollAuditV2 {
                         )
                     )
                 }
+
                 val batch = searchTask.result
-                val articleCandidates = batch.candidates
+                val directArticles = batch.candidates
                     .filter { it.id.startsWith("KALIARTI") }
                     .distinctBy { it.id }
-                val limited = articleCandidates.take(MAX_ARTICLES_TO_CONSULT)
-                val preWarnings = buildList {
-                    addAll(batch.warnings)
-                    if (articleCandidates.size > limited.size) {
-                        add("KALI : ${articleCandidates.size - limited.size} article(s) candidat(s) non consulté(s) à cause de la limite de sécurité.")
-                    }
-                    if (batch.candidates.any { !it.id.startsWith("KALIARTI") }) {
-                        add("KALI : les résultats KALITEXT/KALISCTA restent des pistes ; seuls les KALIARTI sont structurés automatiquement à cette étape.")
-                    }
-                }
+                val textCandidates = batch.candidates
+                    .filter { it.id.startsWith("KALITEXT") }
+                    .distinctBy { it.id }
+                val sectionCandidates = batch.candidates
+                    .filter { it.id.startsWith("KALISCTA") }
+                    .distinctBy { it.id }
+                val textsToExpand = textCandidates.take(MAX_TEXTS_TO_EXPAND)
 
-                consultArticles(limited, referenceDate)
-                    .continueWith { consultTask ->
-                        if (!consultTask.isSuccessful) {
-                            return@continueWith Summary(
-                                normalizedIdcc,
-                                referenceDate,
-                                batch.pagesRead,
-                                batch.candidates.size,
+                expandKaliTexts(textsToExpand)
+                    .continueWithTask { expansionTask ->
+                        val expansion = if (expansionTask.isSuccessful) {
+                            expansionTask.result
+                        } else {
+                            TextExpansionBatch(
+                                emptyList(),
                                 0,
-                                0,
-                                false,
-                                warnings = preWarnings + "KALI : consultation des articles impossible."
+                                listOf("KALI : consultation des textes KALITEXT impossible ; les articles directs restent analysés.")
                             )
                         }
-                        val consulted = consultTask.result
-                        finalizeAudit(
-                            context = context.applicationContext,
-                            idcc = normalizedIdcc,
-                            referenceDate = referenceDate,
-                            search = batch,
-                            consult = consulted.copy(warnings = preWarnings + consulted.warnings)
-                        )
+
+                        val expandedArticles = expansion.articleIds.map { articleId ->
+                            OfficialKaliOvertimeSourceV2.Candidate(
+                                id = articleId,
+                                title = "Article découvert via KALITEXT",
+                                snippet = null
+                            )
+                        }
+                        val articleCandidates = (directArticles + expandedArticles).distinctBy { it.id }
+                        val limited = articleCandidates.take(MAX_ARTICLES_TO_CONSULT)
+                        val preWarnings = buildList {
+                            addAll(batch.warnings)
+                            addAll(expansion.warnings)
+                            if (textCandidates.isNotEmpty()) {
+                                add(
+                                    "KALI : ${expansion.textsConsulted} texte(s) KALITEXT consulté(s) ; " +
+                                        "${expandedArticles.map { it.id }.distinct().size} article(s) supplémentaire(s) découvert(s)."
+                                )
+                            }
+                            if (textCandidates.size > textsToExpand.size) {
+                                add(
+                                    "KALI : ${textCandidates.size - textsToExpand.size} texte(s) KALITEXT supplémentaire(s) " +
+                                        "non développé(s) à cause de la limite de sécurité."
+                                )
+                            }
+                            if (sectionCandidates.isNotEmpty()) {
+                                add(
+                                    "KALI : ${sectionCandidates.size} section(s) KALISCTA restent des pistes ; " +
+                                        "elles ne sont pas transformées directement en règles de paie."
+                                )
+                            }
+                            if (articleCandidates.size > limited.size) {
+                                add(
+                                    "KALI : ${articleCandidates.size - limited.size} article(s) candidat(s) non consulté(s) " +
+                                        "à cause de la limite de sécurité."
+                                )
+                            }
+                        }
+
+                        consultArticles(limited, referenceDate)
+                            .continueWith { consultTask ->
+                                if (!consultTask.isSuccessful) {
+                                    return@continueWith Summary(
+                                        normalizedIdcc,
+                                        referenceDate,
+                                        batch.pagesRead,
+                                        batch.candidates.size,
+                                        0,
+                                        0,
+                                        false,
+                                        warnings = preWarnings + "KALI : consultation des articles impossible."
+                                    )
+                                }
+                                val consulted = consultTask.result
+                                finalizeAudit(
+                                    context = context.applicationContext,
+                                    idcc = normalizedIdcc,
+                                    referenceDate = referenceDate,
+                                    search = batch,
+                                    consult = consulted.copy(warnings = preWarnings + consulted.warnings)
+                                )
+                            }
                     }
             }
     }
@@ -281,6 +337,39 @@ object KaliOvertimePayrollAuditV2 {
                         )
                     )
                 }
+            }
+    }
+
+    private fun expandKaliTexts(
+        candidates: List<OfficialKaliOvertimeSourceV2.Candidate>,
+        index: Int = 0,
+        articleIds: List<String> = emptyList(),
+        textsConsulted: Int = 0,
+        warnings: List<String> = emptyList()
+    ): Task<TextExpansionBatch> {
+        if (index >= candidates.size) {
+            return Tasks.forResult(TextExpansionBatch(articleIds.distinct(), textsConsulted, warnings.distinct()))
+        }
+        val candidate = candidates[index]
+        return LegifranceFunctionClientV2.request("/consult/kaliText", mapOf("id" to candidate.id))
+            .continueWithTask { task ->
+                if (!task.isSuccessful) {
+                    return@continueWithTask expandKaliTexts(
+                        candidates,
+                        index + 1,
+                        articleIds,
+                        textsConsulted + 1,
+                        warnings + "KALI : ${candidate.id} n'a pas pu être développé."
+                    )
+                }
+                val expansion = OfficialKaliTextExpansionV2.parse(task.result.data)
+                expandKaliTexts(
+                    candidates,
+                    index + 1,
+                    (articleIds + expansion.articleIds).distinct(),
+                    textsConsulted + 1,
+                    warnings
+                )
             }
     }
 
