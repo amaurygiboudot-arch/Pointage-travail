@@ -14,6 +14,7 @@ const { normalizeBoccRequest } = require("./boccRequest");
 const { resolveWithLegalCache } = require("./legalKaliCache");
 const { ensureLegalWatchRegistration } = require("./legalWatchRegistration");
 const { recordLegalChangeAndQueue } = require("./legalChangePipeline");
+const { invalidateDependentLegalCaches } = require("./legalCrossSourceInvalidation");
 const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
@@ -201,7 +202,10 @@ exports.legalUpdateWatch = onSchedule(
     const summary = await refreshDueLegalWatches({
       db,
       fetchOfficial: fetchOfficialLegifrance,
-      onChange: (change) => recordLegalChangeAndQueue({ db, change, logger: console }),
+      onChange: async (change) => {
+        await recordLegalChangeAndQueue({ db, change, logger: console });
+        await invalidateDependentLegalCaches({ db, change, logger: console });
+      },
       logger: console,
       batchSize: LEGAL_WATCH_BATCH_SIZE,
     });
