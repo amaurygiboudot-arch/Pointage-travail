@@ -78,7 +78,7 @@ class V2RightsRestView @JvmOverloads constructor(
             setPadding(0, dp(18), 0, dp(4))
         })
         addView(TextView(context).apply {
-            text = "Absence non rémunérée, arrêt maladie, congé payé ou autre : HoraTrack enregistre le cas réel. Pour un arrêt maladie, les IJSS, le maintien employeur, la subrogation et une éventuelle prévoyance qui chevauche le maintien restent séparés pour éviter tout double compte."
+            text = "HoraTrack distingue la maladie ordinaire, l'accident du travail, l'accident de trajet et la maladie professionnelle. Les IJSS, le maintien employeur, la subrogation et la prévoyance ne sont calculés que lorsqu'une règle correspondant exactement au motif est confirmée."
             textSize = 12f
             setPadding(0, 0, 0, dp(6))
         })
@@ -300,11 +300,21 @@ class V2RightsRestView @JvmOverloads constructor(
             Toast.makeText(context, "Choisis d’abord une entreprise", Toast.LENGTH_LONG).show()
             return
         }
-        val labels = arrayOf("Arrêt maladie", "Congé payé", "Accident du travail", "Maternité / paternité", "Autre absence")
+        val labels = arrayOf(
+            "Arrêt maladie",
+            "Congé payé",
+            "Accident du travail",
+            "Accident de trajet",
+            "Maladie professionnelle",
+            "Maternité / paternité",
+            "Autre absence"
+        )
         val types = arrayOf(
             AbsencePayrollImpactV2.TYPE_SICKNESS,
             AbsencePayrollImpactV2.TYPE_PAID_LEAVE,
             AbsencePayrollImpactV2.TYPE_WORK_ACCIDENT,
+            AbsencePayrollImpactV2.TYPE_COMMUTING_ACCIDENT,
+            AbsencePayrollImpactV2.TYPE_OCCUPATIONAL_DISEASE,
             AbsencePayrollImpactV2.TYPE_PARENTAL,
             AbsencePayrollImpactV2.TYPE_OTHER
         )
@@ -419,7 +429,7 @@ class V2RightsRestView @JvmOverloads constructor(
             orientation = VERTICAL
             setPadding(dp(18), dp(8), dp(18), 0)
             addView(TextView(context).apply {
-                text = "${AbsencePayrollImpactV2.label(type)} — journée(s) entière(s). La date de fin est incluse. Une prévoyance de branche en relais après maintien n'est jamais confondue avec une prestation qui chevauche le maintien."
+                text = "${AbsencePayrollImpactV2.label(type)} — journée(s) entière(s). La date de fin est incluse. Une règle de maladie ordinaire n'est jamais réutilisée pour un accident du travail, un accident de trajet ou une maladie professionnelle."
                 textSize = 12f
                 setPadding(0, 0, 0, dp(8))
             })
