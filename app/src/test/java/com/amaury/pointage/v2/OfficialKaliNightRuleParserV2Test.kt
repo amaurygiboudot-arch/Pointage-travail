@@ -81,6 +81,21 @@ class OfficialKaliNightRuleParserV2Test {
     }
 
     @Test
+    fun `une clause de non cumul bloque la regle de nuit`() {
+        val article = OfficialKaliNightRuleParserV2.parseApplicableArticle(
+            response(
+                "Les heures de nuit de 21 h à 6 h sont majorées de 25 %. Cette majoration n'est pas cumulable avec la majoration d'heures supplémentaires."
+            ),
+            articleId,
+            referenceDate
+        )!!
+
+        val diagnostic = OfficialKaliNightRuleParserV2.analyzeArticle(article)
+        assertEquals(OfficialKaliNightRuleParserV2.DiagnosticKind.CONDITIONAL_RULE, diagnostic.kind)
+        assertNull(diagnostic.candidate)
+    }
+
+    @Test
     fun `un taux sans plage horaire explicite reste a verifier`() {
         val article = OfficialKaliNightRuleParserV2.parseApplicableArticle(
             response("Toute heure de nuit ouvre droit à une majoration de 15 %."),
