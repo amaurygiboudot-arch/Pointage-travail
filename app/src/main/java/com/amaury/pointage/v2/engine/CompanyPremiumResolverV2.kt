@@ -75,12 +75,7 @@ object CompanyPremiumResolverV2 {
             applied = applied,
             totalGross = applied.sumOf { it.grossAmount },
             reliable = reliable,
-            warnings = buildList {
-                addAll(warnings)
-                if (applied.isNotEmpty()) {
-                    add("Primes contractuelles/personnelles appliquées : ${applied.joinToString { "${it.label} (${String.format(java.util.Locale.FRANCE, "%.2f €", it.grossAmount)})" }}.")
-                }
-            }.distinct()
+            warnings = warnings.distinct()
         )
     }
 }
