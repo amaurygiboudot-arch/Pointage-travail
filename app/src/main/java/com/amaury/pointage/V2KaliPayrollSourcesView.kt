@@ -9,8 +9,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.KaliNightPayrollAuditV2
 import com.amaury.pointage.v2.KaliOvertimePayrollAuditV2
+import com.amaury.pointage.v2.KaliPublicHolidayPremiumAuditV2
 import com.amaury.pointage.v2.KaliWeekdayPremiumAuditV2
 import com.amaury.pointage.v2.V2ConventionNightRuleStore
+import com.amaury.pointage.v2.V2ConventionPublicHolidayPremiumStore
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ConventionWeekdayPremiumStore
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
@@ -30,11 +32,13 @@ class V2KaliPayrollSourcesView(
     private val nightButton = Button(context)
     private val saturdayButton = Button(context)
     private val sundayButton = Button(context)
+    private val publicHolidayButton = Button(context)
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE)
     private var lastOvertimeAuditSummary: KaliOvertimePayrollAuditV2.Summary? = null
     private var lastNightAuditSummary: KaliNightPayrollAuditV2.Summary? = null
     private var lastSaturdayAuditSummary: KaliWeekdayPremiumAuditV2.Summary? = null
     private var lastSundayAuditSummary: KaliWeekdayPremiumAuditV2.Summary? = null
+    private var lastPublicHolidayAuditSummary: KaliPublicHolidayPremiumAuditV2.Summary? = null
 
     init {
         orientation = VERTICAL
@@ -45,7 +49,7 @@ class V2KaliPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi et dimanche ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Une recherche vide ne prouve jamais l'absence de règle."
+            text = "HoraTrack consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi, dimanche et jours fériés ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Le 1er mai reste séparé du modèle générique des jours fériés. Une recherche vide ne prouve jamais l'absence de règle."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -77,6 +81,13 @@ class V2KaliPayrollSourcesView(
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { runWeekdayAudit(WeekdayPremiumKindV2.SUNDAY) }
         }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
+        addView(publicHolidayButton.apply {
+            text = "ANALYSER LES JOURS FÉRIÉS DANS KALI"
+            isAllCaps = false
+            textSize = 14f
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { runPublicHolidayAudit() }
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
         addView(status.apply {
             textSize = 13f
             setPadding(0, dp(10), 0, 0)
@@ -100,6 +111,9 @@ class V2KaliPayrollSourcesView(
         }.getOrNull()
         val saturdaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SATURDAY, epochDay)
         val sundaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SUNDAY, epochDay)
+        val publicHolidaySnapshot = if (idcc.isBlank()) null else runCatching {
+            V2ConventionPublicHolidayPremiumStore.history(context).applicable(idcc, epochDay)
+        }.getOrNull()
 
         status.text = buildString {
             append("Entreprise : ").append(company.name.ifBlank { "Entreprise" }).append('\n')
@@ -171,6 +185,21 @@ class V2KaliPayrollSourcesView(
                         append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
                     }
                 }
+
+                append("\n\nRÈGLE JOURS FÉRIÉS KALI\n")
+                if (publicHolidaySnapshot == null) {
+                    append("Aucune majoration uniforme des jours fériés KALI confirmée pour cette date.")
+                } else {
+                    append("Majoration générique : +")
+                        .append(formatPercent(publicHolidaySnapshot.rule.percentage)).append(" %\n")
+                    append("Source : ").append(publicHolidaySnapshot.sourceId).append('\n')
+                    append("Applicable depuis : ")
+                        .append(LocalDate.ofEpochDay(publicHolidaySnapshot.effectiveFromEpochDay).format(dateFormat))
+                    publicHolidaySnapshot.effectiveToEpochDay?.let {
+                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                    }
+                    append("\nLe 1er mai n'est jamais déduit de cette règle générique.")
+                }
             }
 
             lastOvertimeAuditSummary?.let { summary ->
@@ -214,6 +243,7 @@ class V2KaliPayrollSourcesView(
 
             appendWeekdayAudit(lastSaturdayAuditSummary, "SAMEDI")
             appendWeekdayAudit(lastSundayAuditSummary, "DIMANCHE")
+            appendPublicHolidayAudit(lastPublicHolidayAuditSummary)
         }
     }
 
@@ -237,6 +267,30 @@ class V2KaliPayrollSourcesView(
         }
         if (summary.warnings.isNotEmpty()) {
             append("\n\nDiagnostic ").append(title.lowercase(Locale.FRANCE)).append(" :")
+            summary.warnings.forEach { warning -> append("\n• ").append(warning) }
+        }
+    }
+
+    private fun StringBuilder.appendPublicHolidayAudit(summary: KaliPublicHolidayPremiumAuditV2.Summary?) {
+        summary ?: return
+        append("\n\nDERNIER AUDIT KALI — JOURS FÉRIÉS\n")
+        append("Pages analysées : ").append(summary.pagesRead).append('\n')
+        append("Candidats trouvés : ").append(summary.candidates).append('\n')
+        append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
+        append("Candidats uniformes structurés : ").append(summary.structuredCandidates).append('\n')
+        append("Règle enregistrée : ").append(if (summary.saved) "oui" else "non")
+        summary.selectedSourceId?.let { append("\nSource retenue : ").append(it) }
+        if (summary.previews.isNotEmpty()) {
+            append("\n\nCandidats structurés :")
+            summary.previews.forEach { preview ->
+                append("\n• ").append(preview.articleId)
+                    .append(" : +").append(formatPercent(preview.percentage)).append(" %")
+                    .append(" — depuis ").append(preview.effectiveFrom.format(dateFormat))
+                preview.effectiveTo?.let { append(" jusqu’au ").append(it.format(dateFormat)) }
+            }
+        }
+        if (summary.warnings.isNotEmpty()) {
+            append("\n\nDiagnostic jours fériés :")
             summary.warnings.forEach { warning -> append("\n• ").append(warning) }
         }
     }
@@ -323,12 +377,40 @@ class V2KaliPayrollSourcesView(
             }
     }
 
+    private fun runPublicHolidayAudit() {
+        val referenceDate = referenceDate()
+        val idcc = company.idcc.filter(Char::isDigit)
+        if (idcc.isBlank()) return
+        setAuditButtonsEnabled(false)
+        lastPublicHolidayAuditSummary = null
+        status.text = "Analyse KALI des jours fériés en cours pour ${referenceDate.format(dateFormat)}…"
+        KaliPublicHolidayPremiumAuditV2.audit(context, idcc, referenceDate)
+            .addOnSuccessListener { summary ->
+                setAuditButtonsEnabled(true)
+                lastPublicHolidayAuditSummary = summary
+                refresh()
+                val message = when {
+                    summary.saved -> "KALI jours fériés : règle uniforme vérifiée et enregistrée."
+                    summary.structuredCandidates > 0 -> "KALI jours fériés : candidat structuré trouvé mais non enregistré ; voir le diagnostic."
+                    summary.warnings.isNotEmpty() -> summary.warnings.first()
+                    else -> "KALI jours fériés : aucune règle uniforme n’a pu être structurée."
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+            .addOnFailureListener { error ->
+                setAuditButtonsEnabled(true)
+                lastPublicHolidayAuditSummary = null
+                status.text = "Analyse KALI des jours fériés impossible : ${error.message ?: "erreur inconnue"}"
+            }
+    }
+
     private fun setAuditButtonsEnabled(enabled: Boolean) {
         val hasIdcc = company.idcc.filter(Char::isDigit).isNotBlank()
         overtimeButton.isEnabled = enabled && hasIdcc
         nightButton.isEnabled = enabled && hasIdcc
         saturdayButton.isEnabled = enabled && hasIdcc
         sundayButton.isEnabled = enabled && hasIdcc
+        publicHolidayButton.isEnabled = enabled && hasIdcc
     }
 
     private fun referenceDate(): LocalDate {
