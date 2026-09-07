@@ -25,7 +25,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `moins de trois mois n ouvre pas la garantie de branche`() {
-        val result = PlasturgieProvidentIncapacityV2.assess("0292",2,category(700),null,100)
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy("0292",2,category(700),null,100)
         assertTrue(result.applicableConvention)
         assertFalse(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
@@ -34,7 +34,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `entre trois mois et un an le relais est au 91e jour`() {
-        val result = PlasturgieProvidentIncapacityV2.assess("292",8,category(700),null,91)
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",8,category(700),null,91)
         assertTrue(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
         assertEquals(0.60,result.minimumGrossRate!!,0.001)
@@ -44,7 +44,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `a partir d un an le relais suit le maintien annuel restant`() {
-        val result = PlasturgieProvidentIncapacityV2.assess(
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy(
             "292",48,category(700),maintenance(limit=105,consumed=30,waiting=3),79
         )
         assertTrue(result.potentiallyCovered)
@@ -54,7 +54,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `un arret plus court que le maintien restant n atteint pas le relais`() {
-        val result = PlasturgieProvidentIncapacityV2.assess(
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy(
             "292",48,category(700),maintenance(limit=105,consumed=0,waiting=0),30
         )
         assertEquals(106,result.earliestContinuousStopDay)
@@ -63,7 +63,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `assimile cadre 830 est exclu du regime hors ANI`() {
-        val result = PlasturgieProvidentIncapacityV2.assess("292",48,category(830),maintenance(),200)
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",48,category(830),maintenance(),200)
         assertFalse(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
         assertNull(result.minimumGrossRate)
@@ -71,7 +71,7 @@ class PlasturgieProvidentIncapacityV2Test {
 
     @Test
     fun `coefficient 800 reste hors ANI mais signale extension cadre possible`() {
-        val result = PlasturgieProvidentIncapacityV2.assess("292",48,category(800),maintenance(),200)
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",48,category(800),maintenance(),200)
         assertTrue(result.potentiallyCovered)
         assertTrue(result.warnings.any { it.contains("extension") })
     }
@@ -79,7 +79,7 @@ class PlasturgieProvidentIncapacityV2Test {
     @Test
     fun `autre convention ne declenche pas le relais plasturgie`() {
         val other = PlasturgieProtectionCategoryV2.classify("1486",date,700)
-        val result = PlasturgieProvidentIncapacityV2.assess("1486",48,other,null,200)
+        val result = PlasturgieProvidentIncapacityV2.assessLegacy("1486",48,other,null,200)
         assertFalse(result.applicableConvention)
         assertFalse(result.potentiallyCovered)
     }
