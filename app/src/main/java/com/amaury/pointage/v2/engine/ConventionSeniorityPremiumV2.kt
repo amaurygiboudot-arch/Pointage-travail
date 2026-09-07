@@ -81,15 +81,37 @@ object ConventionSeniorityPremiumV2 {
         companyApplicabilityConfirmed: Boolean = false
     ): Result {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        val candidates = rules
+        val knownMatching = rules
             .filter { it.structurallyValid() }
             .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
             .filter { it.activeOn(referenceDate) }
             .filter { classification.matches(it.classification) }
-            .filter { it.applicableToCompany(companyApplicabilityConfirmed, referenceDate) }
 
-        if (candidates.isEmpty()) {
+        if (knownMatching.isEmpty()) {
             return Result(false, false, null, null, null, null, emptyList())
+        }
+
+        val candidates = knownMatching.filter { it.applicableToCompany(companyApplicabilityConfirmed, referenceDate) }
+        if (candidates.isEmpty()) {
+            val latest = knownMatching.maxByOrNull { it.effectiveFrom }!!
+            val reason = when (latest.extensionStatus) {
+                ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED ->
+                    "règle non étendue et applicabilité à l'entreprise non confirmée"
+                ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN ->
+                    "statut d'extension non confirmé"
+                ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED ->
+                    latest.extensionEffectiveFrom?.let { "extension applicable à toutes les entreprises à compter du $it" }
+                        ?: "applicabilité à l'entreprise non démontrée"
+            }
+            return Result(
+                applicable = true,
+                reliable = false,
+                selectedRule = latest,
+                stepYears = null,
+                rate = null,
+                monthlyAmount = null,
+                warnings = listOf("Prime d'ancienneté IDCC $normalized : $reason ; aucun montant n'est appliqué automatiquement. Source : ${latest.source}.")
+            )
         }
 
         val latestDate = candidates.maxOf { it.effectiveFrom }
