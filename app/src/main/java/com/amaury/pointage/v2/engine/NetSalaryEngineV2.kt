@@ -38,7 +38,12 @@ object NetSalaryEngineV2 {
                 forfaitAnnualDays = company.forfaitAnnualDays
             )
         )
-        val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(gross, year, ceiling)
+        val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(
+            gross = gross,
+            year = year,
+            ceiling = ceiling,
+            alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
+        )
         val retirement = ComplementaryRetirementCatalogV2.estimate(
             gross = gross,
             year = year,

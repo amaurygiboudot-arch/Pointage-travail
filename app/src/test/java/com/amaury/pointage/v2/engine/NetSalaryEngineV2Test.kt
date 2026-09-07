@@ -13,7 +13,8 @@ class NetSalaryEngineV2Test {
         employeeNonDeductible: Double?,
         contractType: ContractTypeV2 = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
-        unpaidAbsenceDays: Int = 0
+        unpaidAbsenceDays: Int = 0,
+        alsaceMoselleLocalRegime: Boolean? = false
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId="company",
         idcc=null,
@@ -34,7 +35,8 @@ class NetSalaryEngineV2Test {
         incomeTaxRate=0.05,
         professionalStatus="NON_CADRE",
         protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null),
-        warnings=emptyList()
+        warnings=emptyList(),
+        alsaceMoselleLocalRegime=alsaceMoselleLocalRegime
     )
 
     @Test
@@ -54,6 +56,16 @@ class NetSalaryEngineV2Test {
         assertNotNull(enriched.netTaxable)
         assertEquals(55.0,enriched.netTaxable!!-base.netTaxable!!,0.001)
         assertEquals(enriched.netTaxable!!*0.05,enriched.incomeTax!!,0.001)
+    }
+
+    @Test
+    fun alsaceMoselleContributionReducesNetAndTaxableNetOnce() {
+        val general=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,alsaceMoselleLocalRegime=false))
+        val local=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,alsaceMoselleLocalRegime=true))
+
+        assertEquals(32.50,local.statutory-general.statutory,0.001)
+        assertEquals(32.50,general.netBeforeIncomeTax-local.netBeforeIncomeTax,0.001)
+        assertEquals(32.50,general.netTaxable!!-local.netTaxable!!,0.001)
     }
 
     @Test

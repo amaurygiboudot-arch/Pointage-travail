@@ -37,7 +37,9 @@ object CompanyPayrollOverridesV2 {
         val incomeTaxRate:Double?,
         val professionalStatus:String?,
         val protectionCategory:PlasturgieProtectionCategoryV2.Result,
-        val warnings:List<String>
+        val warnings:List<String>,
+        /** Affiliation explicitement confirmée au régime local Alsace-Moselle. null = à confirmer. */
+        val alsaceMoselleLocalRegime:Boolean?=null
     )
 
     fun load(
@@ -81,6 +83,11 @@ object CompanyPayrollOverridesV2 {
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
+        val alsaceMoselleLocalRegime=when(p.getString("alsace_moselle_local_regime","").orEmpty().trim().uppercase(Locale.ROOT)) {
+            "YES" -> true
+            "NO" -> false
+            else -> null
+        }
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -107,6 +114,7 @@ object CompanyPayrollOverridesV2 {
             if(employeeProvidentNonDeductible==null)add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
+            if(alsaceMoselleLocalRegime==null)add("Régime local Alsace-Moselle : affiliation à confirmer (oui/non)")
             addAll(protectionCategory.warnings)
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
@@ -132,7 +140,8 @@ object CompanyPayrollOverridesV2 {
             incomeTaxRate=tax,
             professionalStatus=professionalStatus,
             protectionCategory=protectionCategory,
-            warnings=warnings
+            warnings=warnings,
+            alsaceMoselleLocalRegime=alsaceMoselleLocalRegime
         )
     }
 
