@@ -9,20 +9,30 @@ import java.time.temporal.ChronoUnit
 
 /** Maintien maladie conventionnel générique, daté et classifié. */
 object ConventionSicknessMaintenanceV2 {
+    enum class ReferenceBasis { NET, GROSS, UNKNOWN }
+
     enum class WaitingPolicy {
         NONE,
-        FIRST_STOP_FREE_THEN_THREE_DAYS_SHORT_FIRST_CARRY
+        FIXED_EACH_STOP,
+        FIRST_STOP_FREE_THEN_FIXED_SHORT_FIRST_CARRY
     }
 
     data class Band(
         val calendarDays: Int,
-        val targetNetRate: Double,
+        val targetRate: Double,
         val label: String
-    )
+    ) {
+        /** Alias conservé pour les calculs nets existants. */
+        val targetNetRate: Double get() = targetRate
+    }
 
     data class SeniorityTier(
-        val minimumYears: Int,
-        val bands: List<Band>
+        val minimumSeniorityMonths: Int,
+        val bands: List<Band>,
+        /** Null = somme des bandes. */
+        val annualLimitDays: Int? = null,
+        /** Null = somme des bandes. */
+        val perStopLimitDays: Int? = null
     )
 
     data class Rule(
@@ -33,9 +43,11 @@ object ConventionSicknessMaintenanceV2 {
         val classification: ConventionClassificationV2 = ConventionClassificationV2(),
         /** CADRE / NON_CADRE lorsque la convention distingue les statuts. */
         val professionalStatus: String? = null,
-        val minimumSeniorityYears: Int,
+        val minimumSeniorityMonths: Int,
         val tiers: List<SeniorityTier>,
+        val referenceBasis: ReferenceBasis,
         val waitingPolicy: WaitingPolicy,
+        val waitingDays: Int = 0,
         /** Nombre de jours au-delà duquel la prise en charge SS doit être confirmée ; null = aucune condition structurée. */
         val socialSecurityCoverageRequiredAfterDays: Int? = null,
         val source: String,
@@ -44,14 +56,18 @@ object ConventionSicknessMaintenanceV2 {
     ) {
         fun structurallyValid(): Boolean {
             if (ConventionMinimumSalaryV2.normalizeIdcc(idcc).isBlank() || ruleId.isBlank() || source.isBlank()) return false
-            if (effectiveTo?.isBefore(effectiveFrom) == true || minimumSeniorityYears < 0 || tiers.isEmpty()) return false
+            if (effectiveTo?.isBefore(effectiveFrom) == true || minimumSeniorityMonths < 0 || tiers.isEmpty()) return false
             if (extensionEffectiveFrom != null && extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) return false
             if (socialSecurityCoverageRequiredAfterDays != null && socialSecurityCoverageRequiredAfterDays < 0) return false
-            if (tiers.any { it.minimumYears < minimumSeniorityYears || it.bands.isEmpty() }) return false
-            if (tiers.map { it.minimumYears }.distinct().size != tiers.size) return false
+            if (waitingDays < 0 || (waitingPolicy == WaitingPolicy.NONE && waitingDays != 0)) return false
+            if (tiers.any { it.minimumSeniorityMonths < minimumSeniorityMonths || it.bands.isEmpty() }) return false
+            if (tiers.map { it.minimumSeniorityMonths }.distinct().size != tiers.size) return false
             return tiers.all { tier ->
-                tier.bands.all { band ->
-                    band.calendarDays > 0 && band.targetNetRate.isFinite() && band.targetNetRate in 0.0..1.0 && band.label.isNotBlank()
+                val totalBandDays = tier.bands.sumOf { it.calendarDays }
+                val limitsValid = tier.annualLimitDays?.let { it in 1..totalBandDays } != false &&
+                    tier.perStopLimitDays?.let { it in 1..totalBandDays } != false
+                limitsValid && tier.bands.all { band ->
+                    band.calendarDays > 0 && band.targetRate.isFinite() && band.targetRate in 0.0..1.0 && band.label.isNotBlank()
                 }
             }
         }
@@ -77,6 +93,7 @@ object ConventionSicknessMaintenanceV2 {
         val eligibilityConfirmed: Boolean,
         val reliable: Boolean,
         val selectedRule: Rule?,
+        val referenceBasis: ReferenceBasis,
         val employerWaitingDays: Int?,
         val firstRecordedStopOfYear: Boolean?,
         val annualLimitDays: Int?,
@@ -122,27 +139,28 @@ object ConventionSicknessMaintenanceV2 {
         }
 
         val endExclusive = localDate(currentAbsence.endMs, zoneId)
-        if (!endExclusive.isAfter(start)) return unavailable("Maintien maladie : période d'arrêt invalide.").copy(applicable = true, selectedRule = selected)
+        if (!endExclusive.isAfter(start)) return unavailable("Maintien maladie : période d'arrêt invalide.").copy(applicable = true, selectedRule = selected, referenceBasis = selected.referenceBasis)
         if (currentAbsence.status != DecisionStatusV2.CONFIRMED) {
             return unavailable("Maintien maladie : arrêt à confirmer avant application du barème. Source : ${selected.source}.")
-                .copy(applicable = true, selectedRule = selected)
+                .copy(applicable = true, selectedRule = selected, referenceBasis = selected.referenceBasis)
         }
         if (entryDate == null) {
             return unavailable("Maintien maladie : date d'entrée manquante, ancienneté impossible à contrôler. Source : ${selected.source}.")
-                .copy(applicable = true, selectedRule = selected)
+                .copy(applicable = true, selectedRule = selected, referenceBasis = selected.referenceBasis)
         }
         if (entryDate.isAfter(start)) {
             return unavailable("Maintien maladie : date d'entrée postérieure au début de l'arrêt. Source : ${selected.source}.")
-                .copy(applicable = true, selectedRule = selected)
+                .copy(applicable = true, selectedRule = selected, referenceBasis = selected.referenceBasis)
         }
 
-        val seniorityYears = ChronoUnit.YEARS.between(entryDate, start).toInt().coerceAtLeast(0)
-        if (seniorityYears < selected.minimumSeniorityYears) {
+        val seniorityMonths = ChronoUnit.MONTHS.between(entryDate, start).toInt().coerceAtLeast(0)
+        if (seniorityMonths < selected.minimumSeniorityMonths) {
             return Result(
                 applicable = true,
                 eligibilityConfirmed = true,
                 reliable = true,
                 selectedRule = selected,
+                referenceBasis = selected.referenceBasis,
                 employerWaitingDays = null,
                 firstRecordedStopOfYear = null,
                 annualLimitDays = 0,
@@ -151,14 +169,16 @@ object ConventionSicknessMaintenanceV2 {
                 bands = emptyList(),
                 socialSecurityCoverageRequired = false,
                 exactEmployerAmountAvailable = false,
-                warnings = listOf("Maintien maladie IDCC $normalized : ancienneté inférieure au minimum conventionnel de ${selected.minimumSeniorityYears} an(s). Source : ${selected.source}.")
+                warnings = listOf("Maintien maladie IDCC $normalized : ancienneté inférieure au minimum conventionnel de ${selected.minimumSeniorityMonths} mois. Source : ${selected.source}.")
             )
         }
 
-        val tier = selected.tiers.filter { seniorityYears >= it.minimumYears }.maxByOrNull { it.minimumYears }
+        val tier = selected.tiers.filter { seniorityMonths >= it.minimumSeniorityMonths }.maxByOrNull { it.minimumSeniorityMonths }
             ?: return unavailable("Maintien maladie IDCC $normalized : aucun palier d'ancienneté confirmé ne correspond. Source : ${selected.source}.")
-                .copy(applicable = true, selectedRule = selected)
-        val annualLimit = tier.bands.sumOf { it.calendarDays }
+                .copy(applicable = true, selectedRule = selected, referenceBasis = selected.referenceBasis)
+        val totalBandDays = tier.bands.sumOf { it.calendarDays }
+        val annualLimit = tier.annualLimitDays ?: totalBandDays
+        val perStopLimit = tier.perStopLimitDays ?: totalBandDays
         val year = start.year
         val recordedStops = allAbsences
             .asSequence()
@@ -176,10 +196,11 @@ object ConventionSicknessMaintenanceV2 {
 
         fun waitingForStop(index: Int): Int = when (selected.waitingPolicy) {
             WaitingPolicy.NONE -> 0
-            WaitingPolicy.FIRST_STOP_FREE_THEN_THREE_DAYS_SHORT_FIRST_CARRY -> when {
+            WaitingPolicy.FIXED_EACH_STOP -> selected.waitingDays
+            WaitingPolicy.FIRST_STOP_FREE_THEN_FIXED_SHORT_FIRST_CARRY -> when {
                 index == 0 -> 0
-                index == 1 && recordedStops.firstOrNull()?.let(::durationDays)?.let { it < 3 } == true -> durationDays(recordedStops.first())
-                else -> 3
+                index == 1 && recordedStops.firstOrNull()?.let(::durationDays)?.let { it < selected.waitingDays } == true -> durationDays(recordedStops.first())
+                else -> selected.waitingDays
             }
         }
 
@@ -187,13 +208,14 @@ object ConventionSicknessMaintenanceV2 {
         val waiting = waitingForStop(recordedStops.size)
         var consumed = 0
         recordedStops.forEachIndexed { index, absence ->
-            consumed += (durationDays(absence) - waitingForStop(index)).coerceAtLeast(0)
+            val priorPayable = (durationDays(absence) - waitingForStop(index)).coerceAtLeast(0).coerceAtMost(perStopLimit)
+            consumed += priorPayable
         }
         consumed = consumed.coerceAtMost(annualLimit)
 
         val currentCalendarDays = ChronoUnit.DAYS.between(start, endExclusive).toInt().coerceAtLeast(0)
         val afterWaiting = (currentCalendarDays - waiting).coerceAtLeast(0)
-        val indemnifiable = minOf(afterWaiting, (annualLimit - consumed).coerceAtLeast(0))
+        val indemnifiable = minOf(afterWaiting, (annualLimit - consumed).coerceAtLeast(0), perStopLimit)
         var remaining = indemnifiable
         var already = consumed
         val bands = buildList {
@@ -202,7 +224,7 @@ object ConventionSicknessMaintenanceV2 {
                 already = (already - consumedInBand).coerceAtLeast(0)
                 val available = (band.calendarDays - consumedInBand).coerceAtLeast(0)
                 val days = minOf(remaining, available)
-                if (days > 0) add(Band(days, band.targetNetRate, band.label))
+                if (days > 0) add(Band(days, band.targetRate, band.label))
                 remaining -= days
             }
         }
@@ -213,6 +235,7 @@ object ConventionSicknessMaintenanceV2 {
             eligibilityConfirmed = true,
             reliable = true,
             selectedRule = selected,
+            referenceBasis = selected.referenceBasis,
             employerWaitingDays = waiting,
             firstRecordedStopOfYear = firstRecordedStop,
             annualLimitDays = annualLimit,
@@ -225,7 +248,8 @@ object ConventionSicknessMaintenanceV2 {
                 add("Maintien maladie conventionnel calculé sur les arrêts enregistrés dans HoraTrack pour cette entreprise et cette année. Source : ${selected.source}.")
                 if (waiting > 0) add("Carence conventionnelle de $waiting jour(s) appliquée selon la règle sélectionnée.")
                 if (ssRequired) add("Prise en charge par la Sécurité sociale à confirmer pour sécuriser le complément conventionnel.")
-                add("Le montant exact du complément employeur exige la rémunération nette théorique de la période, puis la déduction des IJSS et des prestations de prévoyance employeur qui chevauchent réellement le maintien.")
+                if (selected.referenceBasis != ReferenceBasis.NET) add("Base du maintien : ${selected.referenceBasis.name}. Le calcul net automatique n'est pas utilisé pour une règle exprimée sur une autre base.")
+                add("Le montant exact du complément employeur exige la rémunération de référence prévue par la convention, puis les déductions légalement ou conventionnellement applicables.")
                 if (consumed >= annualLimit) add("Plafond annuel conventionnel atteint selon les absences enregistrées dans HoraTrack.")
             }
         )
@@ -246,6 +270,7 @@ object ConventionSicknessMaintenanceV2 {
         eligibilityConfirmed = false,
         reliable = false,
         selectedRule = null,
+        referenceBasis = ReferenceBasis.UNKNOWN,
         employerWaitingDays = null,
         firstRecordedStopOfYear = null,
         annualLimitDays = null,
