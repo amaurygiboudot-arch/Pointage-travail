@@ -17,7 +17,8 @@ class NetSalaryEngineV2Test {
         unpaidAbsenceDays: Int = 0,
         alsaceMoselleLocalRegime: Boolean? = false,
         atMpEmployerRate: Double? = null,
-        benefitsInKindGross: Double = 0.0
+        benefitsInKindGross: Double = 0.0,
+        employerMobilityRate: Double? = 0.0
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId="company",
         idcc=null,
@@ -41,7 +42,8 @@ class NetSalaryEngineV2Test {
         warnings=emptyList(),
         alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
         atMpEmployerRate=atMpEmployerRate,
-        benefitsInKindGross=benefitsInKindGross
+        benefitsInKindGross=benefitsInKindGross,
+        employerMobilityRate=employerMobilityRate
     )
 
     @Test
@@ -82,6 +84,29 @@ class NetSalaryEngineV2Test {
         assertEquals(without.netBeforeIncomeTax,withAtMp.netBeforeIncomeTax,0.001)
         assertEquals(without.netTaxable!!,withAtMp.netTaxable!!,0.001)
         assertEquals(without.netAfterIncomeTax!!,withAtMp.netAfterIncomeTax!!,0.001)
+    }
+
+    @Test
+    fun mobilityContributionIsEmployerOnlyAndDoesNotReduceEmployeeNet() {
+        val without=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,employerMobilityRate=0.0))
+        val withMobility=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,employerMobilityRate=0.025))
+
+        assertEquals(62.50,withMobility.employerMobilityContribution!!,0.001)
+        assertEquals(without.netBeforeIncomeTax,withMobility.netBeforeIncomeTax,0.001)
+        assertEquals(without.netTaxable!!,withMobility.netTaxable!!,0.001)
+        assertEquals(without.netAfterIncomeTax!!,withMobility.netAfterIncomeTax!!,0.001)
+    }
+
+    @Test
+    fun mobilityContributionUsesSocialGrossIncludingBenefitInKind() {
+        val result=NetSalaryEngineV2.calculate(
+            2500.0,
+            2026,
+            snapshot(0.0,0.0,benefitsInKindGross=200.0,employerMobilityRate=0.02)
+        )
+
+        assertEquals(2700.0,result.gross,0.001)
+        assertEquals(54.0,result.employerMobilityContribution!!,0.001)
     }
 
     @Test
