@@ -86,6 +86,17 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
     }
 
     @Test
+    fun `article mélangeant maladie et accident du travail est refusé`() {
+        val text = validText().replace(
+            "En cas de maladie ou d'arrêt de travail dûment justifié,",
+            "En cas de maladie ou d'accident du travail dûment justifié,"
+        )
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
+        assertNull(diagnostic.rule)
+        assertTrue(diagnostic.reasons.any { it.contains("autre motif médical") })
+    }
+
+    @Test
     fun `article non cadre sans classification ne peut jamais matcher un cadre`() {
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
             article(statusOnlyText("Non-cadres")),
