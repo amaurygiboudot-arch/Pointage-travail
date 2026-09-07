@@ -105,6 +105,18 @@ object SalaryExamplePdfV2 {
             }.getOrNull()
             else -> null
         }
+        val payrollReferenceDate = PayrollPeriodV2.month(year, month).referenceDate
+        val payroll = if (company != null && salary?.monthlyGrossReliable == true) {
+            val overrides = CompanyPayrollOverridesV2.load(context, company.id, payrollReferenceDate)
+            runCatching {
+                NetSalaryEngineV2.calculate(
+                    salary.monthlyEstimatedGross,
+                    year,
+                    overrides,
+                    salary.complementaryMinutes
+                )
+            }.getOrNull()
+        } else null
 
         val acceptedEmployerIds = if (company != null) {
             SalaryCompanyStore.acceptedEmployerIds(context, company.id)
@@ -118,7 +130,7 @@ object SalaryExamplePdfV2 {
         }
         val pauseMs = sessions.sumOf { HoraTrackV2.time.calculate(it).unpaidPauseMs }
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
-        val legalReferenceAtMs = PayrollPeriodV2.month(year, month).referenceDate
+        val legalReferenceAtMs = payrollReferenceDate
             .atStartOfDay(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
@@ -196,14 +208,28 @@ object SalaryExamplePdfV2 {
 
         if (Field.ESTIMATED_GROSS in fields) {
             val estimateLines = buildList {
-                add("Brut estimé HoraTrack hors paniers" to (salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
+                add(
+                    "Brut social estimé HoraTrack hors paniers" to
+                        (payroll?.gross?.let { String.format(Locale.FRANCE, "%.2f €", it) }
+                            ?: salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross?.let { String.format(Locale.FRANCE, "%.2f €", it) }
+                            ?: "À confirmer")
+                )
+                if ((payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                    add("Dont avantages en nature" to String.format(Locale.FRANCE, "%.2f €", payroll!!.benefitsInKindDeduction))
+                }
                 add("Majoration heures supplémentaires" to (salary?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
                 salary?.mealBasketTotal?.let { total ->
                     val count = salary.mealBasketCount
                     val amount = salary.mealBasketAmount
-                    add("Paniers non cotisables" to if (amount != null) "$count × ${String.format(Locale.FRANCE, "%.2f €", amount)} = ${String.format(Locale.FRANCE, "%.2f €", total)}" else String.format(Locale.FRANCE, "%.2f €", total))
+                    add("Paniers hors brut" to if (amount != null) "$count × ${String.format(Locale.FRANCE, "%.2f €", amount)} = ${String.format(Locale.FRANCE, "%.2f €", total)}" else String.format(Locale.FRANCE, "%.2f €", total))
                 }
-                add("Cotisations / net" to "Affichés uniquement quand leurs sources applicables sont déterminées")
+                payroll?.let {
+                    if (it.benefitsInKindDeduction > 0.0) {
+                        add("Avantages en nature non versés en espèces" to "-${String.format(Locale.FRANCE, "%.2f €", it.benefitsInKindDeduction)}")
+                    }
+                    add("Net estimé avant impôt" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))
+                    it.netTaxable?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
+                } ?: add("Cotisations / net" to "Affichés uniquement quand leurs sources applicables sont déterminées")
             }
             section("ESTIMATION DE RÉMUNÉRATION", estimateLines)
         }
@@ -221,7 +247,7 @@ object SalaryExamplePdfV2 {
         }
 
         if (Field.SOURCES in fields) {
-            val warnings = salary?.warnings.orEmpty()
+            val warnings = (salary?.warnings.orEmpty() + payroll?.warnings.orEmpty()).distinct()
             val legalRefs = legalSnapshot.records.mapNotNull { it.articleNumber }.distinct()
             val legalRefText = when {
                 legalRefs.isEmpty() -> "Non vérifié pour la date de paie"
