@@ -53,7 +53,8 @@ object V2ConventionSicknessMaintenanceBridge {
             idcc = normalizedIdcc,
             matter = ConventionMatterCoverageV2.Matter.SICKNESS_MAINTENANCE,
             date = referenceDate,
-            classification = classification
+            classification = classification,
+            professionalStatus = professionalStatus
         )
         val coverage = if (matching.isNotEmpty()) {
             ConventionMatterCoverageV2.Snapshot(
