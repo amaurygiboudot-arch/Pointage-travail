@@ -18,6 +18,7 @@ import java.time.temporal.ChronoUnit
 object PlasturgieSeniorityPremiumV2 {
     const val IDCC = "292"
     private const val RATE_PER_YEAR = 0.008
+    private const val SOURCE = "Légifrance — IDCC 292, avenant collaborateurs, article 14 / accord du 28 juin 2011 étendu"
     private val STEPS = listOf(3, 6, 9, 12, 15)
 
     data class Result(
@@ -70,7 +71,7 @@ object PlasturgieSeniorityPremiumV2 {
                 rate = endStep?.let { it * RATE_PER_YEAR },
                 monthlyAmount = null,
                 warnings = listOf(
-                    "Prime d'ancienneté Plasturgie : un palier d'ancienneté change pendant ce mois (${startStep ?: 0} → ${endStep ?: 0} ans). La proratisation exacte doit être contrôlée ; aucun montant mensuel n'est inventé."
+                    "Prime d'ancienneté Plasturgie : un palier d'ancienneté change pendant ce mois (${startStep ?: 0} → ${endStep ?: 0} ans). La proratisation exacte doit être contrôlée ; aucun montant mensuel n'est inventé. Source : $SOURCE."
                 )
             )
         }
@@ -94,7 +95,7 @@ object PlasturgieSeniorityPremiumV2 {
                 stepYears = step,
                 rate = step * RATE_PER_YEAR,
                 monthlyAmount = null,
-                warnings = listOf("Prime d'ancienneté Plasturgie : salaire de base mensuel fiable indisponible pour cette période.")
+                warnings = listOf("Prime d'ancienneté Plasturgie : salaire de base mensuel fiable indisponible pour cette période. Source : $SOURCE.")
             )
         val rtt = monthlyRttDifferential?.takeIf { it.isFinite() && it >= 0.0 }
             ?: return Result(
@@ -103,7 +104,7 @@ object PlasturgieSeniorityPremiumV2 {
                 stepYears = step,
                 rate = step * RATE_PER_YEAR,
                 monthlyAmount = null,
-                warnings = listOf("Prime d'ancienneté Plasturgie : différentiel RTT à confirmer (renseigner 0 s'il n'en existe pas).")
+                warnings = listOf("Prime d'ancienneté Plasturgie : différentiel RTT à confirmer (renseigner 0 s'il n'en existe pas). Source : $SOURCE.")
             )
 
         val rate = step * RATE_PER_YEAR
@@ -115,7 +116,7 @@ object PlasturgieSeniorityPremiumV2 {
             rate = rate,
             monthlyAmount = amount,
             warnings = listOf(
-                "Prime d'ancienneté Plasturgie : palier $step ans, taux ${formatPercent(rate)} du salaire de base${if (rtt > 0.0) " incluant le différentiel RTT confirmé" else " ; différentiel RTT confirmé à 0"}."
+                "Prime d'ancienneté Plasturgie : palier $step ans, taux ${formatPercent(rate)} du salaire de base${if (rtt > 0.0) " incluant le différentiel RTT confirmé" else " ; différentiel RTT confirmé à 0"}. Source : $SOURCE."
             )
         )
     }
@@ -132,7 +133,7 @@ object PlasturgieSeniorityPremiumV2 {
         stepYears = null,
         rate = null,
         monthlyAmount = null,
-        warnings = listOf(message)
+        warnings = listOf("$message Source : $SOURCE.")
     )
 
     private fun formatPercent(rate: Double): String =
