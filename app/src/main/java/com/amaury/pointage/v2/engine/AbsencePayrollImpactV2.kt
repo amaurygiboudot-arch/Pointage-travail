@@ -86,6 +86,12 @@ object AbsencePayrollImpactV2 {
                 AbsenceSalaryTreatmentV2.UNPAID -> Unit
             }
 
+            if (absence.type == TYPE_PAID_LEAVE) {
+                requiresReview = true
+                warnings += "Congé payé déclaré sans maintien employeur : traitement incohérent à confirmer. Aucun jour n'est retiré automatiquement du plafond SS."
+                return@forEach
+            }
+
             hasUnpaid = true
             requiresReview = true
             if (absence.type == TYPE_SICKNESS || absence.type == TYPE_WORK_ACCIDENT || absence.type == TYPE_PARENTAL) {
