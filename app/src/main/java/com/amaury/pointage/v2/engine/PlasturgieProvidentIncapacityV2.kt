@@ -156,6 +156,7 @@ object PlasturgieProvidentIncapacityV2 {
                 eligibilityConfirmed = it.eligibilityConfirmed,
                 reliable = it.eligibilityConfirmed,
                 selectedRule = null,
+                referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.NET,
                 employerWaitingDays = it.employerWaitingDays,
                 firstRecordedStopOfYear = it.firstRecordedStopOfYear,
                 annualLimitDays = it.annualLimitDays,
