@@ -10,7 +10,11 @@ import java.time.ZoneId
  *
  * Le moteur sait détecter les journées de poste matin, mais cette détection ne
  * prouve pas à elle seule l'existence d'un droit au panier dans l'entreprise.
- * L'éligibilité doit donc être confirmée explicitement une fois par entreprise.
+ * L'état entreprise est conservé sans nouvelle donnée incompatible :
+ * - montant > 0 : panier du matin confirmé applicable ;
+ * - montant = 0 : panier du matin confirmé non applicable ;
+ * - montant absent : droit à confirmer.
+ *
  * Un panier au maximum est compté par journée civile et par entreprise.
  * Le panier reste séparé du brut cotisable.
  */
@@ -30,13 +34,22 @@ object MealBasketPolicyV2 {
         monthZeroBased: Int,
         acceptedEmployerIds: Set<String>,
         amountPerBasket: Double?,
-        morningEligibilityConfirmed: Boolean? = null,
         zoneId: ZoneId = ZoneId.systemDefault()
     ): Result {
         require(monthZeroBased in 0..11) { "Mois invalide" }
         val safeAmount = sanitizeAmount(amountPerBasket)
+        val eligibility = when {
+            safeAmount == null -> null
+            safeAmount == 0.0 -> false
+            else -> true
+        }
         if (acceptedEmployerIds.isEmpty()) {
-            return Result(0, safeAmount, 0.0, morningEligibilityConfirmed = morningEligibilityConfirmed)
+            return Result(
+                count = 0,
+                amountPerBasket = safeAmount,
+                totalAmount = if (eligibility == false) 0.0 else null,
+                morningEligibilityConfirmed = eligibility
+            )
         }
 
         val targetMonth = YearMonth.of(year, monthZeroBased + 1)
@@ -56,32 +69,26 @@ object MealBasketPolicyV2 {
             }
 
         val detected = morningDays.size
-        if (morningEligibilityConfirmed != true) {
+        if (eligibility != true) {
             val warnings = buildList {
-                if (detected > 0 && morningEligibilityConfirmed == null) {
+                if (detected > 0 && eligibility == null) {
                     add("Panier : $detected journée(s) de poste matin détectée(s), mais le droit au panier du matin n'est pas confirmé pour cette entreprise. Aucun panier n'est ajouté automatiquement.")
                 }
             }
             return Result(
                 count = 0,
                 amountPerBasket = safeAmount,
-                totalAmount = if (morningEligibilityConfirmed == false) 0.0 else null,
+                totalAmount = if (eligibility == false) 0.0 else null,
                 warnings = warnings,
                 detectedMorningDays = detected,
-                morningEligibilityConfirmed = morningEligibilityConfirmed
+                morningEligibilityConfirmed = eligibility
             )
         }
 
-        val warnings = buildList {
-            if (detected > 0 && safeAmount == null) {
-                add("Panier : $detected journée(s) de poste matin éligible(s), mais montant unitaire non renseigné.")
-            }
-        }
         return Result(
             count = detected,
             amountPerBasket = safeAmount,
-            totalAmount = safeAmount?.times(detected),
-            warnings = warnings,
+            totalAmount = safeAmount * detected,
             detectedMorningDays = detected,
             morningEligibilityConfirmed = true
         )
