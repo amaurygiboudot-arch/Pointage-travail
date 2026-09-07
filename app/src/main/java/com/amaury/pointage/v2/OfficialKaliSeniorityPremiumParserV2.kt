@@ -40,11 +40,7 @@ object OfficialKaliSeniorityPremiumParserV2 {
             return Diagnostic(article.articleId, null, listOf("${parsed.size} formule(s) d'ancienneté non ambiguë(s) autour du profil ; règle unique non démontrée"))
         }
         val candidate = parsed.single()
-        val extensionStatus = when (article.status.uppercase(Locale.ROOT)) {
-            "VIGUEUR_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-            "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
-            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
-        }
+        val extensionStatus = extensionStatus(article)
         val rule = ConventionSeniorityPremiumV2.Rule(
             idcc = profile.idcc,
             ruleId = "KALI-SEN-${article.articleId}-${profile.classification.normalized().label().hashCode().toUInt().toString(16)}",
@@ -56,11 +52,29 @@ object OfficialKaliSeniorityPremiumParserV2 {
             includeConfirmedMonthlySupplement = false,
             source = "Légifrance KALI — ${article.articleId}${article.title?.let { " — $it" }.orEmpty()}",
             extensionStatus = extensionStatus,
-            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) auditDate else null
+            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null
         )
-        return if (rule.structurallyValid()) Diagnostic(article.articleId, rule, emptyList())
-        else Diagnostic(article.articleId, null, listOf("formule structurée incohérente"))
+        return if (rule.structurallyValid()) Diagnostic(
+            article.articleId,
+            rule,
+            buildList {
+                if (article.status.uppercase(Locale.ROOT) == "VIGUEUR_ETEN" && article.extensionEffectiveFrom == null) {
+                    add("statut étendu présent mais date exacte d'extension absente ; applicabilité automatique bloquée")
+                }
+            }
+        ) else Diagnostic(article.articleId, null, listOf("formule structurée incohérente"))
     }
+
+    private fun extensionStatus(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ConventionMinimumSalaryV2.ExtensionStatus =
+        when (article.status.uppercase(Locale.ROOT)) {
+            "VIGUEUR_ETEN" -> if (article.extensionEffectiveFrom != null) {
+                ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+            } else {
+                ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+            }
+            "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        }
 
     private fun parseWindow(window: String): Pair<ConventionSeniorityPremiumV2.Basis, List<ConventionSeniorityPremiumV2.Step>>? {
         if (!seniorityVocabulary.any(window::contains)) return null
