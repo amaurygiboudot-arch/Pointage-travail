@@ -104,23 +104,23 @@ object ConventionSicknessMaintenanceV2 {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
         if (normalized.isBlank()) return unavailable("Maintien maladie : IDCC manquant, aucun barème conventionnel n'est inventé.")
 
+        val start = localDate(currentAbsence.startMs, zoneId)
         val candidates = rules
             .filter { it.structurallyValid() }
             .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
-            .filter { it.activeOn(localDate(currentAbsence.startMs, zoneId)) }
+            .filter { it.activeOn(start) }
             .filter { classification.matches(it.classification) }
             .filter { it.statusMatches(professionalStatus) }
 
         if (candidates.isEmpty()) return unavailable("Maintien maladie IDCC $normalized : aucun barème confirmé ne correspond au statut et à la classification pour cette période.")
 
-        val applicable = candidates.filter { it.applicableToCompany(companyApplicabilityConfirmed, localDate(currentAbsence.startMs, zoneId)) }
+        val applicable = candidates.filter { it.applicableToCompany(companyApplicabilityConfirmed, start) }
         val selected = select(applicable)
         if (selected == null) {
             return unavailable("Maintien maladie IDCC $normalized : barème présent mais applicabilité non démontrée ou plusieurs règles de même précision se contredisent.")
                 .copy(applicable = true)
         }
 
-        val start = localDate(currentAbsence.startMs, zoneId)
         val endExclusive = localDate(currentAbsence.endMs, zoneId)
         if (!endExclusive.isAfter(start)) return unavailable("Maintien maladie : période d'arrêt invalide.").copy(applicable = true, selectedRule = selected)
         if (currentAbsence.status != DecisionStatusV2.CONFIRMED) {
@@ -235,8 +235,9 @@ object ConventionSicknessMaintenanceV2 {
         if (rules.isEmpty()) return null
         val latestDate = rules.maxOf { it.effectiveFrom }
         val latest = rules.filter { it.effectiveFrom == latestDate }
-        val specificity = latest.maxOf { it.classification.specificity() + if (it.professionalStatus == null) 0 else 1 }
-        val best = latest.filter { it.classification.specificity() + if (it.professionalStatus == null) 0 else 1 == specificity }
+        fun specificity(rule: Rule) = rule.classification.specificity() + if (rule.professionalStatus == null) 0 else 1
+        val maxSpecificity = latest.maxOf(::specificity)
+        val best = latest.filter { specificity(it) == maxSpecificity }
         return best.singleOrNull()
     }
 
