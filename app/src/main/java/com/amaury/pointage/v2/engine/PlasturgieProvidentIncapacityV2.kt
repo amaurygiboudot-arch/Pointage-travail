@@ -139,8 +139,8 @@ object PlasturgieProvidentIncapacityV2 {
         )
     }
 
-    /** Compatibilité temporaire avec les tests historiques du relais Plasturgie. */
-    fun assess(
+    /** Compatibilité temporaire avec les tests/appels historiques utilisant l'ancien résultat maladie Plasturgie. */
+    fun assessLegacy(
         idcc: String?,
         seniorityMonths: Int?,
         protectionCategory: PlasturgieProtectionCategoryV2.Result,
