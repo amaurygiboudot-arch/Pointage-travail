@@ -33,7 +33,9 @@ class SocialContributionEmployerOldAgeV2Test {
 
         assertEquals(0.0211, uncapped.employerRate, 0.000001)
         assertEquals(0.0855, capped.employerRate, 0.000001)
-        assertEquals(gross * (0.0211 + 0.0855), estimate.employerContributions, 0.001)
+        assertEquals(gross * 0.0211, uncapped.employerAmount, 0.001)
+        assertEquals(gross * 0.0855, capped.employerAmount, 0.001)
+        assertEquals(gross * (0.0211 + 0.0855 + 0.0030 + 0.00016), estimate.employerContributions, 0.001)
     }
 
     @Test
@@ -51,6 +53,8 @@ class SocialContributionEmployerOldAgeV2Test {
 
         assertEquals(gross, uncapped.baseAmount, 0.001)
         assertEquals(pmss, capped.baseAmount, 0.001)
-        assertEquals(gross * 0.0211 + pmss * 0.0855, estimate.employerContributions, 0.001)
+        assertEquals(gross * 0.0211, uncapped.employerAmount, 0.001)
+        assertEquals(pmss * 0.0855, capped.employerAmount, 0.001)
+        assertEquals(gross * (0.0211 + 0.0030 + 0.00016) + pmss * 0.0855, estimate.employerContributions, 0.001)
     }
 }
