@@ -13,13 +13,13 @@ object NetSalaryEngineV2 {
         val companyEmployeeDeductions: Double,
         val employerStatusContributions: Double,
         val employerAtMpContribution: Double?,
-        val benefitsInKindDeduction: Double,
         val netBeforeIncomeTax: Double,
         val netTaxable: Double?,
         val incomeTax: Double?,
         val netAfterIncomeTax: Double?,
         val complete: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val benefitsInKindDeduction: Double = 0.0
     )
 
     fun calculate(
@@ -153,13 +153,13 @@ object NetSalaryEngineV2 {
             companyEmployeeDeductions = companyKnown,
             employerStatusContributions = statusContributions.employerContributions,
             employerAtMpContribution = atMp.employerAmount,
-            benefitsInKindDeduction = benefitsInKind,
             netBeforeIncomeTax = beforeTax,
             netTaxable = netTaxable,
             incomeTax = tax,
             netAfterIncomeTax = tax?.let { (beforeTax - it).coerceAtLeast(0.0) },
             complete = warnings.isEmpty(),
-            warnings = warnings
+            warnings = warnings,
+            benefitsInKindDeduction = benefitsInKind
         )
     }
 }
