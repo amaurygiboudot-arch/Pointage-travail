@@ -35,7 +35,10 @@ object NetSalaryEngineV2 {
         val employerFnalContribution: Double? = null,
         val employerTrainingContribution: Double? = null,
         val employerHealthContribution: Double? = null,
-        val employerFamilyContribution: Double? = null
+        val employerFamilyContribution: Double? = null,
+        val employerApprenticeshipPrincipalContribution: Double? = null,
+        /** Provision économique mensuelle du solde, distincte de son échéance annuelle réelle. */
+        val employerApprenticeshipBalanceAccrual: Double? = null
     )
 
     fun calculate(
@@ -107,6 +110,11 @@ object NetSalaryEngineV2 {
             grossSocial = contributionGross,
             healthRate = company.employerHealthRate,
             familyRate = company.employerFamilyRate
+        )
+        val apprenticeship = EmployerApprenticeshipTaxV2.calculate(
+            grossSocial = contributionGross,
+            principalRate = company.employerApprenticeshipPrincipalRate,
+            balanceRate = company.employerApprenticeshipBalanceRate
         )
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
@@ -183,10 +191,11 @@ object NetSalaryEngineV2 {
             mobility.employerAmount,
             unemploymentAgs.totalEmployerAmount,
             workforce.totalEmployerAmount,
-            healthFamily.totalEmployerAmount
+            healthFamily.totalEmployerAmount,
+            apprenticeship.totalEmployerAmount
         ).sum()
         val employerCostWarnings = buildList {
-            add("Coût employeur total : taxe d’apprentissage, éventuelles réductions/exonérations et autres contributions patronales restent à compléter ; aucun total complet n'est affiché.")
+            add("Coût employeur total : éventuelles réductions/exonérations et autres contributions patronales restent à compléter ; aucun total complet n'est affiché.")
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             addAll(company.employerUnemploymentAgsWarnings)
@@ -195,6 +204,8 @@ object NetSalaryEngineV2 {
             addAll(workforce.warnings)
             addAll(company.employerHealthFamilyWarnings)
             addAll(healthFamily.warnings)
+            addAll(company.employerApprenticeshipWarnings)
+            addAll(apprenticeship.warnings)
             if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
         }.distinct()
 
@@ -227,7 +238,9 @@ object NetSalaryEngineV2 {
             employerFnalContribution = workforce.fnalAmount,
             employerTrainingContribution = workforce.trainingAmount,
             employerHealthContribution = healthFamily.healthAmount,
-            employerFamilyContribution = healthFamily.familyAmount
+            employerFamilyContribution = healthFamily.familyAmount,
+            employerApprenticeshipPrincipalContribution = apprenticeship.principalAmount,
+            employerApprenticeshipBalanceAccrual = apprenticeship.balanceAccrualAmount
         )
     }
 }
