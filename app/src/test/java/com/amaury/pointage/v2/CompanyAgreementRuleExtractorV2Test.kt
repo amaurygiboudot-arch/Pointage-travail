@@ -13,4 +13,13 @@ class CompanyAgreementRuleExtractorV2Test {
         assertTrue(candidates.any { it.category == CompanyAgreementRuleExtractorV2.Category.PUBLIC_HOLIDAY })
         assertTrue(candidates.none { it.category == CompanyAgreementRuleExtractorV2.Category.PAID_LEAVE })
     }
+
+    @Test
+    fun `panier repas est extrait dans une famille dediee`() {
+        val candidates = CompanyAgreementRuleExtractorV2.extract(
+            "Une indemnité repas dite prime de panier de 5,50 euros est versée aux salariés concernés."
+        )
+
+        assertTrue(candidates.any { it.category == CompanyAgreementRuleExtractorV2.Category.MEAL })
+    }
 }
