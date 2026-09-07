@@ -136,6 +136,16 @@ class NetSalaryEngineV2Test {
     }
 
     @Test
+    fun fixedEmployerStatutorySubtotalIsExposedWithoutReducingEmployeeNet() {
+        val result=NetSalaryEngineV2.calculate(3000.0,2026,snapshot(0.0,0.0))
+        val expectedNet=3000.0-result.statutory-result.complementaryRetirement-result.companyEmployeeDeductions
+
+        assertEquals(329.28,result.employerStatutoryKnownContributions,0.001)
+        assertEquals(expectedNet,result.netBeforeIncomeTax,0.001)
+        assertTrue(result.warnings.any{it.startsWith("Coût employeur incomplet")})
+    }
+
+    @Test
     fun benefitInKindIncreasesContributionBaseButIsNotPaidInCash() {
         val without=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=0.0))
         val withBenefit=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=200.0))
