@@ -24,7 +24,7 @@ object NetSalaryEngineV2 {
         val complementaryRetirementEmployer: Double = 0.0,
         /** Part patronale légale déjà intégrée dans le socle Urssaf. */
         val statutoryEmployerContributions: Double = 0.0,
-        /** Sous-total des seules cotisations patronales actuellement connues du moteur. */
+        /** Sous-total des seules cotisations patronales actuellement connues du moteur, avant réductions. */
         val knownEmployerContributions: Double = 0.0,
         /** Reste faux tant que le socle patronal Urssaf de base n'est pas intégré exhaustivement. */
         val employerCostComplete: Boolean = false,
@@ -38,7 +38,11 @@ object NetSalaryEngineV2 {
         val employerFamilyContribution: Double? = null,
         val employerApprenticeshipPrincipalContribution: Double? = null,
         /** Provision économique mensuelle du solde, distincte de son échéance annuelle réelle. */
-        val employerApprenticeshipBalanceAccrual: Double? = null
+        val employerApprenticeshipBalanceAccrual: Double? = null,
+        /** Réductions/exonérations patronales mensuelles confirmées par une source vérifiable. */
+        val confirmedEmployerReductions: Double? = null,
+        /** Sous-total connu après réductions confirmées ; null si l'ajustement ne peut pas être fiabilisé. */
+        val knownEmployerContributionsAfterReductions: Double? = null
     )
 
     fun calculate(
@@ -194,8 +198,15 @@ object NetSalaryEngineV2 {
             healthFamily.totalEmployerAmount,
             apprenticeship.totalEmployerAmount
         ).sum()
+        val reductionAmount = company.employerReductionAmount
+        val reductionsFitKnownSubtotal = reductionAmount == null || reductionAmount <= knownEmployerContributions + 0.01
+        val knownAfterReductions = when {
+            reductionAmount == null -> null
+            reductionsFitKnownSubtotal -> (knownEmployerContributions - reductionAmount).coerceAtLeast(0.0)
+            else -> null
+        }
         val employerCostWarnings = buildList {
-            add("Coût employeur total : éventuelles réductions/exonérations et autres contributions patronales restent à compléter ; aucun total complet n'est affiché.")
+            add("Coût employeur total : d’éventuelles contributions patronales spécifiques restent à confirmer ; aucun total complet n'est affiché.")
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             addAll(company.employerUnemploymentAgsWarnings)
@@ -206,6 +217,10 @@ object NetSalaryEngineV2 {
             addAll(healthFamily.warnings)
             addAll(company.employerApprenticeshipWarnings)
             addAll(apprenticeship.warnings)
+            addAll(company.employerReductionWarnings)
+            if (!reductionsFitKnownSubtotal) {
+                add("Réductions/exonérations patronales : le montant confirmé dépasse les cotisations actuellement connues ; le sous-total après réductions n'est pas affiché tant que les contributions manquantes ne sont pas identifiées.")
+            }
             if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
         }.distinct()
 
@@ -240,7 +255,9 @@ object NetSalaryEngineV2 {
             employerHealthContribution = healthFamily.healthAmount,
             employerFamilyContribution = healthFamily.familyAmount,
             employerApprenticeshipPrincipalContribution = apprenticeship.principalAmount,
-            employerApprenticeshipBalanceAccrual = apprenticeship.balanceAccrualAmount
+            employerApprenticeshipBalanceAccrual = apprenticeship.balanceAccrualAmount,
+            confirmedEmployerReductions = reductionAmount,
+            knownEmployerContributionsAfterReductions = knownAfterReductions
         )
     }
 }
