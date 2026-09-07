@@ -59,6 +59,11 @@ object NetSalaryEngineV2 {
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
         )
+        val employerStatutory = EmployerStatutoryContributionCatalogV2.estimate(
+            gross = contributionGross,
+            year = year,
+            ceiling = ceiling
+        )
         val retirement = ComplementaryRetirementCatalogV2.estimate(
             gross = contributionGross,
             year = year,
@@ -97,8 +102,8 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP, versement mobilité et retraite patronale sont exclusivement employeur. L'avantage en nature
-        // augmente les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
+        // Les lignes patronales restent hors du net salarié. L'avantage en nature augmente
+        // les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
         val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -150,6 +155,7 @@ object NetSalaryEngineV2 {
         }.distinct()
 
         val knownEmployerContributions = listOfNotNull(
+            employerStatutory.knownEmployerContributions,
             retirement.employerContributions,
             conventionProvident.employerContributions,
             statusContributions.employerContributions,
@@ -157,7 +163,7 @@ object NetSalaryEngineV2 {
             mobility.employerAmount
         ).sum()
         val employerCostWarnings = buildList {
-            add("Coût employeur total : cotisations patronales légales de base Urssaf non encore intégrées exhaustivement ; aucun total complet n'est affiché.")
+            addAll(employerStatutory.warnings)
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
