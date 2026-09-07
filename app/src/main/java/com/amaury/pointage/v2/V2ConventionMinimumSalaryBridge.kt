@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
+import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionPayrollReferenceV2
 import java.time.LocalDate
@@ -16,7 +17,8 @@ object V2ConventionMinimumSalaryBridge {
     data class Snapshot(
         val idcc: String,
         val classification: ConventionClassificationV2,
-        val resolution: ConventionMinimumSalaryV2.Result
+        val resolution: ConventionMinimumSalaryV2.Result,
+        val coverage: ConventionMatterCoverageV2.Snapshot
     ) {
         val selectedMonthlyGross: Double?
             get() = resolution.selected
@@ -32,15 +34,44 @@ object V2ConventionMinimumSalaryBridge {
     ): Snapshot {
         val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
         val classification = ConventionClassificationStoreV2.load(context, companyId)
-        val rules = ConventionPayrollReferenceV2.genericMinimumRules() +
-            V2ConventionMinimumSalaryStore.rules(context, normalizedIdcc)
-        val resolution = ConventionMinimumSalaryV2.resolve(
-            rules = rules,
-            idcc = normalizedIdcc,
-            date = referenceDate,
-            classification = classification,
-            companyApplicabilityConfirmed = false
+        val builtIn = ConventionPayrollReferenceV2.genericMinimumRules()
+            .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
+        val dynamic = V2ConventionMinimumSalaryStore.rules(context, normalizedIdcc)
+        val rules = builtIn + dynamic
+        val storedCoverage = V2ConventionMatterCoverageStore.resolve(
+            context,
+            normalizedIdcc,
+            ConventionMatterCoverageV2.Matter.MINIMUM_SALARY,
+            referenceDate
         )
-        return Snapshot(normalizedIdcc, classification, resolution)
+        val coverage = if (rules.isNotEmpty()) {
+            ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+                record = storedCoverage.record,
+                reliable = true,
+                warnings = emptyList()
+            )
+        } else storedCoverage
+
+        val resolution = when {
+            rules.isEmpty() && coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
+                ConventionMinimumSalaryV2.Result(
+                    selected = null,
+                    latestKnown = null,
+                    reliable = true,
+                    warnings = emptyList()
+                )
+            else -> {
+                val resolved = ConventionMinimumSalaryV2.resolve(
+                    rules = rules,
+                    idcc = normalizedIdcc,
+                    date = referenceDate,
+                    classification = classification,
+                    companyApplicabilityConfirmed = false
+                )
+                resolved.copy(warnings = (resolved.warnings + coverage.warnings).distinct())
+            }
+        }
+        return Snapshot(normalizedIdcc, classification, resolution, coverage)
     }
 }
