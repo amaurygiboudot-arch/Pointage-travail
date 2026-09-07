@@ -38,13 +38,17 @@ object V2ConventionMinimumSalaryBridge {
             .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
         val dynamic = V2ConventionMinimumSalaryStore.rules(context, normalizedIdcc)
         val rules = builtIn + dynamic
+        val matchingRules = rules.filter {
+            it.structurallyValid() && it.activeOn(referenceDate) && classification.matches(it.classification)
+        }
         val storedCoverage = V2ConventionMatterCoverageStore.resolve(
             context,
             normalizedIdcc,
             ConventionMatterCoverageV2.Matter.MINIMUM_SALARY,
-            referenceDate
+            referenceDate,
+            classification
         )
-        val coverage = if (rules.isNotEmpty()) {
+        val coverage = if (matchingRules.isNotEmpty()) {
             ConventionMatterCoverageV2.Snapshot(
                 state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
                 record = storedCoverage.record,
@@ -54,7 +58,7 @@ object V2ConventionMinimumSalaryBridge {
         } else storedCoverage
 
         val resolution = when {
-            rules.isEmpty() && coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
+            matchingRules.isEmpty() && coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
                 ConventionMinimumSalaryV2.Result(
                     selected = null,
                     latestKnown = null,
