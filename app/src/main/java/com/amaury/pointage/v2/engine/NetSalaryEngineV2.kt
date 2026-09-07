@@ -21,7 +21,9 @@ object NetSalaryEngineV2 {
         val warnings: List<String>,
         val benefitsInKindDeduction: Double = 0.0,
         val employerMobilityContribution: Double? = null,
-        val complementaryRetirementEmployer: Double = 0.0
+        val complementaryRetirementEmployer: Double = 0.0,
+        /** Sous-total patronal sûr ; ce n'est pas encore le coût employeur complet. */
+        val employerStatutoryKnownContributions: Double = 0.0
     )
 
     fun calculate(
@@ -52,6 +54,11 @@ object NetSalaryEngineV2 {
             year = year,
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
+        )
+        val employerStatutory = EmployerStatutoryContributionCatalogV2.estimate(
+            gross = contributionGross,
+            year = year,
+            ceiling = ceiling
         )
         val retirement = ComplementaryRetirementCatalogV2.estimate(
             gross = contributionGross,
@@ -91,8 +98,8 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP, versement mobilité et retraite patronale sont exclusivement employeur. L'avantage en nature
-        // augmente les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
+        // Toutes les lignes patronales restent hors du net salarié. L'avantage en nature augmente
+        // les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
         val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -126,6 +133,7 @@ object NetSalaryEngineV2 {
         val warnings = buildList {
             addAll(ceiling.warnings)
             addAll(statutory.warnings)
+            addAll(employerStatutory.warnings)
             addAll(retirement.warnings)
             addAll(statusContributions.warnings)
             addAll(conventionProvident.warnings)
@@ -162,7 +170,8 @@ object NetSalaryEngineV2 {
             warnings = warnings,
             benefitsInKindDeduction = benefitsInKind,
             employerMobilityContribution = mobility.employerAmount,
-            complementaryRetirementEmployer = retirement.employerContributions
+            complementaryRetirementEmployer = retirement.employerContributions,
+            employerStatutoryKnownContributions = employerStatutory.knownEmployerContributions
         )
     }
 }
