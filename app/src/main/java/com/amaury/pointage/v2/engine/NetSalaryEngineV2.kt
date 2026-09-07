@@ -22,6 +22,8 @@ object NetSalaryEngineV2 {
         val benefitsInKindDeduction: Double = 0.0,
         val employerMobilityContribution: Double? = null,
         val complementaryRetirementEmployer: Double = 0.0,
+        /** Part patronale légale déjà intégrée dans le socle Urssaf (actuellement vieillesse 2026). */
+        val statutoryEmployerContributions: Double = 0.0,
         /** Sous-total des seules cotisations patronales actuellement connues du moteur. */
         val knownEmployerContributions: Double = 0.0,
         /** Reste faux tant que le socle patronal Urssaf de base n'est pas intégré exhaustivement. */
@@ -97,8 +99,9 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP, versement mobilité et retraite patronale sont exclusivement employeur. L'avantage en nature
-        // augmente les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
+        // AT/MP, versement mobilité, vieillesse patronale et retraite complémentaire patronale
+        // sont exclusivement employeur. L'avantage en nature augmente les assiettes ci-dessus,
+        // mais n'est pas versé en espèces : on part uniquement du brut cash.
         val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -150,6 +153,7 @@ object NetSalaryEngineV2 {
         }.distinct()
 
         val knownEmployerContributions = listOfNotNull(
+            statutory.employerContributions,
             retirement.employerContributions,
             conventionProvident.employerContributions,
             statusContributions.employerContributions,
@@ -157,7 +161,7 @@ object NetSalaryEngineV2 {
             mobility.employerAmount
         ).sum()
         val employerCostWarnings = buildList {
-            add("Coût employeur total : cotisations patronales légales de base Urssaf non encore intégrées exhaustivement ; aucun total complet n'est affiché.")
+            add("Coût employeur total : maladie, allocations familiales, chômage, AGS, Fnal et autres cotisations patronales légales de base ne sont pas encore intégrées exhaustivement ; aucun total complet n'est affiché.")
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
@@ -183,6 +187,7 @@ object NetSalaryEngineV2 {
             benefitsInKindDeduction = benefitsInKind,
             employerMobilityContribution = mobility.employerAmount,
             complementaryRetirementEmployer = retirement.employerContributions,
+            statutoryEmployerContributions = statutory.employerContributions,
             knownEmployerContributions = knownEmployerContributions,
             employerCostComplete = false,
             employerCostWarnings = employerCostWarnings
