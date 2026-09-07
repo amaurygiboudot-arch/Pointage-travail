@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -15,7 +16,8 @@ class NetSalaryEngineV2Test {
         weeklyMinutes: Int? = 35 * 60,
         unpaidAbsenceDays: Int = 0,
         alsaceMoselleLocalRegime: Boolean? = false,
-        atMpEmployerRate: Double? = null
+        atMpEmployerRate: Double? = null,
+        benefitsInKindGross: Double = 0.0
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId="company",
         idcc=null,
@@ -38,7 +40,8 @@ class NetSalaryEngineV2Test {
         protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null),
         warnings=emptyList(),
         alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
-        atMpEmployerRate=atMpEmployerRate
+        atMpEmployerRate=atMpEmployerRate,
+        benefitsInKindGross=benefitsInKindGross
     )
 
     @Test
@@ -79,6 +82,21 @@ class NetSalaryEngineV2Test {
         assertEquals(without.netBeforeIncomeTax,withAtMp.netBeforeIncomeTax,0.001)
         assertEquals(without.netTaxable!!,withAtMp.netTaxable!!,0.001)
         assertEquals(without.netAfterIncomeTax!!,withAtMp.netAfterIncomeTax!!,0.001)
+    }
+
+    @Test
+    fun benefitInKindIncreasesContributionBaseButIsNotPaidInCash() {
+        val without=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=0.0))
+        val withBenefit=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=200.0))
+
+        assertEquals(2700.0,withBenefit.gross,0.001)
+        assertEquals(200.0,withBenefit.benefitsInKindDeduction,0.001)
+        assertTrue(withBenefit.statutory>without.statutory)
+        assertTrue(withBenefit.complementaryRetirement>without.complementaryRetirement)
+        assertTrue(withBenefit.netBeforeIncomeTax<without.netBeforeIncomeTax)
+        assertTrue(withBenefit.netTaxable!!>without.netTaxable!!)
+        val expectedCashNet=2500.0-withBenefit.statutory-withBenefit.complementaryRetirement-withBenefit.companyEmployeeDeductions
+        assertEquals(expectedCashNet,withBenefit.netBeforeIncomeTax,0.001)
     }
 
     @Test
