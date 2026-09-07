@@ -29,6 +29,13 @@ class CompanyAgreementOfficialAuditV2Test {
     }
 
     @Test
+    fun `recherche ACCO ne tronque plus localement les pages au dela de vingt`() {
+        val body = CompanyAgreementOfficialAuditV2.searchBody("12345678901234", 37)
+        val recherche = body["recherche"] as Map<*, *>
+        assertEquals(37, recherche["pageNumber"])
+    }
+
+    @Test
     fun `fusion conserve un accord deja verifie et ajoute seulement les nouveaux`() {
         val existing = CompanyAgreementStoreV2.Agreement(
             id = "ACCOTEXT1",
