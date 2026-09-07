@@ -154,14 +154,16 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     }
 
     private fun parseBands(text: String): List<ConventionSicknessMaintenanceV2.Band>? {
-        val forward = dayRateRegex.findAll(text).mapNotNull { match ->
-            band(match.groupValues[1], match.groupValues[2])
-        }.toList()
-        val reverse = rateDayRegex.findAll(text).mapNotNull { match ->
-            band(match.groupValues[2], match.groupValues[1])
-        }.toList()
-        val bands = (forward + reverse)
-            .distinctBy { it.calendarDays to it.targetRate }
+        val clauses = text.split(clauseSeparator).map(String::trim).filter(String::isNotBlank)
+        val bands = clauses.flatMap { clause ->
+            val forward = dayRateRegex.findAll(clause).mapNotNull { match ->
+                band(match.groupValues[1], match.groupValues[2])
+            }.toList()
+            val reverse = rateDayRegex.findAll(clause).mapNotNull { match ->
+                band(match.groupValues[2], match.groupValues[1])
+            }.toList()
+            forward + reverse
+        }.distinctBy { it.calendarDays to it.targetRate }
             .filter { it.calendarDays in 1..366 && it.targetRate in 0.0..1.0 }
         if (bands.isEmpty() || bands.size > 6) return null
         return bands
@@ -242,7 +244,9 @@ object OfficialKaliSicknessMaintenanceParserV2 {
 
     private fun stripNonCadre(value: String): String {
         var out = value
-        nonCadreRegexes.forEach { regex -> out = regex.replace(out, " ") }
+        nonCadreRegexes.forEach { regex ->
+            out = regex.replace(out) { match -> " ".repeat(match.value.length) }
+        }
         return out
     }
 
@@ -277,25 +281,26 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private val grossBasisWords = listOf("salaire brut", "remuneration brute", "traitement brut", "appointements bruts")
     private val netBasisWords = listOf("salaire net", "remuneration nette", "traitement net", "appointements nets")
     private val noWaitingWords = listOf("sans delai de carence", "sans carence", "des le premier jour")
+    private val clauseSeparator = Regex("[.;]")
 
     private val seniorityRegex = Regex("(?:au moins|minimum de|apres|a partir de|ayant au moins)\\s*(\\d{1,2})\\s*(mois|ans?|annees?)\\s*d[' ]?anciennete")
-    private val dayRateRegex = Regex("\\b(\\d{1,3})\\s*(?:premiers?\\s*)?jours?\\b.{0,90}?(\\d{1,3}(?:[,.]\\d+)?)\\s*%")
-    private val rateDayRegex = Regex("(\\d{1,3}(?:[,.]\\d+)?)\\s*%.{0,90}?\\b(\\d{1,3})\\s*jours?\\b")
+    private val dayRateRegex = Regex("\\b(\\d{1,3})\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?(\\d{1,3}(?:[,.]\\d+)?)\\s*%")
+    private val rateDayRegex = Regex("(\\d{1,3}(?:[,.]\\d+)?)\\s*%[^.;]{0,90}?\\b(\\d{1,3})\\s*jours?\\b")
 
     private val fixedWaitingRegexes = listOf(
-        Regex("(?:a chaque|pour chaque|pour tout)\\s+arret.{0,100}?(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?"),
-        Regex("(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?.{0,100}?(?:a chaque|pour chaque|pour tout)\\s+arret")
+        Regex("(?:a chaque|pour chaque|pour tout)\\s+arret[^.;]{0,100}?(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?"),
+        Regex("(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?[^.;]{0,100}?(?:a chaque|pour chaque|pour tout)\\s+arret")
     )
 
     private val annualLimitRegexes = listOf(
-        Regex("(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement).{0,120}?(?:total|limite|plafond|maximum|ne peut exceder).{0,80}?(\\d{1,3})\\s*jours?"),
-        Regex("(?:total|limite|plafond|maximum).{0,80}?(\\d{1,3})\\s*jours?.{0,120}?(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)")
+        Regex("(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)[^.;]{0,120}?(?:total|limite|plafond|maximum|ne peut exceder)[^.;]{0,80}?(\\d{1,3})\\s*jours?"),
+        Regex("(?:total|limite|plafond|maximum)[^.;]{0,80}?(\\d{1,3})\\s*jours?[^.;]{0,120}?(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)")
     )
     private val perStopLimitRegexes = listOf(
-        Regex("(?:pour un meme arret|pour chaque arret|par arret).{0,120}?(?:total|limite|plafond|maximum|ne peut exceder).{0,80}?(\\d{1,3})\\s*jours?"),
-        Regex("(?:total|limite|plafond|maximum).{0,80}?(\\d{1,3})\\s*jours?.{0,120}?(?:pour un meme arret|pour chaque arret|par arret)")
+        Regex("(?:pour un meme arret|pour chaque arret|par arret)[^.;]{0,120}?(?:total|limite|plafond|maximum|ne peut exceder)[^.;]{0,80}?(\\d{1,3})\\s*jours?"),
+        Regex("(?:total|limite|plafond|maximum)[^.;]{0,80}?(\\d{1,3})\\s*jours?[^.;]{0,120}?(?:pour un meme arret|pour chaque arret|par arret)")
     )
-    private val ssThresholdRegex = Regex("(?:securite sociale|assurance maladie).{0,120}?(?:au[- ]dela de|apres|a partir de)\\s*(\\d{1,2})\\s*jours?")
+    private val ssThresholdRegex = Regex("(?:securite sociale|assurance maladie)[^.;]{0,120}?(?:au[- ]dela de|apres|a partir de)\\s*(\\d{1,2})\\s*jours?")
 
     private val cadreRegexes = listOf(
         Regex("\\bcadres?\\b"),
