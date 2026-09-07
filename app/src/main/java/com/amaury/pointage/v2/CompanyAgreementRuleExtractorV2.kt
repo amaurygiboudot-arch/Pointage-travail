@@ -8,6 +8,7 @@ object CompanyAgreementRuleExtractorV2 {
     enum class Category {
         SALARY,
         BONUS,
+        MEAL,
         WORKING_TIME,
         OVERTIME,
         NIGHT,
@@ -28,6 +29,7 @@ object CompanyAgreementRuleExtractorV2 {
     private val keywords = linkedMapOf(
         Category.SALARY to listOf("salaire", "rémunération", "augmentation", "minimum salarial"),
         Category.BONUS to listOf("prime", "bonus", "gratification", "13e mois", "treizième mois"),
+        Category.MEAL to listOf("panier", "indemnité repas", "indemnite repas", "prime de panier", "repas"),
         Category.WORKING_TIME to listOf("durée du travail", "temps de travail", "horaire", "annualisation", "modulation"),
         Category.OVERTIME to listOf("heure supplémentaire", "heures supplémentaires", "majoration"),
         Category.NIGHT to listOf("travail de nuit", "heures de nuit", "majoration de nuit"),

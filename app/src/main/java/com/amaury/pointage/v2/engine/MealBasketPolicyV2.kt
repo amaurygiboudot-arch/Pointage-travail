@@ -6,17 +6,26 @@ import java.time.YearMonth
 import java.time.ZoneId
 
 /**
- * Source unique V2 du droit au panier lié au poste du matin.
+ * Source V2 du décompte des paniers liés au poste du matin.
  *
- * Un panier au maximum est compté par journée civile et par entreprise, même si la
- * journée contient plusieurs sessions. Le panier reste séparé du brut cotisable.
+ * Le moteur sait détecter les journées de poste matin, mais cette détection ne
+ * prouve pas à elle seule l'existence d'un droit au panier dans l'entreprise.
+ * L'état entreprise est conservé sans nouvelle donnée incompatible :
+ * - montant > 0 : panier du matin confirmé applicable ;
+ * - montant = 0 : panier du matin confirmé non applicable ;
+ * - montant absent : droit à confirmer.
+ *
+ * Un panier au maximum est compté par journée civile et par entreprise.
+ * Le panier reste séparé du brut cotisable.
  */
 object MealBasketPolicyV2 {
     data class Result(
         val count: Int,
         val amountPerBasket: Double?,
         val totalAmount: Double?,
-        val warnings: List<String> = emptyList()
+        val warnings: List<String> = emptyList(),
+        val detectedMorningDays: Int = 0,
+        val morningEligibilityConfirmed: Boolean? = null
     )
 
     fun calculate(
@@ -28,8 +37,19 @@ object MealBasketPolicyV2 {
         zoneId: ZoneId = ZoneId.systemDefault()
     ): Result {
         require(monthZeroBased in 0..11) { "Mois invalide" }
+        val safeAmount = sanitizeAmount(amountPerBasket)
+        val eligibility = when {
+            safeAmount == null -> null
+            safeAmount == 0.0 -> false
+            else -> true
+        }
         if (acceptedEmployerIds.isEmpty()) {
-            return Result(0, sanitizeAmount(amountPerBasket), 0.0)
+            return Result(
+                count = 0,
+                amountPerBasket = safeAmount,
+                totalAmount = if (eligibility == false) 0.0 else null,
+                morningEligibilityConfirmed = eligibility
+            )
         }
 
         val targetMonth = YearMonth.of(year, monthZeroBased + 1)
@@ -48,18 +68,29 @@ object MealBasketPolicyV2 {
                 if (WorkTimePolicyV2.hasAutomaticMorningBasket(effectiveEntry)) morningDays += date
             }
 
-        val count = morningDays.size
-        val safeAmount = sanitizeAmount(amountPerBasket)
-        val warnings = buildList {
-            if (count > 0 && safeAmount == null) {
-                add("Panier : $count journée(s) de poste matin détectée(s), mais montant unitaire non renseigné.")
+        val detected = morningDays.size
+        if (eligibility != true) {
+            val warnings = buildList {
+                if (detected > 0 && eligibility == null) {
+                    add("Panier : $detected journée(s) de poste matin détectée(s), mais le droit au panier du matin n'est pas confirmé pour cette entreprise. Aucun panier n'est ajouté automatiquement.")
+                }
             }
+            return Result(
+                count = 0,
+                amountPerBasket = safeAmount,
+                totalAmount = if (eligibility == false) 0.0 else null,
+                warnings = warnings,
+                detectedMorningDays = detected,
+                morningEligibilityConfirmed = eligibility
+            )
         }
+
         return Result(
-            count = count,
+            count = detected,
             amountPerBasket = safeAmount,
-            totalAmount = safeAmount?.times(count),
-            warnings = warnings
+            totalAmount = safeAmount * detected,
+            detectedMorningDays = detected,
+            morningEligibilityConfirmed = true
         )
     }
 

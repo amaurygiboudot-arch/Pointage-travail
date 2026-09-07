@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,6 +32,8 @@ class MealBasketPolicyV2Test {
         )
 
         assertEquals(2, result.count)
+        assertEquals(2, result.detectedMorningDays)
+        assertTrue(result.morningEligibilityConfirmed == true)
         assertEquals(5.38, result.amountPerBasket!!, 0.0001)
         assertEquals(10.76, result.totalAmount!!, 0.0001)
     }
@@ -48,6 +51,42 @@ class MealBasketPolicyV2Test {
 
         assertEquals(1, result.count)
         assertEquals(5.38, result.totalAmount!!, 0.0001)
+    }
+
+    @Test
+    fun `poste matin sans montant reste a confirmer et ne cree aucun panier`() {
+        val result = MealBasketPolicyV2.calculate(
+            sessions = listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("company"),
+            amountPerBasket = null,
+            zoneId = zone
+        )
+
+        assertEquals(1, result.detectedMorningDays)
+        assertEquals(0, result.count)
+        assertNull(result.totalAmount)
+        assertNull(result.morningEligibilityConfirmed)
+        assertTrue(result.warnings.any { it.contains("droit au panier du matin n'est pas confirmé") })
+    }
+
+    @Test
+    fun `montant zero confirme panier matin non applicable sans alerte`() {
+        val result = MealBasketPolicyV2.calculate(
+            sessions = listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("company"),
+            amountPerBasket = 0.0,
+            zoneId = zone
+        )
+
+        assertEquals(1, result.detectedMorningDays)
+        assertEquals(0, result.count)
+        assertEquals(0.0, result.totalAmount!!, 0.0001)
+        assertFalse(result.morningEligibilityConfirmed!!)
+        assertTrue(result.warnings.isEmpty())
     }
 
     @Test
@@ -90,19 +129,6 @@ class MealBasketPolicyV2Test {
 
         assertEquals(1, result.count)
         assertEquals(5.38, result.totalAmount!!, 0.0001)
-    }
-
-    @Test
-    fun `nombre de paniers reste connu quand le montant manque`() {
-        val result = MealBasketPolicyV2.calculate(
-            listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
-            2026, 8, setOf("company"), null, zone
-        )
-
-        assertEquals(1, result.count)
-        assertNull(result.amountPerBasket)
-        assertNull(result.totalAmount)
-        assertTrue(result.warnings.any { it.contains("montant unitaire") })
     }
 
     private fun session(id: String, realEntry: Long, countedEntry: Long, employer: String) = WorkSessionV2(
