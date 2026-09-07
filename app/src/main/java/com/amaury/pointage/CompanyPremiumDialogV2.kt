@@ -104,6 +104,15 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "GÉRER MALADIE / ALLOCATIONS FAMILIALES"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyHealthFamilyDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
         listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
