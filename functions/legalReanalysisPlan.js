@@ -42,6 +42,10 @@ function analysisKindsForJob(job) {
   if (kaliReanalysis && matters.includes("SATURDAY")) kinds.push("KALI_SATURDAY");
   if (kaliReanalysis && matters.includes("SUNDAY")) kinds.push("KALI_SUNDAY");
   if (kaliReanalysis && matters.includes("PUBLIC_HOLIDAYS")) kinds.push("KALI_PUBLIC_HOLIDAYS");
+  if (kaliReanalysis && matters.includes("MINIMUM_PAY")) kinds.push("KALI_MINIMUM_PAY");
+  if (kaliReanalysis && matters.includes("SENIORITY")) kinds.push("KALI_SENIORITY");
+  if (kaliReanalysis && matters.includes("SICKNESS_MAINTENANCE")) kinds.push("KALI_SICKNESS_MAINTENANCE");
+  if (kaliReanalysis && matters.includes("PROVIDENT")) kinds.push("KALI_PROVIDENT");
 
   if (["LEGI", "JORF"].includes(sourceFamily) && (sourceFamily === "LEGI" || targets.includes("LEGI"))) {
     kinds.push("LEGI_ALL");
