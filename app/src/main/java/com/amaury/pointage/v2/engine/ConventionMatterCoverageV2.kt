@@ -3,7 +3,8 @@ package com.amaury.pointage.v2.engine
 import java.time.LocalDate
 
 /**
- * État de couverture d'une matière conventionnelle pour un IDCC et une période.
+ * État de couverture d'une matière conventionnelle pour un IDCC, une période et,
+ * lorsque nécessaire, une classification salariée.
  *
  * CONFIRMED_NO_RULE n'est valable qu'après une recherche officielle exhaustive :
  * l'absence d'une règle enregistrée ne suffit jamais à conclure à l'absence de droit.
@@ -34,6 +35,8 @@ object ConventionMatterCoverageV2 {
         val matter: Matter,
         val effectiveFrom: LocalDate,
         val effectiveTo: LocalDate? = null,
+        /** Vide = couverture de toute la convention ; sinon couverture de ce sous-champ. */
+        val classification: ConventionClassificationV2 = ConventionClassificationV2(),
         val state: State,
         val source: String,
         val checkedAtMs: Long
@@ -54,45 +57,59 @@ object ConventionMatterCoverageV2 {
         val warnings: List<String>
     )
 
-    fun resolve(records: List<Record>, idcc: String, matter: Matter, date: LocalDate): Snapshot {
+    fun resolve(
+        records: List<Record>,
+        idcc: String,
+        matter: Matter,
+        date: LocalDate,
+        classification: ConventionClassificationV2 = ConventionClassificationV2()
+    ): Snapshot {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
         val matching = records.filter {
             it.structurallyValid() &&
                 ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
                 it.matter == matter &&
-                it.activeOn(date)
+                it.activeOn(date) &&
+                classification.matches(it.classification)
         }
         if (matching.isEmpty()) {
-            return Snapshot(
-                state = State.INCOMPLETE,
-                record = null,
-                reliable = false,
-                warnings = listOf("Convention IDCC $normalized — ${matterLabel(matter)} : analyse KALI non confirmée pour cette période.")
-            )
+            return incomplete(normalized, matter, classification, "analyse KALI non confirmée pour cette période")
         }
 
         val latestDate = matching.maxOf { it.effectiveFrom }
         val latest = matching.filter { it.effectiveFrom == latestDate }
-        val states = latest.map { it.state }.distinct()
+        val specificity = latest.maxOf { it.classification.specificity() }
+        val best = latest.filter { it.classification.specificity() == specificity }
+        val states = best.map { it.state }.distinct()
         if (states.size > 1) {
-            return Snapshot(
-                state = State.INCOMPLETE,
-                record = null,
-                reliable = false,
-                warnings = listOf("Convention IDCC $normalized — ${matterLabel(matter)} : états de couverture contradictoires sur la même période ; contrôle requis.")
-            )
+            return incomplete(normalized, matter, classification, "états de couverture contradictoires sur la même période")
         }
 
-        val selected = latest.maxByOrNull { it.checkedAtMs }!!
+        val selected = best.maxByOrNull { it.checkedAtMs }!!
         return Snapshot(
             state = selected.state,
             record = selected,
             reliable = selected.state != State.INCOMPLETE,
             warnings = if (selected.state == State.INCOMPLETE) {
-                listOf("Convention IDCC $normalized — ${matterLabel(matter)} : analyse officielle incomplète ; aucune absence de droit n'est déduite.")
+                listOf("Convention IDCC $normalized — ${matterLabel(matter)}${classificationSuffix(classification)} : analyse officielle incomplète ; aucune absence de droit n'est déduite.")
             } else emptyList()
         )
     }
+
+    private fun incomplete(
+        idcc: String,
+        matter: Matter,
+        classification: ConventionClassificationV2,
+        reason: String
+    ) = Snapshot(
+        state = State.INCOMPLETE,
+        record = null,
+        reliable = false,
+        warnings = listOf("Convention IDCC $idcc — ${matterLabel(matter)}${classificationSuffix(classification)} : $reason ; aucun droit n'est supposé absent.")
+    )
+
+    private fun classificationSuffix(classification: ConventionClassificationV2): String =
+        if (classification.isEmpty()) "" else " (${classification.label()})"
 
     private fun matterLabel(matter: Matter): String = when (matter) {
         Matter.MINIMUM_SALARY -> "minimum salarial"
