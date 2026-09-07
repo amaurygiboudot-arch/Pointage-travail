@@ -35,10 +35,13 @@ function analysisKindsForJob(job) {
   const matters = stringList(job?.matterHints);
   const targets = stringList(job?.targetSourceFamilies);
   const kinds = [];
+  const kaliReanalysis = ["KALI", "BOCC"].includes(sourceFamily) && targets.includes("KALI");
 
-  if (["KALI", "BOCC"].includes(sourceFamily) && targets.includes("KALI") && matters.includes("OVERTIME")) {
-    kinds.push("KALI_OVERTIME");
-  }
+  if (kaliReanalysis && matters.includes("OVERTIME")) kinds.push("KALI_OVERTIME");
+  if (kaliReanalysis && matters.includes("NIGHT_WORK")) kinds.push("KALI_NIGHT");
+  if (kaliReanalysis && matters.includes("SATURDAY")) kinds.push("KALI_SATURDAY");
+  if (kaliReanalysis && matters.includes("SUNDAY")) kinds.push("KALI_SUNDAY");
+
   if (["LEGI", "JORF"].includes(sourceFamily) && (sourceFamily === "LEGI" || targets.includes("LEGI"))) {
     kinds.push("LEGI_ALL");
   }
