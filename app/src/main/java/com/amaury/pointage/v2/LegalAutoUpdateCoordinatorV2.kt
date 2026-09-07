@@ -23,7 +23,8 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_OVERTIME",
         "KALI_NIGHT",
         "KALI_SATURDAY",
-        "KALI_SUNDAY"
+        "KALI_SUNDAY",
+        "KALI_PUBLIC_HOLIDAYS"
     )
 
     data class Summary(
@@ -245,6 +246,11 @@ object LegalAutoUpdateCoordinatorV2 {
                 val summary = if (task.isSuccessful) task.result else null
                 (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
             }
+            "KALI_PUBLIC_HOLIDAYS" -> KaliPublicHolidayPremiumAuditV2.audit(context, idcc, referenceDate)
+                .continueWith { task ->
+                    val summary = if (task.isSuccessful) task.result else null
+                    (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
+                }
             else -> Tasks.forResult(false to false)
         }
 
@@ -275,6 +281,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_NIGHT" -> "KALI nuit"
         "KALI_SATURDAY" -> "KALI samedi"
         "KALI_SUNDAY" -> "KALI dimanche"
+        "KALI_PUBLIC_HOLIDAYS" -> "KALI jours fériés"
         else -> "KALI"
     }
 

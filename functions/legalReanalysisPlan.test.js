@@ -48,16 +48,16 @@ test("déduit tous les analyseurs KALI sûrs sans auto-application", () => {
     sourceFamily: "KALI",
     targetSourceFamilies: ["KALI", "LEGI"],
     matterHints: ["OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS"],
-  }), ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY"]);
+  }), ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS"]);
   assert.deepEqual(analysisKindsForJob({
     sourceFamily: "BOCC",
     targetSourceFamilies: ["KALI"],
-    matterHints: ["OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY"],
-  }), ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY"]);
+    matterHints: ["OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS"],
+  }), ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS"]);
   assert.deepEqual(analysisKindsForJob({
     sourceFamily: "BOCC",
     targetSourceFamilies: ["KALI"],
-    matterHints: ["PUBLIC_HOLIDAYS", "SENIORITY"],
+    matterHints: ["SENIORITY"],
   }), []);
   assert.deepEqual(analysisKindsForJob({ sourceFamily: "JORF", targetSourceFamilies: ["LEGI"] }), ["LEGI_ALL"]);
   assert.deepEqual(analysisKindsForJob({ sourceFamily: "ACCO" }), ["ACCO_EXTRACT_CANDIDATES"]);
@@ -92,7 +92,7 @@ test("liste uniquement les jobs READY correspondant à l'IDCC, au SIRET ou au na
         sourceFamily: "BOCC",
         scopeType: "IDCC",
         scopeValue: "0292",
-        matterHints: ["OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY"],
+        matterHints: ["OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS"],
         targetSourceFamilies: ["KALI"],
         lastQueuedAtMs: 400,
       },
@@ -150,7 +150,7 @@ test("liste uniquement les jobs READY correspondant à l'IDCC, au SIRET ou au na
   assert.deepEqual(jobs.map((job) => job.jobId), ["nationalReady", "idccReady", "siretReady", "codeReady"]);
   assert.deepEqual(
     jobs.find((job) => job.jobId === "idccReady")?.analysisKinds,
-    ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY"]
+    ["KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS"]
   );
   assert.equal(jobs.find((job) => job.jobId === "siretReady")?.analysisKinds[0], "ACCO_EXTRACT_CANDIDATES");
   assert.equal(jobs.some((job) => job.jobId === "idccOther"), false);

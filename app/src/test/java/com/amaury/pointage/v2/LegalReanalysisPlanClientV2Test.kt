@@ -18,10 +18,10 @@ class LegalReanalysisPlanClientV2Test {
                         "sourceFamily" to "bocc",
                         "scopeType" to "idcc",
                         "scopeValue" to "0292",
-                        "matterHints" to listOf("overtime", "night_work", "saturday", "sunday"),
+                        "matterHints" to listOf("overtime", "night_work", "saturday", "sunday", "public_holidays"),
                         "targetSourceFamilies" to listOf("kali"),
                         "completedSourceFamilies" to listOf("kali"),
-                        "analysisKinds" to listOf("kali_overtime", "kali_night", "kali_saturday", "kali_sunday"),
+                        "analysisKinds" to listOf("kali_overtime", "kali_night", "kali_saturday", "kali_sunday", "kali_public_holidays"),
                         "lastQueuedAtMs" to 900L,
                         "revalidationCompletedAtMs" to 1000L,
                         "payloadJson" to "ne-doit-pas-etre-utilise"
@@ -36,9 +36,9 @@ class LegalReanalysisPlanClientV2Test {
         val job = plan.jobs.single()
         assertEquals("BOCC", job.sourceFamily)
         assertEquals("IDCC", job.scopeType)
-        assertEquals(setOf("OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY"), job.matterHints)
+        assertEquals(setOf("OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS"), job.matterHints)
         assertEquals(
-            setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY"),
+            setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS"),
             job.analysisKinds
         )
     }
@@ -61,7 +61,7 @@ class LegalReanalysisPlanClientV2Test {
 
         val (kali, legi, acco) = LegalAutoUpdateCoordinatorV2.selectKinds(
             listOf(
-                job("k", setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY")),
+                job("k", setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS")),
                 job("l", setOf("LEGI_ALL"), "JORF"),
                 job("a", setOf("ACCO_EXTRACT_CANDIDATES"), "ACCO")
             )
@@ -73,6 +73,7 @@ class LegalReanalysisPlanClientV2Test {
         assertTrue(kali.single().analysisKinds.contains("KALI_NIGHT"))
         assertTrue(kali.single().analysisKinds.contains("KALI_SATURDAY"))
         assertTrue(kali.single().analysisKinds.contains("KALI_SUNDAY"))
+        assertTrue(kali.single().analysisKinds.contains("KALI_PUBLIC_HOLIDAYS"))
         assertTrue(acco.single().analysisKinds.contains("ACCO_EXTRACT_CANDIDATES"))
     }
 

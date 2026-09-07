@@ -41,6 +41,7 @@ function analysisKindsForJob(job) {
   if (kaliReanalysis && matters.includes("NIGHT_WORK")) kinds.push("KALI_NIGHT");
   if (kaliReanalysis && matters.includes("SATURDAY")) kinds.push("KALI_SATURDAY");
   if (kaliReanalysis && matters.includes("SUNDAY")) kinds.push("KALI_SUNDAY");
+  if (kaliReanalysis && matters.includes("PUBLIC_HOLIDAYS")) kinds.push("KALI_PUBLIC_HOLIDAYS");
 
   if (["LEGI", "JORF"].includes(sourceFamily) && (sourceFamily === "LEGI" || targets.includes("LEGI"))) {
     kinds.push("LEGI_ALL");
@@ -53,7 +54,7 @@ function analysisKindsForJob(job) {
 
 function safeReadyJob(id, data) {
   if (!data || String(data.status || "") !== READY_STATUS) return null;
-  const sourceFamily = String(data.sourceFamily || "").trim().toUpperCase();
+  const sourceFamily = String(data?.sourceFamily || "").trim().toUpperCase();
   if (!sourceFamily) return null;
 
   const revisionAtMs = [data.lastQueuedAtMs, data.revalidationCompletedAtMs, data.updatedAtMs, data.createdAtMs]
