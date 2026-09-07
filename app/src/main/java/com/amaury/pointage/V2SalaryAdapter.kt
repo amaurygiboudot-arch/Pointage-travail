@@ -12,6 +12,7 @@ import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CollectivePremiumLegalArbitrationBridgeV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
+import com.amaury.pointage.v2.engine.ConventionPayrollReferenceV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
@@ -105,7 +106,10 @@ object V2SalaryAdapter {
    if(legalSnapshot.records.isEmpty())add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
    else if(!legalSnapshot.complete)add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
   }
-  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct())
+  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
+  val normalizedIdcc=convention.idcc.filter(Char::isDigit).trimStart('0')
+  val minimumWarnings=coefficient?.let{ConventionPayrollReferenceV2.minimumApplicabilityWarnings(normalizedIdcc,period.referenceDate,it)}.orEmpty()
+  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings+minimumWarnings).distinct())
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
