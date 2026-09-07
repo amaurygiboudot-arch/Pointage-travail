@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
+import com.amaury.pointage.v2.engine.WeekdayPremiumKindV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.LocalDate
@@ -18,6 +19,12 @@ object LegalAutoUpdateCoordinatorV2 {
     private const val PREFS = "legal_auto_update_v2"
     private const val RETRY_DELAY_MS = 6L * 60L * 60L * 1000L
     private val PARIS = ZoneId.of("Europe/Paris")
+    private val SAFE_KALI_KINDS = setOf(
+        "KALI_OVERTIME",
+        "KALI_NIGHT",
+        "KALI_SATURDAY",
+        "KALI_SUNDAY"
+    )
 
     data class Summary(
         val readyJobs: Int,
@@ -73,7 +80,7 @@ object LegalAutoUpdateCoordinatorV2 {
     internal fun selectKinds(
         jobs: List<LegalReanalysisPlanClientV2.Job>
     ): Triple<List<LegalReanalysisPlanClientV2.Job>, List<LegalReanalysisPlanClientV2.Job>, List<LegalReanalysisPlanClientV2.Job>> {
-        val kali = jobs.filter { "KALI_OVERTIME" in it.analysisKinds }
+        val kali = jobs.filter { job -> job.analysisKinds.any { it in SAFE_KALI_KINDS } }
         val legi = jobs.filter { "LEGI_ALL" in it.analysisKinds }
         val acco = jobs.filter {
             "ACCO_EXTRACT_CANDIDATES" in it.analysisKinds || "ACCO_PENDING_PARSER" in it.analysisKinds
@@ -90,7 +97,9 @@ object LegalAutoUpdateCoordinatorV2 {
         val (allKali, allLegi, allAcco) = selectKinds(plan.jobs)
         val nowMs = System.currentTimeMillis()
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val kali = allKali.filter { canAttempt(prefs, it, "KALI_OVERTIME", nowMs) }
+        val kali = allKali.filter { job ->
+            job.analysisKinds.any { kind -> kind in SAFE_KALI_KINDS && canAttempt(prefs, job, kind, nowMs) }
+        }
         val legi = allLegi.filter { canAttempt(prefs, it, "LEGI_ALL", nowMs) }
         val acco = allAcco.filter {
             "ACCO_EXTRACT_CANDIDATES" in it.analysisKinds &&
@@ -184,21 +193,89 @@ object LegalAutoUpdateCoordinatorV2 {
         if (idcc.isBlank()) {
             return Tasks.forResult(KaliOutcome(warnings = listOf("KALI : IDCC requis pour la mise à jour automatique.")))
         }
-        markAttempt(context, jobs, "KALI_OVERTIME", nowMs)
-        return KaliOvertimePayrollAuditV2.audit(context, idcc, referenceDate)
-            .continueWith { task ->
-                if (!task.isSuccessful) {
-                    return@continueWith KaliOutcome(1, false, listOf("KALI : contrôle automatique impossible."))
-                }
-                val summary = task.result
-                val officialAuditCompleted = summary != null && summary.pagesRead > 0
-                if (officialAuditCompleted) markDone(context, jobs, "KALI_OVERTIME")
-                KaliOutcome(
-                    ran = 1,
-                    saved = summary?.saved == true,
-                    warnings = if (officialAuditCompleted) emptyList() else listOf("KALI : contrôle officiel à retenter ultérieurement.")
-                )
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val work = SAFE_KALI_KINDS.mapNotNull { kind ->
+            val kindJobs = jobs.filter { job ->
+                kind in job.analysisKinds && canAttempt(prefs, job, kind, nowMs)
             }
+            kind.takeIf { kindJobs.isNotEmpty() }?.let { it to kindJobs }
+        }
+        return runKaliKinds(context, idcc, referenceDate, work, 0, KaliOutcome(), nowMs)
+    }
+
+    private fun runKaliKinds(
+        context: Context,
+        idcc: String,
+        referenceDate: LocalDate,
+        work: List<Pair<String, List<LegalReanalysisPlanClientV2.Job>>>,
+        index: Int,
+        accumulated: KaliOutcome,
+        nowMs: Long
+    ): Task<KaliOutcome> {
+        if (index >= work.size) return Tasks.forResult(accumulated)
+        val (kind, jobs) = work[index]
+        markAttempt(context, jobs, kind, nowMs)
+
+        val audit: Task<Pair<Boolean, Boolean>> = when (kind) {
+            "KALI_OVERTIME" -> KaliOvertimePayrollAuditV2.audit(context, idcc, referenceDate)
+                .continueWith { task ->
+                    val summary = task.result.takeIf { task.isSuccessful }
+                    (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
+                }
+            "KALI_NIGHT" -> KaliNightPayrollAuditV2.audit(context, idcc, referenceDate)
+                .continueWith { task ->
+                    val summary = task.result.takeIf { task.isSuccessful }
+                    (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
+                }
+            "KALI_SATURDAY" -> KaliWeekdayPremiumAuditV2.audit(
+                context,
+                idcc,
+                WeekdayPremiumKindV2.SATURDAY,
+                referenceDate
+            ).continueWith { task ->
+                val summary = task.result.takeIf { task.isSuccessful }
+                (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
+            }
+            "KALI_SUNDAY" -> KaliWeekdayPremiumAuditV2.audit(
+                context,
+                idcc,
+                WeekdayPremiumKindV2.SUNDAY,
+                referenceDate
+            ).continueWith { task ->
+                val summary = task.result.takeIf { task.isSuccessful }
+                (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
+            }
+            else -> Tasks.forResult(false to false)
+        }
+
+        return audit.continueWithTask { task ->
+            val result = if (task.isSuccessful) task.result else null
+            val completed = result?.first == true
+            val saved = result?.second == true
+            if (completed) markDone(context, jobs, kind)
+            val warning = if (completed) emptyList() else listOf("${kindLabel(kind)} : contrôle officiel à retenter ultérieurement.")
+            runKaliKinds(
+                context = context,
+                idcc = idcc,
+                referenceDate = referenceDate,
+                work = work,
+                index = index + 1,
+                accumulated = KaliOutcome(
+                    ran = accumulated.ran + 1,
+                    saved = accumulated.saved || saved,
+                    warnings = accumulated.warnings + warning
+                ),
+                nowMs = nowMs
+            )
+        }
+    }
+
+    private fun kindLabel(kind: String): String = when (kind) {
+        "KALI_OVERTIME" -> "KALI heures supplémentaires"
+        "KALI_NIGHT" -> "KALI nuit"
+        "KALI_SATURDAY" -> "KALI samedi"
+        "KALI_SUNDAY" -> "KALI dimanche"
+        else -> "KALI"
     }
 
     private data class LegiOutcome(
