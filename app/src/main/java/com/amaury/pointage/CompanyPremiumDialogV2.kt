@@ -95,6 +95,15 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "GÉRER EFFECTIF — FNAL / FORMATION"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyWorkforceContributionDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
         listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
