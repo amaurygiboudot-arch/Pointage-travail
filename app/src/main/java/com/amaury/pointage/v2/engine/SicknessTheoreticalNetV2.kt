@@ -48,6 +48,9 @@ object SicknessTheoreticalNetV2 {
         if (!maintenance.applicable || !maintenance.eligibilityConfirmed || !maintenance.reliable) {
             return unavailable("Base nette maladie : maintien conventionnel non applicable ou éligibilité non confirmée.")
         }
+        if (maintenance.referenceBasis != ConventionSicknessMaintenanceV2.ReferenceBasis.NET) {
+            return unavailable("Base nette maladie : la règle conventionnelle n'est pas exprimée sur une base nette ; le calcul monétaire automatique reste bloqué.")
+        }
 
         val normalizedMonthly = monthlyNetBeforeIncomeTax
             .filterValues { it.isFinite() && it >= 0.0 }
@@ -195,6 +198,7 @@ object SicknessTheoreticalNetV2 {
             eligibilityConfirmed = maintenance.eligibilityConfirmed,
             reliable = maintenance.eligibilityConfirmed,
             selectedRule = null,
+            referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.NET,
             employerWaitingDays = maintenance.employerWaitingDays,
             firstRecordedStopOfYear = maintenance.firstRecordedStopOfYear,
             annualLimitDays = maintenance.annualLimitDays,
