@@ -88,6 +88,21 @@ class OfficialKaliWeekdayPremiumRuleParserV2Test {
     }
 
     @Test
+    fun `clause de cumul sur dimanche reste conditionnelle`() {
+        val article = OfficialKaliWeekdayPremiumRuleParserV2.parseApplicableArticle(
+            response("Le dimanche est majoré de 100 %. Cette majoration n'est pas cumulable avec les heures supplémentaires."),
+            articleId,
+            referenceDate
+        )!!
+        val diagnostic = OfficialKaliWeekdayPremiumRuleParserV2.analyzeArticle(
+            article,
+            WeekdayPremiumKindV2.SUNDAY
+        )
+        assertEquals(OfficialKaliWeekdayPremiumRuleParserV2.DiagnosticKind.CONDITIONAL_RULE, diagnostic.kind)
+        assertNull(diagnostic.candidate)
+    }
+
+    @Test
     fun `plusieurs taux bloquent le choix automatique`() {
         val article = OfficialKaliWeekdayPremiumRuleParserV2.parseApplicableArticle(
             response("Le dimanche est majoré de 50 % le matin et de 100 % le soir."),
