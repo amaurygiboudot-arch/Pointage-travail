@@ -13,6 +13,7 @@ object NetSalaryEngineV2 {
         val companyEmployeeDeductions: Double,
         val employerStatusContributions: Double,
         val employerAtMpContribution: Double?,
+        val benefitsInKindDeduction: Double,
         val netBeforeIncomeTax: Double,
         val netTaxable: Double?,
         val incomeTax: Double?,
@@ -81,10 +82,16 @@ object NetSalaryEngineV2 {
             effectiveProvident,
             company.transportEmployeeAmount
         ).sum()
+        val benefitsInKind = company.benefitsInKindGross
+            .takeIf { it.isFinite() && it >= 0.0 }
+            ?: 0.0
 
         // AT/MP est exclusivement patronale : elle n'entre jamais dans cette soustraction.
-        val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
-            .coerceAtLeast(0.0)
+        // L'avantage en nature, lui, est déjà compris dans le brut soumis à cotisations mais
+        // n'est pas versé en espèces : sa valeur est donc retirée du net payé.
+        val beforeTax = (
+            gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown - benefitsInKind
+            ).coerceAtLeast(0.0)
 
         val nonDeductibleCsgCrds = statutory.lines
             .filter { it.id == "csg_taxable" || it.id == "crds" }
@@ -97,11 +104,12 @@ object NetSalaryEngineV2 {
             company.employerProtectionTaxableAmount != null &&
             company.employeeProvidentNonDeductibleAmount != null
 
-        // Référence Urssaf / DSN : net + CSG/CRDS non déductible + part employeur de
-        // prévoyances complémentaires + éventuelle part salariale de prévoyance non déductible.
+        // Le net imposable conserve la valeur de l'avantage en nature puisqu'elle fait partie
+        // de la rémunération imposable, même si elle a été retirée du net payé en espèces.
         val netTaxable = if (taxableCompanyDataComplete) {
             (
                 beforeTax +
+                    benefitsInKind +
                     nonDeductibleCsgCrds +
                     company.employerProtectionTaxableAmount!! +
                     company.employeeProvidentNonDeductibleAmount!!
@@ -127,6 +135,9 @@ object NetSalaryEngineV2 {
                 company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
                 add("Prévoyance salariale renseignée inférieure au minimum conventionnel Plasturgie calculé : vérifier le bulletin ou le régime d’entreprise.")
             }
+            if (benefitsInKind > gross + 0.01) {
+                add("Avantages en nature : valeur supérieure au brut total ; vérifier la valorisation saisie.")
+            }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
@@ -142,6 +153,7 @@ object NetSalaryEngineV2 {
             companyEmployeeDeductions = companyKnown,
             employerStatusContributions = statusContributions.employerContributions,
             employerAtMpContribution = atMp.employerAmount,
+            benefitsInKindDeduction = benefitsInKind,
             netBeforeIncomeTax = beforeTax,
             netTaxable = netTaxable,
             incomeTax = tax,
