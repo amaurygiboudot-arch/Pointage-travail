@@ -5,6 +5,7 @@ import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
+import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.ContractTypeV2
@@ -59,7 +60,12 @@ object CompanyPayrollOverridesV2 {
         /** Source humaine des taux chômage/AGS. */
         val employerUnemploymentAgsSource:String?=null,
         /** Avertissements patronaux chômage/AGS, séparés de la fiabilité du net salarié. */
-        val employerUnemploymentAgsWarnings:List<String> = emptyList()
+        val employerUnemploymentAgsWarnings:List<String> = emptyList(),
+        /** Tranche d'effectif social confirmée pour FNAL/formation. */
+        val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
+        val employerWorkforceSource:String?=null,
+        /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
+        val employerWorkforceWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -113,6 +119,7 @@ object CompanyPayrollOverridesV2 {
         val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,payrollMonth)
         val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
         val unemploymentAgs=CompanyUnemploymentAgsStoreV2.resolve(context,companyId,payrollMonth)
+        val workforce=CompanyWorkforceContributionStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -177,7 +184,10 @@ object CompanyPayrollOverridesV2 {
             employerUnemploymentRate=unemploymentAgs.unemploymentRate,
             employerAgsRate=unemploymentAgs.agsRate,
             employerUnemploymentAgsSource=unemploymentAgs.source,
-            employerUnemploymentAgsWarnings=unemploymentAgs.warnings
+            employerUnemploymentAgsWarnings=unemploymentAgs.warnings,
+            employerWorkforceBand=workforce.band,
+            employerWorkforceSource=workforce.source,
+            employerWorkforceWarnings=workforce.warnings
         )
     }
 
