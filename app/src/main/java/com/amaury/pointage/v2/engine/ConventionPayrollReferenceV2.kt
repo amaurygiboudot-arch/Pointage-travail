@@ -53,6 +53,10 @@ object ConventionPayrollReferenceV2 {
 
     private val snapshots=listOf(plasturgie2024,plasturgie2026)
 
+    fun latestKnown(idcc:String,date:LocalDate):Snapshot? = snapshots
+        .filter { it.idcc==idcc && !date.isBefore(it.effectiveFrom) && (it.effectiveTo==null || !date.isAfter(it.effectiveTo)) }
+        .maxByOrNull { it.effectiveFrom }
+
     fun applicable(idcc:String,date:LocalDate,companyApplicabilityConfirmed:Boolean=false):Snapshot? = snapshots
         .filter { it.idcc==idcc && !date.isBefore(it.effectiveFrom) && (it.effectiveTo==null || !date.isAfter(it.effectiveTo)) && it.canApplyToCompany(companyApplicabilityConfirmed) }
         .maxByOrNull{it.effectiveFrom}
@@ -65,4 +69,25 @@ object ConventionPayrollReferenceV2 {
     ):Minimum? = applicable(idcc,date,companyApplicabilityConfirmed)
         ?.minima
         ?.firstOrNull{it.coefficient==coefficient}
+
+    fun minimumApplicabilityWarnings(
+        idcc:String,
+        date:LocalDate,
+        coefficient:Int,
+        companyApplicabilityConfirmed:Boolean=false
+    ):List<String> {
+        val latest=latestKnown(idcc,date)?:return emptyList()
+        if(latest.canApplyToCompany(companyApplicabilityConfirmed))return emptyList()
+        val pending=latest.minima.firstOrNull{it.coefficient==coefficient}?:return emptyList()
+        val applied=applicable(idcc,date,companyApplicabilityConfirmed)
+        if(applied!=null&&!latest.effectiveFrom.isAfter(applied.effectiveFrom))return emptyList()
+        val status=when(latest.extensionStatus){
+            ExtensionStatus.NOT_EXTENDED->"non étendu"
+            ExtensionStatus.UNKNOWN->"statut d'extension non confirmé"
+            ExtensionStatus.EXTENDED->return emptyList()
+        }
+        return listOf(
+            "Minimum conventionnel : un barème plus récent existe depuis ${latest.effectiveFrom} pour le coefficient $coefficient (${String.format(java.util.Locale.FRANCE,"%.2f",pending.monthlyGross)} € ; $status), mais son applicabilité à l'entreprise n'est pas confirmée. Le dernier barème applicable vérifié reste utilisé automatiquement."
+        )
+    }
 }
