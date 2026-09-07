@@ -19,7 +19,8 @@ object NetSalaryEngineV2 {
         val netAfterIncomeTax: Double?,
         val complete: Boolean,
         val warnings: List<String>,
-        val benefitsInKindDeduction: Double = 0.0
+        val benefitsInKindDeduction: Double = 0.0,
+        val employerMobilityContribution: Double? = null
     )
 
     fun calculate(
@@ -74,6 +75,7 @@ object NetSalaryEngineV2 {
             ceiling = ceiling
         )
         val atMp = EmployerAtMpContributionV2.calculate(contributionGross, company.atMpEmployerRate)
+        val mobility = EmployerMobilityContributionV2.calculate(contributionGross, company.employerMobilityRate)
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
         // Le minimum n'est donc jamais ajouté une seconde fois.
@@ -88,8 +90,8 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP est exclusivement patronale. L'avantage en nature augmente les assiettes ci-dessus,
-        // mais n'est pas versé en espèces : on part donc uniquement du brut cash pour calculer le net payé.
+        // AT/MP et versement mobilité sont exclusivement patronaux. L'avantage en nature augmente
+        // les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
         val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -119,6 +121,7 @@ object NetSalaryEngineV2 {
             netTaxable * company.incomeTaxRate
         } else null
 
+        val hasMobilityWarning = company.warnings.any { it.startsWith("Versement mobilité employeur") }
         val warnings = buildList {
             addAll(ceiling.warnings)
             addAll(statutory.warnings)
@@ -126,6 +129,7 @@ object NetSalaryEngineV2 {
             addAll(statusContributions.warnings)
             addAll(conventionProvident.warnings)
             addAll(atMp.warnings)
+            if (!hasMobilityWarning) addAll(mobility.warnings)
             addAll(company.warnings.filterNot {
                 (it.startsWith("Prévoyance salariale entreprise") && conventionProvidentKnown) ||
                     (it.startsWith("AT/MP employeur") && atMp.complete)
@@ -155,7 +159,8 @@ object NetSalaryEngineV2 {
             netAfterIncomeTax = tax?.let { (beforeTax - it).coerceAtLeast(0.0) },
             complete = warnings.isEmpty(),
             warnings = warnings,
-            benefitsInKindDeduction = benefitsInKind
+            benefitsInKindDeduction = benefitsInKind,
+            employerMobilityContribution = mobility.employerAmount
         )
     }
 }
