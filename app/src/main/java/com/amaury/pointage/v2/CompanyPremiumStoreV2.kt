@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.CompanyPremiumResolverV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12,8 +13,7 @@ object CompanyPremiumStoreV2 {
 
     fun list(context: Context, companyId: String): List<CompanyPremiumResolverV2.Record> {
         if (companyId.isBlank()) return emptyList()
-        val raw = context.getSharedPreferences("horatrack_company_$companyId", Context.MODE_PRIVATE)
-            .getString(KEY, "[]").orEmpty()
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]").orEmpty()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -41,7 +41,7 @@ object CompanyPremiumStoreV2 {
     private fun write(context: Context, companyId: String, items: List<CompanyPremiumResolverV2.Record>): Boolean {
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
-        return context.getSharedPreferences("horatrack_company_$companyId", Context.MODE_PRIVATE)
+        return SalaryCompanyStore.prefs(context, companyId)
             .edit().putString(KEY, array.toString()).commit()
     }
 
