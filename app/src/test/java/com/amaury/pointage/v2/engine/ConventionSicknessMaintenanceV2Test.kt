@@ -56,7 +56,7 @@ class ConventionSicknessMaintenanceV2Test {
             professionalStatus = "CADRE",
             currentAbsence = current,
             allAbsences = listOf(current),
-            entryDate = LocalDate.of(2023, 1, 1),
+            entryDate = LocalDate.of(2025, 1, 1),
             acceptedEmployerIds = setOf("company-a"),
             zoneId = zone
         )
