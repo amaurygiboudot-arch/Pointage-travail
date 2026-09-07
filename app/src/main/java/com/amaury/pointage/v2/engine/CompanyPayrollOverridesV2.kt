@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
+import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.ContractTypeV2
@@ -45,7 +46,11 @@ object CompanyPayrollOverridesV2 {
         /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
         val atMpEmployerRate:Double?=null,
         /** Valeur brute des avantages en nature applicables à la période. */
-        val benefitsInKindGross:Double=0.0
+        val benefitsInKindGross:Double=0.0,
+        /** Taux de versement mobilité employeur applicable à la période ; 0 = non applicable confirmé. */
+        val employerMobilityRate:Double?=null,
+        /** Source humaine conservée avec la règle de versement mobilité. */
+        val employerMobilitySource:String?=null
     )
 
     fun load(
@@ -95,7 +100,9 @@ object CompanyPayrollOverridesV2 {
             "NO" -> false
             else -> null
         }
-        val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,YearMonth.from(referenceDate))
+        val payrollMonth=YearMonth.from(referenceDate)
+        val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,payrollMonth)
+        val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -125,6 +132,7 @@ object CompanyPayrollOverridesV2 {
             if(alsaceMoselleLocalRegime==null)add("Régime local Alsace-Moselle : affiliation à confirmer (oui/non)")
             if(atMpEmployerRate==null)add("AT/MP employeur : taux de l'établissement non renseigné ; coût employeur incomplet")
             addAll(benefitsInKind.warnings)
+            addAll(mobility.warnings)
             addAll(protectionCategory.warnings)
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
@@ -153,7 +161,9 @@ object CompanyPayrollOverridesV2 {
             warnings=warnings,
             alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
             atMpEmployerRate=atMpEmployerRate,
-            benefitsInKindGross=benefitsInKind.totalGross
+            benefitsInKindGross=benefitsInKind.totalGross,
+            employerMobilityRate=mobility.rate,
+            employerMobilitySource=mobility.source
         )
     }
 
