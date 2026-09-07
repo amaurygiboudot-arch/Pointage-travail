@@ -83,6 +83,27 @@ class PayrollEngineV2Test {
         assertEquals(435.0, result.grossEstimate, 0.001)
     }
 
+    @Test
+    fun publicHolidayPremiumIsIndependentFromSunday() {
+        val result = PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(
+                PayrollWeekV2(
+                    paidMinutes = 35 * 60,
+                    publicHolidayMinutes = 60
+                )
+            ),
+            rules = PayrollRulesV2(
+                weeklyRegularMinutes = 35 * 60,
+                publicHolidayMultiplier = 1.5
+            )
+        )
+
+        // 1 h fériée à +50 % sur 12 €/h = 6 € de majoration, sans aucun multiplicateur dimanche.
+        assertEquals(6.0, result.premiumsGross, 0.001)
+        assertEquals(426.0, result.grossEstimate, 0.001)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidHourlyRateIsRejected() {
         PayrollEngineV2.calculate(

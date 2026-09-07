@@ -11,10 +11,19 @@ data class PayrollRulesV2(
     val overtimeTiers:List<OvertimeTierV2> = emptyList(),
     val nightMultiplier:Double? = null,
     val saturdayMultiplier:Double? = null,
-    val sundayMultiplier:Double? = null
+    val sundayMultiplier:Double? = null,
+    /** Majorateur propre aux jours fériés, jamais déduit du dimanche. */
+    val publicHolidayMultiplier:Double? = null
 )
 
-data class PayrollWeekV2(val paidMinutes:Int,val nightMinutes:Int=0,val saturdayMinutes:Int=0,val sundayMinutes:Int=0)
+data class PayrollWeekV2(
+    val paidMinutes:Int,
+    val nightMinutes:Int=0,
+    val saturdayMinutes:Int=0,
+    val sundayMinutes:Int=0,
+    /** Minutes payées réellement identifiées comme jour férié par une couche calendrier dédiée. */
+    val publicHolidayMinutes:Int=0
+)
 
 data class PayrollResultV2(
     val regularGross:Double,
@@ -32,6 +41,9 @@ data class PayrollResultV2(
  * Calcul déterministe : aucune durée ou majoration n'est supposée.
  * Le seuil hebdomadaire vient d'abord d'une règle confirmée, sinon du contrat.
  * Les majorations restent à zéro tant qu'aucun palier n'a été fourni.
+ *
+ * Les minutes de jour férié et leur multiplicateur sont distincts du dimanche. Le moteur ne décide
+ * pas lui-même des règles de cumul : seuls les multiplicateurs déjà arbitrés doivent lui être fournis.
  */
 object PayrollEngineV2 {
     fun calculate(
@@ -84,6 +96,12 @@ object PayrollEngineV2 {
                 require(multiplier >= 1.0)
                 if (week.sundayMinutes > 0) extras += week.sundayMinutes / 60.0 * rate * (multiplier - 1.0)
             }
+            rules.publicHolidayMultiplier?.let { multiplier ->
+                require(multiplier >= 1.0)
+                if (week.publicHolidayMinutes > 0) {
+                    extras += week.publicHolidayMinutes / 60.0 * rate * (multiplier - 1.0)
+                }
+            }
         }
 
         val regularGross = regularMinutes / 60.0 * rate
@@ -127,7 +145,7 @@ object PayrollEngineV2 {
                 require(hours > 0.0) { "Nombre d'heures du forfait invalide" }
             }
             ContractTypeV2.FORFAIT_DAYS -> {
-                val days = requireNotNull(contract.forfaitAnnualDays) { "Nombre annuel de jours obligatoire" }
+                val days = requireNotNull(contract.forfaitAnnualDays) { "Nombre annuel de jours du forfait obligatoire" }
                 require(days > 0.0 && days <= 218.0) { "Nombre annuel de jours du forfait invalide" }
             }
             else -> error("Type de forfait incohérent")
