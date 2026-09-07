@@ -36,6 +36,7 @@ object CompanyPremiumDialogV2 {
             setPadding(0, 0, 0, dp(context, 8))
         })
 
+        var listDialog: AlertDialog? = null
         val records = CompanyPremiumStoreV2.list(context, companyId)
             .sortedWith(compareBy({ it.kind.name }, { it.label.lowercase(Locale.FRANCE) }))
         if (records.isEmpty()) {
@@ -50,7 +51,10 @@ object CompanyPremiumDialogV2 {
                     isAllCaps = false
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     text = recordLabel(record)
-                    setOnClickListener { showEditor(context, companyId, record) }
+                    setOnClickListener {
+                        listDialog?.dismiss()
+                        showEditor(context, companyId, record)
+                    }
                 }, rowParams(context))
             }
         }
@@ -58,14 +62,18 @@ object CompanyPremiumDialogV2 {
         box.addView(Button(context).apply {
             isAllCaps = false
             text = "AJOUTER UNE PRIME"
-            setOnClickListener { showEditor(context, companyId, null) }
+            setOnClickListener {
+                listDialog?.dismiss()
+                showEditor(context, companyId, null)
+            }
         }, rowParams(context))
 
-        AlertDialog.Builder(context)
+        listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
             .setNegativeButton("FERMER", null)
-            .show()
+            .create()
+        listDialog.show()
     }
 
     private fun showEditor(context: Context, companyId: String, existing: CompanyPremiumResolverV2.Record?) {
