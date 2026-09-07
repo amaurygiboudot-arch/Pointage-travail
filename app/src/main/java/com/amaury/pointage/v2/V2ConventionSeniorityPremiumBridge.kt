@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
+import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionSeniorityPremiumV2
@@ -52,14 +53,21 @@ object V2ConventionSeniorityPremiumBridge {
             date = referenceDate,
             classification = classification
         )
-        val coverage = if (matchingRules.isNotEmpty()) {
-            ConventionMatterCoverageV2.Snapshot(
+        val coverage = when {
+            matchingRules.isNotEmpty() -> ConventionMatterCoverageV2.Snapshot(
                 state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
                 record = storedCoverage.record,
                 reliable = true,
                 warnings = emptyList()
             )
-        } else storedCoverage
+            builtInConfirmedNoRule(normalizedIdcc, classification) -> ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+                record = storedCoverage.record,
+                reliable = true,
+                warnings = emptyList()
+            )
+            else -> storedCoverage
+        }
 
         if (matchingRules.isEmpty() && coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE) {
             return Snapshot(
@@ -95,5 +103,14 @@ object V2ConventionSeniorityPremiumBridge {
             ),
             coverage = coverage
         )
+    }
+
+    internal fun builtInConfirmedNoRule(
+        idcc: String,
+        classification: ConventionClassificationV2
+    ): Boolean {
+        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
+        val coefficient = classification.coefficient
+        return normalizedIdcc == PlasturgieSeniorityPremiumV2.IDCC && coefficient != null && coefficient in 900..940
     }
 }
