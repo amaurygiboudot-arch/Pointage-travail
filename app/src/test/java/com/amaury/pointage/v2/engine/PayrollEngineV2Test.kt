@@ -60,6 +60,29 @@ class PayrollEngineV2Test {
         assertEquals(495.0, result.grossEstimate, 0.001)
     }
 
+    @Test
+    fun confirmedWeekendPremiumsAddOnlyThePremiumPart() {
+        val result = PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(
+                PayrollWeekV2(
+                    paidMinutes = 35 * 60,
+                    saturdayMinutes = 60,
+                    sundayMinutes = 60
+                )
+            ),
+            rules = PayrollRulesV2(
+                weeklyRegularMinutes = 35 * 60,
+                saturdayMultiplier = 1.25,
+                sundayMultiplier = 2.0
+            )
+        )
+
+        // 1 h samedi : 12 € × 25 % = 3 € ; 1 h dimanche : 12 € × 100 % = 12 €.
+        assertEquals(15.0, result.premiumsGross, 0.001)
+        assertEquals(435.0, result.grossEstimate, 0.001)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun invalidHourlyRateIsRejected() {
         PayrollEngineV2.calculate(
