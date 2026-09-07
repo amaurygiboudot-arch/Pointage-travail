@@ -92,6 +92,44 @@ class ConventionSicknessMaintenanceV2Test {
     }
 
     @Test
+    fun `generic rule can open after six months`() {
+        val current = sickness("current", LocalDate.of(2026, 9, 10), 10)
+        val rule = ConventionSicknessMaintenanceV2.Rule(
+            idcc = "1486",
+            ruleId = "six-month-sickness",
+            effectiveFrom = LocalDate.of(2026, 1, 1),
+            minimumSeniorityMonths = 6,
+            tiers = listOf(
+                ConventionSicknessMaintenanceV2.SeniorityTier(
+                    minimumSeniorityMonths = 6,
+                    bands = listOf(ConventionSicknessMaintenanceV2.Band(30, 0.90, "90 %"))
+                )
+            ),
+            referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.GROSS,
+            waitingPolicy = ConventionSicknessMaintenanceV2.WaitingPolicy.FIXED_EACH_STOP,
+            waitingDays = 2,
+            source = "Légifrance KALI",
+            extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+        )
+        val result = ConventionSicknessMaintenanceV2.calculate(
+            rules = listOf(rule),
+            idcc = "01486",
+            classification = ConventionClassificationV2(),
+            professionalStatus = "NON_CADRE",
+            currentAbsence = current,
+            allAbsences = listOf(current),
+            entryDate = LocalDate.of(2026, 2, 1),
+            acceptedEmployerIds = setOf("company-a"),
+            zoneId = zone
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(2, result.employerWaitingDays)
+        assertEquals(8, result.currentIndemnifiableDays)
+        assertEquals(ConventionSicknessMaintenanceV2.ReferenceBasis.GROSS, result.referenceBasis)
+    }
+
+    @Test
     fun `missing professional status blocks plasturgie selection`() {
         val current = sickness("current", LocalDate.of(2026, 9, 10), 10)
         val result = ConventionSicknessMaintenanceV2.calculate(
