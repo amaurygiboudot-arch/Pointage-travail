@@ -36,27 +36,43 @@ object CompanyPayrollOverridesV2 {
         val mutualEmployeeAmount:Double?,
         val providentEmployeeAmount:Double?,
         val transportEmployeeAmount:Double?,
+        /** Part employeur de protection sociale complémentaire réintégrée au net imposable. */
         val employerProtectionTaxableAmount:Double?,
+        /** Part salariale de prévoyance explicitement non déductible fiscalement. */
         val employeeProvidentNonDeductibleAmount:Double?,
         val incomeTaxRate:Double?,
         val professionalStatus:String?,
         val protectionCategory:PlasturgieProtectionCategoryV2.Result,
         val warnings:List<String>,
+        /** Affiliation explicitement confirmée au régime local Alsace-Moselle. null = à confirmer. */
         val alsaceMoselleLocalRegime:Boolean?=null,
+        /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
         val atMpEmployerRate:Double?=null,
+        /** Valeur brute des avantages en nature applicables à la période. */
         val benefitsInKindGross:Double=0.0,
+        /** Taux de versement mobilité employeur applicable à la période ; 0 = non applicable confirmé. */
         val employerMobilityRate:Double?=null,
+        /** Source humaine conservée avec la règle de versement mobilité. */
         val employerMobilitySource:String?=null,
+        /** Taux chômage employeur confirmé pour la période. */
         val employerUnemploymentRate:Double?=null,
+        /** Taux AGS employeur confirmé pour la période. */
         val employerAgsRate:Double?=null,
+        /** Source humaine des taux chômage/AGS. */
         val employerUnemploymentAgsSource:String?=null,
+        /** Avertissements patronaux chômage/AGS, séparés de la fiabilité du net salarié. */
         val employerUnemploymentAgsWarnings:List<String> = emptyList(),
+        /** Tranche d'effectif social confirmée pour FNAL/formation. */
         val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
         val employerWorkforceSource:String?=null,
+        /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
         val employerWorkforceWarnings:List<String> = emptyList(),
+        /** Taux maladie employeur confirmé pour la période. */
         val employerHealthRate:Double?=null,
+        /** Taux allocations familiales employeur confirmé pour la période. */
         val employerFamilyRate:Double?=null,
         val employerHealthFamilySource:String?=null,
+        /** Avertissements patronaux maladie/AF, séparés de la fiabilité du net salarié. */
         val employerHealthFamilyWarnings:List<String> = emptyList()
     )
 
@@ -88,7 +104,9 @@ object CompanyPayrollOverridesV2 {
             "OTHER" -> ContractTypeV2.OTHER
             else -> null
         }
-        val contractualWeeklyMinutes=number("contract_weekly_hours")?.takeIf { it > 0.0 }?.let { (it * 60.0).roundToInt() }
+        val contractualWeeklyMinutes=number("contract_weekly_hours")
+            ?.takeIf { it > 0.0 }
+            ?.let { (it * 60.0).roundToInt() }
         val forfaitAnnualDays=number("forfait_annual_days")?.takeIf { it > 0.0 }
         val mutual=number("mutual_employee_amount")
         val provident=number("provident_employee_amount")
@@ -119,7 +137,13 @@ object CompanyPayrollOverridesV2 {
             workSessions=V2RuntimeStore.allSessions(context)
         )
         val absenceImpact=if(ignoreAbsencesForTheoreticalBase){
-            AbsencePayrollImpactV2.Snapshot(0,false,false,false,emptyList())
+            AbsencePayrollImpactV2.Snapshot(
+                unpaidFullCalendarDays=0,
+                hasUnpaidAbsence=false,
+                hasCompensatedAbsence=false,
+                requiresPayrollReview=false,
+                warnings=emptyList()
+            )
         }else observedAbsenceImpact
         val warnings=buildList {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
@@ -141,23 +165,46 @@ object CompanyPayrollOverridesV2 {
             }
         }
         return Snapshot(
-            companyId=companyId,idcc=idcc,referenceDate=referenceDate,entryDate=entryDate,seniorityMonths=seniorityMonths,
-            contractType=contractType,contractualWeeklyMinutes=contractualWeeklyMinutes,forfaitAnnualDays=forfaitAnnualDays,
-            unpaidAbsenceDays=absenceImpact.unpaidFullCalendarDays,hasUnpaidAbsence=absenceImpact.hasUnpaidAbsence,
-            mealAmount=number("meal_amount"),mutualEmployeeAmount=mutual,providentEmployeeAmount=provident,
-            transportEmployeeAmount=transport,employerProtectionTaxableAmount=employerProtectionTaxable,
-            employeeProvidentNonDeductibleAmount=employeeProvidentNonDeductible,incomeTaxRate=tax,
-            professionalStatus=professionalStatus,protectionCategory=protectionCategory,warnings=warnings,
-            alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,atMpEmployerRate=atMpEmployerRate,
-            benefitsInKindGross=benefitsInKind.totalGross,employerMobilityRate=mobility.rate,employerMobilitySource=mobility.source,
-            employerUnemploymentRate=unemploymentAgs.unemploymentRate,employerAgsRate=unemploymentAgs.agsRate,
-            employerUnemploymentAgsSource=unemploymentAgs.source,employerUnemploymentAgsWarnings=unemploymentAgs.warnings,
-            employerWorkforceBand=workforce.band,employerWorkforceSource=workforce.source,employerWorkforceWarnings=workforce.warnings,
-            employerHealthRate=healthFamily.healthRate,employerFamilyRate=healthFamily.familyRate,
-            employerHealthFamilySource=healthFamily.source,employerHealthFamilyWarnings=healthFamily.warnings
+            companyId=companyId,
+            idcc=idcc,
+            referenceDate=referenceDate,
+            entryDate=entryDate,
+            seniorityMonths=seniorityMonths,
+            contractType=contractType,
+            contractualWeeklyMinutes=contractualWeeklyMinutes,
+            forfaitAnnualDays=forfaitAnnualDays,
+            unpaidAbsenceDays=absenceImpact.unpaidFullCalendarDays,
+            hasUnpaidAbsence=absenceImpact.hasUnpaidAbsence,
+            mealAmount=number("meal_amount"),
+            mutualEmployeeAmount=mutual,
+            providentEmployeeAmount=provident,
+            transportEmployeeAmount=transport,
+            employerProtectionTaxableAmount=employerProtectionTaxable,
+            employeeProvidentNonDeductibleAmount=employeeProvidentNonDeductible,
+            incomeTaxRate=tax,
+            professionalStatus=professionalStatus,
+            protectionCategory=protectionCategory,
+            warnings=warnings,
+            alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
+            atMpEmployerRate=atMpEmployerRate,
+            benefitsInKindGross=benefitsInKind.totalGross,
+            employerMobilityRate=mobility.rate,
+            employerMobilitySource=mobility.source,
+            employerUnemploymentRate=unemploymentAgs.unemploymentRate,
+            employerAgsRate=unemploymentAgs.agsRate,
+            employerUnemploymentAgsSource=unemploymentAgs.source,
+            employerUnemploymentAgsWarnings=unemploymentAgs.warnings,
+            employerWorkforceBand=workforce.band,
+            employerWorkforceSource=workforce.source,
+            employerWorkforceWarnings=workforce.warnings,
+            employerHealthRate=healthFamily.healthRate,
+            employerFamilyRate=healthFamily.familyRate,
+            employerHealthFamilySource=healthFamily.source,
+            employerHealthFamilyWarnings=healthFamily.warnings
         )
     }
 
+    /** Utilise la fin du mois actuellement sélectionné dans l'espace bulletin. */
     private fun selectedPayrollReferenceDate(context:Context):LocalDate {
         val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
         val selected=if(ms>0L) Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
