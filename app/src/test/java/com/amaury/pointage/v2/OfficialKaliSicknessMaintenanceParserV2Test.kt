@@ -59,6 +59,7 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
         assertEquals(3, rule.waitingDays)
         assertEquals(90, rule.tiers.single().annualLimitDays)
         assertEquals(60, rule.tiers.single().perStopLimitDays)
+        assertEquals(ConventionSicknessMaintenanceV2.BandConsumptionScope.PER_STOP, rule.tiers.single().bandConsumptionScope)
         assertEquals(listOf(30 to 1.0, 30 to 0.75), rule.tiers.single().bands.map { it.calendarDays to it.targetRate })
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, rule.extensionStatus)
         assertEquals(LocalDate.of(2024, 1, 1), rule.extensionEffectiveFrom)
@@ -86,9 +87,8 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     @Test
     fun `article non cadre sans classification ne peut jamais matcher un cadre`() {
-        val text = statusOnlyText("Non-cadres")
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
-            article(text),
+            article(statusOnlyText("Non-cadres")),
             profile(status = "CADRE", classification = ConventionClassificationV2()),
             auditDate
         )
@@ -97,9 +97,8 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     @Test
     fun `article non cadre sans classification peut matcher seulement un non cadre`() {
-        val text = statusOnlyText("Non-cadres")
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
-            article(text),
+            article(statusOnlyText("Non-cadres")),
             profile(status = "NON_CADRE", classification = ConventionClassificationV2()),
             auditDate
         )
@@ -110,12 +109,21 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     @Test
     fun `article cadre sans classification ne peut jamais matcher un non cadre`() {
-        val text = statusOnlyText("Cadres")
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
-            article(text),
+            article(statusOnlyText("Cadres")),
             profile(status = "NON_CADRE", classification = ConventionClassificationV2()),
             auditDate
         )
+        assertNull(diagnostic.rule)
+    }
+
+    @Test
+    fun `portée des tranches absente bloque la règle`() {
+        val text = validText().replace(
+            "Pour chaque arrêt, les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.",
+            "Les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %."
+        )
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
         assertNull(diagnostic.rule)
     }
 
@@ -170,7 +178,7 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
         Non-cadres - coefficient 800. En cas de maladie ou d'arrêt de travail dûment justifié,
         le salarié ayant au moins 12 mois d'ancienneté bénéficie d'un maintien de salaire
         sur la base du salaire brut. Pour chaque arrêt, un délai de carence de 3 jours est appliqué.
-        Les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
+        Pour chaque arrêt, les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
         Pour chaque arrêt, le total ne peut excéder 60 jours.
         Au cours d'une même année civile, le total ne peut excéder 90 jours.
     """.trimIndent()
@@ -179,7 +187,7 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
         $status. En cas de maladie ou d'arrêt de travail dûment justifié,
         le salarié ayant au moins 12 mois d'ancienneté bénéficie d'un maintien de salaire
         sur la base du salaire brut. Pour chaque arrêt, un délai de carence de 3 jours est appliqué.
-        Les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
+        Pour chaque arrêt, les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
         Pour chaque arrêt, le total ne peut excéder 60 jours.
         Au cours d'une même année civile, le total ne peut excéder 90 jours.
     """.trimIndent()
