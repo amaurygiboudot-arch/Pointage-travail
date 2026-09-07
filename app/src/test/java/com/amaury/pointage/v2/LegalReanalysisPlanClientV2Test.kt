@@ -18,10 +18,10 @@ class LegalReanalysisPlanClientV2Test {
                         "sourceFamily" to "bocc",
                         "scopeType" to "idcc",
                         "scopeValue" to "0292",
-                        "matterHints" to listOf("overtime", "night_work"),
+                        "matterHints" to listOf("overtime", "night_work", "saturday", "sunday"),
                         "targetSourceFamilies" to listOf("kali"),
                         "completedSourceFamilies" to listOf("kali"),
-                        "analysisKinds" to listOf("kali_overtime"),
+                        "analysisKinds" to listOf("kali_overtime", "kali_night", "kali_saturday", "kali_sunday"),
                         "lastQueuedAtMs" to 900L,
                         "revalidationCompletedAtMs" to 1000L,
                         "payloadJson" to "ne-doit-pas-etre-utilise"
@@ -36,37 +36,43 @@ class LegalReanalysisPlanClientV2Test {
         val job = plan.jobs.single()
         assertEquals("BOCC", job.sourceFamily)
         assertEquals("IDCC", job.scopeType)
-        assertEquals(setOf("OVERTIME", "NIGHT_WORK"), job.matterHints)
-        assertEquals(setOf("KALI_OVERTIME"), job.analysisKinds)
+        assertEquals(setOf("OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY"), job.matterHints)
+        assertEquals(
+            setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY"),
+            job.analysisKinds
+        )
     }
 
     @Test
-    fun `coordinateur separe KALI LEGI et ACCO sans auto valider ACCO`() {
-        fun job(id: String, kind: String) = LegalReanalysisPlanClientV2.Job(
+    fun `coordinateur regroupe tous les audits KALI surs`() {
+        fun job(id: String, kinds: Set<String>, sourceFamily: String = "BOCC") = LegalReanalysisPlanClientV2.Job(
             jobId = id,
             revisionKey = "$id:1",
-            sourceFamily = when (kind) {
-                "KALI_OVERTIME" -> "BOCC"
-                "LEGI_ALL" -> "JORF"
-                else -> "ACCO"
-            },
-            scopeType = if (kind.startsWith("ACCO")) "SIRET" else "IDCC",
-            scopeValue = if (kind.startsWith("ACCO")) "12345678901234" else "0292",
+            sourceFamily = sourceFamily,
+            scopeType = if (sourceFamily == "ACCO") "SIRET" else "IDCC",
+            scopeValue = if (sourceFamily == "ACCO") "12345678901234" else "0292",
             matterHints = emptySet(),
             targetSourceFamilies = emptySet(),
             completedSourceFamilies = emptySet(),
-            analysisKinds = setOf(kind),
+            analysisKinds = kinds,
             lastQueuedAtMs = 1L,
             revalidationCompletedAtMs = 2L
         )
 
         val (kali, legi, acco) = LegalAutoUpdateCoordinatorV2.selectKinds(
-            listOf(job("k", "KALI_OVERTIME"), job("l", "LEGI_ALL"), job("a", "ACCO_EXTRACT_CANDIDATES"))
+            listOf(
+                job("k", setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY")),
+                job("l", setOf("LEGI_ALL"), "JORF"),
+                job("a", setOf("ACCO_EXTRACT_CANDIDATES"), "ACCO")
+            )
         )
 
         assertEquals(listOf("k"), kali.map { it.jobId })
         assertEquals(listOf("l"), legi.map { it.jobId })
         assertEquals(listOf("a"), acco.map { it.jobId })
+        assertTrue(kali.single().analysisKinds.contains("KALI_NIGHT"))
+        assertTrue(kali.single().analysisKinds.contains("KALI_SATURDAY"))
+        assertTrue(kali.single().analysisKinds.contains("KALI_SUNDAY"))
         assertTrue(acco.single().analysisKinds.contains("ACCO_EXTRACT_CANDIDATES"))
     }
 
