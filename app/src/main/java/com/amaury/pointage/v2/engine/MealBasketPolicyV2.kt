@@ -85,10 +85,11 @@ object MealBasketPolicyV2 {
             )
         }
 
+        val confirmedAmount = requireNotNull(safeAmount)
         return Result(
             count = detected,
-            amountPerBasket = safeAmount,
-            totalAmount = safeAmount * detected,
+            amountPerBasket = confirmedAmount,
+            totalAmount = confirmedAmount * detected,
             detectedMorningDays = detected,
             morningEligibilityConfirmed = true
         )
