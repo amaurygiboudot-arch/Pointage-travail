@@ -8,9 +8,7 @@ import java.util.Locale
 
 /**
  * Parse un maintien maladie uniquement lorsque le texte KALI expose sans ambiguïté
- * la population, l'ancienneté, la base, les bandes jours/taux, la carence et les plafonds.
- *
- * Cette première version refuse volontairement les barèmes multi-paliers implicites.
+ * la population, l'ancienneté, la base, les bandes jours/taux, leur portée, la carence et les plafonds.
  */
 object OfficialKaliSicknessMaintenanceParserV2 {
     data class Diagnostic(
@@ -22,6 +20,7 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private data class ParsedRule(
         val minimumSeniorityMonths: Int,
         val bands: List<ConventionSicknessMaintenanceV2.Band>,
+        val bandConsumptionScope: ConventionSicknessMaintenanceV2.BandConsumptionScope,
         val referenceBasis: ConventionSicknessMaintenanceV2.ReferenceBasis,
         val waitingPolicy: ConventionSicknessMaintenanceV2.WaitingPolicy,
         val waitingDays: Int,
@@ -89,7 +88,8 @@ object OfficialKaliSicknessMaintenanceParserV2 {
                     minimumSeniorityMonths = candidate.minimumSeniorityMonths,
                     bands = candidate.bands,
                     annualLimitDays = candidate.annualLimitDays,
-                    perStopLimitDays = candidate.perStopLimitDays
+                    perStopLimitDays = candidate.perStopLimitDays,
+                    bandConsumptionScope = candidate.bandConsumptionScope
                 )
             ),
             referenceBasis = candidate.referenceBasis,
@@ -122,16 +122,19 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private fun parseWindow(window: String): ParsedRule? {
         val seniority = parseSingleSeniority(window) ?: return null
         val bands = parseBands(window) ?: return null
+        val scope = parseBandConsumptionScope(window) ?: return null
         val basis = parseReferenceBasis(window) ?: return null
         val waiting = parseWaiting(window) ?: return null
         val annualLimit = parseUniqueLimit(window, annualLimitRegexes) ?: return null
         val perStopLimit = parseUniqueLimit(window, perStopLimitRegexes) ?: return null
-        if (annualLimit !in 1..730 || perStopLimit !in 1..730) return null
+        if (annualLimit !in 1..366 || perStopLimit !in 1..366) return null
         if (bands.sumOf { it.calendarDays } > perStopLimit) return null
+        if (scope == ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE && annualLimit > bands.sumOf { it.calendarDays }) return null
         val ssAfter = parseOptionalSsThreshold(window)
         return ParsedRule(
             minimumSeniorityMonths = seniority,
             bands = bands,
+            bandConsumptionScope = scope,
             referenceBasis = basis,
             waitingPolicy = waiting.first,
             waitingDays = waiting.second,
@@ -156,12 +159,8 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private fun parseBands(text: String): List<ConventionSicknessMaintenanceV2.Band>? {
         val clauses = text.split(clauseSeparator).map(String::trim).filter(String::isNotBlank)
         val bands = clauses.flatMap { clause ->
-            val forward = dayRateRegex.findAll(clause).mapNotNull { match ->
-                band(match.groupValues[1], match.groupValues[2])
-            }.toList()
-            val reverse = rateDayRegex.findAll(clause).mapNotNull { match ->
-                band(match.groupValues[2], match.groupValues[1])
-            }.toList()
+            val forward = dayRateRegex.findAll(clause).mapNotNull { match -> band(match.groupValues[1], match.groupValues[2]) }.toList()
+            val reverse = rateDayRegex.findAll(clause).mapNotNull { match -> band(match.groupValues[2], match.groupValues[1]) }.toList()
             forward + reverse
         }.distinctBy { it.calendarDays to it.targetRate }
             .filter { it.calendarDays in 1..366 && it.targetRate in 0.0..1.0 }
@@ -173,12 +172,21 @@ object OfficialKaliSicknessMaintenanceParserV2 {
         val days = daysRaw.toIntOrNull() ?: return null
         val percent = rateRaw.replace(',', '.').toDoubleOrNull() ?: return null
         if (days !in 1..366 || percent !in 0.0..100.0) return null
-        val rate = percent / 100.0
         return ConventionSicknessMaintenanceV2.Band(
             calendarDays = days,
-            targetRate = rate,
+            targetRate = percent / 100.0,
             label = "Maintien conventionnel à ${formatPercent(percent)} % de la base de référence"
         )
+    }
+
+    private fun parseBandConsumptionScope(text: String): ConventionSicknessMaintenanceV2.BandConsumptionScope? {
+        val perStop = perStopBandScopeRegexes.any { it.containsMatchIn(text) }
+        val annual = annualBandScopeRegexes.any { it.containsMatchIn(text) }
+        return when {
+            perStop && !annual -> ConventionSicknessMaintenanceV2.BandConsumptionScope.PER_STOP
+            annual && !perStop -> ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
+            else -> null
+        }
     }
 
     private fun parseReferenceBasis(text: String): ConventionSicknessMaintenanceV2.ReferenceBasis? {
@@ -206,7 +214,7 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private fun parseUniqueLimit(text: String, regexes: List<Regex>): Int? {
         val values = regexes.flatMap { regex ->
             regex.findAll(text).mapNotNull { match -> match.groupValues.getOrNull(1)?.toIntOrNull() }.toList()
-        }.filter { it in 1..730 }.distinct()
+        }.filter { it in 1..366 }.distinct()
         return values.singleOrNull()
     }
 
@@ -227,14 +235,12 @@ object OfficialKaliSicknessMaintenanceParserV2 {
             else -> emptyList()
         }
         if (wantedPositions.isEmpty()) return emptyList()
-
         val hasOpposite = when (status) {
             "CADRE" -> nonCadreRegexes.any { it.containsMatchIn(text) }
             "NON_CADRE" -> cadreRegexes.any { it.containsMatchIn(textWithoutNonCadre) }
             else -> true
         }
         if (!hasOpposite) return listOf(text)
-
         return wantedPositions.map { position ->
             val start = (position - 450).coerceAtLeast(0)
             val end = (position + 2200).coerceAtMost(text.length)
@@ -244,29 +250,23 @@ object OfficialKaliSicknessMaintenanceParserV2 {
 
     private fun stripNonCadre(value: String): String {
         var out = value
-        nonCadreRegexes.forEach { regex ->
-            out = regex.replace(out) { match -> " ".repeat(match.value.length) }
-        }
+        nonCadreRegexes.forEach { regex -> out = regex.replace(out) { match -> " ".repeat(match.value.length) } }
         return out
     }
 
     private fun extensionStatus(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ConventionMinimumSalaryV2.ExtensionStatus =
         when (article.status.uppercase(Locale.ROOT)) {
-            "VIGUEUR_ETEN" -> if (article.extensionEffectiveFrom != null) {
-                ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-            } else {
-                ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
-            }
+            "VIGUEUR_ETEN" -> if (article.extensionEffectiveFrom != null) ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED else ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
             "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
             else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
         }
 
-    private fun mentionsSicknessMaintenance(text: String): Boolean =
-        sicknessWords.any(text::contains) && maintenanceWords.any(text::contains)
+    private fun mentionsSicknessMaintenance(text: String): Boolean = sicknessWords.any(text::contains) && maintenanceWords.any(text::contains)
 
     private fun fingerprint(value: ParsedRule): String = buildString {
         append(value.minimumSeniorityMonths).append('|')
         append(value.referenceBasis.name).append('|')
+        append(value.bandConsumptionScope.name).append('|')
         append(value.waitingPolicy.name).append(':').append(value.waitingDays).append('|')
         append(value.annualLimitDays).append(':').append(value.perStopLimitDays).append('|')
         value.bands.forEach { append(it.calendarDays).append(':').append(it.targetRate).append(';') }
@@ -287,11 +287,19 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     private val dayRateRegex = Regex("\\b(\\d{1,3})\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?(\\d{1,3}(?:[,.]\\d+)?)\\s*%")
     private val rateDayRegex = Regex("(\\d{1,3}(?:[,.]\\d+)?)\\s*%[^.;]{0,90}?\\b(\\d{1,3})\\s*jours?\\b")
 
+    private val perStopBandScopeRegexes = listOf(
+        Regex("(?:pour|au titre de)\\s+(?:chaque|un meme)\\s+arret[^.;]{0,120}?\\b\\d{1,3}\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?\\d{1,3}(?:[,.]\\d+)?\\s*%"),
+        Regex("\\b\\d{1,3}\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?\\d{1,3}(?:[,.]\\d+)?\\s*%[^.;]{0,120}?(?:pour|par)\\s+(?:chaque|un meme)\\s+arret")
+    )
+    private val annualBandScopeRegexes = listOf(
+        Regex("(?:sur l[' ]ensemble des arrets|cumul(?:e|es)? des arrets|au cours d[' ]une meme annee(?: civile)?)[^.;]{0,160}?\\b\\d{1,3}\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?\\d{1,3}(?:[,.]\\d+)?\\s*%"),
+        Regex("\\b\\d{1,3}\\s*(?:premiers?\\s*)?jours?\\b[^.;]{0,90}?\\d{1,3}(?:[,.]\\d+)?\\s*%[^.;]{0,160}?(?:sur l[' ]ensemble des arrets|cumul(?:e|es)? des arrets|au cours d[' ]une meme annee(?: civile)?)")
+    )
+
     private val fixedWaitingRegexes = listOf(
         Regex("(?:a chaque|pour chaque|pour tout)\\s+arret[^.;]{0,100}?(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?"),
         Regex("(?:carence|delai de carence)\\s+(?:de\\s+)?(\\d{1,2})\\s*jours?[^.;]{0,100}?(?:a chaque|pour chaque|pour tout)\\s+arret")
     )
-
     private val annualLimitRegexes = listOf(
         Regex("(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)[^.;]{0,120}?(?:total|limite|plafond|maximum|ne peut exceder)[^.;]{0,80}?(\\d{1,3})\\s*jours?"),
         Regex("(?:total|limite|plafond|maximum)[^.;]{0,80}?(\\d{1,3})\\s*jours?[^.;]{0,120}?(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)")
@@ -302,16 +310,9 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     )
     private val ssThresholdRegex = Regex("(?:securite sociale|assurance maladie)[^.;]{0,120}?(?:au[- ]dela de|apres|a partir de)\\s*(\\d{1,2})\\s*jours?")
 
-    private val cadreRegexes = listOf(
-        Regex("\\bcadres?\\b"),
-        Regex("\\bingenieurs?\\b")
-    )
+    private val cadreRegexes = listOf(Regex("\\bcadres?\\b"), Regex("\\bingenieurs?\\b"))
     private val nonCadreRegexes = listOf(
-        Regex("\\bnon[- ]cadres?\\b"),
-        Regex("\\bouvriers?\\b"),
-        Regex("\\bemployes?\\b"),
-        Regex("\\btechniciens?\\b"),
-        Regex("\\bagents? de maitrise\\b"),
-        Regex("\\betam\\b")
+        Regex("\\bnon[- ]cadres?\\b"), Regex("\\bouvriers?\\b"), Regex("\\bemployes?\\b"),
+        Regex("\\btechniciens?\\b"), Regex("\\bagents? de maitrise\\b"), Regex("\\betam\\b")
     )
 }
