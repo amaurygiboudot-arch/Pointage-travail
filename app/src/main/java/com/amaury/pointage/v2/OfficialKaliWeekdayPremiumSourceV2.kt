@@ -2,7 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.WeekdayPremiumKindV2
 
-/** Recherche KALI ciblée des majorations de samedi/dimanche. */
+/** Recherche KALI large par jour ; le parseur décide ensuite si une règle de paie est exploitable. */
 object OfficialKaliWeekdayPremiumSourceV2 {
     data class Candidate(
         val id: String,
@@ -27,8 +27,8 @@ object OfficialKaliWeekdayPremiumSourceV2 {
             ?: throw IllegalArgumentException("IDCC KALI invalide")
         require(pageNumber >= 1) { "Page KALI invalide" }
         val keyword = when (kind) {
-            WeekdayPremiumKindV2.SATURDAY -> "samedi majoration"
-            WeekdayPremiumKindV2.SUNDAY -> "dimanche majoration"
+            WeekdayPremiumKindV2.SATURDAY -> "samedi"
+            WeekdayPremiumKindV2.SUNDAY -> "dimanche"
         }
 
         return mapOf(
