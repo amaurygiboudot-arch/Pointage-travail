@@ -209,6 +209,27 @@ class AbsencePayrollImpactV2Test {
     }
 
     @Test
+    fun `conge paye marque sans maintien ne devient jamais absence non remuneree automatique`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 14),
+                    LocalDate.of(2026, 9, 18),
+                    treatment = AbsenceSalaryTreatmentV2.UNPAID,
+                    type = AbsencePayrollImpactV2.TYPE_PAID_LEAVE
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertEquals(0, result.unpaidFullCalendarDays)
+        assertFalse(result.hasUnpaidAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("traitement incohérent") })
+    }
+
+    @Test
     fun `arret maladie a confirmer bloque la paie sans inventer de retenue`() {
         val result = AbsencePayrollImpactV2.forMonth(
             listOf(
