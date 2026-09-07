@@ -7,10 +7,13 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
+import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import org.json.JSONArray
 import java.io.OutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
+import java.time.YearMonth
 import java.util.Calendar
 import java.util.Locale
 
@@ -103,23 +106,47 @@ object AnnualPdfReports {
     }
 
     /**
-     * Estimation annuelle de rémunération.
-     * Les heures sont limitées à l'employeur principal pour ne jamais mélanger
-     * deux contrats différents. Aucune convention inconnue n'est remplacée par
-     * une convention par défaut.
+     * Entrée historique conservée pour compatibilité. Les nouveaux appels doivent fournir
+     * explicitement l'entreprise V2 afin de ne jamais mélanger deux contrats.
      */
     fun writeSalary(context: Context, data: JSONArray, year: Int, out: OutputStream) {
+        writeSalary(context, data, year, out, company = null)
+    }
+
+    /** Estimation annuelle de rémunération limitée à l'entreprise V2 sélectionnée. */
+    fun writeSalary(
+        context: Context,
+        data: JSONArray,
+        year: Int,
+        out: OutputStream,
+        company: SalaryCompanyStore.Company?
+    ) {
         if (!HoraTrackV2.ENABLED) {
             writeSalaryLegacy(context, data, year, out)
             return
         }
 
-        val prefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        val profile = V2ProfileStore.load(context, 1)
-        val employerId = profile.employer?.id
-        val rate = profile.contract?.grossHourlyRate ?: prefDouble(prefs.all["hourly_rate"])
-        val idcc = profile.employer?.collectiveAgreementId
-            ?: prefs.getString("company_idcc", "").orEmpty().ifBlank { prefs.getString("convention_idcc", "").orEmpty() }
+        val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+        val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
+        val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
+        val acceptedEmployerIds = when {
+            company != null -> SalaryCompanyStore.acceptedEmployerIds(context, company.id)
+            legacyProfile?.employer?.id != null -> setOf(legacyProfile.employer!!.id)
+            else -> emptySet()
+        }
+        val rate = if (company != null) {
+            companyPrefs?.getString("hourly_rate", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        } else {
+            legacyProfile?.contract?.grossHourlyRate ?: prefDouble(legacyPrefs.all["hourly_rate"])
+        }
+        val idcc = if (company != null) {
+            company.idcc.ifBlank { companyPrefs?.getString("company_idcc", "").orEmpty() }
+        } else {
+            legacyProfile?.employer?.collectiveAgreementId
+                ?: legacyPrefs.getString("company_idcc", "").orEmpty().ifBlank {
+                    legacyPrefs.getString("convention_idcc", "").orEmpty()
+                }
+        }
         val convention = idcc.takeIf { it.isNotBlank() }?.let(ConventionCatalog::findByIdcc)
         val euro = NumberFormat.getCurrencyInstance(Locale.FRANCE)
 
@@ -134,7 +161,12 @@ object AnnualPdfReports {
         var y = 82f
 
         canvas.drawText("Cette estimation ne remplace pas un bulletin de paie.", 30f, y, normal)
-        y += 18f
+        y += 15f
+        company?.let {
+            canvas.drawText("Entreprise : ${it.name.ifBlank { "Non renseignée" }}${it.siret.takeIf(String::isNotBlank)?.let { s -> " • SIRET $s" }.orEmpty()}", 30f, y, small)
+            y += 15f
+        }
+        y += 3f
         canvas.drawRect(30f, y, 565f, y + 24, fill)
         val xs = floatArrayOf(34f, 150f, 255f, 350f, 455f)
         arrayOf("Mois", "Heures payées", "Heures sup.", "Brut estimé", "État des règles")
@@ -151,22 +183,45 @@ object AnnualPdfReports {
             val monthSessions = V2RuntimeStore.allSessions(context).filter { session ->
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
                 val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }
-                val correctEmployer = employerId == null || session.employerId == employerId
+                val correctEmployer = acceptedEmployerIds.isEmpty() || session.employerId in acceptedEmployerIds
                 correctEmployer && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month && session.realExitMs != null
             }
             val paid = monthSessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }
 
-            val salary = if (rate != null && rate > 0.0 && convention != null && profile.contract != null) {
-                V2SalaryAdapter.calculate(context, year, month, rate, convention)
-            } else null
+            val salary = when {
+                company != null && convention != null -> runCatching {
+                    V2SalaryAdapter.calculateForCompany(context, company, year, month, convention)
+                }.getOrNull()
+                company == null && rate != null && rate > 0.0 && convention != null && legacyProfile?.contract != null -> runCatching {
+                    V2SalaryAdapter.calculate(context, year, month, rate, convention)
+                }.getOrNull()
+                else -> null
+            }
             val overtime = salary?.overtimeTiers?.sumOf { it.durationMs } ?: 0L
-            val gross = salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross
+            val gross = salary?.takeIf { it.monthlyGrossReliable }?.let { reliable ->
+                if (company == null) {
+                    reliable.monthlyEstimatedGross
+                } else {
+                    val overrides = CompanyPayrollOverridesV2.load(
+                        context,
+                        company.id,
+                        YearMonth.of(year, month + 1).atEndOfMonth()
+                    )
+                    runCatching {
+                        NetSalaryEngineV2.calculate(
+                            reliable.monthlyEstimatedGross,
+                            year,
+                            overrides,
+                            reliable.complementaryMinutes
+                        ).gross
+                    }.getOrNull() ?: reliable.monthlyEstimatedGross
+                }
+            }
             val state = when {
-                profile.contract == null -> "Contrat à compléter"
-                rate == null || rate <= 0.0 -> "Taux manquant"
                 convention == null -> "Convention à confirmer"
-                salary?.monthlyGrossReliable == false -> "Brut à confirmer"
-                salary?.warnings?.isNotEmpty() == true -> "À confirmer"
+                salary == null -> "Contrat à compléter"
+                salary.monthlyGrossReliable == false -> "Brut à confirmer"
+                salary.warnings.isNotEmpty() -> "À confirmer"
                 else -> "OK"
             }
             if (state != "OK") ruleWarnings++
@@ -194,7 +249,7 @@ object AnnualPdfReports {
         canvas.drawText("TOTAL ANNÉE", 38f, y + 17, header)
         canvas.drawText("Temps payé : ${dur(annualPaid)} • heures sup. confirmées : ${dur(annualOvertime)}", 38f, y + 35, header)
         canvas.drawText(
-            if (grossMonths > 0) "Brut estimé cumulé sur $grossMonths mois calculables : ${euro.format(annualGross)}" else "Brut annuel non calculé : fiche Salaire ou règles à compléter",
+            if (grossMonths > 0) "Brut social estimé cumulé sur $grossMonths mois calculables : ${euro.format(annualGross)}" else "Brut annuel non calculé : fiche Salaire ou règles à compléter",
             38f,
             y + 52,
             header
@@ -203,7 +258,7 @@ object AnnualPdfReports {
         if (ruleWarnings > 0) {
             canvas.drawText("$ruleWarnings mois comportent une règle manquante ou à confirmer : HoraTrack n'a appliqué aucune valeur par défaut.", 30f, y, small)
         } else {
-            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions HoraTrack de l'employeur.", 30f, y, small)
+            canvas.drawText("Calcul basé uniquement sur le contrat, la convention confirmée et les sessions HoraTrack de l'employeur sélectionné.", 30f, y, small)
         }
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)

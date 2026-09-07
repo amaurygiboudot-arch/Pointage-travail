@@ -44,7 +44,6 @@
         <activity android:name=".SalaryAuthActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
         <activity android:name=".FirebaseAccountActivity" android:exported="false" />
         <activity android:name=".OwnerFeedbackActivity" android:exported="false" />
-        <activity android:name=".SalaryActivity" android:exported="false" />
         <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
         <activity android:name=".V2RestoreActivity" android:exported="false" />
         <activity android:name=".V2PayslipImportActivity" android:exported="false" />

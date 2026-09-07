@@ -4,7 +4,6 @@
 # Conserver les composants Android instanciés par le framework.
 -keep class com.amaury.pointage.PointageApplication { *; }
 -keep class com.amaury.pointage.MainActivity { *; }
--keep class com.amaury.pointage.SalaryActivity { *; }
 -keep class com.amaury.pointage.DriveFolderPickerActivity { *; }
 -keep class com.amaury.pointage.BackgroundPickerActivity { *; }
 -keep class com.amaury.pointage.PdfPreviewActivity { *; }
