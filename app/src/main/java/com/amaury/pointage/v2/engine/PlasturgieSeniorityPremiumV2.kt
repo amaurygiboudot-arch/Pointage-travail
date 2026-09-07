@@ -18,8 +18,32 @@ import java.time.temporal.ChronoUnit
 object PlasturgieSeniorityPremiumV2 {
     const val IDCC = "292"
     private const val RATE_PER_YEAR = 0.008
-    private const val SOURCE = "Légifrance — IDCC 292, avenant collaborateurs, article 14 / accord du 28 juin 2011 étendu"
+    private const val SOURCE = "Légifrance — IDCC 292, article 14 en vigueur étendu depuis le 28/06/2011, Annexe XI accord du 28/06/2011"
     private val STEPS = listOf(3, 6, 9, 12, 15)
+    private val COLLABORATOR_COEFFICIENTS = listOf(700, 710, 720, 730, 740, 750, 800, 810, 820, 830)
+
+    /**
+     * Projection non destructive de la règle Plasturgie déjà auditée dans le
+     * moteur conventionnel générique. L'extension a été publiée au JORF le
+     * 05/01/2012 ; avant cette date elle n'est pas supposée opposable à une
+     * entreprise dont l'applicabilité particulière n'est pas confirmée.
+     */
+    fun genericRules(): List<ConventionSeniorityPremiumV2.Rule> = COLLABORATOR_COEFFICIENTS.map { coefficient ->
+        ConventionSeniorityPremiumV2.Rule(
+            idcc = IDCC,
+            ruleId = "builtin_292_seniority_$coefficient",
+            effectiveFrom = LocalDate.of(2011, 6, 28),
+            classification = ConventionClassificationV2(coefficient = coefficient),
+            basis = ConventionSeniorityPremiumV2.Basis.ACTUAL_MONTHLY_BASE,
+            steps = STEPS.map { years ->
+                ConventionSeniorityPremiumV2.Step(years = years, rate = years * RATE_PER_YEAR)
+            },
+            includeConfirmedMonthlySupplement = true,
+            source = SOURCE,
+            extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
+            extensionEffectiveFrom = LocalDate.of(2012, 1, 5)
+        )
+    }
 
     data class Result(
         val applicable: Boolean,
