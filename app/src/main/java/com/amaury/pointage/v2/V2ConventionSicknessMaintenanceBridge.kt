@@ -94,6 +94,7 @@ object V2ConventionSicknessMaintenanceBridge {
         eligibilityConfirmed = true,
         reliable = true,
         selectedRule = null,
+        referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.UNKNOWN,
         employerWaitingDays = null,
         firstRecordedStopOfYear = null,
         annualLimitDays = 0,
