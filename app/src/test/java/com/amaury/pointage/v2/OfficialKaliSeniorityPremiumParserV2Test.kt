@@ -11,6 +11,7 @@ import java.time.LocalDate
 
 class OfficialKaliSeniorityPremiumParserV2Test {
     private val auditDate = LocalDate.of(2026, 9, 30)
+    private val extensionDate = LocalDate.of(2026, 2, 1)
 
     private fun profile(coefficient: Int = 800) = ConventionLegalProfileV2(
         companyId = "c1", idcc = "292", siret = "12345678901234",
@@ -22,15 +23,19 @@ class OfficialKaliSeniorityPremiumParserV2Test {
         weeklyHours = 35.0, forfaitAnnualHours = null, forfaitAnnualDays = null
     )
 
-    private fun article(content: String, status: String = "VIGUEUR_ETEN") =
-        OfficialKaliOvertimeRuleParserV2.VerifiedArticle(
-            articleId = "KALIARTI000000000002",
-            status = status,
-            content = content,
-            effectiveFrom = LocalDate.of(2026, 1, 1),
-            effectiveTo = null,
-            title = "Prime d'ancienneté"
-        )
+    private fun article(
+        content: String,
+        status: String = "VIGUEUR_ETEN",
+        extension: LocalDate? = extensionDate
+    ) = OfficialKaliOvertimeRuleParserV2.VerifiedArticle(
+        articleId = "KALIARTI000000000002",
+        status = status,
+        content = content,
+        effectiveFrom = LocalDate.of(2026, 1, 1),
+        effectiveTo = null,
+        title = "Prime d'ancienneté",
+        extensionEffectiveFrom = extension
+    )
 
     @Test
     fun `explicit percentage steps on actual base are structured`() {
@@ -44,7 +49,22 @@ class OfficialKaliSeniorityPremiumParserV2Test {
         assertEquals(0.024, rule.steps[0].rate!!, 0.00001)
         assertEquals(9, rule.steps.last().years)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, rule.extensionStatus)
-        assertEquals(auditDate, rule.extensionEffectiveFrom)
+        assertEquals(extensionDate, rule.extensionEffectiveFrom)
+    }
+
+    @Test
+    fun `extended status without exact extension date stays unknown`() {
+        val result = OfficialKaliSeniorityPremiumParserV2.parse(
+            article(
+                "Prime d'ancienneté des non-cadres coefficient 800, calculée sur le salaire de base mensuel : 3 ans 2,4 %.",
+                extension = null
+            ),
+            profile(), auditDate
+        )
+        val rule = result.rule!!
+        assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN, rule.extensionStatus)
+        assertNull(rule.extensionEffectiveFrom)
+        assertTrue(result.reasons.any { it.contains("date exacte d'extension") })
     }
 
     @Test
@@ -80,7 +100,11 @@ class OfficialKaliSeniorityPremiumParserV2Test {
     @Test
     fun `non extended status remains non extended`() {
         val result = OfficialKaliSeniorityPremiumParserV2.parse(
-            article("Prime d'ancienneté des non-cadres coefficient 800, calculée sur le salaire de base : 3 ans 3 %.", "VIGUEUR_NON_ETEN"),
+            article(
+                "Prime d'ancienneté des non-cadres coefficient 800, calculée sur le salaire de base : 3 ans 3 %.",
+                status = "VIGUEUR_NON_ETEN",
+                extension = null
+            ),
             profile(), auditDate
         )
         val rule = result.rule!!
