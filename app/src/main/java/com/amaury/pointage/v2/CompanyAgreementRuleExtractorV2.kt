@@ -11,6 +11,7 @@ object CompanyAgreementRuleExtractorV2 {
         WORKING_TIME,
         OVERTIME,
         NIGHT,
+        SATURDAY,
         SUNDAY,
         PAID_LEAVE,
         RTT
@@ -29,6 +30,7 @@ object CompanyAgreementRuleExtractorV2 {
         Category.WORKING_TIME to listOf("durée du travail", "temps de travail", "horaire", "annualisation", "modulation"),
         Category.OVERTIME to listOf("heure supplémentaire", "heures supplémentaires", "majoration"),
         Category.NIGHT to listOf("travail de nuit", "heures de nuit", "majoration de nuit"),
+        Category.SATURDAY to listOf("travail du samedi", "samedi", "majoration samedi"),
         Category.SUNDAY to listOf("travail du dimanche", "dimanche", "majoration dimanche"),
         Category.PAID_LEAVE to listOf("congé payé", "congés payés", "jour férié", "jours fériés"),
         Category.RTT to listOf("rtt", "réduction du temps de travail", "jour de repos", "jours de repos")
