@@ -2,11 +2,13 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
+import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.ContractTypeV2
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -41,7 +43,9 @@ object CompanyPayrollOverridesV2 {
         /** Affiliation explicitement confirmée au régime local Alsace-Moselle. null = à confirmer. */
         val alsaceMoselleLocalRegime:Boolean?=null,
         /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
-        val atMpEmployerRate:Double?=null
+        val atMpEmployerRate:Double?=null,
+        /** Valeur brute des avantages en nature applicables à la période. */
+        val benefitsInKindGross:Double=0.0
     )
 
     fun load(
@@ -91,6 +95,7 @@ object CompanyPayrollOverridesV2 {
             "NO" -> false
             else -> null
         }
+        val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,YearMonth.from(referenceDate))
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -119,6 +124,7 @@ object CompanyPayrollOverridesV2 {
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
             if(alsaceMoselleLocalRegime==null)add("Régime local Alsace-Moselle : affiliation à confirmer (oui/non)")
             if(atMpEmployerRate==null)add("AT/MP employeur : taux de l'établissement non renseigné ; coût employeur incomplet")
+            addAll(benefitsInKind.warnings)
             addAll(protectionCategory.warnings)
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
@@ -146,7 +152,8 @@ object CompanyPayrollOverridesV2 {
             protectionCategory=protectionCategory,
             warnings=warnings,
             alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
-            atMpEmployerRate=atMpEmployerRate
+            atMpEmployerRate=atMpEmployerRate,
+            benefitsInKindGross=benefitsInKind.totalGross
         )
     }
 
