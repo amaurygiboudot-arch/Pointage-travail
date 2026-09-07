@@ -19,7 +19,8 @@ object SocialContributionCatalogV2 {
         val base: Base,
         val validFromYear: Int,
         val validToYear: Int? = null,
-        val source: String
+        val source: String,
+        val employerRate: Double = 0.0
     )
 
     data class Line(
@@ -28,7 +29,9 @@ object SocialContributionCatalogV2 {
         val baseAmount: Double,
         val rate: Double,
         val employeeAmount: Double,
-        val source: String
+        val source: String,
+        val employerRate: Double = 0.0,
+        val employerAmount: Double = 0.0
     )
 
     data class Estimate(
@@ -36,12 +39,13 @@ object SocialContributionCatalogV2 {
         val employeeDeductions: Double,
         val netBeforeIncomeTax: Double,
         val lines: List<Line>,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val employerContributions: Double = 0.0
     )
 
     private val rules2026 = listOf(
-        Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
-        Rule("old_age_capped", "Assurance vieillesse plafonnée", 0.0690, Base.GROSS_CAPPED_MONTHLY_PASS, 2026, 2026, "Urssaf - taux secteur privé 2026"),
+        Rule("old_age_uncapped", "Assurance vieillesse déplafonnée", 0.0040, Base.GROSS, 2026, 2026, "Urssaf - taux secteur privé 2026", employerRate = 0.0211),
+        Rule("old_age_capped", "Assurance vieillesse plafonnée", 0.0690, Base.GROSS_CAPPED_MONTHLY_PASS, 2026, 2026, "Urssaf - taux secteur privé 2026", employerRate = 0.0855),
         Rule("csg_deductible", "CSG déductible", 0.0680, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026"),
         Rule("csg_taxable", "CSG imposable", 0.0240, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026"),
         Rule("crds", "CRDS", 0.0050, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026")
@@ -100,7 +104,16 @@ object SocialContributionCatalogV2 {
                 Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross, monthlyPass)
                 Base.GROSS_CAPPED_MONTHLY_PASS -> min(safeGross, monthlyPass)
             }
-            Line(rule.id, rule.label, base, rule.employeeRate, base * rule.employeeRate, rule.source)
+            Line(
+                id = rule.id,
+                label = rule.label,
+                baseAmount = base,
+                rate = rule.employeeRate,
+                employeeAmount = base * rule.employeeRate,
+                source = rule.source,
+                employerRate = rule.employerRate,
+                employerAmount = base * rule.employerRate
+            )
         }
         val localLines = if (year == 2026 && alsaceMoselleLocalRegime == true && safeGross > 0.0) {
             listOf(
@@ -123,6 +136,7 @@ object SocialContributionCatalogV2 {
             lines = lines,
             warnings = buildList {
                 add("Couche 1/6 : ce net est volontairement partiel.")
+                add("Les parts patronales vieillesse 2026 sont intégrées séparément ; les autres cotisations patronales légales de base restent à compléter.")
                 add("L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.")
                 add("Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes.")
                 if (year == 2026 && alsaceMoselleLocalRegime == null) {
@@ -132,7 +146,8 @@ object SocialContributionCatalogV2 {
                     add("Régime local Alsace-Moselle confirmé : cotisation salariale maladie supplémentaire de 1,30 % appliquée au brut déplafonné.")
                 }
                 ceiling?.warnings?.let(::addAll)
-            }.distinct()
+            }.distinct(),
+            employerContributions = lines.sumOf { it.employerAmount }
         )
     }
 }
