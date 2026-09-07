@@ -13,6 +13,7 @@ object CompanyAgreementRuleExtractorV2 {
         NIGHT,
         SATURDAY,
         SUNDAY,
+        PUBLIC_HOLIDAY,
         PAID_LEAVE,
         RTT
     }
@@ -32,7 +33,8 @@ object CompanyAgreementRuleExtractorV2 {
         Category.NIGHT to listOf("travail de nuit", "heures de nuit", "majoration de nuit"),
         Category.SATURDAY to listOf("travail du samedi", "samedi", "majoration samedi"),
         Category.SUNDAY to listOf("travail du dimanche", "dimanche", "majoration dimanche"),
-        Category.PAID_LEAVE to listOf("congé payé", "congés payés", "jour férié", "jours fériés"),
+        Category.PUBLIC_HOLIDAY to listOf("jour férié", "jours fériés", "majoration jour férié", "majoration jours fériés"),
+        Category.PAID_LEAVE to listOf("congé payé", "congés payés"),
         Category.RTT to listOf("rtt", "réduction du temps de travail", "jour de repos", "jours de repos")
     )
 

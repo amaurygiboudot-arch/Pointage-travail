@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.CompanyAgreementRuleExtractorV2
 import com.amaury.pointage.v2.OfficialKaliNightRuleParserV2
 import com.amaury.pointage.v2.OfficialKaliOvertimeRuleParserV2
+import com.amaury.pointage.v2.OfficialKaliPublicHolidayPremiumRuleParserV2
 import com.amaury.pointage.v2.OfficialKaliWeekdayPremiumRuleParserV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -32,6 +33,15 @@ object CompanyAgreementPremiumRuleV2 {
         val rule: WeekdayPremiumRuleV2
     ) {
         val fingerprint: String = "${rule.kind.name}|${rule.multiplier}"
+    }
+
+    data class PublicHolidayRule(
+        val source: CompanyAgreementStructuredRuleV2.Rule,
+        val effectiveFrom: LocalDate,
+        val effectiveTo: LocalDate?,
+        val rule: PublicHolidayPremiumRuleV2
+    ) {
+        val fingerprint: String = "PUBLIC_HOLIDAY|${rule.multiplier}"
     }
 
     fun night(source: CompanyAgreementStructuredRuleV2.Rule): NightRule? {
@@ -72,6 +82,21 @@ object CompanyAgreementPremiumRuleV2 {
             effectiveFrom = dates.first,
             effectiveTo = dates.second,
             rule = WeekdayPremiumRuleV2(kind, candidate.multiplier)
+        )
+    }
+
+    fun publicHoliday(source: CompanyAgreementStructuredRuleV2.Rule): PublicHolidayRule? {
+        if (!source.calculationReady) return null
+        if (source.source.category != CompanyAgreementRuleExtractorV2.Category.PUBLIC_HOLIDAY) return null
+        val dates = dates(source) ?: return null
+        val article = asVerifiedArticle(source, dates.first, dates.second)
+        val candidate = OfficialKaliPublicHolidayPremiumRuleParserV2.analyzeArticle(article).candidate ?: return null
+        if (!candidate.calculationReady) return null
+        return PublicHolidayRule(
+            source = source,
+            effectiveFrom = dates.first,
+            effectiveTo = dates.second,
+            rule = PublicHolidayPremiumRuleV2(candidate.multiplier)
         )
     }
 

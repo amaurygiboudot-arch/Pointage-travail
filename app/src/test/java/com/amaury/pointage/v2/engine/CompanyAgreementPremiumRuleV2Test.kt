@@ -65,6 +65,30 @@ class CompanyAgreementPremiumRuleV2Test {
     }
 
     @Test
+    fun `accord jour ferie uniforme valide devient candidat calculable`() {
+        val structured = CompanyAgreementStructuredRuleV2.structure(
+            stored(
+                CompanyAgreementRuleExtractorV2.Category.PUBLIC_HOLIDAY,
+                "Les heures travaillées les jours fériés donnent lieu à une majoration de 50 %."
+            )
+        )
+        val rule = CompanyAgreementPremiumRuleV2.publicHoliday(structured)
+        assertNotNull(rule)
+        assertEquals(1.5, rule!!.rule.multiplier, 0.0001)
+    }
+
+    @Test
+    fun `accord jour ferie avec premier mai reste non calculable`() {
+        val structured = CompanyAgreementStructuredRuleV2.structure(
+            stored(
+                CompanyAgreementRuleExtractorV2.Category.PUBLIC_HOLIDAY,
+                "Les jours fériés sont majorés de 50 %, sauf le 1er mai."
+            )
+        )
+        assertNull(CompanyAgreementPremiumRuleV2.publicHoliday(structured))
+    }
+
+    @Test
     fun `valeur non explicitement validee reste bloquee`() {
         val structured = CompanyAgreementStructuredRuleV2.structure(
             stored(

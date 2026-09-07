@@ -50,6 +50,16 @@ class CollectivePremiumLegalArbitrationBridgeV2Test {
         checkedAtMs = 1L
     )
 
+    private fun holidayKali(multiplier: Double = 1.5) = ConventionPublicHolidayPremiumSnapshotV2(
+        idcc = "0292",
+        versionId = "KALI-PUBLIC-HOLIDAY-X",
+        sourceId = "legifrance:KALI:KALIARTIHOLIDAY",
+        effectiveFromEpochDay = LocalDate.of(2026, 1, 1).toEpochDay(),
+        effectiveToEpochDay = null,
+        rule = PublicHolidayPremiumRuleV2(multiplier),
+        checkedAtMs = 1L
+    )
+
     @Test
     fun `KALI seul reste bloque tant que ACCO est inconnu`() {
         val selection = CollectivePremiumLegalArbitrationBridgeV2.resolveWeekday(
@@ -140,5 +150,34 @@ class CollectivePremiumLegalArbitrationBridgeV2Test {
 
         assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, selection.resolution.state)
         assertNull(selection.selectedRule)
+    }
+
+    @Test
+    fun `jour ferie KALI seul reste bloque tant que ACCO est inconnu`() {
+        val selection = CollectivePremiumLegalArbitrationBridgeV2.resolvePublicHoliday(
+            company = companySnapshot(),
+            branch = holidayKali(),
+            referenceDate = date
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, selection.resolution.state)
+        assertNull(selection.selectedRule)
+    }
+
+    @Test
+    fun `accord entreprise jour ferie valide prime sur KALI`() {
+        val acco = companyRule(
+            CompanyAgreementRuleExtractorV2.Category.PUBLIC_HOLIDAY,
+            "Les heures travaillées les jours fériés donnent lieu à une majoration de 75 %."
+        )
+        val selection = CollectivePremiumLegalArbitrationBridgeV2.resolvePublicHoliday(
+            company = companySnapshot(listOf(acco)),
+            branch = holidayKali(1.5),
+            referenceDate = date
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.RESOLVED, selection.resolution.state)
+        assertEquals(PayrollLegalArbitratorV2.Source.ACCO, selection.resolution.selected!!.source)
+        assertEquals(1.75, selection.selectedRule!!.multiplier, 0.0001)
     }
 }

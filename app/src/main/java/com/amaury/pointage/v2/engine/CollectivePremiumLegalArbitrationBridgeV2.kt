@@ -3,16 +3,20 @@ package com.amaury.pointage.v2.engine
 import android.content.Context
 import com.amaury.pointage.v2.CompanyAgreementRuleExtractorV2
 import com.amaury.pointage.v2.V2ConventionNightRuleStore
+import com.amaury.pointage.v2.V2ConventionPublicHolidayPremiumStore
 import com.amaury.pointage.v2.V2ConventionWeekdayPremiumStore
 import java.time.LocalDate
 
 /**
- * Arbitrage des primes collectives nuit/samedi/dimanche avant calcul.
+ * Arbitrage des primes collectives nuit/samedi/dimanche/jours fériés avant calcul.
  *
  * Les règles KALI peuvent être parfaitement vérifiées sans prouver pour autant qu'aucun accord
  * d'entreprise plus prioritaire n'existe. Par conséquent, une règle KALI seule reste en revue tant
  * que l'absence ACCO applicable n'est pas explicitement établie. Les candidats ACCO, eux, doivent
  * déjà avoir été validés (période, périmètre et valeur) par la chaîne existante.
+ *
+ * Le régime légal propre au 1er mai n'est pas représenté par publicHoliday : il doit être arbitré
+ * séparément via LEGI avant toute valorisation du 1er mai travaillé.
  */
 object CollectivePremiumLegalArbitrationBridgeV2 {
     data class Selection<T>(
@@ -29,10 +33,11 @@ object CollectivePremiumLegalArbitrationBridgeV2 {
         val referenceDate: LocalDate,
         val night: Selection<NightPremiumRuleV2>,
         val saturday: Selection<WeekdayPremiumRuleV2>,
-        val sunday: Selection<WeekdayPremiumRuleV2>
+        val sunday: Selection<WeekdayPremiumRuleV2>,
+        val publicHoliday: Selection<PublicHolidayPremiumRuleV2>
     ) {
         val warnings: List<String>
-            get() = (night.warnings + saturday.warnings + sunday.warnings).distinct()
+            get() = (night.warnings + saturday.warnings + sunday.warnings + publicHoliday.warnings).distinct()
     }
 
     fun load(
@@ -50,6 +55,9 @@ object CollectivePremiumLegalArbitrationBridgeV2 {
         val weekdayHistory = runCatching { V2ConventionWeekdayPremiumStore.history(context) }.getOrNull()
         val branchSaturday = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SATURDAY, epochDay)
         val branchSunday = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SUNDAY, epochDay)
+        val branchPublicHoliday = runCatching {
+            V2ConventionPublicHolidayPremiumStore.history(context).applicable(idcc, epochDay)
+        }.getOrNull()
 
         return Snapshot(
             referenceDate = referenceDate,
@@ -65,7 +73,8 @@ object CollectivePremiumLegalArbitrationBridgeV2 {
                 branchSunday,
                 WeekdayPremiumKindV2.SUNDAY,
                 referenceDate
-            )
+            ),
+            publicHoliday = resolvePublicHoliday(company, branchPublicHoliday, referenceDate)
         )
     }
 
@@ -194,6 +203,63 @@ object CollectivePremiumLegalArbitrationBridgeV2 {
             selectedRule = selectedRule,
             selectedSourceId = selectedId?.let(sourceByCandidateId::get),
             warnings = selectionWarnings(label, resolution, branch != null, accoRules.isNotEmpty())
+        )
+    }
+
+    internal fun resolvePublicHoliday(
+        company: CompanyAgreementPayrollBridgeV2.Snapshot,
+        branch: ConventionPublicHolidayPremiumSnapshotV2?,
+        referenceDate: LocalDate,
+        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
+    ): Selection<PublicHolidayPremiumRuleV2> {
+        val accoRules = company.calculationReadyRules.mapNotNull(CompanyAgreementPremiumRuleV2::publicHoliday)
+        val ruleByCandidateId = linkedMapOf<String, PublicHolidayPremiumRuleV2>()
+        val sourceByCandidateId = linkedMapOf<String, String>()
+        val candidates = mutableListOf<PayrollLegalArbitratorV2.Candidate>()
+
+        accoRules.forEach { acco ->
+            val id = accoCandidateId(acco.source)
+            candidates += PayrollLegalArbitratorV2.Candidate(
+                id = id,
+                source = PayrollLegalArbitratorV2.Source.ACCO,
+                effectiveFrom = acco.effectiveFrom,
+                effectiveTo = acco.effectiveTo,
+                verified = true,
+                scopeConfirmed = true,
+                valueFingerprint = acco.fingerprint
+            )
+            ruleByCandidateId[id] = acco.rule
+            sourceByCandidateId[id] = "legifrance:ACCO:${acco.source.source.agreementId}"
+        }
+
+        branch?.let { kali ->
+            val id = "KALI:PUBLIC_HOLIDAY:${kali.versionId}"
+            candidates += PayrollLegalArbitratorV2.Candidate(
+                id = id,
+                source = PayrollLegalArbitratorV2.Source.KALI,
+                effectiveFrom = LocalDate.ofEpochDay(kali.effectiveFromEpochDay),
+                effectiveTo = kali.effectiveToEpochDay?.let(LocalDate::ofEpochDay),
+                verified = true,
+                scopeConfirmed = true,
+                valueFingerprint = "PUBLIC_HOLIDAY|${kali.rule.multiplier}"
+            )
+            ruleByCandidateId[id] = kali.rule
+            sourceByCandidateId[id] = kali.sourceId
+        }
+
+        val resolution = PayrollLegalArbitratorV2.resolve(
+            candidates = candidates,
+            referenceDate = referenceDate,
+            policy = PayrollLegalArbitratorV2.Policy.ENTERPRISE_PREVAILS_L2253_3,
+            sourceKnowledge = sourceKnowledge
+        )
+        val selectedId = resolution.selected?.id
+        val selectedRule = selectedId?.let(ruleByCandidateId::get)
+        return Selection(
+            resolution = resolution,
+            selectedRule = selectedRule,
+            selectedSourceId = selectedId?.let(sourceByCandidateId::get),
+            warnings = selectionWarnings("jours fériés", resolution, branch != null, accoRules.isNotEmpty())
         )
     }
 
