@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyApprenticeshipTaxStoreV2
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
+import com.amaury.pointage.v2.CompanyEmployerReductionStoreV2
 import com.amaury.pointage.v2.CompanyHealthFamilyStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
@@ -81,7 +82,13 @@ object CompanyPayrollOverridesV2 {
         val employerApprenticeshipBalanceRate:Double?=null,
         val employerApprenticeshipSource:String?=null,
         /** Avertissements patronaux taxe d'apprentissage, séparés du net salarié. */
-        val employerApprenticeshipWarnings:List<String> = emptyList()
+        val employerApprenticeshipWarnings:List<String> = emptyList(),
+        /** Montant total mensuel confirmé des réductions/exonérations patronales. */
+        val employerReductionAmount:Double?=null,
+        val employerReductionSource:String?=null,
+        val employerReductionNote:String?=null,
+        /** Avertissements propres aux réductions/exonérations, hors net salarié. */
+        val employerReductionWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -138,6 +145,7 @@ object CompanyPayrollOverridesV2 {
         val workforce=CompanyWorkforceContributionStoreV2.resolve(context,companyId,payrollMonth)
         val healthFamily=CompanyHealthFamilyStoreV2.resolve(context,companyId,payrollMonth)
         val apprenticeship=CompanyApprenticeshipTaxStoreV2.resolve(context,companyId,payrollMonth)
+        val reduction=CompanyEmployerReductionStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -213,7 +221,11 @@ object CompanyPayrollOverridesV2 {
             employerApprenticeshipPrincipalRate=apprenticeship.principalRate,
             employerApprenticeshipBalanceRate=apprenticeship.balanceRate,
             employerApprenticeshipSource=apprenticeship.source,
-            employerApprenticeshipWarnings=apprenticeship.warnings
+            employerApprenticeshipWarnings=apprenticeship.warnings,
+            employerReductionAmount=reduction.amount,
+            employerReductionSource=reduction.source,
+            employerReductionNote=reduction.note,
+            employerReductionWarnings=reduction.warnings
         )
     }
 
