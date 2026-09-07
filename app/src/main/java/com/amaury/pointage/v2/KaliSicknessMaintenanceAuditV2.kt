@@ -146,6 +146,7 @@ object KaliSicknessMaintenanceAuditV2 {
             append(tier.minimumSeniorityMonths).append(':')
             append(tier.annualLimitDays ?: -1).append(':')
             append(tier.perStopLimitDays ?: -1).append(':')
+            append(tier.bandConsumptionScope.name).append(':')
             tier.bands.forEach { band -> append(band.calendarDays).append('@').append(band.targetRate).append(',') }
             append(';')
         }
