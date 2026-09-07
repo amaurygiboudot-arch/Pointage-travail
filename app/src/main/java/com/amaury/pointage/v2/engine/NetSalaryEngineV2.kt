@@ -20,7 +20,8 @@ object NetSalaryEngineV2 {
         val complete: Boolean,
         val warnings: List<String>,
         val benefitsInKindDeduction: Double = 0.0,
-        val employerMobilityContribution: Double? = null
+        val employerMobilityContribution: Double? = null,
+        val complementaryRetirementEmployer: Double = 0.0
     )
 
     fun calculate(
@@ -90,8 +91,8 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP et versement mobilité sont exclusivement patronaux. L'avantage en nature augmente
-        // les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
+        // AT/MP, versement mobilité et retraite patronale sont exclusivement employeur. L'avantage en nature
+        // augmente les assiettes ci-dessus, mais n'est pas versé en espèces : on part uniquement du brut cash.
         val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -160,7 +161,8 @@ object NetSalaryEngineV2 {
             complete = warnings.isEmpty(),
             warnings = warnings,
             benefitsInKindDeduction = benefitsInKind,
-            employerMobilityContribution = mobility.employerAmount
+            employerMobilityContribution = mobility.employerAmount,
+            complementaryRetirementEmployer = retirement.employerContributions
         )
     }
 }
