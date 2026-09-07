@@ -13,15 +13,15 @@ import android.widget.LinearLayout
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
-import com.amaury.pointage.v2.CompanyPremiumStoreV2
-import com.amaury.pointage.v2.engine.CompanyPremiumResolverV2
+import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
+import com.amaury.pointage.v2.engine.CompanyBenefitInKindResolverV2
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.UUID
 
-/** Éditeur des primes brutes contractuelles/personnelles propres à une entreprise. */
-object CompanyPremiumDialogV2 {
+/** Éditeur des avantages en nature déjà valorisés pour la paie. */
+object CompanyBenefitInKindDialogV2 {
     private val monthFormatter = DateTimeFormatter.ofPattern("MM/uuuu", Locale.FRANCE)
 
     fun show(context: Context, companyId: String) {
@@ -31,17 +31,17 @@ object CompanyPremiumDialogV2 {
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
         }
         box.addView(TextView(context).apply {
-            text = "Ajoute uniquement les primes qui entrent dans le salaire brut. Les paniers, remboursements de frais et indemnités non intégrées au brut restent gérés séparément."
+            text = "Renseigne la valeur brute soumise à cotisations de l’avantage en nature telle qu’elle est confirmée par l’employeur, le bulletin ou une règle officielle. HoraTrack ne calcule pas automatiquement un forfait véhicule/logement/repas à partir d’informations incomplètes."
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
 
         var listDialog: AlertDialog? = null
-        val records = CompanyPremiumStoreV2.list(context, companyId)
+        val records = CompanyBenefitInKindStoreV2.list(context, companyId)
             .sortedWith(compareBy({ it.kind.name }, { it.label.lowercase(Locale.FRANCE) }))
         if (records.isEmpty()) {
             box.addView(TextView(context).apply {
-                text = "Aucune prime contractuelle/personnelle enregistrée."
+                text = "Aucun avantage en nature enregistré."
                 textSize = 13f
                 setPadding(0, dp(context, 4), 0, dp(context, 8))
             })
@@ -61,55 +61,46 @@ object CompanyPremiumDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
-            text = "AJOUTER UNE PRIME"
+            text = "AJOUTER UN AVANTAGE EN NATURE"
             setOnClickListener {
                 listDialog?.dismiss()
                 showEditor(context, companyId, null)
             }
         }, rowParams(context))
 
-        box.addView(Button(context).apply {
-            isAllCaps = false
-            text = "GÉRER LES AVANTAGES EN NATURE"
-            setOnClickListener {
-                listDialog?.dismiss()
-                CompanyBenefitInKindDialogV2.show(context, companyId)
-            }
-        }, rowParams(context))
-
         listDialog = AlertDialog.Builder(context)
-            .setTitle("Primes contractuelles / personnelles")
+            .setTitle("Avantages en nature")
             .setView(box)
             .setNegativeButton("FERMER", null)
             .create()
         listDialog.show()
     }
 
-    private fun showEditor(context: Context, companyId: String, existing: CompanyPremiumResolverV2.Record?) {
+    private fun showEditor(context: Context, companyId: String, existing: CompanyBenefitInKindResolverV2.Record?) {
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
-        val label = field(context, "Libellé — ex. prime qualité")
-        val amount = field(context, "Montant brut — ex. 80,00", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
+        val label = field(context, "Libellé — ex. véhicule de fonction")
+        val value = field(context, "Valeur brute soumise à cotisations — ex. 180,00", InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL)
         val kind = Spinner(context).apply {
-            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("Mensuelle", "Ponctuelle"))
+            adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, listOf("Mensuel", "Ponctuel"))
         }
         val start = field(context, "Mois de début — MM/AAAA")
         val end = field(context, "Mois de fin — MM/AAAA (facultatif)")
-        val payment = field(context, "Mois de versement — MM/AAAA")
+        val payment = field(context, "Mois d'application — MM/AAAA")
 
-        listOf(label, amount, kind, start, end, payment).forEach { box.addView(it, rowParams(context)) }
+        listOf(label, value, kind, start, end, payment).forEach { box.addView(it, rowParams(context)) }
         box.addView(TextView(context).apply {
-            text = "Une prime mensuelle est appliquée de son mois de début à son mois de fin inclus. Une prime ponctuelle n'est ajoutée que sur son mois de versement."
+            text = "La valeur de l’avantage augmente le brut soumis à cotisations mais n’est pas versée en espèces : elle sera retirée du net payé tout en restant dans le net imposable."
             textSize = 12f
             setPadding(0, dp(context, 6), 0, 0)
         })
 
         existing?.let { record ->
             label.setText(record.label)
-            amount.setText(record.grossAmount.toString().replace('.', ','))
-            kind.setSelection(if (record.kind == CompanyPremiumResolverV2.Kind.MONTHLY) 0 else 1)
+            value.setText(record.grossValue.toString().replace('.', ','))
+            kind.setSelection(if (record.kind == CompanyBenefitInKindResolverV2.Kind.MONTHLY) 0 else 1)
             start.setText(record.effectiveFrom?.let(::formatMonth).orEmpty())
             end.setText(record.effectiveTo?.let(::formatMonth).orEmpty())
             payment.setText(record.paymentMonth?.let(::formatMonth).orEmpty())
@@ -128,7 +119,7 @@ object CompanyPremiumDialogV2 {
         updateFields()
 
         val builder = AlertDialog.Builder(context)
-            .setTitle(if (existing == null) "Ajouter une prime" else "Modifier la prime")
+            .setTitle(if (existing == null) "Ajouter un avantage" else "Modifier l’avantage")
             .setView(box)
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)
@@ -141,9 +132,9 @@ object CompanyPremiumDialogV2 {
                     label.error = "Indique un libellé"
                     return@setOnClickListener
                 }
-                val grossAmount = amount.text.toString().trim().replace(',', '.').toDoubleOrNull()
-                if (grossAmount == null || !grossAmount.isFinite() || grossAmount <= 0.0) {
-                    amount.error = "Indique un montant brut positif"
+                val grossValue = value.text.toString().trim().replace(',', '.').toDoubleOrNull()
+                if (grossValue == null || !grossValue.isFinite() || grossValue <= 0.0) {
+                    value.error = "Indique une valeur brute positive"
                     return@setOnClickListener
                 }
 
@@ -154,30 +145,30 @@ object CompanyPremiumDialogV2 {
                     end.error = "Le mois de fin doit être après le début"
                     return@setOnClickListener
                 }
-                val paymentMonth = if (!monthly) parseRequiredMonth(payment, "Mois de versement invalide") ?: return@setOnClickListener else null
+                val paymentMonth = if (!monthly) parseRequiredMonth(payment, "Mois d'application invalide") ?: return@setOnClickListener else null
 
-                val record = CompanyPremiumResolverV2.Record(
-                    id = existing?.id ?: "premium_${UUID.randomUUID()}",
+                val record = CompanyBenefitInKindResolverV2.Record(
+                    id = existing?.id ?: "benefit_${UUID.randomUUID()}",
                     label = rawLabel,
-                    grossAmount = grossAmount,
-                    kind = if (monthly) CompanyPremiumResolverV2.Kind.MONTHLY else CompanyPremiumResolverV2.Kind.ONE_OFF,
+                    grossValue = grossValue,
+                    kind = if (monthly) CompanyBenefitInKindResolverV2.Kind.MONTHLY else CompanyBenefitInKindResolverV2.Kind.ONE_OFF,
                     effectiveFrom = startMonth,
                     effectiveTo = endMonth,
                     paymentMonth = paymentMonth
                 )
-                if (!CompanyPremiumStoreV2.save(context, companyId, record)) {
-                    Toast.makeText(context, "Échec de l'enregistrement de la prime", Toast.LENGTH_LONG).show()
+                if (!CompanyBenefitInKindStoreV2.save(context, companyId, record)) {
+                    Toast.makeText(context, "Échec de l'enregistrement de l'avantage", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
                 dialog.dismiss()
-                Toast.makeText(context, "Prime enregistrée", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Avantage en nature enregistré", Toast.LENGTH_SHORT).show()
                 show(context, companyId)
             }
             if (existing != null) {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-                    if (CompanyPremiumStoreV2.remove(context, companyId, existing.id)) {
+                    if (CompanyBenefitInKindStoreV2.remove(context, companyId, existing.id)) {
                         dialog.dismiss()
-                        Toast.makeText(context, "Prime supprimée", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Avantage supprimé", Toast.LENGTH_SHORT).show()
                         show(context, companyId)
                     } else {
                         Toast.makeText(context, "Échec de la suppression", Toast.LENGTH_LONG).show()
@@ -194,14 +185,14 @@ object CompanyPremiumDialogV2 {
         return parsed
     }
 
-    private fun recordLabel(record: CompanyPremiumResolverV2.Record): String = when (record.kind) {
-        CompanyPremiumResolverV2.Kind.MONTHLY -> buildString {
-            append(record.label).append(" — ").append(eur(record.grossAmount)).append(" brut/mois")
+    private fun recordLabel(record: CompanyBenefitInKindResolverV2.Record): String = when (record.kind) {
+        CompanyBenefitInKindResolverV2.Kind.MONTHLY -> buildString {
+            append(record.label).append(" — ").append(eur(record.grossValue)).append(" / mois")
             append("\nDu ").append(record.effectiveFrom?.let(::formatMonth) ?: "?")
             record.effectiveTo?.let { append(" au ").append(formatMonth(it)) }
         }
-        CompanyPremiumResolverV2.Kind.ONE_OFF ->
-            "${record.label} — ${eur(record.grossAmount)} brut\nVersement : ${record.paymentMonth?.let(::formatMonth) ?: "?"}"
+        CompanyBenefitInKindResolverV2.Kind.ONE_OFF ->
+            "${record.label} — ${eur(record.grossValue)}\nMois : ${record.paymentMonth?.let(::formatMonth) ?: "?"}"
     }
 
     private fun formatMonth(value: YearMonth): String = value.format(monthFormatter)

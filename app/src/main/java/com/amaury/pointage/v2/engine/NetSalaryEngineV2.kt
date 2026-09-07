@@ -18,7 +18,8 @@ object NetSalaryEngineV2 {
         val incomeTax: Double?,
         val netAfterIncomeTax: Double?,
         val complete: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val benefitsInKindDeduction: Double = 0.0
     )
 
     fun calculate(
@@ -27,6 +28,11 @@ object NetSalaryEngineV2 {
         company: CompanyPayrollOverridesV2.Snapshot,
         complementaryMinutes: Int? = null
     ): Result {
+        val cashGross = gross.coerceAtLeast(0.0)
+        val benefitsInKind = company.benefitsInKindGross
+            .takeIf { it.isFinite() && it >= 0.0 }
+            ?: 0.0
+        val contributionGross = cashGross + benefitsInKind
         val ceiling = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
                 year = year,
@@ -40,34 +46,34 @@ object NetSalaryEngineV2 {
             )
         )
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
         )
         val retirement = ComplementaryRetirementCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
             protectionCategory = company.protectionCategory
         )
         val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
             protectionCategory = company.protectionCategory
         )
         val conventionProvident = ConventionProvidentCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             idcc = company.idcc,
             protectionCategory = company.protectionCategory,
             seniorityMonths = company.seniorityMonths,
             ceiling = ceiling
         )
-        val atMp = EmployerAtMpContributionV2.calculate(gross, company.atMpEmployerRate)
+        val atMp = EmployerAtMpContributionV2.calculate(contributionGross, company.atMpEmployerRate)
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
         // Le minimum n'est donc jamais ajouté une seconde fois.
@@ -82,8 +88,9 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
-        // AT/MP est exclusivement patronale : elle n'entre jamais dans cette soustraction.
-        val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
+        // AT/MP est exclusivement patronale. L'avantage en nature augmente les assiettes ci-dessus,
+        // mais n'est pas versé en espèces : on part donc uniquement du brut cash pour calculer le net payé.
+        val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
         val nonDeductibleCsgCrds = statutory.lines
@@ -97,11 +104,11 @@ object NetSalaryEngineV2 {
             company.employerProtectionTaxableAmount != null &&
             company.employeeProvidentNonDeductibleAmount != null
 
-        // Référence Urssaf / DSN : net + CSG/CRDS non déductible + part employeur de
-        // prévoyances complémentaires + éventuelle part salariale de prévoyance non déductible.
+        // Même non versé en espèces, l'avantage en nature reste une rémunération imposable.
         val netTaxable = if (taxableCompanyDataComplete) {
             (
                 beforeTax +
+                    benefitsInKind +
                     nonDeductibleCsgCrds +
                     company.employerProtectionTaxableAmount!! +
                     company.employeeProvidentNonDeductibleAmount!!
@@ -132,7 +139,7 @@ object NetSalaryEngineV2 {
         }.distinct()
 
         return Result(
-            gross = gross,
+            gross = contributionGross,
             socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
             socialSecurityCeilingComplete = ceiling.complete,
             statutory = statutory.employeeDeductions,
@@ -147,7 +154,8 @@ object NetSalaryEngineV2 {
             incomeTax = tax,
             netAfterIncomeTax = tax?.let { (beforeTax - it).coerceAtLeast(0.0) },
             complete = warnings.isEmpty(),
-            warnings = warnings
+            warnings = warnings,
+            benefitsInKindDeduction = benefitsInKind
         )
     }
 }
