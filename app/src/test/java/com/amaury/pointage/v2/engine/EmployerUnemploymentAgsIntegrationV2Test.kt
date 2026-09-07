@@ -49,6 +49,9 @@ class EmployerUnemploymentAgsIntegrationV2Test {
         assertEquals(without.netBeforeIncomeTax, withRates.netBeforeIncomeTax, 0.001)
         assertEquals(without.netTaxable!!, withRates.netTaxable!!, 0.001)
         assertEquals(without.netAfterIncomeTax!!, withRates.netAfterIncomeTax!!, 0.001)
-        assertTrue(withRates.employerCostWarnings.none { it.contains("taux confirmés manquants", ignoreCase = true) })
+        assertTrue(withRates.employerCostWarnings.none {
+            it.contains("Chômage/AGS employeur", ignoreCase = true) &&
+                it.contains("taux confirmés manquants", ignoreCase = true)
+        })
     }
 }
