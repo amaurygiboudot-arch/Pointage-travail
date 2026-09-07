@@ -15,13 +15,14 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     private fun profile(
         coefficient: Int = 800,
-        status: String = "NON_CADRE"
+        status: String = "NON_CADRE",
+        classification: ConventionClassificationV2 = ConventionClassificationV2(coefficient = coefficient)
     ) = ConventionLegalProfileV2(
         companyId = "c1",
         idcc = "9998",
         siret = "12345678901234",
         professionalStatus = status,
-        classification = ConventionClassificationV2(coefficient = coefficient),
+        classification = classification,
         contractType = "CDI",
         entryDate = LocalDate.of(2020, 1, 1),
         conventionSeniorityDate = LocalDate.of(2020, 1, 1),
@@ -84,6 +85,41 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
     }
 
     @Test
+    fun `article non cadre sans classification ne peut jamais matcher un cadre`() {
+        val text = statusOnlyText("Non-cadres")
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
+            article(text),
+            profile(status = "CADRE", classification = ConventionClassificationV2()),
+            auditDate
+        )
+        assertNull(diagnostic.rule)
+    }
+
+    @Test
+    fun `article non cadre sans classification peut matcher seulement un non cadre`() {
+        val text = statusOnlyText("Non-cadres")
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2()),
+            auditDate
+        )
+        assertNotNull(diagnostic.rule)
+        assertTrue(diagnostic.rule!!.classification.isEmpty())
+        assertEquals("NON_CADRE", diagnostic.rule!!.professionalStatus)
+    }
+
+    @Test
+    fun `article cadre sans classification ne peut jamais matcher un non cadre`() {
+        val text = statusOnlyText("Cadres")
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2()),
+            auditDate
+        )
+        assertNull(diagnostic.rule)
+    }
+
+    @Test
     fun `plusieurs paliers ancienneté sont refusés tant qu ils ne sont pas reliés sans ambiguïté`() {
         val text = validText() + " Après 5 ans d'ancienneté, les durées sont augmentées."
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
@@ -92,14 +128,21 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     @Test
     fun `plafond annuel manquant bloque la règle`() {
-        val text = validText().replace("Au cours d'une même année civile, le total ne peut excéder 90 jours. ", "")
+        val text = validText().replace("Au cours d'une même année civile, le total ne peut excéder 90 jours.", "")
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
         assertNull(diagnostic.rule)
     }
 
     @Test
     fun `plafond par arrêt manquant bloque la règle`() {
-        val text = validText().replace("Pour chaque arrêt, le total ne peut excéder 60 jours. ", "")
+        val text = validText().replace("Pour chaque arrêt, le total ne peut excéder 60 jours.", "")
+        val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
+        assertNull(diagnostic.rule)
+    }
+
+    @Test
+    fun `carence ne peut pas être confondue avec plafond par arrêt`() {
+        val text = validText().replace("Pour chaque arrêt, le total ne peut excéder 60 jours.", "")
         val diagnostic = OfficialKaliSicknessMaintenanceParserV2.parse(article(text), profile(), auditDate)
         assertNull(diagnostic.rule)
     }
@@ -125,6 +168,15 @@ class OfficialKaliSicknessMaintenanceParserV2Test {
 
     private fun validText() = """
         Non-cadres - coefficient 800. En cas de maladie ou d'arrêt de travail dûment justifié,
+        le salarié ayant au moins 12 mois d'ancienneté bénéficie d'un maintien de salaire
+        sur la base du salaire brut. Pour chaque arrêt, un délai de carence de 3 jours est appliqué.
+        Les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
+        Pour chaque arrêt, le total ne peut excéder 60 jours.
+        Au cours d'une même année civile, le total ne peut excéder 90 jours.
+    """.trimIndent()
+
+    private fun statusOnlyText(status: String) = """
+        $status. En cas de maladie ou d'arrêt de travail dûment justifié,
         le salarié ayant au moins 12 mois d'ancienneté bénéficie d'un maintien de salaire
         sur la base du salaire brut. Pour chaque arrêt, un délai de carence de 3 jours est appliqué.
         Les 30 premiers jours sont indemnisés à 100 % puis les 30 jours suivants à 75 %.
