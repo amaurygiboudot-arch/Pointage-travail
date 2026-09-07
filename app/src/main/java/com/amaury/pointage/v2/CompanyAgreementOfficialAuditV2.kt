@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.functions.HttpsCallableResult
 
 /**
  * Réanalyse officielle ACCO d'une entreprise : recherche par SIRET, consultation exacte,
@@ -10,7 +11,6 @@ import com.google.android.gms.tasks.Tasks
  */
 object CompanyAgreementOfficialAuditV2 {
     private const val PAGE_SIZE = 25
-    private const val MAX_PAGES = 20
 
     data class Summary(
         val siret: String,
@@ -101,7 +101,7 @@ object CompanyAgreementOfficialAuditV2 {
                         if (!searchStored) add("ACCO : résultat de recherche reçu mais stockage local impossible.")
                         if (!agreementStoreSaved) add("ACCO : accords vérifiés reçus mais stockage local impossible.")
                         if (search.candidates.isEmpty() && search.complete) {
-                            add("ACCO : aucun accord candidat exploitable trouvé pour ce SIRET ; cela ne constitue pas une preuve d'absence d'accord interne.")
+                            add("ACCO : recherche officielle parcourue jusqu'à son terme sans accord candidat exploitable pour ce SIRET ; cela ne constitue pas une preuve d'absence d'accord interne.")
                         }
                         if (consult.verifiedAgreements.isNotEmpty()) {
                             add("ACCO : les passages de paie extraits restent des candidats à valider ; aucune valeur n'est appliquée automatiquement.")
@@ -125,7 +125,7 @@ object CompanyAgreementOfficialAuditV2 {
 
     internal fun searchBody(siret: String, pageNumber: Int, pageSize: Int = PAGE_SIZE): Map<String, Any> {
         val normalized = normalizeSiret(siret) ?: return emptyMap()
-        val safePage = pageNumber.coerceIn(1, MAX_PAGES)
+        val safePage = pageNumber.coerceAtLeast(1)
         val safeSize = pageSize.coerceIn(1, PAGE_SIZE)
         return mapOf(
             "fond" to "ACCO",
@@ -168,7 +168,7 @@ object CompanyAgreementOfficialAuditV2 {
         firstPageData: Any? = null,
         warnings: List<String> = emptyList()
     ): Task<SearchBatch> {
-        return LegifranceFunctionClientV2.request("/search", searchBody(siret, pageNumber))
+        return requestWithRetry("/search", searchBody(siret, pageNumber))
             .continueWithTask { task ->
                 if (!task.isSuccessful) {
                     return@continueWithTask Tasks.forResult(
@@ -177,7 +177,8 @@ object CompanyAgreementOfficialAuditV2 {
                             pagesRead = pagesRead,
                             complete = false,
                             firstPageData = firstPageData,
-                            warnings = warnings + "ACCO : page $pageNumber de la recherche officielle indisponible."
+                            warnings = warnings +
+                                "ACCO : page $pageNumber de la recherche officielle indisponible après deux tentatives."
                         )
                     )
                 }
@@ -188,31 +189,22 @@ object CompanyAgreementOfficialAuditV2 {
                 val rawCount = rawResultCount(data)
                 val newPagesRead = pagesRead + 1
                 val initialData = firstPageData ?: data
+                val noProgress = rawCount > 0 && merged.size == accumulated.size
 
                 if (rawCount < PAGE_SIZE) {
                     return@continueWithTask Tasks.forResult(
                         SearchBatch(merged, newPagesRead, true, initialData, warnings)
                     )
                 }
-                if (pageNumber >= MAX_PAGES) {
+                if (noProgress) {
                     return@continueWithTask Tasks.forResult(
                         SearchBatch(
                             merged,
                             newPagesRead,
                             false,
                             initialData,
-                            warnings + "ACCO : limite de pagination atteinte ; la recherche reste incomplète."
-                        )
-                    )
-                }
-                if (merged.size == accumulated.size) {
-                    return@continueWithTask Tasks.forResult(
-                        SearchBatch(
-                            merged,
-                            newPagesRead,
-                            false,
-                            initialData,
-                            warnings + "ACCO : page pleine sans nouvel identifiant ACCOTEXT ; arrêt prudent de la pagination."
+                            warnings +
+                                "ACCO : page pleine sans nouvel identifiant ACCOTEXT ; arrêt prudent pour éviter une boucle de pagination."
                         )
                     )
                 }
@@ -239,12 +231,13 @@ object CompanyAgreementOfficialAuditV2 {
         if (index >= candidates.size) return Tasks.forResult(accumulated)
         val candidate = candidates[index]
 
-        return LegifranceFunctionClientV2.request("/consult/acco", mapOf("id" to candidate.id))
+        return requestWithRetry("/consult/acco", mapOf("id" to candidate.id))
             .continueWithTask { task ->
                 val next = if (!task.isSuccessful) {
                     accumulated.copy(
                         transientFailures = accumulated.transientFailures + 1,
-                        warnings = accumulated.warnings + "ACCO : ${candidate.id} n'a pas pu être consulté ; nouvelle tentative nécessaire."
+                        warnings = accumulated.warnings +
+                            "ACCO : ${candidate.id} n'a pas pu être consulté après deux tentatives ; nouvelle analyse nécessaire."
                     )
                 } else {
                     val officialContent = OfficialAgreementContentParserV2.extractVerified(task.result?.data, siret)
@@ -277,6 +270,19 @@ object CompanyAgreementOfficialAuditV2 {
                 consultSequential(context, companyId, siret, candidates, index + 1, next)
             }
     }
+
+    private fun requestWithRetry(
+        path: String,
+        body: Map<String, Any?>
+    ): Task<HttpsCallableResult> =
+        LegifranceFunctionClientV2.request(path, body)
+            .continueWithTask { first ->
+                if (first.isSuccessful) {
+                    Tasks.forResult(first.result)
+                } else {
+                    LegifranceFunctionClientV2.request(path, body)
+                }
+            }
 
     internal fun rawResultCount(data: Any?): Int =
         (((data as? Map<*, *>)?.get("results")) as? List<*>)?.size ?: 0
