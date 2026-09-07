@@ -187,7 +187,8 @@ object OfficialKaliNightRuleParserV2 {
         "par accord d’établissement",
         "par accord d'etablissement",
         "selon la categorie",
-        "selon le coefficient"
+        "selon le coefficient",
+        "cumul"
     )
 
     private fun normalize(value: String): String = Normalizer.normalize(
