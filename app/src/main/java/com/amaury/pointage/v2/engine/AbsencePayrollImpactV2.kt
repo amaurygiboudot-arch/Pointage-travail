@@ -24,9 +24,12 @@ import java.util.Locale
  */
 object AbsencePayrollImpactV2 {
     const val TYPE_UNPAID = "ABSENCE_NON_REMUNEREE"
+    /** Maladie ordinaire uniquement. Les AT/trajet/maladies professionnelles ont leurs propres types. */
     const val TYPE_SICKNESS = "ARRET_MALADIE"
     const val TYPE_PAID_LEAVE = "CONGE_PAYE"
     const val TYPE_WORK_ACCIDENT = "ACCIDENT_TRAVAIL"
+    const val TYPE_COMMUTING_ACCIDENT = "ACCIDENT_TRAJET"
+    const val TYPE_OCCUPATIONAL_DISEASE = "MALADIE_PROFESSIONNELLE"
     const val TYPE_PARENTAL = "MATERNITE_PATERNITE"
     const val TYPE_OTHER = "AUTRE"
 
@@ -94,7 +97,7 @@ object AbsencePayrollImpactV2 {
 
             hasUnpaid = true
             requiresReview = true
-            if (absence.type == TYPE_SICKNESS || absence.type == TYPE_WORK_ACCIDENT || absence.type == TYPE_PARENTAL) {
+            if (absence.type in medicallyCompensatedTypes) {
                 warnings += "${label(absence.type)} sans maintien employeur : IJSS/indemnisation éventuelle à intégrer avant de calculer le net exact."
             }
             if (!absence.fullDay) {
@@ -134,6 +137,8 @@ object AbsencePayrollImpactV2 {
         TYPE_SICKNESS -> "Arrêt maladie"
         TYPE_PAID_LEAVE -> "Congé payé"
         TYPE_WORK_ACCIDENT -> "Accident du travail"
+        TYPE_COMMUTING_ACCIDENT -> "Accident de trajet"
+        TYPE_OCCUPATIONAL_DISEASE -> "Maladie professionnelle"
         TYPE_PARENTAL -> "Maternité / paternité"
         TYPE_OTHER -> "Autre absence"
         else -> "Absence"
@@ -148,10 +153,20 @@ object AbsencePayrollImpactV2 {
             }
             TYPE_PAID_LEAVE -> "Congé payé : l'indemnité doit être contrôlée selon la méthode applicable ; aucun montant n'est inventé."
             TYPE_WORK_ACCIDENT -> "Accident du travail avec $level : indemnisation et maintien applicables restent à vérifier."
+            TYPE_COMMUTING_ACCIDENT -> "Accident de trajet avec $level : indemnisation et maintien applicables restent à vérifier séparément de l'accident du travail."
+            TYPE_OCCUPATIONAL_DISEASE -> "Maladie professionnelle avec $level : indemnisation et maintien applicables restent à vérifier séparément de la maladie ordinaire."
             TYPE_PARENTAL -> "Maternité / paternité avec $level : indemnisation et éventuel maintien employeur restent à vérifier."
             else -> "Absence avec $level : traitement de paie à vérifier avant le calcul précis."
         }
     }
+
+    private val medicallyCompensatedTypes = setOf(
+        TYPE_SICKNESS,
+        TYPE_WORK_ACCIDENT,
+        TYPE_COMMUTING_ACCIDENT,
+        TYPE_OCCUPATIONAL_DISEASE,
+        TYPE_PARENTAL
+    )
 
     private fun workedCalendarDays(
         sessions: List<WorkSessionV2>,
