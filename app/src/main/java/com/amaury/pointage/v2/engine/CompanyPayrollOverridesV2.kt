@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
+import com.amaury.pointage.v2.CompanyApprenticeshipTaxStoreV2
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
 import com.amaury.pointage.v2.CompanyHealthFamilyStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
@@ -73,7 +74,14 @@ object CompanyPayrollOverridesV2 {
         val employerFamilyRate:Double?=null,
         val employerHealthFamilySource:String?=null,
         /** Avertissements patronaux maladie/AF, séparés de la fiabilité du net salarié. */
-        val employerHealthFamilyWarnings:List<String> = emptyList()
+        val employerHealthFamilyWarnings:List<String> = emptyList(),
+        /** Taux de part principale de taxe d'apprentissage confirmé pour la période. */
+        val employerApprenticeshipPrincipalRate:Double?=null,
+        /** Taux de provision mensuelle du solde de taxe d'apprentissage. */
+        val employerApprenticeshipBalanceRate:Double?=null,
+        val employerApprenticeshipSource:String?=null,
+        /** Avertissements patronaux taxe d'apprentissage, séparés du net salarié. */
+        val employerApprenticeshipWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -129,6 +137,7 @@ object CompanyPayrollOverridesV2 {
         val unemploymentAgs=CompanyUnemploymentAgsStoreV2.resolve(context,companyId,payrollMonth)
         val workforce=CompanyWorkforceContributionStoreV2.resolve(context,companyId,payrollMonth)
         val healthFamily=CompanyHealthFamilyStoreV2.resolve(context,companyId,payrollMonth)
+        val apprenticeship=CompanyApprenticeshipTaxStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -200,7 +209,11 @@ object CompanyPayrollOverridesV2 {
             employerHealthRate=healthFamily.healthRate,
             employerFamilyRate=healthFamily.familyRate,
             employerHealthFamilySource=healthFamily.source,
-            employerHealthFamilyWarnings=healthFamily.warnings
+            employerHealthFamilyWarnings=healthFamily.warnings,
+            employerApprenticeshipPrincipalRate=apprenticeship.principalRate,
+            employerApprenticeshipBalanceRate=apprenticeship.balanceRate,
+            employerApprenticeshipSource=apprenticeship.source,
+            employerApprenticeshipWarnings=apprenticeship.warnings
         )
     }
 
