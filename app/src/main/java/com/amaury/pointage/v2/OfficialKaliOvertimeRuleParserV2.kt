@@ -19,7 +19,9 @@ object OfficialKaliOvertimeRuleParserV2 {
         val content: String,
         val effectiveFrom: LocalDate,
         val effectiveTo: LocalDate?,
-        val title: String?
+        val title: String?,
+        /** Date officielle de début d'extension lorsqu'elle est fournie par KALI. */
+        val extensionEffectiveFrom: LocalDate? = null
     )
 
     data class ParsedSchedule(
@@ -86,13 +88,24 @@ object OfficialKaliOvertimeRuleParserV2 {
             ?: return null
         val to = firstDate(article, "dateFin", "dateFinVersion", "dateEnd", "endDate")
             ?: firstDate(root, "dateFin", "dateEnd", "endDate")
+        val extensionFrom = firstDate(
+            article,
+            "dateDebutExtension",
+            "dateStartExtension",
+            "extensionEffectiveFrom"
+        ) ?: firstDate(
+            root,
+            "dateDebutExtension",
+            "dateStartExtension",
+            "extensionEffectiveFrom"
+        )
 
         if (referenceDate.isBefore(from) || (to != null && referenceDate.isAfter(to))) return null
         if (status == "VIGUEUR_DIFF" && referenceDate.isBefore(from)) return null
 
         val title = firstString(article, "titre", "title", "num", "numero")
             ?: firstString(root, "titre", "title")
-        return VerifiedArticle(explicitId, status, content, from, to, title)
+        return VerifiedArticle(explicitId, status, content, from, to, title, extensionFrom)
     }
 
     fun parseCompleteSchedule(article: VerifiedArticle): ParsedSchedule? = analyzeArticle(article).schedule
