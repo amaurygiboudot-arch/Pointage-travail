@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.AbsenceProvidentTreatmentV2
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.ChronoUnit
 
 /**
  * Calcule la rémunération nette théorique de la période d'arrêt maladie.
@@ -15,6 +16,11 @@ import java.time.YearMonth
  * maintien. Une prestation de prévoyance employeur n'est retranchée ensuite que
  * si son chevauchement avec le maintien a été explicitement confirmé.
  * Le relais de branche après maintien n'entre jamais dans cette déduction.
+ *
+ * Pour un arrêt supérieur à 3 jours, l'article 13 Plasturgie exige une prise en
+ * charge par la Sécurité sociale. Une estimation IJSS ne vaut pas confirmation
+ * de cette condition : le complément final reste donc non fiable tant que la
+ * prise en charge n'a pas été explicitement confirmée.
  */
 object SicknessTheoreticalNetV2 {
     data class MonthlyBase(
@@ -52,7 +58,8 @@ object SicknessTheoreticalNetV2 {
         monthlyNetBeforeIncomeTax: Map<YearMonth, Double>,
         allowance: SicknessDailyAllowanceV2.Result?,
         providentTreatment: AbsenceProvidentTreatmentV2 = AbsenceProvidentTreatmentV2.TO_CONFIRM,
-        employerProvidentOverlapNetAmount: Double? = null
+        employerProvidentOverlapNetAmount: Double? = null,
+        socialSecurityCoverageConfirmed: Boolean = false
     ): Result {
         if (!absenceEndExclusive.isAfter(absenceStart)) {
             return unavailable("Base nette maladie : période d'arrêt invalide.")
@@ -60,6 +67,9 @@ object SicknessTheoreticalNetV2 {
         if (!maintenance.applicable || !maintenance.eligibilityConfirmed) {
             return unavailable("Base nette maladie : maintien conventionnel non applicable ou éligibilité non confirmée.")
         }
+
+        val absenceCalendarDays = ChronoUnit.DAYS.between(absenceStart, absenceEndExclusive).toInt().coerceAtLeast(0)
+        val socialSecurityCoverageRequired = absenceCalendarDays > 3
 
         val normalizedMonthly = monthlyNetBeforeIncomeTax
             .filterValues { it.isFinite() && it >= 0.0 }
@@ -160,6 +170,10 @@ object SicknessTheoreticalNetV2 {
             warnings += "IJSS déduites une seule fois de la cible nette conventionnelle ; la subrogation change le destinataire, pas cette déduction."
         }
 
+        if (socialSecurityCoverageRequired && !socialSecurityCoverageConfirmed) {
+            warnings += "Maintien Plasturgie : arrêt supérieur à 3 jours, prise en charge par la Sécurité sociale non confirmée ; le complément final reste à vérifier."
+        }
+
         val provident = SicknessProvidentOffsetV2.apply(
             employerComplementBeforeProvidentNet = complementBeforeProvident,
             treatment = providentTreatment,
@@ -170,7 +184,8 @@ object SicknessTheoreticalNetV2 {
 
         val preProvidentComplete = complementBeforeProvident != null &&
             warnings.none { it.contains("dépasse la période réelle") }
-        val finalReliable = preProvidentComplete && provident.overlapConfirmed &&
+        val coverageSafe = !socialSecurityCoverageRequired || socialSecurityCoverageConfirmed
+        val finalReliable = preProvidentComplete && coverageSafe && provident.overlapConfirmed &&
             provident.finalEmployerComplementNet != null
 
         return Result(
