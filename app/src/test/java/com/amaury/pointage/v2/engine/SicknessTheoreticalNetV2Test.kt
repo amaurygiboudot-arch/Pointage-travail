@@ -58,7 +58,7 @@ class SicknessTheoreticalNetV2Test {
     }
 
     @Test
-    fun `aucune prevoyance chevauchante confirmee rend le complement final fiable`() {
+    fun `prise en charge secu non confirmee bloque la fiabilite du complement long`() {
         val result = SicknessTheoreticalNetV2.calculate(
             LocalDate.of(2026,9,1), LocalDate.of(2026,9,11),
             maintenance(0,listOf(PlasturgieSicknessMaintenanceV2.Band(10,1.0,"100 %"))),
@@ -66,6 +66,21 @@ class SicknessTheoreticalNetV2Test {
             allowance(40.0,7),
             AbsenceProvidentTreatmentV2.NONE_CONFIRMED,
             null
+        )
+        assertFalse(result.finalComplementReliable)
+        assertTrue(result.warnings.any { it.contains("prise en charge par la Sécurité sociale non confirmée") })
+    }
+
+    @Test
+    fun `aucune prevoyance chevauchante confirmee rend le complement final fiable`() {
+        val result = SicknessTheoreticalNetV2.calculate(
+            LocalDate.of(2026,9,1), LocalDate.of(2026,9,11),
+            maintenance(0,listOf(PlasturgieSicknessMaintenanceV2.Band(10,1.0,"100 %"))),
+            mapOf(YearMonth.of(2026,9) to 3000.0),
+            allowance(40.0,7),
+            AbsenceProvidentTreatmentV2.NONE_CONFIRMED,
+            null,
+            socialSecurityCoverageConfirmed = true
         )
         assertTrue(result.finalComplementReliable)
         assertEquals(0.0,result.employerProvidentNetDeducted!!,0.01)
@@ -80,7 +95,8 @@ class SicknessTheoreticalNetV2Test {
             mapOf(YearMonth.of(2026,9) to 3000.0),
             allowance(40.0,7),
             AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED,
-            120.0
+            120.0,
+            socialSecurityCoverageConfirmed = true
         )
         assertTrue(result.finalComplementReliable)
         assertEquals(120.0,result.employerProvidentNetDeducted!!,0.01)
