@@ -87,11 +87,7 @@ object FrenchPublicHolidayCalendarV2 {
         )
 
         when (scope.jurisdiction) {
-            Jurisdiction.ALSACE_MOSELLE -> {
-                // Le 26 décembre est certain ; le Vendredi saint reste volontairement non ajouté
-                // car son application dépend de la commune (L3134-13).
-                values += LocalDate.of(year, 12, 26)
-            }
+            Jurisdiction.ALSACE_MOSELLE -> values += LocalDate.of(year, 12, 26)
             Jurisdiction.GUADELOUPE,
             Jurisdiction.SAINT_MARTIN -> values += LocalDate.of(year, 5, 27)
             Jurisdiction.MARTINIQUE -> values += LocalDate.of(year, 5, 22)
@@ -106,10 +102,33 @@ object FrenchPublicHolidayCalendarV2 {
         return values
     }
 
+    /**
+     * Dates qui peuvent être fériées mais que le périmètre disponible ne permet pas de trancher.
+     * Elles servent uniquement à bloquer une estimation potentiellement fausse si du temps y est pointé.
+     */
+    fun unresolvedPossibleHolidays(year: Int, scope: Scope): Set<LocalDate> {
+        require(year in 1900..2200)
+        val easter = easterSunday(year)
+        return when (scope.jurisdiction) {
+            Jurisdiction.ALSACE_MOSELLE -> setOf(easter.minusDays(2))
+            Jurisdiction.ADDRESS_UNKNOWN,
+            Jurisdiction.SPECIAL_TERRITORY_UNKNOWN -> setOf(
+                easter.minusDays(2),
+                LocalDate.of(year, 4, 27),
+                LocalDate.of(year, 5, 22),
+                LocalDate.of(year, 5, 27),
+                LocalDate.of(year, 6, 10),
+                LocalDate.of(year, 10, 9),
+                LocalDate.of(year, 12, 20),
+                LocalDate.of(year, 12, 26)
+            )
+            else -> emptySet()
+        }
+    }
+
     fun mayFirst(year: Int): LocalDate = LocalDate.of(year, 5, 1)
 
-    fun isGenericHoliday(date: LocalDate, scope: Scope): Boolean =
-        date in genericHolidays(date.year, scope)
+    fun isGenericHoliday(date: LocalDate, scope: Scope): Boolean = date in genericHolidays(date.year, scope)
 
     fun isMayFirst(date: LocalDate): Boolean = date.monthValue == 5 && date.dayOfMonth == 1
 
