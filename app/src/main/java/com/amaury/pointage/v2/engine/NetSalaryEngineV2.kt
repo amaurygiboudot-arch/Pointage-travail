@@ -28,6 +28,11 @@ object NetSalaryEngineV2 {
         company: CompanyPayrollOverridesV2.Snapshot,
         complementaryMinutes: Int? = null
     ): Result {
+        val cashGross = gross.coerceAtLeast(0.0)
+        val benefitsInKind = company.benefitsInKindGross
+            .takeIf { it.isFinite() && it >= 0.0 }
+            ?: 0.0
+        val contributionGross = cashGross + benefitsInKind
         val ceiling = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
                 year = year,
@@ -41,34 +46,34 @@ object NetSalaryEngineV2 {
             )
         )
         val statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
         )
         val retirement = ComplementaryRetirementCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
             protectionCategory = company.protectionCategory
         )
         val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
             protectionCategory = company.protectionCategory
         )
         val conventionProvident = ConventionProvidentCatalogV2.estimate(
-            gross = gross,
+            gross = contributionGross,
             year = year,
             idcc = company.idcc,
             protectionCategory = company.protectionCategory,
             seniorityMonths = company.seniorityMonths,
             ceiling = ceiling
         )
-        val atMp = EmployerAtMpContributionV2.calculate(gross, company.atMpEmployerRate)
+        val atMp = EmployerAtMpContributionV2.calculate(contributionGross, company.atMpEmployerRate)
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
         // Le minimum n'est donc jamais ajouté une seconde fois.
@@ -82,16 +87,11 @@ object NetSalaryEngineV2 {
             effectiveProvident,
             company.transportEmployeeAmount
         ).sum()
-        val benefitsInKind = company.benefitsInKindGross
-            .takeIf { it.isFinite() && it >= 0.0 }
-            ?: 0.0
 
-        // AT/MP est exclusivement patronale : elle n'entre jamais dans cette soustraction.
-        // L'avantage en nature, lui, est déjà compris dans le brut soumis à cotisations mais
-        // n'est pas versé en espèces : sa valeur est donc retirée du net payé.
-        val beforeTax = (
-            gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown - benefitsInKind
-            ).coerceAtLeast(0.0)
+        // AT/MP est exclusivement patronale. L'avantage en nature augmente les assiettes ci-dessus,
+        // mais n'est pas versé en espèces : on part donc uniquement du brut cash pour calculer le net payé.
+        val beforeTax = (cashGross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
+            .coerceAtLeast(0.0)
 
         val nonDeductibleCsgCrds = statutory.lines
             .filter { it.id == "csg_taxable" || it.id == "crds" }
@@ -104,8 +104,7 @@ object NetSalaryEngineV2 {
             company.employerProtectionTaxableAmount != null &&
             company.employeeProvidentNonDeductibleAmount != null
 
-        // Le net imposable conserve la valeur de l'avantage en nature puisqu'elle fait partie
-        // de la rémunération imposable, même si elle a été retirée du net payé en espèces.
+        // Même non versé en espèces, l'avantage en nature reste une rémunération imposable.
         val netTaxable = if (taxableCompanyDataComplete) {
             (
                 beforeTax +
@@ -135,15 +134,12 @@ object NetSalaryEngineV2 {
                 company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
                 add("Prévoyance salariale renseignée inférieure au minimum conventionnel Plasturgie calculé : vérifier le bulletin ou le régime d’entreprise.")
             }
-            if (benefitsInKind > gross + 0.01) {
-                add("Avantages en nature : valeur supérieure au brut total ; vérifier la valorisation saisie.")
-            }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
 
         return Result(
-            gross = gross,
+            gross = contributionGross,
             socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
             socialSecurityCeilingComplete = ceiling.complete,
             statutory = statutory.employeeDeductions,
