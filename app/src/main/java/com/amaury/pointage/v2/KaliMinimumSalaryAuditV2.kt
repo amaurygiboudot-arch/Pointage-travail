@@ -49,6 +49,7 @@ object KaliMinimumSalaryAuditV2 {
             val rules = diagnostics.mapNotNull { it.rule }
             val distinct = rules.distinctBy(::fingerprint)
             var saved = false
+            var completed = false
             var selectedRuleId: String? = null
             var saveError: String? = null
 
@@ -61,16 +62,20 @@ object KaliMinimumSalaryAuditV2 {
                     saveError = error.message ?: "stockage impossible"
                     false
                 }
-                if (saved) selectedRuleId = selected.ruleId
+                if (saved) {
+                    selectedRuleId = selected.ruleId
+                    completed = selected.extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
+                        selected.extensionEffectiveFrom?.let { !referenceDate.isBefore(it) } == true
+                }
             }
 
-            val state = if (saved) ConventionMatterCoverageV2.State.CONFIRMED_RULES else ConventionMatterCoverageV2.State.INCOMPLETE
+            val state = if (completed) ConventionMatterCoverageV2.State.CONFIRMED_RULES else ConventionMatterCoverageV2.State.INCOMPLETE
             markCoverage(
                 context,
                 profile,
                 referenceDate,
                 state,
-                if (saved) "Légifrance KALI — minimum salarial structuré" else "Analyse KALI minimum incomplète"
+                if (completed) "Légifrance KALI — minimum salarial structuré et extension datée" else "Analyse KALI minimum incomplète"
             )
 
             Summary(
@@ -80,18 +85,19 @@ object KaliMinimumSalaryAuditV2 {
                 articlesConsulted = evidence.articlesConsulted,
                 structuredCandidates = distinct.size,
                 saved = saved,
-                completed = saved,
+                completed = completed,
                 selectedRuleId = selectedRuleId,
                 warnings = buildList {
                     addAll(evidence.warnings)
-                    diagnostics.filter { it.rule == null }.take(12).forEach { diagnostic ->
+                    diagnostics.filter { it.rule == null || it.reasons.isNotEmpty() }.take(12).forEach { diagnostic ->
                         if (diagnostic.reasons.isNotEmpty()) add("KALI minimum ${diagnostic.articleId} : ${diagnostic.reasons.joinToString()}.")
                     }
-                    if (!evidence.technicalCoverageComplete) add("KALI minimum : couverture technique incomplète ; aucun barème n'est enregistré.")
+                    if (!evidence.technicalCoverageComplete) add("KALI minimum : couverture technique incomplète ; aucun barème n'est déclaré applicable.")
                     when {
                         distinct.isEmpty() -> add("KALI minimum : aucun montant unique rattaché avec certitude à ${profile.classification.label()} ; aucun minimum n'est inventé.")
                         distinct.size > 1 -> add("KALI minimum : ${distinct.size} barèmes structurés concurrents correspondent au profil ; sélection automatique bloquée.")
-                        saved -> add("KALI minimum : barème unique officiellement vérifié et enregistré pour ${profile.classification.label()}.")
+                        saved && completed -> add("KALI minimum : barème unique, extension datée et profil exact vérifiés ; règle enregistrée.")
+                        saved -> add("KALI minimum : règle officielle enregistrée comme preuve, mais applicabilité automatique à cette date/entreprise non démontrée.")
                         saveError != null -> add("KALI minimum : barème vérifié mais stockage impossible : $saveError.")
                     }
                     add("KALI minimum : une recherche ciblée vide ne vaut jamais preuve d'absence de minimum conventionnel.")
@@ -106,7 +112,8 @@ object KaliMinimumSalaryAuditV2 {
         rule.classification.normalized().label(),
         rule.amount.toString(),
         rule.periodicity.name,
-        rule.extensionStatus.name
+        rule.extensionStatus.name,
+        rule.extensionEffectiveFrom?.toString().orEmpty()
     ).joinToString("|")
 
     private fun markCoverage(
