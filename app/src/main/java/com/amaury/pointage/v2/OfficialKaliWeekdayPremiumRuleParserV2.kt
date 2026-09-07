@@ -7,7 +7,7 @@ import java.util.Locale
 
 /**
  * Structure uniquement une majoration simple portant sur toutes les heures payées du samedi ou du dimanche.
- * Toute plage horaire, autre jour, jour férié, catégorie ou condition détectée bloque l'auto-application.
+ * Toute plage horaire, autre jour, jour férié, règle de cumul, catégorie ou condition détectée bloque l'auto-application.
  */
 object OfficialKaliWeekdayPremiumRuleParserV2 {
     data class StructuredCandidate(
@@ -140,7 +140,8 @@ object OfficialKaliWeekdayPremiumRuleParserV2 {
         "selon la categorie",
         "selon le coefficient",
         "par accord d'entreprise",
-        "par accord d'etablissement"
+        "par accord d'etablissement",
+        "cumul"
     )
 
     private fun normalize(value: String): String = Normalizer.normalize(
