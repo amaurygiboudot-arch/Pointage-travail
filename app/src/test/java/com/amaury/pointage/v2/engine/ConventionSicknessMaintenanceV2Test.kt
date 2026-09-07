@@ -102,7 +102,8 @@ class ConventionSicknessMaintenanceV2Test {
             tiers = listOf(
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 6,
-                    bands = listOf(ConventionSicknessMaintenanceV2.Band(30, 0.90, "90 %"))
+                    bands = listOf(ConventionSicknessMaintenanceV2.Band(30, 0.90, "90 %")),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.PER_STOP
                 )
             ),
             referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.GROSS,
@@ -130,6 +131,46 @@ class ConventionSicknessMaintenanceV2Test {
     }
 
     @Test
+    fun `per stop bands restart while annual cap stays cumulative`() {
+        val prior = sickness("prior", LocalDate.of(2026, 2, 1), 30)
+        val current = sickness("current", LocalDate.of(2026, 9, 10), 30)
+        val rule = scopedRule(ConventionSicknessMaintenanceV2.BandConsumptionScope.PER_STOP)
+        val result = ConventionSicknessMaintenanceV2.calculate(
+            rules = listOf(rule), idcc = "9998", classification = ConventionClassificationV2(),
+            professionalStatus = "NON_CADRE", currentAbsence = current, allAbsences = listOf(prior, current),
+            entryDate = LocalDate.of(2020, 1, 1), acceptedEmployerIds = setOf("company-a"), zoneId = zone
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(30, result.alreadyConsumedIndemnifiedDays)
+        assertEquals(30, result.currentIndemnifiableDays)
+        assertEquals(1.0, result.bands.single().targetRate, 0.0001)
+    }
+
+    @Test
+    fun `annual cumulative bands continue after prior stop`() {
+        val prior = sickness("prior", LocalDate.of(2026, 2, 1), 30)
+        val current = sickness("current", LocalDate.of(2026, 9, 10), 30)
+        val rule = scopedRule(ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE, annualLimit = 60)
+        val result = ConventionSicknessMaintenanceV2.calculate(
+            rules = listOf(rule), idcc = "9998", classification = ConventionClassificationV2(),
+            professionalStatus = "NON_CADRE", currentAbsence = current, allAbsences = listOf(prior, current),
+            entryDate = LocalDate.of(2020, 1, 1), acceptedEmployerIds = setOf("company-a"), zoneId = zone
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(30, result.alreadyConsumedIndemnifiedDays)
+        assertEquals(30, result.currentIndemnifiableDays)
+        assertEquals(0.75, result.bands.single().targetRate, 0.0001)
+    }
+
+    @Test
+    fun `unknown band scope cannot drive automatic calculation`() {
+        val rule = scopedRule(ConventionSicknessMaintenanceV2.BandConsumptionScope.UNKNOWN)
+        assertFalse(rule.structurallyValid())
+    }
+
+    @Test
     fun `missing professional status blocks plasturgie selection`() {
         val current = sickness("current", LocalDate.of(2026, 9, 10), 10)
         val result = ConventionSicknessMaintenanceV2.calculate(
@@ -147,4 +188,32 @@ class ConventionSicknessMaintenanceV2Test {
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("statut", ignoreCase = true) || it.contains("barème", ignoreCase = true) })
     }
+
+    private fun scopedRule(
+        scope: ConventionSicknessMaintenanceV2.BandConsumptionScope,
+        annualLimit: Int = 90
+    ) = ConventionSicknessMaintenanceV2.Rule(
+        idcc = "9998",
+        ruleId = "scope-${scope.name}",
+        effectiveFrom = LocalDate.of(2026, 1, 1),
+        professionalStatus = "NON_CADRE",
+        minimumSeniorityMonths = 0,
+        tiers = listOf(
+            ConventionSicknessMaintenanceV2.SeniorityTier(
+                minimumSeniorityMonths = 0,
+                bands = listOf(
+                    ConventionSicknessMaintenanceV2.Band(30, 1.0, "100 %"),
+                    ConventionSicknessMaintenanceV2.Band(30, 0.75, "75 %")
+                ),
+                annualLimitDays = annualLimit,
+                perStopLimitDays = 60,
+                bandConsumptionScope = scope
+            )
+        ),
+        referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.GROSS,
+        waitingPolicy = ConventionSicknessMaintenanceV2.WaitingPolicy.NONE,
+        source = "test",
+        extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
+        extensionEffectiveFrom = LocalDate.of(2026, 1, 1)
+    )
 }
