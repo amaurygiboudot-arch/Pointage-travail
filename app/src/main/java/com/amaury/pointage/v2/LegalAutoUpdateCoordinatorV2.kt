@@ -351,7 +351,7 @@ object LegalAutoUpdateCoordinatorV2 {
     }
 
     internal fun legiAuditCompleted(summary: LegalPayrollAuditV2.Summary): Boolean {
-        if (summary.results.isEmpty()) return false
+        if (!summary.mayFirstComplete || summary.results.isEmpty()) return false
         return summary.results.any { result ->
             result.candidates > 0 || result.verified > 0 || result.saved ||
                 result.warnings.isEmpty() || result.warnings.any { !isTransientFailure(it) }
