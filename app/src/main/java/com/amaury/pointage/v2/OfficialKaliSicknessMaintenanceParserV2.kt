@@ -7,8 +7,9 @@ import java.time.LocalDate
 import java.util.Locale
 
 /**
- * Parse un maintien maladie uniquement lorsque le texte KALI expose sans ambiguïté
+ * Parse un maintien de maladie ordinaire uniquement lorsque le texte KALI expose sans ambiguïté
  * la population, l'ancienneté, la base, les bandes jours/taux, leur portée, la carence et les plafonds.
+ * Les textes qui mélangent maladie, accident du travail, trajet ou maladie professionnelle sont refusés.
  */
 object OfficialKaliSicknessMaintenanceParserV2 {
     data class Diagnostic(
@@ -38,8 +39,15 @@ object OfficialKaliSicknessMaintenanceParserV2 {
             ?: return Diagnostic(article.articleId, null, listOf("statut cadre/non-cadre absent de la fiche salarié"))
         val raw = listOfNotNull(article.title, article.content).joinToString(" ")
         val normalized = OfficialKaliProfileMatcherV2.normalize(raw)
-        if (!mentionsSicknessMaintenance(normalized)) {
-            return Diagnostic(article.articleId, null, listOf("article sans maintien maladie explicite"))
+        if (!mentionsOrdinarySicknessMaintenance(normalized)) {
+            return Diagnostic(article.articleId, null, listOf("article sans maintien explicite de maladie ordinaire"))
+        }
+        if (otherMedicalCauseRegex.containsMatchIn(normalized)) {
+            return Diagnostic(
+                article.articleId,
+                null,
+                listOf("article mélange la maladie ordinaire avec un autre motif médical ; séparation automatique non démontrée")
+            )
         }
 
         val articleUsesClassification = classificationVocabulary.any(normalized::contains)
@@ -96,7 +104,7 @@ object OfficialKaliSicknessMaintenanceParserV2 {
             waitingPolicy = candidate.waitingPolicy,
             waitingDays = candidate.waitingDays,
             socialSecurityCoverageRequiredAfterDays = candidate.socialSecurityCoverageRequiredAfterDays,
-            source = "Légifrance KALI — ${article.articleId}${article.title?.let { " — $it" }.orEmpty()}",
+            source = "Légifrance KALI — maladie ordinaire — ${article.articleId}${article.title?.let { " — $it" }.orEmpty()}",
             extensionStatus = extensionStatus,
             extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null
         )
@@ -261,7 +269,8 @@ object OfficialKaliSicknessMaintenanceParserV2 {
             else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
         }
 
-    private fun mentionsSicknessMaintenance(text: String): Boolean = sicknessWords.any(text::contains) && maintenanceWords.any(text::contains)
+    private fun mentionsOrdinarySicknessMaintenance(text: String): Boolean =
+        text.contains("maladie") && maintenanceWords.any(text::contains)
 
     private fun fingerprint(value: ParsedRule): String = buildString {
         append(value.minimumSeniorityMonths).append('|')
@@ -275,8 +284,8 @@ object OfficialKaliSicknessMaintenanceParserV2 {
 
     private fun formatPercent(value: Double): String = if (value % 1.0 == 0.0) value.toInt().toString() else value.toString()
 
-    private val sicknessWords = listOf("maladie", "accident", "arret de travail", "incapacite temporaire")
     private val maintenanceWords = listOf("maintien", "indemnisation", "indemnise", "indemnisee", "indemnite complementaire")
+    private val otherMedicalCauseRegex = Regex("\\b(?:accident(?:s)?|maladie(?:s)? professionnelle(?:s)?)\\b")
     private val classificationVocabulary = listOf("coefficient", "niveau", "echelon", "position", "groupe", "categorie", "emploi")
     private val grossBasisWords = listOf("salaire brut", "remuneration brute", "traitement brut", "appointements bruts")
     private val netBasisWords = listOf("salaire net", "remuneration nette", "traitement net", "appointements nets")
