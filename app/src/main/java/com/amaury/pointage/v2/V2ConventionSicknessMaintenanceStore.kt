@@ -51,9 +51,13 @@ object V2ConventionSicknessMaintenanceStore {
         rule.tiers.forEach { tier ->
             val bands = JSONArray()
             tier.bands.forEach { band ->
-                bands.put(JSONObject().put("days", band.calendarDays).put("rate", band.targetNetRate).put("label", band.label))
+                bands.put(JSONObject().put("days", band.calendarDays).put("rate", band.targetRate).put("label", band.label))
             }
-            tiers.put(JSONObject().put("minimumYears", tier.minimumYears).put("bands", bands))
+            tiers.put(JSONObject()
+                .put("minimumSeniorityMonths", tier.minimumSeniorityMonths)
+                .put("annualLimitDays", tier.annualLimitDays)
+                .put("perStopLimitDays", tier.perStopLimitDays)
+                .put("bands", bands))
         }
         return JSONObject()
             .put("idcc", ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc))
@@ -62,9 +66,11 @@ object V2ConventionSicknessMaintenanceStore {
             .put("effectiveTo", rule.effectiveTo?.toString())
             .put("classification", encodeClassification(rule.classification))
             .put("professionalStatus", rule.professionalStatus)
-            .put("minimumSeniorityYears", rule.minimumSeniorityYears)
+            .put("minimumSeniorityMonths", rule.minimumSeniorityMonths)
             .put("tiers", tiers)
+            .put("referenceBasis", rule.referenceBasis.name)
             .put("waitingPolicy", rule.waitingPolicy.name)
+            .put("waitingDays", rule.waitingDays)
             .put("ssCoverageAfterDays", rule.socialSecurityCoverageRequiredAfterDays)
             .put("source", rule.source)
             .put("extensionStatus", rule.extensionStatus.name)
@@ -83,7 +89,12 @@ object V2ConventionSicknessMaintenanceStore {
                         add(ConventionSicknessMaintenanceV2.Band(band.getInt("days"), band.getDouble("rate"), band.getString("label")))
                     }
                 }
-                add(ConventionSicknessMaintenanceV2.SeniorityTier(tier.getInt("minimumYears"), bands))
+                add(ConventionSicknessMaintenanceV2.SeniorityTier(
+                    minimumSeniorityMonths = tier.getInt("minimumSeniorityMonths"),
+                    bands = bands,
+                    annualLimitDays = if (tier.isNull("annualLimitDays")) null else tier.getInt("annualLimitDays"),
+                    perStopLimitDays = if (tier.isNull("perStopLimitDays")) null else tier.getInt("perStopLimitDays")
+                ))
             }
         }
         ConventionSicknessMaintenanceV2.Rule(
@@ -93,9 +104,11 @@ object V2ConventionSicknessMaintenanceStore {
             effectiveTo = obj.optString("effectiveTo").takeIf { it.isNotBlank() && it != "null" }?.let(LocalDate::parse),
             classification = decodeClassification(obj.optJSONObject("classification") ?: JSONObject()),
             professionalStatus = obj.optString("professionalStatus").takeIf { it.isNotBlank() && it != "null" },
-            minimumSeniorityYears = obj.getInt("minimumSeniorityYears"),
+            minimumSeniorityMonths = obj.getInt("minimumSeniorityMonths"),
             tiers = tiers,
+            referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.valueOf(obj.getString("referenceBasis")),
             waitingPolicy = ConventionSicknessMaintenanceV2.WaitingPolicy.valueOf(obj.getString("waitingPolicy")),
+            waitingDays = obj.optInt("waitingDays", 0),
             socialSecurityCoverageRequiredAfterDays = if (obj.isNull("ssCoverageAfterDays")) null else obj.getInt("ssCoverageAfterDays"),
             source = obj.getString("source"),
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.valueOf(obj.getString("extensionStatus")),
