@@ -249,6 +249,7 @@ object V2PayslipStore {
     NetSalaryEngineV2.calculate(expected.monthlyEstimatedGross,record.year,overrides,expected.complementaryMinutes)
    }.getOrNull()
    net?.let{calculated->
+    expectedValues[PayslipDocumentParserV2.KEY_GROSS]=calculated.gross
     expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=calculated.netBeforeIncomeTax
     calculated.netTaxable?.let{expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it}
    }
