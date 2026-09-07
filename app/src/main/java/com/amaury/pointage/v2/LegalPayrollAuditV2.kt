@@ -17,11 +17,15 @@ object LegalPayrollAuditV2 {
 
     data class Summary(
         val referenceAtMs: Long,
-        val results: List<TopicResult>
+        val results: List<TopicResult>,
+        val mayFirst: MayFirstLegalAuditV2.Summary? = null
     ) {
-        val verifiedArticles: Int get() = results.sumOf { it.verified }
+        val verifiedArticles: Int
+            get() = results.sumOf { it.verified } + (mayFirst?.verifiedArticles ?: 0)
         val completedTopics: Int get() = results.count { it.saved && it.verified > 0 }
-        val warnings: List<String> get() = results.flatMap { it.warnings }
+        val warnings: List<String>
+            get() = results.flatMap { it.warnings } + mayFirst?.warnings.orEmpty()
+        val mayFirstComplete: Boolean get() = mayFirst?.saved == true
     }
 
     fun auditTopic(
@@ -88,13 +92,25 @@ object LegalPayrollAuditV2 {
     }
 
     /**
-     * Contrôle les thèmes l'un après l'autre afin d'éviter une rafale de requêtes PISTE.
+     * Contrôle les thèmes l'un après l'autre afin d'éviter une rafale de requêtes PISTE,
+     * puis vérifie séparément L3133-6 pour le 1er mai travaillé.
      * Un thème en erreur n'empêche pas les suivants d'être audités.
      */
     fun auditAll(context: Context, atMs: Long): Task<Summary> {
         require(atMs > 0L) { "Date LEGI invalide" }
-        return auditSequential(context.applicationContext, atMs, OfficialLegalCodeSourceV2.Topic.entries, 0, emptyList())
-            .continueWith { Summary(atMs, it.result ?: emptyList()) }
+        val app = context.applicationContext
+        return auditSequential(app, atMs, OfficialLegalCodeSourceV2.Topic.entries, 0, emptyList())
+            .continueWithTask { topicsTask ->
+                val results = if (topicsTask.isSuccessful) topicsTask.result ?: emptyList() else emptyList()
+                MayFirstLegalAuditV2.audit(app, atMs)
+                    .continueWith { mayFirstTask ->
+                        Summary(
+                            referenceAtMs = atMs,
+                            results = results,
+                            mayFirst = if (mayFirstTask.isSuccessful) mayFirstTask.result else null
+                        )
+                    }
+            }
     }
 
     private fun auditSequential(
