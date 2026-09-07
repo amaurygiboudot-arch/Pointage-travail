@@ -27,6 +27,7 @@ object CompanyAgreementStructuredRuleV2 {
         val value = when (source.category) {
             CompanyAgreementRuleExtractorV2.Category.OVERTIME,
             CompanyAgreementRuleExtractorV2.Category.NIGHT,
+            CompanyAgreementRuleExtractorV2.Category.SATURDAY,
             CompanyAgreementRuleExtractorV2.Category.SUNDAY -> percent(source.excerpt)
             CompanyAgreementRuleExtractorV2.Category.BONUS,
             CompanyAgreementRuleExtractorV2.Category.SALARY -> euro(source.excerpt)
