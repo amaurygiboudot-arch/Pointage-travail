@@ -7,6 +7,7 @@ import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
+import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
@@ -14,7 +15,6 @@ import com.amaury.pointage.v2.engine.PayslipEngineV2
 import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.PlasturgieProvidentIncapacityV2
 import com.amaury.pointage.v2.engine.PlasturgieProvidentRelayControlV2
-import com.amaury.pointage.v2.engine.PlasturgieSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.SicknessDailyAllowanceV2
 import com.amaury.pointage.v2.engine.SicknessTheoreticalNetV2
 import com.amaury.pointage.v2.model.AbsenceV2
@@ -60,29 +60,12 @@ object V2PayslipStore {
  }
 
  /**
-  * Renvoie le barème de maintien maladie Plasturgie pour cette absence et cette
-  * entreprise. L'ancienneté et l'IDCC sont lus une seule fois ici pour éviter
-  * que chaque écran reconstruise sa propre interprétation.
+  * Résout le maintien maladie conventionnel à partir de l'IDCC, du statut,
+  * de la classification et de la période. Aucune convention n'est supposée.
   */
- fun sicknessMaintenanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieSicknessMaintenanceV2.Result?{
+ fun sicknessMaintenanceForAbsence(context:Context,companyId:String,absence:AbsenceV2):ConventionSicknessMaintenanceV2.Result?{
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
-  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
-  val prefs=SalaryCompanyStore.prefs(context,companyId)
-  val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
-      ?:prefs.getString("company_idcc","").orEmpty()
-  val entryDate=runCatching{
-   prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
-    LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
-   }
-  }.getOrNull()
-  return PlasturgieSicknessMaintenanceV2.calculate(
-   idcc=idcc,
-   currentAbsence=absence,
-   allAbsences=V2RightsStore.absencesForCompany(context,companyId),
-   entryDate=entryDate,
-   acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId),
-   zoneId=ZoneId.systemDefault()
-  )
+  return V2ConventionSicknessMaintenanceBridge.load(context,companyId,absence)?.result
  }
 
  /**

@@ -30,7 +30,7 @@ object PlasturgieProvidentIncapacityV2 {
         idcc: String?,
         seniorityMonths: Int?,
         protectionCategory: PlasturgieProtectionCategoryV2.Result,
-        maintenance: PlasturgieSicknessMaintenanceV2.Result?,
+        maintenance: ConventionSicknessMaintenanceV2.Result?,
         absenceCalendarDays: Int
     ): Result {
         val normalized = idcc.orEmpty().filter(Char::isDigit).trimStart('0')
@@ -103,7 +103,7 @@ object PlasturgieProvidentIncapacityV2 {
             val annualLimit = maintenance?.annualLimitDays
             val consumed = maintenance?.alreadyConsumedIndemnifiedDays
             val waiting = maintenance?.employerWaitingDays
-            if (maintenance?.applicable == true && maintenance.eligibilityConfirmed &&
+            if (maintenance?.applicable == true && maintenance.eligibilityConfirmed && maintenance.reliable &&
                 annualLimit != null && consumed != null && waiting != null) {
                 val remainingMaintenance = (annualLimit - consumed).coerceAtLeast(0)
                 waiting + remainingMaintenance + 1
@@ -138,4 +138,36 @@ object PlasturgieProvidentIncapacityV2 {
             }
         )
     }
+
+    /** Compatibilité temporaire avec les tests historiques du relais Plasturgie. */
+    fun assess(
+        idcc: String?,
+        seniorityMonths: Int?,
+        protectionCategory: PlasturgieProtectionCategoryV2.Result,
+        maintenance: PlasturgieSicknessMaintenanceV2.Result?,
+        absenceCalendarDays: Int
+    ): Result = assess(
+        idcc = idcc,
+        seniorityMonths = seniorityMonths,
+        protectionCategory = protectionCategory,
+        maintenance = maintenance?.let {
+            ConventionSicknessMaintenanceV2.Result(
+                applicable = it.applicable,
+                eligibilityConfirmed = it.eligibilityConfirmed,
+                reliable = it.eligibilityConfirmed,
+                selectedRule = null,
+                referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.NET,
+                employerWaitingDays = it.employerWaitingDays,
+                firstRecordedStopOfYear = it.firstRecordedStopOfYear,
+                annualLimitDays = it.annualLimitDays,
+                alreadyConsumedIndemnifiedDays = it.alreadyConsumedIndemnifiedDays,
+                currentIndemnifiableDays = it.currentIndemnifiableDays,
+                bands = it.bands.map { band -> ConventionSicknessMaintenanceV2.Band(band.calendarDays, band.targetNetRate, band.label) },
+                socialSecurityCoverageRequired = false,
+                exactEmployerAmountAvailable = it.exactEmployerAmountAvailable,
+                warnings = it.warnings
+            )
+        },
+        absenceCalendarDays = absenceCalendarDays
+    )
 }

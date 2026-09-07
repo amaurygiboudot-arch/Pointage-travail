@@ -24,7 +24,8 @@ object V2ConventionMatterCoverageStore {
                 it.matter == record.matter &&
                 it.effectiveFrom == record.effectiveFrom &&
                 it.effectiveTo == record.effectiveTo &&
-                it.classification.normalized() == record.classification.normalized()
+                it.classification.normalized() == record.classification.normalized() &&
+                it.professionalStatus?.trim()?.uppercase() == record.professionalStatus?.trim()?.uppercase()
         }
         current += record.copy(idcc = normalized)
         persist(context, current)
@@ -35,9 +36,10 @@ object V2ConventionMatterCoverageStore {
         idcc: String,
         matter: ConventionMatterCoverageV2.Matter,
         date: LocalDate,
-        classification: ConventionClassificationV2 = ConventionClassificationV2()
+        classification: ConventionClassificationV2 = ConventionClassificationV2(),
+        professionalStatus: String? = null
     ): ConventionMatterCoverageV2.Snapshot = ConventionMatterCoverageV2.resolve(
-        load(context), idcc, matter, date, classification
+        load(context), idcc, matter, date, classification, professionalStatus
     )
 
     private fun persist(context: Context, records: List<ConventionMatterCoverageV2.Record>) {
@@ -47,6 +49,7 @@ object V2ConventionMatterCoverageStore {
                 .thenBy { it.matter.name }
                 .thenBy { it.effectiveFrom }
                 .thenBy { it.classification.label() }
+                .thenBy { it.professionalStatus.orEmpty() }
         ).forEach { array.put(encode(it)) }
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putString(KEY_RECORDS, array.toString()).apply()
@@ -69,6 +72,7 @@ object V2ConventionMatterCoverageStore {
         .put("effectiveFrom", record.effectiveFrom.toString())
         .put("effectiveTo", record.effectiveTo?.toString())
         .put("classification", encodeClassification(record.classification))
+        .put("professionalStatus", record.professionalStatus)
         .put("state", record.state.name)
         .put("source", record.source)
         .put("checkedAtMs", record.checkedAtMs)
@@ -89,6 +93,7 @@ object V2ConventionMatterCoverageStore {
             effectiveFrom = LocalDate.parse(obj.getString("effectiveFrom")),
             effectiveTo = obj.optString("effectiveTo").takeIf { it.isNotBlank() && it != "null" }?.let(LocalDate::parse),
             classification = decodeClassification(obj.optJSONObject("classification") ?: JSONObject()),
+            professionalStatus = obj.optString("professionalStatus").takeIf { it.isNotBlank() && it != "null" },
             state = ConventionMatterCoverageV2.State.valueOf(obj.getString("state")),
             source = obj.getString("source"),
             checkedAtMs = obj.getLong("checkedAtMs")
