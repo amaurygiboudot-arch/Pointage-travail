@@ -12,6 +12,7 @@ object NetSalaryEngineV2 {
         val conventionProvidentEmployer: Double,
         val companyEmployeeDeductions: Double,
         val employerStatusContributions: Double,
+        val employerAtMpContribution: Double?,
         val netBeforeIncomeTax: Double,
         val netTaxable: Double?,
         val incomeTax: Double?,
@@ -66,6 +67,7 @@ object NetSalaryEngineV2 {
             seniorityMonths = company.seniorityMonths,
             ceiling = ceiling
         )
+        val atMp = EmployerAtMpContributionV2.calculate(gross, company.atMpEmployerRate)
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
         // Le minimum n'est donc jamais ajouté une seconde fois.
@@ -80,6 +82,7 @@ object NetSalaryEngineV2 {
             company.transportEmployeeAmount
         ).sum()
 
+        // AT/MP est exclusivement patronale : elle n'entre jamais dans cette soustraction.
         val beforeTax = (gross - statutory.employeeDeductions - retirement.employeeDeductions - companyKnown)
             .coerceAtLeast(0.0)
 
@@ -115,8 +118,10 @@ object NetSalaryEngineV2 {
             addAll(retirement.warnings)
             addAll(statusContributions.warnings)
             addAll(conventionProvident.warnings)
+            addAll(atMp.warnings)
             addAll(company.warnings.filterNot {
-                it.startsWith("Prévoyance salariale entreprise") && conventionProvidentKnown
+                (it.startsWith("Prévoyance salariale entreprise") && conventionProvidentKnown) ||
+                    (it.startsWith("AT/MP employeur") && atMp.complete)
             })
             if (company.providentEmployeeAmount != null && conventionProvident.employeeDeductions > 0.0 &&
                 company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
@@ -136,6 +141,7 @@ object NetSalaryEngineV2 {
             conventionProvidentEmployer = conventionProvident.employerContributions,
             companyEmployeeDeductions = companyKnown,
             employerStatusContributions = statusContributions.employerContributions,
+            employerAtMpContribution = atMp.employerAmount,
             netBeforeIncomeTax = beforeTax,
             netTaxable = netTaxable,
             incomeTax = tax,
