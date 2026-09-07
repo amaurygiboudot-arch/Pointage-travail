@@ -22,39 +22,42 @@ object FirebaseUpdatePush {
     private const val NOTIFICATION_ID = 9401
 
     fun initialize(context: Context) {
+        val firebaseReady = ensureFirebase(context)
+        if (firebaseReady) FirebaseBackendUpdateNotice.initialize(context)
+
         if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .cancel(NOTIFICATION_ID)
-            if (FirebaseApp.getApps(context).isNotEmpty()) {
-                runCatching {
-                    FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC)
-                }
+            if (firebaseReady) {
+                runCatching { FirebaseMessaging.getInstance().unsubscribeFromTopic(TOPIC) }
             }
             return
         }
-
-        if (FirebaseApp.getApps(context).isEmpty()) {
-            val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
-            val appId = BuildConfig.FIREBASE_APP_ID.trim()
-            val projectId = BuildConfig.FIREBASE_PROJECT_ID.trim()
-            val senderId = BuildConfig.FIREBASE_SENDER_ID.trim()
-            if (apiKey.isBlank() || appId.isBlank() || projectId.isBlank() || senderId.isBlank()) return
-
-            runCatching {
-                val options = FirebaseOptions.Builder()
-                    .setApiKey(apiKey)
-                    .setApplicationId(appId)
-                    .setProjectId(projectId)
-                    .setGcmSenderId(senderId)
-                    .build()
-                FirebaseApp.initializeApp(context, options)
-            }.getOrNull() ?: return
-        }
+        if (!firebaseReady) return
 
         createChannel(context)
         runCatching {
             FirebaseMessaging.getInstance().subscribeToTopic(TOPIC)
         }
+    }
+
+    private fun ensureFirebase(context: Context): Boolean {
+        if (FirebaseApp.getApps(context).isNotEmpty()) return true
+        val apiKey = BuildConfig.FIREBASE_API_KEY.trim()
+        val appId = BuildConfig.FIREBASE_APP_ID.trim()
+        val projectId = BuildConfig.FIREBASE_PROJECT_ID.trim()
+        val senderId = BuildConfig.FIREBASE_SENDER_ID.trim()
+        if (apiKey.isBlank() || appId.isBlank() || projectId.isBlank() || senderId.isBlank()) return false
+
+        return runCatching {
+            val options = FirebaseOptions.Builder()
+                .setApiKey(apiKey)
+                .setApplicationId(appId)
+                .setProjectId(projectId)
+                .setGcmSenderId(senderId)
+                .build()
+            FirebaseApp.initializeApp(context, options) != null
+        }.getOrDefault(false)
     }
 
     private fun createChannel(context: Context) {
@@ -113,9 +116,14 @@ class HpFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
 
         val kind = message.data["kind"].orEmpty()
+        if (kind == FirebaseBackendUpdateNotice.KIND) {
+            FirebaseBackendUpdateNotice.onPush(this, message.data)
+            return
+        }
+
+        if (!UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) return
         if (kind.isNotBlank() && kind != "update") return
 
         getSharedPreferences("update_push", Context.MODE_PRIVATE).edit()

@@ -48,6 +48,13 @@ service cloud.firestore {
       }
     }
 
+    // Métadonnée publique et non sensible : uniquement la révision du backend
+    // Firebase actuellement déployée. Les clients n'ont aucun droit d'écriture.
+    match /system/backend_release {
+      allow read: if true;
+      allow write: if false;
+    }
+
     match /{path=**}/feedback/{feedbackId} {
       allow read, update: if isOwner();
       allow create, delete: if false;
