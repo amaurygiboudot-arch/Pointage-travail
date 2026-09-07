@@ -59,4 +59,31 @@ class ConventionMatterCoverageV2Test {
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("contradictoires", ignoreCase = true) })
     }
+
+    @Test
+    fun `cadre no-rule coverage does not leak to non-cadre`() {
+        val cadreOnly = ConventionMatterCoverageV2.Record(
+            idcc = "1486",
+            matter = ConventionMatterCoverageV2.Matter.SICKNESS_MAINTENANCE,
+            effectiveFrom = LocalDate.of(2026, 1, 1),
+            professionalStatus = "CADRE",
+            state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+            source = "Légifrance KALI",
+            checkedAtMs = 3L
+        )
+
+        val cadre = ConventionMatterCoverageV2.resolve(
+            listOf(cadreOnly), "1486", ConventionMatterCoverageV2.Matter.SICKNESS_MAINTENANCE,
+            date, professionalStatus = "CADRE"
+        )
+        val nonCadre = ConventionMatterCoverageV2.resolve(
+            listOf(cadreOnly), "1486", ConventionMatterCoverageV2.Matter.SICKNESS_MAINTENANCE,
+            date, professionalStatus = "NON_CADRE"
+        )
+
+        assertEquals(ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE, cadre.state)
+        assertTrue(cadre.reliable)
+        assertEquals(ConventionMatterCoverageV2.State.INCOMPLETE, nonCadre.state)
+        assertFalse(nonCadre.reliable)
+    }
 }
