@@ -24,14 +24,16 @@ object PlasturgieSicknessRulesV2 {
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(45, 1.00, "Maintien conventionnel à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(60, 0.75, "Maintien conventionnel à 75 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 ),
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 60,
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(60, 1.00, "Maintien conventionnel à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(75, 0.75, "Maintien conventionnel à 75 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 )
             ),
             referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.NET,
@@ -54,35 +56,40 @@ object PlasturgieSicknessRulesV2 {
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(45, 1.00, "Maintien cadre à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(45, 0.50, "Maintien cadre à 50 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 ),
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 24,
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(60, 1.00, "Maintien cadre à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(60, 0.50, "Maintien cadre à 50 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 ),
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 36,
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(90, 1.00, "Maintien cadre à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(90, 0.50, "Maintien cadre à 50 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 ),
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 60,
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(120, 1.00, "Maintien cadre à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(120, 0.50, "Maintien cadre à 50 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 ),
                 ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = 120,
                     bands = listOf(
                         ConventionSicknessMaintenanceV2.Band(150, 1.00, "Maintien cadre à 100 % du net de référence"),
                         ConventionSicknessMaintenanceV2.Band(150, 0.50, "Maintien cadre à 50 % du net de référence")
-                    )
+                    ),
+                    bandConsumptionScope = ConventionSicknessMaintenanceV2.BandConsumptionScope.ANNUAL_CUMULATIVE
                 )
             ),
             referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.NET,

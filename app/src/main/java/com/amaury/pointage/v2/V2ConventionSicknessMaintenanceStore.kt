@@ -57,6 +57,7 @@ object V2ConventionSicknessMaintenanceStore {
                 .put("minimumSeniorityMonths", tier.minimumSeniorityMonths)
                 .put("annualLimitDays", tier.annualLimitDays)
                 .put("perStopLimitDays", tier.perStopLimitDays)
+                .put("bandConsumptionScope", tier.bandConsumptionScope.name)
                 .put("bands", bands))
         }
         return JSONObject()
@@ -89,11 +90,16 @@ object V2ConventionSicknessMaintenanceStore {
                         add(ConventionSicknessMaintenanceV2.Band(band.getInt("days"), band.getDouble("rate"), band.getString("label")))
                     }
                 }
+                val scope = tier.optString("bandConsumptionScope")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                    ?.let { runCatching { ConventionSicknessMaintenanceV2.BandConsumptionScope.valueOf(it) }.getOrNull() }
+                    ?: ConventionSicknessMaintenanceV2.BandConsumptionScope.UNKNOWN
                 add(ConventionSicknessMaintenanceV2.SeniorityTier(
                     minimumSeniorityMonths = tier.getInt("minimumSeniorityMonths"),
                     bands = bands,
                     annualLimitDays = if (tier.isNull("annualLimitDays")) null else tier.getInt("annualLimitDays"),
-                    perStopLimitDays = if (tier.isNull("perStopLimitDays")) null else tier.getInt("perStopLimitDays")
+                    perStopLimitDays = if (tier.isNull("perStopLimitDays")) null else tier.getInt("perStopLimitDays"),
+                    bandConsumptionScope = scope
                 ))
             }
         }

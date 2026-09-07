@@ -17,6 +17,14 @@ object ConventionSicknessMaintenanceV2 {
         FIRST_STOP_FREE_THEN_FIXED_SHORT_FIRST_CARRY
     }
 
+    /**
+     * Portée des bandes jours/taux.
+     * ANNUAL_CUMULATIVE : les jours déjà indemnisés consomment les bandes pour l'année.
+     * PER_STOP : chaque nouvel arrêt repart à la première bande, sous réserve du plafond annuel.
+     * UNKNOWN : aucune application automatique n'est autorisée.
+     */
+    enum class BandConsumptionScope { ANNUAL_CUMULATIVE, PER_STOP, UNKNOWN }
+
     data class Band(
         val calendarDays: Int,
         val targetRate: Double,
@@ -32,7 +40,8 @@ object ConventionSicknessMaintenanceV2 {
         /** Null = somme des bandes. */
         val annualLimitDays: Int? = null,
         /** Null = somme des bandes. */
-        val perStopLimitDays: Int? = null
+        val perStopLimitDays: Int? = null,
+        val bandConsumptionScope: BandConsumptionScope = BandConsumptionScope.UNKNOWN
     )
 
     data class Rule(
@@ -64,9 +73,13 @@ object ConventionSicknessMaintenanceV2 {
             if (tiers.map { it.minimumSeniorityMonths }.distinct().size != tiers.size) return false
             return tiers.all { tier ->
                 val totalBandDays = tier.bands.sumOf { it.calendarDays }
-                val limitsValid = tier.annualLimitDays?.let { it in 1..totalBandDays } != false &&
-                    tier.perStopLimitDays?.let { it in 1..totalBandDays } != false
-                limitsValid && tier.bands.all { band ->
+                if (tier.bandConsumptionScope == BandConsumptionScope.UNKNOWN) return@all false
+                val annualLimitValid = tier.annualLimitDays?.let { limit ->
+                    limit in 1..366 &&
+                        (tier.bandConsumptionScope != BandConsumptionScope.ANNUAL_CUMULATIVE || limit <= totalBandDays)
+                } != false
+                val perStopLimitValid = tier.perStopLimitDays?.let { it in 1..totalBandDays } != false
+                annualLimitValid && perStopLimitValid && tier.bands.all { band ->
                     band.calendarDays > 0 && band.targetRate.isFinite() && band.targetRate in 0.0..1.0 && band.label.isNotBlank()
                 }
             }
@@ -217,7 +230,7 @@ object ConventionSicknessMaintenanceV2 {
         val afterWaiting = (currentCalendarDays - waiting).coerceAtLeast(0)
         val indemnifiable = minOf(afterWaiting, (annualLimit - consumed).coerceAtLeast(0), perStopLimit)
         var remaining = indemnifiable
-        var already = consumed
+        var already = if (tier.bandConsumptionScope == BandConsumptionScope.ANNUAL_CUMULATIVE) consumed else 0
         val bands = buildList {
             tier.bands.forEach { band ->
                 val consumedInBand = minOf(already, band.calendarDays)
@@ -249,6 +262,7 @@ object ConventionSicknessMaintenanceV2 {
                 if (waiting > 0) add("Carence conventionnelle de $waiting jour(s) appliquée selon la règle sélectionnée.")
                 if (ssRequired) add("Prise en charge par la Sécurité sociale à confirmer pour sécuriser le complément conventionnel.")
                 if (selected.referenceBasis != ReferenceBasis.NET) add("Base du maintien : ${selected.referenceBasis.name}. Le calcul net automatique n'est pas utilisé pour une règle exprimée sur une autre base.")
+                add("Portée des tranches : ${tier.bandConsumptionScope.name}.")
                 add("Le montant exact du complément employeur exige la rémunération de référence prévue par la convention, puis les déductions légalement ou conventionnellement applicables.")
                 if (consumed >= annualLimit) add("Plafond annuel conventionnel atteint selon les absences enregistrées dans HoraTrack.")
             }

@@ -12,17 +12,23 @@ class OfficialKaliOvertimeRuleParserV2Test {
     private val referenceDate = LocalDate.of(2026, 9, 30)
     private val articleId = "KALIARTI000012345678"
 
-    private fun response(content: String, from: String = "2026-01-01", status: String = "VIGUEUR"): Map<String, Any> = mapOf(
+    private fun response(
+        content: String,
+        from: String = "2026-01-01",
+        status: String = "VIGUEUR",
+        extensionFrom: String? = null
+    ): Map<String, Any> = mapOf(
         "etat" to status,
         "dateDebutVersion" to from,
         "articles" to listOf(
-            mapOf(
-                "id" to articleId,
-                "etat" to status,
-                "dateDebut" to from,
-                "num" to "Heures supplémentaires",
-                "content" to content
-            )
+            buildMap<String, Any> {
+                put("id", articleId)
+                put("etat", status)
+                put("dateDebut", from)
+                put("num", "Heures supplémentaires")
+                put("content", content)
+                extensionFrom?.let { put("dateDebutExtension", it) }
+            }
         )
     )
 
@@ -41,6 +47,21 @@ class OfficialKaliOvertimeRuleParserV2Test {
         assertEquals(listOf(1.25, 1.50), schedule.tiers.map { it.multiplier })
         assertEquals(43 * 60, schedule.tiers.first().toMinutes)
         assertNull(schedule.tiers.last().toMinutes)
+    }
+
+    @Test
+    fun `conserve la date officielle de debut d extension`() {
+        val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(
+            response(
+                "Au-delà de 35 heures, toutes les heures supplémentaires donnent lieu à une majoration de 10 %.",
+                status = "VIGUEUR_ETEN",
+                extensionFrom = "2026-02-15"
+            ),
+            articleId,
+            referenceDate
+        )
+        assertNotNull(article)
+        assertEquals(LocalDate.of(2026, 2, 15), article!!.extensionEffectiveFrom)
     }
 
     @Test
