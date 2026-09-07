@@ -6,14 +6,15 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.MayFirstLegalRuleStoreV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
+import com.amaury.pointage.v2.V2ConventionMinimumSalaryBridge
 import com.amaury.pointage.v2.V2ConventionRuleStore
+import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CollectivePremiumLegalArbitrationBridgeV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
-import com.amaury.pointage.v2.engine.ConventionPayrollReferenceV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
@@ -30,7 +31,6 @@ import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
-import com.amaury.pointage.v2.engine.PlasturgieSeniorityPremiumV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
@@ -48,7 +48,7 @@ import kotlin.math.roundToInt
 /** Passerelle unique entre les écrans Salaire et PayrollEngineV2. */
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
- data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L)
+ data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null)
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   require(HoraTrackV2.ENABLED)
@@ -101,21 +101,22 @@ object V2SalaryAdapter {
    premiumSnapshot=collectivePremiumArbitration,
    referenceDate=period.referenceDate
   )
-  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
-  val seniorityDate=runCatching{prefs.getString("convention_seniority_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}}.getOrNull()
-  val seniorityRtt=prefs.getString("seniority_rtt_differential_monthly","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
+  val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
   val seniorityBase=baseCalculated.regularGross.takeIf{rawType in setOf("FULL_TIME","PART_TIME")&&baseCalculated.monthlyGrossReliable}
-  val seniority=PlasturgieSeniorityPremiumV2.calculate(
-   idcc=convention.idcc,coefficient=coefficient,referenceDate=period.referenceDate,
-   confirmedSeniorityDate=seniorityDate,monthlyBaseGross=seniorityBase,monthlyRttDifferential=seniorityRtt
-  )
+  val seniority=V2ConventionSeniorityPremiumBridge.load(
+   context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
+   actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
+  ).result
   val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
   val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
   val calculated=baseCalculated.copy(
    premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
    monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
    monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
-   warnings=(baseCalculated.warnings+seniority.warnings+companyPremiums.warnings).distinct()
+   warnings=(baseCalculated.warnings+conventionMinimum.resolution.warnings+seniority.warnings+companyPremiums.warnings).distinct(),
+   conventionMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross,
+   conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
+   seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
   )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
@@ -125,9 +126,7 @@ object V2SalaryAdapter {
    if(legalSnapshot.records.isEmpty())add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
    else if(!legalSnapshot.complete)add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
   }
-  val normalizedIdcc=convention.idcc.filter(Char::isDigit).trimStart('0')
-  val minimumWarnings=coefficient?.let{ConventionPayrollReferenceV2.minimumApplicabilityWarnings(normalizedIdcc,period.referenceDate,it)}.orEmpty()
-  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings+minimumWarnings).distinct())
+  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct())
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
