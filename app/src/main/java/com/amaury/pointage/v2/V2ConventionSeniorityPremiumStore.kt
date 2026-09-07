@@ -70,6 +70,7 @@ object V2ConventionSeniorityPremiumStore {
             .put("includeConfirmedMonthlySupplement", rule.includeConfirmedMonthlySupplement)
             .put("source", rule.source)
             .put("extensionStatus", rule.extensionStatus.name)
+            .put("extensionEffectiveFrom", rule.extensionEffectiveFrom?.toString())
     }
 
     private fun encodeClassification(value: ConventionClassificationV2): JSONObject = JSONObject()
@@ -103,7 +104,8 @@ object V2ConventionSeniorityPremiumStore {
             steps = steps,
             includeConfirmedMonthlySupplement = obj.optBoolean("includeConfirmedMonthlySupplement", false),
             source = obj.getString("source"),
-            extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.valueOf(obj.getString("extensionStatus"))
+            extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.valueOf(obj.getString("extensionStatus")),
+            extensionEffectiveFrom = obj.optString("extensionEffectiveFrom").takeIf { it.isNotBlank() && it != "null" }?.let(LocalDate::parse)
         )
     }.getOrNull()
 
