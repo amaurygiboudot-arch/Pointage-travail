@@ -7,10 +7,9 @@ import java.util.Locale
 /**
  * Analyse prudente d'un article KALI relatif au travail de nuit.
  *
- * Cette étape ne rend volontairement aucune règle « calculable » : le moteur actuel ne transporte
- * qu'un total de minutes de nuit et ne peut pas encore garantir qu'il utilise exactement la plage
- * horaire conventionnelle, ni toutes les conditions de catégorie ou de fréquence d'un article.
- * Un article peut donc devenir un candidat structuré (plage + taux), mais jamais être auto-appliqué ici.
+ * Un article ne devient calculable que si une plage horaire unique et un taux unique sont explicites,
+ * sans condition/catégorie détectée. Cela ne suffit pas à l'auto-enregistrer : l'audit KALI doit encore
+ * vérifier l'unicité du candidat et la complétude de la recherche/consultation officielles.
  */
 object OfficialKaliNightRuleParserV2 {
     data class NightWindow(
@@ -30,8 +29,8 @@ object OfficialKaliNightRuleParserV2 {
         val percentage: Double,
         val multiplier: Double = 1.0 + percentage / 100.0
     ) {
-        /** Tant que le moteur ne calcule pas les minutes depuis cette plage officielle, l'auto-application reste interdite. */
-        val calculationReady: Boolean get() = false
+        /** Le moteur V2 sait désormais calculer les minutes depuis cette plage exacte. */
+        val calculationReady: Boolean get() = true
     }
 
     enum class DiagnosticKind {
@@ -60,7 +59,7 @@ object OfficialKaliNightRuleParserV2 {
         OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(data, expectedArticleId, referenceDate)
 
     fun analyzeArticle(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ArticleDiagnostic {
-        val text = normalize(article.content)
+        val text = normalize(listOfNotNull(article.title, article.content).joinToString(" "))
         if (!mentionsNightWork(text)) {
             return ArticleDiagnostic(article, DiagnosticKind.OTHER)
         }
@@ -170,10 +169,7 @@ object OfficialKaliNightRuleParserV2 {
             "(\\d{1,2})\\s*(?:h|heures?)(?:\\s*(\\d{1,2}))?"
     )
 
-    /**
-     * Ces marqueurs indiquent qu'un simple couple plage/taux ne suffit pas à décrire le droit.
-     * Ils provoquent une revue plutôt qu'une simplification silencieuse.
-     */
+    /** Ces marqueurs empêchent de réduire une règle conditionnelle à un simple couple plage/taux. */
     private val conditionalMarkers = listOf(
         "travailleur de nuit",
         "travailleurs de nuit",
@@ -189,7 +185,9 @@ object OfficialKaliNightRuleParserV2 {
         "selon les conditions",
         "par accord d'entreprise",
         "par accord d’établissement",
-        "par accord d'etablissement"
+        "par accord d'etablissement",
+        "selon la categorie",
+        "selon le coefficient"
     )
 
     private fun normalize(value: String): String = Normalizer.normalize(

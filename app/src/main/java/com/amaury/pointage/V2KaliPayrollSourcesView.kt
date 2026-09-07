@@ -9,6 +9,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.KaliNightPayrollAuditV2
 import com.amaury.pointage.v2.KaliOvertimePayrollAuditV2
+import com.amaury.pointage.v2.V2ConventionNightRuleStore
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import java.time.LocalDate
@@ -37,7 +38,7 @@ class V2KaliPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack consulte les sources officielles KALI par famille de règle. Les heures supplémentaires peuvent être enregistrées uniquement lorsqu’un barème complet est vérifiable. Pour le travail de nuit, l’audit reste volontairement en diagnostic tant que la plage horaire officielle n’est pas reliée directement au calcul des minutes. Une recherche vide ne prouve jamais qu’aucune règle n’existe."
+            text = "HoraTrack consulte les sources officielles KALI par famille de règle. Les heures supplémentaires ne sont enregistrées que si un barème complet est vérifiable. Pour la nuit, HoraTrack exige une recherche complète, tous les textes/articles consultés, aucune section KALISCTA non résolue et une seule règle simple plage+taux. Une fois confirmée, les minutes sont calculées uniquement dans cette plage officielle."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -71,6 +72,9 @@ class V2KaliPayrollSourcesView(
         val snapshot = if (idcc.isBlank()) null else runCatching {
             V2ConventionRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
         }.getOrNull()
+        val nightSnapshot = if (idcc.isBlank()) null else runCatching {
+            V2ConventionNightRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
+        }.getOrNull()
 
         status.text = buildString {
             append("Entreprise : ").append(company.name.ifBlank { "Entreprise" }).append('\n')
@@ -79,7 +83,7 @@ class V2KaliPayrollSourcesView(
             when {
                 idcc.isBlank() -> append("IDCC requis pour interroger KALI.")
                 snapshot == null -> {
-                    append("Aucun barème KALI confirmé n’est enregistré pour cette date.\n")
+                    append("Aucun barème d’heures supplémentaires KALI confirmé n’est enregistré pour cette date.\n")
                     append("Cela ne signifie pas qu’aucune règle conventionnelle n’existe.")
                 }
                 snapshot.rules.overtimeTiers.isEmpty() -> {
@@ -98,6 +102,24 @@ class V2KaliPayrollSourcesView(
                     append("Applicable depuis : ")
                         .append(LocalDate.ofEpochDay(snapshot.effectiveFromEpochDay).format(dateFormat))
                     snapshot.effectiveToEpochDay?.let {
+                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                    }
+                }
+            }
+
+            if (idcc.isNotBlank()) {
+                append("\n\nRÈGLE NUIT KALI\n")
+                if (nightSnapshot == null) {
+                    append("Aucune règle de nuit KALI confirmée pour cette date.")
+                } else {
+                    append("Plage : ").append(formatMinute(nightSnapshot.rule.startMinute))
+                        .append(" → ").append(formatMinute(nightSnapshot.rule.endMinute)).append('\n')
+                    append("Majoration : +")
+                        .append(formatPercent(nightSnapshot.rule.percentage)).append(" %\n")
+                    append("Source : ").append(nightSnapshot.sourceId).append('\n')
+                    append("Applicable depuis : ")
+                        .append(LocalDate.ofEpochDay(nightSnapshot.effectiveFromEpochDay).format(dateFormat))
+                    nightSnapshot.effectiveToEpochDay?.let {
                         append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
                     }
                 }
@@ -128,6 +150,9 @@ class V2KaliPayrollSourcesView(
                 append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
                 append("Candidats plage+taux structurés : ").append(summary.structuredCandidates).append('\n')
                 append("Règle nuit enregistrée : ").append(if (summary.saved) "oui" else "non")
+                summary.selectedSourceId?.let {
+                    append("\nSource retenue : ").append(it)
+                }
                 if (summary.previews.isNotEmpty()) {
                     append("\n\nCandidats structurés :")
                     summary.previews.forEach { preview ->
@@ -183,14 +208,15 @@ class V2KaliPayrollSourcesView(
         setAuditButtonsEnabled(false)
         lastNightAuditSummary = null
         status.text = "Analyse KALI du travail de nuit en cours pour ${referenceDate.format(dateFormat)}…"
-        KaliNightPayrollAuditV2.audit(idcc, referenceDate)
+        KaliNightPayrollAuditV2.audit(context, idcc, referenceDate)
             .addOnSuccessListener { summary ->
                 setAuditButtonsEnabled(true)
                 lastNightAuditSummary = summary
                 refresh()
                 val message = when {
+                    summary.saved -> "KALI nuit : règle vérifiée et enregistrée."
                     summary.structuredCandidates > 0 ->
-                        "KALI nuit : ${summary.structuredCandidates} candidat(s) structuré(s), aucun appliqué automatiquement."
+                        "KALI nuit : candidat structuré trouvé mais non enregistré ; voir le diagnostic."
                     summary.warnings.isNotEmpty() -> summary.warnings.first()
                     else -> "KALI nuit : aucune règle simple n’a pu être structurée."
                 }

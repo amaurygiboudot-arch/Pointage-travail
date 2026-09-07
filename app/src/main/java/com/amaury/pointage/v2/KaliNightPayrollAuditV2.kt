@@ -1,5 +1,8 @@
 package com.amaury.pointage.v2
 
+import android.content.Context
+import com.amaury.pointage.v2.engine.ConventionNightRuleSnapshotV2
+import com.amaury.pointage.v2.engine.NightPremiumRuleV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.functions.HttpsCallableResult
@@ -9,10 +12,9 @@ import java.util.Locale
 /**
  * Audit KALI ciblé du travail de nuit.
  *
- * Cette première version est volontairement diagnostic-only : elle parcourt la recherche officielle,
- * développe les KALITEXT, consulte les KALIARTI et structure les articles applicables quand la plage
- * horaire et le taux sont explicites. Elle n'enregistre aucun PayrollRulesV2 tant que le moteur de
- * calcul ne sait pas recalculer les minutes de nuit à partir de la plage KALI elle-même.
+ * Une règle n'est enregistrée que si HoraTrack a une recherche paginée complète, aucun KALISCTA
+ * non résolu, tous les KALITEXT développés, tous les KALIARTI consultés et exactement un candidat
+ * simple applicable à la date (une plage + un taux, sans condition détectée).
  */
 object KaliNightPayrollAuditV2 {
     private const val PAGE_SIZE = 25
@@ -34,6 +36,7 @@ object KaliNightPayrollAuditV2 {
         val articlesConsulted: Int,
         val structuredCandidates: Int,
         val saved: Boolean = false,
+        val selectedSourceId: String? = null,
         val previews: List<CandidatePreview> = emptyList(),
         val warnings: List<String> = emptyList()
     )
@@ -48,16 +51,18 @@ object KaliNightPayrollAuditV2 {
     private data class TextExpansionBatch(
         val articleIds: List<String>,
         val textsConsulted: Int,
+        val allTextsExpanded: Boolean,
         val warnings: List<String>
     )
 
     private data class ConsultBatch(
         val consulted: Int,
+        val allArticlesConsulted: Boolean,
         val diagnostics: List<OfficialKaliNightRuleParserV2.ArticleDiagnostic>,
         val warnings: List<String>
     )
 
-    fun audit(idcc: String, referenceDate: LocalDate): Task<Summary> {
+    fun audit(context: Context, idcc: String, referenceDate: LocalDate): Task<Summary> {
         val normalizedIdcc = normalizeIdcc(idcc)
             ?: return Tasks.forResult(
                 Summary(
@@ -108,6 +113,7 @@ object KaliNightPayrollAuditV2 {
                             TextExpansionBatch(
                                 articleIds = emptyList(),
                                 textsConsulted = 0,
+                                allTextsExpanded = false,
                                 warnings = listOf(
                                     "KALI nuit : développement des KALITEXT interrompu ; " +
                                         "les articles directs restent analysés."
@@ -162,10 +168,13 @@ object KaliNightPayrollAuditV2 {
                                 }
 
                                 finalizeAudit(
-                                    normalizedIdcc,
-                                    referenceDate,
-                                    search,
-                                    consultTask.result.copy(
+                                    context = context,
+                                    idcc = normalizedIdcc,
+                                    referenceDate = referenceDate,
+                                    search = search,
+                                    unresolvedSections = sectionCandidates.size,
+                                    allTextsExpanded = expansion.allTextsExpanded,
+                                    consult = consultTask.result.copy(
                                         warnings = preWarnings + consultTask.result.warnings
                                     )
                                 )
@@ -175,12 +184,17 @@ object KaliNightPayrollAuditV2 {
     }
 
     private fun finalizeAudit(
+        context: Context,
         idcc: String,
         referenceDate: LocalDate,
         search: SearchBatch,
+        unresolvedSections: Int,
+        allTextsExpanded: Boolean,
         consult: ConsultBatch
     ): Summary {
-        val structured = consult.diagnostics.mapNotNull { it.candidate }
+        val structured = consult.diagnostics
+            .mapNotNull { it.candidate }
+            .filter { it.calculationReady }
         val previews = structured
             .sortedWith(
                 compareByDescending<OfficialKaliNightRuleParserV2.StructuredCandidate> {
@@ -199,26 +213,92 @@ object KaliNightPayrollAuditV2 {
                 )
             }
 
+        val coverageComplete = search.resultCountComplete &&
+            unresolvedSections == 0 &&
+            allTextsExpanded &&
+            consult.allArticlesConsulted
+        val selected = structured.singleOrNull()
+        var saved = false
+        var selectedSourceId: String? = null
+        var saveError: String? = null
+
+        if (selected != null && coverageComplete) {
+            val sourceId = "legifrance:KALI:${selected.article.articleId}"
+            val snapshot = ConventionNightRuleSnapshotV2(
+                idcc = idcc,
+                versionId = "KALI-NIGHT-${selected.article.articleId}",
+                sourceId = sourceId,
+                effectiveFromEpochDay = selected.article.effectiveFrom.toEpochDay(),
+                effectiveToEpochDay = selected.article.effectiveTo?.toEpochDay(),
+                rule = NightPremiumRuleV2(
+                    startMinute = selected.window.startMinute,
+                    endMinute = selected.window.endMinute,
+                    multiplier = selected.multiplier
+                ),
+                checkedAtMs = System.currentTimeMillis(),
+                note = "Règle de nuit extraite d'un article KALI consulté, daté et applicable."
+            )
+            saved = runCatching {
+                V2ConventionNightRuleStore.saveConfirmed(context, snapshot)
+                true
+            }.getOrElse { error ->
+                saveError = error.message ?: "stockage impossible"
+                false
+            }
+            if (saved) selectedSourceId = sourceId
+        }
+
         val warnings = buildList {
             addAll(consult.warnings)
             addAll(diagnosticWarnings(consult.diagnostics))
+
             if (!search.resultCountComplete) {
                 add(
                     "KALI nuit : la pagination n'a pas pu être certifiée complète ; " +
-                        "aucune absence de règle n'est déduite."
+                        "aucune règle n'est enregistrée automatiquement."
                 )
             }
-            if (structured.isEmpty()) {
+            if (unresolvedSections > 0) {
                 add(
+                    "KALI nuit : $unresolvedSections section(s) KALISCTA ne sont pas développées ; " +
+                        "l'enregistrement automatique est bloqué pour éviter de manquer une règle concurrente."
+                )
+            }
+            if (!allTextsExpanded) {
+                add(
+                    "KALI nuit : tous les KALITEXT n'ont pas pu être développés ; " +
+                        "l'enregistrement automatique est bloqué."
+                )
+            }
+            if (!consult.allArticlesConsulted) {
+                add(
+                    "KALI nuit : tous les KALIARTI n'ont pas pu être consultés ; " +
+                        "l'enregistrement automatique est bloqué."
+                )
+            }
+
+            when {
+                structured.isEmpty() -> add(
                     "KALI nuit : aucune règle simple, datée et non conditionnelle n'a pu être structurée automatiquement."
                 )
-            } else {
-                add(
-                    "KALI nuit : ${structured.size} candidat(s) plage+taux ont été structurés, mais aucun n'est " +
-                        "appliqué ni enregistré dans le moteur de paie tant que la plage horaire KALI n'est pas " +
-                        "reliée directement au calcul des minutes de nuit."
+                structured.size > 1 -> add(
+                    "KALI nuit : ${structured.size} règles simples applicables ont été trouvées ; " +
+                        "HoraTrack refuse d'en choisir une automatiquement sans arbitrage supplémentaire."
+                )
+                saved -> add(
+                    "KALI nuit : règle unique vérifiée et enregistrée. Les minutes de nuit seront calculées " +
+                        "uniquement dans la plage officielle ${formatMinute(selected!!.window.startMinute)}-" +
+                        "${formatMinute(selected.window.endMinute)}."
+                )
+                coverageComplete && saveError != null -> add(
+                    "KALI nuit : règle unique vérifiée mais stockage impossible : $saveError."
+                )
+                else -> add(
+                    "KALI nuit : un candidat calculable est présent mais la couverture de l'audit n'est pas " +
+                        "assez complète pour l'enregistrer automatiquement."
                 )
             }
+
             add(
                 "KALI nuit : une recherche ciblée vide ou non structurée ne prouve jamais l'absence officielle " +
                     "d'une règle de travail de nuit."
@@ -232,7 +312,8 @@ object KaliNightPayrollAuditV2 {
             candidates = search.candidates.size,
             articlesConsulted = consult.consulted,
             structuredCandidates = structured.size,
-            saved = false,
+            saved = saved,
+            selectedSourceId = selectedSourceId,
             previews = previews,
             warnings = warnings
         )
@@ -313,11 +394,17 @@ object KaliNightPayrollAuditV2 {
         index: Int = 0,
         articleIds: List<String> = emptyList(),
         textsConsulted: Int = 0,
+        allTextsExpanded: Boolean = true,
         warnings: List<String> = emptyList()
     ): Task<TextExpansionBatch> {
         if (index >= candidates.size) {
             return Tasks.forResult(
-                TextExpansionBatch(articleIds.distinct(), textsConsulted, warnings.distinct())
+                TextExpansionBatch(
+                    articleIds.distinct(),
+                    textsConsulted,
+                    allTextsExpanded,
+                    warnings.distinct()
+                )
             )
         }
         val candidate = candidates[index]
@@ -329,6 +416,7 @@ object KaliNightPayrollAuditV2 {
                         index + 1,
                         articleIds,
                         textsConsulted + 1,
+                        false,
                         warnings + "KALI nuit : ${candidate.id} n'a pas pu être développé après deux tentatives."
                     )
                 }
@@ -338,6 +426,7 @@ object KaliNightPayrollAuditV2 {
                     index + 1,
                     (articleIds + expansion.articleIds).distinct(),
                     textsConsulted + 1,
+                    allTextsExpanded,
                     warnings
                 )
             }
@@ -348,11 +437,19 @@ object KaliNightPayrollAuditV2 {
         referenceDate: LocalDate,
         index: Int = 0,
         consulted: Int = 0,
+        allArticlesConsulted: Boolean = true,
         diagnostics: List<OfficialKaliNightRuleParserV2.ArticleDiagnostic> = emptyList(),
         warnings: List<String> = emptyList()
     ): Task<ConsultBatch> {
         if (index >= candidates.size) {
-            return Tasks.forResult(ConsultBatch(consulted, diagnostics, warnings.distinct()))
+            return Tasks.forResult(
+                ConsultBatch(
+                    consulted,
+                    allArticlesConsulted,
+                    diagnostics,
+                    warnings.distinct()
+                )
+            )
         }
         val candidate = candidates[index]
         return requestWithRetry("/consult/kaliArticle", mapOf("id" to candidate.id))
@@ -363,6 +460,7 @@ object KaliNightPayrollAuditV2 {
                         referenceDate,
                         index + 1,
                         consulted + 1,
+                        false,
                         diagnostics,
                         warnings + "KALI nuit : ${candidate.id} n'a pas pu être consulté après deux tentatives."
                     )
@@ -378,6 +476,7 @@ object KaliNightPayrollAuditV2 {
                     referenceDate,
                     index + 1,
                     consulted + 1,
+                    allArticlesConsulted,
                     if (diagnostic == null) diagnostics else diagnostics + diagnostic,
                     warnings
                 )

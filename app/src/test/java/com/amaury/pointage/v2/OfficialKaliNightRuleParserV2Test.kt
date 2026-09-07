@@ -1,9 +1,9 @@
 package com.amaury.pointage.v2
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -30,7 +30,7 @@ class OfficialKaliNightRuleParserV2Test {
     )
 
     @Test
-    fun `structure seulement une plage et un taux uniques sans rendre la regle calculable`() {
+    fun `structure une plage et un taux uniques et rend le candidat calculable`() {
         val article = OfficialKaliNightRuleParserV2.parseApplicableArticle(
             response("Les heures de nuit effectuées de 21 h à 6 h donnent lieu à une majoration de 25 %."),
             articleId,
@@ -46,7 +46,7 @@ class OfficialKaliNightRuleParserV2Test {
         assertEquals(6 * 60, candidate.window.endMinute)
         assertEquals(25.0, candidate.percentage, 0.0001)
         assertEquals(1.25, candidate.multiplier, 0.0001)
-        assertFalse(candidate.calculationReady)
+        assertTrue(candidate.calculationReady)
     }
 
     @Test
