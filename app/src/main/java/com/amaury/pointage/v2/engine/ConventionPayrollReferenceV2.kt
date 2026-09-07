@@ -53,6 +53,30 @@ object ConventionPayrollReferenceV2 {
 
     private val snapshots=listOf(plasturgie2024,plasturgie2026)
 
+    /**
+     * Expose les minima historiques déjà audités au moteur conventionnel générique.
+     * La Plasturgie devient ainsi un jeu de données du moteur, et non son format imposé.
+     */
+    fun genericMinimumRules():List<ConventionMinimumSalaryV2.Rule> = snapshots.flatMap { snapshot ->
+        snapshot.minima.map { minimum ->
+            ConventionMinimumSalaryV2.Rule(
+                idcc = snapshot.idcc,
+                ruleId = "builtin_${snapshot.idcc}_${snapshot.effectiveFrom}_${minimum.coefficient}",
+                effectiveFrom = snapshot.effectiveFrom,
+                effectiveTo = snapshot.effectiveTo,
+                classification = ConventionClassificationV2(coefficient = minimum.coefficient),
+                amount = minimum.monthlyGross,
+                periodicity = ConventionMinimumSalaryV2.Periodicity.MONTHLY,
+                source = snapshot.source,
+                extensionStatus = when(snapshot.extensionStatus) {
+                    ExtensionStatus.EXTENDED -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+                    ExtensionStatus.NOT_EXTENDED -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+                    ExtensionStatus.UNKNOWN -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+                }
+            )
+        }
+    }
+
     fun latestKnown(idcc:String,date:LocalDate):Snapshot? = snapshots
         .filter { it.idcc==idcc && !date.isBefore(it.effectiveFrom) && (it.effectiveTo==null || !date.isAfter(it.effectiveTo)) }
         .maxByOrNull { it.effectiveFrom }
