@@ -22,20 +22,24 @@ object ConventionMinimumSalaryV2 {
         val amount: Double,
         val periodicity: Periodicity,
         val source: String,
-        val extensionStatus: ExtensionStatus
+        val extensionStatus: ExtensionStatus,
+        /** Date à laquelle l'extension devient opposable à toutes les entreprises du champ. Null = non distinguée de effectiveFrom. */
+        val extensionEffectiveFrom: LocalDate? = null
     ) {
         fun structurallyValid(): Boolean = normalizeIdcc(idcc).isNotBlank() &&
             ruleId.isNotBlank() &&
             source.isNotBlank() &&
             amount.isFinite() &&
             amount > 0.0 &&
-            (effectiveTo == null || !effectiveTo.isBefore(effectiveFrom))
+            (effectiveTo == null || !effectiveTo.isBefore(effectiveFrom)) &&
+            (extensionEffectiveFrom == null || extensionStatus == ExtensionStatus.EXTENDED)
 
         fun activeOn(date: LocalDate): Boolean = !date.isBefore(effectiveFrom) &&
             (effectiveTo == null || !date.isAfter(effectiveTo))
 
-        fun applicableToCompany(companyApplicabilityConfirmed: Boolean): Boolean = when (extensionStatus) {
-            ExtensionStatus.EXTENDED -> true
+        fun applicableToCompany(companyApplicabilityConfirmed: Boolean, date: LocalDate): Boolean = when (extensionStatus) {
+            ExtensionStatus.EXTENDED -> companyApplicabilityConfirmed ||
+                !date.isBefore(extensionEffectiveFrom ?: effectiveFrom)
             ExtensionStatus.NOT_EXTENDED -> companyApplicabilityConfirmed
             ExtensionStatus.UNKNOWN -> false
         }
@@ -87,11 +91,11 @@ object ConventionMinimumSalaryV2 {
         }
 
         val latestKnown = chooseMostSpecificLatest(validMatching)
-        val applicable = validMatching.filter { it.applicableToCompany(companyApplicabilityConfirmed) }
+        val applicable = validMatching.filter { it.applicableToCompany(companyApplicabilityConfirmed, date) }
         val selectedCandidates = bestCandidates(applicable)
         val selected = selectedCandidates.singleOrNull()
         val conflict = selectedCandidates.size > 1 && selectedCandidates
-            .map { Triple(it.amount, it.periodicity, it.ruleId) }
+            .map { it.amount to it.periodicity }
             .distinct()
             .size > 1
 
@@ -103,18 +107,24 @@ object ConventionMinimumSalaryV2 {
                 add("Minimum conventionnel IDCC $normalizedIdcc : plusieurs barèmes applicables de même date et même précision se contredisent ; aucun minimum n'est appliqué automatiquement.")
             }
             if (selected == null && !conflict) {
-                val status = latestKnown?.extensionStatus
-                when (status) {
+                val latest = latestKnown
+                when (latest?.extensionStatus) {
                     ExtensionStatus.NOT_EXTENDED -> add("Minimum conventionnel : le barème le plus récent correspondant à ${classification.label()} est non étendu et son applicabilité à l'entreprise n'est pas confirmée.")
                     ExtensionStatus.UNKNOWN -> add("Minimum conventionnel : le statut d'extension du barème le plus récent correspondant à ${classification.label()} n'est pas confirmé.")
-                    else -> add("Minimum conventionnel : aucun barème applicable n'a pu être sélectionné sans hypothèse.")
+                    ExtensionStatus.EXTENDED -> {
+                        val extensionDate = latest.extensionEffectiveFrom
+                        if (extensionDate != null && date.isBefore(extensionDate)) {
+                            add("Minimum conventionnel : le barème correspondant est étendu à compter du $extensionDate, après la période de paie ; son applicabilité antérieure à l'entreprise n'est pas confirmée.")
+                        } else add("Minimum conventionnel : aucun barème applicable n'a pu être sélectionné sans hypothèse.")
+                    }
+                    null -> add("Minimum conventionnel : aucun barème applicable n'a pu être sélectionné sans hypothèse.")
                 }
             }
             if (selected != null && latestKnown != null && latestKnown.effectiveFrom.isAfter(selected.effectiveFrom)) {
                 val status = when (latestKnown.extensionStatus) {
                     ExtensionStatus.NOT_EXTENDED -> "non étendu"
                     ExtensionStatus.UNKNOWN -> "statut d'extension non confirmé"
-                    ExtensionStatus.EXTENDED -> "étendu"
+                    ExtensionStatus.EXTENDED -> latestKnown.extensionEffectiveFrom?.let { "étendu à compter du $it" } ?: "étendu"
                 }
                 add("Minimum conventionnel : un barème plus récent existe depuis ${latestKnown.effectiveFrom} ($status), mais il n'est pas automatiquement substitué au dernier barème applicable vérifié.")
             }
