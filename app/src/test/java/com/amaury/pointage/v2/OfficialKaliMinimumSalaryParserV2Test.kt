@@ -10,6 +10,7 @@ import java.time.LocalDate
 
 class OfficialKaliMinimumSalaryParserV2Test {
     private val auditDate = LocalDate.of(2026, 9, 30)
+    private val extensionDate = LocalDate.of(2026, 2, 1)
 
     private fun profile(coefficient: Int = 800, status: String = "NON_CADRE") = ConventionLegalProfileV2(
         companyId = "c1",
@@ -25,15 +26,19 @@ class OfficialKaliMinimumSalaryParserV2Test {
         forfaitAnnualDays = null
     )
 
-    private fun article(content: String, status: String = "VIGUEUR_ETEN") =
-        OfficialKaliOvertimeRuleParserV2.VerifiedArticle(
-            articleId = "KALIARTI000000000001",
-            status = status,
-            content = content,
-            effectiveFrom = LocalDate.of(2026, 1, 1),
-            effectiveTo = null,
-            title = "Salaires minima"
-        )
+    private fun article(
+        content: String,
+        status: String = "VIGUEUR_ETEN",
+        extension: LocalDate? = extensionDate
+    ) = OfficialKaliOvertimeRuleParserV2.VerifiedArticle(
+        articleId = "KALIARTI000000000001",
+        status = status,
+        content = content,
+        effectiveFrom = LocalDate.of(2026, 1, 1),
+        effectiveTo = null,
+        title = "Salaires minima",
+        extensionEffectiveFrom = extension
+    )
 
     @Test
     fun `minimum exact coefficient and status is structured`() {
@@ -46,8 +51,21 @@ class OfficialKaliMinimumSalaryParserV2Test {
         assertEquals(2100.50, rule.amount, 0.001)
         assertEquals(ConventionMinimumSalaryV2.Periodicity.MONTHLY, rule.periodicity)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, rule.extensionStatus)
-        assertEquals(auditDate, rule.extensionEffectiveFrom)
+        assertEquals(extensionDate, rule.extensionEffectiveFrom)
         assertEquals(800, rule.classification.coefficient)
+    }
+
+    @Test
+    fun `extended status without exact extension date stays unknown`() {
+        val diagnostic = OfficialKaliMinimumSalaryParserV2.parse(
+            article("Salaires minima mensuels des non-cadres. Coefficient 800 : salaire minimum mensuel 2 100,50 €.", extension = null),
+            profile(),
+            auditDate
+        )
+        val rule = diagnostic.rule!!
+        assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN, rule.extensionStatus)
+        assertNull(rule.extensionEffectiveFrom)
+        assertTrue(diagnostic.reasons.any { it.contains("date exacte d'extension") })
     }
 
     @Test
@@ -83,7 +101,11 @@ class OfficialKaliMinimumSalaryParserV2Test {
     @Test
     fun `non extended rule is stored as non extended and not silently promoted`() {
         val diagnostic = OfficialKaliMinimumSalaryParserV2.parse(
-            article("Salaires minima mensuels des non-cadres. Coefficient 800 : salaire minimum mensuel 2 100 €.", "VIGUEUR_NON_ETEN"),
+            article(
+                "Salaires minima mensuels des non-cadres. Coefficient 800 : salaire minimum mensuel 2 100 €.",
+                status = "VIGUEUR_NON_ETEN",
+                extension = null
+            ),
             profile(),
             auditDate
         )
