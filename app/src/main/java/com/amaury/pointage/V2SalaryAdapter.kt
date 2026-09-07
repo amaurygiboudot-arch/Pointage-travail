@@ -29,6 +29,7 @@ import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
+import com.amaury.pointage.v2.engine.PlasturgieSeniorityPremiumV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
@@ -83,7 +84,7 @@ object V2SalaryAdapter {
   val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
-  val calculated=applyMayFirstLegalAdjustment(
+  val baseCalculated=applyMayFirstLegalAdjustment(
    context=context,
    base=calculateCore(
     contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
@@ -98,6 +99,21 @@ object V2SalaryAdapter {
    premiumSnapshot=collectivePremiumArbitration,
    referenceDate=period.referenceDate
   )
+  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
+  val seniorityDate=runCatching{prefs.getString("convention_seniority_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}}.getOrNull()
+  val seniorityRtt=prefs.getString("seniority_rtt_differential_monthly","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
+  val seniorityBase=baseCalculated.regularGross.takeIf{rawType in setOf("FULL_TIME","PART_TIME")&&baseCalculated.monthlyGrossReliable}
+  val seniority=PlasturgieSeniorityPremiumV2.calculate(
+   idcc=convention.idcc,coefficient=coefficient,referenceDate=period.referenceDate,
+   confirmedSeniorityDate=seniorityDate,monthlyBaseGross=seniorityBase,monthlyRttDifferential=seniorityRtt
+  )
+  val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
+  val calculated=baseCalculated.copy(
+   premiumsGross=baseCalculated.premiumsGross+seniorityAmount,
+   monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount,
+   monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable,
+   warnings=(baseCalculated.warnings+seniority.warnings).distinct()
+  )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
   val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
@@ -106,7 +122,6 @@ object V2SalaryAdapter {
    if(legalSnapshot.records.isEmpty())add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
    else if(!legalSnapshot.complete)add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
   }
-  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
   val normalizedIdcc=convention.idcc.filter(Char::isDigit).trimStart('0')
   val minimumWarnings=coefficient?.let{ConventionPayrollReferenceV2.minimumApplicabilityWarnings(normalizedIdcc,period.referenceDate,it)}.orEmpty()
   return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings+minimumWarnings).distinct())
