@@ -164,8 +164,6 @@ object OfficialKaliSicknessMaintenanceParserV2 {
             .distinctBy { it.calendarDays to it.targetRate }
             .filter { it.calendarDays in 1..366 && it.targetRate in 0.0..1.0 }
         if (bands.isEmpty() || bands.size > 6) return null
-        val duplicateDurations = bands.groupBy { it.calendarDays }.any { (_, values) -> values.map { it.targetRate }.distinct().size > 1 }
-        if (duplicateDurations) return null
         return bands
     }
 
