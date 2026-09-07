@@ -29,11 +29,14 @@ object ConventionSeniorityPremiumV2 {
         /** Exemple Plasturgie : différentiel RTT confirmé ajouté à la base. */
         val includeConfirmedMonthlySupplement: Boolean = false,
         val source: String,
-        val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus
+        val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus,
+        /** Date d'effet de l'extension à toutes les entreprises ; null = confondue avec effectiveFrom. */
+        val extensionEffectiveFrom: LocalDate? = null
     ) {
         fun structurallyValid(): Boolean {
             if (ConventionMinimumSalaryV2.normalizeIdcc(idcc).isBlank() || ruleId.isBlank() || source.isBlank()) return false
             if (effectiveTo?.isBefore(effectiveFrom) == true || steps.isEmpty()) return false
+            if (extensionEffectiveFrom != null && extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) return false
             if (steps.any { it.years <= 0 } || steps.map { it.years }.distinct().size != steps.size) return false
             return steps.all { step ->
                 when (basis) {
@@ -48,8 +51,9 @@ object ConventionSeniorityPremiumV2 {
         fun activeOn(date: LocalDate): Boolean = !date.isBefore(effectiveFrom) &&
             (effectiveTo == null || !date.isAfter(effectiveTo))
 
-        fun applicableToCompany(companyApplicabilityConfirmed: Boolean): Boolean = when (extensionStatus) {
-            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED -> true
+        fun applicableToCompany(companyApplicabilityConfirmed: Boolean, date: LocalDate): Boolean = when (extensionStatus) {
+            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED -> companyApplicabilityConfirmed ||
+                !date.isBefore(extensionEffectiveFrom ?: effectiveFrom)
             ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED -> companyApplicabilityConfirmed
             ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN -> false
         }
@@ -82,7 +86,7 @@ object ConventionSeniorityPremiumV2 {
             .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
             .filter { it.activeOn(referenceDate) }
             .filter { classification.matches(it.classification) }
-            .filter { it.applicableToCompany(companyApplicabilityConfirmed) }
+            .filter { it.applicableToCompany(companyApplicabilityConfirmed, referenceDate) }
 
         if (candidates.isEmpty()) {
             return Result(false, false, null, null, null, null, emptyList())
