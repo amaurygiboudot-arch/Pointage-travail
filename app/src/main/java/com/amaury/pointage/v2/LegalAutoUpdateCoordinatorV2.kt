@@ -219,12 +219,12 @@ object LegalAutoUpdateCoordinatorV2 {
         val audit: Task<Pair<Boolean, Boolean>> = when (kind) {
             "KALI_OVERTIME" -> KaliOvertimePayrollAuditV2.audit(context, idcc, referenceDate)
                 .continueWith { task ->
-                    val summary = task.result.takeIf { task.isSuccessful }
+                    val summary = if (task.isSuccessful) task.result else null
                     (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
                 }
             "KALI_NIGHT" -> KaliNightPayrollAuditV2.audit(context, idcc, referenceDate)
                 .continueWith { task ->
-                    val summary = task.result.takeIf { task.isSuccessful }
+                    val summary = if (task.isSuccessful) task.result else null
                     (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
                 }
             "KALI_SATURDAY" -> KaliWeekdayPremiumAuditV2.audit(
@@ -233,7 +233,7 @@ object LegalAutoUpdateCoordinatorV2 {
                 WeekdayPremiumKindV2.SATURDAY,
                 referenceDate
             ).continueWith { task ->
-                val summary = task.result.takeIf { task.isSuccessful }
+                val summary = if (task.isSuccessful) task.result else null
                 (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
             }
             "KALI_SUNDAY" -> KaliWeekdayPremiumAuditV2.audit(
@@ -242,7 +242,7 @@ object LegalAutoUpdateCoordinatorV2 {
                 WeekdayPremiumKindV2.SUNDAY,
                 referenceDate
             ).continueWith { task ->
-                val summary = task.result.takeIf { task.isSuccessful }
+                val summary = if (task.isSuccessful) task.result else null
                 (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
             }
             else -> Tasks.forResult(false to false)
