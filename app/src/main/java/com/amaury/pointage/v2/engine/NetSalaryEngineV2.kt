@@ -21,7 +21,13 @@ object NetSalaryEngineV2 {
         val warnings: List<String>,
         val benefitsInKindDeduction: Double = 0.0,
         val employerMobilityContribution: Double? = null,
-        val complementaryRetirementEmployer: Double = 0.0
+        val complementaryRetirementEmployer: Double = 0.0,
+        /** Sous-total des seules cotisations patronales actuellement connues du moteur. */
+        val knownEmployerContributions: Double = 0.0,
+        /** Reste faux tant que le socle patronal Urssaf de base n'est pas intégré exhaustivement. */
+        val employerCostComplete: Boolean = false,
+        /** Avertissements propres au coût employeur, sans dégrader la fiabilité du net salarié. */
+        val employerCostWarnings: List<String> = emptyList()
     )
 
     fun calculate(
@@ -143,6 +149,20 @@ object NetSalaryEngineV2 {
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
         }.distinct()
 
+        val knownEmployerContributions = listOfNotNull(
+            retirement.employerContributions,
+            conventionProvident.employerContributions,
+            statusContributions.employerContributions,
+            atMp.employerAmount,
+            mobility.employerAmount
+        ).sum()
+        val employerCostWarnings = buildList {
+            add("Coût employeur total : cotisations patronales légales de base Urssaf non encore intégrées exhaustivement ; aucun total complet n'est affiché.")
+            if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
+            if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
+            if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
+        }.distinct()
+
         return Result(
             gross = contributionGross,
             socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
@@ -162,7 +182,10 @@ object NetSalaryEngineV2 {
             warnings = warnings,
             benefitsInKindDeduction = benefitsInKind,
             employerMobilityContribution = mobility.employerAmount,
-            complementaryRetirementEmployer = retirement.employerContributions
+            complementaryRetirementEmployer = retirement.employerContributions,
+            knownEmployerContributions = knownEmployerContributions,
+            employerCostComplete = false,
+            employerCostWarnings = employerCostWarnings
         )
     }
 }
