@@ -9,9 +9,12 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.KaliNightPayrollAuditV2
 import com.amaury.pointage.v2.KaliOvertimePayrollAuditV2
+import com.amaury.pointage.v2.KaliWeekdayPremiumAuditV2
 import com.amaury.pointage.v2.V2ConventionNightRuleStore
 import com.amaury.pointage.v2.V2ConventionRuleStore
+import com.amaury.pointage.v2.V2ConventionWeekdayPremiumStore
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
+import com.amaury.pointage.v2.engine.WeekdayPremiumKindV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -25,9 +28,13 @@ class V2KaliPayrollSourcesView(
     private val status = TextView(context)
     private val overtimeButton = Button(context)
     private val nightButton = Button(context)
+    private val saturdayButton = Button(context)
+    private val sundayButton = Button(context)
     private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu", Locale.FRANCE)
     private var lastOvertimeAuditSummary: KaliOvertimePayrollAuditV2.Summary? = null
     private var lastNightAuditSummary: KaliNightPayrollAuditV2.Summary? = null
+    private var lastSaturdayAuditSummary: KaliWeekdayPremiumAuditV2.Summary? = null
+    private var lastSundayAuditSummary: KaliWeekdayPremiumAuditV2.Summary? = null
 
     init {
         orientation = VERTICAL
@@ -38,7 +45,7 @@ class V2KaliPayrollSourcesView(
             setTypeface(typeface, Typeface.BOLD)
         })
         addView(TextView(context).apply {
-            text = "HoraTrack consulte les sources officielles KALI par famille de règle. Les heures supplémentaires ne sont enregistrées que si un barème complet est vérifiable. Pour la nuit, HoraTrack exige une recherche complète, tous les textes/articles consultés, aucune section KALISCTA non résolue et une seule règle simple plage+taux. Une fois confirmée, les minutes sont calculées uniquement dans cette plage officielle."
+            text = "HoraTrack consulte KALI par famille de règle. Heures supplémentaires, nuit, samedi et dimanche ne sont enregistrés que si la recherche officielle est suffisamment complète et qu'une règle datée, unique et non conditionnelle peut être structurée. Une recherche vide ne prouve jamais l'absence de règle."
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         })
@@ -55,9 +62,21 @@ class V2KaliPayrollSourcesView(
             textSize = 14f
             setBackgroundResource(R.drawable.hp_panel)
             setOnClickListener { runNightAudit() }
-        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply {
-            topMargin = dp(8)
-        })
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
+        addView(saturdayButton.apply {
+            text = "ANALYSER LE SAMEDI DANS KALI"
+            isAllCaps = false
+            textSize = 14f
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { runWeekdayAudit(WeekdayPremiumKindV2.SATURDAY) }
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
+        addView(sundayButton.apply {
+            text = "ANALYSER LE DIMANCHE DANS KALI"
+            isAllCaps = false
+            textSize = 14f
+            setBackgroundResource(R.drawable.hp_panel)
+            setOnClickListener { runWeekdayAudit(WeekdayPremiumKindV2.SUNDAY) }
+        }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
         addView(status.apply {
             textSize = 13f
             setPadding(0, dp(10), 0, 0)
@@ -68,13 +87,19 @@ class V2KaliPayrollSourcesView(
 
     fun refresh() {
         val referenceDate = referenceDate()
+        val epochDay = referenceDate.toEpochDay()
         val idcc = company.idcc.filter(Char::isDigit)
         val snapshot = if (idcc.isBlank()) null else runCatching {
-            V2ConventionRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
+            V2ConventionRuleStore.history(context).applicable(idcc, epochDay)
         }.getOrNull()
         val nightSnapshot = if (idcc.isBlank()) null else runCatching {
-            V2ConventionNightRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
+            V2ConventionNightRuleStore.history(context).applicable(idcc, epochDay)
         }.getOrNull()
+        val weekdayHistory = if (idcc.isBlank()) null else runCatching {
+            V2ConventionWeekdayPremiumStore.history(context)
+        }.getOrNull()
+        val saturdaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SATURDAY, epochDay)
+        val sundaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SUNDAY, epochDay)
 
         status.text = buildString {
             append("Entreprise : ").append(company.name.ifBlank { "Entreprise" }).append('\n')
@@ -92,11 +117,9 @@ class V2KaliPayrollSourcesView(
                 else -> {
                     append("Barème heures supplémentaires confirmé :\n")
                     snapshot.rules.overtimeTiers.forEach { tier ->
-                        append("• ")
-                        append(formatBand(tier.fromMinutes, tier.toMinutes))
-                        append(" : +")
-                        append(formatPercent((tier.multiplier - 1.0) * 100.0))
-                        append(" %\n")
+                        append("• ").append(formatBand(tier.fromMinutes, tier.toMinutes))
+                            .append(" : +")
+                            .append(formatPercent((tier.multiplier - 1.0) * 100.0)).append(" %\n")
                     }
                     append("Source : ").append(snapshot.sourceId).append('\n')
                     append("Applicable depuis : ")
@@ -114,12 +137,37 @@ class V2KaliPayrollSourcesView(
                 } else {
                     append("Plage : ").append(formatMinute(nightSnapshot.rule.startMinute))
                         .append(" → ").append(formatMinute(nightSnapshot.rule.endMinute)).append('\n')
-                    append("Majoration : +")
-                        .append(formatPercent(nightSnapshot.rule.percentage)).append(" %\n")
+                    append("Majoration : +").append(formatPercent(nightSnapshot.rule.percentage)).append(" %\n")
                     append("Source : ").append(nightSnapshot.sourceId).append('\n')
                     append("Applicable depuis : ")
                         .append(LocalDate.ofEpochDay(nightSnapshot.effectiveFromEpochDay).format(dateFormat))
                     nightSnapshot.effectiveToEpochDay?.let {
+                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                    }
+                }
+
+                append("\n\nRÈGLE SAMEDI KALI\n")
+                if (saturdaySnapshot == null) {
+                    append("Aucune majoration simple du samedi KALI confirmée pour cette date.")
+                } else {
+                    append("Majoration : +").append(formatPercent(saturdaySnapshot.rule.percentage)).append(" %\n")
+                    append("Source : ").append(saturdaySnapshot.sourceId).append('\n')
+                    append("Applicable depuis : ")
+                        .append(LocalDate.ofEpochDay(saturdaySnapshot.effectiveFromEpochDay).format(dateFormat))
+                    saturdaySnapshot.effectiveToEpochDay?.let {
+                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                    }
+                }
+
+                append("\n\nRÈGLE DIMANCHE KALI\n")
+                if (sundaySnapshot == null) {
+                    append("Aucune majoration simple du dimanche KALI confirmée pour cette date.")
+                } else {
+                    append("Majoration : +").append(formatPercent(sundaySnapshot.rule.percentage)).append(" %\n")
+                    append("Source : ").append(sundaySnapshot.sourceId).append('\n')
+                    append("Applicable depuis : ")
+                        .append(LocalDate.ofEpochDay(sundaySnapshot.effectiveFromEpochDay).format(dateFormat))
+                    sundaySnapshot.effectiveToEpochDay?.let {
                         append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
                     }
                 }
@@ -132,14 +180,10 @@ class V2KaliPayrollSourcesView(
                 append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
                 append("Barèmes structurés : ").append(summary.structuredSchedules).append('\n')
                 append("Barème enregistré : ").append(if (summary.saved) "oui" else "non")
-                summary.selectedSourceId?.let {
-                    append("\nSource retenue : ").append(it)
-                }
+                summary.selectedSourceId?.let { append("\nSource retenue : ").append(it) }
                 if (summary.warnings.isNotEmpty()) {
                     append("\n\nDiagnostic heures sup :")
-                    summary.warnings.forEach { warning ->
-                        append("\n• ").append(warning)
-                    }
+                    summary.warnings.forEach { warning -> append("\n• ").append(warning) }
                 }
             }
 
@@ -150,27 +194,50 @@ class V2KaliPayrollSourcesView(
                 append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
                 append("Candidats plage+taux structurés : ").append(summary.structuredCandidates).append('\n')
                 append("Règle nuit enregistrée : ").append(if (summary.saved) "oui" else "non")
-                summary.selectedSourceId?.let {
-                    append("\nSource retenue : ").append(it)
-                }
+                summary.selectedSourceId?.let { append("\nSource retenue : ").append(it) }
                 if (summary.previews.isNotEmpty()) {
                     append("\n\nCandidats structurés :")
                     summary.previews.forEach { preview ->
                         append("\n• ").append(preview.articleId)
-                        append(" — ").append(formatMinute(preview.startMinute))
-                        append(" → ").append(formatMinute(preview.endMinute))
-                        append(" : +").append(formatPercent(preview.percentage)).append(" %")
-                        append(" — depuis ").append(preview.effectiveFrom.format(dateFormat))
+                            .append(" — ").append(formatMinute(preview.startMinute))
+                            .append(" → ").append(formatMinute(preview.endMinute))
+                            .append(" : +").append(formatPercent(preview.percentage)).append(" %")
+                            .append(" — depuis ").append(preview.effectiveFrom.format(dateFormat))
                         preview.effectiveTo?.let { append(" jusqu’au ").append(it.format(dateFormat)) }
                     }
                 }
                 if (summary.warnings.isNotEmpty()) {
                     append("\n\nDiagnostic nuit :")
-                    summary.warnings.forEach { warning ->
-                        append("\n• ").append(warning)
-                    }
+                    summary.warnings.forEach { warning -> append("\n• ").append(warning) }
                 }
             }
+
+            appendWeekdayAudit(lastSaturdayAuditSummary, "SAMEDI")
+            appendWeekdayAudit(lastSundayAuditSummary, "DIMANCHE")
+        }
+    }
+
+    private fun StringBuilder.appendWeekdayAudit(summary: KaliWeekdayPremiumAuditV2.Summary?, title: String) {
+        summary ?: return
+        append("\n\nDERNIER AUDIT KALI — ").append(title).append('\n')
+        append("Pages analysées : ").append(summary.pagesRead).append('\n')
+        append("Candidats trouvés : ").append(summary.candidates).append('\n')
+        append("Articles examinés : ").append(summary.articlesConsulted).append('\n')
+        append("Candidats simples structurés : ").append(summary.structuredCandidates).append('\n')
+        append("Règle enregistrée : ").append(if (summary.saved) "oui" else "non")
+        summary.selectedSourceId?.let { append("\nSource retenue : ").append(it) }
+        if (summary.previews.isNotEmpty()) {
+            append("\n\nCandidats structurés :")
+            summary.previews.forEach { preview ->
+                append("\n• ").append(preview.articleId)
+                    .append(" : +").append(formatPercent(preview.percentage)).append(" %")
+                    .append(" — depuis ").append(preview.effectiveFrom.format(dateFormat))
+                preview.effectiveTo?.let { append(" jusqu’au ").append(it.format(dateFormat)) }
+            }
+        }
+        if (summary.warnings.isNotEmpty()) {
+            append("\n\nDiagnostic ").append(title.lowercase(Locale.FRANCE)).append(" :")
+            summary.warnings.forEach { warning -> append("\n• ").append(warning) }
         }
     }
 
@@ -215,8 +282,7 @@ class V2KaliPayrollSourcesView(
                 refresh()
                 val message = when {
                     summary.saved -> "KALI nuit : règle vérifiée et enregistrée."
-                    summary.structuredCandidates > 0 ->
-                        "KALI nuit : candidat structuré trouvé mais non enregistré ; voir le diagnostic."
+                    summary.structuredCandidates > 0 -> "KALI nuit : candidat structuré trouvé mais non enregistré ; voir le diagnostic."
                     summary.warnings.isNotEmpty() -> summary.warnings.first()
                     else -> "KALI nuit : aucune règle simple n’a pu être structurée."
                 }
@@ -229,10 +295,40 @@ class V2KaliPayrollSourcesView(
             }
     }
 
+    private fun runWeekdayAudit(kind: WeekdayPremiumKindV2) {
+        val referenceDate = referenceDate()
+        val idcc = company.idcc.filter(Char::isDigit)
+        if (idcc.isBlank()) return
+        setAuditButtonsEnabled(false)
+        if (kind == WeekdayPremiumKindV2.SATURDAY) lastSaturdayAuditSummary = null else lastSundayAuditSummary = null
+        val label = if (kind == WeekdayPremiumKindV2.SATURDAY) "samedi" else "dimanche"
+        status.text = "Analyse KALI du $label en cours pour ${referenceDate.format(dateFormat)}…"
+        KaliWeekdayPremiumAuditV2.audit(context, idcc, kind, referenceDate)
+            .addOnSuccessListener { summary ->
+                setAuditButtonsEnabled(true)
+                if (kind == WeekdayPremiumKindV2.SATURDAY) lastSaturdayAuditSummary = summary else lastSundayAuditSummary = summary
+                refresh()
+                val message = when {
+                    summary.saved -> "KALI $label : règle vérifiée et enregistrée."
+                    summary.structuredCandidates > 0 -> "KALI $label : candidat structuré trouvé mais non enregistré ; voir le diagnostic."
+                    summary.warnings.isNotEmpty() -> summary.warnings.first()
+                    else -> "KALI $label : aucune règle simple n’a pu être structurée."
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+            .addOnFailureListener { error ->
+                setAuditButtonsEnabled(true)
+                if (kind == WeekdayPremiumKindV2.SATURDAY) lastSaturdayAuditSummary = null else lastSundayAuditSummary = null
+                status.text = "Analyse KALI du $label impossible : ${error.message ?: "erreur inconnue"}"
+            }
+    }
+
     private fun setAuditButtonsEnabled(enabled: Boolean) {
         val hasIdcc = company.idcc.filter(Char::isDigit).isNotBlank()
         overtimeButton.isEnabled = enabled && hasIdcc
         nightButton.isEnabled = enabled && hasIdcc
+        saturdayButton.isEnabled = enabled && hasIdcc
+        sundayButton.isEnabled = enabled && hasIdcc
     }
 
     private fun referenceDate(): LocalDate {
