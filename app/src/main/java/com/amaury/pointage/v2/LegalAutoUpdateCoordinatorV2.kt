@@ -26,7 +26,8 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_SUNDAY",
         "KALI_PUBLIC_HOLIDAYS",
         "KALI_MINIMUM_PAY",
-        "KALI_SENIORITY"
+        "KALI_SENIORITY",
+        "KALI_SICKNESS_MAINTENANCE"
     )
 
     data class Summary(
@@ -264,6 +265,11 @@ object LegalAutoUpdateCoordinatorV2 {
                     val summary = if (task.isSuccessful) task.result else null
                     (summary?.completed == true) to (summary?.saved == true)
                 }
+            "KALI_SICKNESS_MAINTENANCE" -> KaliSicknessMaintenanceAuditV2.audit(context, companyId, referenceDate)
+                .continueWith { task ->
+                    val summary = if (task.isSuccessful) task.result else null
+                    (summary?.completed == true) to (summary?.saved == true)
+                }
             else -> Tasks.forResult(false to false)
         }
 
@@ -298,6 +304,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_PUBLIC_HOLIDAYS" -> "KALI jours fériés"
         "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
         "KALI_SENIORITY" -> "KALI ancienneté"
+        "KALI_SICKNESS_MAINTENANCE" -> "KALI maintien maladie"
         else -> "KALI"
     }
 
