@@ -27,10 +27,12 @@ class MealBasketPolicyV2Test {
             monthZeroBased = 8,
             acceptedEmployerIds = setOf("company"),
             amountPerBasket = 5.38,
+            morningEligibilityConfirmed = true,
             zoneId = zone
         )
 
         assertEquals(2, result.count)
+        assertEquals(2, result.detectedMorningDays)
         assertEquals(5.38, result.amountPerBasket!!, 0.0001)
         assertEquals(10.76, result.totalAmount!!, 0.0001)
     }
@@ -43,11 +45,48 @@ class MealBasketPolicyV2Test {
             monthZeroBased = 8,
             acceptedEmployerIds = setOf("company"),
             amountPerBasket = 5.38,
+            morningEligibilityConfirmed = true,
             zoneId = zone
         )
 
         assertEquals(1, result.count)
         assertEquals(5.38, result.totalAmount!!, 0.0001)
+    }
+
+    @Test
+    fun `poste matin sans confirmation entreprise ne cree aucun panier`() {
+        val result = MealBasketPolicyV2.calculate(
+            sessions = listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("company"),
+            amountPerBasket = 5.38,
+            morningEligibilityConfirmed = null,
+            zoneId = zone
+        )
+
+        assertEquals(1, result.detectedMorningDays)
+        assertEquals(0, result.count)
+        assertNull(result.totalAmount)
+        assertTrue(result.warnings.any { it.contains("droit au panier du matin n'est pas confirmé") })
+    }
+
+    @Test
+    fun `panier matin confirme non applicable reste a zero sans alerte`() {
+        val result = MealBasketPolicyV2.calculate(
+            sessions = listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("company"),
+            amountPerBasket = 5.38,
+            morningEligibilityConfirmed = false,
+            zoneId = zone
+        )
+
+        assertEquals(1, result.detectedMorningDays)
+        assertEquals(0, result.count)
+        assertEquals(0.0, result.totalAmount!!, 0.0001)
+        assertTrue(result.warnings.isEmpty())
     }
 
     @Test
@@ -64,7 +103,7 @@ class MealBasketPolicyV2Test {
         )
 
         val result = MealBasketPolicyV2.calculate(
-            listOf(closedOther, open), 2026, 8, setOf("company"), 5.38, zone
+            listOf(closedOther, open), 2026, 8, setOf("company"), 5.38, true, zone
         )
 
         assertEquals(0, result.count)
@@ -85,6 +124,7 @@ class MealBasketPolicyV2Test {
             monthZeroBased = 8,
             acceptedEmployerIds = setOf("company_1", "siret_12345678901234"),
             amountPerBasket = 5.38,
+            morningEligibilityConfirmed = true,
             zoneId = zone
         )
 
@@ -96,7 +136,7 @@ class MealBasketPolicyV2Test {
     fun `nombre de paniers reste connu quand le montant manque`() {
         val result = MealBasketPolicyV2.calculate(
             listOf(session("a", at(4, 5, 0), at(4, 5, 0), "company")),
-            2026, 8, setOf("company"), null, zone
+            2026, 8, setOf("company"), null, true, zone
         )
 
         assertEquals(1, result.count)
