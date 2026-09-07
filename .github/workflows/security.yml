@@ -45,6 +45,21 @@ jobs:
       - name: Run V2 unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
+  firebase-functions-tests:
+    name: Firebase Functions tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Functions dependencies
+        run: npm install --prefix functions
+      - name: Run Functions tests only
+        run: npm test --prefix functions
+
   codeql:
     name: CodeQL Android
     runs-on: ubuntu-latest

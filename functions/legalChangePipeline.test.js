@@ -72,6 +72,10 @@ test("un changement KALI crée un événement et une réanalyse sans autoriser l
   assert.equal(job.requiresScopeResolution, false);
   assert.deepEqual(job.targetSourceFamilies, ["KALI", "LEGI"]);
   assert.ok(job.matterHints.includes("OVERTIME"));
+  assert.ok(job.matterHints.includes("MINIMUM_PAY"));
+  assert.ok(job.matterHints.includes("SENIORITY"));
+  assert.ok(job.matterHints.includes("SICKNESS_MAINTENANCE"));
+  assert.ok(job.matterHints.includes("PROVIDENT"));
   assert.equal("payloadJson" in event, false);
 });
 
@@ -106,6 +110,8 @@ test("aucun événement n'est créé sans véritable changement de hash", () => 
 test("les familles conventionnelles et nationales reçoivent des pistes de réanalyse adaptées", () => {
   assert.ok(matterHintsForSource("ACCO").includes("CLASSIFICATION"));
   assert.ok(matterHintsForSource("BOCC").includes("BONUSES_INDEMNITIES"));
+  assert.ok(matterHintsForSource("BOCC").includes("SICKNESS_MAINTENANCE"));
+  assert.ok(matterHintsForSource("BOCC").includes("PROVIDENT"));
   assert.ok(matterHintsForSource("JORF").includes("PAYROLL_LEGAL_BASE"));
 });
 
