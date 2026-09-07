@@ -68,6 +68,15 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "GÉRER LES AVANTAGES EN NATURE"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyBenefitInKindDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
         listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
