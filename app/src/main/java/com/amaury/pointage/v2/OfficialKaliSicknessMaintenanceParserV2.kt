@@ -218,17 +218,32 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     }
 
     private fun statusWindows(text: String, status: String): List<String> {
-        val wantedRegexes = if (status == "CADRE") cadreRegexes else nonCadreRegexes
-        val oppositeRegexes = if (status == "CADRE") nonCadreRegexes else cadreRegexes
-        val wantedPositions = wantedRegexes.flatMap { regex -> regex.findAll(text).map { it.range.first }.toList() }.distinct()
+        val textWithoutNonCadre = stripNonCadre(text)
+        val wantedPositions = when (status) {
+            "CADRE" -> cadreRegexes.flatMap { regex -> regex.findAll(textWithoutNonCadre).map { it.range.first }.toList() }.distinct()
+            "NON_CADRE" -> nonCadreRegexes.flatMap { regex -> regex.findAll(text).map { it.range.first }.toList() }.distinct()
+            else -> emptyList()
+        }
         if (wantedPositions.isEmpty()) return emptyList()
-        val hasOpposite = oppositeRegexes.any { it.containsMatchIn(text) }
+
+        val hasOpposite = when (status) {
+            "CADRE" -> nonCadreRegexes.any { it.containsMatchIn(text) }
+            "NON_CADRE" -> cadreRegexes.any { it.containsMatchIn(textWithoutNonCadre) }
+            else -> true
+        }
         if (!hasOpposite) return listOf(text)
+
         return wantedPositions.map { position ->
             val start = (position - 450).coerceAtLeast(0)
             val end = (position + 2200).coerceAtMost(text.length)
             text.substring(start, end)
         }.distinct()
+    }
+
+    private fun stripNonCadre(value: String): String {
+        var out = value
+        nonCadreRegexes.forEach { regex -> out = regex.replace(out, " ") }
+        return out
     }
 
     private fun extensionStatus(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ConventionMinimumSalaryV2.ExtensionStatus =
@@ -273,12 +288,12 @@ object OfficialKaliSicknessMaintenanceParserV2 {
     )
 
     private val annualLimitRegexes = listOf(
-        Regex("(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement).{0,180}?(\\d{1,3})\\s*jours?"),
-        Regex("(\\d{1,3})\\s*jours?.{0,180}?(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)")
+        Regex("(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement).{0,120}?(?:total|limite|plafond|maximum|ne peut exceder).{0,80}?(\\d{1,3})\\s*jours?"),
+        Regex("(?:total|limite|plafond|maximum).{0,80}?(\\d{1,3})\\s*jours?.{0,120}?(?:au cours d[' ]une meme annee(?: civile)?|sur une meme annee(?: civile)?|par an|annuellement)")
     )
     private val perStopLimitRegexes = listOf(
-        Regex("(?:pour un meme arret|pour chaque arret|par arret).{0,180}?(\\d{1,3})\\s*jours?"),
-        Regex("(\\d{1,3})\\s*jours?.{0,180}?(?:pour un meme arret|pour chaque arret|par arret)")
+        Regex("(?:pour un meme arret|pour chaque arret|par arret).{0,120}?(?:total|limite|plafond|maximum|ne peut exceder).{0,80}?(\\d{1,3})\\s*jours?"),
+        Regex("(?:total|limite|plafond|maximum).{0,80}?(\\d{1,3})\\s*jours?.{0,120}?(?:pour un meme arret|pour chaque arret|par arret)")
     )
     private val ssThresholdRegex = Regex("(?:securite sociale|assurance maladie).{0,120}?(?:au[- ]dela de|apres|a partir de)\\s*(\\d{1,2})\\s*jours?")
 
