@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
+import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionSeniorityPremiumV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
@@ -43,6 +44,7 @@ object KaliSeniorityPremiumAuditV2 {
             val diagnostics = evidence.articles.map { OfficialKaliSeniorityPremiumParserV2.parse(it, profile, referenceDate) }
             val rules = diagnostics.mapNotNull { it.rule }.distinctBy(::fingerprint)
             var saved = false
+            var completed = false
             var selectedRuleId: String? = null
             var saveError: String? = null
 
@@ -55,15 +57,19 @@ object KaliSeniorityPremiumAuditV2 {
                     saveError = error.message ?: "stockage impossible"
                     false
                 }
-                if (saved) selectedRuleId = selected.ruleId
+                if (saved) {
+                    selectedRuleId = selected.ruleId
+                    completed = selected.extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
+                        selected.extensionEffectiveFrom?.let { !referenceDate.isBefore(it) } == true
+                }
             }
 
             markCoverage(
                 context,
                 profile,
                 referenceDate,
-                if (saved) ConventionMatterCoverageV2.State.CONFIRMED_RULES else ConventionMatterCoverageV2.State.INCOMPLETE,
-                if (saved) "Légifrance KALI — ancienneté structurée" else "Analyse KALI ancienneté incomplète"
+                if (completed) ConventionMatterCoverageV2.State.CONFIRMED_RULES else ConventionMatterCoverageV2.State.INCOMPLETE,
+                if (completed) "Légifrance KALI — ancienneté structurée et extension datée" else "Analyse KALI ancienneté incomplète"
             )
 
             Summary(
@@ -73,18 +79,19 @@ object KaliSeniorityPremiumAuditV2 {
                 articlesConsulted = evidence.articlesConsulted,
                 structuredCandidates = rules.size,
                 saved = saved,
-                completed = saved,
+                completed = completed,
                 selectedRuleId = selectedRuleId,
                 warnings = buildList {
                     addAll(evidence.warnings)
-                    diagnostics.filter { it.rule == null }.take(12).forEach { d ->
+                    diagnostics.filter { it.rule == null || it.reasons.isNotEmpty() }.take(12).forEach { d ->
                         if (d.reasons.isNotEmpty()) add("KALI ancienneté ${d.articleId} : ${d.reasons.joinToString()}.")
                     }
-                    if (!evidence.technicalCoverageComplete) add("KALI ancienneté : couverture technique incomplète ; aucune formule n'est enregistrée.")
+                    if (!evidence.technicalCoverageComplete) add("KALI ancienneté : couverture technique incomplète ; aucune formule n'est déclarée applicable.")
                     when {
                         rules.isEmpty() -> add("KALI ancienneté : aucune formule unique et explicitement rattachée à ${profile.classification.label()} ; aucune prime n'est inventée.")
                         rules.size > 1 -> add("KALI ancienneté : ${rules.size} formules structurées concurrentes correspondent au profil ; calcul automatique bloqué.")
-                        saved -> add("KALI ancienneté : formule unique officiellement vérifiée et enregistrée pour ${profile.classification.label()}.")
+                        saved && completed -> add("KALI ancienneté : formule unique, extension datée et profil exact vérifiés ; règle enregistrée.")
+                        saved -> add("KALI ancienneté : règle officielle enregistrée comme preuve, mais applicabilité automatique à cette date/entreprise non démontrée.")
                         saveError != null -> add("KALI ancienneté : formule vérifiée mais stockage impossible : $saveError.")
                     }
                     add("KALI ancienneté : une recherche ciblée vide ne prouve jamais l'absence de prime d'ancienneté.")
@@ -97,7 +104,7 @@ object KaliSeniorityPremiumAuditV2 {
         append(rule.effectiveFrom).append('|').append(rule.effectiveTo).append('|')
         append(rule.classification.normalized().label()).append('|').append(rule.basis.name).append('|')
         rule.steps.forEach { append(it.years).append(':').append(it.rate).append(':').append(it.fixedMonthlyAmount).append(';') }
-        append('|').append(rule.extensionStatus.name)
+        append('|').append(rule.extensionStatus.name).append('|').append(rule.extensionEffectiveFrom ?: "")
     }
 
     private fun markCoverage(
