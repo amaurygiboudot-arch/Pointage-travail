@@ -47,6 +47,16 @@ object SocialContributionCatalogV2 {
         Rule("crds", "CRDS", 0.0050, Base.CSG_CRDS_2026, 2026, 2026, "Urssaf - CSG/CRDS revenus d'activité 2026")
     )
 
+    private val alsaceMoselle2026 = Rule(
+        "alsace_moselle_local_health",
+        "Régime local Alsace-Moselle — cotisation maladie supplémentaire",
+        0.0130,
+        Base.GROSS,
+        2026,
+        2026,
+        "Urssaf / Régime Local Alsace-Moselle - taux 2026"
+    )
+
     fun employeeRules(year: Int): List<Rule> = when (year) {
         2026 -> rules2026
         else -> emptyList()
@@ -66,7 +76,8 @@ object SocialContributionCatalogV2 {
     fun estimateEmployeeDeductions(
         gross: Double,
         year: Int,
-        ceiling: SocialSecurityCeilingV2.Snapshot? = null
+        ceiling: SocialSecurityCeilingV2.Snapshot? = null,
+        alsaceMoselleLocalRegime: Boolean? = null
     ): Estimate {
         val safeGross = gross.coerceAtLeast(0.0)
         val rules = employeeRules(year)
@@ -83,7 +94,7 @@ object SocialContributionCatalogV2 {
         val monthlyPass = ceiling?.applicableMonthly
             ?: SocialSecurityCeilingV2.fullMonthly(year)
             ?: Double.POSITIVE_INFINITY
-        val lines = rules.map { rule ->
+        val baseLines = rules.map { rule ->
             val base = when (rule.base) {
                 Base.GROSS -> safeGross
                 Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross, monthlyPass)
@@ -91,6 +102,19 @@ object SocialContributionCatalogV2 {
             }
             Line(rule.id, rule.label, base, rule.employeeRate, base * rule.employeeRate, rule.source)
         }
+        val localLines = if (year == 2026 && alsaceMoselleLocalRegime == true && safeGross > 0.0) {
+            listOf(
+                Line(
+                    alsaceMoselle2026.id,
+                    alsaceMoselle2026.label,
+                    safeGross,
+                    alsaceMoselle2026.employeeRate,
+                    safeGross * alsaceMoselle2026.employeeRate,
+                    alsaceMoselle2026.source
+                )
+            )
+        } else emptyList()
+        val lines = baseLines + localLines
         val total = lines.sumOf { it.employeeAmount }
         return Estimate(
             gross = safeGross,
@@ -101,6 +125,12 @@ object SocialContributionCatalogV2 {
                 add("Couche 1/6 : ce net est volontairement partiel.")
                 add("L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.")
                 add("Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes.")
+                if (year == 2026 && alsaceMoselleLocalRegime == null) {
+                    add("Régime local Alsace-Moselle : affiliation à confirmer ; aucune cotisation locale n'est inventée.")
+                }
+                if (year == 2026 && alsaceMoselleLocalRegime == true) {
+                    add("Régime local Alsace-Moselle confirmé : cotisation salariale maladie supplémentaire de 1,30 % appliquée au brut déplafonné.")
+                }
                 ceiling?.warnings?.let(::addAll)
             }.distinct()
         )
