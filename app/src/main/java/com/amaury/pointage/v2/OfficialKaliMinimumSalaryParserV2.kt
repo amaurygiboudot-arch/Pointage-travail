@@ -43,11 +43,7 @@ object OfficialKaliMinimumSalaryParserV2 {
             )
         }
 
-        val extensionStatus = when (article.status.uppercase(Locale.ROOT)) {
-            "VIGUEUR_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-            "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
-            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
-        }
+        val extensionStatus = extensionStatus(article)
         val value = parsed.single()
         val rule = ConventionMinimumSalaryV2.Rule(
             idcc = profile.idcc,
@@ -59,12 +55,29 @@ object OfficialKaliMinimumSalaryParserV2 {
             periodicity = value.periodicity,
             source = "Légifrance KALI — ${article.articleId}${article.title?.let { " — $it" }.orEmpty()}",
             extensionStatus = extensionStatus,
-            // Le statut VIGUEUR_ETEN prouve l'extension à la date auditée, sans inventer sa date historique exacte.
-            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) auditDate else null
+            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null
         )
-        return if (rule.structurallyValid()) Diagnostic(article.articleId, rule, emptyList())
-        else Diagnostic(article.articleId, null, listOf("règle structurée incohérente"))
+        return if (rule.structurallyValid()) Diagnostic(
+            article.articleId,
+            rule,
+            buildList {
+                if (article.status.uppercase(Locale.ROOT) == "VIGUEUR_ETEN" && article.extensionEffectiveFrom == null) {
+                    add("statut étendu présent mais date exacte d'extension absente ; applicabilité automatique bloquée")
+                }
+            }
+        ) else Diagnostic(article.articleId, null, listOf("règle structurée incohérente"))
     }
+
+    private fun extensionStatus(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ConventionMinimumSalaryV2.ExtensionStatus =
+        when (article.status.uppercase(Locale.ROOT)) {
+            "VIGUEUR_ETEN" -> if (article.extensionEffectiveFrom != null) {
+                ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+            } else {
+                ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+            }
+            "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        }
 
     private fun parseWindow(window: String): ParsedValue? {
         val amounts = euroAmountRegex.findAll(window)
