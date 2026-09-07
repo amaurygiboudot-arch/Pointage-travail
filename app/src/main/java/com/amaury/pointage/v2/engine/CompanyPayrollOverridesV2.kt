@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
+import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.ContractTypeV2
@@ -50,7 +51,15 @@ object CompanyPayrollOverridesV2 {
         /** Taux de versement mobilité employeur applicable à la période ; 0 = non applicable confirmé. */
         val employerMobilityRate:Double?=null,
         /** Source humaine conservée avec la règle de versement mobilité. */
-        val employerMobilitySource:String?=null
+        val employerMobilitySource:String?=null,
+        /** Taux chômage employeur confirmé pour la période. */
+        val employerUnemploymentRate:Double?=null,
+        /** Taux AGS employeur confirmé pour la période. */
+        val employerAgsRate:Double?=null,
+        /** Source humaine des taux chômage/AGS. */
+        val employerUnemploymentAgsSource:String?=null,
+        /** Avertissements patronaux chômage/AGS, séparés de la fiabilité du net salarié. */
+        val employerUnemploymentAgsWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -103,6 +112,7 @@ object CompanyPayrollOverridesV2 {
         val payrollMonth=YearMonth.from(referenceDate)
         val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,payrollMonth)
         val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
+        val unemploymentAgs=CompanyUnemploymentAgsStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -163,7 +173,11 @@ object CompanyPayrollOverridesV2 {
             atMpEmployerRate=atMpEmployerRate,
             benefitsInKindGross=benefitsInKind.totalGross,
             employerMobilityRate=mobility.rate,
-            employerMobilitySource=mobility.source
+            employerMobilitySource=mobility.source,
+            employerUnemploymentRate=unemploymentAgs.unemploymentRate,
+            employerAgsRate=unemploymentAgs.agsRate,
+            employerUnemploymentAgsSource=unemploymentAgs.source,
+            employerUnemploymentAgsWarnings=unemploymentAgs.warnings
         )
     }
 

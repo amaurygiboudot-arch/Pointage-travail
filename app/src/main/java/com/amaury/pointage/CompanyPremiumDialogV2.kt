@@ -86,6 +86,15 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "GÉRER CHÔMAGE / AGS EMPLOYEUR"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyUnemploymentAgsDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
         listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
