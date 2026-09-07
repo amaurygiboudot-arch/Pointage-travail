@@ -153,12 +153,14 @@ object V2SalaryAdapter {
   val unresolvedHolidayDates=publicHolidayScope?.let{FrenchPublicHolidayCalendarV2.unresolvedPossibleHolidays(year,it)}.orEmpty()
   val mayFirstDates=setOf(FrenchPublicHolidayCalendarV2.mayFirst(year))
   var nightMs=0L;var satMs=0L;var sunMs=0L;var holidayMs=0L;var mayFirstMs=0L;var unresolvedHolidayMs=0L
+  var collectiveCumulReviewRequired=false
   selected.forEach{s->
    PaidWorkAllocationV2.splitByIsoWeek(s,monthStart,monthEnd).forEach{slice->
     val paidMinutes=(slice.paidMs/60000L).toInt()
     val w=weeks.getOrPut(slice.weekYear to slice.weekOfYear){W()}
     w.paid+=paidMinutes
-    nightRule?.let{r->val n=NightPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,r);w.night+=(n/60000L).toInt();nightMs+=n}
+    val night=nightRule?.let{r->NightPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,r)}?:0L
+    w.night+=(night/60000L).toInt();nightMs+=night
     val sat=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SATURDAY)
     val sun=dayPaidOverlap(s,slice.startMs,slice.endMs,Calendar.SUNDAY)
     val holiday=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,genericHolidayDates)
@@ -166,6 +168,13 @@ object V2SalaryAdapter {
     val unresolved=PublicHolidayPremiumPolicyV2.paidOverlap(s,slice.startMs,slice.endMs,unresolvedHolidayDates)
     w.sat+=(sat/60000L).toInt();w.sun+=(sun/60000L).toInt();w.holiday+=(holiday/60000L).toInt()
     satMs+=sat;sunMs+=sun;holidayMs+=holiday;mayFirstMs+=mayFirst;unresolvedHolidayMs+=unresolved
+    val activePremiumKinds=listOf(
+     nightRule!=null&&night>0L,
+     saturdayRule!=null&&sat>0L,
+     sundayRule!=null&&sun>0L,
+     publicHolidayRule!=null&&holiday>0L
+    ).count{it}
+    if(activePremiumKinds>1)collectiveCumulReviewRequired=true
    }
   }
   if(publicHolidayScope!=null&&!publicHolidayScope.complete&&collectivePremiumSnapshot?.publicHoliday?.resolution?.considered?.isNotEmpty()==true){
@@ -228,10 +237,14 @@ object V2SalaryAdapter {
   }else null
   fullTime?.let{ft->warnings+=ft.warnings;if((contract.contractualWeeklyMinutes?:0)>regularLimit)warnings+="Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."}
 
+  val premiumApplied=(nightRule!=null&&nightMs>0L)||(saturdayRule!=null&&satMs>0L)||(sundayRule!=null&&sunMs>0L)||(publicHolidayRule!=null&&holidayMs>0L)
+  val overtimeOrComplementaryApplied=complementaryMinutes>0||(fullTime?.let{it.monthlyStructuralOvertimeMinutes>0.0||it.variableTiers.any{tier->tier.minutes>0.0}}==true)||(!isFullTime&&!isPartTime&&worked.overtimeGross>0.0)
+  val cumulReviewRequired=collectiveCumulReviewRequired||(premiumApplied&&overtimeOrComplementaryApplied)
+  if(cumulReviewRequired)warnings+="Cumuls de majorations : plusieurs majorations peuvent concerner une même période (heures supplémentaires/complémentaires, nuit, samedi, dimanche ou jour férié). Le cumul n'étant pas explicitement démontré par les règles arbitrées, le brut reste une estimation à vérifier."
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -328,7 +341,7 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean):Boolean = baseReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false):Boolean = baseReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()

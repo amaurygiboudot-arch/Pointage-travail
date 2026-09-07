@@ -52,4 +52,17 @@ class V2SalaryAdapterReliabilityTest {
             )
         )
     }
+
+    @Test
+    fun `un cumul de majorations non confirme rend le brut non fiable`() {
+        assertFalse(
+            V2SalaryAdapter.monthlyGrossReliability(
+                baseReliable = true,
+                provisionalOvertimeRateUsed = false,
+                arbitrationRequired = true,
+                arbitrationResolved = true,
+                cumulReviewRequired = true
+            )
+        )
+    }
 }
