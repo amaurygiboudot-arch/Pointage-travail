@@ -38,15 +38,18 @@ class EmployerKnownCostV2Test {
         )
 
         val result = NetSalaryEngineV2.calculate(2500.0, 2026, company)
-        val expected = result.complementaryRetirementEmployer +
+        val fixedUrssaf = 2500.0 * (0.0211 + 0.0030 + 0.00016 + 0.0855)
+        val expected = fixedUrssaf +
+            result.complementaryRetirementEmployer +
             result.conventionProvidentEmployer +
             result.employerStatusContributions +
             (result.employerAtMpContribution ?: 0.0) +
             (result.employerMobilityContribution ?: 0.0)
 
         assertEquals(expected, result.knownEmployerContributions, 0.001)
-        assertTrue(result.knownEmployerContributions > 0.0)
+        assertTrue(result.knownEmployerContributions > fixedUrssaf)
         assertFalse(result.employerCostComplete)
-        assertTrue(result.employerCostWarnings.any { it.contains("cotisations patronales légales de base", ignoreCase = true) })
+        assertTrue(result.employerCostWarnings.any { it.contains("maladie", ignoreCase = true) })
+        assertTrue(result.employerCostWarnings.any { it.contains("chômage", ignoreCase = true) })
     }
 }
