@@ -24,7 +24,9 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_NIGHT",
         "KALI_SATURDAY",
         "KALI_SUNDAY",
-        "KALI_PUBLIC_HOLIDAYS"
+        "KALI_PUBLIC_HOLIDAYS",
+        "KALI_MINIMUM_PAY",
+        "KALI_SENIORITY"
     )
 
     data class Summary(
@@ -201,11 +203,12 @@ object LegalAutoUpdateCoordinatorV2 {
             }
             kind.takeIf { kindJobs.isNotEmpty() }?.let { it to kindJobs }
         }
-        return runKaliKinds(context, idcc, referenceDate, work, 0, KaliOutcome(), nowMs)
+        return runKaliKinds(context, company.id, idcc, referenceDate, work, 0, KaliOutcome(), nowMs)
     }
 
     private fun runKaliKinds(
         context: Context,
+        companyId: String,
         idcc: String,
         referenceDate: LocalDate,
         work: List<Pair<String, List<LegalReanalysisPlanClientV2.Job>>>,
@@ -251,6 +254,16 @@ object LegalAutoUpdateCoordinatorV2 {
                     val summary = if (task.isSuccessful) task.result else null
                     (summary != null && summary.pagesRead > 0) to (summary?.saved == true)
                 }
+            "KALI_MINIMUM_PAY" -> KaliMinimumSalaryAuditV2.audit(context, companyId, referenceDate)
+                .continueWith { task ->
+                    val summary = if (task.isSuccessful) task.result else null
+                    (summary?.completed == true) to (summary?.saved == true)
+                }
+            "KALI_SENIORITY" -> KaliSeniorityPremiumAuditV2.audit(context, companyId, referenceDate)
+                .continueWith { task ->
+                    val summary = if (task.isSuccessful) task.result else null
+                    (summary?.completed == true) to (summary?.saved == true)
+                }
             else -> Tasks.forResult(false to false)
         }
 
@@ -262,6 +275,7 @@ object LegalAutoUpdateCoordinatorV2 {
             val warning = if (completed) emptyList() else listOf("${kindLabel(kind)} : contrôle officiel à retenter ultérieurement.")
             runKaliKinds(
                 context = context,
+                companyId = companyId,
                 idcc = idcc,
                 referenceDate = referenceDate,
                 work = work,
@@ -282,6 +296,8 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_SATURDAY" -> "KALI samedi"
         "KALI_SUNDAY" -> "KALI dimanche"
         "KALI_PUBLIC_HOLIDAYS" -> "KALI jours fériés"
+        "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
+        "KALI_SENIORITY" -> "KALI ancienneté"
         else -> "KALI"
     }
 
