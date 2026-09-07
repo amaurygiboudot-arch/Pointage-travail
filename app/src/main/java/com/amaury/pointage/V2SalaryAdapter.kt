@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
+import com.amaury.pointage.v2.MayFirstLegalRuleStoreV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ProfileStore
@@ -14,6 +15,7 @@ import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
+import com.amaury.pointage.v2.engine.MayFirstPayrollAdjustmentV2
 import com.amaury.pointage.v2.engine.MealBasketPolicyV2
 import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
 import com.amaury.pointage.v2.engine.NightPremiumPolicyV2
@@ -31,6 +33,7 @@ import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import com.amaury.pointage.v2.model.WorkSessionV2
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -79,9 +82,20 @@ object V2SalaryAdapter {
   val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
-  val calculated=calculateCore(
-   contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
-   ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope
+  val calculated=applyMayFirstLegalAdjustment(
+   context=context,
+   base=calculateCore(
+    contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
+    ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope
+   ),
+   contract=contract,
+   sessions=runtimeSessions,
+   year=year,
+   month=month,
+   fallbackRate=rate,
+   acceptedEmployerIds=acceptedIds,
+   premiumSnapshot=collectivePremiumArbitration,
+   referenceDate=period.referenceDate
   )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
@@ -103,7 +117,8 @@ object V2SalaryAdapter {
   val companyId=p.contract?.employerId
   val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
   val holidayScope=companyId?.let{id->SalaryCompanyStore.list(context).firstOrNull{it.id==id}?.let{FrenchPublicHolidayCalendarV2.scopeForAddress(it.address)}}
-  return calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
+  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
+  return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate)
  }
  fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty(),null,null,null,null,null)}
 
@@ -239,6 +254,77 @@ object V2SalaryAdapter {
    regularMs=regularMs,overtimeTiers=displayedTiers,totalWorkedMs=weeks.values.sumOf{it.paid}.toLong()*60000L,regularGross=regularGross,overtimeGross=overtimeGross,
    premiumsGross=worked.premiumsGross,monthlyEstimatedGross=gross,monthlyGrossReliable=monthlyGrossReliable,nightMs=nightMs,saturdayMs=satMs,sundayMs=sunMs,
    complementaryMinutes=complementaryMinutes,completedSessions=selected.size,warnings=warnings+traces+listOfNotNull(snap?.let{"Règles historiques ${it.versionId} — source ${it.sourceId}"})+premiumSourceTraces(collectivePremiumSnapshot,false),publicHolidayMs=holidayMs
+  )
+ }
+
+ private fun applyMayFirstLegalAdjustment(
+  context:Context,
+  base:Result,
+  contract:ContractV2?,
+  sessions:List<WorkSessionV2>,
+  year:Int,
+  month:Int,
+  fallbackRate:Double?,
+  acceptedEmployerIds:Set<String>,
+  premiumSnapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,
+  referenceDate:LocalDate
+ ):Result {
+  if(month!=Calendar.MAY)return base
+  val ids=acceptedEmployerIds.ifEmpty{contract?.employerId?.let{setOf(it)}.orEmpty()}
+  if(ids.isEmpty())return base
+  val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
+  val monthEnd=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0);add(Calendar.MONTH,1)}.timeInMillis
+  val selected=sessions.filter{s->
+   val start=s.countedEntryMs?:return@filter false
+   val end=s.countedExitMs?:return@filter false
+   s.employerId in ids&&s.realExitMs!=null&&end>start&&start<monthEnd&&end>monthStart
+  }
+  if(selected.isEmpty())return base
+  val mayFirst=FrenchPublicHolidayCalendarV2.mayFirst(year)
+  val mayFirstDates=setOf(mayFirst)
+  val mayFirstMs=selected.sumOf{s->PublicHolidayPremiumPolicyV2.paidOverlap(s,monthStart,monthEnd,mayFirstDates)}
+  if(mayFirstMs<=0L)return base
+
+  val zone=ZoneId.systemDefault()
+  val legalAtMs=referenceDate.atStartOfDay(zone).toInstant().toEpochMilli()
+  val verifiedRule=MayFirstLegalRuleStoreV2.applicableAt(context,legalAtMs)
+  val forfait=contract?.type==ContractTypeV2.FORFAIT_HOURS||contract?.type==ContractTypeV2.FORFAIT_DAYS
+  val rate=if(forfait)null else contract?.grossHourlyRate?:fallbackRate?.takeIf{it.isFinite()&&it>0.0}
+  val overtimeOrComplementaryOverlap=base.overtimeTiers.any{it.durationMs>0L}||base.complementaryMinutes>0
+
+  val mayFirstStart=mayFirst.atStartOfDay(zone).toInstant().toEpochMilli()
+  val mayFirstEnd=mayFirst.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+  val morningLimit=mayFirst.atTime(8,0).atZone(zone).toInstant().toEpochMilli()
+  val eveningLimit=mayFirst.atTime(18,0).atZone(zone).toInstant().toEpochMilli()
+  val potentialNightMs=selected.sumOf{s->
+   PaidWorkAllocationV2.paidOverlap(s,mayFirstStart,morningLimit)+PaidWorkAllocationV2.paidOverlap(s,eveningLimit,mayFirstEnd)
+  }
+  val nightPremiumOverlap=potentialNightMs>0L&&(premiumSnapshot==null||premiumSnapshot.night.resolution.considered.isNotEmpty())
+  val weekendPremiumOverlap=when(mayFirst.dayOfWeek){
+   DayOfWeek.SATURDAY->premiumSnapshot==null||premiumSnapshot.saturday.resolution.considered.isNotEmpty()
+   DayOfWeek.SUNDAY->premiumSnapshot==null||premiumSnapshot.sunday.resolution.considered.isNotEmpty()
+   else->false
+  }
+
+  val adjustment=MayFirstPayrollAdjustmentV2.calculate(
+   MayFirstPayrollAdjustmentV2.Input(
+    workedMinutes=(mayFirstMs/60000.0).roundToInt(),
+    grossHourlyRate=rate,
+    verifiedExtraMultiplier=verifiedRule?.extraMultiplier,
+    overtimeOrComplementaryOverlap=overtimeOrComplementaryOverlap,
+    nightPremiumOverlap=nightPremiumOverlap,
+    weekendPremiumOverlap=weekendPremiumOverlap
+   )
+  )
+  val cleanedWarnings=base.warnings.filterNot{it.startsWith("1er mai travaillé : le régime légal LEGI dédié")}
+  val mayFirstWarning=adjustment.warning?:if(adjustment.extraGross>0.0){
+   "1er mai travaillé : indemnité légale L3133-6 ajoutée (${String.format(Locale.FRANCE,"%.2f",adjustment.extraGross)} € brut) — source ${verifiedRule?.articleId.orEmpty()}."
+  }else null
+  return base.copy(
+   premiumsGross=base.premiumsGross+adjustment.extraGross,
+   monthlyEstimatedGross=base.monthlyEstimatedGross+adjustment.extraGross,
+   monthlyGrossReliable=base.monthlyGrossReliable&&adjustment.reliable,
+   warnings=(cleanedWarnings+listOfNotNull(mayFirstWarning)).distinct()
   )
  }
 
