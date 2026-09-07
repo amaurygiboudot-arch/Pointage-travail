@@ -33,7 +33,9 @@ object NetSalaryEngineV2 {
         val employerUnemploymentContribution: Double? = null,
         val employerAgsContribution: Double? = null,
         val employerFnalContribution: Double? = null,
-        val employerTrainingContribution: Double? = null
+        val employerTrainingContribution: Double? = null,
+        val employerHealthContribution: Double? = null,
+        val employerFamilyContribution: Double? = null
     )
 
     fun calculate(
@@ -100,6 +102,11 @@ object NetSalaryEngineV2 {
             applicableMonthlyCeiling = ceiling.applicableMonthly,
             year = year,
             band = company.employerWorkforceBand
+        )
+        val healthFamily = EmployerHealthFamilyV2.calculate(
+            grossSocial = contributionGross,
+            healthRate = company.employerHealthRate,
+            familyRate = company.employerFamilyRate
         )
 
         // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
@@ -175,16 +182,19 @@ object NetSalaryEngineV2 {
             atMp.employerAmount,
             mobility.employerAmount,
             unemploymentAgs.totalEmployerAmount,
-            workforce.totalEmployerAmount
+            workforce.totalEmployerAmount,
+            healthFamily.totalEmployerAmount
         ).sum()
         val employerCostWarnings = buildList {
-            add("Coût employeur total : maladie, allocations familiales et autres cotisations patronales légales de base ne sont pas encore intégrées exhaustivement ; aucun total complet n'est affiché.")
+            add("Coût employeur total : taxe d’apprentissage, éventuelles réductions/exonérations et autres contributions patronales restent à compléter ; aucun total complet n'est affiché.")
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             addAll(company.employerUnemploymentAgsWarnings)
             addAll(unemploymentAgs.warnings)
             addAll(company.employerWorkforceWarnings)
             addAll(workforce.warnings)
+            addAll(company.employerHealthFamilyWarnings)
+            addAll(healthFamily.warnings)
             if (retirement.warnings.isNotEmpty()) add("Coût employeur : retraite complémentaire susceptible de dispositions d'entreprise particulières à vérifier.")
         }.distinct()
 
@@ -215,7 +225,9 @@ object NetSalaryEngineV2 {
             employerUnemploymentContribution = unemploymentAgs.unemploymentAmount,
             employerAgsContribution = unemploymentAgs.agsAmount,
             employerFnalContribution = workforce.fnalAmount,
-            employerTrainingContribution = workforce.trainingAmount
+            employerTrainingContribution = workforce.trainingAmount,
+            employerHealthContribution = healthFamily.healthAmount,
+            employerFamilyContribution = healthFamily.familyAmount
         )
     }
 }

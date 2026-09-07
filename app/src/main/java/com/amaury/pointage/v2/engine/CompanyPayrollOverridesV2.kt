@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
+import com.amaury.pointage.v2.CompanyHealthFamilyStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
@@ -65,7 +66,14 @@ object CompanyPayrollOverridesV2 {
         val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
         val employerWorkforceSource:String?=null,
         /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
-        val employerWorkforceWarnings:List<String> = emptyList()
+        val employerWorkforceWarnings:List<String> = emptyList(),
+        /** Taux maladie employeur confirmé pour la période. */
+        val employerHealthRate:Double?=null,
+        /** Taux allocations familiales employeur confirmé pour la période. */
+        val employerFamilyRate:Double?=null,
+        val employerHealthFamilySource:String?=null,
+        /** Avertissements patronaux maladie/AF, séparés de la fiabilité du net salarié. */
+        val employerHealthFamilyWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -120,6 +128,7 @@ object CompanyPayrollOverridesV2 {
         val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
         val unemploymentAgs=CompanyUnemploymentAgsStoreV2.resolve(context,companyId,payrollMonth)
         val workforce=CompanyWorkforceContributionStoreV2.resolve(context,companyId,payrollMonth)
+        val healthFamily=CompanyHealthFamilyStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
@@ -187,7 +196,11 @@ object CompanyPayrollOverridesV2 {
             employerUnemploymentAgsWarnings=unemploymentAgs.warnings,
             employerWorkforceBand=workforce.band,
             employerWorkforceSource=workforce.source,
-            employerWorkforceWarnings=workforce.warnings
+            employerWorkforceWarnings=workforce.warnings,
+            employerHealthRate=healthFamily.healthRate,
+            employerFamilyRate=healthFamily.familyRate,
+            employerHealthFamilySource=healthFamily.source,
+            employerHealthFamilyWarnings=healthFamily.warnings
         )
     }
 
