@@ -122,6 +122,15 @@ object CompanyPremiumDialogV2 {
             }
         }, rowParams(context))
 
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "GÉRER RÉDUCTIONS / EXONÉRATIONS EMPLOYEUR"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyEmployerReductionDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
         listDialog = AlertDialog.Builder(context)
             .setTitle("Primes contractuelles / personnelles")
             .setView(box)
