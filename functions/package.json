@@ -2,7 +2,7 @@
   "name": "horatrack-functions",
   "private": true,
   "engines": { "node": "22" },
-  "main": "index.js",
+  "main": "main.js",
   "scripts": {
     "test": "node --test"
   },
