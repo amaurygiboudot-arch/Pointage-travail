@@ -272,6 +272,48 @@ class AbsencePayrollImpactV2Test {
     }
 
     @Test
+    fun `accident de trajet reste un motif distinct en revue paie`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 21),
+                    LocalDate.of(2026, 9, 22),
+                    treatment = AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                    type = AbsencePayrollImpactV2.TYPE_COMMUTING_ACCIDENT
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertTrue(result.hasCompensatedAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("Accident de trajet") })
+        assertEquals("Accident de trajet", AbsencePayrollImpactV2.label(AbsencePayrollImpactV2.TYPE_COMMUTING_ACCIDENT))
+    }
+
+    @Test
+    fun `maladie professionnelle reste distincte de la maladie ordinaire`() {
+        val result = AbsencePayrollImpactV2.forMonth(
+            listOf(
+                absence(
+                    LocalDate.of(2026, 9, 23),
+                    LocalDate.of(2026, 9, 24),
+                    treatment = AbsenceSalaryTreatmentV2.FULLY_MAINTAINED,
+                    type = AbsencePayrollImpactV2.TYPE_OCCUPATIONAL_DISEASE
+                )
+            ),
+            reference,
+            setOf("company-a"),
+            zone
+        )
+        assertTrue(result.hasCompensatedAbsence)
+        assertTrue(result.requiresPayrollReview)
+        assertTrue(result.warnings.any { it.contains("Maladie professionnelle") })
+        assertEquals("Maladie professionnelle", AbsencePayrollImpactV2.label(AbsencePayrollImpactV2.TYPE_OCCUPATIONAL_DISEASE))
+    }
+
+    @Test
     fun `absence autre entreprise est ignoree`() {
         val result = AbsencePayrollImpactV2.forMonth(
             listOf(absence(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 7), employerId = "company-b")),
