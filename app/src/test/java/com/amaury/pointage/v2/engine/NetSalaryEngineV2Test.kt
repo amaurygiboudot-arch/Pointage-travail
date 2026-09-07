@@ -14,7 +14,8 @@ class NetSalaryEngineV2Test {
         contractType: ContractTypeV2 = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
         unpaidAbsenceDays: Int = 0,
-        alsaceMoselleLocalRegime: Boolean? = false
+        alsaceMoselleLocalRegime: Boolean? = false,
+        atMpEmployerRate: Double? = null
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId="company",
         idcc=null,
@@ -36,7 +37,8 @@ class NetSalaryEngineV2Test {
         professionalStatus="NON_CADRE",
         protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null),
         warnings=emptyList(),
-        alsaceMoselleLocalRegime=alsaceMoselleLocalRegime
+        alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
+        atMpEmployerRate=atMpEmployerRate
     )
 
     @Test
@@ -66,6 +68,17 @@ class NetSalaryEngineV2Test {
         assertEquals(32.50,local.statutory-general.statutory,0.001)
         assertEquals(32.50,general.netBeforeIncomeTax-local.netBeforeIncomeTax,0.001)
         assertEquals(32.50,general.netTaxable!!-local.netTaxable!!,0.001)
+    }
+
+    @Test
+    fun atMpContributionIsEmployerOnlyAndDoesNotReduceEmployeeNet() {
+        val without=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,atMpEmployerRate=0.0))
+        val withAtMp=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,atMpEmployerRate=0.0208))
+
+        assertEquals(52.0,withAtMp.employerAtMpContribution!!,0.001)
+        assertEquals(without.netBeforeIncomeTax,withAtMp.netBeforeIncomeTax,0.001)
+        assertEquals(without.netTaxable!!,withAtMp.netTaxable!!,0.001)
+        assertEquals(without.netAfterIncomeTax!!,withAtMp.netAfterIncomeTax!!,0.001)
     }
 
     @Test
