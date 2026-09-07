@@ -2,10 +2,24 @@ package com.amaury.pointage.v2.engine
 
 import kotlin.math.min
 
-/** Couche 2/6 — retraite complémentaire salariale 2026, versionnée. */
+/** Couche 2/6 — retraite complémentaire salariale et patronale 2026, versionnée. */
 object ComplementaryRetirementCatalogV2 {
-    data class Line(val id:String,val label:String,val baseAmount:Double,val employeeRate:Double,val amount:Double,val source:String)
-    data class Estimate(val lines:List<Line>,val employeeDeductions:Double,val warnings:List<String>)
+    data class Line(
+        val id:String,
+        val label:String,
+        val baseAmount:Double,
+        val employeeRate:Double,
+        val amount:Double,
+        val source:String,
+        val employerRate:Double=0.0,
+        val employerAmount:Double=0.0
+    )
+    data class Estimate(
+        val lines:List<Line>,
+        val employeeDeductions:Double,
+        val warnings:List<String>,
+        val employerContributions:Double=0.0
+    )
 
     private const val SOURCE = "Agirc-Arrco — barèmes applicables au 01/01/2026"
 
@@ -39,17 +53,17 @@ object ComplementaryRetirementCatalogV2 {
         val t1=min(g,applicable)
         val t2=(min(g,max8)-applicable).coerceAtLeast(0.0)
         val lines=buildList {
-            if(t1>0) add(Line("agirc_t1","Agirc-Arrco tranche 1",t1,0.0315,t1*0.0315,SOURCE))
-            if(t2>0) add(Line("agirc_t2","Agirc-Arrco tranche 2",t2,0.0864,t2*0.0864,SOURCE))
-            if(t1>0) add(Line("ceg_t1","CEG tranche 1",t1,0.0086,t1*0.0086,SOURCE))
-            if(t2>0) add(Line("ceg_t2","CEG tranche 2",t2,0.0108,t2*0.0108,SOURCE))
+            if(t1>0) add(Line("agirc_t1","Agirc-Arrco tranche 1",t1,0.0315,t1*0.0315,SOURCE,0.0472,t1*0.0472))
+            if(t2>0) add(Line("agirc_t2","Agirc-Arrco tranche 2",t2,0.0864,t2*0.0864,SOURCE,0.1295,t2*0.1295))
+            if(t1>0) add(Line("ceg_t1","CEG tranche 1",t1,0.0086,t1*0.0086,SOURCE,0.0129,t1*0.0129))
+            if(t2>0) add(Line("ceg_t2","CEG tranche 2",t2,0.0108,t2*0.0108,SOURCE,0.0162,t2*0.0162))
             if(g>applicable) {
                 val cetBase=min(g,max8)
-                add(Line("cet","CET",cetBase,0.0014,cetBase*0.0014,SOURCE))
+                add(Line("cet","CET",cetBase,0.0014,cetBase*0.0014,SOURCE,0.0021,cetBase*0.0021))
             }
             if(apecApplicable && g>0.0) {
                 val apecBase=min(g,max4)
-                add(Line("apec","APEC cadre / assimilé cadre",apecBase,0.00024,apecBase*0.00024,SOURCE))
+                add(Line("apec","APEC cadre / assimilé cadre",apecBase,0.00024,apecBase*0.00024,SOURCE,0.00036,apecBase*0.00036))
             }
         }
         val warnings=buildList {
@@ -64,6 +78,11 @@ object ComplementaryRetirementCatalogV2 {
             }
             ceiling?.warnings?.let(::addAll)
         }.distinct()
-        return Estimate(lines,lines.sumOf{it.amount},warnings)
+        return Estimate(
+            lines=lines,
+            employeeDeductions=lines.sumOf{it.amount},
+            warnings=warnings,
+            employerContributions=lines.sumOf{it.employerAmount}
+        )
     }
 }

@@ -110,6 +110,32 @@ class NetSalaryEngineV2Test {
     }
 
     @Test
+    fun employerComplementaryRetirementIsExposedWithoutReducingEmployeeNet() {
+        val result=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0))
+        val expected=ComplementaryRetirementCatalogV2.estimate(
+            gross=2500.0,
+            year=2026,
+            professionalStatus="NON_CADRE",
+            ceiling=SocialSecurityCeilingV2.calculate(
+                SocialSecurityCeilingV2.Input(
+                    year=2026,
+                    referenceDate=LocalDate.of(2026,1,31),
+                    contractType=ContractTypeV2.FULL_TIME,
+                    contractualWeeklyMinutes=35*60,
+                    complementaryMinutes=0,
+                    entryDate=LocalDate.of(2020,1,1),
+                    unpaidAbsenceDays=0,
+                    forfaitAnnualDays=null
+                )
+            ),
+            protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,1,31),null)
+        )
+
+        assertEquals(expected.employerContributions,result.complementaryRetirementEmployer,0.001)
+        assertTrue(result.complementaryRetirementEmployer>0.0)
+    }
+
+    @Test
     fun benefitInKindIncreasesContributionBaseButIsNotPaidInCash() {
         val without=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=0.0))
         val withBenefit=NetSalaryEngineV2.calculate(2500.0,2026,snapshot(0.0,0.0,benefitsInKindGross=200.0))
