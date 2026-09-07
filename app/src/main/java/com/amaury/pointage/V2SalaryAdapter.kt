@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import com.amaury.pointage.v2.CompanyPremiumStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.MayFirstLegalRuleStoreV2
@@ -37,6 +38,7 @@ import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
@@ -108,11 +110,12 @@ object V2SalaryAdapter {
    confirmedSeniorityDate=seniorityDate,monthlyBaseGross=seniorityBase,monthlyRttDifferential=seniorityRtt
   )
   val seniorityAmount=seniority.monthlyAmount?.takeIf{seniority.reliable}?:0.0
+  val companyPremiums=CompanyPremiumStoreV2.resolve(context,company.id,YearMonth.of(year,month+1))
   val calculated=baseCalculated.copy(
-   premiumsGross=baseCalculated.premiumsGross+seniorityAmount,
-   monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount,
-   monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable,
-   warnings=(baseCalculated.warnings+seniority.warnings).distinct()
+   premiumsGross=baseCalculated.premiumsGross+seniorityAmount+companyPremiums.totalGross,
+   monthlyEstimatedGross=baseCalculated.monthlyEstimatedGross+seniorityAmount+companyPremiums.totalGross,
+   monthlyGrossReliable=baseCalculated.monthlyGrossReliable&&seniority.reliable&&companyPremiums.reliable,
+   warnings=(baseCalculated.warnings+seniority.warnings+companyPremiums.warnings).distinct()
   )
   val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
   val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
