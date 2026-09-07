@@ -1,1 +1,1 @@
-Deploy Firebase Functions - legal multi-source refresh, reanalysis plan and KALI_PUBLIC_HOLIDAYS - 2026-09-07
+Deploy Firebase Functions - backend deployment popup and notification pipeline - 2026-09-07
