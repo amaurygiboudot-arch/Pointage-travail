@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -78,7 +79,7 @@ class ConventionSeniorityPremiumV2Test {
     }
 
     @Test
-    fun `non extended seniority rule is not applied without company proof`() {
+    fun `non extended seniority rule is known but amount stays blocked without company proof`() {
         val result = ConventionSeniorityPremiumV2.calculate(
             rules = listOf(percentageRule().copy(extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED)),
             idcc = "1486",
@@ -89,7 +90,9 @@ class ConventionSeniorityPremiumV2Test {
             conventionalMinimumMonthlyGross = null
         )
 
-        assertFalse(result.applicable)
+        assertTrue(result.applicable)
         assertFalse(result.reliable)
+        assertNull(result.monthlyAmount)
+        assertTrue(result.warnings.any { it.contains("non étendue", ignoreCase = true) })
     }
 }
