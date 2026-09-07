@@ -39,7 +39,9 @@ object CompanyPayrollOverridesV2 {
         val protectionCategory:PlasturgieProtectionCategoryV2.Result,
         val warnings:List<String>,
         /** Affiliation explicitement confirmée au régime local Alsace-Moselle. null = à confirmer. */
-        val alsaceMoselleLocalRegime:Boolean?=null
+        val alsaceMoselleLocalRegime:Boolean?=null,
+        /** Taux AT/MP employeur confirmé, stocké sous forme décimale (ex. 2,08 % = 0,0208). */
+        val atMpEmployerRate:Double?=null
     )
 
     fun load(
@@ -80,6 +82,7 @@ object CompanyPayrollOverridesV2 {
         val employerProtectionTaxable=number("employer_protection_taxable_amount")
         val employeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val tax=number("income_tax_rate_percent")?.div(100.0)
+        val atMpEmployerRate=number("atmp_employer_rate_percent")?.takeIf{it<=100.0}?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
@@ -115,6 +118,7 @@ object CompanyPayrollOverridesV2 {
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
             if(alsaceMoselleLocalRegime==null)add("Régime local Alsace-Moselle : affiliation à confirmer (oui/non)")
+            if(atMpEmployerRate==null)add("AT/MP employeur : taux de l'établissement non renseigné ; coût employeur incomplet")
             addAll(protectionCategory.warnings)
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
@@ -141,7 +145,8 @@ object CompanyPayrollOverridesV2 {
             professionalStatus=professionalStatus,
             protectionCategory=protectionCategory,
             warnings=warnings,
-            alsaceMoselleLocalRegime=alsaceMoselleLocalRegime
+            alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
+            atMpEmployerRate=atMpEmployerRate
         )
     }
 
