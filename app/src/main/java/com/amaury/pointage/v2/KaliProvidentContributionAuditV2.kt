@@ -223,7 +223,7 @@ object KaliProvidentContributionAuditV2 {
                         rule == null && completion.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
                             add("KALI prévoyance cotisations : absence de cotisation conventionnelle explicitement prouvée pour le profil et la période.")
                         rule == null ->
-                            add("KALI prévoyance cotisations : exclusion observée mais extension/applicabilité insuffisamment démontrée.")
+                            add("KALI prévoyance cotisations : exclusion observée mais statut VIGUEUR_ETEN + date d'extension/applicabilité insuffisamment démontrés.")
                         saveError != null ->
                             add("KALI prévoyance cotisations : règle structurée mais stockage impossible : $saveError.")
                         saved && completion.completed ->
@@ -275,7 +275,8 @@ object KaliProvidentContributionAuditV2 {
         evidence.articles.forEach articleLoop@ { article ->
             val articleId = article.articleId.trim().uppercase(Locale.ROOT)
             if (!articleId.matches(kaliArticleIdRegex) || articleId in ambiguous) return@articleLoop
-            if (article.status.trim().uppercase(Locale.ROOT) !in acceptedArticleStatuses) return@articleLoop
+            val officialStatus = article.status.trim().uppercase(Locale.ROOT)
+            if (officialStatus !in acceptedArticleStatuses) return@articleLoop
             if (evidence.referenceDate.isBefore(article.effectiveFrom) ||
                 article.effectiveTo?.let(evidence.referenceDate::isAfter) == true
             ) return@articleLoop
@@ -315,7 +316,11 @@ object KaliProvidentContributionAuditV2 {
                 candidates += ExclusionEvidence(
                     articleId = articleId,
                     conventionScopeKey = scope,
-                    extensionEffectiveFrom = article.extensionEffectiveFrom
+                    // Une date isolée n'est pas une preuve d'extension. Elle n'est conservée que
+                    // si le statut de l'article est officiellement VIGUEUR_ETEN.
+                    extensionEffectiveFrom = article.extensionEffectiveFrom.takeIf {
+                        officialStatus == "VIGUEUR_ETEN"
+                    }
                 )
             }
         }
@@ -389,6 +394,7 @@ object KaliProvidentContributionAuditV2 {
         "VIGUEUR",
         "VIGUEUR_ETEN",
         "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
         "VIGUEUR_PARTIELLE"
     )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
