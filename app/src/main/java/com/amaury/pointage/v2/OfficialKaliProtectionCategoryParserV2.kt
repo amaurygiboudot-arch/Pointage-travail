@@ -144,16 +144,7 @@ object OfficialKaliProtectionCategoryParserV2 {
 
         val r242Context = clause.contains("r. 242-1-1") || clause.contains("r 242-1-1") || clause.contains("r242-1-1")
         val extensionLanguage = extensionWords.any(clause::contains)
-        val nonAniPopulation = clause.contains("non-cadres") ||
-            clause.contains("non cadres") ||
-            clause.contains("non-assimiles aux cadres") ||
-            clause.contains("non assimiles aux cadres") ||
-            clause.contains("agents de maitrise") ||
-            clause.contains("techniciens") ||
-            clause.contains("employes")
-        return if (r242Context && extensionLanguage && nonAniPopulation) {
-            ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
-        } else null
+        return if (r242Context && extensionLanguage) ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE else null
     }
 
     private fun statusCompatible(category: ProtectionCategoryV2.AniCategory, status: String): Boolean = when (category) {
@@ -166,8 +157,9 @@ object OfficialKaliProtectionCategoryParserV2 {
     }
 
     /**
-     * Toute dimension explicitement utilisée par la clause doit correspondre à la fiche.
-     * Une dimension non utilisée dans la clause n'est pas exigée.
+     * Toute dimension présente à la fois dans la fiche et dans la clause doit correspondre.
+     * Une dimension absente de la fiche n'est pas inventée : elle ne constitue simplement pas
+     * une preuve. Au moins une dimension explicite doit correspondre.
      */
     private fun classificationEvidence(clause: String, classification: ConventionClassificationV2): String? {
         val checks = listOf(
@@ -185,64 +177,59 @@ object OfficialKaliProtectionCategoryParserV2 {
     }
 
     private fun coefficientMatch(clause: String, value: Int?): DimensionMatch {
-        if (!coefficientVocabulary.containsMatchIn(clause) && !coefficientPrefixLowerBoundRegex.containsMatchIn(clause)) {
-            return DimensionMatch(MatchState.NOT_MENTIONED)
-        }
-        if (value == null) return DimensionMatch(MatchState.MISMATCH)
+        val mentioned = coefficientVocabulary.containsMatchIn(clause) || coefficientPrefixLowerBoundRegex.containsMatchIn(clause)
+        if (!mentioned) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (value == null) return DimensionMatch(MatchState.NOT_MENTIONED)
 
-        val allowed = mutableListOf<String>()
         var recognized = false
-
         coefficientRangeRegex.findAll(clause).forEach { match ->
             val from = match.groupValues[1].toIntOrNull() ?: return@forEach
             val to = match.groupValues[2].toIntOrNull() ?: return@forEach
             recognized = true
-            val range = minOf(from, to)..maxOf(from, to)
-            allowed += "$from-$to"
-            if (value in range) return DimensionMatch(MatchState.MATCH, "coefficient $value dans plage $from-$to")
+            if (value in minOf(from, to)..maxOf(from, to)) {
+                return DimensionMatch(MatchState.MATCH, "coefficient $value dans plage $from-$to")
+            }
         }
         coefficientLowerBoundRegex.findAll(clause).forEach { match ->
             val min = match.groupValues[1].toIntOrNull() ?: return@forEach
             recognized = true
-            allowed += ">=$min"
+            if (value >= min) return DimensionMatch(MatchState.MATCH, "coefficient $value >= $min")
+        }
+        coefficientTrailingLowerBoundRegex.findAll(clause).forEach { match ->
+            val min = match.groupValues[1].toIntOrNull() ?: return@forEach
+            recognized = true
             if (value >= min) return DimensionMatch(MatchState.MATCH, "coefficient $value >= $min")
         }
         coefficientPrefixLowerBoundRegex.findAll(clause).forEach { match ->
             val min = match.groupValues[1].toIntOrNull() ?: return@forEach
             recognized = true
-            allowed += ">=$min"
             if (value >= min) return DimensionMatch(MatchState.MATCH, "coefficient $value >= $min")
         }
         coefficientUpperBoundRegex.findAll(clause).forEach { match ->
             val max = match.groupValues[1].toIntOrNull() ?: return@forEach
             recognized = true
-            allowed += "<=$max"
             if (value <= max) return DimensionMatch(MatchState.MATCH, "coefficient $value <= $max")
         }
         coefficientListRegex.findAll(clause).forEach { match ->
             val values = integerList(match.groupValues[1])
             if (values.isNotEmpty()) {
                 recognized = true
-                allowed += values.joinToString(",")
                 if (value in values) return DimensionMatch(MatchState.MATCH, "coefficient $value dans liste explicite")
             }
         }
         coefficientExactRegex.findAll(clause).forEach { match ->
             val exact = match.groupValues[1].toIntOrNull() ?: return@forEach
             recognized = true
-            allowed += exact.toString()
             if (value == exact) return DimensionMatch(MatchState.MATCH, "coefficient $value explicite")
         }
-
-        return if (recognized) DimensionMatch(MatchState.MISMATCH, "coefficient $value hors ${allowed.distinct().joinToString("/")}")
-        else DimensionMatch(MatchState.MISMATCH)
+        return if (recognized) DimensionMatch(MatchState.MISMATCH) else DimensionMatch(MatchState.MISMATCH)
     }
 
     private fun levelMatch(clause: String, rawValue: String?): DimensionMatch {
-        if (!levelVocabulary.containsMatchIn(clause) && !levelPrefixLowerBoundRegex.containsMatchIn(clause)) {
-            return DimensionMatch(MatchState.NOT_MENTIONED)
-        }
-        val value = rawValue?.let(::romanOrArabic) ?: return DimensionMatch(MatchState.MISMATCH)
+        val mentioned = levelVocabulary.containsMatchIn(clause) || levelPrefixLowerBoundRegex.containsMatchIn(clause)
+        if (!mentioned) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        val value = romanOrArabic(rawValue) ?: return DimensionMatch(MatchState.MISMATCH)
         var recognized = false
 
         levelRangeRegex.findAll(clause).forEach { match ->
@@ -254,6 +241,11 @@ object OfficialKaliProtectionCategoryParserV2 {
             }
         }
         levelLowerBoundRegex.findAll(clause).forEach { match ->
+            val min = romanOrArabic(match.groupValues[1]) ?: return@forEach
+            recognized = true
+            if (value >= min) return DimensionMatch(MatchState.MATCH, "niveau ${normalizeToken(rawValue)} >= ${match.groupValues[1].uppercase()}")
+        }
+        levelTrailingLowerBoundRegex.findAll(clause).forEach { match ->
             val min = romanOrArabic(match.groupValues[1]) ?: return@forEach
             recognized = true
             if (value >= min) return DimensionMatch(MatchState.MATCH, "niveau ${normalizeToken(rawValue)} >= ${match.groupValues[1].uppercase()}")
@@ -280,7 +272,8 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private fun echelonMatch(clause: String, rawValue: String?): DimensionMatch {
         if (!echelonVocabulary.containsMatchIn(clause)) return DimensionMatch(MatchState.NOT_MENTIONED)
-        val value = rawValue?.let(::normalizeToken) ?: return DimensionMatch(MatchState.MISMATCH)
+        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        val value = normalizeToken(rawValue)
         var recognized = false
 
         echelonRangeRegex.findAll(clause).forEach { match ->
@@ -310,7 +303,8 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private fun positionMatch(clause: String, rawValue: String?): DimensionMatch {
         if (!positionVocabulary.containsMatchIn(clause)) return DimensionMatch(MatchState.NOT_MENTIONED)
-        val value = rawValue?.let(::normalizeToken) ?: return DimensionMatch(MatchState.MISMATCH)
+        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        val value = normalizeToken(rawValue)
         var recognized = false
         val numericValue = value.replace(',', '.').toBigDecimalOrNull()
 
@@ -318,7 +312,7 @@ object OfficialKaliProtectionCategoryParserV2 {
             val from = match.groupValues[1].replace(',', '.').toBigDecimalOrNull() ?: return@forEach
             val to = match.groupValues[2].replace(',', '.').toBigDecimalOrNull() ?: return@forEach
             recognized = true
-            if (numericValue != null && numericValue >= minOf(from, to) && numericValue <= maxOf(from, to)) {
+            if (numericValue != null && numericValue >= minDecimal(from, to) && numericValue <= maxDecimal(from, to)) {
                 return DimensionMatch(MatchState.MATCH, "position $value dans plage explicite")
             }
         }
@@ -346,7 +340,8 @@ object OfficialKaliProtectionCategoryParserV2 {
         val listRegex = Regex("\\b$plural\\s*[:.\\-]?\\s*([a-z0-9.]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.]+)+)")
         val mentions = exactRegex.containsMatchIn(clause) || listRegex.containsMatchIn(clause)
         if (!mentions) return DimensionMatch(MatchState.NOT_MENTIONED)
-        val value = rawValue?.let(::normalizeToken) ?: return DimensionMatch(MatchState.MISMATCH)
+        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        val value = normalizeToken(rawValue)
         listRegex.findAll(clause).forEach { match ->
             val values = tokenList(match.groupValues[1]).map(::normalizeToken).toSet()
             if (value in values) return DimensionMatch(MatchState.MATCH, "$singular $value dans liste explicite")
@@ -357,17 +352,23 @@ object OfficialKaliProtectionCategoryParserV2 {
         return DimensionMatch(MatchState.MISMATCH)
     }
 
-    /** "catégorie des cadres" n'est pas une catégorie de classification : seules les valeurs codées sont discriminantes. */
+    /** "catégorie des cadres" n'est jamais interprétée comme une catégorie de classification. */
     private fun classificationCategoryMatch(clause: String, rawValue: String?): DimensionMatch {
-        val exactRegex = Regex("\\bcategorie\\s+(?:professionnelle\\s+)?[:.\\-]?\\s*([a-z0-9.]{1,8})\\b")
-        val listRegex = Regex("\\bcategories\\s+(?:professionnelles\\s+)?[:.\\-]?\\s*([a-z0-9.]{1,8}(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.]{1,8})+)")
-        val recognized = (exactRegex.findAll(clause).map { it.groupValues[1] } + listRegex.findAll(clause).map { it.groupValues[1] })
-            .filterNot { normalizeToken(it) in setOf("CADRE", "CADRES", "OBJECTIVE", "OBJECTIVES") }
-            .toList()
-        if (recognized.isEmpty()) return DimensionMatch(MatchState.NOT_MENTIONED)
-        val value = rawValue?.let(::normalizeToken) ?: return DimensionMatch(MatchState.MISMATCH)
-        if (recognized.any { token -> value in tokenList(token).map(::normalizeToken) }) {
-            return DimensionMatch(MatchState.MATCH, "catégorie $value explicite")
+        val exactRegex = Regex("\\bcategorie\\s+(?:professionnelle|de\\s+classification)\\s*[:.\\-]?\\s*([a-z0-9.]{1,12})\\b")
+        val listRegex = Regex("\\bcategories\\s+(?:professionnelles|de\\s+classification)\\s*[:.\\-]?\\s*([a-z0-9.]{1,12}(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.]{1,12})+)")
+        val mentions = exactRegex.containsMatchIn(clause) || listRegex.containsMatchIn(clause)
+        if (!mentions) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        val value = normalizeToken(rawValue)
+        listRegex.findAll(clause).forEach { match ->
+            if (value in tokenList(match.groupValues[1]).map(::normalizeToken)) {
+                return DimensionMatch(MatchState.MATCH, "catégorie professionnelle $value explicite")
+            }
+        }
+        exactRegex.findAll(clause).forEach { match ->
+            if (value == normalizeToken(match.groupValues[1])) {
+                return DimensionMatch(MatchState.MATCH, "catégorie professionnelle $value explicite")
+            }
         }
         return DimensionMatch(MatchState.MISMATCH)
     }
@@ -423,8 +424,8 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private fun normalizeToken(raw: String): String = OfficialKaliProfileMatcherV2.normalize(raw).uppercase(Locale.FRANCE)
 
-    private fun minOf(a: BigDecimal, b: BigDecimal): BigDecimal = if (a <= b) a else b
-    private fun maxOf(a: BigDecimal, b: BigDecimal): BigDecimal = if (a >= b) a else b
+    private fun minDecimal(a: BigDecimal, b: BigDecimal): BigDecimal = if (a <= b) a else b
+    private fun maxDecimal(a: BigDecimal, b: BigDecimal): BigDecimal = if (a >= b) a else b
 
     private fun extensionStatus(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): ConventionMinimumSalaryV2.ExtensionStatus =
         when (article.status.uppercase(Locale.ROOT)) {
@@ -446,22 +447,26 @@ object OfficialKaliProtectionCategoryParserV2 {
         "pouvant etre integrees a la categorie des cadres",
         "assimiles a la categorie de cadres en vue de la constitution d'une categorie objective",
         "assimilees a la categorie de cadres en vue de la constitution d'une categorie objective",
+        "faculte d'inclure dans la categorie objective des cadres",
+        "inclure dans la categorie objective des cadres",
         "extension de regime"
     )
 
-    private val coefficientVocabulary = Regex("\\bcoef(?:ficients?)?\\b|\\bcoefficients?\\b")
+    private val coefficientVocabulary = Regex("\\bcoefficients?\\b|\\bcoef\\b")
     private val coefficientRangeRegex = Regex("\\b(?:du\\s+)?coefficients?\\s*[:.\\-]?\\s*(\\d{2,4})\\s*(?:a|au|-)\\s*(?:coefficient\\s*)?(\\d{2,4})\\b")
-    private val coefficientLowerBoundRegex = Regex("\\bcoefficients?\\s*(?:est\\s*)?(?:(?:egal|superieur)\\s+ou\\s+(?:superieur|egal)\\s+a|au\\s+moins\\s+egal\\s+a|au\\s+moins\\s+a|>=|≥)\\s*(\\d{2,4})\\b|\\bcoefficients?\\s*[:.\\-]?\\s*(\\d{2,4})\\s*(?:et|ou)\\s+plus\\b").let(::normalizeSecondCaptureRegex)
+    private val coefficientLowerBoundRegex = Regex("\\bcoefficients?\\s*(?:est\\s*)?(?:egal\\s+ou\\s+superieur\\s+a|superieur\\s+ou\\s+egal\\s+a|au\\s+moins\\s+egal\\s+a|au\\s+moins\\s+a|>=|≥)\\s*(\\d{2,4})\\b")
+    private val coefficientTrailingLowerBoundRegex = Regex("\\bcoefficients?\\s*[:.\\-]?\\s*(\\d{2,4})\\s*(?:et|ou)\\s+plus\\b")
     private val coefficientPrefixLowerBoundRegex = Regex("\\ba\\s+partir\\s+du\\s+coefficient\\s+(\\d{2,4})\\b")
-    private val coefficientUpperBoundRegex = Regex("\\bcoefficients?\\s*(?:est\\s*)?(?:(?:egal|inferieur)\\s+ou\\s+(?:inferieur|egal)\\s+a|au\\s+plus\\s+egal\\s+a|au\\s+plus\\s+a|<=|≤)\\s*(\\d{2,4})\\b")
+    private val coefficientUpperBoundRegex = Regex("\\bcoefficients?\\s*(?:est\\s*)?(?:egal\\s+ou\\s+inferieur\\s+a|inferieur\\s+ou\\s+egal\\s+a|au\\s+plus\\s+egal\\s+a|au\\s+plus\\s+a|<=|≤)\\s*(\\d{2,4})\\b")
     private val coefficientListRegex = Regex("\\bcoefficients\\s*[:.\\-]?\\s*((?:\\d{2,4}\\s*(?:,|/|et|ou)\\s*)+\\d{2,4})\\b")
     private val coefficientExactRegex = Regex("\\bcoefficient\\s*[:.\\-]?\\s*(\\d{2,4})\\b")
 
     private val levelVocabulary = Regex("\\bniveaux?\\b")
     private val levelRangeRegex = Regex("\\bniveaux?\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\s*(?:a|au|-)\\s*([ivx]+|\\d{1,2})\\b")
-    private val levelLowerBoundRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\s*(?:(?:et|ou)\\s+(?:au-dela|plus)|ou\\s+superieur)\\b|\\bniveau\\s*(?:egal\\s+ou\\s+superieur\\s+a|superieur\\s+ou\\s+egal\\s+a|au\\s+moins\\s+egal\\s+a)\\s*([ivx]+|\\d{1,2})\\b").let(::normalizeSecondCaptureRegex)
+    private val levelLowerBoundRegex = Regex("\\bniveau\\s*(?:egal\\s+ou\\s+superieur\\s+a|superieur\\s+ou\\s+egal\\s+a|au\\s+moins\\s+egal\\s+a)\\s*([ivx]+|\\d{1,2})\\b")
+    private val levelTrailingLowerBoundRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\s*(?:(?:et|ou)\\s+(?:au-dela|plus)|ou\\s+superieur)\\b")
     private val levelPrefixLowerBoundRegex = Regex("\\ba\\s+partir\\s+du\\s+niveau\\s+([ivx]+|\\d{1,2})\\b")
-    private val levelListRegex = Regex("\\bniveaux\\s*[:.\\-]?\\s*(([ivx]+|\\d{1,2})(?:\\s*(?:,|/|et|ou)\\s*([ivx]+|\\d{1,2}))+)")
+    private val levelListRegex = Regex("\\bniveaux\\s*[:.\\-]?\\s*((?:[ivx]+|\\d{1,2})(?:\\s*(?:,|/|et|ou)\\s*(?:[ivx]+|\\d{1,2}))+)")
     private val levelExactRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\b")
 
     private val echelonVocabulary = Regex("\\bechelons?\\b")
@@ -473,11 +478,4 @@ object OfficialKaliProtectionCategoryParserV2 {
     private val positionRangeRegex = Regex("\\bpositions?\\s*[:.\\-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:a|au|-)\\s*(\\d+(?:[.,]\\d+)?)\\b")
     private val positionListRegex = Regex("\\bpositions\\s*[:.\\-]?\\s*([a-z0-9.,]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.,]+)+)")
     private val positionExactRegex = Regex("\\bposition\\s*[:.\\-]?\\s*([a-z0-9.,]+)\\b")
-
-    /**
-     * Kotlin Regex ne propose pas de branche conditionnelle pour choisir le groupe non vide.
-     * Cette normalisation transforme les regex à deux alternatives utilisées ci-dessus en
-     * regex dont le groupe 1 contient toujours la valeur utile.
-     */
-    private fun normalizeSecondCaptureRegex(regex: Regex): Regex = regex
 }
