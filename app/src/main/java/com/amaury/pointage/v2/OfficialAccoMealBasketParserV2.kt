@@ -247,7 +247,11 @@ object OfficialAccoMealBasketParserV2 {
             if (perWorkedDayRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.WorkedDay)
         }
 
-        val groups = mutableListOf<ConventionMealBasketV2.EligibilityGroup>()
+        // Dans une même clause, plusieurs conditions détectées sont présumées cumulatives.
+        // Elles restent donc dans UN SEUL groupe allOf. Si plusieurs conditions temporelles sont
+        // reliées par une alternative explicite que le parseur ne sait pas décomposer sûrement,
+        // on bloque la clause plutôt que de transformer l'alternative en règle approximative.
+        val temporal = mutableListOf<ConventionMealBasketV2.Condition>()
 
         effectiveWindowRegex.findAll(text).mapNotNull { match ->
             val hours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
@@ -257,9 +261,7 @@ object OfficialAccoMealBasketParserV2 {
                 ConventionMealBasketV2.DailyWindow(start, end),
                 (hours * 60.0).toInt()
             ).takeIf { it.structurallyValid() }
-        }.forEach { condition ->
-            groups += ConventionMealBasketV2.EligibilityGroup((common + condition).distinct())
-        }
+        }.forEach(temporal::add)
 
         employerWindowRegex.findAll(text).mapNotNull { match ->
             val windowHours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
@@ -271,9 +273,7 @@ object OfficialAccoMealBasketParserV2 {
                 requiredWindowMinutes = (windowHours * 60.0).toInt(),
                 minimumEffectiveMinutes = (minimumHours * 60.0).toInt()
             ).takeIf { it.structurallyValid() }
-        }.forEach { condition ->
-            groups += ConventionMealBasketV2.EligibilityGroup((common + condition).distinct())
-        }
+        }.forEach(temporal::add)
 
         startsEndsWindowRegex.findAll(text).mapNotNull { match ->
             val start = parseClock(match.groupValues[1], match.groupValues[2]) ?: return@mapNotNull null
@@ -281,27 +281,22 @@ object OfficialAccoMealBasketParserV2 {
             ConventionMealBasketV2.Condition.ShiftStartsOrEndsInWindow(
                 ConventionMealBasketV2.DailyWindow(start, end)
             ).takeIf { it.structurallyValid() }
-        }.forEach { condition ->
-            groups += ConventionMealBasketV2.EligibilityGroup((common + condition).distinct())
-        }
+        }.forEach(temporal::add)
 
         if (enclosesMidnightRegex.containsMatchIn(text)) {
-            groups += ConventionMealBasketV2.EligibilityGroup(
-                (common + ConventionMealBasketV2.Condition.ShiftEnclosesMidnight).distinct()
-            )
+            temporal += ConventionMealBasketV2.Condition.ShiftEnclosesMidnight
         }
         if (startsMidnightRegex.containsMatchIn(text)) {
-            groups += ConventionMealBasketV2.EligibilityGroup(
-                (common + ConventionMealBasketV2.Condition.ShiftStartsAtMidnight).distinct()
-            )
-        }
-        if (groups.isEmpty() && common.isNotEmpty()) {
-            groups += ConventionMealBasketV2.EligibilityGroup(common.distinct())
+            temporal += ConventionMealBasketV2.Condition.ShiftStartsAtMidnight
         }
 
-        return groups
-            .filter { it.structurallyValid() }
-            .distinctBy { eligibilityFingerprint(listOf(it)) }
+        val distinctTemporal = temporal.distinct()
+        if (distinctTemporal.size > 1 && temporalAlternativeRegex.containsMatchIn(text)) return emptyList()
+
+        val allConditions = (common + distinctTemporal).distinct()
+        if (allConditions.isEmpty()) return emptyList()
+        val group = ConventionMealBasketV2.EligibilityGroup(allConditions)
+        return listOf(group).filter { it.structurallyValid() }
     }
 
     private fun parseBlockers(text: String): Set<ConventionMealBasketV2.Blocker> {
@@ -419,6 +414,9 @@ object OfficialAccoMealBasketParserV2 {
     )
     private val startsEndsWindowRegex = Regex(
         "(?:commence|debute|se termine|finit)(?:\\s+ou\\s+(?:commence|debute|se termine|finit))?[^.;\\n]{0,60}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?"
+    )
+    private val temporalAlternativeRegex = Regex(
+        "\\b(?:ou|soit)\\b"
     )
     private val enclosesMidnightRegex = Regex("\\b(?:encadre|comprend|inclut|traverse)\\s+minuit\\b")
     private val startsMidnightRegex = Regex("\\b(?:commence|debute)\\s+a\\s+minuit\\b")
