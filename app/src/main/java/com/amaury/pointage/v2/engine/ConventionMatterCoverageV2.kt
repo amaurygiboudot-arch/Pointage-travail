@@ -14,7 +14,14 @@ object ConventionMatterCoverageV2 {
         MINIMUM_SALARY,
         SENIORITY_PREMIUM,
         SICKNESS_MAINTENANCE,
+        /** Legacy : conservé pour relire d'anciens enregistrements, ne plus écrire de nouveau record sous cette matière. */
         PROVIDENT,
+        /** Classement objectif ANI 2.1 / 2.2 / extension possible. */
+        PROVIDENT_CATEGORY,
+        /** Financement / cotisations du régime de prévoyance. */
+        PROVIDENT_CONTRIBUTION,
+        /** Garanties incapacité / invalidité / décès / rentes. */
+        PROVIDENT_BENEFITS,
         OVERTIME,
         NIGHT,
         SATURDAY,
@@ -131,7 +138,10 @@ object ConventionMatterCoverageV2 {
         Matter.MINIMUM_SALARY -> "minimum salarial"
         Matter.SENIORITY_PREMIUM -> "prime d'ancienneté"
         Matter.SICKNESS_MAINTENANCE -> "maintien de salaire maladie"
-        Matter.PROVIDENT -> "prévoyance"
+        Matter.PROVIDENT -> "prévoyance (historique)"
+        Matter.PROVIDENT_CATEGORY -> "catégorie objective de prévoyance"
+        Matter.PROVIDENT_CONTRIBUTION -> "cotisations de prévoyance"
+        Matter.PROVIDENT_BENEFITS -> "garanties de prévoyance"
         Matter.OVERTIME -> "heures supplémentaires"
         Matter.NIGHT -> "travail de nuit"
         Matter.SATURDAY -> "travail du samedi"
