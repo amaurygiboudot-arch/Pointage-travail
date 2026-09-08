@@ -54,7 +54,7 @@ class OfficialKaliProvidentBenefitWaitingPeriodV2Test {
     fun `franchises maladie et accident differentes restent ambigues`() {
         val result = parse(
             "Cadres coefficient 910 relevant de l'article 2.1. " +
-                "En incapacité temporaire de travail, sans condition d'ancienneté, une indemnité égale à 80 % du salaire mensuel de référence est versée. " +
+                "En incapacité temporaire de travail, sans condition d'ancienneté, une indemnité égale à 80 % du salaire mensuel de référence est versée en complément des IJSS. " +
                 "Franchise de 30 jours en cas de maladie et franchise de 0 jours en cas d'accident."
         )
 
@@ -66,7 +66,7 @@ class OfficialKaliProvidentBenefitWaitingPeriodV2Test {
     fun `franchise unique reste structurée`() {
         val result = parse(
             "Cadres coefficient 910 relevant de l'article 2.1. " +
-                "En incapacité temporaire de travail, sans condition d'ancienneté, une indemnité égale à 80 % du salaire mensuel de référence est versée. " +
+                "En incapacité temporaire de travail, sans condition d'ancienneté, une indemnité égale à 80 % du salaire mensuel de référence est versée en complément des IJSS. " +
                 "Franchise de 30 jours."
         )
 
