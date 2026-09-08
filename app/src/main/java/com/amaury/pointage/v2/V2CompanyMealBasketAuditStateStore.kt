@@ -74,6 +74,26 @@ object V2CompanyMealBasketAuditStateStore {
         expectedSiret: String,
         classification: ConventionClassificationV2,
         professionalStatus: String
+    ): List<Record> = matching(
+        context, companyId, expectedSiret, classification, professionalStatus
+    ).filter { it.state == State.UNRESOLVED }
+
+    fun completeAgreementIdsFor(
+        context: Context,
+        companyId: String,
+        expectedSiret: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): Set<String> = matching(
+        context, companyId, expectedSiret, classification, professionalStatus
+    ).filter { it.state == State.COMPLETE }.mapTo(linkedSetOf()) { it.agreementId }
+
+    private fun matching(
+        context: Context,
+        companyId: String,
+        expectedSiret: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
     ): List<Record> {
         val siret = expectedSiret.filter(Char::isDigit)
         val status = professionalStatus.trim().uppercase()
@@ -82,8 +102,7 @@ object V2CompanyMealBasketAuditStateStore {
             it.companyId == companyId &&
                 it.siret == siret &&
                 it.classification.normalized() == classification.normalized() &&
-                it.professionalStatus == status &&
-                it.state == State.UNRESOLVED
+                it.professionalStatus == status
         }
     }
 
