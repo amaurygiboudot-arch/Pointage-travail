@@ -13,10 +13,18 @@ class ConventionProtectionCategoryV2Test {
 
     private fun approval(
         date: LocalDate = LocalDate.of(2024, 10, 9),
-        authority: ConventionProtectionCategoryV2.ApprovalAuthority = ConventionProtectionCategoryV2.ApprovalAuthority.APEC
+        authority: ConventionProtectionCategoryV2.ApprovalAuthority = ConventionProtectionCategoryV2.ApprovalAuthority.APEC,
+        selector: ConventionClassificationV2 = classification,
+        status: String? = "CADRE",
+        category: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+        idcc: String = "292"
     ) = ConventionProtectionCategoryV2.ApprovalEvidence(
         authority = authority,
         approvedOn = date,
+        idcc = idcc,
+        classification = selector,
+        professionalStatus = status,
+        aniCategory = category,
         source = "$authority — décision test"
     )
 
@@ -29,7 +37,11 @@ class ConventionProtectionCategoryV2Test {
         extension: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
         extensionDate: LocalDate? = LocalDate.of(2024, 12, 26),
         approvalRequired: Boolean = true,
-        approvalEvidence: ConventionProtectionCategoryV2.ApprovalEvidence? = approval()
+        approvalEvidence: ConventionProtectionCategoryV2.ApprovalEvidence? = approval(
+            selector = selector,
+            status = status,
+            category = category
+        )
     ) = ConventionProtectionCategoryV2.Rule(
         idcc = "292",
         ruleId = id,
@@ -73,6 +85,45 @@ class ConventionProtectionCategoryV2Test {
         assertFalse(result.reliable)
         assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
         assertTrue(result.warnings.any { it.contains("agrément", ignoreCase = true) })
+    }
+
+    @Test
+    fun `agrement du mauvais coefficient est refuse`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    approvalEvidence = approval(
+                        selector = ConventionClassificationV2(coefficient = 900)
+                    )
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+        assertTrue(result.warnings.any { it.contains("ne couvre pas exactement", ignoreCase = true) })
+    }
+
+    @Test
+    fun `agrement de la mauvaise categorie est refuse`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    approvalEvidence = approval(category = ProtectionCategoryV2.AniCategory.ARTICLE_2_2)
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("ne couvre pas exactement", ignoreCase = true) })
     }
 
     @Test
@@ -197,14 +248,15 @@ class ConventionProtectionCategoryV2Test {
 
     @Test
     fun `extension eligible reste hors beneficiaires ANI meme agreee`() {
+        val selector = ConventionClassificationV2(coefficient = 810)
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "292",
             referenceDate = date,
-            classification = ConventionClassificationV2(coefficient = 810),
+            classification = selector,
             professionalStatus = "NON_CADRE",
             rules = listOf(
                 rule(
-                    selector = ConventionClassificationV2(coefficient = 810),
+                    selector = selector,
                     status = "NON_CADRE",
                     category = ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
                 )
