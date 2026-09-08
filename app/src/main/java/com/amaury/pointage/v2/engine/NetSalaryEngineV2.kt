@@ -89,19 +89,27 @@ object NetSalaryEngineV2 {
             protectionCategory = company.verifiedProtectionCategory
         )
 
-        // Phase de migration : le nouveau chemin KALI prend la main dès que la catégorie ANI
-        // courante est confirmée et que la couverture officielle est fiable pour ce profil,
-        // qu'elle confirme un barème ou explicitement l'absence de cotisation conventionnelle.
-        // Dans ces deux cas, aucun repli Plasturgie ne doit réintroduire une cotisation contredite.
-        val verifiedProvidentCoverageTrusted = company.verifiedProtectionCategory.confirmed &&
-            company.verifiedProvidentCoverage.reliable &&
-            company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
-        val verifiedProvidentRulesPath = verifiedProvidentCoverageTrusted &&
+        // Phase de migration : tant qu'aucune couverture KALI n'est acquise, le repli Plasturgie
+        // historique reste disponible. Dès qu'une couverture KALI fiable existe pour ce profil,
+        // elle prend définitivement la priorité : si une preuve courante (ex. catégorie ANI) devient
+        // insuffisante, le calcul se bloque au lieu de revenir silencieusement à l'ancien barème.
+        val verifiedProvidentCoverageClaims = company.verifiedProvidentCoverage.reliable &&
+            company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true &&
+            company.verifiedProvidentCoverage.state in setOf(
+                ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+                ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
+            )
+        val verifiedProvidentCategoryReady = company.verifiedProtectionCategory.confirmed
+        val verifiedProvidentRulesPath = verifiedProvidentCoverageClaims && verifiedProvidentCategoryReady &&
             company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
-        val verifiedProvidentNoRulePath = verifiedProvidentCoverageTrusted &&
+        val verifiedProvidentNoRulePath = verifiedProvidentCoverageClaims && verifiedProvidentCategoryReady &&
             company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
-        val verifiedProvidentPath = verifiedProvidentRulesPath || verifiedProvidentNoRulePath
+        val verifiedProvidentPath = verifiedProvidentCoverageClaims
         val verifiedProvident = when {
+            !verifiedProvidentCoverageClaims -> null
+            !verifiedProvidentCategoryReady -> blockedVerifiedProvident(
+                "Prévoyance conventionnelle : couverture KALI présente mais catégorie ANI actuelle non confirmée ; aucun ancien barème n'est réutilisé."
+            )
             verifiedProvidentRulesPath -> ConventionProvidentContributionV2.calculate(
                 rules = company.verifiedProvidentRules,
                 idcc = company.idcc,
@@ -114,7 +122,9 @@ object NetSalaryEngineV2 {
                 applicableMonthlyCeiling = ceiling.applicableMonthly
             )
             verifiedProvidentNoRulePath -> confirmedNoProvidentContribution(company.idcc)
-            else -> null
+            else -> blockedVerifiedProvident(
+                "Prévoyance conventionnelle : couverture KALI non exploitable pour le profil courant."
+            )
         }
         val legacyConventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = contributionGross,
@@ -327,5 +337,17 @@ object NetSalaryEngineV2 {
         warnings = listOf(
             "Prévoyance conventionnelle${idcc?.let { " IDCC $it" }.orEmpty()} : absence de cotisation explicitement confirmée par KALI pour ce profil et cette période."
         )
+    )
+
+    private fun blockedVerifiedProvident(reason: String) = ConventionProvidentContributionV2.Result(
+        applicable = false,
+        eligibilityConfirmed = false,
+        reliable = false,
+        selectedRule = null,
+        selectedTier = null,
+        lines = emptyList(),
+        employeeAmount = null,
+        employerAmount = null,
+        warnings = listOf(reason)
     )
 }
