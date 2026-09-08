@@ -8,7 +8,8 @@ import java.time.LocalDate
  *
  * Une règle de branche et son extension ne suffisent pas à elles seules : lorsque le
  * classement résulte d'une classification conventionnelle, la preuve de validation par la
- * commission APEC (ou d'un agrément AGIRC antérieur encore pertinent) est conservée séparément.
+ * commission APEC (ou d'un agrément AGIRC antérieur encore pertinent) est conservée séparément
+ * et doit couvrir exactement le même profil conventionnel.
  */
 object ConventionProtectionCategoryV2 {
     enum class ApprovalAuthority {
@@ -19,10 +20,35 @@ object ConventionProtectionCategoryV2 {
     data class ApprovalEvidence(
         val authority: ApprovalAuthority,
         val approvedOn: LocalDate,
+        val idcc: String,
+        val classification: ConventionClassificationV2,
+        val professionalStatus: String?,
+        val aniCategory: ProtectionCategoryV2.AniCategory,
         val source: String
     ) {
-        fun structurallyValid(): Boolean = source.isNotBlank()
+        fun structurallyValid(): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
+            !classification.isEmpty() &&
+            aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
+            aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE &&
+            source.isNotBlank()
+
         fun applicableOn(date: LocalDate): Boolean = structurallyValid() && !date.isBefore(approvedOn)
+
+        fun covers(
+            ruleIdcc: String,
+            ruleClassification: ConventionClassificationV2,
+            ruleStatus: String?,
+            ruleCategory: ProtectionCategoryV2.AniCategory
+        ): Boolean {
+            val expectedStatus = professionalStatus?.trim()?.uppercase()
+            val actualStatus = ruleStatus?.trim()?.uppercase()
+            return structurallyValid() &&
+                ConventionMinimumSalaryV2.normalizeIdcc(idcc) == ConventionMinimumSalaryV2.normalizeIdcc(ruleIdcc) &&
+                classification.matches(ruleClassification) &&
+                ruleClassification.matches(classification) &&
+                expectedStatus == actualStatus &&
+                aniCategory == ruleCategory
+        }
     }
 
     data class Rule(
@@ -30,7 +56,7 @@ object ConventionProtectionCategoryV2 {
         val ruleId: String,
         val effectiveFrom: LocalDate,
         val effectiveTo: LocalDate? = null,
-        /** Classification exacte du salarié pour laquelle la source a été vérifiée. */
+        /** Classification exacte du salarié pour laquelle la source KALI a été vérifiée. */
         val classification: ConventionClassificationV2,
         val professionalStatus: String? = null,
         val aniCategory: ProtectionCategoryV2.AniCategory,
@@ -39,7 +65,7 @@ object ConventionProtectionCategoryV2 {
         val extensionEffectiveFrom: LocalDate? = null,
         /**
          * Les règles KALI de classement ANI reposant sur une classification conventionnelle
-         * exigent une preuve d'agrément. La preuve peut être enrichie après extraction KALI.
+         * exigent une preuve d'agrément. La preuve peut être enrichie après extraction APEC/AGIRC.
          */
         val approvalRequired: Boolean = true,
         val approvalEvidence: ApprovalEvidence? = null
@@ -59,15 +85,25 @@ object ConventionProtectionCategoryV2 {
 
         fun statusMatches(value: String?): Boolean {
             val expected = professionalStatus?.trim()?.uppercase()
-            return expected == null || expected == value?.trim()?.uppercase()
+            return expected == value?.trim()?.uppercase()
         }
 
         fun extensionApplicableOn(date: LocalDate): Boolean =
             extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
                 extensionEffectiveFrom?.let { !date.isBefore(it) } == true
 
-        fun approvalApplicableOn(date: LocalDate): Boolean =
-            !approvalRequired || approvalEvidence?.applicableOn(date) == true
+        fun approvalScopeMatches(): Boolean = approvalEvidence?.covers(
+            ruleIdcc = idcc,
+            ruleClassification = classification,
+            ruleStatus = professionalStatus,
+            ruleCategory = aniCategory
+        ) == true
+
+        fun approvalApplicableOn(date: LocalDate): Boolean = when {
+            !approvalRequired -> true
+            !approvalScopeMatches() -> false
+            else -> approvalEvidence?.applicableOn(date) == true
+        }
     }
 
     data class Resolution(
@@ -124,11 +160,14 @@ object ConventionProtectionCategoryV2 {
 
         val approved = extensionApplicable.filter { it.approvalApplicableOn(referenceDate) }
         if (approved.isEmpty()) {
-            val authorities = extensionApplicable.mapNotNull { it.approvalEvidence?.authority }.distinct()
-            val reason = if (authorities.isEmpty()) {
-                "agrément APEC/AGIRC requis mais non prouvé pour cette classification"
-            } else {
-                "agrément ${authorities.joinToString("/") { it.name }} non applicable à la période analysée"
+            val withEvidence = extensionApplicable.filter { it.approvalEvidence != null }
+            val reason = when {
+                withEvidence.isEmpty() -> "agrément APEC/AGIRC requis mais non prouvé pour cette classification"
+                withEvidence.none { it.approvalScopeMatches() } -> "agrément APEC/AGIRC trouvé mais il ne couvre pas exactement cette catégorie et cette classification"
+                else -> {
+                    val authorities = withEvidence.mapNotNull { it.approvalEvidence?.authority }.distinct()
+                    "agrément ${authorities.joinToString("/") { it.name }} non applicable à la période analysée"
+                }
             }
             return unresolved(reason)
         }
