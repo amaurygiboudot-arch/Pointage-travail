@@ -10,7 +10,7 @@ import org.junit.Test
 import java.time.LocalDate
 
 class V2ConventionProtectionCategoryStoreTest {
-    private val scopeKey = "IDCC0292:ACCORD-2024-06-27"
+    private val scopeKey = "KALITEXT000000000001"
 
     private fun rule(
         category: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
@@ -52,7 +52,7 @@ class V2ConventionProtectionCategoryStoreTest {
     }
 
     @Test
-    fun `preuve KALI sans agrément APEC peut etre stockee comme preuve non applicable`() {
+    fun `preuve KALI scoped sans agrément APEC peut etre stockee comme preuve non applicable`() {
         assertTrue(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
                 rule(approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED)
@@ -61,10 +61,34 @@ class V2ConventionProtectionCategoryStoreTest {
     }
 
     @Test
+    fun `preuve KALI sans KALITEXT parent exact est refusee par le store`() {
+        assertFalse(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
+                rule(
+                    approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+                    conventionScopeKey = null
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `périmètre KALI qui n est pas un KALITEXT officiel est refuse`() {
+        assertFalse(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
+                rule(
+                    approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+                    conventionScopeKey = "IDCC0292:ACCORD-2024-06-27"
+                )
+            )
+        )
+    }
+
+    @Test
     fun `même IDCC mais périmètre APEC différent est refuse`() {
         assertFalse(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
-                rule(approvalScopeKey = "IDCC0292:AUTRE-ACCORD")
+                rule(approvalScopeKey = "KALITEXT000000000002")
             )
         )
     }
