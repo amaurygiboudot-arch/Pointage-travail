@@ -62,6 +62,28 @@ class OfficialKaliMatterTextExpansionV2Test {
     }
 
     @Test
+    fun `un article vu sous plusieurs KALITEXT dans une meme reponse est bloque`() {
+        val articleId = "KALIARTI000000000001"
+        val data = mapOf(
+            "id" to "KALITEXT000000000001",
+            "children" to listOf(
+                mapOf(
+                    "id" to "KALITEXT000000000002",
+                    "articles" to listOf(mapOf("id" to articleId))
+                )
+            ),
+            "articles" to listOf(mapOf("id" to articleId))
+        )
+
+        val result = OfficialKaliMatterTextExpansionV2.parse(data, "KALITEXT000000000001")
+
+        assertFalse(result.reliable)
+        assertTrue(articleId in result.articleIds)
+        assertFalse(result.articleTextIds.containsKey(articleId))
+        assertTrue(result.warnings.any { it.contains("plusieurs KALITEXT") })
+    }
+
+    @Test
     fun `réponse portant sur un autre KALITEXT reste fail closed`() {
         val data = mapOf(
             "id" to "KALITEXT000000000002",

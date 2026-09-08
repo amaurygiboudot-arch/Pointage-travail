@@ -29,6 +29,7 @@ object OfficialKaliMatterTextExpansionV2 {
         val foundTextIds = linkedSetOf<String>()
         val articleIds = linkedSetOf<String>()
         val articleTextIds = linkedMapOf<String, String>()
+        val ambiguousArticleIds = linkedSetOf<String>()
         val sectionIds = linkedSetOf<String>()
 
         fun directId(map: Map<*, *>): String? = map.entries
@@ -51,7 +52,18 @@ object OfficialKaliMatterTextExpansionV2 {
                         id?.startsWith("KALISCTA") == true -> sectionIds += id
                         id?.startsWith("KALIARTI") == true -> {
                             articleIds += id
-                            currentTextId?.let { articleTextIds.putIfAbsent(id, it) }
+                            currentTextId?.let { textId ->
+                                if (id !in ambiguousArticleIds) {
+                                    val existing = articleTextIds[id]
+                                    when {
+                                        existing == null -> articleTextIds[id] = textId
+                                        existing != textId -> {
+                                            articleTextIds.remove(id)
+                                            ambiguousArticleIds += id
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     value.values.forEach { child -> walk(child, currentTextId, depth + 1) }
@@ -65,17 +77,26 @@ object OfficialKaliMatterTextExpansionV2 {
             return unresolved(expected, "la réponse /consult/kaliText ne contient pas le KALITEXT demandé")
         }
 
-        val unmapped = articleIds.filter { it !in articleTextIds }
-        if (unmapped.isNotEmpty()) {
+        val unmapped = articleIds.filter { it !in articleTextIds && it !in ambiguousArticleIds }
+        if (ambiguousArticleIds.isNotEmpty() || unmapped.isNotEmpty()) {
             return Expansion(
                 expectedTextId = expected,
                 articleIds = articleIds.toList(),
                 articleTextIds = articleTextIds.toMap(),
                 sectionIds = sectionIds.toList(),
                 reliable = false,
-                warnings = listOf(
-                    "KALI : ${unmapped.size} KALIARTI du texte $expected n'ont pas de KALITEXT parent prouvé ; couverture générique incomplète."
-                )
+                warnings = buildList {
+                    if (ambiguousArticleIds.isNotEmpty()) {
+                        add(
+                            "KALI : ${ambiguousArticleIds.size} KALIARTI apparaissent sous plusieurs KALITEXT dans la même réponse ; aucun parent unique n'est retenu."
+                        )
+                    }
+                    if (unmapped.isNotEmpty()) {
+                        add(
+                            "KALI : ${unmapped.size} KALIARTI du texte $expected n'ont pas de KALITEXT parent prouvé ; couverture générique incomplète."
+                        )
+                    }
+                }
             )
         }
 
