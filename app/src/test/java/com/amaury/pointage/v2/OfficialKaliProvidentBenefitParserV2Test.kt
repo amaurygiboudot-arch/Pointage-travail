@@ -86,7 +86,7 @@ class OfficialKaliProvidentBenefitParserV2Test {
     }
 
     @Test
-    fun `coefficient voisin cité bloque la structuration`() {
+    fun `coefficient voisin cité est hors portée du salarié local`() {
         val result = parse(
             listOf(
                 article(
@@ -97,7 +97,26 @@ class OfficialKaliProvidentBenefitParserV2Test {
         )
 
         assertTrue(result.rules.isEmpty())
+        assertTrue(result.observedFamilies.isEmpty())
+    }
+
+    @Test
+    fun `même article avec coefficient voisin ne contamine jamais la garantie locale`() {
+        val result = parse(
+            listOf(
+                article(
+                    "KALIARTI000000000110",
+                    "Cadres coefficient 910. Sans condition d'ancienneté. Le capital décès est égal à 100 % du salaire annuel de référence. " +
+                        "Cadres coefficient 920. Sans condition d'ancienneté. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence."
+                )
+            )
+        )
+
         assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), result.observedFamilies)
+        assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), result.structuredFamilies)
+        assertTrue(result.rules.none { rule ->
+            rule.guarantees.any { it.family == ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT }
+        })
     }
 
     @Test
@@ -113,7 +132,7 @@ class OfficialKaliProvidentBenefitParserV2Test {
 
         assertTrue(result.rules.isEmpty())
         assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), result.observedFamilies)
-        assertTrue(result.reasons.any { it.contains("mentionnée") })
+        assertTrue(result.reasons.any { it.contains("mentionnée") || it.contains("observée") })
     }
 
     @Test
