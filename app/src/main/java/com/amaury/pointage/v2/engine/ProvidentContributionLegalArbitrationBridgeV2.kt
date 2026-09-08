@@ -112,7 +112,7 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
                     effectiveTo = rule.effectiveTo,
                     verified = true,
                     scopeConfirmed = seniorityConfirmed,
-                    valueFingerprint = rule.fingerprint,
+                    valueFingerprint = companyValueFingerprint(rule),
                     companyGuaranteesEquivalent = companyGuaranteesEquivalent
                 )
                 companyById[id] = rule
@@ -165,6 +165,13 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
             rule.professionalStatus.trim().uppercase() == profile.professionalStatus?.trim()?.uppercase() &&
             !referenceDate.isBefore(rule.effectiveFrom) &&
             (rule.effectiveTo == null || !referenceDate.isAfter(rule.effectiveTo))
+
+    private fun companyValueFingerprint(rule: OfficialAccoProvidentContributionParserV2.Rule): String = listOf(
+        "ACCO_PROVIDENT_VALUE",
+        rule.basis.name,
+        rule.employeeRate.toString(),
+        rule.employerRate.toString()
+    ).joinToString("|")
 
     private fun branchFingerprint(rule: ConventionProvidentContributionV2.Rule): String = buildString {
         append("KALI_PROVIDENT|")
