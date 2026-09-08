@@ -254,11 +254,11 @@ object OfficialAccoProvidentContributionParserV2 {
     private val grossBasisRegex = Regex("\\b(?:salaire|remuneration) brute?\\b|\\bassiette[^.;]{0,80}?(?:salaire|remuneration) brute?\\b")
     private val unsupportedBasisRegex = Regex("\\b(?:pmss|plafond(?: de la securite sociale)?|tranche[s]?|fraction du plafond)\\b")
     private val employeeRateRegexes = listOf(
-        Regex("\\b(?:part salariale|a la charge du salarie|salarie)\\b[^%]{0,50}?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
+        Regex("\\b(?:part salariale|a la charge du salarie)\\b\\s*[:=.-]?\\s*(?:(?:est|fixee)\\s+(?:a|de)\\s+)?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
         Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%[^.;]{0,40}?\\b(?:a la charge du salarie|part salariale)\\b")
     )
     private val employerRateRegexes = listOf(
-        Regex("\\b(?:part patronale|a la charge de l'employeur|employeur)\\b[^%]{0,50}?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
+        Regex("\\b(?:part patronale|a la charge de l'employeur)\\b\\s*[:=.-]?\\s*(?:(?:est|fixee)\\s+(?:a|de)\\s+)?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
         Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%[^.;]{0,40}?\\b(?:a la charge de l'employeur|part patronale)\\b")
     )
     private val zeroSeniorityRegex = Regex(
