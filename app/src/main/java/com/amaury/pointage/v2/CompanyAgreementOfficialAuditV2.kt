@@ -7,9 +7,9 @@ import com.google.firebase.functions.HttpsCallableResult
 
 /**
  * Réanalyse officielle ACCO d'une entreprise : recherche par SIRET, consultation exacte,
- * puis extraction locale de candidats de paie. Les cotisations et garanties de prévoyance passent
- * par leurs parseurs fail-closed dédiés avant stockage local ; leur articulation avec la branche
- * reste ensuite soumise à L2253-1.
+ * puis extraction locale de candidats de paie. Les cotisations, garanties de prévoyance et
+ * paniers/indemnités repas passent par leurs parseurs fail-closed dédiés avant stockage local.
+ * Leur articulation avec la branche reste ensuite soumise à l'arbitrage juridique applicable.
  */
 object CompanyAgreementOfficialAuditV2 {
     private const val PAGE_SIZE = 25
@@ -267,6 +267,12 @@ object CompanyAgreementOfficialAuditV2 {
                             agreementId = candidate.id,
                             verifiedContent = officialContent
                         )
+                        val meals = CompanyAgreementMealBasketIngestionV2.ingestVerified(
+                            context = context,
+                            companyId = companyId,
+                            agreementId = candidate.id,
+                            verifiedContent = officialContent
+                        )
                         val localWarnings = buildList {
                             if (!ingestion.saved) {
                                 add("ACCO : candidats extraits de ${candidate.id} mais stockage local impossible.")
@@ -297,18 +303,31 @@ object CompanyAgreementOfficialAuditV2 {
                                 benefits.packageComplete ->
                                     add("ACCO : paquet de garanties de prévoyance de ${candidate.id} structuré et stocké localement ; l'équivalence reste à comparer au paquet KALI.")
                             }
+                            when {
+                                meals.storageFailure -> {
+                                    add("ACCO : panier/indemnité repas juridiquement structuré dans ${candidate.id}, mais stockage local dédié incomplet.")
+                                    addAll(meals.warnings.take(2))
+                                }
+                                meals.detected && !meals.legalPackageComplete -> {
+                                    add("ACCO : panier/indemnité repas détecté dans ${candidate.id}, mais paquet juridique incomplet ; aucune règle partielle n'alimente le calcul.")
+                                    addAll(meals.warnings.take(2))
+                                }
+                                meals.packageComplete ->
+                                    add("ACCO : panier/indemnité repas de ${candidate.id} structuré et stocké localement ; l'arbitrage L2253-3 reste à effectuer par objet.")
+                            }
                         }
                         accumulated.copy(
                             verifiedAgreements = accumulated.verifiedAgreements + candidate.copy(
                                 status = CompanyAgreementStoreV2.Status.UNKNOWN,
-                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles génériques extraites restent à valider ; cotisations et garanties de prévoyance ne sont structurées que par leurs chaînes fail-closed dédiées."
+                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles génériques extraites restent à valider ; prévoyance et paniers/indemnités repas ne sont structurés que par leurs chaînes fail-closed dédiées."
                             ),
                             consulted = accumulated.consulted + 1,
                             extractedCandidates = accumulated.extractedCandidates + ingestion.extractedCount,
                             storageFailures = accumulated.storageFailures +
                                 (if (ingestion.saved) 0 else 1) +
                                 (if (provident.storageFailure) 1 else 0) +
-                                (if (benefits.storageFailure) 1 else 0),
+                                (if (benefits.storageFailure) 1 else 0) +
+                                (if (meals.storageFailure) 1 else 0),
                             warnings = accumulated.warnings + localWarnings
                         )
                     }
