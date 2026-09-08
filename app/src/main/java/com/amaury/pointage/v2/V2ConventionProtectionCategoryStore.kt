@@ -28,18 +28,18 @@ object V2ConventionProtectionCategoryStore {
         return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
+    /** Garde pure utilisée aussi par les tests unitaires : aucune règle incertaine n'entre dans le store. */
+    internal fun acceptsVerifiedRule(rule: ConventionProtectionCategoryV2.Rule): Boolean =
+        rule.structurallyValid() &&
+            rule.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
+            rule.aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE
+
     /**
      * Enregistre une preuve structurée. "Verified" ne signifie pas "applicable" :
      * le résolveur contrôle encore période et extension avant tout classement automatique.
      */
     fun saveVerified(context: Context, rule: ConventionProtectionCategoryV2.Rule) {
-        require(rule.structurallyValid()) { "Règle de catégorie ANI invalide" }
-        require(rule.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM) {
-            "Une catégorie ANI à confirmer ne peut pas être persistée comme preuve"
-        }
-        require(rule.aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE) {
-            "Une absence d'override ne peut pas être persistée comme règle"
-        }
+        require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable ou incertaine" }
 
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
         val normalizedStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT)
@@ -83,9 +83,7 @@ object V2ConventionProtectionCategoryStore {
         return buildList {
             for (index in 0 until array.length()) {
                 decode(array.optJSONObject(index) ?: continue)
-                    ?.takeIf { it.structurallyValid() }
-                    ?.takeIf { it.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM }
-                    ?.takeIf { it.aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE }
+                    ?.takeIf(::acceptsVerifiedRule)
                     ?.let(::add)
             }
         }
