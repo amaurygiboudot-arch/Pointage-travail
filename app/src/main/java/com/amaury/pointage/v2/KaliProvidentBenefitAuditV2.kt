@@ -269,7 +269,7 @@ object KaliProvidentBenefitAuditV2 {
                 if (contradictions.isNotEmpty()) add("KALI garanties : contradiction présence/exclusion pour ${contradictions.joinToString()}.")
                 if (!allRulesSaved) add("KALI garanties : toutes les règles structurées n'ont pas été enregistrées.")
                 if (!allRulesExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les garanties structurées.")
-                if (!exclusionsExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les exclusions utilisées.")
+                if (!exclusionsExtended) add("KALI garanties : statut VIGUEUR_ETEN + date d'extension active non démontrés pour toutes les exclusions utilisées.")
                 if (positiveResolutionRequired && !resolutionReliable) {
                     add("KALI garanties : les règles structurées ne produisent pas un ensemble de droits unique pour le profil.")
                 }
@@ -287,7 +287,8 @@ object KaliProvidentBenefitAuditV2 {
             evidence.articles.forEach articleLoop@ { article ->
                 val articleId = article.articleId.trim().uppercase(Locale.ROOT)
                 if (!articleId.matches(kaliArticleIdRegex) || articleId in ambiguous) return@articleLoop
-                if (article.status.trim().uppercase(Locale.ROOT) !in acceptedArticleStatuses) return@articleLoop
+                val officialStatus = article.status.trim().uppercase(Locale.ROOT)
+                if (officialStatus !in acceptedArticleStatuses) return@articleLoop
                 if (evidence.referenceDate.isBefore(article.effectiveFrom) ||
                     article.effectiveTo?.let(evidence.referenceDate::isAfter) == true
                 ) return@articleLoop
@@ -325,7 +326,11 @@ object KaliProvidentBenefitAuditV2 {
                                 family = family,
                                 articleId = articleId,
                                 conventionScopeKey = scope,
-                                extensionEffectiveFrom = article.extensionEffectiveFrom
+                                // Une date isolée n'est jamais suffisante : elle n'est conservée
+                                // comme preuve d'extension que pour un article officiellement étendu.
+                                extensionEffectiveFrom = article.extensionEffectiveFrom.takeIf {
+                                    officialStatus == "VIGUEUR_ETEN"
+                                }
                             )
                         )
                     }
@@ -382,6 +387,7 @@ object KaliProvidentBenefitAuditV2 {
         "VIGUEUR",
         "VIGUEUR_ETEN",
         "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
         "VIGUEUR_PARTIELLE"
     )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
