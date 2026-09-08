@@ -12,6 +12,7 @@ import java.time.LocalDate
 object PlasturgieProtectionCategoryV2 {
     const val IDCC = "292"
     val EFFECTIVE_FROM: LocalDate = LocalDate.of(2025, 1, 1)
+    private const val SOURCE = "Légifrance — Plasturgie IDCC 292, accord du 27/06/2024 étendu"
 
     enum class Category {
         ARTICLE_2_1,
@@ -69,6 +70,30 @@ object PlasturgieProtectionCategoryV2 {
         }
         return Result(category, true, coefficient, warning)
     }
+
+    /**
+     * Pont temporaire vers le modèle générique. Les moteurs communs ne doivent plus dépendre
+     * directement du type Plasturgie, tout en conservant exactement le classement déjà validé.
+     */
+    fun classifyGeneric(
+        idcc: String?,
+        referenceDate: LocalDate,
+        coefficient: Int?
+    ): ProtectionCategoryV2.Result = toGeneric(classify(idcc, referenceDate, coefficient))
+
+    fun toGeneric(result: Result): ProtectionCategoryV2.Result = ProtectionCategoryV2.Result(
+        aniCategory = when (result.category) {
+            Category.ARTICLE_2_1 -> ProtectionCategoryV2.AniCategory.ARTICLE_2_1
+            Category.ARTICLE_2_2 -> ProtectionCategoryV2.AniCategory.ARTICLE_2_2
+            Category.EXTENSION_ELIGIBLE -> ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
+            Category.OUTSIDE_2_1_2_2 -> ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2
+            Category.TO_CONFIRM -> ProtectionCategoryV2.AniCategory.TO_CONFIRM
+            Category.NOT_APPLICABLE -> ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE
+        },
+        confirmed = result.confirmed,
+        source = if (result.category == Category.NOT_APPLICABLE) null else SOURCE,
+        warnings = result.warnings
+    )
 
     fun label(result: Result): String = label(result.category)
 
