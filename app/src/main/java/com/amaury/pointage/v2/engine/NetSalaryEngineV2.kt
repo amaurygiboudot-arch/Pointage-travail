@@ -203,7 +203,8 @@ object NetSalaryEngineV2 {
             .sumOf { it.employeeAmount }
 
         val providentDataComplete = company.providentEmployeeAmount != null ||
-            verifiedConventionProvidentKnown || legacyConventionProvidentKnown
+            verifiedConventionProvidentKnown ||
+            (!verifiedProvidentPath && legacyConventionProvidentKnown)
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
             providentDataComplete &&
             company.transportEmployeeAmount != null &&
