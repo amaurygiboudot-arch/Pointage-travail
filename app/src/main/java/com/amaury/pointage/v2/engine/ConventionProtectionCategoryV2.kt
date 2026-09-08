@@ -18,7 +18,11 @@ object ConventionProtectionCategoryV2 {
         val aniCategory: ProtectionCategoryV2.AniCategory,
         val source: String,
         val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus,
-        val extensionEffectiveFrom: LocalDate? = null
+        val extensionEffectiveFrom: LocalDate? = null,
+        /** Ex. agrément APEC explicitement exigé par le texte. */
+        val additionalApplicabilityCondition: String? = null,
+        /** Ne peut devenir vrai qu'après preuve officielle ou confirmation explicite de cette condition. */
+        val additionalApplicabilityConfirmed: Boolean = additionalApplicabilityCondition == null
     ) {
         fun structurallyValid(): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
             ruleId.isNotBlank() &&
@@ -26,7 +30,8 @@ object ConventionProtectionCategoryV2 {
             aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE &&
             source.isNotBlank() &&
             (effectiveTo == null || !effectiveTo.isBefore(effectiveFrom)) &&
-            (extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED || extensionEffectiveFrom != null)
+            (extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED || extensionEffectiveFrom != null) &&
+            (additionalApplicabilityCondition == null || additionalApplicabilityCondition.isNotBlank())
 
         fun activeOn(date: LocalDate): Boolean = !date.isBefore(effectiveFrom) &&
             (effectiveTo == null || !date.isAfter(effectiveTo))
@@ -39,6 +44,10 @@ object ConventionProtectionCategoryV2 {
         fun extensionApplicableOn(date: LocalDate): Boolean =
             extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
                 extensionEffectiveFrom?.let { !date.isBefore(it) } == true
+
+        fun fullyApplicableOn(date: LocalDate): Boolean =
+            extensionApplicableOn(date) &&
+                (additionalApplicabilityCondition == null || additionalApplicabilityConfirmed)
     }
 
     data class Resolution(
@@ -88,11 +97,18 @@ object ConventionProtectionCategoryV2 {
             return unresolved("plusieurs catégories ANI contradictoires sont applicables à la même classification")
         }
 
-        val applicable = best.filter { it.extensionApplicableOn(referenceDate) }
-        if (applicable.isEmpty()) {
-            return unresolved("applicabilité de la règle conventionnelle à l'entreprise non démontrée à cette date")
+        val extended = best.filter { it.extensionApplicableOn(referenceDate) }
+        if (extended.isEmpty()) {
+            return unresolved("extension ou date d'applicabilité de la règle conventionnelle non démontrée à cette date")
         }
-        val selected = applicable.maxByOrNull { it.extensionEffectiveFrom ?: LocalDate.MIN }!!
+        val fullyApplicable = extended.filter { it.fullyApplicableOn(referenceDate) }
+        if (fullyApplicable.isEmpty()) {
+            val conditions = extended.mapNotNull { it.additionalApplicabilityCondition }.distinct()
+            val suffix = conditions.takeIf { it.isNotEmpty() }?.joinToString(" / ")?.let { " : $it" }.orEmpty()
+            return unresolved("condition d'applicabilité supplémentaire non confirmée$suffix")
+        }
+
+        val selected = fullyApplicable.maxByOrNull { it.extensionEffectiveFrom ?: LocalDate.MIN }!!
         val warnings = buildList {
             if (selected.aniCategory == ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE) {
                 add("Extension au régime cadres possible : l'affiliation effective au régime de l'entreprise reste à confirmer avant d'appliquer les contributions propres aux articles 2.1/2.2.")
