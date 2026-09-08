@@ -89,7 +89,24 @@ object MealBasketLegalProviderV2 {
         val branchTrusted = coverage.reliable &&
             coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES &&
             coverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
-        val branchRules = if (branchTrusted) storedBranch else emptyList()
+
+        // Les règles créées avant le durcissement V2C pouvaient représenter plusieurs conditions
+        // temporelles en OU. Si une telle règle est encore applicable au profil/date, elle doit être
+        // remplacée par un nouvel audit KALI avant tout calcul.
+        val legacyApplicableBranch = storedBranch.filter { rule ->
+            rule.structurallyValid() &&
+                rule.activeOn(referenceDate) &&
+                profile.classification.matches(rule.classification) &&
+                rule.classification.matches(profile.classification) &&
+                (rule.professionalStatus == null || rule.professionalStatus.trim().uppercase() == status) &&
+                !rule.ruleId.startsWith(OfficialKaliMealBasketParserV2.SAFE_RULE_PREFIX)
+        }
+        if (branchTrusted && legacyApplicableBranch.isNotEmpty()) {
+            return blocked("cache KALI panier antérieur au durcissement V2C ; nouvel audit KALI requis")
+        }
+        val branchRules = if (branchTrusted) storedBranch.filter {
+            it.ruleId.startsWith(OfficialKaliMealBasketParserV2.SAFE_RULE_PREFIX)
+        } else emptyList()
 
         val subjects = (branchRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) } +
             companyRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) })
