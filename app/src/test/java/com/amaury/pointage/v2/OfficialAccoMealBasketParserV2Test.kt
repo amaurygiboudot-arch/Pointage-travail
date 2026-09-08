@@ -90,7 +90,7 @@ class OfficialAccoMealBasketParserV2Test {
             profile(),
             "ACCOTEXT000000009901",
             agreement(
-                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si le poste traverse minuit et commence à minuit."
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si l'horaire comprend minuit et commence à minuit."
             )
         )
 
@@ -107,7 +107,7 @@ class OfficialAccoMealBasketParserV2Test {
             profile(),
             "ACCOTEXT000000009901",
             agreement(
-                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si le poste traverse minuit ou commence à minuit."
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si l'horaire comprend minuit ou commence à minuit."
             )
         )
 
