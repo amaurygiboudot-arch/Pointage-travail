@@ -22,12 +22,12 @@ object ConventionProtectionCategoryV2 {
         val extensionEffectiveFrom: LocalDate? = null
     ) {
         fun structurallyValid(): Boolean {
-            val normalizedStatus = professionalStatus?.trim()?.uppercase(Locale.ROOT)
+            val normalizedStatus = professionalStatus?.trim()?.uppercase(Locale.ROOT) ?: return false
+            if (normalizedStatus != "CADRE" && normalizedStatus != "NON_CADRE") return false
             return ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
                 ruleId.isNotBlank() &&
                 !classification.isEmpty() &&
-                normalizedStatus in setOf("CADRE", "NON_CADRE") &&
-                categoryMatchesStatus(aniCategory, normalizedStatus!!) &&
+                categoryMatchesStatus(aniCategory, normalizedStatus) &&
                 aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
                 aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE &&
                 source.isNotBlank() &&
