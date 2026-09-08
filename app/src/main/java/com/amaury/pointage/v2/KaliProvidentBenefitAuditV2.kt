@@ -163,6 +163,7 @@ object KaliProvidentBenefitAuditV2 {
                 protectionCategory = category.category,
                 seniorityMonths = seniorityMonths
             )
+            val positiveRulesExist = diagnostic.rules.isNotEmpty()
             val completion = evaluateCompletion(
                 technicalCoverageComplete = evidence.technicalCoverageComplete,
                 rules = diagnostic.rules,
@@ -170,7 +171,7 @@ object KaliProvidentBenefitAuditV2 {
                 observedFamilies = diagnostic.observedFamilies,
                 structuredFamilies = diagnostic.structuredFamilies,
                 exclusions = exclusions,
-                resolutionReliable = resolution.reliable,
+                resolutionReliable = !positiveRulesExist || resolution.reliable,
                 referenceDate = referenceDate
             )
 
@@ -180,10 +181,12 @@ object KaliProvidentBenefitAuditV2 {
                 referenceDate = referenceDate,
                 state = completion.state,
                 authorities = setOf(ConventionMatterCoverageV2.Authority.KALI),
-                source = if (completion.completed) {
-                    "Légifrance KALI — garanties prévoyance structurées/exclues explicitement et applicables"
-                } else {
-                    "Analyse KALI garanties prévoyance incomplète"
+                source = when {
+                    !completion.completed -> "Analyse KALI garanties prévoyance incomplète"
+                    completion.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
+                        "Légifrance KALI — absence des garanties cœur explicitement prouvée et étendue pour ce profil"
+                    else ->
+                        "Légifrance KALI — garanties prévoyance structurées/exclues explicitement et applicables"
                 }
             )
 
@@ -201,12 +204,15 @@ object KaliProvidentBenefitAuditV2 {
                     addAll(evidence.warnings)
                     addAll(diagnostic.reasons)
                     addAll(saveWarnings)
-                    addAll(resolution.warnings)
+                    if (positiveRulesExist) addAll(resolution.warnings)
                     addAll(completion.warnings)
-                    if (completion.completed) {
-                        add("KALI garanties prévoyance : noyau décès/incapacité/invalidité entièrement prouvé ou explicitement exclu pour ce profil.")
-                    } else {
-                        add("KALI garanties prévoyance : couverture finale incomplète ; aucune famille manquante n'est supposée absente.")
+                    when {
+                        completion.completed && completion.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
+                            add("KALI garanties prévoyance : absence des garanties cœur explicitement confirmée pour ce profil et cette période.")
+                        completion.completed ->
+                            add("KALI garanties prévoyance : noyau décès/incapacité/invalidité entièrement prouvé ou explicitement exclu pour ce profil.")
+                        else ->
+                            add("KALI garanties prévoyance : couverture finale incomplète ; aucune famille manquante n'est supposée absente.")
                     }
                     add("KALI garanties prévoyance : une recherche ciblée vide ne vaut jamais preuve d'absence de garantie.")
                 }.distinct()
@@ -237,6 +243,8 @@ object KaliProvidentBenefitAuditV2 {
         val exclusionsExtended = excludedFamilies.all { family ->
             exclusions.any { it.family == family && it.extendedOn(referenceDate) }
         }
+        val positiveResolutionRequired = structuredFamilies.isNotEmpty()
+        val resolutionSatisfied = !positiveResolutionRequired || resolutionReliable
         val completed = technicalCoverageComplete &&
             coreComplete &&
             unresolvedObserved.isEmpty() &&
@@ -244,7 +252,7 @@ object KaliProvidentBenefitAuditV2 {
             allRulesSaved &&
             allRulesExtended &&
             exclusionsExtended &&
-            resolutionReliable
+            resolutionSatisfied
 
         val state = when {
             !completed -> ConventionMatterCoverageV2.State.INCOMPLETE
@@ -262,7 +270,9 @@ object KaliProvidentBenefitAuditV2 {
                 if (!allRulesSaved) add("KALI garanties : toutes les règles structurées n'ont pas été enregistrées.")
                 if (!allRulesExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les garanties structurées.")
                 if (!exclusionsExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les exclusions utilisées.")
-                if (!resolutionReliable) add("KALI garanties : les règles structurées ne produisent pas un ensemble de droits unique pour le profil.")
+                if (positiveResolutionRequired && !resolutionReliable) {
+                    add("KALI garanties : les règles structurées ne produisent pas un ensemble de droits unique pour le profil.")
+                }
             }
         )
     }
@@ -296,13 +306,17 @@ object KaliProvidentBenefitAuditV2 {
                 exclusionPatterns.forEach { (family, patterns) ->
                     val exactProfileExclusion = patterns.any { pattern ->
                         pattern.findAll(text).any { match ->
-                            !classified || OfficialKaliProfileMatcherV2.nearestScopeMatches(
-                                rawText = text,
-                                classification = profile.classification,
-                                professionalStatus = status,
-                                targetOffset = match.range.first,
-                                maxClassificationSpan = 320
-                            )
+                            if (classified) {
+                                OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                                    rawText = text,
+                                    classification = profile.classification,
+                                    professionalStatus = status,
+                                    targetOffset = match.range.first,
+                                    maxClassificationSpan = 320
+                                )
+                            } else {
+                                OfficialKaliProfileMatcherV2.statusScopeMatches(text, status)
+                            }
                         }
                     }
                     if (exactProfileExclusion) {
