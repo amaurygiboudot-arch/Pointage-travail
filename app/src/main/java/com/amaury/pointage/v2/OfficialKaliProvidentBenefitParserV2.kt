@@ -84,7 +84,9 @@ object OfficialKaliProvidentBenefitParserV2 {
             val scope = scopeRaw ?: return@forEach
             val normalized = scopedArticles.associateWith(::normalizeArticle)
             val profileScoped = normalized.mapValues { (_, text) ->
-                profileScopedTexts(text, classification, status)
+                profileScopedTexts(text, classification, status).filter { scopedText ->
+                    OfficialKaliAniScopeMatcherV2.matches(scopedText, protectionCategory.aniCategory)
+                }
             }.filterValues { it.isNotEmpty() }
             if (profileScoped.isEmpty()) return@forEach
 
@@ -100,7 +102,7 @@ object OfficialKaliProvidentBenefitParserV2 {
                     )
                     if (parsedGuarantees.isEmpty()) {
                         if (observedHere.isNotEmpty()) {
-                            reasons += "KALI garanties $scope ${article.articleId} : garantie observée mais classification, formule ou ancienneté non prouvée dans la même clause ; aucun droit n'est persisté."
+                            reasons += "KALI garanties $scope ${article.articleId} : garantie observée mais classification, formule, ancienneté ou portée ANI non prouvée dans la même clause ; aucun droit n'est persisté."
                         }
                         return@forEach
                     }
@@ -392,15 +394,18 @@ object OfficialKaliProvidentBenefitParserV2 {
     }
 
     private fun parseSeniorityMonths(text: String): Int? {
-        if (noSeniorityRegex.containsMatchIn(text)) return 0
-        val candidates = seniorityRegex.findAll(text).mapNotNull { match ->
-            val value = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
-            when {
-                match.groupValues[2].startsWith("an") -> value * 12
-                match.groupValues[2].startsWith("mois") -> value
-                else -> null
-            }?.takeIf { it in 0..600 }
-        }.distinct().toList()
+        val candidates = buildSet {
+            if (noSeniorityRegex.containsMatchIn(text)) add(0)
+            seniorityRegex.findAll(text).forEach { match ->
+                val value = match.groupValues[1].toIntOrNull() ?: return@forEach
+                val months = when {
+                    match.groupValues[2].startsWith("an") -> value * 12
+                    match.groupValues[2].startsWith("mois") -> value
+                    else -> null
+                }?.takeIf { it in 0..600 }
+                if (months != null) add(months)
+            }
+        }
         return candidates.singleOrNull()
     }
 
@@ -409,7 +414,9 @@ object OfficialKaliProvidentBenefitParserV2 {
         classification: ConventionClassificationV2,
         professionalStatus: String
     ): List<String> {
-        if (!classificationVocabularyPresent(text)) return listOf(text)
+        if (!classificationVocabularyPresent(text)) {
+            return if (OfficialKaliProfileMatcherV2.statusScopeMatches(text, professionalStatus)) listOf(text) else emptyList()
+        }
         return OfficialKaliProfileMatcherV2.windows(
             rawText = text,
             classification = classification,
