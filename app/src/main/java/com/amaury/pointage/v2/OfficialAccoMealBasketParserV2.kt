@@ -217,8 +217,9 @@ object OfficialAccoMealBasketParserV2 {
     }
 
     private fun parseAmount(text: String): ConventionMealBasketV2.AmountFormula? {
-        // La fonction reçoit déjà une clause repas isolée. Toute somme en euros dans cette clause
-        // est donc un montant candidat : plusieurs valeurs distinctes rendent la clause ambiguë.
+        // Le premier montant doit être rattaché explicitement à l'avantage repas. Un éventuel
+        // second montant n'est candidat que s'il est relié dans la même clause (ex. « ou 8,50 € »).
+        // Ainsi une clause suivante incomplète ne peut jamais récupérer le montant de la précédente.
         val fixed = fixedAmountRegex.findAll(text)
             .mapNotNull { parseNumber(it.groupValues[1])?.takeIf { value -> value in 0.01..1000.0 } }
             .distinct()
@@ -397,7 +398,7 @@ object OfficialAccoMealBasketParserV2 {
         "\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b"
     )
     private val fixedAmountRegex = Regex(
-        "([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?\\b)"
+        "(?:(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?|\\bou\\s+)([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?\\b)"
     )
     private val minimumGuaranteedRegex = Regex(
         "([0-9]+(?:[.,][0-9]+)?)\\s*(?:fois|x)\\s*(?:le\\s+)?minimum garanti\\b"
