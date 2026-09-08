@@ -303,7 +303,7 @@ object OfficialKaliProvidentContributionParserV2 {
     private val article21Regex = Regex("\\b(?:article|art\\.?)\\s*2[.,]1\\b")
     private val article22Regex = Regex("\\b(?:article|art\\.?)\\s*2[.,]2\\b")
     private val outsideAniRegexes = listOf(
-        Regex("\\bne relevant pas (?:des|de l[' ]?article[s]?) 2[.,]1(?: et| ni| ou|,)? 2[.,]2\\b"),
+        Regex("\\bne relevant pas (?:des?\\s+)?articles?\\s+2[.,]1(?: et| ni| ou|,)? 2[.,]2\\b"),
         Regex("\\bhors (?:les )?articles? 2[.,]1(?: et| ni| ou|,)? 2[.,]2\\b"),
         Regex("\\bnon[- ]cadres? ne relevant pas (?:des )?articles? 2[.,]1(?: et| ni| ou|,)? 2[.,]2\\b")
     )
