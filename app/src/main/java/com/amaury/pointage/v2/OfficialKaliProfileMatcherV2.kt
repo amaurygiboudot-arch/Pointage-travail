@@ -21,11 +21,15 @@ object OfficialKaliProfileMatcherV2 {
         val positionGroups = classificationPositionGroups(text, classification) ?: return emptyList()
         if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return emptyList()
 
-        val combinations = compactCombinations(positionGroups, maxClassificationSpan)
+        val combinations = compactCombinations(text, positionGroups, maxClassificationSpan)
         return combinations.mapNotNull { positions ->
             val first = positions.minOrNull() ?: return@mapNotNull null
             val last = positions.maxOrNull() ?: return@mapNotNull null
-            val start = (first - before).coerceAtLeast(0)
+            val desiredStart = (first - before).coerceAtLeast(0)
+            val previousScope = classificationAnchorRegex.findAll(text)
+                .takeWhile { it.range.first < first }
+                .lastOrNull()
+            val start = maxOf(desiredStart, previousScope?.let { it.range.last + 1 } ?: 0)
             val desiredEnd = (last + after).coerceAtMost(text.length)
             val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
             val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
@@ -55,7 +59,7 @@ object OfficialKaliProfileMatcherV2 {
         val positionGroups = classificationPositionGroups(text, classification) ?: return null
         if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return null
 
-        val candidates = compactCombinations(positionGroups, maxClassificationSpan)
+        val candidates = compactCombinations(text, positionGroups, maxClassificationSpan)
             .filter { positions -> (positions.maxOrNull() ?: Int.MAX_VALUE) <= targetOffset }
             .sortedByDescending { positions -> positions.maxOrNull() ?: Int.MIN_VALUE }
 
@@ -65,7 +69,11 @@ object OfficialKaliProfileMatcherV2 {
             val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
             if (nextScope != null && nextScope.range.first < targetOffset) continue
 
-            val start = (first - before).coerceAtLeast(0)
+            val desiredStart = (first - before).coerceAtLeast(0)
+            val previousScope = classificationAnchorRegex.findAll(text)
+                .takeWhile { it.range.first < first }
+                .lastOrNull()
+            val start = maxOf(desiredStart, previousScope?.let { it.range.last + 1 } ?: 0)
             val desiredEnd = (targetOffset + after).coerceAtMost(text.length)
             val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
             if (end <= targetOffset || end <= start) continue
@@ -139,7 +147,12 @@ object OfficialKaliProfileMatcherV2 {
         return groups
     }
 
-    private fun compactCombinations(groups: List<List<Int>>, maxSpan: Int): List<List<Int>> {
+    /**
+     * Assemble uniquement des critères appartenant à la même portée de classification.
+     * Si un marqueur de classification non sélectionné apparaît entre deux critères retenus,
+     * la combinaison traverse une ligne/section voisine et est rejetée.
+     */
+    private fun compactCombinations(text: String, groups: List<List<Int>>, maxSpan: Int): List<List<Int>> {
         if (groups.isEmpty()) return emptyList()
         val candidates = mutableListOf<List<Int>>()
         for (seed in groups.first()) {
@@ -152,7 +165,13 @@ object OfficialKaliProfileMatcherV2 {
                 min = minOf(min, nearest)
                 max = maxOf(max, nearest)
             }
-            if (positions.size == groups.size && max - min <= maxSpan) candidates += positions
+            if (positions.size != groups.size || max - min > maxSpan) continue
+
+            val selected = positions.toSet()
+            val crossesAnotherClassification = classificationAnchorRegex.findAll(text, min)
+                .takeWhile { it.range.first <= max }
+                .any { it.range.first !in selected }
+            if (!crossesAnotherClassification) candidates += positions
         }
         return candidates.distinctBy { it.sorted().joinToString(",") }
     }
