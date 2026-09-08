@@ -68,6 +68,50 @@ class CompanyAgreementMealBasketIngestionV2Test {
     }
 
     @Test
+    fun `date propre a la clause retarde son entree en vigueur`() {
+        val result = CompanyAgreementMealBasketIngestionV2.structure(
+            profile,
+            "ACCOTEXT000000000005",
+            verified(agreement("Coefficient 700 non-cadres. À compter du 15 septembre 2026, panier repas de 6,25 € par journée travaillée."))
+        )
+
+        assertTrue(result.packageComplete)
+        assertEquals(LocalDate.of(2026, 9, 15), result.rules.single().effectiveFrom)
+    }
+
+    @Test
+    fun `non cumul inconnu bloque la clause`() {
+        val result = CompanyAgreementMealBasketIngestionV2.structure(
+            profile,
+            "ACCOTEXT000000000006",
+            verified(
+                agreement(
+                    "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée, non cumulable avec une indemnité de déplacement."
+                )
+            )
+        )
+
+        assertFalse(result.packageComplete)
+        assertTrue(result.warnings.any { it.contains("non-cumul", ignoreCase = true) })
+    }
+
+    @Test
+    fun `plafond explicite de deux paniers est conserve`() {
+        val result = CompanyAgreementMealBasketIngestionV2.structure(
+            profile,
+            "ACCOTEXT000000000007",
+            verified(
+                agreement(
+                    "Coefficient 700 non-cadres. Panier de nuit de 8,50 € lorsque l'horaire comprend minuit, maximum de 2 paniers par jour."
+                )
+            )
+        )
+
+        assertTrue(result.packageComplete)
+        assertEquals(2, result.rules.single().maxAwardsPerCalendarDay)
+    }
+
+    @Test
     fun `siret officiel different bloque le paquet`() {
         val result = CompanyAgreementMealBasketIngestionV2.structure(
             profile,
