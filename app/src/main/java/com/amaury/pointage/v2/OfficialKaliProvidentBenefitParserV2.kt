@@ -205,12 +205,14 @@ object OfficialKaliProvidentBenefitParserV2 {
                 if (!incomeBenefitRegex.containsMatchIn(window)) return@mapNotNull null
                 val formula = parseFormula(window) ?: return@mapNotNull null
                 val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                val waiting = parseWaitingDays(window)
+                if (waiting.ambiguous) return@mapNotNull null
                 ParsedGuarantee(
                     guarantee = guarantee(
                         family = ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT,
                         label = "Incapacité temporaire — ${formulaLabel(formula)}",
                         formula = formula,
-                        waitingPeriodDays = parseWaitingDays(window),
+                        waitingPeriodDays = waiting.days,
                         socialSecurityTreatment = parseSocialSecurityTreatment(window),
                         articleId = articleId
                     ),
@@ -378,12 +380,27 @@ object OfficialKaliProvidentBenefitParserV2 {
             .takeIf { it.structurallyValid() }
     }
 
-    private fun parseWaitingDays(window: String): Int? {
-        franchiseRegex.find(window)?.groupValues?.get(1)?.toIntOrNull()?.let { return it.takeIf { value -> value in 0..3660 } }
-        startDayRegex.find(window)?.groupValues?.get(1)?.toIntOrNull()?.let { day ->
-            return (day - 1).takeIf { it in 0..3660 }
+    private data class WaitingDaysParse(
+        val days: Int?,
+        val ambiguous: Boolean
+    )
+
+    private fun parseWaitingDays(window: String): WaitingDaysParse {
+        val candidates = buildSet {
+            franchiseRegex.findAll(window).forEach { match ->
+                match.groupValues[1].toIntOrNull()?.takeIf { it in 0..3660 }?.let(::add)
+            }
+            startDayRegex.findAll(window).forEach { match ->
+                match.groupValues[1].toIntOrNull()?.let { day ->
+                    (day - 1).takeIf { it in 0..3660 }?.let(::add)
+                }
+            }
         }
-        return null
+        return when (candidates.size) {
+            0 -> WaitingDaysParse(days = null, ambiguous = false)
+            1 -> WaitingDaysParse(days = candidates.single(), ambiguous = false)
+            else -> WaitingDaysParse(days = null, ambiguous = true)
+        }
     }
 
     private fun parseSocialSecurityTreatment(window: String): ConventionProvidentBenefitV2.SocialSecurityTreatment = when {
