@@ -84,7 +84,6 @@ object ProfessionalStatusContributionCatalogV2 {
                     add("Statut professionnel à préciser : prévoyance cadre minimale non calculée.")
             }
             ceiling?.warnings?.let(::addAll)
-            protectionCategory?.warnings?.let(::addAll)
         }.distinct()
 
         return Estimate(
