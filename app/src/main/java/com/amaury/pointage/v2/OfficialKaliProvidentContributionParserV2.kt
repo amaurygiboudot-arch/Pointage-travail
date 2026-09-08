@@ -131,7 +131,7 @@ object OfficialKaliProvidentContributionParserV2 {
             OfficialKaliProfileMatcherV2.normalize(listOfNotNull(article.title, article.content).joinToString("\n"))
         }
         val profileCompatible = normalized.filterValues { text ->
-            clauseMatchesProfile(text, classification, professionalStatus)
+            clauseMatchesProfile(text, classification, professionalStatus, category)
         }
         val beneficiaryArticles = profileCompatible.filterValues { text ->
             beneficiaryMatches(text, category, professionalStatus)
@@ -267,16 +267,20 @@ object OfficialKaliProvidentContributionParserV2 {
     }
 
     /**
-     * Une clause qui ne cite aucune classification est générale et peut être utilisée pour le
-     * profil déjà vérifié. Dès qu'une classification est citée, tous les critères locaux connus
-     * doivent apparaître dans une fenêtre compacte de cette même clause.
+     * Une clause qui ne cite aucune classification est générale uniquement si elle ne cible pas
+     * explicitement un autre statut professionnel ou une autre population ANI. Dès qu'une
+     * classification est citée, la fenêtre exacte doit aussi rester compatible avec la catégorie ANI.
      */
     private fun clauseMatchesProfile(
         text: String,
         classification: ConventionClassificationV2,
-        professionalStatus: String
+        professionalStatus: String,
+        category: ProtectionCategoryV2.AniCategory
     ): Boolean {
-        if (!classificationVocabularyPresent(text)) return true
+        if (!classificationVocabularyPresent(text)) {
+            return OfficialKaliProfileMatcherV2.statusScopeMatches(text, professionalStatus) &&
+                OfficialKaliAniScopeMatcherV2.matches(text, category)
+        }
         return OfficialKaliProfileMatcherV2.windows(
             rawText = text,
             classification = classification,
@@ -284,7 +288,7 @@ object OfficialKaliProvidentContributionParserV2 {
             before = 120,
             after = 260,
             maxClassificationSpan = 260
-        ).isNotEmpty()
+        ).any { window -> OfficialKaliAniScopeMatcherV2.matches(window.text, category) }
     }
 
     private fun classificationVocabularyPresent(text: String): Boolean =
