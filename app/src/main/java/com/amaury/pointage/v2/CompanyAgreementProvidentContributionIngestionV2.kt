@@ -30,13 +30,17 @@ object CompanyAgreementProvidentContributionIngestionV2 {
         agreementId: String,
         verifiedContent: OfficialAgreementContentParserV2.VerifiedContent
     ): Result {
+        val detected = detectsContribution(verifiedContent.text)
+        if (!detected) {
+            return Result(false, false, false, null, emptyList())
+        }
         val profile = ConventionLegalProfileV2.load(context, companyId)
             ?: return Result(
-                detected = false,
+                detected = true,
                 structured = false,
                 saved = false,
                 rule = null,
-                warnings = listOf("ACCO prévoyance : profil juridique local introuvable ; aucune règle n'est enregistrée.")
+                warnings = listOf("ACCO prévoyance : clause détectée mais profil juridique local introuvable ; aucune règle n'est enregistrée.")
             )
         val structured = structure(profile, agreementId, verifiedContent)
         val rule = structured.rule
@@ -69,9 +73,7 @@ object CompanyAgreementProvidentContributionIngestionV2 {
         agreementId: String,
         verifiedContent: OfficialAgreementContentParserV2.VerifiedContent
     ): Structured {
-        val detected = CompanyAgreementRuleExtractorV2.extract(verifiedContent.text)
-            .any { it.category == CompanyAgreementRuleExtractorV2.Category.PROVIDENT_CONTRIBUTION }
-        if (!detected) return Structured(false, null, emptyList())
+        if (!detectsContribution(verifiedContent.text)) return Structured(false, null, emptyList())
 
         val expectedSiret = profile.siret.filter(Char::isDigit)
         val verifiedSiret = verifiedContent.siret.filter(Char::isDigit)
@@ -94,4 +96,8 @@ object CompanyAgreementProvidentContributionIngestionV2 {
             warnings = diagnostic.reasons
         )
     }
+
+    private fun detectsContribution(text: String): Boolean =
+        CompanyAgreementRuleExtractorV2.extract(text)
+            .any { it.category == CompanyAgreementRuleExtractorV2.Category.PROVIDENT_CONTRIBUTION }
 }
