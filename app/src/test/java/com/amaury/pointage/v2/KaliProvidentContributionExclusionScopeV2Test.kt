@@ -122,6 +122,25 @@ class KaliProvidentContributionExclusionScopeV2Test {
     }
 
     @Test
+    fun `absence de part salariale ne prouve jamais absence totale de cotisation`() {
+        assertNull(
+            exclusion(
+                "Non-cadres coefficient 700. Sans cotisation de prevoyance salariale. " +
+                    "Les garanties restent financees par l'employeur."
+            )
+        )
+    }
+
+    @Test
+    fun `cotisation non a la charge du salarie ne prouve jamais zero employeur`() {
+        assertNull(
+            exclusion(
+                "Non-cadres coefficient 700. Aucune cotisation de prevoyance n'est a la charge du salarie."
+            )
+        )
+    }
+
+    @Test
     fun `exclusion et mention positive dans la meme portee restent contradictoires`() {
         assertNull(
             exclusion(
