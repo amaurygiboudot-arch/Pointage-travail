@@ -213,6 +213,20 @@ class OfficialKaliProvidentContributionParserV2Test {
     }
 
     @Test
+    fun `deux anciennetes contradictoires dans le meme article beneficiaire bloquent`() {
+        val articles = standardArticles().mapIndexed { index, value ->
+            if (index == 0) value.copy(
+                content = "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2. " +
+                    "Sans condition d'ancienneté pour une première situation et après 3 mois d'ancienneté pour une autre."
+            ) else value
+        }
+
+        val result = parse(articles = articles)
+
+        assertNull(result.rule)
+    }
+
+    @Test
     fun `assiette non explicite bloque la regle`() {
         val articles = standardArticles().mapIndexed { index, value ->
             if (index == 1) value.copy(content = "Le salaire de référence est défini par le régime.") else value
