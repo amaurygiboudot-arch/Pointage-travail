@@ -31,9 +31,13 @@ object V2ConventionProtectionCategoryStore {
         return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
-    /** Une preuve KALI peut être conservée même si l'agrément APEC reste à vérifier. */
+    /**
+     * Une preuve persistable doit déjà avoir un KALITEXT parent exact. L'agrément APEC peut
+     * rester à vérifier, mais une preuve KALI sans périmètre officiel ne rentre pas dans le store.
+     */
     internal fun acceptsVerifiedRule(rule: ConventionProtectionCategoryV2.Rule): Boolean =
         rule.structurallyValid() &&
+            rule.conventionScopeKey?.matches(Regex("^KALITEXT\\d+$")) == true &&
             rule.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
             rule.aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE
 
@@ -42,7 +46,7 @@ object V2ConventionProtectionCategoryStore {
      * le résolveur contrôle encore période, extension KALI et agrément APEC exact.
      */
     fun saveVerified(context: Context, rule: ConventionProtectionCategoryV2.Rule) {
-        require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable ou incertaine" }
+        require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable, sans périmètre KALI exact ou incertaine" }
 
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
         val normalizedStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT)
