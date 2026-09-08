@@ -89,14 +89,19 @@ object NetSalaryEngineV2 {
             protectionCategory = company.verifiedProtectionCategory
         )
 
-        // Phase de migration : le nouveau chemin KALI prend la main dès que sa couverture est
-        // explicitement CONFIRMED_RULES pour ce profil. Le catalogue Plasturgie historique reste
-        // temporairement disponible uniquement tant que la nouvelle couverture n'est pas acquise.
-        val verifiedProvidentPath = company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES &&
-            company.verifiedProvidentCoverage.reliable &&
+        // Phase de migration : le nouveau chemin KALI prend la main dès que la couverture officielle
+        // est fiable pour ce profil, qu'elle confirme un barème ou qu'elle confirme explicitement
+        // l'absence de cotisation conventionnelle. Dans ces deux cas, aucun repli Plasturgie ne doit
+        // pouvoir réintroduire une cotisation contredite par la preuve KALI courante.
+        val verifiedProvidentCoverageTrusted = company.verifiedProvidentCoverage.reliable &&
             company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
-        val verifiedProvident = if (verifiedProvidentPath) {
-            ConventionProvidentContributionV2.calculate(
+        val verifiedProvidentRulesPath = verifiedProvidentCoverageTrusted &&
+            company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
+        val verifiedProvidentNoRulePath = verifiedProvidentCoverageTrusted &&
+            company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
+        val verifiedProvidentPath = verifiedProvidentRulesPath || verifiedProvidentNoRulePath
+        val verifiedProvident = when {
+            verifiedProvidentRulesPath -> ConventionProvidentContributionV2.calculate(
                 rules = company.verifiedProvidentRules,
                 idcc = company.idcc,
                 referenceDate = company.referenceDate,
@@ -107,7 +112,9 @@ object NetSalaryEngineV2 {
                 gross = contributionGross,
                 applicableMonthlyCeiling = ceiling.applicableMonthly
             )
-        } else null
+            verifiedProvidentNoRulePath -> confirmedNoProvidentContribution(company.idcc)
+            else -> null
+        }
         val legacyConventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = contributionGross,
             year = year,
@@ -306,4 +313,18 @@ object NetSalaryEngineV2 {
             knownEmployerContributionsAfterReductions = knownAfterReductions
         )
     }
+
+    private fun confirmedNoProvidentContribution(idcc: String?) = ConventionProvidentContributionV2.Result(
+        applicable = false,
+        eligibilityConfirmed = true,
+        reliable = true,
+        selectedRule = null,
+        selectedTier = null,
+        lines = emptyList(),
+        employeeAmount = 0.0,
+        employerAmount = 0.0,
+        warnings = listOf(
+            "Prévoyance conventionnelle${idcc?.let { " IDCC $it" }.orEmpty()} : absence de cotisation explicitement confirmée par KALI pour ce profil et cette période."
+        )
+    )
 }
