@@ -235,22 +235,34 @@ object OfficialKaliProvidentBenefitParserV2 {
         evidenceArticleIds = setOf(articleId.trim().uppercase(Locale.ROOT))
     )
 
+    /**
+     * Une fenêtre ne devient calculable que si elle contient exactement une formule distincte.
+     * Deux taux ou deux assiettes possibles ne sont jamais départagés par ordre d'apparition.
+     */
     private fun parseFormula(window: String): ConventionProvidentBenefitV2.Formula? {
-        annualSalaryPercentRegex.find(window)?.let { match ->
-            return percentFormula(ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY, match.groupValues[1])
-        }
-        monthlySalaryPercentRegex.find(window)?.let { match ->
-            return percentFormula(ConventionProvidentBenefitV2.Basis.MONTHLY_REFERENCE_SALARY, match.groupValues[1])
-        }
-        pmssMultipleRegex.find(window)?.let { match ->
-            val value = parseNumber(match.groupValues[1])?.takeIf { it > 0.0 && it <= 100.0 } ?: return@let
-            return ConventionProvidentBenefitV2.Formula(
-                basis = ConventionProvidentBenefitV2.Basis.PMSS,
-                coefficient = value
-            )
-        }
-        return null
+        val candidates = buildList {
+            annualSalaryPercentRegex.findAll(window).forEach { match ->
+                percentFormula(ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY, match.groupValues[1])?.let(::add)
+            }
+            monthlySalaryPercentRegex.findAll(window).forEach { match ->
+                percentFormula(ConventionProvidentBenefitV2.Basis.MONTHLY_REFERENCE_SALARY, match.groupValues[1])?.let(::add)
+            }
+            pmssMultipleRegex.findAll(window).forEach { match ->
+                val value = parseNumber(match.groupValues[1])?.takeIf { it > 0.0 && it <= 100.0 } ?: return@forEach
+                ConventionProvidentBenefitV2.Formula(
+                    basis = ConventionProvidentBenefitV2.Basis.PMSS,
+                    coefficient = value
+                ).takeIf { it.structurallyValid() }?.let(::add)
+            }
+        }.distinctBy(::formulaFingerprint)
+        return candidates.singleOrNull()
     }
+
+    private fun formulaFingerprint(value: ConventionProvidentBenefitV2.Formula): String = listOf(
+        value.basis.name,
+        value.coefficient?.toString().orEmpty(),
+        value.fixedAmount?.toString().orEmpty()
+    ).joinToString("|")
 
     private fun percentFormula(
         basis: ConventionProvidentBenefitV2.Basis,
