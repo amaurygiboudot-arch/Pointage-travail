@@ -12,11 +12,11 @@ class KaliProvidentBenefitExclusionScopeV2Test {
     private val articleId = "KALIARTI000000009100"
     private val textId = "KALITEXT000000009100"
 
-    private fun profile() = ConventionLegalProfileV2(
+    private fun profile(status: String = "CADRE") = ConventionLegalProfileV2(
         companyId = "c1",
         idcc = "292",
         siret = "12345678901234",
-        professionalStatus = "CADRE",
+        professionalStatus = status,
         classification = ConventionClassificationV2(coefficient = 910),
         contractType = "CDI",
         entryDate = LocalDate.of(2020, 1, 1),
@@ -87,5 +87,27 @@ class KaliProvidentBenefitExclusionScopeV2Test {
         )
 
         assertTrue(exclusions.isEmpty())
+    }
+
+    @Test
+    fun `exclusion statut cadre sans classification est refusée au non cadre`() {
+        val source = evidence("Cadres : aucune garantie capital deces n'est prévue.")
+
+        val cadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("CADRE"), source)
+        val nonCadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("NON_CADRE"), source)
+
+        assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), cadre.map { it.family }.toSet())
+        assertTrue(nonCadre.isEmpty())
+    }
+
+    @Test
+    fun `exclusion générale sans statut reste applicable aux deux statuts`() {
+        val source = evidence("Aucune garantie capital deces n'est prévue.")
+
+        val cadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("CADRE"), source)
+        val nonCadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("NON_CADRE"), source)
+
+        assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), cadre.map { it.family }.toSet())
+        assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), nonCadre.map { it.family }.toSet())
     }
 }
