@@ -279,7 +279,7 @@ object OfficialKaliMealBasketParserV2 {
     )
 
     private val mealOccurrenceRegex = Regex("\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b")
-    private val fixedAmountRegex = Regex("(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?)\\b")
+    private val fixedAmountRegex = Regex("(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?\\b)")
     private val minimumGuaranteedRegex = Regex("([0-9]+(?:[.,][0-9]+)?)\\s*(?:fois|x)\\s*(?:le\\s+)?minimum garanti\\b")
     private val externalAgreementAmountRegex = Regex("\\bmontant\\b[^.;\\n]{0,120}?\\b(?:fixe|determine|prevu)\\b[^.;\\n]{0,80}?\\b(?:accord|avenant)\\b")
     private val postedWorkerRegex = Regex("\\b(?:travail poste|travail en equipes?|equipes? successives?|personnel poste)\\b")
