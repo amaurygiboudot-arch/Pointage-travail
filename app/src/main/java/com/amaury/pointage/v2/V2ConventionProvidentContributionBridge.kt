@@ -10,12 +10,12 @@ import java.time.temporal.ChronoUnit
 /**
  * Bridge local entre les preuves KALI vérifiées et le calcul générique des cotisations de prévoyance.
  *
- * Aucune règle historique codée en dur n'est utilisée ici. Le calcul n'est autorisé que si :
+ * Aucune règle historique codée en dur n'est utilisée ici. Le résultat n'est fiable que si :
  * - le profil juridique local est complet ;
  * - la catégorie ANI est confirmée ;
- * - la matière PROVIDENT_CONTRIBUTION est CONFIRMED_RULES ;
+ * - la matière PROVIDENT_CONTRIBUTION est CONFIRMED_RULES ou CONFIRMED_NO_RULE ;
  * - le record de couverture prouve explicitement l'autorité KALI ;
- * - une règle locale vérifiée correspond exactement au profil et à la période.
+ * - une règle locale vérifiée correspond exactement au profil et à la période lorsqu'un barème existe.
  */
 object V2ConventionProvidentContributionBridge {
     data class Snapshot(
@@ -84,7 +84,7 @@ object V2ConventionProvidentContributionBridge {
                 coverage
             )
         }
-        if (coverage.state != ConventionMatterCoverageV2.State.CONFIRMED_RULES || !coverage.reliable) {
+        if (!coverage.reliable) {
             return Snapshot(
                 blocked(
                     "Prévoyance conventionnelle IDCC ${profile.idcc} : audit officiel des cotisations incomplet ; aucun barème n'est appliqué.",
@@ -96,6 +96,21 @@ object V2ConventionProvidentContributionBridge {
         if (coverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) != true) {
             return Snapshot(
                 blocked("Prévoyance conventionnelle IDCC ${profile.idcc} : autorité KALI non prouvée par le record de couverture."),
+                coverage
+            )
+        }
+        if (coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE) {
+            return Snapshot(
+                result = confirmedNoRule(profile.idcc, coverage.warnings),
+                coverage = coverage
+            )
+        }
+        if (coverage.state != ConventionMatterCoverageV2.State.CONFIRMED_RULES) {
+            return Snapshot(
+                blocked(
+                    "Prévoyance conventionnelle IDCC ${profile.idcc} : état de couverture des cotisations non exploitable.",
+                    coverage.warnings
+                ),
                 coverage
             )
         }
@@ -125,6 +140,21 @@ object V2ConventionProvidentContributionBridge {
         if (start.isAfter(referenceDate)) return null
         return ChronoUnit.MONTHS.between(start, referenceDate).toInt().takeIf { it in 0..600 }
     }
+
+    private fun confirmedNoRule(idcc: String, extraWarnings: List<String>) =
+        ConventionProvidentContributionV2.Result(
+            applicable = false,
+            eligibilityConfirmed = true,
+            reliable = true,
+            selectedRule = null,
+            selectedTier = null,
+            lines = emptyList(),
+            employeeAmount = 0.0,
+            employerAmount = 0.0,
+            warnings = (listOf(
+                "Prévoyance conventionnelle IDCC $idcc : absence de cotisation conventionnelle explicitement confirmée par KALI pour ce profil et cette période."
+            ) + extraWarnings).distinct()
+        )
 
     private fun blocked(reason: String, extraWarnings: List<String> = emptyList()) =
         ConventionProvidentContributionV2.Result(
