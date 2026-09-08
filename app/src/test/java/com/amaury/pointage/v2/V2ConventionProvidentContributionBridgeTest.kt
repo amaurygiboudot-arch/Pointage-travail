@@ -166,4 +166,13 @@ class V2ConventionProvidentContributionBridgeTest {
 
         assertEquals(24, V2ConventionProvidentContributionBridge.seniorityMonths(withConventionSeniority, date))
     }
+
+    @Test
+    fun `date ancienneté conventionnelle future reste inconnue`() {
+        val futureSeniority = profile.copy(
+            conventionSeniorityDate = LocalDate.of(2026, 2, 1)
+        )
+
+        assertNull(V2ConventionProvidentContributionBridge.seniorityMonths(futureSeniority, date))
+    }
 }
