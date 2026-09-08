@@ -8,7 +8,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/** Historique local des matières KALI effectivement auditées. */
+/** Historique local des matières conventionnelles effectivement auditées auprès de sources officielles. */
 object V2ConventionMatterCoverageStore {
     private const val PREFS = "horatrack_v2_convention_matter_coverage"
     private const val KEY_RECORDS = "records"
@@ -76,6 +76,11 @@ object V2ConventionMatterCoverageStore {
         .put("state", record.state.name)
         .put("source", record.source)
         .put("checkedAtMs", record.checkedAtMs)
+        .put("authorities", encodeAuthorities(record.authorities))
+
+    private fun encodeAuthorities(authorities: Set<ConventionMatterCoverageV2.Authority>): JSONArray = JSONArray().apply {
+        authorities.sortedBy { it.name }.forEach { put(it.name) }
+    }
 
     private fun encodeClassification(value: ConventionClassificationV2): JSONObject = JSONObject()
         .put("coefficient", value.coefficient)
@@ -96,9 +101,20 @@ object V2ConventionMatterCoverageStore {
             professionalStatus = obj.optString("professionalStatus").takeIf { it.isNotBlank() && it != "null" },
             state = ConventionMatterCoverageV2.State.valueOf(obj.getString("state")),
             source = obj.getString("source"),
-            checkedAtMs = obj.getLong("checkedAtMs")
+            checkedAtMs = obj.getLong("checkedAtMs"),
+            authorities = decodeAuthorities(obj.optJSONArray("authorities"))
         )
     }.getOrNull()
+
+    private fun decodeAuthorities(array: JSONArray?): Set<ConventionMatterCoverageV2.Authority> {
+        if (array == null) return emptySet()
+        val result = linkedSetOf<ConventionMatterCoverageV2.Authority>()
+        for (index in 0 until array.length()) {
+            val value = array.optString(index).takeIf { it.isNotBlank() } ?: continue
+            runCatching { ConventionMatterCoverageV2.Authority.valueOf(value) }.getOrNull()?.let(result::add)
+        }
+        return result
+    }
 
     private fun decodeClassification(obj: JSONObject): ConventionClassificationV2 = ConventionClassificationV2(
         coefficient = if (obj.isNull("coefficient")) null else obj.optInt("coefficient").takeIf { it > 0 },

@@ -14,7 +14,14 @@ object ConventionMatterCoverageV2 {
         MINIMUM_SALARY,
         SENIORITY_PREMIUM,
         SICKNESS_MAINTENANCE,
+        /** Ancienne matière globale conservée uniquement pour compatibilité des données historiques. */
         PROVIDENT,
+        /** Classement du salarié dans les catégories objectives ANI / régime complémentaire. */
+        PROVIDENT_CATEGORY,
+        /** Cotisations servant à financer le régime de prévoyance. */
+        PROVIDENT_CONTRIBUTION,
+        /** Garanties/prestations : incapacité, invalidité, décès, rentes, etc. */
+        PROVIDENT_BENEFITS,
         OVERTIME,
         NIGHT,
         SATURDAY,
@@ -22,6 +29,14 @@ object ConventionMatterCoverageV2 {
         PUBLIC_HOLIDAY,
         MEAL_BASKET,
         OTHER_PREMIUM
+    }
+
+    /** Autorités/sources officielles effectivement couvertes par l'audit ayant créé le record. */
+    enum class Authority {
+        KALI,
+        APEC,
+        ACCO,
+        NATIONAL
     }
 
     enum class State {
@@ -41,7 +56,9 @@ object ConventionMatterCoverageV2 {
         val professionalStatus: String? = null,
         val state: State,
         val source: String,
-        val checkedAtMs: Long
+        val checkedAtMs: Long,
+        /** Vide pour les anciennes données ; ne doit jamais être interprété comme une preuve implicite. */
+        val authorities: Set<Authority> = emptySet()
     ) {
         fun structurallyValid(): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
             source.isNotBlank() &&
@@ -82,7 +99,7 @@ object ConventionMatterCoverageV2 {
                 it.statusMatches(professionalStatus)
         }
         if (matching.isEmpty()) {
-            return incomplete(normalized, matter, classification, professionalStatus, "analyse KALI non confirmée pour cette période")
+            return incomplete(normalized, matter, classification, professionalStatus, "analyse officielle non confirmée pour cette période")
         }
 
         val latestDate = matching.maxOf { it.effectiveFrom }
@@ -131,7 +148,10 @@ object ConventionMatterCoverageV2 {
         Matter.MINIMUM_SALARY -> "minimum salarial"
         Matter.SENIORITY_PREMIUM -> "prime d'ancienneté"
         Matter.SICKNESS_MAINTENANCE -> "maintien de salaire maladie"
-        Matter.PROVIDENT -> "prévoyance"
+        Matter.PROVIDENT -> "prévoyance (historique)"
+        Matter.PROVIDENT_CATEGORY -> "catégorie de bénéficiaires prévoyance"
+        Matter.PROVIDENT_CONTRIBUTION -> "cotisations de prévoyance"
+        Matter.PROVIDENT_BENEFITS -> "garanties de prévoyance"
         Matter.OVERTIME -> "heures supplémentaires"
         Matter.NIGHT -> "travail de nuit"
         Matter.SATURDAY -> "travail du samedi"

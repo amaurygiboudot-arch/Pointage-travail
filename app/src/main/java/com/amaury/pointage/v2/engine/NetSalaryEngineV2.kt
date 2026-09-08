@@ -74,19 +74,19 @@ object NetSalaryEngineV2 {
             ceiling = ceiling,
             alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
         )
-        val retirement = ComplementaryRetirementCatalogV2.estimate(
+        val retirement = ComplementaryRetirementCatalogV2.estimateGeneric(
             gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
-            protectionCategory = company.protectionCategory
+            protectionCategory = company.verifiedProtectionCategory
         )
-        val statusContributions = ProfessionalStatusContributionCatalogV2.estimate(
+        val statusContributions = ProfessionalStatusContributionCatalogV2.estimateGeneric(
             gross = contributionGross,
             year = year,
             professionalStatus = company.professionalStatus,
             ceiling = ceiling,
-            protectionCategory = company.protectionCategory
+            protectionCategory = company.verifiedProtectionCategory
         )
         val conventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = contributionGross,
