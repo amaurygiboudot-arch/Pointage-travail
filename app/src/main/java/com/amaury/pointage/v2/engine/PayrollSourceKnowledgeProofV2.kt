@@ -13,7 +13,8 @@ import java.time.LocalDate
 object PayrollSourceKnowledgeProofV2 {
     enum class Matter {
         OVERTIME_RATE,
-        PROVIDENT_CONTRIBUTION
+        PROVIDENT_CONTRIBUTION,
+        MEAL_BASKET
     }
 
     enum class Outcome {
@@ -62,40 +63,24 @@ object PayrollSourceKnowledgeProofV2 {
                 !proof.officialCoverageThrough.isBefore(referenceDate) &&
                 scopeMatches(proof, source, companyId, idcc)
         }
-        return if (confirmed) {
-            PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
-        } else {
-            PayrollLegalArbitratorV2.Knowledge.UNKNOWN
-        }
+        return if (confirmed) PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
+        else PayrollLegalArbitratorV2.Knowledge.UNKNOWN
     }
 
     fun knowledgeMapForOvertime(
-        proofs: List<Proof>,
-        companyId: String,
-        idcc: String,
-        referenceDate: LocalDate
+        proofs: List<Proof>, companyId: String, idcc: String, referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        knowledgeMapForMatter(
-            proofs = proofs,
-            matter = Matter.OVERTIME_RATE,
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
-        )
+        knowledgeMapForMatter(proofs, Matter.OVERTIME_RATE, companyId, idcc, referenceDate)
 
     fun knowledgeMapForProvidentContribution(
-        proofs: List<Proof>,
-        companyId: String,
-        idcc: String,
-        referenceDate: LocalDate
+        proofs: List<Proof>, companyId: String, idcc: String, referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        knowledgeMapForMatter(
-            proofs = proofs,
-            matter = Matter.PROVIDENT_CONTRIBUTION,
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
-        )
+        knowledgeMapForMatter(proofs, Matter.PROVIDENT_CONTRIBUTION, companyId, idcc, referenceDate)
+
+    fun knowledgeMapForMealBasket(
+        proofs: List<Proof>, companyId: String, idcc: String, referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeMapForMatter(proofs, Matter.MEAL_BASKET, companyId, idcc, referenceDate)
 
     private fun knowledgeMapForMatter(
         proofs: List<Proof>,
@@ -105,17 +90,8 @@ object PayrollSourceKnowledgeProofV2 {
         referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = buildMap {
         listOf(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI).forEach { source ->
-            val knowledge = knowledgeFor(
-                proofs = proofs,
-                source = source,
-                matter = matter,
-                companyId = companyId,
-                idcc = idcc,
-                referenceDate = referenceDate
-            )
-            if (knowledge == PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE) {
-                put(source, knowledge)
-            }
+            val knowledge = knowledgeFor(proofs, source, matter, companyId, idcc, referenceDate)
+            if (knowledge == PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE) put(source, knowledge)
         }
     }
 
@@ -127,10 +103,8 @@ object PayrollSourceKnowledgeProofV2 {
     ): Boolean = when (source) {
         PayrollLegalArbitratorV2.Source.ACCO ->
             companyId.isNotBlank() && proof.companyId?.trim() == companyId.trim()
-
         PayrollLegalArbitratorV2.Source.KALI ->
             normalizeIdcc(proof.idcc) == normalizeIdcc(idcc) && normalizeIdcc(idcc).isNotBlank()
-
         else -> false
     }
 
