@@ -56,6 +56,39 @@ class OfficialKaliProfileMatcherV2Test {
     }
 
     @Test
+    fun `coefficient et niveau de deux lignes voisines ne sont jamais combines`() {
+        val raw = """
+            Non-cadres coefficient 700 niveau III. Cotisation 0,40 %.
+            Non-cadres coefficient 800 niveau IV. Cotisation 0,80 %.
+        """.trimIndent()
+        val impossible = ConventionClassificationV2(coefficient = 700, level = "IV")
+
+        assertFalse(
+            OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                rawText = raw,
+                classification = impossible,
+                professionalStatus = "NON_CADRE",
+                targetOffset = offset(raw, "cotisation 0,80")
+            )
+        )
+    }
+
+    @Test
+    fun `champs de la meme ligne restent combinables`() {
+        val raw = "Non-cadres coefficient 700 niveau IV. Cotisation 0,40 %."
+        val exact = ConventionClassificationV2(coefficient = 700, level = "IV")
+
+        assertTrue(
+            OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                rawText = raw,
+                classification = exact,
+                professionalStatus = "NON_CADRE",
+                targetOffset = offset(raw, "cotisation 0,40")
+            )
+        )
+    }
+
+    @Test
     fun `clause statut cadre seule ne correspond jamais au non cadre`() {
         val raw = "Cadres : aucune garantie capital deces n'est prévue."
 
