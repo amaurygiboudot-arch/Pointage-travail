@@ -286,9 +286,9 @@ object KaliProvidentContributionAuditV2 {
                 )?.trim()?.uppercase(Locale.ROOT) ?: return@articleLoop
             if (!scope.matches(kaliTextIdRegex)) return@articleLoop
 
-            val text = OfficialKaliProfileMatcherV2.normalize(
-                listOfNotNull(article.title, article.content).joinToString("\n")
-            )
+            // Le titre décrit la matière du texte mais ne prouve jamais à lui seul une cotisation.
+            // Pour un no-rule, seules les clauses du corps de l'article peuvent prouver présence/absence.
+            val text = OfficialKaliProfileMatcherV2.normalize(article.content)
             val classified = classificationVocabulary.containsMatchIn(text)
             val profileMentions = contributionMentionRegex.findAll(text).filter { match ->
                 profileMatchesAt(text, classified, profile, status, match.range.first)
