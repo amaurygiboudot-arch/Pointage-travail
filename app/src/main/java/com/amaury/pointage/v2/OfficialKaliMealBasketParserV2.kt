@@ -94,6 +94,8 @@ object OfficialKaliMealBasketParserV2 {
                     text.takeIf { OfficialKaliProfileMatcherV2.statusScopeMatches(it, status) }
                         ?.let { OfficialKaliProfileMatcherV2.Window(it, 0, it.length) }
                 }
+                // Une occurrence appartenant à un coefficient/niveau/statut voisin n'appartient
+                // pas au profil audité : elle est ignorée, jamais transformée en anomalie.
                 if (scopeWindow == null) return@forEachIndexed
                 observed++
 
