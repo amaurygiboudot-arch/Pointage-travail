@@ -63,6 +63,15 @@ object OfficialKaliProtectionCategoryParserV2 {
             )
         }
 
+        val conditions = candidates.mapNotNull { additionalApplicabilityCondition(it.clause) }.distinct()
+        if (conditions.size > 1) {
+            return Diagnostic(
+                article.articleId,
+                null,
+                listOf("plusieurs conditions d'applicabilité supplémentaires incompatibles sont détectées")
+            )
+        }
+        val additionalCondition = conditions.singleOrNull()
         val category = categories.single()
         val extensionStatus = extensionStatus(article)
         val source = buildString {
@@ -81,7 +90,9 @@ object OfficialKaliProtectionCategoryParserV2 {
             aniCategory = category,
             source = source,
             extensionStatus = extensionStatus,
-            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null
+            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null,
+            additionalApplicabilityCondition = additionalCondition,
+            additionalApplicabilityConfirmed = additionalCondition == null
         )
 
         if (!rule.structurallyValid()) {
@@ -99,6 +110,9 @@ object OfficialKaliProtectionCategoryParserV2 {
                 }
                 if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED) {
                     add("texte non étendu : applicabilité à l'entreprise non démontrée")
+                }
+                additionalCondition?.let {
+                    add("condition supplémentaire détectée et non confirmée : $it")
                 }
                 if (category == ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE) {
                     add("extension de régime seulement : aucune affiliation ANI 2.1/2.2 n'est déduite")
@@ -129,11 +143,15 @@ object OfficialKaliProtectionCategoryParserV2 {
         val extension = extensionWords.any(clause::contains)
         val extensionLegalContext = clause.contains("r. 242-1-1") ||
             clause.contains("r 242-1-1") ||
-            clause.contains("salariés non-cadres") ||
             clause.contains("salaries non-cadres") ||
             clause.contains("non-assimiles aux cadres") ||
             clause.contains("regime de protection sociale complementaire des cadres")
         return if (extension && extensionLegalContext) ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE else null
+    }
+
+    private fun additionalApplicabilityCondition(clause: String): String? = when {
+        apecApprovalRegex.containsMatchIn(clause) -> "Agrément APEC requis par le texte source"
+        else -> null
     }
 
     private fun statusCompatible(category: ProtectionCategoryV2.AniCategory, status: String): Boolean = when (category) {
@@ -260,6 +278,7 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private val article21Regex = Regex("\\barticle\\s*2[.,]1\\b")
     private val article22Regex = Regex("\\barticle\\s*2[.,]2\\b")
+    private val apecApprovalRegex = Regex("\\bsous reserve (?:de |d')?l?[' ]?agrement apec\\b|\\bsous reserve (?:de |d')?agrement apec\\b")
     private val extensionWords = listOf(
         "susceptibles de beneficier d'une extension de regime",
         "susceptible de beneficier d'une extension de regime",
