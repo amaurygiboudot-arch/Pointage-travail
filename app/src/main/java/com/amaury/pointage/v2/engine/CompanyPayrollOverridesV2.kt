@@ -203,6 +203,14 @@ object CompanyPayrollOverridesV2 {
                 referenceDate=referenceDate
             )
         }else emptyMap()
+        val verifiedCompanyProvidentGuaranteeEquivalence=if(verifiedCompanyProvidentRules.isNotEmpty()){
+            CompanyProvidentGuaranteeEquivalenceV2.resolve(
+                context=context,
+                companyId=companyId,
+                referenceDate=referenceDate,
+                contributionAgreementIds=verifiedCompanyProvidentRules.map { it.agreementId }.toSet()
+            )
+        }else null
         val alsaceMoselleLocalRegime=when(p.getString("alsace_moselle_local_regime","").orEmpty().trim().uppercase(Locale.ROOT)) {
             "YES" -> true
             "NO" -> false
@@ -249,6 +257,7 @@ object CompanyPayrollOverridesV2 {
             addAll(mobility.warnings)
             addAll(protectionCategory.warnings)
             addAll(verifiedProtectionCategory.warnings)
+            verifiedCompanyProvidentGuaranteeEquivalence?.let { addAll(it.warnings) }
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
             }
@@ -306,7 +315,7 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentLegalProfile=legalProfile,
             verifiedCompanyProvidentRules=verifiedCompanyProvidentRules,
             verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
-            verifiedCompanyProvidentGuaranteesEquivalent=null
+            verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent
         )
     }
 
