@@ -223,8 +223,31 @@ class KaliProvidentBenefitAuditV2Test {
     }
 
     @Test
-    fun `toutes les familles coeur explicitement exclues restent fail closed tant que le chemin no rule n est pas résolu`() {
+    fun `toutes les familles coeur explicitement exclues et étendues ferment no rule sans règle positive`() {
         val exclusions = core.map(::exclusion)
+        val completion = KaliProvidentBenefitAuditV2.evaluateCompletion(
+            technicalCoverageComplete = true,
+            rules = emptyList(),
+            savedRuleIds = emptySet(),
+            observedFamilies = core,
+            structuredFamilies = emptySet(),
+            exclusions = exclusions,
+            resolutionReliable = false,
+            referenceDate = date
+        )
+
+        assertTrue(completion.completed)
+        assertEquals(ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE, completion.state)
+    }
+
+    @Test
+    fun `no rule explicite reste bloqué si une exclusion coeur n est pas étendue`() {
+        val exclusions = core.map { family ->
+            exclusion(
+                family = family,
+                extended = if (family == ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION) null else LocalDate.of(2025, 1, 1)
+            )
+        }
         val completion = KaliProvidentBenefitAuditV2.evaluateCompletion(
             technicalCoverageComplete = true,
             rules = emptyList(),
