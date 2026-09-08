@@ -90,15 +90,15 @@ class OfficialAccoMealBasketParserV2Test {
             profile(),
             "ACCOTEXT000000009901",
             agreement(
-                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € pour le travail posté avec au moins 4 h entre 22 h et 6 h et dont le poste traverse minuit."
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si le poste traverse minuit et commence à minuit."
             )
         )
 
         assertTrue(result.fullyStructured)
         val groups = result.rules.single().eligibilityAnyOf
         assertEquals(1, groups.size)
-        assertTrue(groups.single().allOf.any { it is ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInFixedWindow })
         assertTrue(groups.single().allOf.contains(ConventionMealBasketV2.Condition.ShiftEnclosesMidnight))
+        assertTrue(groups.single().allOf.contains(ConventionMealBasketV2.Condition.ShiftStartsAtMidnight))
     }
 
     @Test
@@ -107,7 +107,7 @@ class OfficialAccoMealBasketParserV2Test {
             profile(),
             "ACCOTEXT000000009901",
             agreement(
-                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € avec au moins 4 h entre 22 h et 6 h ou si le poste traverse minuit."
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si le poste traverse minuit ou commence à minuit."
             )
         )
 
