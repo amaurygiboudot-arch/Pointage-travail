@@ -49,12 +49,21 @@ class OfficialKaliProtectionCategoryParserV2Test {
         extensionEffectiveFrom = extension
     )
 
-    private fun approval(date: LocalDate = LocalDate.of(2024, 10, 9)) =
-        ConventionProtectionCategoryV2.ApprovalEvidence(
-            authority = ConventionProtectionCategoryV2.ApprovalAuthority.APEC,
-            approvedOn = date,
-            source = "APEC — décision de test"
-        )
+    private fun approval(
+        date: LocalDate = LocalDate.of(2024, 10, 9),
+        idcc: String = "292",
+        classification: ConventionClassificationV2 = ConventionClassificationV2(coefficient = 910),
+        status: String = "CADRE",
+        category: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1
+    ) = ConventionProtectionCategoryV2.ApprovalEvidence(
+        authority = ConventionProtectionCategoryV2.ApprovalAuthority.APEC,
+        approvedOn = date,
+        idcc = idcc,
+        classification = classification,
+        professionalStatus = status,
+        aniCategory = category,
+        source = "APEC — décision de test"
+    )
 
     @Test
     fun `Plasturgie plage 900 a 940 parse 910 mais exige encore agrement`() {
@@ -115,18 +124,27 @@ class OfficialKaliProtectionCategoryParserV2Test {
 
     @Test
     fun `Plasturgie 800 a 820 reste extension eligible et jamais beneficiaire ANI`() {
+        val classification = ConventionClassificationV2(coefficient = 810)
         val parsed = OfficialKaliProtectionCategoryParserV2.parse(
             article("Pour l'application de l'article R. 242-1-1 du code de la sécurité sociale, les techniciens et agents de maîtrise des coefficients 800 à 820 peuvent être intégrés à la catégorie des cadres en vue de la constitution d'une catégorie objective."),
-            profile(status = "NON_CADRE", classification = ConventionClassificationV2(coefficient = 810)),
+            profile(status = "NON_CADRE", classification = classification),
             auditDate
         ).rule!!
 
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "292",
             referenceDate = auditDate,
-            classification = ConventionClassificationV2(coefficient = 810),
+            classification = classification,
             professionalStatus = "NON_CADRE",
-            rules = listOf(parsed.copy(approvalEvidence = approval()))
+            rules = listOf(
+                parsed.copy(
+                    approvalEvidence = approval(
+                        classification = classification,
+                        status = "NON_CADRE",
+                        category = ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
+                    )
+                )
+            )
         )
 
         assertTrue(result.reliable)
