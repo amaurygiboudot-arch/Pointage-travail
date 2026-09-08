@@ -1,0 +1,647 @@
+package com.amaury.pointage.v2
+
+import com.amaury.pointage.v2.engine.ConventionClassificationV2
+import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
+import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
+import java.time.LocalDate
+import java.util.Locale
+
+/**
+ * Structure uniquement les garanties de prévoyance dont la formule et le périmètre sont
+ * explicitement prouvés dans KALI. Une famille simplement mentionnée reste observée mais non
+ * structurée ; elle ne peut donc jamais débloquer PROVIDENT_BENEFITS à elle seule.
+ */
+object OfficialKaliProvidentBenefitParserV2 {
+    data class Diagnostic(
+        val rules: List<ConventionProvidentBenefitV2.Rule>,
+        val observedFamilies: Set<ConventionProvidentBenefitV2.Family>,
+        val structuredFamilies: Set<ConventionProvidentBenefitV2.Family>,
+        val reasons: List<String>,
+        val unresolvedOccurrenceFamilies: Set<ConventionProvidentBenefitV2.Family> = emptySet()
+    )
+
+    private data class ParsedGuarantee(
+        val guarantee: ConventionProvidentBenefitV2.Guarantee,
+        val minimumSeniorityMonths: Int
+    )
+
+    fun parse(
+        profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.Result,
+        evidence: KaliMatterEvidenceAuditV2.Evidence
+    ): Diagnostic = parse(
+        profile = profile,
+        protectionCategory = protectionCategory,
+        verifiedIdcc = evidence.idcc,
+        auditDate = evidence.referenceDate,
+        articles = evidence.articles,
+        articleTextIds = evidence.articleTextIds,
+        ambiguousArticleTextIds = evidence.ambiguousArticleTextIds
+    )
+
+    internal fun parse(
+        profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.Result,
+        verifiedIdcc: String,
+        auditDate: LocalDate,
+        articles: List<OfficialKaliOvertimeRuleParserV2.VerifiedArticle>,
+        articleTextIds: Map<String, String>,
+        ambiguousArticleTextIds: Set<String> = emptySet()
+    ): Diagnostic {
+        val profileIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
+        val kaliIdcc = ConventionMinimumSalaryV2.normalizeIdcc(verifiedIdcc)
+        if (profileIdcc.isBlank() || profileIdcc != kaliIdcc) return unresolved("IDCC du profil et de KALI différents")
+        if (!protectionCategory.confirmed || protectionCategory.aniCategory !in supportedAniCategories) {
+            return unresolved("catégorie ANI exacte non confirmée")
+        }
+        val status = profile.professionalStatus?.trim()?.uppercase(Locale.ROOT)
+            ?.takeIf { it == "CADRE" || it == "NON_CADRE" }
+            ?: return unresolved("statut cadre/non-cadre exact manquant")
+        val classification = profile.classification.normalized()
+        if (classification.isEmpty()) return unresolved("classification conventionnelle exacte manquante")
+
+        val ambiguous = ambiguousArticleTextIds.map { it.trim().uppercase(Locale.ROOT) }.toSet()
+        val eligible = articles.filter { article ->
+            val id = article.articleId.trim().uppercase(Locale.ROOT)
+            id.matches(kaliArticleIdRegex) &&
+                id !in ambiguous &&
+                !auditDate.isBefore(article.effectiveFrom) &&
+                article.effectiveTo?.let(auditDate::isAfter) != true &&
+                article.status.trim().uppercase(Locale.ROOT) in acceptedStatuses
+        }
+        if (eligible.isEmpty()) return unresolved("aucun KALIARTI applicable et non ambigu")
+
+        val grouped = eligible.groupBy { article ->
+            val id = article.articleId.trim().uppercase(Locale.ROOT)
+            articleTextIds[id]
+                ?: articleTextIds.entries.firstOrNull { it.key.equals(id, ignoreCase = true) }?.value
+        }.filterKeys { it?.matches(kaliTextIdRegex) == true }
+
+        val rules = mutableListOf<ConventionProvidentBenefitV2.Rule>()
+        val observed = linkedSetOf<ConventionProvidentBenefitV2.Family>()
+        val unresolvedOccurrences = linkedSetOf<ConventionProvidentBenefitV2.Family>()
+        val reasons = mutableListOf<String>()
+        grouped.forEach { (scopeRaw, scopedArticles) ->
+            val scope = scopeRaw ?: return@forEach
+            val normalized = scopedArticles.associateWith(::normalizeArticle)
+            val profileScoped = normalized.mapValues { (_, text) ->
+                profileScopedTexts(text, classification, status).filter { scopedText ->
+                    OfficialKaliAniScopeMatcherV2.matches(scopedText, protectionCategory.aniCategory)
+                }
+            }.filterValues { it.isNotEmpty() }
+            if (profileScoped.isEmpty()) return@forEach
+
+            profileScoped.forEach { (article, texts) ->
+                val normalizedTitle = OfficialKaliProfileMatcherV2.normalize(article.title.orEmpty())
+                texts.forEach { text ->
+                    val observedHere = observedFamilies(text, classification, status)
+                    observed += observedHere
+                    val occurrenceText = if (normalizedTitle.isNotBlank() && text.startsWith(normalizedTitle)) {
+                        text.removePrefix(normalizedTitle).trimStart()
+                    } else text
+                    val unresolvedHere = unresolvedFamilyOccurrences(occurrenceText)
+                    unresolvedOccurrences += unresolvedHere
+                    if (unresolvedHere.isNotEmpty()) {
+                        reasons += "KALI garanties $scope ${article.articleId} : occurrence(s) ${unresolvedHere.joinToString()} observée(s) sans preuve complète dans leur propre clause ; le lot reste bloqué."
+                    }
+                    val parsedGuarantees = parseGuarantees(
+                        text = text,
+                        articleId = article.articleId,
+                        classification = classification,
+                        professionalStatus = status
+                    )
+                    if (parsedGuarantees.isEmpty()) {
+                        if (observedHere.isNotEmpty()) {
+                            reasons += "KALI garanties $scope ${article.articleId} : garantie observée mais classification, formule, ancienneté ou portée ANI non prouvée dans la même clause ; aucun droit n'est persisté."
+                        }
+                        return@forEach
+                    }
+                    val officialStatus = article.status.trim().uppercase(Locale.ROOT)
+                    val extensionDate = article.extensionEffectiveFrom
+                    val extensionStatus = when {
+                        officialStatus == "VIGUEUR_ETEN" && extensionDate != null ->
+                            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+                        officialStatus == "VIGUEUR_NON_ETEN" ->
+                            ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+                        else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+                    }
+                    val applicableExtensionDate = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) {
+                        extensionDate
+                    } else null
+                    parsedGuarantees.forEach { parsed ->
+                        val guarantee = parsed.guarantee
+                        val seniority = parsed.minimumSeniorityMonths
+                        val rule = ConventionProvidentBenefitV2.Rule(
+                            idcc = kaliIdcc,
+                            ruleId = "KALI-PROVIDENT-BENEFIT-$scope-${article.articleId}-${guarantee.family.name}-${guarantee.invalidityCategory ?: 0}-${guaranteeRuleSuffix(guarantee, seniority)}",
+                            effectiveFrom = article.effectiveFrom,
+                            effectiveTo = article.effectiveTo,
+                            classification = classification,
+                            professionalStatus = status,
+                            aniCategories = setOf(protectionCategory.aniCategory),
+                            minimumSeniorityMonths = seniority,
+                            guarantees = listOf(guarantee),
+                            source = "Légifrance KALI — $scope — ${article.articleId}",
+                            conventionScopeKey = scope,
+                            extensionStatus = extensionStatus,
+                            extensionEffectiveFrom = applicableExtensionDate
+                        )
+                        if (rule.structurallyValid()) rules += rule
+                    }
+                }
+            }
+        }
+
+        val distinctRules = rules.distinctBy { it.ruleId }
+        val structured = distinctRules.flatMap { it.guarantees }.map { it.family }.toSet()
+        return Diagnostic(
+            rules = distinctRules,
+            observedFamilies = observed,
+            structuredFamilies = structured,
+            reasons = buildList {
+                addAll(reasons)
+                observed.filter { it !in structured }.forEach { family ->
+                    add("KALI garanties : ${family.name} mentionnée mais formule/périmètre insuffisamment structurés ; aucun droit n'est inventé.")
+                }
+                if (distinctRules.isEmpty()) add("KALI garanties : aucune prestation complète et non ambiguë n'a été structurée.")
+            }.distinct(),
+            unresolvedOccurrenceFamilies = unresolvedOccurrences
+        )
+    }
+
+    private fun parseGuarantees(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): List<ParsedGuarantee> = buildList {
+        parseDeath(text, articleId, classification, professionalStatus)?.let(::add)
+        parseIncapacity(text, articleId, classification, professionalStatus)?.let(::add)
+        addAll(parseInvalidity(text, articleId, classification, professionalStatus))
+        parseSpousePension(text, articleId, classification, professionalStatus)?.let(::add)
+        parseEducationPension(text, articleId, classification, professionalStatus)?.let(::add)
+    }
+
+    private fun unresolvedFamilyOccurrences(text: String): Set<ConventionProvidentBenefitV2.Family> = buildSet {
+        val deathWindows = familyContextWindows(text, deathRegex, 220, 320)
+        if (deathWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL)
+        }
+
+        val incapacityWindows = familyContextWindows(text, incapacityRegex, 240, 380)
+        if (incapacityWindows.any { window ->
+                val waiting = parseWaitingDays(window)
+                !incomeBenefitRegex.containsMatchIn(window) ||
+                    parseFormula(window) == null ||
+                    parseSeniorityMonths(window) == null ||
+                    waiting.ambiguous
+            }
+        ) {
+            add(ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT)
+        }
+
+        val invalidityWindows = familyContextWindows(text, invalidityRegex, 240, 440)
+        if (invalidityWindows.any { window ->
+                val categories = invalidityCategoryRegex.findAll(window).mapNotNull { match ->
+                    match.groupValues[1].toIntOrNull()
+                }.toSet()
+                !pensionRegex.containsMatchIn(window) ||
+                    parseFormula(window) == null ||
+                    parseSeniorityMonths(window) == null ||
+                    categories.size > 1
+            }
+        ) {
+            add(ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION)
+        }
+
+        val spouseWindows = familyContextWindows(text, spousePensionRegex, 220, 320)
+        if (spouseWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.SPOUSE_PENSION)
+        }
+
+        val educationWindows = familyContextWindows(text, educationPensionRegex, 220, 320)
+        if (educationWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.EDUCATION_PENSION)
+        }
+    }
+
+    private fun familyContextWindows(text: String, regex: Regex, before: Int, after: Int): List<String> =
+        regex.findAll(text).map { match -> contextWindow(text, match, before, after) }.toList()
+
+    private fun parseDeath(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): ParsedGuarantee? {
+        val candidates = profileContextWindows(text, deathRegex, classification, professionalStatus, 220, 320)
+            .mapNotNull { window ->
+                val formula = parseFormula(window) ?: return@mapNotNull null
+                val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                ParsedGuarantee(
+                    guarantee = guarantee(
+                        family = ConventionProvidentBenefitV2.Family.DEATH_CAPITAL,
+                        label = "Capital décès — ${formulaLabel(formula)}",
+                        formula = formula,
+                        articleId = articleId
+                    ),
+                    minimumSeniorityMonths = seniority
+                )
+            }.distinctBy(::parsedGuaranteeFingerprint)
+        return candidates.singleOrNull()
+    }
+
+    private fun parseIncapacity(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): ParsedGuarantee? {
+        val candidates = profileContextWindows(text, incapacityRegex, classification, professionalStatus, 240, 380)
+            .mapNotNull { window ->
+                if (!incomeBenefitRegex.containsMatchIn(window)) return@mapNotNull null
+                val formula = parseFormula(window) ?: return@mapNotNull null
+                val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                val waiting = parseWaitingDays(window)
+                if (waiting.ambiguous) return@mapNotNull null
+                ParsedGuarantee(
+                    guarantee = guarantee(
+                        family = ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT,
+                        label = "Incapacité temporaire — ${formulaLabel(formula)}",
+                        formula = formula,
+                        waitingPeriodDays = waiting.days,
+                        socialSecurityTreatment = parseSocialSecurityTreatment(window),
+                        articleId = articleId
+                    ),
+                    minimumSeniorityMonths = seniority
+                )
+            }.distinctBy(::parsedGuaranteeFingerprint)
+        return candidates.singleOrNull()
+    }
+
+    private fun parseInvalidity(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): List<ParsedGuarantee> {
+        val candidates = profileContextWindows(text, invalidityRegex, classification, professionalStatus, 240, 440)
+            .mapNotNull { window ->
+                if (!pensionRegex.containsMatchIn(window)) return@mapNotNull null
+                val formula = parseFormula(window) ?: return@mapNotNull null
+                val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                val categories = invalidityCategoryRegex.findAll(window).mapNotNull { match ->
+                    match.groupValues[1].toIntOrNull()
+                }.toSet()
+                if (categories.size > 1) return@mapNotNull null
+                ParsedGuarantee(
+                    guarantee = guarantee(
+                        family = ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION,
+                        label = "Invalidité${categories.singleOrNull()?.let { " catégorie $it" }.orEmpty()} — ${formulaLabel(formula)}",
+                        formula = formula,
+                        invalidityCategory = categories.singleOrNull(),
+                        socialSecurityTreatment = parseSocialSecurityTreatment(window),
+                        articleId = articleId
+                    ),
+                    minimumSeniorityMonths = seniority
+                )
+            }
+
+        val byCategory = candidates.groupBy { it.guarantee.invalidityCategory }
+        if (byCategory.values.any { values -> values.distinctBy(::parsedGuaranteeFingerprint).size != 1 }) return emptyList()
+        return byCategory.values.map { it.distinctBy(::parsedGuaranteeFingerprint).single() }
+    }
+
+    private fun parseSpousePension(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): ParsedGuarantee? {
+        val candidates = profileContextWindows(text, spousePensionRegex, classification, professionalStatus, 220, 320)
+            .mapNotNull { window ->
+                val formula = parseFormula(window) ?: return@mapNotNull null
+                val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                ParsedGuarantee(
+                    guarantee = guarantee(
+                        family = ConventionProvidentBenefitV2.Family.SPOUSE_PENSION,
+                        label = "Rente conjoint — ${formulaLabel(formula)}",
+                        formula = formula,
+                        articleId = articleId
+                    ),
+                    minimumSeniorityMonths = seniority
+                )
+            }.distinctBy(::parsedGuaranteeFingerprint)
+        return candidates.singleOrNull()
+    }
+
+    private fun parseEducationPension(
+        text: String,
+        articleId: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): ParsedGuarantee? {
+        val candidates = profileContextWindows(text, educationPensionRegex, classification, professionalStatus, 220, 320)
+            .mapNotNull { window ->
+                val formula = parseFormula(window) ?: return@mapNotNull null
+                val seniority = parseSeniorityMonths(window) ?: return@mapNotNull null
+                ParsedGuarantee(
+                    guarantee = guarantee(
+                        family = ConventionProvidentBenefitV2.Family.EDUCATION_PENSION,
+                        label = "Rente éducation — ${formulaLabel(formula)}",
+                        formula = formula,
+                        articleId = articleId
+                    ),
+                    minimumSeniorityMonths = seniority
+                )
+            }.distinctBy(::parsedGuaranteeFingerprint)
+        return candidates.singleOrNull()
+    }
+
+    private fun guarantee(
+        family: ConventionProvidentBenefitV2.Family,
+        label: String,
+        formula: ConventionProvidentBenefitV2.Formula,
+        waitingPeriodDays: Int? = null,
+        invalidityCategory: Int? = null,
+        socialSecurityTreatment: ConventionProvidentBenefitV2.SocialSecurityTreatment = ConventionProvidentBenefitV2.SocialSecurityTreatment.NOT_APPLICABLE,
+        articleId: String
+    ) = ConventionProvidentBenefitV2.Guarantee(
+        family = family,
+        label = label,
+        formula = formula,
+        waitingPeriodDays = waitingPeriodDays,
+        invalidityCategory = invalidityCategory,
+        socialSecurityTreatment = socialSecurityTreatment,
+        evidenceArticleIds = setOf(articleId.trim().uppercase(Locale.ROOT))
+    )
+
+    /**
+     * Une fenêtre ne devient calculable que si elle contient exactement une formule distincte.
+     * Deux taux ou deux assiettes possibles ne sont jamais départagés par ordre d'apparition.
+     */
+    private fun parseFormula(window: String): ConventionProvidentBenefitV2.Formula? {
+        val candidates = buildList {
+            annualSalaryPercentRegex.findAll(window).forEach { match ->
+                percentFormula(ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY, match.groupValues[1])?.let(::add)
+            }
+            monthlySalaryPercentRegex.findAll(window).forEach { match ->
+                percentFormula(ConventionProvidentBenefitV2.Basis.MONTHLY_REFERENCE_SALARY, match.groupValues[1])?.let(::add)
+            }
+            pmssMultipleRegex.findAll(window).forEach { match ->
+                val value = parseNumber(match.groupValues[1])?.takeIf { it > 0.0 && it <= 100.0 } ?: return@forEach
+                ConventionProvidentBenefitV2.Formula(
+                    basis = ConventionProvidentBenefitV2.Basis.PMSS,
+                    coefficient = value
+                ).takeIf { it.structurallyValid() }?.let(::add)
+            }
+        }.distinctBy(::formulaFingerprint)
+        return candidates.singleOrNull()
+    }
+
+    private fun formulaFingerprint(value: ConventionProvidentBenefitV2.Formula): String = listOf(
+        value.basis.name,
+        value.coefficient?.toString().orEmpty(),
+        value.fixedAmount?.toString().orEmpty()
+    ).joinToString("|")
+
+    private fun parsedGuaranteeFingerprint(value: ParsedGuarantee): String = listOf(
+        value.guarantee.family.name,
+        value.guarantee.invalidityCategory?.toString().orEmpty(),
+        formulaFingerprint(value.guarantee.formula),
+        value.guarantee.waitingPeriodDays?.toString().orEmpty(),
+        value.guarantee.maximumDurationDays?.toString().orEmpty(),
+        value.guarantee.socialSecurityTreatment.name,
+        value.minimumSeniorityMonths.toString()
+    ).joinToString("|")
+
+    private fun guaranteeRuleSuffix(
+        guarantee: ConventionProvidentBenefitV2.Guarantee,
+        seniorityMonths: Int
+    ): String = listOf(
+        guarantee.family.name,
+        guarantee.invalidityCategory?.toString().orEmpty(),
+        formulaFingerprint(guarantee.formula),
+        guarantee.waitingPeriodDays?.toString().orEmpty(),
+        guarantee.maximumDurationDays?.toString().orEmpty(),
+        guarantee.socialSecurityTreatment.name,
+        seniorityMonths.toString()
+    ).joinToString("|").hashCode().toUInt().toString(16)
+
+    private fun percentFormula(
+        basis: ConventionProvidentBenefitV2.Basis,
+        raw: String
+    ): ConventionProvidentBenefitV2.Formula? {
+        val value = parseNumber(raw)?.takeIf { it > 0.0 && it <= 10_000.0 } ?: return null
+        return ConventionProvidentBenefitV2.Formula(basis = basis, coefficient = value / 100.0)
+            .takeIf { it.structurallyValid() }
+    }
+
+    private data class WaitingDaysParse(
+        val days: Int?,
+        val ambiguous: Boolean
+    )
+
+    private fun parseWaitingDays(window: String): WaitingDaysParse {
+        val candidates = buildSet {
+            franchiseRegex.findAll(window).forEach { match ->
+                match.groupValues[1].toIntOrNull()?.takeIf { it in 0..3660 }?.let(::add)
+            }
+            startDayRegex.findAll(window).forEach { match ->
+                match.groupValues[1].toIntOrNull()?.let { day ->
+                    (day - 1).takeIf { it in 0..3660 }?.let(::add)
+                }
+            }
+        }
+        return when (candidates.size) {
+            0 -> WaitingDaysParse(days = null, ambiguous = false)
+            1 -> WaitingDaysParse(days = candidates.single(), ambiguous = false)
+            else -> WaitingDaysParse(days = null, ambiguous = true)
+        }
+    }
+
+    private fun parseSocialSecurityTreatment(window: String): ConventionProvidentBenefitV2.SocialSecurityTreatment = when {
+        deductSsRegex.containsMatchIn(window) -> ConventionProvidentBenefitV2.SocialSecurityTreatment.DEDUCT_SOCIAL_SECURITY
+        includedSsRegex.containsMatchIn(window) -> ConventionProvidentBenefitV2.SocialSecurityTreatment.INCLUDED_IN_TARGET_TOTAL
+        additionalSsRegex.containsMatchIn(window) -> ConventionProvidentBenefitV2.SocialSecurityTreatment.ADDITIONAL_TO_SOCIAL_SECURITY
+        else -> ConventionProvidentBenefitV2.SocialSecurityTreatment.NOT_APPLICABLE
+    }
+
+    private fun parseSeniorityMonths(text: String): Int? {
+        val candidates = buildSet {
+            if (noSeniorityRegex.containsMatchIn(text)) add(0)
+            seniorityRegex.findAll(text).forEach { match ->
+                val value = match.groupValues[1].toIntOrNull() ?: return@forEach
+                val months = when {
+                    match.groupValues[2].startsWith("an") -> value * 12
+                    match.groupValues[2].startsWith("mois") -> value
+                    else -> null
+                }?.takeIf { it in 0..600 }
+                if (months != null) add(months)
+            }
+        }
+        return candidates.singleOrNull()
+    }
+
+    private fun profileScopedTexts(
+        text: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): List<String> {
+        if (!classificationVocabularyPresent(text)) {
+            return if (OfficialKaliProfileMatcherV2.statusScopeMatches(text, professionalStatus)) listOf(text) else emptyList()
+        }
+        return OfficialKaliProfileMatcherV2.windows(
+            rawText = text,
+            classification = classification,
+            professionalStatus = professionalStatus,
+            before = 180,
+            after = 760,
+            maxClassificationSpan = 320
+        ).map { it.text }.distinct()
+    }
+
+    private fun profileContextWindows(
+        text: String,
+        regex: Regex,
+        classification: ConventionClassificationV2,
+        professionalStatus: String,
+        before: Int,
+        after: Int
+    ): List<String> {
+        val classified = classificationVocabularyPresent(text)
+        return regex.findAll(text).mapNotNull { match ->
+            if (classified && !OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                    rawText = text,
+                    classification = classification,
+                    professionalStatus = professionalStatus,
+                    targetOffset = match.range.first,
+                    maxClassificationSpan = 320
+                )
+            ) return@mapNotNull null
+            contextWindow(text, match, before, after)
+        }.toList()
+    }
+
+    private fun observedFamilies(
+        text: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): Set<ConventionProvidentBenefitV2.Family> = buildSet {
+        if (familyObserved(text, deathRegex, classification, professionalStatus)) add(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL)
+        if (familyObserved(text, incapacityRegex, classification, professionalStatus)) add(ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT)
+        if (familyObserved(text, invalidityRegex, classification, professionalStatus)) add(ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION)
+        if (familyObserved(text, spousePensionRegex, classification, professionalStatus)) add(ConventionProvidentBenefitV2.Family.SPOUSE_PENSION)
+        if (familyObserved(text, educationPensionRegex, classification, professionalStatus)) add(ConventionProvidentBenefitV2.Family.EDUCATION_PENSION)
+    }
+
+    private fun familyObserved(
+        text: String,
+        regex: Regex,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): Boolean {
+        if (!classificationVocabularyPresent(text)) return regex.containsMatchIn(text)
+        return regex.findAll(text).any { match ->
+            OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                rawText = text,
+                classification = classification,
+                professionalStatus = professionalStatus,
+                targetOffset = match.range.first,
+                maxClassificationSpan = 320
+            )
+        }
+    }
+
+    private fun classificationVocabularyPresent(text: String): Boolean = classificationVocabulary.containsMatchIn(text)
+
+    private fun normalizeArticle(article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle): String =
+        OfficialKaliProfileMatcherV2.normalize(listOfNotNull(article.title, article.content).joinToString("\n"))
+
+    /**
+     * La preuve d'une garantie est bornée par les marqueurs des autres familles de garanties.
+     * Une formule située après « invalidité » ne peut donc jamais compléter un « capital décès »
+     * précédent (et inversement), même si les deux passages sont très proches dans l'article.
+     * S'il existe une famille précédente dans la fenêtre, on coupe au début de la famille
+     * courante : aucun résidu de formule de la garantie précédente n'est conservé.
+     */
+    private fun contextWindow(text: String, match: MatchResult, before: Int, after: Int): String {
+        val desiredStart = (match.range.first - before).coerceAtLeast(0)
+        val desiredEnd = (match.range.last + 1 + after).coerceAtMost(text.length)
+
+        val previousFamily = familyBoundaryRegex.findAll(text, desiredStart)
+            .takeWhile { it.range.first < match.range.first }
+            .lastOrNull()
+        val nextFamily = familyBoundaryRegex.find(text, (match.range.last + 1).coerceAtMost(text.length))
+
+        val start = if (previousFamily != null) match.range.first else desiredStart
+        val end = minOf(desiredEnd, nextFamily?.range?.first ?: desiredEnd)
+        return if (end > start) text.substring(start, end) else ""
+    }
+
+    private fun formulaLabel(value: ConventionProvidentBenefitV2.Formula): String = when (value.basis) {
+        ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY -> "${cleanPercent(value.coefficient)} du salaire annuel de référence"
+        ConventionProvidentBenefitV2.Basis.MONTHLY_REFERENCE_SALARY -> "${cleanPercent(value.coefficient)} du salaire mensuel de référence"
+        ConventionProvidentBenefitV2.Basis.PMSS -> "${value.coefficient} PMSS"
+        ConventionProvidentBenefitV2.Basis.FIXED_EURO -> "${value.fixedAmount} €"
+    }
+
+    private fun cleanPercent(value: Double?): String = value?.let { "${it * 100.0} %" } ?: "taux inconnu"
+    private fun parseNumber(raw: String): Double? = raw.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
+
+    private fun unresolved(reason: String) = Diagnostic(
+        rules = emptyList(),
+        observedFamilies = emptySet(),
+        structuredFamilies = emptySet(),
+        reasons = listOf("KALI garanties prévoyance : $reason ; aucun droit n'est enregistré.")
+    )
+
+    private val supportedAniCategories = setOf(
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+        ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+        ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
+    )
+    private val acceptedStatuses = setOf(
+        "VIGUEUR",
+        "VIGUEUR_ETEN",
+        "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
+        "VIGUEUR_PARTIELLE"
+    )
+    private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
+    private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
+
+    private val classificationVocabulary = Regex("\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b")
+    private val deathRegex = Regex("\\b(?:capital\\s+deces|capital\\s+en\\s+cas\\s+de\\s+deces)\\b")
+    private val incapacityRegex = Regex("\\b(?:incapacite\\s+temporaire|incapacite\\s+de\\s+travail)\\b")
+    private val invalidityRegex = Regex("\\binvalidite\\b")
+    private val spousePensionRegex = Regex("\\brente\\s+(?:de\\s+)?conjoint\\b")
+    private val educationPensionRegex = Regex("\\brente\\s+(?:d[' ]|de\\s+)?education\\b")
+    private val familyBoundaryRegex = Regex(
+        "\\b(?:capital\\s+deces|capital\\s+en\\s+cas\\s+de\\s+deces|incapacite\\s+temporaire|incapacite\\s+de\\s+travail|invalidite|rente\\s+(?:de\\s+)?conjoint|rente\\s+(?:d[' ]|de\\s+)?education)\\b"
+    )
+    private val incomeBenefitRegex = Regex("\\b(?:indemnite|indemnites|rente|prestation|prestations)\\b")
+    private val pensionRegex = Regex("\\brente\\b")
+
+    private val annualSalaryPercentRegex = Regex(
+        "(\\d+(?:[.,]\\d+)?)\\s*%[^.;]{0,90}?(?:salaire|remuneration|traitement)[^.;]{0,60}?(?:annuel|annuelle)"
+    )
+    private val monthlySalaryPercentRegex = Regex(
+        "(\\d+(?:[.,]\\d+)?)\\s*%[^.;]{0,90}?(?:salaire|remuneration|traitement)[^.;]{0,60}?(?:mensuel|mensuelle)"
+    )
+    private val pmssMultipleRegex = Regex(
+        "(\\d+(?:[.,]\\d+)?)\\s*(?:fois|x)\\s*(?:le\\s+)?(?:pmss|plafond mensuel(?: de la)? securite sociale)"
+    )
+    private val invalidityCategoryRegex = Regex("\\b([123])(?:re|ere|e|eme)?\\s+categorie\\b")
+    private val franchiseRegex = Regex("\\bfranchise\\s+(?:de\\s+)?(\\d{1,4})\\s+jours?\\b")
+    private val startDayRegex = Regex("\\ba compter du\\s+(\\d{1,4})(?:e|eme)?\\s+jour\\b")
+
+    private val deductSsRegex = Regex("\\b(?:sous deduction|deduction faite)[^.;]{0,120}?(?:securite sociale|ijss|indemnites journalieres)\\b")
+    private val includedSsRegex = Regex("\\b(?:y compris|incluant|prestations comprises)[^.;]{0,120}?(?:securite sociale|ijss|pension)\\b")
+    private val additionalSsRegex = Regex("\\b(?:en complement|s'ajoute|s'ajoutent)[^.;]{0,120}?(?:securite sociale|ijss|pension)\\b")
+
+    private val noSeniorityRegex = Regex("\\b(?:sans condition d'anciennete|sans anciennete|des l'embauche)\\b")
+    private val seniorityRegex = Regex("\\b(?:anciennete|apres|a compter de)\\s+(?:d[' ]|de\\s+)?(\\d{1,3})\\s*(ans?|mois)\\b")
+}

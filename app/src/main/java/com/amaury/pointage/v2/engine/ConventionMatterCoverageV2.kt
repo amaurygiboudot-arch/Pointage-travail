@@ -57,8 +57,15 @@ object ConventionMatterCoverageV2 {
         val state: State,
         val source: String,
         val checkedAtMs: Long,
-        /** Vide pour les anciennes données ; ne doit jamais être interprété comme une preuve implicite. */
-        val authorities: Set<Authority> = emptySet()
+        /** Autorités effectivement couvertes par le dernier audit ayant créé ce record. */
+        val authorities: Set<Authority> = emptySet(),
+        /**
+         * Autorités dont un chemin fiable a déjà été acquis pour cette identité juridique.
+         * Elles survivent à un refresh INCOMPLETE afin qu'une panne temporaire ne réactive jamais
+         * un moteur historique moins précis. Ce champ n'est pas une preuve que le dernier refresh
+         * est exploitable : `state` + `authorities` restent la preuve courante.
+         */
+        val acquiredAuthorities: Set<Authority> = emptySet()
     ) {
         fun structurallyValid(): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
             source.isNotBlank() &&
@@ -72,6 +79,9 @@ object ConventionMatterCoverageV2 {
             val wanted = professionalStatus?.trim()?.uppercase()
             return wanted == null || wanted == value?.trim()?.uppercase()
         }
+
+        fun hasAcquired(authority: Authority): Boolean =
+            authority in acquiredAuthorities || (state != State.INCOMPLETE && authority in authorities)
     }
 
     data class Snapshot(

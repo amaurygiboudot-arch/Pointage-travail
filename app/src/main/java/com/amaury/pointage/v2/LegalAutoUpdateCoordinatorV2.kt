@@ -27,7 +27,8 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_PUBLIC_HOLIDAYS",
         "KALI_MINIMUM_PAY",
         "KALI_SENIORITY",
-        "KALI_SICKNESS_MAINTENANCE"
+        "KALI_SICKNESS_MAINTENANCE",
+        "KALI_PROVIDENT"
     )
 
     data class Summary(
@@ -270,6 +271,55 @@ object LegalAutoUpdateCoordinatorV2 {
                     val summary = if (task.isSuccessful) task.result else null
                     (summary?.completed == true) to (summary?.saved == true)
                 }
+            "KALI_PROVIDENT" -> ApecProtectionCategoryAuditV2.audit(context, companyId, referenceDate)
+                .continueWithTask { categoryTask ->
+                    val category = if (categoryTask.isSuccessful) categoryTask.result else null
+                    if (category?.completed != true) {
+                        return@continueWithTask Tasks.forResult(
+                            false to (category?.savedApprovedRule == true)
+                        )
+                    }
+                    KaliProvidentContributionAuditV2.audit(context, companyId, referenceDate)
+                        .continueWithTask { contributionTask ->
+                            val contribution = if (contributionTask.isSuccessful) contributionTask.result else null
+                            if (contribution?.completed != true) {
+                                val gate = ProvidentLegalReanalysisGateV2.resolve(
+                                    category = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = true,
+                                        saved = category.savedApprovedRule
+                                    ),
+                                    contribution = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = false,
+                                        saved = contribution?.saved == true
+                                    ),
+                                    benefits = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = false,
+                                        saved = false
+                                    )
+                                )
+                                return@continueWithTask Tasks.forResult(gate.completed to gate.saved)
+                            }
+                            KaliProvidentBenefitAuditV2.audit(context, companyId, referenceDate)
+                                .continueWith { benefitTask ->
+                                    val benefits = if (benefitTask.isSuccessful) benefitTask.result else null
+                                    val gate = ProvidentLegalReanalysisGateV2.resolve(
+                                        category = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = true,
+                                            saved = category.savedApprovedRule
+                                        ),
+                                        contribution = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = true,
+                                            saved = contribution.saved
+                                        ),
+                                        benefits = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = benefits?.completed == true,
+                                            saved = (benefits?.savedRules ?: 0) > 0
+                                        )
+                                    )
+                                    gate.completed to gate.saved
+                                }
+                        }
+                }
             else -> Tasks.forResult(false to false)
         }
 
@@ -305,6 +355,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
         "KALI_SENIORITY" -> "KALI ancienneté"
         "KALI_SICKNESS_MAINTENANCE" -> "KALI maintien maladie"
+        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations + garanties)"
         else -> "KALI"
     }
 

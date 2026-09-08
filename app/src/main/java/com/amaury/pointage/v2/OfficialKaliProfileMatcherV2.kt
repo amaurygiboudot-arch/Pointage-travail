@@ -21,15 +21,96 @@ object OfficialKaliProfileMatcherV2 {
         val positionGroups = classificationPositionGroups(text, classification) ?: return emptyList()
         if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return emptyList()
 
-        val combinations = compactCombinations(positionGroups, maxClassificationSpan)
+        val combinations = compactCombinations(text, positionGroups, maxClassificationSpan)
         return combinations.mapNotNull { positions ->
             val first = positions.minOrNull() ?: return@mapNotNull null
             val last = positions.maxOrNull() ?: return@mapNotNull null
-            val start = (first - before).coerceAtLeast(0)
-            val end = (last + after).coerceAtMost(text.length)
+            val desiredStart = (first - before).coerceAtLeast(0)
+            val previousScope = classificationAnchorRegex.findAll(text)
+                .takeWhile { it.range.first < first }
+                .lastOrNull()
+            val start = maxOf(desiredStart, previousScope?.let { it.range.last + 1 } ?: 0)
+            val desiredEnd = (last + after).coerceAtMost(text.length)
+            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
+            val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
+            if (end <= start) return@mapNotNull null
             val window = text.substring(start, end)
             if (statusMatches(window, text, professionalStatus)) Window(window, start, end) else null
         }.distinctBy { it.start to it.endExclusive }
+    }
+
+    /**
+     * Retourne la fenêtre de portée de la classification exacte autour d'une occurrence métier.
+     * La fenêtre s'arrête avant toute nouvelle classification afin qu'un taux/une garantie du
+     * coefficient ou niveau suivant ne puisse jamais contaminer la clause courante.
+     */
+    fun nearestScopeWindow(
+        rawText: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String?,
+        targetOffset: Int,
+        before: Int = 140,
+        after: Int = 420,
+        maxClassificationSpan: Int = 450
+    ): Window? {
+        if (classification.isEmpty()) return null
+        val text = normalize(rawText)
+        if (targetOffset !in 0..text.length) return null
+        val positionGroups = classificationPositionGroups(text, classification) ?: return null
+        if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return null
+
+        val candidates = compactCombinations(text, positionGroups, maxClassificationSpan)
+            .filter { positions -> (positions.maxOrNull() ?: Int.MAX_VALUE) <= targetOffset }
+            .sortedByDescending { positions -> positions.maxOrNull() ?: Int.MIN_VALUE }
+
+        for (positions in candidates) {
+            val first = positions.minOrNull() ?: continue
+            val last = positions.maxOrNull() ?: continue
+            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
+            if (nextScope != null && nextScope.range.first < targetOffset) continue
+
+            val desiredStart = (first - before).coerceAtLeast(0)
+            val previousScope = classificationAnchorRegex.findAll(text)
+                .takeWhile { it.range.first < first }
+                .lastOrNull()
+            val start = maxOf(desiredStart, previousScope?.let { it.range.last + 1 } ?: 0)
+            val desiredEnd = (targetOffset + after).coerceAtMost(text.length)
+            val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
+            if (end <= targetOffset || end <= start) continue
+            val scoped = text.substring(start, end)
+            if (statusMatches(scoped, text, professionalStatus)) {
+                return Window(scoped, start, end)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Vérifie qu'une occurrence métier située à targetOffset dépend bien de la classification
+     * exacte du salarié et qu'aucune nouvelle portée de classification ne commence entre les deux.
+     */
+    fun nearestScopeMatches(
+        rawText: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String?,
+        targetOffset: Int,
+        maxClassificationSpan: Int = 450
+    ): Boolean = nearestScopeWindow(
+        rawText = rawText,
+        classification = classification,
+        professionalStatus = professionalStatus,
+        targetOffset = targetOffset,
+        maxClassificationSpan = maxClassificationSpan
+    ) != null
+
+    /**
+     * Vérifie le statut professionnel d'une clause sans exiger de classification. Si le texte
+     * ne distingue aucun statut, il est considéré général. S'il mélange plusieurs statuts dans
+     * la même portée, le résultat reste volontairement faux afin d'éviter toute extrapolation.
+     */
+    fun statusScopeMatches(rawText: String, professionalStatus: String?): Boolean {
+        val text = normalize(rawText)
+        return statusMatches(text, text, professionalStatus)
     }
 
     fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.FRANCE), Normalizer.Form.NFD)
@@ -66,7 +147,12 @@ object OfficialKaliProfileMatcherV2 {
         return groups
     }
 
-    private fun compactCombinations(groups: List<List<Int>>, maxSpan: Int): List<List<Int>> {
+    /**
+     * Assemble uniquement des critères appartenant à la même portée de classification.
+     * Si un marqueur de classification non sélectionné apparaît entre deux critères retenus,
+     * la combinaison traverse une ligne/section voisine et est rejetée.
+     */
+    private fun compactCombinations(text: String, groups: List<List<Int>>, maxSpan: Int): List<List<Int>> {
         if (groups.isEmpty()) return emptyList()
         val candidates = mutableListOf<List<Int>>()
         for (seed in groups.first()) {
@@ -79,7 +165,13 @@ object OfficialKaliProfileMatcherV2 {
                 min = minOf(min, nearest)
                 max = maxOf(max, nearest)
             }
-            if (positions.size == groups.size && max - min <= maxSpan) candidates += positions
+            if (positions.size != groups.size || max - min > maxSpan) continue
+
+            val selected = positions.toSet()
+            val crossesAnotherClassification = classificationAnchorRegex.findAll(text, min)
+                .takeWhile { it.range.first <= max }
+                .any { it.range.first !in selected }
+            if (!crossesAnotherClassification) candidates += positions
         }
         return candidates.distinctBy { it.sorted().joinToString(",") }
     }
@@ -109,6 +201,9 @@ object OfficialKaliProfileMatcherV2 {
     private fun labelRegex(label: String, raw: String): Regex =
         Regex("\\b$label\\s*[:.\\-]?\\s*${Regex.escape(normalize(raw))}\\b")
 
+    private val classificationAnchorRegex = Regex(
+        "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b"
+    )
     private val cadreRegex = Regex("\\b(?:cadre|cadres|ingenieur|ingenieurs)\\b")
     private val nonCadreRegexes = listOf(
         Regex("\\bnon[- ]cadres?\\b"),

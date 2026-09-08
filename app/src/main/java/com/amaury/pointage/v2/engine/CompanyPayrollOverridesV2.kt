@@ -9,6 +9,10 @@ import com.amaury.pointage.v2.CompanyHealthFamilyStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
+import com.amaury.pointage.v2.ConventionLegalProfileV2
+import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
+import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
+import com.amaury.pointage.v2.V2ConventionProvidentContributionStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.VerifiedProtectionCategoryProviderV2
@@ -95,6 +99,19 @@ object CompanyPayrollOverridesV2 {
             aniCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM,
             confirmed = false,
             warnings = listOf("Catégorie ANI vérifiée : à confirmer")
+        ),
+        /** Classification exacte utilisée par le moteur générique de prévoyance. */
+        val verifiedProvidentClassification:ConventionClassificationV2 = ConventionClassificationV2(),
+        /** Ancienneté conventionnelle locale, distincte de l'ancienneté contrat lorsque renseignée. */
+        val verifiedProvidentSeniorityMonths:Int? = null,
+        /** Règles de cotisation issues uniquement du store local KALI vérifié. */
+        val verifiedProvidentRules:List<ConventionProvidentContributionV2.Rule> = emptyList(),
+        /** Couverture juridique de la matière cotisations de prévoyance pour ce profil et cette période. */
+        val verifiedProvidentCoverage:ConventionMatterCoverageV2.Snapshot = ConventionMatterCoverageV2.Snapshot(
+            state = ConventionMatterCoverageV2.State.INCOMPLETE,
+            record = null,
+            reliable = false,
+            warnings = listOf("Prévoyance conventionnelle vérifiée : audit KALI à confirmer")
         )
     )
 
@@ -141,6 +158,31 @@ object CompanyPayrollOverridesV2 {
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
         val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
+        val legalProfile=ConventionLegalProfileV2.load(context,companyId)
+        val verifiedProvidentClassification=legalProfile?.classification ?: ConventionClassificationV2()
+        val verifiedProvidentSeniorityMonths=legalProfile?.let {
+            V2ConventionProvidentContributionBridge.seniorityMonths(it,referenceDate)
+        }
+        val verifiedProvidentRules=idcc?.let { V2ConventionProvidentContributionStore.rules(context,it) }.orEmpty()
+        val verifiedProvidentCoverage=if(
+            idcc!=null && !verifiedProvidentClassification.isEmpty() && professionalStatus!=null
+        ) {
+            V2ConventionMatterCoverageStore.resolve(
+                context=context,
+                idcc=idcc,
+                matter=ConventionMatterCoverageV2.Matter.PROVIDENT_CONTRIBUTION,
+                date=referenceDate,
+                classification=verifiedProvidentClassification,
+                professionalStatus=professionalStatus
+            )
+        } else {
+            ConventionMatterCoverageV2.Snapshot(
+                state=ConventionMatterCoverageV2.State.INCOMPLETE,
+                record=null,
+                reliable=false,
+                warnings=listOf("Prévoyance conventionnelle vérifiée : profil juridique incomplet")
+            )
+        }
         val alsaceMoselleLocalRegime=when(p.getString("alsace_moselle_local_regime","").orEmpty().trim().uppercase(Locale.ROOT)) {
             "YES" -> true
             "NO" -> false
@@ -172,6 +214,7 @@ object CompanyPayrollOverridesV2 {
         }else observedAbsenceImpact
         val warnings=buildList {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
+            if(legalProfile!=null && verifiedProvidentSeniorityMonths==null)add("Ancienneté conventionnelle vérifiée : à confirmer")
             addAll(absenceImpact.warnings)
             if(mutual==null)add("Mutuelle salariale : à confirmer")
             if(provident==null)add("Prévoyance salariale entreprise : à confirmer")
@@ -235,7 +278,11 @@ object CompanyPayrollOverridesV2 {
             employerReductionSource=reduction.source,
             employerReductionNote=reduction.note,
             employerReductionWarnings=reduction.warnings,
-            verifiedProtectionCategory=verifiedProtectionCategory.category
+            verifiedProtectionCategory=verifiedProtectionCategory.category,
+            verifiedProvidentClassification=verifiedProvidentClassification,
+            verifiedProvidentSeniorityMonths=verifiedProvidentSeniorityMonths,
+            verifiedProvidentRules=verifiedProvidentRules,
+            verifiedProvidentCoverage=verifiedProvidentCoverage
         )
     }
 

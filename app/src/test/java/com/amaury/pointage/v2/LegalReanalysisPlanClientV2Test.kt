@@ -18,10 +18,10 @@ class LegalReanalysisPlanClientV2Test {
                         "sourceFamily" to "bocc",
                         "scopeType" to "idcc",
                         "scopeValue" to "0292",
-                        "matterHints" to listOf("overtime", "night_work", "saturday", "sunday", "public_holidays", "minimum_pay", "seniority", "sickness_maintenance"),
+                        "matterHints" to listOf("overtime", "night_work", "saturday", "sunday", "public_holidays", "minimum_pay", "seniority", "sickness_maintenance", "provident"),
                         "targetSourceFamilies" to listOf("kali"),
                         "completedSourceFamilies" to listOf("kali"),
-                        "analysisKinds" to listOf("kali_overtime", "kali_night", "kali_saturday", "kali_sunday", "kali_public_holidays", "kali_minimum_pay", "kali_seniority", "kali_sickness_maintenance"),
+                        "analysisKinds" to listOf("kali_overtime", "kali_night", "kali_saturday", "kali_sunday", "kali_public_holidays", "kali_minimum_pay", "kali_seniority", "kali_sickness_maintenance", "kali_provident"),
                         "lastQueuedAtMs" to 900L,
                         "revalidationCompletedAtMs" to 1000L,
                         "payloadJson" to "ne-doit-pas-etre-utilise"
@@ -37,17 +37,17 @@ class LegalReanalysisPlanClientV2Test {
         assertEquals("BOCC", job.sourceFamily)
         assertEquals("IDCC", job.scopeType)
         assertEquals(
-            setOf("OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS", "MINIMUM_PAY", "SENIORITY", "SICKNESS_MAINTENANCE"),
+            setOf("OVERTIME", "NIGHT_WORK", "SATURDAY", "SUNDAY", "PUBLIC_HOLIDAYS", "MINIMUM_PAY", "SENIORITY", "SICKNESS_MAINTENANCE", "PROVIDENT"),
             job.matterHints
         )
         assertEquals(
-            setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS", "KALI_MINIMUM_PAY", "KALI_SENIORITY", "KALI_SICKNESS_MAINTENANCE"),
+            setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS", "KALI_MINIMUM_PAY", "KALI_SENIORITY", "KALI_SICKNESS_MAINTENANCE", "KALI_PROVIDENT"),
             job.analysisKinds
         )
     }
 
     @Test
-    fun `coordinateur autorise maladie mais garde prevoyance bloquee`() {
+    fun `coordinateur autorise maladie et chaine prevoyance verifiee`() {
         fun job(id: String, kinds: Set<String>, sourceFamily: String = "BOCC") = LegalReanalysisPlanClientV2.Job(
             jobId = id,
             revisionKey = "$id:1",
@@ -65,19 +65,20 @@ class LegalReanalysisPlanClientV2Test {
         val (kali, legi, acco) = LegalAutoUpdateCoordinatorV2.selectKinds(
             listOf(
                 job("k", setOf("KALI_OVERTIME", "KALI_NIGHT", "KALI_SATURDAY", "KALI_SUNDAY", "KALI_PUBLIC_HOLIDAYS", "KALI_MINIMUM_PAY", "KALI_SENIORITY", "KALI_SICKNESS_MAINTENANCE")),
-                job("blocked", setOf("KALI_PROVIDENT")),
+                job("provident", setOf("KALI_PROVIDENT")),
                 job("l", setOf("LEGI_ALL"), "JORF"),
                 job("a", setOf("ACCO_EXTRACT_CANDIDATES"), "ACCO")
             )
         )
 
-        assertEquals(listOf("k"), kali.map { it.jobId })
+        assertEquals(listOf("k", "provident"), kali.map { it.jobId })
         assertEquals(listOf("l"), legi.map { it.jobId })
         assertEquals(listOf("a"), acco.map { it.jobId })
-        assertTrue(kali.single().analysisKinds.contains("KALI_NIGHT"))
-        assertTrue(kali.single().analysisKinds.contains("KALI_MINIMUM_PAY"))
-        assertTrue(kali.single().analysisKinds.contains("KALI_SENIORITY"))
-        assertTrue(kali.single().analysisKinds.contains("KALI_SICKNESS_MAINTENANCE"))
+        assertTrue(kali.first { it.jobId == "k" }.analysisKinds.contains("KALI_NIGHT"))
+        assertTrue(kali.first { it.jobId == "k" }.analysisKinds.contains("KALI_MINIMUM_PAY"))
+        assertTrue(kali.first { it.jobId == "k" }.analysisKinds.contains("KALI_SENIORITY"))
+        assertTrue(kali.first { it.jobId == "k" }.analysisKinds.contains("KALI_SICKNESS_MAINTENANCE"))
+        assertTrue(kali.first { it.jobId == "provident" }.analysisKinds.contains("KALI_PROVIDENT"))
         assertTrue(acco.single().analysisKinds.contains("ACCO_EXTRACT_CANDIDATES"))
     }
 
