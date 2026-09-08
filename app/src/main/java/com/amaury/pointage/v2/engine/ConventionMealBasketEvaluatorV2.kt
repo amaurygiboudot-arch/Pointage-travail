@@ -45,6 +45,17 @@ object ConventionMealBasketEvaluatorV2 {
         val externalAgreementAmount: Double? = null
     )
 
+    /** Partie factuelle commune à une règle KALI ou ACCO déjà validée par sa propre chaîne. */
+    data class RuleSpec(
+        val deliveryMode: ConventionMealBasketV2.DeliveryMode,
+        val amountFormula: ConventionMealBasketV2.AmountFormula,
+        val eligibilityAnyOf: List<ConventionMealBasketV2.EligibilityGroup>,
+        val blockers: Set<ConventionMealBasketV2.Blocker>
+    ) {
+        fun structurallyValid(): Boolean = amountFormula.structurallyValid() &&
+            eligibilityAnyOf.isNotEmpty() && eligibilityAnyOf.all { it.structurallyValid() }
+    }
+
     data class Result(
         val eligibilityConfirmed: Boolean,
         val eligible: Boolean?,
@@ -58,10 +69,23 @@ object ConventionMealBasketEvaluatorV2 {
         facts: WorkFacts,
         amountContext: AmountContext = AmountContext()
     ): Result {
-        if (!rule.structurallyValid()) return unresolved("règle repas invalide")
+        if (!rule.structurallyValid()) return unresolved("règle repas KALI invalide")
+        return evaluate(
+            RuleSpec(rule.deliveryMode, rule.amountFormula, rule.eligibilityAnyOf, rule.blockers),
+            facts,
+            amountContext
+        )
+    }
+
+    fun evaluate(
+        spec: RuleSpec,
+        facts: WorkFacts,
+        amountContext: AmountContext = AmountContext()
+    ): Result {
+        if (!spec.structurallyValid()) return unresolved("règle repas structurée invalide")
         if (!facts.structurallyValid()) return unresolved("faits de travail invalides")
 
-        val groups = rule.eligibilityAnyOf.map { group -> evaluateGroup(group, facts) }
+        val groups = spec.eligibilityAnyOf.map { group -> evaluateGroup(group, facts) }
         val eligibility = when {
             groups.any { it == true } -> true
             groups.all { it == false } -> false
@@ -72,13 +96,13 @@ object ConventionMealBasketEvaluatorV2 {
         }
         if (eligibility == null) return unresolved("condition factuelle requise inconnue")
 
-        val blockers = rule.blockers.associateWith(facts::blockerValue)
+        val blockers = spec.blockers.associateWith(facts::blockerValue)
         if (blockers.any { it.value == true }) {
             return Result(true, false, true, 0.0, listOf("Panier / indemnité repas : avantage de même nature non cumulable déjà fourni."))
         }
         if (blockers.any { it.value == null }) return unresolved("non-cumul avec un avantage repas à confirmer")
 
-        if (rule.deliveryMode == ConventionMealBasketV2.DeliveryMode.EMPLOYER_MEAL_OR_CASH_IF_NOT_PROVIDED) {
+        if (spec.deliveryMode == ConventionMealBasketV2.DeliveryMode.EMPLOYER_MEAL_OR_CASH_IF_NOT_PROVIDED) {
             when (facts.employerMealProvided) {
                 true -> return Result(
                     eligibilityConfirmed = true,
@@ -92,9 +116,9 @@ object ConventionMealBasketEvaluatorV2 {
             }
         }
 
-        val amount = resolveAmount(rule.amountFormula, amountContext)
+        val amount = resolveAmount(spec.amountFormula, amountContext)
         if (amount == null) {
-            val reason = when (rule.amountFormula) {
+            val reason = when (spec.amountFormula) {
                 is ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple -> "minimum garanti applicable manquant"
                 ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount -> "montant de l'accord externe manquant"
                 is ConventionMealBasketV2.AmountFormula.FixedEuro -> "montant fixe invalide"
@@ -104,10 +128,7 @@ object ConventionMealBasketEvaluatorV2 {
         return Result(true, true, true, amount, listOf("Panier / indemnité repas calculé uniquement depuis la règle vérifiée."))
     }
 
-    private fun evaluateGroup(
-        group: ConventionMealBasketV2.EligibilityGroup,
-        facts: WorkFacts
-    ): Boolean? {
+    private fun evaluateGroup(group: ConventionMealBasketV2.EligibilityGroup, facts: WorkFacts): Boolean? {
         if (!group.structurallyValid()) return null
         var unknown = false
         group.allOf.forEach { condition ->
@@ -120,10 +141,7 @@ object ConventionMealBasketEvaluatorV2 {
         return if (unknown) null else true
     }
 
-    private fun evaluateCondition(
-        condition: ConventionMealBasketV2.Condition,
-        facts: WorkFacts
-    ): Boolean? = when (condition) {
+    private fun evaluateCondition(condition: ConventionMealBasketV2.Condition, facts: WorkFacts): Boolean? = when (condition) {
         ConventionMealBasketV2.Condition.WorkedDay -> facts.effectiveWork.isNotEmpty()
         ConventionMealBasketV2.Condition.PostedShiftWorker -> facts.postedShiftWorker
         ConventionMealBasketV2.Condition.UnableToReturnHomeForMeal -> facts.canReturnHomeForMeal?.not()
@@ -135,16 +153,9 @@ object ConventionMealBasketEvaluatorV2 {
             effectiveMinutesInWindow(facts, condition.window) >= condition.minimumMinutes
         is ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInEmployerWindow -> {
             val actual = facts.employerNightWindow
-            if (actual == null) {
-                null
-            } else if (
-                actual.durationMinutes() != condition.requiredWindowMinutes ||
-                !actual.containedIn(condition.allowedEnvelope)
-            ) {
-                null
-            } else {
-                effectiveMinutesInWindow(facts, actual) >= condition.minimumEffectiveMinutes
-            }
+            if (actual == null) null
+            else if (actual.durationMinutes() != condition.requiredWindowMinutes || !actual.containedIn(condition.allowedEnvelope)) null
+            else effectiveMinutesInWindow(facts, actual) >= condition.minimumEffectiveMinutes
         }
         is ConventionMealBasketV2.Condition.ShiftStartsOrEndsInWindow -> {
             val start = facts.shiftStart.hour * 60 + facts.shiftStart.minute
@@ -163,10 +174,7 @@ object ConventionMealBasketEvaluatorV2 {
         return false
     }
 
-    private fun effectiveMinutesInWindow(
-        facts: WorkFacts,
-        window: ConventionMealBasketV2.DailyWindow
-    ): Int {
+    private fun effectiveMinutesInWindow(facts: WorkFacts, window: ConventionMealBasketV2.DailyWindow): Int {
         if (!window.structurallyValid()) return 0
         var total = 0L
         var date = facts.shiftStart.toLocalDate().minusDays(1)
@@ -175,9 +183,7 @@ object ConventionMealBasketEvaluatorV2 {
             val windowStart = date.atStartOfDay().plusMinutes(window.startMinute.toLong())
             val windowEnd = if (window.crossesMidnight) {
                 date.plusDays(1).atStartOfDay().plusMinutes(window.endMinute.toLong())
-            } else {
-                date.atStartOfDay().plusMinutes(window.endMinute.toLong())
-            }
+            } else date.atStartOfDay().plusMinutes(window.endMinute.toLong())
             facts.effectiveWork.forEach { interval ->
                 val start = maxOf(interval.start, windowStart)
                 val end = minOf(interval.end, windowEnd)
@@ -188,14 +194,10 @@ object ConventionMealBasketEvaluatorV2 {
         return total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
-    private fun resolveAmount(
-        formula: ConventionMealBasketV2.AmountFormula,
-        context: AmountContext
-    ): Double? = when (formula) {
+    private fun resolveAmount(formula: ConventionMealBasketV2.AmountFormula, context: AmountContext): Double? = when (formula) {
         is ConventionMealBasketV2.AmountFormula.FixedEuro -> formula.amount.takeIf { formula.structurallyValid() }
         is ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple -> context.minimumGuaranteed
-            ?.takeIf { it.isFinite() && it >= 0.0 }
-            ?.times(formula.multiplier)
+            ?.takeIf { it.isFinite() && it >= 0.0 }?.times(formula.multiplier)
         ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount -> context.externalAgreementAmount
             ?.takeIf { it.isFinite() && it >= 0.0 }
     }
