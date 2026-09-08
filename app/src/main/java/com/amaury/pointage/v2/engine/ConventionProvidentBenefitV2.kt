@@ -26,7 +26,9 @@ object ConventionProvidentBenefitV2 {
     }
 
     enum class SocialSecurityTreatment {
-        /** Le texte ne rattache pas cette garantie à une prestation de Sécurité sociale. */
+        /** Le texte exploité ne permet pas de qualifier l'articulation avec la Sécurité sociale. */
+        UNKNOWN,
+        /** Cette famille n'est pas une prestation de remplacement liée aux prestations sociales. */
         NOT_APPLICABLE,
         /** La garantie s'ajoute explicitement aux prestations de Sécurité sociale. */
         ADDITIONAL_TO_SOCIAL_SECURITY,
@@ -55,13 +57,13 @@ object ConventionProvidentBenefitV2 {
         val family: Family,
         val label: String,
         val formula: Formula,
-        /** Franchise/carence explicitement prouvée ; null = le texte exploité n'en fixe pas. */
+        /** Franchise/carence explicitement prouvée. Pour l'incapacité, null signifie inconnue. */
         val waitingPeriodDays: Int? = null,
         /** Durée maximale explicitement prouvée ; null = aucune durée maximale structurée ici. */
         val maximumDurationDays: Int? = null,
         /** Catégorie d'invalidité 1/2/3 lorsqu'elle est explicitement visée. */
         val invalidityCategory: Int? = null,
-        val socialSecurityTreatment: SocialSecurityTreatment = SocialSecurityTreatment.NOT_APPLICABLE,
+        val socialSecurityTreatment: SocialSecurityTreatment = SocialSecurityTreatment.UNKNOWN,
         /** Article(s) KALI exact(s) ayant prouvé cette garantie. */
         val evidenceArticleIds: Set<String>
     ) {
@@ -72,7 +74,18 @@ object ConventionProvidentBenefitV2 {
             if (invalidityCategory != null && invalidityCategory !in 1..3) return false
             if (evidenceArticleIds.any { !it.trim().uppercase().matches(Regex("^KALIARTI\\d+$")) }) return false
             if (family != Family.INVALIDITY_PENSION && invalidityCategory != null) return false
-            return true
+
+            return when (family) {
+                Family.DEATH_CAPITAL ->
+                    waitingPeriodDays == null && socialSecurityTreatment == SocialSecurityTreatment.NOT_APPLICABLE
+                Family.INCAPACITY_INCOME_REPLACEMENT ->
+                    waitingPeriodDays != null && socialSecurityTreatment in incomeReplacementTreatments
+                Family.INVALIDITY_PENSION ->
+                    waitingPeriodDays == null && socialSecurityTreatment in incomeReplacementTreatments
+                Family.SPOUSE_PENSION,
+                Family.EDUCATION_PENSION ->
+                    waitingPeriodDays == null && socialSecurityTreatment == SocialSecurityTreatment.NOT_APPLICABLE
+            }
         }
     }
 
@@ -242,5 +255,11 @@ object ConventionProvidentBenefitV2 {
         ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
         ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE,
         ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2
+    )
+
+    private val incomeReplacementTreatments = setOf(
+        SocialSecurityTreatment.ADDITIONAL_TO_SOCIAL_SECURITY,
+        SocialSecurityTreatment.INCLUDED_IN_TARGET_TOTAL,
+        SocialSecurityTreatment.DEDUCT_SOCIAL_SECURITY
     )
 }
