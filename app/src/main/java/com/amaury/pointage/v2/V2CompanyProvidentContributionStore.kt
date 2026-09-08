@@ -39,7 +39,7 @@ object V2CompanyProvidentContributionStore {
         if (!acceptsVerifiedRule(rule, expectedSiret)) return false
 
         val current = rules(context, companyId).toMutableList()
-        current.removeAll { sameScope(it, rule) }
+        current.removeAll { sameLegalIdentity(it, rule) }
         current += normalized(rule)
         return SalaryCompanyStore.prefs(context, companyId)
             .edit()
@@ -81,6 +81,23 @@ object V2CompanyProvidentContributionStore {
         if (rule.evidenceExcerpt.isBlank()) return false
         return true
     }
+
+    /**
+     * Identité stable de la preuve juridique. Les valeurs calculables et l'ancienneté ne font pas
+     * partie de cette identité : si une réanalyse du même ACCOTEXT/profile/période les révise,
+     * l'ancienne variante doit être remplacée plutôt que conservée en parallèle.
+     */
+    internal fun sameLegalIdentity(
+        left: OfficialAccoProvidentContributionParserV2.Rule,
+        right: OfficialAccoProvidentContributionParserV2.Rule
+    ): Boolean =
+        left.agreementId.equals(right.agreementId, ignoreCase = true) &&
+            left.siret.filter(Char::isDigit) == right.siret.filter(Char::isDigit) &&
+            left.effectiveFrom == right.effectiveFrom &&
+            left.effectiveTo == right.effectiveTo &&
+            left.classification == right.classification &&
+            left.professionalStatus.equals(right.professionalStatus, ignoreCase = true) &&
+            left.basis == right.basis
 
     internal fun encodeRules(rules: List<OfficialAccoProvidentContributionParserV2.Rule>): String {
         val array = JSONArray()
@@ -141,19 +158,6 @@ object V2CompanyProvidentContributionStore {
         siret = rule.siret.filter(Char::isDigit),
         professionalStatus = rule.professionalStatus.trim().uppercase(Locale.ROOT)
     )
-
-    private fun sameScope(
-        left: OfficialAccoProvidentContributionParserV2.Rule,
-        right: OfficialAccoProvidentContributionParserV2.Rule
-    ): Boolean =
-        left.agreementId.equals(right.agreementId, ignoreCase = true) &&
-            left.siret.filter(Char::isDigit) == right.siret.filter(Char::isDigit) &&
-            left.effectiveFrom == right.effectiveFrom &&
-            left.effectiveTo == right.effectiveTo &&
-            left.classification == right.classification &&
-            left.professionalStatus.equals(right.professionalStatus, ignoreCase = true) &&
-            left.minimumSeniorityMonths == right.minimumSeniorityMonths &&
-            left.basis == right.basis
 
     private fun encodeClassification(value: ConventionClassificationV2): JSONObject = JSONObject()
         .put("coefficient", value.coefficient)
