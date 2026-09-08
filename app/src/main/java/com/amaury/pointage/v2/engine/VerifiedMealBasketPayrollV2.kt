@@ -73,7 +73,7 @@ object VerifiedMealBasketPayrollV2 {
                 val sessionFacts = workFacts(session, facts, zoneId)
                 if (sessionFacts == null) {
                     reliable = false
-                    warnings += "Panier : session ${session.id} non exploitable (horaires ou pauses incomplets) ; total mensuel non certifié."
+                    warnings += "Panier : session ${session.id} non exploitable (horaires ou pauses incomplets/incohérents) ; total mensuel non certifié."
                     return@sessionLoop
                 }
                 val day = sessionFacts.shiftStart.toLocalDate()
@@ -144,33 +144,28 @@ object VerifiedMealBasketPayrollV2 {
             ?: session.countedEntryMs ?: session.realArrivalMs ?: return null
         val rawExit = session.countedExitMs ?: session.realExitMs ?: return null
         if (rawExit <= rawEntry) return null
+        if (session.legacyFixedUnpaidPauseMs < 0L || session.legacyFixedUnpaidPauseMs > rawExit - rawEntry) return null
 
         val shiftStart = toLocal(rawEntry, zoneId)
         val shiftEnd = toLocal(rawExit, zoneId)
         val pauseRanges = session.pauses.map { pause ->
             val end = pause.endMs ?: return null
-            maxOf(rawEntry, pause.startMs) to minOf(rawExit, end)
-        }.filter { (start, end) -> end > start }
-            .sortedBy { it.first }
+            // Une pause inversée, qui déborde ou qui est entièrement hors session est une donnée
+            // incohérente. On ne la clippe jamais silencieusement avant de certifier un droit.
+            if (end <= pause.startMs || pause.startMs < rawEntry || end > rawExit) return null
+            pause.startMs to end
+        }.sortedBy { it.first }
         if (pauseRanges.zipWithNext().any { (a, b) -> b.first < a.second }) return null
 
         val effective = mutableListOf<ConventionMealBasketEvaluatorV2.WorkInterval>()
         var cursor = rawEntry
         pauseRanges.forEach { (pauseStart, pauseEnd) ->
             if (pauseStart > cursor) {
-                effective += ConventionMealBasketEvaluatorV2.WorkInterval(
-                    toLocal(cursor, zoneId),
-                    toLocal(pauseStart, zoneId)
-                )
+                effective += interval(cursor, pauseStart, zoneId)
             }
-            cursor = maxOf(cursor, pauseEnd)
+            cursor = pauseEnd
         }
-        if (cursor < rawExit) {
-            effective += ConventionMealBasketEvaluatorV2.WorkInterval(
-                toLocal(cursor, zoneId),
-                shiftEnd
-            )
-        }
+        if (cursor < rawExit) effective += interval(cursor, rawExit, zoneId)
 
         return ConventionMealBasketEvaluatorV2.WorkFacts(
             shiftStart = shiftStart,
@@ -184,9 +179,21 @@ object VerifiedMealBasketPayrollV2 {
             employerMealProvided = defaults.employerMealProvided,
             mealVoucherProvided = defaults.mealVoucherProvided,
             otherSameNatureMealBenefit = defaults.otherSameNatureMealBenefit,
-            employerNightWindow = defaults.employerNightWindow
+            employerNightWindow = defaults.employerNightWindow,
+            shiftStartInstant = Instant.ofEpochMilli(rawEntry),
+            shiftEndInstant = Instant.ofEpochMilli(rawExit),
+            zoneId = zoneId,
+            unlocatedUnpaidPauseMs = session.legacyFixedUnpaidPauseMs
         )
     }
+
+    private fun interval(startMs: Long, endMs: Long, zoneId: ZoneId) =
+        ConventionMealBasketEvaluatorV2.WorkInterval(
+            start = toLocal(startMs, zoneId),
+            end = toLocal(endMs, zoneId),
+            startInstant = Instant.ofEpochMilli(startMs),
+            endInstant = Instant.ofEpochMilli(endMs)
+        )
 
     private fun toLocal(epochMs: Long, zoneId: ZoneId): LocalDateTime =
         Instant.ofEpochMilli(epochMs).atZone(zoneId).toLocalDateTime()
