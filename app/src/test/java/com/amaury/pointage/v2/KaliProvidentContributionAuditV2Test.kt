@@ -41,6 +41,14 @@ class KaliProvidentContributionAuditV2Test {
         extensionEffectiveFrom = extensionEffectiveFrom
     )
 
+    private fun exclusion(
+        extensionEffectiveFrom: LocalDate? = LocalDate.of(2025, 1, 1)
+    ) = KaliProvidentContributionAuditV2.ExclusionEvidence(
+        articleId = "KALIARTI000000000099",
+        conventionScopeKey = "KALITEXT000000000099",
+        extensionEffectiveFrom = extensionEffectiveFrom
+    )
+
     @Test
     fun `couverture complete plus regle sauvegardee et extension active confirme les regles`() {
         val result = KaliProvidentContributionAuditV2.evaluateCompletion(
@@ -81,11 +89,53 @@ class KaliProvidentContributionAuditV2Test {
     }
 
     @Test
-    fun `absence de regle ne devient jamais absence de cotisation`() {
+    fun `absence de regle sans exclusion explicite ne devient jamais absence de cotisation`() {
         val result = KaliProvidentContributionAuditV2.evaluateCompletion(
             technicalCoverageComplete = true,
             rule = null,
             saved = false,
+            referenceDate = referenceDate
+        )
+
+        assertFalse(result.completed)
+        assertEquals(ConventionMatterCoverageV2.State.INCOMPLETE, result.state)
+    }
+
+    @Test
+    fun `exclusion explicite et etendue confirme absence de cotisation`() {
+        val result = KaliProvidentContributionAuditV2.evaluateCompletion(
+            technicalCoverageComplete = true,
+            rule = null,
+            saved = false,
+            exclusion = exclusion(),
+            referenceDate = referenceDate
+        )
+
+        assertTrue(result.completed)
+        assertEquals(ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE, result.state)
+    }
+
+    @Test
+    fun `exclusion future ne confirme jamais absence de cotisation actuelle`() {
+        val result = KaliProvidentContributionAuditV2.evaluateCompletion(
+            technicalCoverageComplete = true,
+            rule = null,
+            saved = false,
+            exclusion = exclusion(LocalDate.of(2027, 1, 1)),
+            referenceDate = referenceDate
+        )
+
+        assertFalse(result.completed)
+        assertEquals(ConventionMatterCoverageV2.State.INCOMPLETE, result.state)
+    }
+
+    @Test
+    fun `barème positif et exclusion explicite se contredisent`() {
+        val result = KaliProvidentContributionAuditV2.evaluateCompletion(
+            technicalCoverageComplete = true,
+            rule = rule(),
+            saved = true,
+            exclusion = exclusion(),
             referenceDate = referenceDate
         )
 
