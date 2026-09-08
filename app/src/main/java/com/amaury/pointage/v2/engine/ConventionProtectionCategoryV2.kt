@@ -166,9 +166,14 @@ object ConventionProtectionCategoryV2 {
     ): Boolean {
         if (coverage?.reliable != true || coverage.state != ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE) return false
         val record = coverage.record ?: return false
+        val requiredAuthorities = setOf(
+            ConventionMatterCoverageV2.Authority.KALI,
+            ConventionMatterCoverageV2.Authority.APEC
+        )
         return record.structurallyValid() &&
             record.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE &&
             record.matter == ConventionMatterCoverageV2.Matter.PROVIDENT_CATEGORY &&
+            record.authorities.containsAll(requiredAuthorities) &&
             ConventionMinimumSalaryV2.normalizeIdcc(record.idcc) == idcc &&
             record.activeOn(referenceDate) &&
             classification.matches(record.classification) &&
