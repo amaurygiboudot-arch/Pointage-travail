@@ -5,6 +5,7 @@ import com.amaury.pointage.v2.CompanyPremiumStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.MayFirstLegalRuleStoreV2
+import com.amaury.pointage.v2.MealBasketLegalProviderV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ConventionMinimumSalaryBridge
 import com.amaury.pointage.v2.V2ConventionRuleStore
@@ -19,7 +20,6 @@ import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
 import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
 import com.amaury.pointage.v2.engine.MayFirstPayrollAdjustmentV2
-import com.amaury.pointage.v2.engine.MealBasketPolicyV2
 import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
 import com.amaury.pointage.v2.engine.NightPremiumPolicyV2
 import com.amaury.pointage.v2.engine.OvertimeLegalArbitrationBridgeV2
@@ -32,6 +32,7 @@ import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
+import com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
@@ -118,15 +119,19 @@ object V2SalaryAdapter {
    conventionClassificationLabel=conventionMinimum.classification.takeIf{!it.isEmpty()}?.label(),
    seniorityPremiumGross=seniority.monthlyAmount?.takeIf{seniority.reliable}
   )
-  val mealAmount=prefs.getString("meal_amount","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it.isFinite()&&it>=0.0}
-  val meals=MealBasketPolicyV2.calculate(runtimeSessions,year,month,acceptedIds,mealAmount)
+  val mealLegal=MealBasketLegalProviderV2.load(
+   context=context,companyId=company.id,expectedIdcc=convention.idcc,referenceDate=period.referenceDate
+  )
+  val meals=VerifiedMealBasketPayrollV2.calculate(
+   sessions=runtimeSessions,year=year,monthZeroBased=month,acceptedEmployerIds=acceptedIds,arbitration=mealLegal.resolution
+  )
   val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
   val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
   val legalWarnings=buildList{
    if(legalSnapshot.records.isEmpty())add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
    else if(!legalSnapshot.complete)add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
   }
-  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.amountPerBasket,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct())
+  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+mealLegal.warnings+meals.warnings+legalWarnings).distinct())
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
