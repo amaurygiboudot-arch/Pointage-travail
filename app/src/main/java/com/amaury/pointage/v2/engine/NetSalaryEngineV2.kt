@@ -89,11 +89,12 @@ object NetSalaryEngineV2 {
             protectionCategory = company.verifiedProtectionCategory
         )
 
-        // Phase de migration : le nouveau chemin KALI prend la main dès que la couverture officielle
-        // est fiable pour ce profil, qu'elle confirme un barème ou qu'elle confirme explicitement
-        // l'absence de cotisation conventionnelle. Dans ces deux cas, aucun repli Plasturgie ne doit
-        // pouvoir réintroduire une cotisation contredite par la preuve KALI courante.
-        val verifiedProvidentCoverageTrusted = company.verifiedProvidentCoverage.reliable &&
+        // Phase de migration : le nouveau chemin KALI prend la main dès que la catégorie ANI
+        // courante est confirmée et que la couverture officielle est fiable pour ce profil,
+        // qu'elle confirme un barème ou explicitement l'absence de cotisation conventionnelle.
+        // Dans ces deux cas, aucun repli Plasturgie ne doit réintroduire une cotisation contredite.
+        val verifiedProvidentCoverageTrusted = company.verifiedProtectionCategory.confirmed &&
+            company.verifiedProvidentCoverage.reliable &&
             company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
         val verifiedProvidentRulesPath = verifiedProvidentCoverageTrusted &&
             company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
