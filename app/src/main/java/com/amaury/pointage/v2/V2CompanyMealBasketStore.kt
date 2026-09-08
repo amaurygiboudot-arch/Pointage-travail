@@ -18,16 +18,45 @@ object V2CompanyMealBasketStore {
         return load(context, companyId).filter { it.siret == siret && it.structurallyValid() }
     }
 
-    fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean {
-        if (companyId.isBlank() || !rule.structurallyValid()) return false
+    /**
+     * Stocke en une seule écriture tout le paquet d'un même accord/profil.
+     *
+     * Aucune règle n'est rendue visible si le paquet n'est pas intégralement valide ou si le commit
+     * SharedPreferences échoue. Cela interdit qu'un accord multi-règles soit consommé partiellement.
+     */
+    fun saveVerifiedPackage(
+        context: Context,
+        companyId: String,
+        rules: List<OfficialAccoMealBasketParserV2.Rule>
+    ): Boolean {
+        if (companyId.isBlank() || rules.isEmpty() || rules.any { !it.structurallyValid() }) return false
+
+        val agreementIds = rules.map { it.agreementId }.toSet()
+        val sirets = rules.map { it.siret }.toSet()
+        val classifications = rules.map { it.classification.normalized() }.toSet()
+        val statuses = rules.map { it.professionalStatus }.toSet()
+        if (agreementIds.size != 1 || sirets.size != 1 || classifications.size != 1 || statuses.size != 1) return false
+
         val current = load(context, companyId).toMutableList()
-        current.removeAll { sameLegalIdentity(it, rule) }
-        current += rule
+        val sample = rules.first()
+        current.removeAll { stored ->
+            stored.agreementId == sample.agreementId &&
+                stored.siret == sample.siret &&
+                stored.classification.normalized() == sample.classification.normalized() &&
+                stored.professionalStatus == sample.professionalStatus
+        }
+        current += rules.distinctBy { it.fingerprint }
+
         val array = JSONArray()
         current.takeLast(MAX_RULES).forEach { array.put(encode(it)) }
         return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(companyId, array.toString()).commit()
+            .edit()
+            .putString(companyId, array.toString())
+            .commit()
     }
+
+    fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean =
+        saveVerifiedPackage(context, companyId, listOf(rule))
 
     internal fun sameLegalIdentity(
         left: OfficialAccoMealBasketParserV2.Rule,
