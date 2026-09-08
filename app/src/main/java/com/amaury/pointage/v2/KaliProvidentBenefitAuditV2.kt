@@ -177,7 +177,8 @@ object KaliProvidentBenefitAuditV2 {
                 structuredFamilies = diagnostic.structuredFamilies,
                 exclusions = exclusions,
                 resolutionReliable = !positiveRulesExist || resolution.reliable,
-                referenceDate = referenceDate
+                referenceDate = referenceDate,
+                unresolvedOccurrenceFamilies = diagnostic.unresolvedOccurrenceFamilies
             )
 
             markCoverage(
@@ -233,11 +234,17 @@ object KaliProvidentBenefitAuditV2 {
         structuredFamilies: Set<ConventionProvidentBenefitV2.Family>,
         exclusions: List<ExclusionEvidence>,
         resolutionReliable: Boolean,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        unresolvedOccurrenceFamilies: Set<ConventionProvidentBenefitV2.Family> = emptySet()
     ): Completion {
         val excludedFamilies = exclusions.map { it.family }.toSet()
         val contradictions = structuredFamilies intersect excludedFamilies
         val unresolvedObserved = observedFamilies - structuredFamilies - excludedFamilies
+        // Une clause d'exclusion explicite peut être repérée comme occurrence non structurée par
+        // le parseur : elle est neutralisée uniquement si l'exclusion correspondante est elle-même
+        // prouvée. Une occurrence positive incomplète reste bloquante même si une autre occurrence
+        // de la même famille a été correctement structurée.
+        val unresolvedOccurrences = unresolvedOccurrenceFamilies - excludedFamilies
         val covered = structuredFamilies + excludedFamilies
         val coreComplete = covered.containsAll(CORE_FAMILIES)
         val allRulesSaved = rules.all { it.ruleId in savedRuleIds }
@@ -253,6 +260,7 @@ object KaliProvidentBenefitAuditV2 {
         val completed = technicalCoverageComplete &&
             coreComplete &&
             unresolvedObserved.isEmpty() &&
+            unresolvedOccurrences.isEmpty() &&
             contradictions.isEmpty() &&
             allRulesSaved &&
             allRulesExtended &&
@@ -271,6 +279,9 @@ object KaliProvidentBenefitAuditV2 {
                 if (!technicalCoverageComplete) add("KALI garanties : couverture technique des recherches incomplète.")
                 if (!coreComplete) add("KALI garanties : décès, incapacité et invalidité ne sont pas toutes prouvées ou explicitement exclues.")
                 if (unresolvedObserved.isNotEmpty()) add("KALI garanties : ${unresolvedObserved.joinToString()} mentionnée(s) mais non structurée(s).")
+                if (unresolvedOccurrences.isNotEmpty()) {
+                    add("KALI garanties : occurrence(s) ${unresolvedOccurrences.joinToString()} non structurée(s) malgré une autre preuve de la même famille ; complétude bloquée.")
+                }
                 if (contradictions.isNotEmpty()) add("KALI garanties : contradiction présence/exclusion pour ${contradictions.joinToString()}.")
                 if (!allRulesSaved) add("KALI garanties : toutes les règles structurées n'ont pas été enregistrées.")
                 if (!allRulesExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les garanties structurées.")
