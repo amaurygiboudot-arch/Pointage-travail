@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentContributionV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.LocalDate
@@ -164,7 +165,7 @@ object KaliProvidentContributionAuditV2 {
                 evidence = evidence
             )
             val rule = diagnostic.rule
-            val exclusion = explicitExclusion(profile, evidence)
+            val exclusion = explicitExclusion(profile, category.category, evidence)
             var saved = false
             var saveError: String? = null
             if (rule != null) {
@@ -262,9 +263,13 @@ object KaliProvidentContributionAuditV2 {
 
     internal fun explicitExclusion(
         profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.Result,
         evidence: KaliMatterEvidenceAuditV2.Evidence
     ): ExclusionEvidence? {
         if (profile.classification.isEmpty()) return null
+        if (!protectionCategory.confirmed) return null
+        val category = protectionCategory.aniCategory
+        if (category !in supportedAniCategories) return null
         val status = profile.professionalStatus?.trim()?.uppercase(Locale.ROOT)
             ?.takeIf { it == "CADRE" || it == "NON_CADRE" }
             ?: return null
@@ -287,7 +292,7 @@ object KaliProvidentContributionAuditV2 {
                 )?.trim()?.uppercase(Locale.ROOT) ?: return@articleLoop
             if (!scope.matches(kaliTextIdRegex)) return@articleLoop
 
-            // Le titre peut porter le périmètre (cadres, coefficient, niveau...), mais ses mots
+            // Le titre peut porter le périmètre (cadres, coefficient, niveau, ANI...), mais ses mots
             // "cotisation/contribution" ne constituent jamais une preuve métier. Les mentions et
             // exclusions sont donc lues uniquement dans le corps, avec la portée titre+corps.
             val title = OfficialKaliProfileMatcherV2.normalize(article.title.orEmpty())
@@ -296,13 +301,18 @@ object KaliProvidentContributionAuditV2 {
             val bodyOffsetInScope = if (title.isBlank()) 0 else title.length + 1
             val classified = classificationVocabulary.containsMatchIn(scopeText)
             val profileMentions = contributionMentionRegex.findAll(body).filter { match ->
-                profileMatchesAt(
+                val statusAndClassificationMatch = profileMatchesAt(
                     text = scopeText,
                     classified = classified,
                     profile = profile,
                     status = status,
                     offset = bodyOffsetInScope + match.range.first
                 )
+                if (!statusAndClassificationMatch) return@filter false
+
+                val clause = clauseAround(body, match.range.first)
+                val aniText = if (OfficialKaliAniScopeMatcherV2.hasExplicitScope(clause)) clause else scopeText
+                OfficialKaliAniScopeMatcherV2.matches(aniText, category)
             }.toList()
             if (profileMentions.isEmpty()) return@articleLoop
 
@@ -390,6 +400,12 @@ object KaliProvidentContributionAuditV2 {
         )
     }
 
+    private val supportedAniCategories = setOf(
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+        ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+        ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
+    )
     private val acceptedArticleStatuses = setOf(
         "VIGUEUR",
         "VIGUEUR_ETEN",
