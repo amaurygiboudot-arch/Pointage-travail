@@ -25,6 +25,7 @@ class ConventionProvidentBenefitV2Test {
             basis = ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY,
             coefficient = coefficient
         ),
+        socialSecurityTreatment = ConventionProvidentBenefitV2.SocialSecurityTreatment.NOT_APPLICABLE,
         evidenceArticleIds = setOf(articleId)
     )
 
