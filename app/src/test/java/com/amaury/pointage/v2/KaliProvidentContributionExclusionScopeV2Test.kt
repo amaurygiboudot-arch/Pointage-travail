@@ -25,7 +25,10 @@ class KaliProvidentContributionExclusionScopeV2Test {
         forfaitAnnualDays = null
     )
 
-    private fun evidence(content: String) = KaliMatterEvidenceAuditV2.Evidence(
+    private fun evidence(
+        content: String,
+        title: String = "Cotisations du régime de prévoyance"
+    ) = KaliMatterEvidenceAuditV2.Evidence(
         idcc = "292",
         referenceDate = date,
         expressions = listOf("prévoyance cotisation"),
@@ -44,7 +47,7 @@ class KaliProvidentContributionExclusionScopeV2Test {
                 content = content,
                 effectiveFrom = LocalDate.of(2025, 1, 1),
                 effectiveTo = null,
-                title = "Cotisations du régime de prévoyance",
+                title = title,
                 extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
             )
         ),
@@ -71,6 +74,45 @@ class KaliProvidentContributionExclusionScopeV2Test {
         )
 
         assertNull(result)
+    }
+
+    @Test
+    fun `titre cadres restreint une exclusion generale du corps`() {
+        val result = KaliProvidentContributionAuditV2.explicitExclusion(
+            profile("NON_CADRE"),
+            evidence(
+                content = "Aucune cotisation de prevoyance.",
+                title = "Cadres - cotisations du régime de prévoyance"
+            )
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `titre coefficient voisin restreint une exclusion generale du corps`() {
+        val result = KaliProvidentContributionAuditV2.explicitExclusion(
+            profile(),
+            evidence(
+                content = "Aucune cotisation de prevoyance.",
+                title = "Coefficient 920 - cotisations du régime de prévoyance"
+            )
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `titre generique cotisations ne vaut pas mention positive`() {
+        val result = KaliProvidentContributionAuditV2.explicitExclusion(
+            profile(),
+            evidence(
+                content = "Aucune cotisation de prevoyance.",
+                title = "Cotisations du régime de prévoyance"
+            )
+        )
+
+        assertNotNull(result)
     }
 
     @Test
