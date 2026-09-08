@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -15,10 +16,11 @@ class PayrollSourceKnowledgeProofV2Test {
         coverageThrough: LocalDate = date,
         exhaustive: Boolean = true,
         scopeConfirmed: Boolean = true,
-        outcome: PayrollSourceKnowledgeProofV2.Outcome = PayrollSourceKnowledgeProofV2.Outcome.NO_APPLICABLE_RULE
+        outcome: PayrollSourceKnowledgeProofV2.Outcome = PayrollSourceKnowledgeProofV2.Outcome.NO_APPLICABLE_RULE,
+        matter: PayrollSourceKnowledgeProofV2.Matter = PayrollSourceKnowledgeProofV2.Matter.OVERTIME_RATE
     ) = PayrollSourceKnowledgeProofV2.Proof(
         source = source,
-        matter = PayrollSourceKnowledgeProofV2.Matter.OVERTIME_RATE,
+        matter = matter,
         companyId = companyId,
         idcc = idcc,
         referenceFrom = date,
@@ -121,5 +123,46 @@ class PayrollSourceKnowledgeProofV2Test {
         )
 
         assertFalse(knowledge.containsKey(PayrollLegalArbitratorV2.Source.ACCO))
+    }
+
+    @Test
+    fun `absence ACCO prevoyance est isolee de la preuve heures supplementaires`() {
+        val providentProof = proof(
+            source = PayrollLegalArbitratorV2.Source.ACCO,
+            matter = PayrollSourceKnowledgeProofV2.Matter.PROVIDENT_CONTRIBUTION
+        )
+
+        val provident = PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            proofs = listOf(providentProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date
+        )
+        val overtime = PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
+            proofs = listOf(providentProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date
+        )
+
+        assertEquals(
+            PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE,
+            provident[PayrollLegalArbitratorV2.Source.ACCO]
+        )
+        assertTrue(overtime.isEmpty())
+    }
+
+    @Test
+    fun `preuve heures supplementaires ne deverrouille jamais la prevoyance`() {
+        val overtimeProof = proof(PayrollLegalArbitratorV2.Source.ACCO)
+
+        val provident = PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            proofs = listOf(overtimeProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date
+        )
+
+        assertTrue(provident.isEmpty())
     }
 }
