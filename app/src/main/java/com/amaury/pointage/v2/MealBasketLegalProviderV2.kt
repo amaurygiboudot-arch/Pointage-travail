@@ -10,8 +10,8 @@ import java.time.LocalDate
  * Charge uniquement les preuves locales nécessaires à l'arbitrage des paniers repas.
  *
  * Une règle KALI en cache n'est jamais utilisée sans couverture MEAL_BASKET fiable pour le profil
- * et la date. Une règle ACCO reste liée au SIRET exact. Les absences de règle ACCO sont lues dans
- * le journal de preuves explicites, séparément pour chaque objet de panier.
+ * et la date. Une règle ACCO reste liée au SIRET exact et doit provenir d'un paquet dont le dernier
+ * état d'audit persistant est complet. Toute occurrence ACCO non résolue bloque la paie.
  */
 object MealBasketLegalProviderV2 {
     data class Snapshot(
@@ -39,9 +39,43 @@ object MealBasketLegalProviderV2 {
             return blocked("IDCC du profil différent de l'IDCC demandé")
         }
         val normalizedSiret = profile.siret.filter(Char::isDigit)
-        if (normalizedSiret.length != 14 || profile.classification.isEmpty() || profile.professionalStatus == null) {
+        val status = profile.professionalStatus?.trim()?.uppercase()
+        if (normalizedSiret.length != 14 || profile.classification.isEmpty() || status == null) {
             return blocked("SIRET, classification ou statut professionnel incomplet")
         }
+
+        val unresolvedAcco = V2CompanyMealBasketAuditStateStore.unresolvedFor(
+            context = context,
+            companyId = companyId,
+            expectedSiret = normalizedSiret,
+            classification = profile.classification,
+            professionalStatus = status
+        )
+        if (unresolvedAcco.isNotEmpty()) {
+            return blocked(
+                "audit ACCO repas incomplet pour ${unresolvedAcco.joinToString { it.agreementId }} ; une règle ancienne ne peut pas masquer l'incertitude"
+            )
+        }
+
+        val storedCompany = V2CompanyMealBasketStore.rules(
+            context = context,
+            companyId = companyId,
+            expectedSiret = normalizedSiret
+        )
+        val completeAgreementIds = V2CompanyMealBasketAuditStateStore.completeAgreementIdsFor(
+            context = context,
+            companyId = companyId,
+            expectedSiret = normalizedSiret,
+            classification = profile.classification,
+            professionalStatus = status
+        )
+        val unmarkedCompanyRules = storedCompany.filter { it.agreementId !in completeAgreementIds }
+        if (unmarkedCompanyRules.isNotEmpty()) {
+            return blocked(
+                "règle(s) ACCO repas issue(s) d'un ancien cache sans marqueur d'audit complet ; nouvel audit requis avant calcul"
+            )
+        }
+        val companyRules = storedCompany.filter { it.agreementId in completeAgreementIds }
 
         val coverage = V2ConventionMatterCoverageStore.resolve(
             context = context,
@@ -57,11 +91,6 @@ object MealBasketLegalProviderV2 {
             coverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
         val branchRules = if (branchTrusted) storedBranch else emptyList()
 
-        val companyRules = V2CompanyMealBasketStore.rules(
-            context = context,
-            companyId = companyId,
-            expectedSiret = normalizedSiret
-        )
         val subjects = (branchRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) } +
             companyRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) })
             .toSortedSet()
