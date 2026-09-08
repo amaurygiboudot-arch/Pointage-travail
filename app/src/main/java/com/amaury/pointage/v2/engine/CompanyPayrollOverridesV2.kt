@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.VerifiedProtectionCategoryProviderV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import java.time.Instant
 import java.time.LocalDate
@@ -67,14 +68,14 @@ object CompanyPayrollOverridesV2 {
         /** Tranche d'effectif social confirmée pour FNAL/formation. */
         val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
         val employerWorkforceSource:String?=null,
-        /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
+        /** Avertissements patronaux d'effectif, séparés du net salarié. */
         val employerWorkforceWarnings:List<String> = emptyList(),
         /** Taux maladie employeur confirmé pour la période. */
         val employerHealthRate:Double?=null,
         /** Taux allocations familiales employeur confirmé pour la période. */
         val employerFamilyRate:Double?=null,
         val employerHealthFamilySource:String?=null,
-        /** Avertissements patronaux maladie/AF, séparés de la fiabilité du net salarié. */
+        /** Avertissements patronaux maladie/AF, séparés du net salarié. */
         val employerHealthFamilyWarnings:List<String> = emptyList(),
         /** Taux de part principale de taxe d'apprentissage confirmé pour la période. */
         val employerApprenticeshipPrincipalRate:Double?=null,
@@ -88,7 +89,13 @@ object CompanyPayrollOverridesV2 {
         val employerReductionSource:String?=null,
         val employerReductionNote:String?=null,
         /** Avertissements propres aux réductions/exonérations, hors net salarié. */
-        val employerReductionWarnings:List<String> = emptyList()
+        val employerReductionWarnings:List<String> = emptyList(),
+        /** Catégorie ANI générique issue uniquement des preuves locales KALI + APEC. */
+        val verifiedProtectionCategory:ProtectionCategoryV2.Result = ProtectionCategoryV2.Result(
+            aniCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM,
+            confirmed = false,
+            warnings = listOf("Catégorie ANI vérifiée : à confirmer")
+        )
     )
 
     fun load(
@@ -133,6 +140,7 @@ object CompanyPayrollOverridesV2 {
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
         val conventionCoefficient=p.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
         val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,referenceDate,conventionCoefficient)
+        val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
         val alsaceMoselleLocalRegime=when(p.getString("alsace_moselle_local_regime","").orEmpty().trim().uppercase(Locale.ROOT)) {
             "YES" -> true
             "NO" -> false
@@ -177,6 +185,7 @@ object CompanyPayrollOverridesV2 {
             addAll(benefitsInKind.warnings)
             addAll(mobility.warnings)
             addAll(protectionCategory.warnings)
+            addAll(verifiedProtectionCategory.warnings)
             if(ignoreAbsencesForTheoreticalBase && observedAbsenceImpact.requiresPayrollReview){
                 add("Base théorique maladie : les absences du mois sont neutralisées uniquement pour reconstruire la rémunération qui aurait été perçue en travaillant normalement.")
             }
@@ -225,7 +234,8 @@ object CompanyPayrollOverridesV2 {
             employerReductionAmount=reduction.amount,
             employerReductionSource=reduction.source,
             employerReductionNote=reduction.note,
-            employerReductionWarnings=reduction.warnings
+            employerReductionWarnings=reduction.warnings,
+            verifiedProtectionCategory=verifiedProtectionCategory.category
         )
     }
 
