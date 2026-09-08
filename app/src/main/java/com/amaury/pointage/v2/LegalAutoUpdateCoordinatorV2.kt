@@ -282,8 +282,21 @@ object LegalAutoUpdateCoordinatorV2 {
                     KaliProvidentContributionAuditV2.audit(context, companyId, referenceDate)
                         .continueWith { contributionTask ->
                             val contribution = if (contributionTask.isSuccessful) contributionTask.result else null
-                            (contribution?.completed == true) to
-                                (category.savedApprovedRule || contribution?.saved == true)
+                            val gate = ProvidentLegalReanalysisGateV2.resolve(
+                                category = ProvidentLegalReanalysisGateV2.Component(
+                                    completed = true,
+                                    saved = category.savedApprovedRule
+                                ),
+                                contribution = ProvidentLegalReanalysisGateV2.Component(
+                                    completed = contribution?.completed == true,
+                                    saved = contribution?.saved == true
+                                ),
+                                benefits = ProvidentLegalReanalysisGateV2.Component(
+                                    completed = false,
+                                    saved = false
+                                )
+                            )
+                            gate.completed to gate.saved
                         }
                 }
             else -> Tasks.forResult(false to false)
@@ -321,7 +334,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
         "KALI_SENIORITY" -> "KALI ancienneté"
         "KALI_SICKNESS_MAINTENANCE" -> "KALI maintien maladie"
-        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations)"
+        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations ; garanties restantes)"
         else -> "KALI"
     }
 
