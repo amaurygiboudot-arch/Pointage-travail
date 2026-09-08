@@ -12,6 +12,9 @@ import java.time.LocalDate
  * garantit seulement que toutes les pages des recherches demandées ont été lues,
  * que les KALITEXT ont été développés, que les KALIARTI ont été consultés et
  * expose les articles officiels applicables à la date contrôlée.
+ *
+ * L'expansion des KALITEXT est volontairement générique et exhaustive : aucun filtre
+ * propre aux heures supplémentaires ou à une autre matière n'est autorisé ici.
  */
 object KaliMatterEvidenceAuditV2 {
     private const val PAGE_SIZE = 25
@@ -29,6 +32,10 @@ object KaliMatterEvidenceAuditV2 {
         val allTextsExpanded: Boolean,
         val allArticlesConsulted: Boolean,
         val articles: List<OfficialKaliOvertimeRuleParserV2.VerifiedArticle>,
+        /** Filiation officielle non ambiguë KALIARTI -> KALITEXT issue de /consult/kaliText. */
+        val articleTextIds: Map<String, String> = emptyMap(),
+        /** Articles vus sous plusieurs KALITEXT : aucun périmètre unique n'est alors inventé. */
+        val ambiguousArticleTextIds: Set<String> = emptySet(),
         val warnings: List<String>
     ) {
         val technicalCoverageComplete: Boolean
@@ -51,6 +58,8 @@ object KaliMatterEvidenceAuditV2 {
 
     private data class ExpansionBatch(
         val articleIds: List<String>,
+        val articleTextIds: Map<String, String>,
+        val ambiguousArticleTextIds: Set<String>,
         val textsConsulted: Int,
         val complete: Boolean,
         val warnings: List<String>
@@ -66,12 +75,18 @@ object KaliMatterEvidenceAuditV2 {
     fun audit(idcc: String, referenceDate: LocalDate, expressions: List<String>): Task<Evidence> {
         val normalized = normalizeIdcc(idcc)
             ?: return Tasks.forResult(
-                Evidence(idcc, referenceDate, emptyList(), 0, 0, 0, 0, 0, false, false, false, emptyList(), listOf("KALI : IDCC invalide."))
+                Evidence(
+                    idcc, referenceDate, emptyList(), 0, 0, 0, 0, 0,
+                    false, false, false, emptyList(), warnings = listOf("KALI : IDCC invalide.")
+                )
             )
         val queries = expressions.map { it.trim().replace(Regex("\\s+"), " ") }.filter { it.isNotBlank() }.distinct()
         if (queries.isEmpty()) {
             return Tasks.forResult(
-                Evidence(normalized, referenceDate, emptyList(), 0, 0, 0, 0, 0, false, false, false, emptyList(), listOf("KALI : aucune expression de recherche fournie."))
+                Evidence(
+                    normalized, referenceDate, emptyList(), 0, 0, 0, 0, 0,
+                    false, false, false, emptyList(), warnings = listOf("KALI : aucune expression de recherche fournie.")
+                )
             )
         }
 
@@ -82,7 +97,7 @@ object KaliMatterEvidenceAuditV2 {
                         Evidence(
                             normalized, referenceDate, queries, 0, 0, 0, 0, 0,
                             false, false, false, emptyList(),
-                            listOf("KALI : collecte des recherches officielles impossible.")
+                            warnings = listOf("KALI : collecte des recherches officielles impossible.")
                         )
                     )
                 }
@@ -93,7 +108,8 @@ object KaliMatterEvidenceAuditV2 {
 
                 expandTexts(texts).continueWithTask { expansionTask ->
                     val expansion = if (expansionTask.isSuccessful) expansionTask.result else ExpansionBatch(
-                        emptyList(), 0, false, listOf("KALI : développement des textes interrompu.")
+                        emptyList(), emptyMap(), emptySet(), 0, false,
+                        listOf("KALI : développement des textes interrompu.")
                     )
                     val articleIds = (direct.map { it.id } + expansion.articleIds).distinct()
                     consultArticles(articleIds, referenceDate).continueWith { consultTask ->
@@ -113,12 +129,17 @@ object KaliMatterEvidenceAuditV2 {
                             allTextsExpanded = expansion.complete,
                             allArticlesConsulted = consult.complete,
                             articles = consult.articles.distinctBy { it.articleId },
+                            articleTextIds = expansion.articleTextIds,
+                            ambiguousArticleTextIds = expansion.ambiguousArticleTextIds,
                             warnings = buildList {
                                 addAll(search.warnings)
                                 addAll(expansion.warnings)
                                 addAll(consult.warnings)
                                 if (sections.isNotEmpty()) add("KALI : ${sections.size} section(s) KALISCTA restent non résolues ; aucune règle ne peut être auto-enregistrée à partir de cette collecte.")
                                 if (articleIds.isEmpty()) add("KALI : aucune piste KALIARTI n'a été obtenue par les recherches ciblées ; cela ne prouve jamais l'absence officielle de droit.")
+                                if (expansion.ambiguousArticleTextIds.isNotEmpty()) {
+                                    add("KALI : ${expansion.ambiguousArticleTextIds.size} article(s) appartiennent à plusieurs KALITEXT dans la collecte ; leur périmètre conventionnel exact reste à confirmer.")
+                                }
                             }.distinct()
                         )
                     }
@@ -169,8 +190,10 @@ object KaliMatterEvidenceAuditV2 {
             if (!task.isSuccessful) {
                 if (pageNumber == 1) return@continueWithTask Tasks.forException(task.exception ?: IllegalStateException("Première page KALI inaccessible"))
                 return@continueWithTask Tasks.forResult(
-                    SearchBatch(accumulated.distinctBy { it.id }, pageNumber - 1, false,
-                        listOf("KALI : pagination « $expression » interrompue après ${pageNumber - 1} page(s)."))
+                    SearchBatch(
+                        accumulated.distinctBy { it.id }, pageNumber - 1, false,
+                        listOf("KALI : pagination « $expression » interrompue après ${pageNumber - 1} page(s).")
+                    )
                 )
             }
             val page = OfficialKaliMatterSourceV2.parsePage(task.result.data, pageNumber, PAGE_SIZE)
@@ -203,19 +226,61 @@ object KaliMatterEvidenceAuditV2 {
         candidates: List<OfficialKaliMatterSourceV2.Candidate>,
         index: Int = 0,
         articleIds: List<String> = emptyList(),
+        articleTextIds: Map<String, String> = emptyMap(),
+        ambiguousArticleTextIds: Set<String> = emptySet(),
         consulted: Int = 0,
         complete: Boolean = true,
         warnings: List<String> = emptyList()
     ): Task<ExpansionBatch> {
-        if (index >= candidates.size) return Tasks.forResult(ExpansionBatch(articleIds.distinct(), consulted, complete, warnings.distinct()))
+        if (index >= candidates.size) {
+            return Tasks.forResult(
+                ExpansionBatch(
+                    articleIds.distinct(), articleTextIds, ambiguousArticleTextIds,
+                    consulted, complete, warnings.distinct()
+                )
+            )
+        }
         val candidate = candidates[index]
         return requestWithRetry("/consult/kaliText", mapOf("id" to candidate.id)).continueWithTask { task ->
             if (!task.isSuccessful) {
-                expandTexts(candidates, index + 1, articleIds, consulted + 1, false,
-                    warnings + "KALI : ${candidate.id} n'a pas pu être développé après deux tentatives.")
+                expandTexts(
+                    candidates, index + 1, articleIds, articleTextIds, ambiguousArticleTextIds,
+                    consulted + 1, false,
+                    warnings + "KALI : ${candidate.id} n'a pas pu être développé après deux tentatives."
+                )
             } else {
-                val expansion = OfficialKaliTextExpansionV2.parse(task.result.data)
-                expandTexts(candidates, index + 1, (articleIds + expansion.articleIds).distinct(), consulted + 1, complete, warnings)
+                val expansion = OfficialKaliMatterTextExpansionV2.parse(task.result.data, candidate.id)
+                val merged = articleTextIds.toMutableMap()
+                val ambiguous = ambiguousArticleTextIds.toMutableSet()
+                val newConflicts = mutableSetOf<String>()
+                expansion.articleTextIds.forEach { (articleId, textId) ->
+                    if (articleId in ambiguous) return@forEach
+                    val existing = merged[articleId]
+                    when {
+                        existing == null -> merged[articleId] = textId
+                        existing != textId -> {
+                            merged.remove(articleId)
+                            ambiguous += articleId
+                            newConflicts += articleId
+                        }
+                    }
+                }
+                expandTexts(
+                    candidates = candidates,
+                    index = index + 1,
+                    articleIds = (articleIds + expansion.articleIds).distinct(),
+                    articleTextIds = merged,
+                    ambiguousArticleTextIds = ambiguous,
+                    consulted = consulted + 1,
+                    complete = complete && expansion.reliable,
+                    warnings = buildList {
+                        addAll(warnings)
+                        addAll(expansion.warnings)
+                        if (newConflicts.isNotEmpty()) {
+                            add("KALI : ${newConflicts.size} KALIARTI ont été trouvés sous plusieurs KALITEXT ; aucun périmètre unique n'est déduit.")
+                        }
+                    }
+                )
             }
         }
     }
@@ -229,12 +294,16 @@ object KaliMatterEvidenceAuditV2 {
         articles: List<OfficialKaliOvertimeRuleParserV2.VerifiedArticle> = emptyList(),
         warnings: List<String> = emptyList()
     ): Task<ConsultBatch> {
-        if (index >= articleIds.size) return Tasks.forResult(ConsultBatch(consulted, complete, articles.distinctBy { it.articleId }, warnings.distinct()))
+        if (index >= articleIds.size) {
+            return Tasks.forResult(ConsultBatch(consulted, complete, articles.distinctBy { it.articleId }, warnings.distinct()))
+        }
         val id = articleIds[index]
         return requestWithRetry("/consult/kaliArticle", mapOf("id" to id)).continueWithTask { task ->
             if (!task.isSuccessful) {
-                consultArticles(articleIds, referenceDate, index + 1, consulted + 1, false, articles,
-                    warnings + "KALI : $id n'a pas pu être consulté après deux tentatives.")
+                consultArticles(
+                    articleIds, referenceDate, index + 1, consulted + 1, false, articles,
+                    warnings + "KALI : $id n'a pas pu être consulté après deux tentatives."
+                )
             } else {
                 val article = OfficialKaliOvertimeRuleParserV2.parseApplicableArticle(task.result.data, id, referenceDate)
                 consultArticles(
