@@ -23,7 +23,10 @@ class ConventionProtectionCategoryV2Test {
         status: String? = null,
         effectiveFrom: LocalDate = LocalDate.of(2025, 1, 1),
         extension: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-        extensionDate: LocalDate? = LocalDate.of(2024, 12, 26)
+        extensionDate: LocalDate? = LocalDate.of(2024, 12, 26),
+        approvalStatus: ConventionProtectionCategoryV2.ApprovalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
+        approvalDate: LocalDate? = LocalDate.of(2024, 10, 9),
+        approvalSource: String? = "Commission paritaire APEC — agrément test"
     ) = ConventionProtectionCategoryV2.Rule(
         idcc = "292",
         ruleId = id,
@@ -33,11 +36,14 @@ class ConventionProtectionCategoryV2Test {
         aniCategory = category,
         source = "Légifrance KALI — test",
         extensionStatus = extension,
-        extensionEffectiveFrom = extensionDate
+        extensionEffectiveFrom = extensionDate,
+        approvalStatus = approvalStatus,
+        approvalEffectiveFrom = approvalDate,
+        approvalSource = approvalSource
     )
 
     @Test
-    fun `règle exacte étendue confirme la catégorie`() {
+    fun `règle exacte étendue et agréée APEC confirme la catégorie`() {
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "0292",
             referenceDate = date,
@@ -50,6 +56,7 @@ class ConventionProtectionCategoryV2Test {
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_1, result.category.aniCategory)
         assertTrue(result.category.confirmed)
         assertEquals("r1", result.selectedRule?.ruleId)
+        assertTrue(result.category.source.orEmpty().contains("APEC"))
     }
 
     @Test
@@ -92,7 +99,10 @@ class ConventionProtectionCategoryV2Test {
             aniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
             source = "Légifrance KALI — test",
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-            extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
+            extensionEffectiveFrom = LocalDate.of(2025, 1, 1),
+            approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
+            approvalEffectiveFrom = LocalDate.of(2025, 1, 1),
+            approvalSource = "Commission paritaire APEC — test"
         )
 
         assertFalse(unsafe.structurallyValid())
@@ -109,7 +119,10 @@ class ConventionProtectionCategoryV2Test {
             aniCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM,
             source = "Légifrance KALI — test",
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-            extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
+            extensionEffectiveFrom = LocalDate.of(2025, 1, 1),
+            approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
+            approvalEffectiveFrom = LocalDate.of(2025, 1, 1),
+            approvalSource = "Commission paritaire APEC — test"
         )
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "292",
@@ -157,6 +170,47 @@ class ConventionProtectionCategoryV2Test {
             classification = classification,
             professionalStatus = "CADRE",
             rules = listOf(rule(extensionDate = LocalDate.of(2025, 2, 1)))
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+    }
+
+    @Test
+    fun `agrément APEC non vérifié bloque malgré KALI étendu`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+                    approvalDate = null,
+                    approvalSource = null
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+        assertTrue(result.warnings.any { it.contains("APEC") })
+    }
+
+    @Test
+    fun `agrément APEC futur bloque la période antérieure`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = LocalDate.of(2024, 9, 30),
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    effectiveFrom = LocalDate.of(2024, 1, 1),
+                    extensionDate = LocalDate.of(2024, 1, 1),
+                    approvalDate = LocalDate.of(2024, 10, 9)
+                )
+            )
         )
 
         assertFalse(result.reliable)
