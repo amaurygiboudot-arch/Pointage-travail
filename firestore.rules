@@ -11,6 +11,21 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.owner == true;
     }
 
+    function validSnakeNickname(data) {
+      return data.nickname is string
+        && data.nickname.size() >= 3
+        && data.nickname.size() <= 16;
+    }
+
+    function validOptionalSnakeScore(data, field) {
+      return !data.keys().hasAny([field])
+        || (data[field] is int && data[field] >= 0 && data[field] <= 447);
+    }
+
+    function validOptionalSnakeTimestamp(data, field) {
+      return !data.keys().hasAny([field]) || data[field] is timestamp;
+    }
+
     match /users/{userId} {
       allow read: if isSignedIn()
         && (request.auth.uid == userId || isOwner());
@@ -61,24 +76,69 @@ service cloud.firestore {
     }
 
     match /snake_scores/{userId} {
+      // Le classement est visible uniquement par les utilisateurs connectés.
       allow read: if isSignedIn();
 
+      // Un profil Snake peut être créé avant la première partie : uid + nickname
+      // suffisent. Les deux records sont optionnels et strictement bornés.
       allow create: if isSignedIn()
         && request.auth.uid == userId
         && request.resource.data.uid == userId
-        && request.resource.data.bestScore is int
-        && request.resource.data.bestScore >= 0
-        && request.resource.data.bestScore <= 447
-        && request.resource.data.displayName is string;
+        && request.resource.data.keys().hasOnly([
+          'uid', 'nickname',
+          'bestScore', 'bestScoreNoWalls',
+          'updatedAt', 'updatedAtNoWalls'
+        ])
+        && validSnakeNickname(request.resource.data)
+        && validOptionalSnakeScore(request.resource.data, 'bestScore')
+        && validOptionalSnakeScore(request.resource.data, 'bestScoreNoWalls')
+        && validOptionalSnakeTimestamp(request.resource.data, 'updatedAt')
+        && validOptionalSnakeTimestamp(request.resource.data, 'updatedAtNoWalls');
 
       allow update: if isSignedIn()
         && request.auth.uid == userId
         && request.resource.data.uid == userId
-        && request.resource.data.bestScore is int
-        && request.resource.data.bestScore >= resource.data.bestScore
-        && request.resource.data.bestScore <= 447
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['bestScore', 'displayName', 'updatedAt']);
+        // La donnée finale ne doit plus contenir l'ancien nom Google.
+        && request.resource.data.keys().hasOnly([
+          'uid', 'nickname',
+          'bestScore', 'bestScoreNoWalls',
+          'updatedAt', 'updatedAtNoWalls'
+        ])
+        && validSnakeNickname(request.resource.data)
+        && validOptionalSnakeScore(request.resource.data, 'bestScore')
+        && validOptionalSnakeScore(request.resource.data, 'bestScoreNoWalls')
+        && validOptionalSnakeTimestamp(request.resource.data, 'updatedAt')
+        && validOptionalSnakeTimestamp(request.resource.data, 'updatedAtNoWalls')
+        // Le surnom est choisi une seule fois. Une ancienne fiche sans nickname
+        // peut être migrée, mais un nickname existant ne peut pas être remplacé.
+        && (!resource.data.keys().hasAny(['nickname'])
+          || request.resource.data.nickname == resource.data.nickname)
+        // Autorise uniquement les champs Snake, plus la suppression ponctuelle
+        // de displayName pendant la migration des anciens documents.
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'uid', 'nickname',
+          'bestScore', 'bestScoreNoWalls',
+          'updatedAt', 'updatedAtNoWalls',
+          'displayName'
+        ])
+        // Aucun record ne peut être diminué ou dépasser la taille du plateau.
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['bestScore'])
+          || (request.resource.data.bestScore is int
+            && request.resource.data.bestScore >= 0
+            && request.resource.data.bestScore <= 447
+            && (!resource.data.keys().hasAny(['bestScore'])
+              || request.resource.data.bestScore >= resource.data.bestScore)))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['bestScoreNoWalls'])
+          || (request.resource.data.bestScoreNoWalls is int
+            && request.resource.data.bestScoreNoWalls >= 0
+            && request.resource.data.bestScoreNoWalls <= 447
+            && (!resource.data.keys().hasAny(['bestScoreNoWalls'])
+              || request.resource.data.bestScoreNoWalls >= resource.data.bestScoreNoWalls)))
+        // Les horodatages ne changent que lorsqu'un record correspondant change.
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+          || request.resource.data.diff(resource.data).affectedKeys().hasAny(['bestScore']))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAtNoWalls'])
+          || request.resource.data.diff(resource.data).affectedKeys().hasAny(['bestScoreNoWalls']));
 
       allow delete: if false;
     }

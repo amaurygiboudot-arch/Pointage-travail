@@ -17,6 +17,7 @@ import android.view.Window
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -30,7 +31,7 @@ object SnakeGameDialog {
 
     fun show(context: Context) {
         // Le jeu ne s'ouvre qu'après résolution du surnom. Au premier lancement,
-        // l'utilisateur le choisit une seule fois. Aucun nom Google n'est utilisé.
+        // l'utilisateur le choisit une seule fois par compte. Aucun nom Google n'est utilisé.
         SnakeNicknameStore.ensure(context) { nickname -> showGame(context, nickname) }
     }
 
@@ -60,7 +61,16 @@ object SnakeGameDialog {
             wallsKill = wallsKill,
             onScore = { score.text = "Score : $it" },
             onGameOver = { finalScore ->
-                saveBestScore(nickname, finalScore, wallsKill) { loadRanking(ranking, wallsKill) }
+                saveBestScore(nickname, finalScore, wallsKill) { saved ->
+                    if (!saved) {
+                        Toast.makeText(
+                            context,
+                            "Record Snake non synchronisé. Vérifie la connexion puis rejoue une partie.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    loadRanking(ranking, wallsKill)
+                }
             }
         )
 
@@ -128,12 +138,18 @@ object SnakeGameDialog {
         loadRanking(ranking, wallsKill)
     }
 
-    private fun saveBestScore(nickname: String, score: Int, wallsKill: Boolean, done: () -> Unit) {
+    private fun saveBestScore(
+        nickname: String,
+        score: Int,
+        wallsKill: Boolean,
+        done: (Boolean) -> Unit
+    ) {
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
-            done()
+            done(true)
             return
         }
+
         val ref = FirebaseFirestore.getInstance().collection("snake_scores").document(user.uid)
         val scoreField = if (wallsKill) "bestScore" else "bestScoreNoWalls"
         FirebaseFirestore.getInstance().runTransaction { tx ->
@@ -141,16 +157,18 @@ object SnakeGameDialog {
             val old = snapshot.getLong(scoreField)?.toInt() ?: -1
             val values = mutableMapOf<String, Any>(
                 "uid" to user.uid,
-                "nickname" to nickname,
-                // Ne jamais conserver de nom Google dans Snake.
-                "displayName" to FieldValue.delete()
+                "nickname" to nickname
             )
+            if (snapshot.exists()) {
+                // Migration silencieuse des anciens profils Snake qui contenaient le nom Google.
+                values["displayName"] = FieldValue.delete()
+            }
             if (score > old) {
                 values[scoreField] = score
                 values[if (wallsKill) "updatedAt" else "updatedAtNoWalls"] = FieldValue.serverTimestamp()
             }
             tx.set(ref, values, SetOptions.merge())
-        }.addOnCompleteListener { done() }
+        }.addOnCompleteListener { task -> done(task.isSuccessful) }
     }
 
     private fun loadRanking(view: TextView, wallsKill: Boolean) {
@@ -171,16 +189,25 @@ object SnakeGameDialog {
                 } else {
                     val lines = snap.documents.mapIndexed { index, doc ->
                         // IMPORTANT : ne jamais retomber sur displayName, e-mail ou vrai nom.
-                        val name = doc.getString("nickname")?.trim()?.take(16).takeUnless { it.isNullOrBlank() } ?: "Joueur"
+                        val name = doc.getString("nickname")
+                            ?.trim()
+                            ?.take(16)
+                            .takeUnless { it.isNullOrBlank() }
+                            ?: "Joueur"
                         val best = doc.getLong(scoreField) ?: 0L
-                        val medal = when (index) { 0 -> "🥇"; 1 -> "🥈"; 2 -> "🥉"; else -> "${index + 1}." }
+                        val medal = when (index) {
+                            0 -> "🥇"
+                            1 -> "🥈"
+                            2 -> "🥉"
+                            else -> "${index + 1}."
+                        }
                         "$medal $name — $best"
                     }
                     view.text = "🏆 TOP 10 • $modeName\n" + lines.joinToString("\n")
                 }
             }
             .addOnFailureListener {
-                view.text = "🏆 $modeName\nClassement indisponible"
+                view.text = "🏆 $modeName\nClassement indisponible • vérifie la connexion"
             }
     }
 
@@ -321,12 +348,30 @@ private class SnakeBoard(
         paint.color = Color.rgb(214, 168, 75)
         snake.forEachIndexed { i, c ->
             val m = if (i == 0) cell * .10f else cell * .16f
-            canvas.drawRoundRect(RectF(ox + c.x * cell + m, oy + c.y * cell + m, ox + (c.x + 1) * cell - m, oy + (c.y + 1) * cell - m), cell * .2f, cell * .2f, paint)
+            canvas.drawRoundRect(
+                RectF(
+                    ox + c.x * cell + m,
+                    oy + c.y * cell + m,
+                    ox + (c.x + 1) * cell - m,
+                    oy + (c.y + 1) * cell - m
+                ),
+                cell * .2f,
+                cell * .2f,
+                paint
+            )
         }
 
         paint.color = Color.rgb(220, 65, 65)
         val m = cell * .18f
-        canvas.drawOval(RectF(ox + food.x * cell + m, oy + food.y * cell + m, ox + (food.x + 1) * cell - m, oy + (food.y + 1) * cell - m), paint)
+        canvas.drawOval(
+            RectF(
+                ox + food.x * cell + m,
+                oy + food.y * cell + m,
+                ox + (food.x + 1) * cell - m,
+                oy + (food.y + 1) * cell - m
+            ),
+            paint
+        )
 
         if (!running) {
             paint.color = Color.argb(190, 0, 0, 0)
