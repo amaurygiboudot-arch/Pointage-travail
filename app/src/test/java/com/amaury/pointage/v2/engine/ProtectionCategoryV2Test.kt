@@ -58,6 +58,7 @@ class ProtectionCategoryV2Test {
         assertEquals(oldPath.employeeDeductions, genericPath.employeeDeductions, 0.000001)
         assertEquals(oldPath.employerContributions, genericPath.employerContributions, 0.000001)
         assertEquals(oldPath.lines.map { it.id }, genericPath.lines.map { it.id })
+        assertEquals(oldPath.warnings, genericPath.warnings)
     }
 
     @Test
@@ -80,6 +81,7 @@ class ProtectionCategoryV2Test {
 
         assertEquals(oldPath.employerContributions, genericPath.employerContributions, 0.000001)
         assertEquals(oldPath.lines.map { it.id }, genericPath.lines.map { it.id })
+        assertEquals(oldPath.warnings, genericPath.warnings)
     }
 
     @Test
