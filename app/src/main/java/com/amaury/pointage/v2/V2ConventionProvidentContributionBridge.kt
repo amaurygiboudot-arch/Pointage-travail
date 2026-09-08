@@ -122,8 +122,8 @@ object V2ConventionProvidentContributionBridge {
 
     internal fun seniorityMonths(profile: ConventionLegalProfileV2, referenceDate: LocalDate): Int? {
         val start = profile.conventionSeniorityDate ?: profile.entryDate ?: return null
-        if (start.isAfter(referenceDate)) return 0
-        return ChronoUnit.MONTHS.between(start, referenceDate).toInt().coerceAtLeast(0)
+        if (start.isAfter(referenceDate)) return null
+        return ChronoUnit.MONTHS.between(start, referenceDate).toInt().takeIf { it in 0..600 }
     }
 
     private fun blocked(reason: String, extraWarnings: List<String> = emptyList()) =
