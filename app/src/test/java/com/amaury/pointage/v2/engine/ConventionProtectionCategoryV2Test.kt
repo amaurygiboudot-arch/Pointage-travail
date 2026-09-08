@@ -18,7 +18,9 @@ class ConventionProtectionCategoryV2Test {
         status: String? = "CADRE",
         effectiveFrom: LocalDate = LocalDate.of(2025, 1, 1),
         extension: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-        extensionDate: LocalDate? = LocalDate.of(2024, 12, 26)
+        extensionDate: LocalDate? = LocalDate.of(2024, 12, 26),
+        condition: String? = null,
+        conditionConfirmed: Boolean = condition == null
     ) = ConventionProtectionCategoryV2.Rule(
         idcc = "292",
         ruleId = id,
@@ -28,7 +30,9 @@ class ConventionProtectionCategoryV2Test {
         aniCategory = category,
         source = "Légifrance KALI — test",
         extensionStatus = extension,
-        extensionEffectiveFrom = extensionDate
+        extensionEffectiveFrom = extensionDate,
+        additionalApplicabilityCondition = condition,
+        additionalApplicabilityConfirmed = conditionConfirmed
     )
 
     @Test
@@ -107,6 +111,45 @@ class ConventionProtectionCategoryV2Test {
 
         assertFalse(result.reliable)
         assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+    }
+
+    @Test
+    fun `agrément externe non confirmé bloque malgré texte étendu`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    condition = "Agrément APEC requis par le texte source",
+                    conditionConfirmed = false
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+        assertTrue(result.warnings.any { it.contains("Agrément APEC") })
+    }
+
+    @Test
+    fun `agrément externe confirmé permet ensuite la règle`() {
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(
+                rule(
+                    condition = "Agrément APEC requis par le texte source",
+                    conditionConfirmed = true
+                )
+            )
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_1, result.category.aniCategory)
     }
 
     @Test
