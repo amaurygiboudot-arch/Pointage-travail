@@ -41,6 +41,7 @@ class OfficialAccoProvidentContributionParserV2Test {
 
         val rule = result.rule
         requireNotNull(rule)
+        assertEquals("12345678901234", rule.siret)
         assertEquals(LocalDate.of(2026, 1, 1), rule.effectiveFrom)
         assertNull(rule.effectiveTo)
         assertEquals(0, rule.minimumSeniorityMonths)
@@ -174,5 +175,37 @@ class OfficialAccoProvidentContributionParserV2Test {
         )
 
         assertNull(result.rule)
+    }
+
+    @Test
+    fun `SIRET manquant bloque la regle`() {
+        val result = OfficialAccoProvidentContributionParserV2.parse(
+            profile.copy(siret = ""),
+            "ACCOTEXT000000000009",
+            agreement(
+                "Tous les salariés sont couverts sans condition d'ancienneté. " +
+                    "La cotisation de prévoyance est assise sur le salaire brut. " +
+                    "Part salariale 0,40 %. Part patronale 0,60 %."
+            )
+        )
+
+        assertNull(result.rule)
+        assertTrue(result.reasons.any { it.contains("SIRET", ignoreCase = true) })
+    }
+
+    @Test
+    fun `SIRET invalide bloque la regle`() {
+        val result = OfficialAccoProvidentContributionParserV2.parse(
+            profile.copy(siret = "123456789"),
+            "ACCOTEXT000000000010",
+            agreement(
+                "Tous les salariés sont couverts sans condition d'ancienneté. " +
+                    "La cotisation de prévoyance est assise sur le salaire brut. " +
+                    "Part salariale 0,40 %. Part patronale 0,60 %."
+            )
+        )
+
+        assertNull(result.rule)
+        assertTrue(result.reasons.any { it.contains("SIRET", ignoreCase = true) })
     }
 }
