@@ -42,6 +42,7 @@ class VerifiedMealBasketPayrollV2Test {
     private fun branchRule(
         benefitId: String = "MEAL_DAY_1",
         amount: Double = 6.25,
+        amountFormula: ConventionMealBasketV2.AmountFormula? = null,
         countingUnit: ConventionMealBasketV2.CountingUnit = ConventionMealBasketV2.CountingUnit.WORKED_DAY,
         eligibility: List<ConventionMealBasketV2.Condition> = listOf(ConventionMealBasketV2.Condition.WorkedDay)
     ) = ConventionMealBasketV2.Rule(
@@ -52,7 +53,7 @@ class VerifiedMealBasketPayrollV2Test {
         classification = ConventionClassificationV2(coefficient = 700),
         professionalStatus = "NON_CADRE",
         deliveryMode = ConventionMealBasketV2.DeliveryMode.CASH_ALLOWANCE,
-        amountFormula = ConventionMealBasketV2.AmountFormula.FixedEuro(amount),
+        amountFormula = amountFormula ?: ConventionMealBasketV2.AmountFormula.FixedEuro(amount),
         eligibilityAnyOf = listOf(ConventionMealBasketV2.EligibilityGroup(eligibility)),
         countingUnit = countingUnit,
         maxAwardsPerCalendarDay = 1,
@@ -63,14 +64,14 @@ class VerifiedMealBasketPayrollV2Test {
         extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
     )
 
-    private fun arbitration(rule: ConventionMealBasketV2.Rule) = MealBasketLegalArbitrationBridgeV2.Result(
-        selected = listOf(
+    private fun arbitration(vararg rules: ConventionMealBasketV2.Rule) = MealBasketLegalArbitrationBridgeV2.Result(
+        selected = rules.map { rule ->
             MealBasketLegalArbitrationBridgeV2.Selected(
                 subject = MealBasketLegalArbitrationBridgeV2.subject(rule.benefitId),
                 source = PayrollLegalArbitratorV2.Source.KALI,
                 branchRule = rule
             )
-        ),
+        },
         reliable = true,
         warnings = emptyList()
     )
@@ -171,5 +172,32 @@ class VerifiedMealBasketPayrollV2Test {
 
         assertFalse(result.reliable)
         assertNull(result.totalAmount)
+    }
+
+    @Test
+    fun `montant externe jour ne peut jamais alimenter panier nuit`() {
+        val day = branchRule(
+            benefitId = "MEAL_DAY_1",
+            amountFormula = ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount
+        )
+        val night = branchRule(
+            benefitId = "MEAL_NIGHT_1",
+            amountFormula = ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount
+        )
+        val result = VerifiedMealBasketPayrollV2.calculate(
+            sessions = listOf(session("day", 8, 8, 16)),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("employer"),
+            arbitration = arbitration(day, night),
+            amountContextsBySubject = mapOf(
+                "MEAL_DAY" to ConventionMealBasketEvaluatorV2.AmountContext(externalAgreementAmount = 7.0)
+            ),
+            zoneId = zone
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.totalAmount)
+        assertTrue(result.warnings.any { it.contains("accord externe", ignoreCase = true) })
     }
 }
