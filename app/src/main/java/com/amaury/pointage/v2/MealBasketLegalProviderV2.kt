@@ -38,7 +38,8 @@ object MealBasketLegalProviderV2 {
         if (normalizedExpected.isBlank() || normalizedProfile != normalizedExpected) {
             return blocked("IDCC du profil différent de l'IDCC demandé")
         }
-        if (profile.siret.length != 14 || profile.classification.isEmpty() || profile.professionalStatus == null) {
+        val normalizedSiret = profile.siret.filter(Char::isDigit)
+        if (normalizedSiret.length != 14 || profile.classification.isEmpty() || profile.professionalStatus == null) {
             return blocked("SIRET, classification ou statut professionnel incomplet")
         }
 
@@ -59,7 +60,7 @@ object MealBasketLegalProviderV2 {
         val companyRules = V2CompanyMealBasketStore.rules(
             context = context,
             companyId = companyId,
-            expectedSiret = profile.siret
+            expectedSiret = normalizedSiret
         )
         val subjects = (branchRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) } +
             companyRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) })
@@ -75,7 +76,7 @@ object MealBasketLegalProviderV2 {
         }
 
         val arbitration = MealBasketLegalArbitrationBridgeV2.resolve(
-            profile = profile,
+            profile = profile.copy(siret = normalizedSiret),
             referenceDate = referenceDate,
             branchRules = branchRules,
             companyRules = companyRules,
