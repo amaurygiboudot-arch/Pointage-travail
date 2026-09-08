@@ -75,17 +75,17 @@ object OfficialApecProtectionCategoryParserV2 {
 
         val categories = buildList {
             categoryClauses(text, article21ValidationRegex).forEach { clause ->
-                classificationEvidence(clause, profile.classification)?.let {
+                if (classificationEvidence(clause, profile.classification) == true) {
                     add(ProtectionCategoryV2.AniCategory.ARTICLE_2_1)
                 }
             }
             categoryClauses(text, article22ValidationRegex).forEach { clause ->
-                classificationEvidence(clause, profile.classification)?.let {
+                if (classificationEvidence(clause, profile.classification) == true) {
                     add(ProtectionCategoryV2.AniCategory.ARTICLE_2_2)
                 }
             }
             categoryClauses(text, extensionValidationRegex).forEach { clause ->
-                classificationEvidence(clause, profile.classification)?.let {
+                if (classificationEvidence(clause, profile.classification) == true) {
                     add(ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE)
                 }
             }
