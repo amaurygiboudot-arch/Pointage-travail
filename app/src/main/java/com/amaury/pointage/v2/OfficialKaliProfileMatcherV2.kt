@@ -33,9 +33,50 @@ object OfficialKaliProfileMatcherV2 {
     }
 
     /**
+     * Retourne la fenêtre de portée de la classification exacte autour d'une occurrence métier.
+     * La fenêtre s'arrête avant toute nouvelle classification afin qu'un taux/une garantie du
+     * coefficient ou niveau suivant ne puisse jamais contaminer la clause courante.
+     */
+    fun nearestScopeWindow(
+        rawText: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String?,
+        targetOffset: Int,
+        before: Int = 140,
+        after: Int = 420,
+        maxClassificationSpan: Int = 450
+    ): Window? {
+        if (classification.isEmpty()) return null
+        val text = normalize(rawText)
+        if (targetOffset !in 0..text.length) return null
+        val positionGroups = classificationPositionGroups(text, classification) ?: return null
+        if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return null
+
+        val candidates = compactCombinations(positionGroups, maxClassificationSpan)
+            .filter { positions -> (positions.maxOrNull() ?: Int.MAX_VALUE) <= targetOffset }
+            .sortedByDescending { positions -> positions.maxOrNull() ?: Int.MIN_VALUE }
+
+        for (positions in candidates) {
+            val first = positions.minOrNull() ?: continue
+            val last = positions.maxOrNull() ?: continue
+            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
+            if (nextScope != null && nextScope.range.first < targetOffset) continue
+
+            val start = (first - before).coerceAtLeast(0)
+            val desiredEnd = (targetOffset + after).coerceAtMost(text.length)
+            val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
+            if (end <= targetOffset || end <= start) continue
+            val scoped = text.substring(start, end)
+            if (statusMatches(scoped, text, professionalStatus)) {
+                return Window(scoped, start, end)
+            }
+        }
+        return null
+    }
+
+    /**
      * Vérifie qu'une occurrence métier située à targetOffset dépend bien de la classification
      * exacte du salarié et qu'aucune nouvelle portée de classification ne commence entre les deux.
-     * Cette méthode évite qu'une règle du coefficient/niveau voisin soit capturée dans le même article.
      */
     fun nearestScopeMatches(
         rawText: String,
@@ -43,28 +84,13 @@ object OfficialKaliProfileMatcherV2 {
         professionalStatus: String?,
         targetOffset: Int,
         maxClassificationSpan: Int = 450
-    ): Boolean {
-        if (classification.isEmpty()) return false
-        val text = normalize(rawText)
-        if (targetOffset !in 0..text.length) return false
-        val positionGroups = classificationPositionGroups(text, classification) ?: return false
-        if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return false
-
-        val candidates = compactCombinations(positionGroups, maxClassificationSpan)
-            .filter { positions -> (positions.maxOrNull() ?: Int.MAX_VALUE) <= targetOffset }
-            .sortedByDescending { positions -> positions.maxOrNull() ?: Int.MIN_VALUE }
-
-        return candidates.any { positions ->
-            val first = positions.minOrNull() ?: return@any false
-            val last = positions.maxOrNull() ?: return@any false
-            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
-            if (nextScope != null && nextScope.range.first < targetOffset) return@any false
-
-            val start = (first - 140).coerceAtLeast(0)
-            val end = (targetOffset + 180).coerceAtMost(text.length)
-            statusMatches(text.substring(start, end), text, professionalStatus)
-        }
-    }
+    ): Boolean = nearestScopeWindow(
+        rawText = rawText,
+        classification = classification,
+        professionalStatus = professionalStatus,
+        targetOffset = targetOffset,
+        maxClassificationSpan = maxClassificationSpan
+    ) != null
 
     fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.FRANCE), Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "")
