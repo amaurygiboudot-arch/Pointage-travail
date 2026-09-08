@@ -134,9 +134,17 @@ object ConventionMealBasketEvaluatorV2 {
         is ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInFixedWindow ->
             effectiveMinutesInWindow(facts, condition.window) >= condition.minimumMinutes
         is ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInEmployerWindow -> {
-            val actual = facts.employerNightWindow ?: return null
-            if (actual.durationMinutes() != condition.requiredWindowMinutes || !actual.containedIn(condition.allowedEnvelope)) return null
-            effectiveMinutesInWindow(facts, actual) >= condition.minimumEffectiveMinutes
+            val actual = facts.employerNightWindow
+            if (actual == null) {
+                null
+            } else if (
+                actual.durationMinutes() != condition.requiredWindowMinutes ||
+                !actual.containedIn(condition.allowedEnvelope)
+            ) {
+                null
+            } else {
+                effectiveMinutesInWindow(facts, actual) >= condition.minimumEffectiveMinutes
+            }
         }
         is ConventionMealBasketV2.Condition.ShiftStartsOrEndsInWindow -> {
             val start = facts.shiftStart.hour * 60 + facts.shiftStart.minute
