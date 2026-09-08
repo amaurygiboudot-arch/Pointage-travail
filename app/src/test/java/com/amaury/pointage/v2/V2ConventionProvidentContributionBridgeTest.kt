@@ -103,6 +103,46 @@ class V2ConventionProvidentContributionBridgeTest {
     }
 
     @Test
+    fun `absence KALI confirmée donne zéro conventionnel fiable`() {
+        val result = V2ConventionProvidentContributionBridge.resolve(
+            profile = profile,
+            referenceDate = date,
+            protectionCategory = category,
+            rules = emptyList(),
+            coverage = coverage(ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE),
+            gross = 2500.0,
+            applicableMonthlyCeiling = null,
+            seniorityMonths = 72
+        ).result
+
+        assertTrue(result.reliable)
+        assertFalse(result.applicable)
+        assertTrue(result.eligibilityConfirmed)
+        assertEquals(0.0, result.employeeAmount!!, 0.0001)
+        assertEquals(0.0, result.employerAmount!!, 0.0001)
+    }
+
+    @Test
+    fun `absence confirmée sans autorité KALI reste bloquée`() {
+        val result = V2ConventionProvidentContributionBridge.resolve(
+            profile = profile,
+            referenceDate = date,
+            protectionCategory = category,
+            rules = emptyList(),
+            coverage = coverage(
+                state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+                authorities = emptySet()
+            ),
+            gross = 2500.0,
+            applicableMonthlyCeiling = null,
+            seniorityMonths = 72
+        ).result
+
+        assertFalse(result.reliable)
+        assertNull(result.employeeAmount)
+    }
+
+    @Test
     fun `règle stockée ne contourne jamais une couverture incomplète`() {
         val result = V2ConventionProvidentContributionBridge.resolve(
             profile = profile,
