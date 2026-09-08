@@ -10,6 +10,7 @@ import java.time.LocalDate
 class ConventionProtectionCategoryV2Test {
     private val date = LocalDate.of(2026, 9, 30)
     private val classification = ConventionClassificationV2(coefficient = 910)
+    private val scopeKey = "IDCC0292:ACCORD-2024-06-27"
 
     private fun defaultStatus(category: ProtectionCategoryV2.AniCategory): String = when (category) {
         ProtectionCategoryV2.AniCategory.ARTICLE_2_1 -> "CADRE"
@@ -24,23 +25,34 @@ class ConventionProtectionCategoryV2Test {
         effectiveFrom: LocalDate = LocalDate.of(2025, 1, 1),
         extension: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
         extensionDate: LocalDate? = LocalDate.of(2024, 12, 26),
+        conventionScopeKey: String? = scopeKey,
         approvalStatus: ConventionProtectionCategoryV2.ApprovalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
         approvalDate: LocalDate? = LocalDate.of(2024, 10, 9),
-        approvalSource: String? = "Commission paritaire APEC — agrément test"
-    ) = ConventionProtectionCategoryV2.Rule(
-        idcc = "292",
-        ruleId = id,
-        effectiveFrom = effectiveFrom,
-        classification = selector,
-        professionalStatus = status ?: defaultStatus(category),
-        aniCategory = category,
-        source = "Légifrance KALI — test",
-        extensionStatus = extension,
-        extensionEffectiveFrom = extensionDate,
-        approvalStatus = approvalStatus,
-        approvalEffectiveFrom = approvalDate,
-        approvalSource = approvalSource
-    )
+        approvalSource: String? = "Commission paritaire APEC — agrément test",
+        approvalScopeKey: String? = null,
+        approvalClassification: ConventionClassificationV2? = null,
+        approvalCategory: ProtectionCategoryV2.AniCategory? = null
+    ): ConventionProtectionCategoryV2.Rule {
+        val approved = approvalStatus == ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED
+        return ConventionProtectionCategoryV2.Rule(
+            idcc = "292",
+            ruleId = id,
+            effectiveFrom = effectiveFrom,
+            classification = selector,
+            professionalStatus = status ?: defaultStatus(category),
+            aniCategory = category,
+            source = "Légifrance KALI — test",
+            extensionStatus = extension,
+            extensionEffectiveFrom = extensionDate,
+            conventionScopeKey = conventionScopeKey,
+            approvalStatus = approvalStatus,
+            approvalEffectiveFrom = if (approved) approvalDate else null,
+            approvalSource = if (approved) approvalSource else null,
+            approvalScopeKey = if (approved) (approvalScopeKey ?: conventionScopeKey) else null,
+            approvalClassification = if (approved) (approvalClassification ?: selector) else null,
+            approvalAniCategory = if (approved) (approvalCategory ?: category) else null
+        )
+    }
 
     @Test
     fun `règle exacte étendue et agréée APEC confirme la catégorie`() {
@@ -57,6 +69,40 @@ class ConventionProtectionCategoryV2Test {
         assertTrue(result.category.confirmed)
         assertEquals("r1", result.selectedRule?.ruleId)
         assertTrue(result.category.source.orEmpty().contains("APEC"))
+    }
+
+    @Test
+    fun `même IDCC mais périmètre APEC différent est refusé`() {
+        val mismatched = rule(approvalScopeKey = "IDCC0292:ACCORD-REGIONAL-AUTRE")
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            rules = listOf(mismatched)
+        )
+
+        assertFalse(mismatched.structurallyValid())
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
+    }
+
+    @Test
+    fun `agrément APEC d une autre classification est refusé`() {
+        val mismatched = rule(
+            approvalClassification = ConventionClassificationV2(coefficient = 900)
+        )
+
+        assertFalse(mismatched.structurallyValid())
+    }
+
+    @Test
+    fun `agrément APEC d une autre catégorie est refusé`() {
+        val mismatched = rule(
+            approvalCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_2
+        )
+
+        assertFalse(mismatched.structurallyValid())
     }
 
     @Test
@@ -99,10 +145,7 @@ class ConventionProtectionCategoryV2Test {
             aniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
             source = "Légifrance KALI — test",
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-            extensionEffectiveFrom = LocalDate.of(2025, 1, 1),
-            approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
-            approvalEffectiveFrom = LocalDate.of(2025, 1, 1),
-            approvalSource = "Commission paritaire APEC — test"
+            extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
         )
 
         assertFalse(unsafe.structurallyValid())
@@ -119,10 +162,7 @@ class ConventionProtectionCategoryV2Test {
             aniCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM,
             source = "Légifrance KALI — test",
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
-            extensionEffectiveFrom = LocalDate.of(2025, 1, 1),
-            approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
-            approvalEffectiveFrom = LocalDate.of(2025, 1, 1),
-            approvalSource = "Commission paritaire APEC — test"
+            extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
         )
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "292",
@@ -184,11 +224,7 @@ class ConventionProtectionCategoryV2Test {
             classification = classification,
             professionalStatus = "CADRE",
             rules = listOf(
-                rule(
-                    approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
-                    approvalDate = null,
-                    approvalSource = null
-                )
+                rule(approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED)
             )
         )
 
@@ -220,6 +256,7 @@ class ConventionProtectionCategoryV2Test {
     @Test
     fun `deux catégories non cadre contradictoires bloquent toute sélection`() {
         val nonCadreClassification = ConventionClassificationV2(coefficient = 830)
+        val nonCadreScope = "IDCC0292:ACCORD-2024-06-27"
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "292",
             referenceDate = date,
@@ -229,12 +266,14 @@ class ConventionProtectionCategoryV2Test {
                 rule(
                     id = "r1",
                     category = ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
-                    selector = nonCadreClassification
+                    selector = nonCadreClassification,
+                    conventionScopeKey = nonCadreScope
                 ),
                 rule(
                     id = "r2",
                     category = ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE,
-                    selector = nonCadreClassification
+                    selector = nonCadreClassification,
+                    conventionScopeKey = nonCadreScope
                 )
             )
         )
