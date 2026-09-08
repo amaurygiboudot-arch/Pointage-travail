@@ -8,12 +8,11 @@ import java.time.LocalDate
 import java.util.Locale
 
 /**
- * Extrait une catégorie ANI uniquement lorsqu'une clause KALI relie explicitement
+ * Extrait une preuve KALI de catégorie ANI uniquement lorsqu'une clause relie explicitement
  * une catégorie objective à la classification réelle du salarié.
  *
- * Le parseur est fail-closed : IDCC, période, statut, classification et catégorie
- * doivent tous être prouvés. Les plages/listes explicites sont acceptées, mais aucune
- * équivalence de fonction ou combinaison implicite de critères n'est déduite.
+ * Cette preuve KALI ne suffit jamais, à elle seule, à rendre le classement applicable :
+ * l'agrément APEC exact reste volontairement non vérifié à ce stade.
  */
 object OfficialKaliProtectionCategoryParserV2 {
     data class Diagnostic(
@@ -31,6 +30,7 @@ object OfficialKaliProtectionCategoryParserV2 {
      * Compatibilité volontairement bloquante : sans IDCC provenant de la collecte KALI,
      * le profil local seul ne prouve pas que l'article a été obtenu dans la bonne convention.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun parse(
         article: OfficialKaliOvertimeRuleParserV2.VerifiedArticle,
         profile: ConventionLegalProfileV2,
@@ -123,7 +123,11 @@ object OfficialKaliProtectionCategoryParserV2 {
             aniCategory = category,
             source = source,
             extensionStatus = extensionStatus,
-            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null
+            extensionEffectiveFrom = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) article.extensionEffectiveFrom else null,
+            // KALIARTI + IDCC ne suffisent pas à identifier sans ambiguïté un accord national/régional.
+            // Le périmètre exact sera rattaché par une couche dédiée avant tout agrément APEC.
+            conventionScopeKey = null,
+            approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED
         )
 
         if (!rule.structurallyValid()) {
@@ -136,13 +140,14 @@ object OfficialKaliProtectionCategoryParserV2 {
             buildList {
                 add("IDCC prouvé : $normalizedVerifiedIdcc")
                 add("classification prouvée : ${profile.classification.label()}")
-                add("catégorie prouvée : ${category.name}")
-                if (officialStatus == "VIGUEUR_ETEN" && article.extensionEffectiveFrom == null) {
-                    add("statut étendu présent mais date exacte d'extension absente ; applicabilité automatique bloquée")
+                add("catégorie KALI prouvée : ${category.name}")
+                if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN) {
+                    add("extension officielle exacte non prouvée ; applicabilité automatique bloquée")
                 }
                 if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED) {
                     add("texte non étendu : applicabilité à l'entreprise non démontrée")
                 }
+                add("périmètre exact de l'accord et agrément APEC non encore rapprochés ; classement automatique bloqué")
                 if (category == ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE) {
                     add("extension de régime seulement : aucune affiliation ANI 2.1/2.2 n'est déduite")
                 }
@@ -150,13 +155,51 @@ object OfficialKaliProtectionCategoryParserV2 {
         )
     }
 
-    private fun splitClauses(raw: String): List<String> = raw
-        .replace('–', '-')
-        .replace('—', '-')
-        .split(Regex("[;\\n]+"))
-        .map { OfficialKaliProfileMatcherV2.normalize(it) }
-        .map { it.trim(' ', '-', '\t') }
-        .filter { it.length >= 20 }
+    /**
+     * Accepte les listes à puces seulement lorsqu'elles suivent immédiatement un en-tête ANI explicite.
+     * Le contexte est réinitialisé au premier paragraphe ordinaire afin d'éviter toute propagation lointaine.
+     */
+    private fun splitClauses(raw: String): List<String> {
+        val parts = raw
+            .replace('–', '-')
+            .replace('—', '-')
+            .split(Regex("[;\n]+"))
+
+        val result = mutableListOf<String>()
+        var bulletContext: String? = null
+        parts.forEach { part ->
+            val trimmedRaw = part.trim()
+            if (trimmedRaw.isBlank()) return@forEach
+            val isBullet = trimmedRaw.startsWith("-") || trimmedRaw.startsWith("•") || trimmedRaw.startsWith("*")
+            val normalized = OfficialKaliProfileMatcherV2.normalize(trimmedRaw)
+                .trim(' ', '-', '•', '*', '\t')
+            if (normalized.length < 2) return@forEach
+
+            val explicitCategoryHeader = categoryForClause(normalized) != null
+            val containsClassification = classificationVocabularyPresent(normalized)
+            when {
+                explicitCategoryHeader -> {
+                    if (normalized.length >= 20) result += normalized
+                    bulletContext = if (containsClassification) null else normalized
+                }
+                isBullet && bulletContext != null -> {
+                    val contextualized = "${bulletContext!!} $normalized"
+                    if (contextualized.length >= 20) result += contextualized
+                }
+                else -> {
+                    bulletContext = null
+                    if (normalized.length >= 20) result += normalized
+                }
+            }
+        }
+        return result
+    }
+
+    private fun classificationVocabularyPresent(clause: String): Boolean =
+        coefficientVocabulary.containsMatchIn(clause) ||
+            levelVocabulary.containsMatchIn(clause) ||
+            echelonVocabulary.containsMatchIn(clause) ||
+            Regex("\\b(?:position|groupe|categorie|emploi|fonction|poste)s?\\b").containsMatchIn(clause)
 
     private fun categoryForClause(clause: String): ProtectionCategoryV2.AniCategory? {
         val aniContext = clause.contains("accord national interprofessionnel") ||
@@ -256,15 +299,24 @@ object OfficialKaliProtectionCategoryParserV2 {
     }
 
     private fun levelEchelonPairMatches(clause: String, wantedLevelRaw: String, wantedEchelonRaw: String): Boolean {
-        val wantedLevel = romanOrArabic(wantedLevelRaw) ?: return false
         val wantedEchelon = normalizeToken(wantedEchelonRaw)
         return levelEchelonPairRegex.findAll(clause).any { match ->
-            val pairLevel = romanOrArabic(match.groupValues[1]) ?: return@any false
+            val pairLevel = match.groupValues[1]
             val echelons = match.groupValues[2]
                 .split(Regex("\\s*(?:,|/|et|ou)\\s*"))
                 .map(::normalizeToken)
                 .toSet()
-            pairLevel == wantedLevel && wantedEchelon in echelons
+            levelTokensEqual(pairLevel, wantedLevelRaw) && wantedEchelon in echelons
+        }
+    }
+
+    private fun levelTokensEqual(left: String, right: String): Boolean {
+        val leftNumeric = romanOrArabic(left)
+        val rightNumeric = romanOrArabic(right)
+        return if (leftNumeric != null && rightNumeric != null) {
+            leftNumeric == rightNumeric
+        } else {
+            normalizeToken(left) == normalizeToken(right)
         }
     }
 
@@ -339,7 +391,9 @@ object OfficialKaliProtectionCategoryParserV2 {
             else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
         }
 
-    private val acceptedStatuses = setOf("VIGUEUR_ETEN", "VIGUEUR_NON_ETEN")
+    // VIGUEUR/VIGUEUR_DIFF sont utilisables comme preuve de texte en vigueur, mais jamais comme
+    // preuve d'extension : extensionStatus() les maintient volontairement à UNKNOWN.
+    private val acceptedStatuses = setOf("VIGUEUR", "VIGUEUR_DIFF", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN")
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
     private val article21Regex = Regex("\\barticle\\s*2[.,]1\\b")
     private val article22Regex = Regex("\\barticle\\s*2[.,]2\\b")
@@ -351,17 +405,17 @@ object OfficialKaliProtectionCategoryParserV2 {
         "extension de regime"
     )
 
-    private val numberRegex = Regex("\\d{2,4}")
+    private val numberRegex = Regex("\\d{1,5}")
     private val coefficientVocabulary = Regex("\\bcoefficients?\\b")
-    private val coefficientRangeRegex = Regex("\\b(?:du\\s+)?coefficients?\\s*[:.\\-]?\\s*(\\d{2,4})\\s*(?:a|au|-)\\s*(?:(?:le\\s+)?coefficient\\s*)?(\\d{2,4})\\b")
-    private val coefficientListRegex = Regex("\\bcoefficients?\\s*[:.\\-]?\\s*((?:\\d{2,4})(?:\\s*(?:,|/|et|ou)\\s*(?:(?:le\\s+)?coefficients?\\s*)?\\d{2,4})+)\\b")
-    private val coefficientExactRegex = Regex("\\bcoefficients?\\s*[:.\\-]?\\s*(\\d{2,4})\\b")
+    private val coefficientRangeRegex = Regex("\\b(?:du\\s+)?coefficients?\\s*[:.\\-]?\\s*(\\d{1,5})\\s*(?:a|au|-)\\s*(?:(?:le\\s+)?coefficient\\s*)?(\\d{1,5})\\b")
+    private val coefficientListRegex = Regex("\\bcoefficients?\\s*[:.\\-]?\\s*((?:\\d{1,5})(?:\\s*(?:,|/|et|ou)\\s*(?:(?:le\\s+)?coefficients?\\s*)?\\d{1,5})+)\\b")
+    private val coefficientExactRegex = Regex("\\bcoefficients?\\s*[:.\\-]?\\s*(\\d{1,5})\\b")
 
     private val levelVocabulary = Regex("\\bniveaux?\\b")
     private val echelonVocabulary = Regex("\\bechelons?\\b")
     private val levelRangeRegex = Regex("\\bniveaux?\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\s*(?:a|au|-)\\s*([ivx]+|\\d{1,2})\\b")
-    private val levelExactRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\b")
+    private val levelExactRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([a-z0-9]+)\\b")
     private val echelonExactRegex = Regex("\\bechelon\\s*[:.\\-]?\\s*([a-z0-9]+)\\b")
     private val echelonListRegex = Regex("\\bechelons\\s*[:.\\-]?\\s*([a-z0-9]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9]+)+)")
-    private val levelEchelonPairRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([ivx]+|\\d{1,2})\\s*(?:[-,/]\\s*)?echelons?\\s*[:.\\-]?\\s*([a-z0-9]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9]+)*)\\b")
+    private val levelEchelonPairRegex = Regex("\\bniveau\\s*[:.\\-]?\\s*([a-z0-9]+)\\s*(?:[-,/]\\s*)?echelons?\\s*[:.\\-]?\\s*([a-z0-9]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9]+)*)\\b")
 }
