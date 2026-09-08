@@ -24,8 +24,8 @@ object ComplementaryRetirementCatalogV2 {
     private const val SOURCE = "Agirc-Arrco — barèmes applicables au 01/01/2026"
 
     /**
-     * Pour la Plasturgie, la catégorie ANI 2.1/2.2 déduite du coefficient prime
-     * sur le simple libellé CADRE/NON_CADRE pour déterminer l'APEC.
+     * Wrapper de compatibilité pendant la migration du moteur conventionnel.
+     * Le calcul commun ne dépend plus du type Plasturgie.
      */
     fun estimate(
         gross:Double,
@@ -33,18 +33,36 @@ object ComplementaryRetirementCatalogV2 {
         professionalStatus:String?=null,
         ceiling:SocialSecurityCeilingV2.Snapshot?=null,
         protectionCategory:PlasturgieProtectionCategoryV2.Result?=null
+    ):Estimate = estimateGeneric(
+        gross = gross,
+        year = year,
+        professionalStatus = professionalStatus,
+        ceiling = ceiling,
+        protectionCategory = protectionCategory?.let(PlasturgieProtectionCategoryV2::toGeneric)
+    )
+
+    /**
+     * La catégorie ANI conventionnelle confirmée prime sur le simple libellé CADRE/NON_CADRE.
+     * Sans override conventionnel, le statut professionnel explicite reste le repli prudent historique.
+     */
+    fun estimateGeneric(
+        gross:Double,
+        year:Int,
+        professionalStatus:String?=null,
+        ceiling:SocialSecurityCeilingV2.Snapshot?=null,
+        protectionCategory:ProtectionCategoryV2.Result?=null
     ):Estimate {
         val g=gross.coerceAtLeast(0.0)
         val full=SocialSecurityCeilingV2.fullMonthly(year)
             ?: return Estimate(emptyList(),0.0,listOf("Agirc-Arrco : barème non intégré pour $year"))
         val status=professionalStatus?.trim()?.uppercase()
-        val category=protectionCategory?.category
-        val categoryControlsApec=category!=null && category!=PlasturgieProtectionCategoryV2.Category.NOT_APPLICABLE
+        val category=protectionCategory?.aniCategory
+        val categoryControlsApec=protectionCategory?.conventionControlsAni==true
         val apecApplicable=when {
             !categoryControlsApec -> status=="CADRE"
-            protectionCategory?.confirmed!=true -> false
-            category==PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 -> true
-            category==PlasturgieProtectionCategoryV2.Category.ARTICLE_2_2 -> true
+            protectionCategory.confirmed!=true -> false
+            category==ProtectionCategoryV2.AniCategory.ARTICLE_2_1 -> true
+            category==ProtectionCategoryV2.AniCategory.ARTICLE_2_2 -> true
             else -> false
         }
         val applicable=ceiling?.applicableMonthly ?: full
@@ -71,12 +89,13 @@ object ComplementaryRetirementCatalogV2 {
             when {
                 categoryControlsApec && protectionCategory?.confirmed!=true ->
                     add("Catégorie ANI 2.1/2.2 à confirmer : APEC non appliquée automatiquement.")
-                category==PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE ->
+                category==ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE ->
                     add("Extension régime cadres possible : APEC non appliquée automatiquement car cette catégorie reste hors ANI 2.1/2.2.")
                 !categoryControlsApec && status!="CADRE" && status!="NON_CADRE" ->
                     add("Statut professionnel à préciser : APEC non appliquée tant que le statut cadre n'est pas confirmé.")
             }
             ceiling?.warnings?.let(::addAll)
+            protectionCategory?.warnings?.let(::addAll)
         }.distinct()
         return Estimate(
             lines=lines,
