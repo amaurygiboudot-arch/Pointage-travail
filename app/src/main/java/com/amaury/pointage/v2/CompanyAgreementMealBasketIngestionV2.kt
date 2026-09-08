@@ -17,12 +17,15 @@ object CompanyAgreementMealBasketIngestionV2 {
     data class Result(
         val detected: Boolean,
         val structured: Boolean,
-        val packageComplete: Boolean,
+        val legalPackageComplete: Boolean,
+        val storageComplete: Boolean,
         val savedCount: Int,
+        val ruleCount: Int,
         val subjects: Set<String>,
         val warnings: List<String>
     ) {
-        val storageFailure: Boolean get() = packageComplete && structured && savedCount == 0
+        val packageComplete: Boolean get() = legalPackageComplete && storageComplete
+        val storageFailure: Boolean get() = legalPackageComplete && !storageComplete
     }
 
     internal fun structure(
@@ -90,14 +93,25 @@ object CompanyAgreementMealBasketIngestionV2 {
 
         val structured = structure(profile, agreementId, verifiedContent)
         if (!structured.detected) {
-            return Result(false, false, false, 0, emptySet(), structured.warnings)
+            return Result(
+                detected = false,
+                structured = false,
+                legalPackageComplete = false,
+                storageComplete = true,
+                savedCount = 0,
+                ruleCount = 0,
+                subjects = emptySet(),
+                warnings = structured.warnings
+            )
         }
         if (!structured.packageComplete) {
             return Result(
                 detected = true,
                 structured = structured.structured,
-                packageComplete = false,
+                legalPackageComplete = false,
+                storageComplete = true,
                 savedCount = 0,
+                ruleCount = structured.rules.size,
                 subjects = structured.subjects,
                 warnings = structured.warnings
             )
@@ -113,12 +127,14 @@ object CompanyAgreementMealBasketIngestionV2 {
             }
         }
 
-        val allSaved = structured.rules.isNotEmpty() && saved == structured.rules.size
+        val storageComplete = structured.rules.isNotEmpty() && saved == structured.rules.size
         return Result(
             detected = true,
             structured = structured.rules.isNotEmpty(),
-            packageComplete = allSaved,
+            legalPackageComplete = true,
+            storageComplete = storageComplete,
             savedCount = saved,
+            ruleCount = structured.rules.size,
             subjects = structured.subjects,
             warnings = (structured.warnings + warnings).distinct()
         )
@@ -135,8 +151,10 @@ object CompanyAgreementMealBasketIngestionV2 {
     private fun blockedResult(reason: String) = Result(
         detected = true,
         structured = false,
-        packageComplete = false,
+        legalPackageComplete = false,
+        storageComplete = true,
         savedCount = 0,
+        ruleCount = 0,
         subjects = emptySet(),
         warnings = listOf("ACCO repas : $reason ; aucune règle d'entreprise n'est enregistrée.")
     )
