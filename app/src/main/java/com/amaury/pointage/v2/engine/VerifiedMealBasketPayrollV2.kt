@@ -12,6 +12,7 @@ import java.time.ZoneId
  *
  * Les faits inconnus restent inconnus. Les pauses enregistrées sont retirées des intervalles de
  * travail effectif ; une pause ouverte/incohérente empêche de certifier le total du mois.
+ * Les valeurs externes (ex. montant renvoyé à un autre accord) sont isolées par objet de panier.
  */
 object VerifiedMealBasketPayrollV2 {
     data class FactDefaults(
@@ -40,7 +41,7 @@ object VerifiedMealBasketPayrollV2 {
         monthZeroBased: Int,
         acceptedEmployerIds: Set<String>,
         arbitration: MealBasketLegalArbitrationBridgeV2.Result,
-        amountContext: ConventionMealBasketEvaluatorV2.AmountContext = ConventionMealBasketEvaluatorV2.AmountContext(),
+        amountContextsBySubject: Map<String, ConventionMealBasketEvaluatorV2.AmountContext> = emptyMap(),
         facts: FactDefaults = FactDefaults(),
         zoneId: ZoneId = ZoneId.systemDefault()
     ): Result {
@@ -52,6 +53,9 @@ object VerifiedMealBasketPayrollV2 {
             return Result(0, 0.0, true, arbitration.warnings.distinct(), arbitration.selected.map { it.source }.toSet())
         }
 
+        val normalizedAmountContexts = amountContextsBySubject.mapKeys {
+            MealBasketLegalArbitrationBridgeV2.subject(it.key)
+        }
         val targetMonth = YearMonth.of(year, monthZeroBased + 1)
         val awardsPerSubjectDay = mutableMapOf<Pair<String, LocalDate>, Int>()
         var count = 0
@@ -62,17 +66,17 @@ object VerifiedMealBasketPayrollV2 {
         sessions.asSequence()
             .filter { it.employerId in acceptedEmployerIds && it.realExitMs != null }
             .sortedBy { it.countedEntryMs ?: it.realArrivalMs ?: Long.MAX_VALUE }
-            .forEach { session ->
+            .forEach sessionLoop@ { session ->
                 val sessionFacts = workFacts(session, facts, zoneId)
                 if (sessionFacts == null) {
                     reliable = false
                     warnings += "Panier : session ${session.id} non exploitable (horaires ou pauses incomplets) ; total mensuel non certifié."
-                    return@forEach
+                    return@sessionLoop
                 }
                 val day = sessionFacts.shiftStart.toLocalDate()
-                if (YearMonth.from(day) != targetMonth) return@forEach
+                if (YearMonth.from(day) != targetMonth) return@sessionLoop
 
-                arbitration.selected.forEach { selected ->
+                arbitration.selected.forEach selectedLoop@ { selected ->
                     val spec = selected.branchRule?.let {
                         ConventionMealBasketEvaluatorV2.RuleSpec(
                             it.deliveryMode, it.amountFormula, it.eligibilityAnyOf, it.blockers
@@ -84,16 +88,18 @@ object VerifiedMealBasketPayrollV2 {
                     } ?: run {
                         reliable = false
                         warnings += "Panier ${selected.subject} : règle arbitrée absente ; total bloqué."
-                        return@forEach
+                        return@selectedLoop
                     }
 
+                    val amountContext = normalizedAmountContexts[selected.subject]
+                        ?: ConventionMealBasketEvaluatorV2.AmountContext()
                     val evaluated = ConventionMealBasketEvaluatorV2.evaluate(spec, sessionFacts, amountContext)
                     warnings += evaluated.warnings
                     if (!evaluated.reliable) {
                         reliable = false
-                        return@forEach
+                        return@selectedLoop
                     }
-                    if (evaluated.eligible != true || evaluated.cashAmount == null) return@forEach
+                    if (evaluated.eligible != true || evaluated.cashAmount == null) return@selectedLoop
 
                     val maxPerDay = selected.branchRule?.maxAwardsPerCalendarDay
                         ?: selected.companyRule?.maxAwardsPerCalendarDay
@@ -146,14 +152,20 @@ object VerifiedMealBasketPayrollV2 {
         val effective = mutableListOf<ConventionMealBasketEvaluatorV2.WorkInterval>()
         var cursor = rawEntry
         pauseRanges.forEach { (pauseStart, pauseEnd) ->
-            if (pauseStart > cursor) effective += ConventionMealBasketEvaluatorV2.WorkInterval(
-                toLocal(cursor, zoneId), toLocal(pauseStart, zoneId)
-            )
+            if (pauseStart > cursor) {
+                effective += ConventionMealBasketEvaluatorV2.WorkInterval(
+                    toLocal(cursor, zoneId),
+                    toLocal(pauseStart, zoneId)
+                )
+            }
             cursor = maxOf(cursor, pauseEnd)
         }
-        if (cursor < rawExit) effective += ConventionMealBasketEvaluatorV2.WorkInterval(
-            toLocal(cursor, zoneId), shiftEnd
-        )
+        if (cursor < rawExit) {
+            effective += ConventionMealBasketEvaluatorV2.WorkInterval(
+                toLocal(cursor, zoneId),
+                shiftEnd
+            )
+        }
 
         return ConventionMealBasketEvaluatorV2.WorkFacts(
             shiftStart = shiftStart,
