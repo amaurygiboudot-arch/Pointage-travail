@@ -77,4 +77,48 @@ class OfficialKaliProvidentContributionBandParserV2Test {
 
         assertFalse(result.complete)
     }
+
+    @Test
+    fun `mêmes bornes avec deux taux contradictoires bloquent`() {
+        val result = OfficialKaliProvidentContributionBandParserV2.parse(
+            listOf(
+                "Cotisations de prévoyance dans la limite de 4 PMSS. " +
+                    "Tranche 1 : de 0 à 1 PMSS, salarié 0,40 %, employeur 0,60 %. " +
+                    "Tranche 1 : de 0 à 1 PMSS, salarié 0,50 %, employeur 0,50 %. " +
+                    "Tranche 2 : de 1 à 4 PMSS, salarié 0,80 %, employeur 1,20 %."
+            ).map(OfficialKaliProfileMatcherV2::normalize)
+        )
+
+        assertFalse(result.complete)
+        assertTrue(result.reason.orEmpty().contains("contradictoires"))
+    }
+
+    @Test
+    fun `une tranche bornée sans taux ne peut pas être ignorée`() {
+        val result = OfficialKaliProvidentContributionBandParserV2.parse(
+            listOf(
+                "Cotisations de prévoyance dans la limite de 4 PMSS. " +
+                    "Tranche 1 : de 0 à 1 PMSS, salarié 0,40 %, employeur 0,60 %. " +
+                    "Tranche 2 : de 1 à 3 PMSS, les taux sont définis ailleurs. " +
+                    "Tranche 3 : de 3 à 4 PMSS, salarié 0,80 %, employeur 1,20 %."
+            ).map(OfficialKaliProfileMatcherV2::normalize)
+        )
+
+        assertFalse(result.complete)
+        assertTrue(result.reason.orEmpty().contains("au moins une tranche bornée"))
+    }
+
+    @Test
+    fun `plafond global porté uniquement par un autre article ne ferme pas la preuve`() {
+        val result = OfficialKaliProvidentContributionBandParserV2.parse(
+            listOf(
+                "Cotisations de prévoyance dans la limite de 4 PMSS.",
+                "Tranche 1 : de 0 à 1 PMSS, salarié 0,40 %, employeur 0,60 %. " +
+                    "Tranche 2 : de 1 à 4 PMSS, salarié 0,80 %, employeur 1,20 %."
+            ).map(OfficialKaliProfileMatcherV2::normalize)
+        )
+
+        assertFalse(result.complete)
+        assertTrue(result.reason.orEmpty().contains("article séparé"))
+    }
 }
