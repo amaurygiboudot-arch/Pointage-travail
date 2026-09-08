@@ -27,7 +27,8 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_PUBLIC_HOLIDAYS",
         "KALI_MINIMUM_PAY",
         "KALI_SENIORITY",
-        "KALI_SICKNESS_MAINTENANCE"
+        "KALI_SICKNESS_MAINTENANCE",
+        "KALI_PROVIDENT"
     )
 
     data class Summary(
@@ -270,6 +271,21 @@ object LegalAutoUpdateCoordinatorV2 {
                     val summary = if (task.isSuccessful) task.result else null
                     (summary?.completed == true) to (summary?.saved == true)
                 }
+            "KALI_PROVIDENT" -> ApecProtectionCategoryAuditV2.audit(context, companyId, referenceDate)
+                .continueWithTask { categoryTask ->
+                    val category = if (categoryTask.isSuccessful) categoryTask.result else null
+                    if (category?.completed != true) {
+                        return@continueWithTask Tasks.forResult(
+                            false to (category?.savedApprovedRule == true)
+                        )
+                    }
+                    KaliProvidentContributionAuditV2.audit(context, companyId, referenceDate)
+                        .continueWith { contributionTask ->
+                            val contribution = if (contributionTask.isSuccessful) contributionTask.result else null
+                            (contribution?.completed == true) to
+                                (category.savedApprovedRule || contribution?.saved == true)
+                        }
+                }
             else -> Tasks.forResult(false to false)
         }
 
@@ -305,6 +321,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
         "KALI_SENIORITY" -> "KALI ancienneté"
         "KALI_SICKNESS_MAINTENANCE" -> "KALI maintien maladie"
+        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations)"
         else -> "KALI"
     }
 
@@ -320,7 +337,7 @@ object LegalAutoUpdateCoordinatorV2 {
         jobs: List<LegalReanalysisPlanClientV2.Job>,
         nowMs: Long
     ): Task<LegiOutcome> {
-        if (jobs.isEmpty()) return Tasks.forResult(LegiOutcome())
+        if (jobs.isEmpty()) return Tasks.forResult(KaliOutcome()).continueWith { LegiOutcome() }
         markAttempt(context, jobs, "LEGI_ALL", nowMs)
         val atMs = referenceDate.atTime(12, 0).atZone(PARIS).toInstant().toEpochMilli()
         return LegalPayrollAuditV2.auditAll(context, atMs)
