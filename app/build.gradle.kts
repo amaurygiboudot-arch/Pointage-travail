@@ -78,8 +78,8 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
     // PDFBox-Android 2.0.27.0 déclare encore Bouncy Castle 1.72. Aligner explicitement
-    // la famille jdk15to18 sur le BOM 1.85 évite les versions vulnérables transitives.
-    implementation(platform("org.bouncycastle:bc-jdk15to18-bom:1.85"))
+    // la famille jdk15to18 sur 1.85.2 corrige les CVE transitives et le doublon Android de 1.85.
+    implementation(platform("org.bouncycastle:bc-jdk15to18-bom:1.85.2"))
     implementation("org.bouncycastle:bcprov-jdk15to18")
     implementation("org.bouncycastle:bcpkix-jdk15to18")
     implementation("org.bouncycastle:bcutil-jdk15to18")
