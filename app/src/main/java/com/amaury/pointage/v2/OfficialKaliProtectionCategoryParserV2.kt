@@ -157,9 +157,8 @@ object OfficialKaliProtectionCategoryParserV2 {
     }
 
     /**
-     * Toute dimension présente à la fois dans la fiche et dans la clause doit correspondre.
-     * Une dimension absente de la fiche n'est pas inventée : elle ne constitue simplement pas
-     * une preuve. Au moins une dimension explicite doit correspondre.
+     * Toute dimension explicitement utilisée par la clause doit être connue dans la fiche
+     * et correspondre exactement. Au moins une dimension doit constituer une preuve positive.
      */
     private fun classificationEvidence(clause: String, classification: ConventionClassificationV2): String? {
         val checks = listOf(
@@ -179,7 +178,7 @@ object OfficialKaliProtectionCategoryParserV2 {
     private fun coefficientMatch(clause: String, value: Int?): DimensionMatch {
         val mentioned = coefficientVocabulary.containsMatchIn(clause) || coefficientPrefixLowerBoundRegex.containsMatchIn(clause)
         if (!mentioned) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (value == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (value == null) return DimensionMatch(MatchState.MISMATCH)
 
         var recognized = false
         coefficientRangeRegex.findAll(clause).forEach { match ->
@@ -228,7 +227,7 @@ object OfficialKaliProtectionCategoryParserV2 {
     private fun levelMatch(clause: String, rawValue: String?): DimensionMatch {
         val mentioned = levelVocabulary.containsMatchIn(clause) || levelPrefixLowerBoundRegex.containsMatchIn(clause)
         if (!mentioned) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
         val value = romanOrArabic(rawValue) ?: return DimensionMatch(MatchState.MISMATCH)
         var recognized = false
 
@@ -272,7 +271,7 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private fun echelonMatch(clause: String, rawValue: String?): DimensionMatch {
         if (!echelonVocabulary.containsMatchIn(clause)) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
         val value = normalizeToken(rawValue)
         var recognized = false
 
@@ -303,7 +302,7 @@ object OfficialKaliProtectionCategoryParserV2 {
 
     private fun positionMatch(clause: String, rawValue: String?): DimensionMatch {
         if (!positionVocabulary.containsMatchIn(clause)) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
         val value = normalizeToken(rawValue)
         var recognized = false
         val numericValue = value.replace(',', '.').toBigDecimalOrNull()
@@ -327,6 +326,11 @@ object OfficialKaliProtectionCategoryParserV2 {
             recognized = true
             if (value == normalizeToken(match.groupValues[1])) return DimensionMatch(MatchState.MATCH, "position $value explicite")
         }
+        val aliasCodes = positionAliasCodeRegex.findAll(clause).map { normalizeToken(it.groupValues[1]) }.toSet()
+        if (aliasCodes.isNotEmpty()) {
+            recognized = true
+            if (value in aliasCodes) return DimensionMatch(MatchState.MATCH, "position $value explicitement reliée à la classification")
+        }
         return if (recognized) DimensionMatch(MatchState.MISMATCH) else DimensionMatch(MatchState.MISMATCH)
     }
 
@@ -340,7 +344,7 @@ object OfficialKaliProtectionCategoryParserV2 {
         val listRegex = Regex("\\b$plural\\s*[:.\\-]?\\s*([a-z0-9.]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.]+)+)")
         val mentions = exactRegex.containsMatchIn(clause) || listRegex.containsMatchIn(clause)
         if (!mentions) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
         val value = normalizeToken(rawValue)
         listRegex.findAll(clause).forEach { match ->
             val values = tokenList(match.groupValues[1]).map(::normalizeToken).toSet()
@@ -358,7 +362,7 @@ object OfficialKaliProtectionCategoryParserV2 {
         val listRegex = Regex("\\bcategories\\s+(?:professionnelles|de\\s+classification)\\s*[:.\\-]?\\s*([a-z0-9.]{1,12}(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.]{1,12})+)")
         val mentions = exactRegex.containsMatchIn(clause) || listRegex.containsMatchIn(clause)
         if (!mentions) return DimensionMatch(MatchState.NOT_MENTIONED)
-        if (rawValue == null) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
         val value = normalizeToken(rawValue)
         listRegex.findAll(clause).forEach { match ->
             if (value in tokenList(match.groupValues[1]).map(::normalizeToken)) {
@@ -374,15 +378,14 @@ object OfficialKaliProtectionCategoryParserV2 {
     }
 
     private fun employmentMatch(clause: String, rawValue: String?): DimensionMatch {
-        val value = rawValue ?: return DimensionMatch(MatchState.NOT_MENTIONED)
-        val wanted = OfficialKaliProfileMatcherV2.normalize(value)
+        val explicitCriterion = employmentCriterionRegex.containsMatchIn(clause)
+        if (!explicitCriterion) return DimensionMatch(MatchState.NOT_MENTIONED)
+        if (rawValue == null) return DimensionMatch(MatchState.MISMATCH)
+        val wanted = OfficialKaliProfileMatcherV2.normalize(rawValue)
         val exact = Regex("\\b(?:emploi|fonction|poste)\\s*[:.\\-]?\\s*${Regex.escape(wanted)}\\b")
         return if (exact.containsMatchIn(clause)) {
-            DimensionMatch(MatchState.MATCH, "emploi ${normalizeToken(value)} explicite")
-        } else {
-            // Le simple mot emploi/fonction dans une phrase générale n'est pas un critère de classement.
-            DimensionMatch(MatchState.NOT_MENTIONED)
-        }
+            DimensionMatch(MatchState.MATCH, "emploi ${normalizeToken(rawValue)} explicite")
+        } else DimensionMatch(MatchState.MISMATCH)
     }
 
     private fun integerList(raw: String): Set<Int> = tokenList(raw).mapNotNull { it.toIntOrNull() }.toSet()
@@ -474,8 +477,11 @@ object OfficialKaliProtectionCategoryParserV2 {
     private val echelonListRegex = Regex("\\bechelons\\s*[:.\\-]?\\s*([a-z0-9]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9]+)+)")
     private val echelonExactRegex = Regex("\\bechelon\\s*[:.\\-]?\\s*([a-z0-9]+)\\b")
 
-    private val positionVocabulary = Regex("\\bpositions?\\b")
-    private val positionRangeRegex = Regex("\\bpositions?\\s*[:.\\-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:a|au|-)\\s*(\\d+(?:[.,]\\d+)?)\\b")
-    private val positionListRegex = Regex("\\bpositions\\s*[:.\\-]?\\s*([a-z0-9.,]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.,]+)+)")
-    private val positionExactRegex = Regex("\\bposition\\s*[:.\\-]?\\s*([a-z0-9.,]+)\\b")
+    private val positionVocabulary = Regex("\\bpositions?(?:\\s+hierarchiques?(?:\\s+conventionnelles?)?)?\\b")
+    private val positionRangeRegex = Regex("\\bpositions?(?:\\s+hierarchiques?(?:\\s+conventionnelles?)?)?\\s*[:.\\-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:a|au|-)\\s*(\\d+(?:[.,]\\d+)?)\\b")
+    private val positionListRegex = Regex("\\bpositions?(?:\\s+hierarchiques?(?:\\s+conventionnelles?)?)?\\s*[:.\\-]?\\s*([a-z0-9.,]+(?:\\s*(?:,|/|et|ou)\\s*[a-z0-9.,]+)+)")
+    private val positionExactRegex = Regex("\\bpositions?(?:\\s+hierarchiques?(?:\\s+conventionnelles?)?)?\\s*[:.\\-]?\\s*([a-z0-9.,]+)\\b")
+    private val positionAliasCodeRegex = Regex("\\b(\\d+[a-z])\\s*\\(")
+
+    private val employmentCriterionRegex = Regex("\\b(?:emploi|fonction|poste)\\s*[:.\\-]\\s*[a-z0-9]")
 }
