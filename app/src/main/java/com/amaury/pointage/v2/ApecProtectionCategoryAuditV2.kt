@@ -68,9 +68,10 @@ object ApecProtectionCategoryAuditV2 {
             }
             val kali = kaliTask.result
             val rules = exactProfileRules(
-                profile,
-                referenceDate,
-                V2ConventionProtectionCategoryStore.rules(context, profile.idcc)
+                profile = profile,
+                referenceDate = referenceDate,
+                rules = V2ConventionProtectionCategoryStore.rules(context, profile.idcc),
+                savedRuleIds = kali.savedRuleIds.toSet()
             )
             if (!kali.kaliTechnicalCoverageComplete || rules.isEmpty()) {
                 return@continueWithTask Tasks.forResult(
@@ -87,7 +88,7 @@ object ApecProtectionCategoryAuditV2 {
                         warnings = buildList {
                             addAll(kali.warnings)
                             if (!kali.kaliTechnicalCoverageComplete) add("APEC catégorie ANI : couverture KALI incomplète ; APEC non utilisé pour valider la paie.")
-                            if (rules.isEmpty()) add("APEC catégorie ANI : aucune preuve KALI scoped exacte n'est disponible pour ce profil ; absence de catégorie non déduite.")
+                            if (rules.isEmpty()) add("APEC catégorie ANI : aucune preuve KALI scoped effectivement sauvegardée pendant cet audit pour ce profil ; absence de catégorie non déduite.")
                         }.distinct()
                     )
                 )
@@ -209,12 +210,14 @@ object ApecProtectionCategoryAuditV2 {
     internal fun exactProfileRules(
         profile: ConventionLegalProfileV2,
         referenceDate: LocalDate,
-        rules: List<ConventionProtectionCategoryV2.Rule>
+        rules: List<ConventionProtectionCategoryV2.Rule>,
+        savedRuleIds: Set<String>? = null
     ): List<ConventionProtectionCategoryV2.Rule> {
         val wantedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
         val wantedStatus = profile.professionalStatus?.trim()?.uppercase(Locale.ROOT) ?: return emptyList()
         return rules.filter { rule ->
             rule.structurallyValid() &&
+                (savedRuleIds == null || rule.ruleId in savedRuleIds) &&
                 ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc) == wantedIdcc &&
                 rule.activeOn(referenceDate) &&
                 profile.classification.matches(rule.classification) &&
@@ -235,7 +238,10 @@ object ApecProtectionCategoryAuditV2 {
         if (!kaliTechnicalCoverageComplete) {
             return Evaluation(0, null, false, listOf("APEC catégorie ANI : couverture KALI technique incomplète."))
         }
-        if (!identities.complete || rules.any { it.conventionScopeKey !in identities.identities }) {
+        if (!identities.complete || rules.any { rule ->
+                rule.conventionScopeKey?.let(identities.identities::containsKey) != true
+            }
+        ) {
             return Evaluation(0, null, false, listOf("APEC catégorie ANI : identité KALITEXT incomplète."))
         }
         if (!apec.technicalCoverageComplete) {
