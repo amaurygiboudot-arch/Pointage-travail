@@ -10,8 +10,8 @@ import kotlin.math.abs
  * Parseur KALI strict des paniers / indemnités repas.
  *
  * Une occurrence n'est structurée que si le même bloc juridique prouve le profil, le montant,
- * les conditions d'ouverture et la filiation KALI. Chaque occurrence est isolée de ses voisines :
- * une formule appartenant à un autre panier ne peut jamais compléter la clause courante.
+ * les conditions d'ouverture et la filiation KALI. Chaque occurrence du profil est isolée de ses
+ * voisines : une formule appartenant à un autre panier ne peut jamais compléter la clause courante.
  */
 object OfficialKaliMealBasketParserV2 {
     data class Diagnostic(
@@ -79,7 +79,6 @@ object OfficialKaliMealBasketParserV2 {
             if (occurrences.isEmpty()) return@articleLoop
 
             occurrences.forEachIndexed { index, occurrence ->
-                observed++
                 val targetOffset = bodyOffset + occurrence.range.first
                 val scopeWindow = if (classificationPresent) {
                     OfficialKaliProfileMatcherV2.nearestScopeWindow(
@@ -95,11 +94,10 @@ object OfficialKaliMealBasketParserV2 {
                     text.takeIf { OfficialKaliProfileMatcherV2.statusScopeMatches(it, status) }
                         ?.let { OfficialKaliProfileMatcherV2.Window(it, 0, it.length) }
                 }
-                if (scopeWindow == null) {
-                    unresolved++
-                    reasons += "KALI repas $kaliText $articleId : occurrence ${index + 1} hors portée exacte du profil ; aucun droit n'est créé."
-                    return@forEachIndexed
-                }
+                // Une occurrence appartenant à un coefficient/niveau/statut voisin n'appartient
+                // pas au profil audité : elle est ignorée, jamais transformée en anomalie.
+                if (scopeWindow == null) return@forEachIndexed
+                observed++
 
                 val occurrenceText = isolateMealOccurrence(
                     scope = scopeWindow.text,
@@ -173,8 +171,8 @@ object OfficialKaliMealBasketParserV2 {
             unresolvedOccurrences = unresolved,
             reasons = buildList {
                 addAll(reasons)
-                if (observed == 0) add("KALI repas : aucune occurrence panier/indemnité repas n'a été observée ; cela ne prouve jamais une absence de droit.")
-                if (observed > structured) add("KALI repas : ${observed - structured} occurrence(s) restent non structurées ; couverture de la matière bloquée.")
+                if (observed == 0) add("KALI repas : aucune occurrence panier/indemnité repas du profil exact n'a été observée ; cela ne prouve jamais une absence de droit.")
+                if (observed > structured) add("KALI repas : ${observed - structured} occurrence(s) du profil restent non structurées ; couverture de la matière bloquée.")
             }.distinct()
         )
     }
@@ -205,9 +203,8 @@ object OfficialKaliMealBasketParserV2 {
             val hours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
             val start = parseClock(match.groupValues[2], match.groupValues[3]) ?: return@mapNotNull null
             val end = parseClock(match.groupValues[4], match.groupValues[5]) ?: return@mapNotNull null
-            val minutes = (hours * 60.0).toInt()
             ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInFixedWindow(
-                ConventionMealBasketV2.DailyWindow(start, end), minutes
+                ConventionMealBasketV2.DailyWindow(start, end), (hours * 60.0).toInt()
             ).takeIf { it.structurallyValid() }
         }.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
 
@@ -277,10 +274,7 @@ object OfficialKaliMealBasketParserV2 {
     }
 
     private fun unresolved(reason: String) = Diagnostic(
-        rules = emptyList(),
-        observedOccurrences = 0,
-        structuredOccurrences = 0,
-        unresolvedOccurrences = 0,
+        rules = emptyList(), observedOccurrences = 0, structuredOccurrences = 0, unresolvedOccurrences = 0,
         reasons = listOf("KALI repas : $reason ; aucun droit n'est enregistré.")
     )
 
