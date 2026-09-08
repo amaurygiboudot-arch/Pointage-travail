@@ -177,24 +177,46 @@ object OfficialAccoProvidentContributionParserV2 {
         return Window(text.substring(start, end), offset)
     }
 
+    /**
+     * Associe chaque pourcentage au payeur explicitement placé juste avant ou juste après.
+     * Les segments sont bornés par les pourcentages voisins : un libellé appartenant au taux
+     * précédent ne peut donc pas contaminer le suivant.
+     */
     private fun parseRates(window: Window): RatePair? {
-        val employee = roleRates(window.text, employeeRateRegexes)
-        val employer = roleRates(window.text, employerRateRegexes)
-        if (employee.size != 1 || employer.size != 1) return null
-        return RatePair(employee.single(), employer.single())
-    }
+        val matches = percentRegex.findAll(window.text).toList()
+        val employeeRates = linkedSetOf<Double>()
+        val employerRates = linkedSetOf<Double>()
 
-    private fun roleRates(text: String, regexes: List<Regex>): List<Double> = regexes
-        .flatMap { regex ->
-            regex.findAll(text).mapNotNull { match ->
-                match.groupValues.drop(1).firstOrNull { it.isNotBlank() }
-                    ?.replace(',', '.')
-                    ?.toDoubleOrNull()
-                    ?.takeIf { it in 0.0..100.0 }
-                    ?.div(100.0)
-            }.toList()
+        matches.forEachIndexed { index, match ->
+            val value = match.groupValues[1]
+                .replace(',', '.')
+                .toDoubleOrNull()
+                ?.takeIf { it in 0.0..100.0 }
+                ?.div(100.0)
+                ?: return@forEachIndexed
+
+            val previousBoundary = matches.getOrNull(index - 1)?.range?.last?.plus(1)
+                ?: (match.range.first - 90).coerceAtLeast(0)
+            val nextBoundary = matches.getOrNull(index + 1)?.range?.first
+                ?: (match.range.last + 91).coerceAtMost(window.text.length)
+            val before = window.text.substring(previousBoundary, match.range.first).takeLast(90)
+            val after = window.text.substring(match.range.last + 1, nextBoundary).take(90)
+
+            val employee = employeeBeforeRateRegex.containsMatchIn(before) ||
+                employeeAfterRateRegex.containsMatchIn(after)
+            val employer = employerBeforeRateRegex.containsMatchIn(before) ||
+                employerAfterRateRegex.containsMatchIn(after)
+
+            when {
+                employee && !employer -> employeeRates += value
+                employer && !employee -> employerRates += value
+                else -> Unit
+            }
         }
-        .distinct()
+
+        if (employeeRates.size != 1 || employerRates.size != 1) return null
+        return RatePair(employeeRates.single(), employerRates.single())
+    }
 
     private fun parseSeniority(window: Window): List<Int> {
         val values = mutableListOf<Int>()
@@ -253,13 +275,18 @@ object OfficialAccoProvidentContributionParserV2 {
     )
     private val grossBasisRegex = Regex("\\b(?:salaire|remuneration) brute?\\b|\\bassiette[^.;]{0,80}?(?:salaire|remuneration) brute?\\b")
     private val unsupportedBasisRegex = Regex("\\b(?:pmss|plafond(?: de la securite sociale)?|tranche[s]?|fraction du plafond)\\b")
-    private val employeeRateRegexes = listOf(
-        Regex("\\b(?:part salariale|a la charge du salarie)\\b\\s*[:=.-]?\\s*(?:(?:est|fixee)\\s+(?:a|de)\\s+)?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
-        Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%[^.;]{0,40}?\\b(?:a la charge du salarie|part salariale)\\b")
+    private val percentRegex = Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%")
+    private val employeeBeforeRateRegex = Regex(
+        "\\b(?:part salariale|a la charge du salarie)\\b\\s*(?:[:=.-]?\\s*)?(?:(?:est|fixee)\\s+(?:a|de)\\s+|(?:a|de)\\s+)?$"
     )
-    private val employerRateRegexes = listOf(
-        Regex("\\b(?:part patronale|a la charge de l'employeur)\\b\\s*[:=.-]?\\s*(?:(?:est|fixee)\\s+(?:a|de)\\s+)?(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%"),
-        Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%[^.;]{0,40}?\\b(?:a la charge de l'employeur|part patronale)\\b")
+    private val employerBeforeRateRegex = Regex(
+        "\\b(?:part patronale|a la charge de l'employeur)\\b\\s*(?:[:=.-]?\\s*)?(?:(?:est|fixee)\\s+(?:a|de)\\s+|(?:a|de)\\s+)?$"
+    )
+    private val employeeAfterRateRegex = Regex(
+        "^\\s*(?:[:=.-]?\\s*)?(?:a la charge du salarie|part salariale)\\b"
+    )
+    private val employerAfterRateRegex = Regex(
+        "^\\s*(?:[:=.-]?\\s*)?(?:a la charge de l'employeur|part patronale)\\b"
     )
     private val zeroSeniorityRegex = Regex(
         "\\b(?:sans condition d'anciennete|des l'embauche|a compter de l'embauche)\\b"
