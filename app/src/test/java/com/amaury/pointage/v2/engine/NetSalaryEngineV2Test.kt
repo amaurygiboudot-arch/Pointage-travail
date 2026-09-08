@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.ConventionLegalProfileV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -264,7 +265,9 @@ class NetSalaryEngineV2Test {
             verifiedProvidentClassification=classification,
             verifiedProvidentSeniorityMonths=72,
             verifiedProvidentRules=listOf(verifiedProvidentRule(classification,0.005,0.007)),
-            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification),
+            verifiedProvidentLegalProfile=verifiedProvidentProfile(classification),
+            verifiedProvidentSourceKnowledge=confirmedAccoAbsence()
         )
 
         val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
@@ -293,7 +296,9 @@ class NetSalaryEngineV2Test {
             verifiedProvidentClassification=classification,
             verifiedProvidentSeniorityMonths=72,
             verifiedProvidentRules=listOf(mismatchedRule),
-            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification),
+            verifiedProvidentLegalProfile=verifiedProvidentProfile(classification),
+            verifiedProvidentSourceKnowledge=confirmedAccoAbsence()
         )
 
         val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
@@ -319,7 +324,9 @@ class NetSalaryEngineV2Test {
             verifiedProvidentClassification=classification,
             verifiedProvidentSeniorityMonths=72,
             verifiedProvidentRules=listOf(verifiedProvidentRule(classification,0.005,0.007)),
-            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification),
+            verifiedProvidentLegalProfile=verifiedProvidentProfile(classification),
+            verifiedProvidentSourceKnowledge=confirmedAccoAbsence()
         )
 
         val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
@@ -328,6 +335,26 @@ class NetSalaryEngineV2Test {
         assertEquals(17.50,result.conventionProvidentEmployer,0.001)
         assertEquals(20.0,result.companyEmployeeDeductions,0.001)
     }
+
+    private fun verifiedProvidentProfile(
+        classification: ConventionClassificationV2
+    ) = ConventionLegalProfileV2(
+        companyId = "company",
+        idcc = "292",
+        siret = "12345678901234",
+        professionalStatus = "NON_CADRE",
+        classification = classification,
+        contractType = "CDI",
+        entryDate = LocalDate.of(2020,1,1),
+        conventionSeniorityDate = LocalDate.of(2020,1,1),
+        weeklyHours = 35.0,
+        forfaitAnnualHours = null,
+        forfaitAnnualDays = null
+    )
+
+    private fun confirmedAccoAbsence() = mapOf(
+        PayrollLegalArbitratorV2.Source.ACCO to PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
+    )
 
     private fun verifiedProvidentRule(
         classification:ConventionClassificationV2,

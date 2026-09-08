@@ -10,6 +10,9 @@ import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
 import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
 import com.amaury.pointage.v2.ConventionLegalProfileV2
+import com.amaury.pointage.v2.OfficialAccoProvidentContributionParserV2
+import com.amaury.pointage.v2.PayrollLegalSourceKnowledgeStoreV2
+import com.amaury.pointage.v2.V2CompanyProvidentContributionStore
 import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
 import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
 import com.amaury.pointage.v2.V2ConventionProvidentContributionStore
@@ -112,7 +115,15 @@ object CompanyPayrollOverridesV2 {
             record = null,
             reliable = false,
             warnings = listOf("Prévoyance conventionnelle vérifiée : audit KALI à confirmer")
-        )
+        ),
+        /** Profil juridique local exact utilisé pour arbitrer KALI contre ACCO. */
+        val verifiedProvidentLegalProfile:ConventionLegalProfileV2? = null,
+        /** Cotisations d'entreprise structurées depuis ACCO et liées au SIRET local exact. */
+        val verifiedCompanyProvidentRules:List<OfficialAccoProvidentContributionParserV2.Rule> = emptyList(),
+        /** Preuves explicites de contrôle/absence des sources, jamais déduites d'un store vide. */
+        val verifiedProvidentSourceKnowledge:Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap(),
+        /** Équivalence L2253-1 des garanties. null tant qu'une preuve distincte sur les prestations ne l'a pas démontrée. */
+        val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null
     )
 
     fun load(
@@ -183,6 +194,15 @@ object CompanyPayrollOverridesV2 {
                 warnings=listOf("Prévoyance conventionnelle vérifiée : profil juridique incomplet")
             )
         }
+        val verifiedCompanyProvidentRules=V2CompanyProvidentContributionStore.rules(context,companyId)
+        val verifiedProvidentSourceKnowledge=if(idcc!=null){
+            PayrollLegalSourceKnowledgeStoreV2.knowledgeForProvidentContribution(
+                context=context,
+                companyId=companyId,
+                idcc=idcc,
+                referenceDate=referenceDate
+            )
+        }else emptyMap()
         val alsaceMoselleLocalRegime=when(p.getString("alsace_moselle_local_regime","").orEmpty().trim().uppercase(Locale.ROOT)) {
             "YES" -> true
             "NO" -> false
@@ -282,7 +302,11 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentClassification=verifiedProvidentClassification,
             verifiedProvidentSeniorityMonths=verifiedProvidentSeniorityMonths,
             verifiedProvidentRules=verifiedProvidentRules,
-            verifiedProvidentCoverage=verifiedProvidentCoverage
+            verifiedProvidentCoverage=verifiedProvidentCoverage,
+            verifiedProvidentLegalProfile=legalProfile,
+            verifiedCompanyProvidentRules=verifiedCompanyProvidentRules,
+            verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
+            verifiedCompanyProvidentGuaranteesEquivalent=null
         )
     }
 

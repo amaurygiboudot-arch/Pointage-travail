@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
+
 /** Couche 5/6 — assemblage canonique brut -> retenues connues -> net imposable -> PAS -> net estimé. */
 object NetSalaryEngineV2 {
     data class Result(
@@ -132,6 +134,38 @@ object NetSalaryEngineV2 {
                 "Prévoyance conventionnelle : couverture KALI non exploitable pour le profil courant."
             )
         }
+
+        // Dès qu'un chemin KALI a été acquis, la règle calculable doit passer par l'arbitrage
+        // ACCO/KALI. Un store ACCO vide n'est jamais interprété comme une absence d'accord : seule
+        // une preuve explicite de connaissance de source peut autoriser la branche seule.
+        val arbitratedProvident = if (verifiedProvidentPath) {
+            val profile = company.verifiedProvidentLegalProfile
+            if (profile == null || verifiedProvident == null) {
+                ProvidentContributionPayrollResolutionV2.Result(
+                    employeeAmount = null,
+                    employerAmount = null,
+                    reliable = false,
+                    selectedSource = null,
+                    warnings = listOf(
+                        "Prévoyance ACCO/KALI : profil juridique local indisponible ; calcul collectif bloqué."
+                    )
+                )
+            } else {
+                ProvidentContributionPayrollResolutionV2.resolve(
+                    profile = profile,
+                    referenceDate = company.referenceDate,
+                    branch = V2ConventionProvidentContributionBridge.Snapshot(
+                        result = verifiedProvident,
+                        coverage = providentCoverage
+                    ),
+                    companyRules = company.verifiedCompanyProvidentRules,
+                    gross = contributionGross,
+                    companyGuaranteesEquivalent = company.verifiedCompanyProvidentGuaranteesEquivalent,
+                    sourceKnowledge = company.verifiedProvidentSourceKnowledge
+                )
+            }
+        } else null
+
         val legacyConventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = contributionGross,
             year = year,
@@ -145,22 +179,21 @@ object NetSalaryEngineV2 {
             company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE
         val legacyConventionProvidentKnown = year == 2026 && company.idcc == "292" &&
             company.protectionCategory.confirmed && outsideAni && company.seniorityMonths != null
-        val verifiedConventionProvidentKnown = verifiedProvidentPath && verifiedProvident?.reliable == true
 
         val calculatedProvidentEmployee: Double? = when {
-            verifiedProvidentPath && verifiedProvident?.reliable == true -> verifiedProvident.employeeAmount
+            verifiedProvidentPath && arbitratedProvident?.reliable == true -> arbitratedProvident.employeeAmount
             verifiedProvidentPath -> null
             legacyConventionProvidentKnown -> legacyConventionProvident.employeeDeductions
             else -> null
         }
         val calculatedProvidentEmployer: Double? = when {
-            verifiedProvidentPath && verifiedProvident?.reliable == true -> verifiedProvident.employerAmount
+            verifiedProvidentPath && arbitratedProvident?.reliable == true -> arbitratedProvident.employerAmount
             verifiedProvidentPath -> null
             legacyConventionProvidentKnown -> legacyConventionProvident.employerContributions
             else -> null
         }
         val activeProvidentWarnings = if (verifiedProvidentPath) {
-            verifiedProvident?.warnings.orEmpty()
+            (verifiedProvident?.warnings.orEmpty() + arbitratedProvident?.warnings.orEmpty()).distinct()
         } else {
             legacyConventionProvident.warnings
         }
@@ -190,8 +223,9 @@ object NetSalaryEngineV2 {
             balanceRate = company.employerApprenticeshipBalanceRate
         )
 
-        // Une retenue réellement renseignée par l'entreprise prime toujours sur le minimum
-        // conventionnel calculé. Le minimum n'est donc jamais ajouté une seconde fois.
+        // Une retenue réellement renseignée par l'entreprise prime toujours sur la règle collective
+        // calculée. Le moteur juridique sert à contrôler/compléter, jamais à doubler un prélèvement
+        // déjà connu sur le bulletin.
         val effectiveProvident = company.providentEmployeeAmount ?: calculatedProvidentEmployee
         val companyKnown = listOfNotNull(
             company.mutualEmployeeAmount,
@@ -208,9 +242,9 @@ object NetSalaryEngineV2 {
             .filter { it.id == "csg_taxable" || it.id == "crds" }
             .sumOf { it.employeeAmount }
 
-        // Un barème conventionnel KALI prouve l'obligation minimale, pas l'absence d'un régime
-        // d'entreprise différent ou plus favorable. Tant que le montant réellement prélevé par
-        // l'entreprise n'est pas connu, la partie fiscale reste donc volontairement incomplète.
+        // Un barème collectif prouve une obligation juridique, pas l'absence d'une retenue réelle
+        // différente sur le bulletin. Tant que le montant réellement prélevé par l'entreprise n'est
+        // pas connu, la partie fiscale reste volontairement incomplète.
         val providentDataComplete = company.providentEmployeeAmount != null
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
             providentDataComplete &&
@@ -247,12 +281,12 @@ object NetSalaryEngineV2 {
                     (it.startsWith("AT/MP employeur") && atMp.complete)
             })
             if (company.providentEmployeeAmount == null) {
-                add("Prévoyance salariale entreprise : montant réel à confirmer ; un barème conventionnel connu ne prouve pas l'absence d'un régime d'entreprise différent ou plus favorable.")
+                add("Prévoyance salariale entreprise : montant réel à confirmer ; une règle collective calculable ne prouve pas à elle seule la retenue réellement pratiquée sur le bulletin.")
             }
             if (company.providentEmployeeAmount != null && calculatedProvidentEmployee != null &&
                 calculatedProvidentEmployee > 0.0 &&
                 company.providentEmployeeAmount + 0.01 < calculatedProvidentEmployee) {
-                add("Prévoyance salariale renseignée inférieure au minimum conventionnel calculé : vérifier le bulletin ou le régime d’entreprise.")
+                add("Prévoyance salariale renseignée inférieure à la règle collective calculée : vérifier le bulletin ou le régime d’entreprise.")
             }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
@@ -290,8 +324,8 @@ object NetSalaryEngineV2 {
             addAll(company.employerApprenticeshipWarnings)
             addAll(apprenticeship.warnings)
             addAll(company.employerReductionWarnings)
-            if (verifiedProvidentPath && verifiedProvident?.reliable != true) {
-                add("Coût employeur : cotisation conventionnelle de prévoyance KALI non calculable avec les données disponibles.")
+            if (verifiedProvidentPath && arbitratedProvident?.reliable != true) {
+                add("Coût employeur : cotisation collective de prévoyance ACCO/KALI non calculable avec les preuves disponibles.")
             }
             if (!reductionsFitKnownSubtotal) {
                 add("Réductions/exonérations patronales : le montant confirmé dépasse les cotisations actuellement connues ; le sous-total après réductions n'est pas affiché tant que les contributions manquantes ne sont pas identifiées.")

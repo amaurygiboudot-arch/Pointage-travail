@@ -12,7 +12,8 @@ import java.time.LocalDate
  */
 object PayrollSourceKnowledgeProofV2 {
     enum class Matter {
-        OVERTIME_RATE
+        OVERTIME_RATE,
+        PROVIDENT_CONTRIBUTION
     }
 
     enum class Outcome {
@@ -73,12 +74,41 @@ object PayrollSourceKnowledgeProofV2 {
         companyId: String,
         idcc: String,
         referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeMapForMatter(
+            proofs = proofs,
+            matter = Matter.OVERTIME_RATE,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
+        )
+
+    fun knowledgeMapForProvidentContribution(
+        proofs: List<Proof>,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeMapForMatter(
+            proofs = proofs,
+            matter = Matter.PROVIDENT_CONTRIBUTION,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
+        )
+
+    private fun knowledgeMapForMatter(
+        proofs: List<Proof>,
+        matter: Matter,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = buildMap {
         listOf(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI).forEach { source ->
             val knowledge = knowledgeFor(
                 proofs = proofs,
                 source = source,
-                matter = Matter.OVERTIME_RATE,
+                matter = matter,
                 companyId = companyId,
                 idcc = idcc,
                 referenceDate = referenceDate

@@ -44,6 +44,19 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             referenceDate = referenceDate
         )
 
+    fun knowledgeForProvidentContribution(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            proofs = load(context),
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
+        )
+
     fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> = load(context)
 
     private fun load(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> {
