@@ -17,8 +17,8 @@ import java.util.Locale
  * dans ce store ne prouve jamais une absence de droit : seule ConventionMatterCoverageV2
  * peut porter une conclusion de couverture, et uniquement après audit officiel complet.
  *
- * L'état d'agrément APEC est persisté séparément de la preuve KALI. Une règle KALI peut donc
- * être conservée comme preuve tout en restant non applicable tant que l'agrément n'est pas vérifié.
+ * La preuve KALI et la preuve APEC restent séparées. Un agrément APEC ne devient applicable
+ * que si son périmètre, sa classification et sa catégorie correspondent exactement à la règle KALI.
  */
 object V2ConventionProtectionCategoryStore {
     private const val PREFS = "horatrack_v2_convention_protection_category_rules"
@@ -31,7 +31,7 @@ object V2ConventionProtectionCategoryStore {
         return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
-    /** Garde pure utilisée aussi par les tests unitaires : aucune règle incertaine n'entre dans le store. */
+    /** Une preuve KALI peut être conservée même si l'agrément APEC reste à vérifier. */
     internal fun acceptsVerifiedRule(rule: ConventionProtectionCategoryV2.Rule): Boolean =
         rule.structurallyValid() &&
             rule.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
@@ -39,7 +39,7 @@ object V2ConventionProtectionCategoryStore {
 
     /**
      * Enregistre une preuve structurée. "Verified" ne signifie pas "applicable" :
-     * le résolveur contrôle encore période, extension KALI et agrément APEC.
+     * le résolveur contrôle encore période, extension KALI et agrément APEC exact.
      */
     fun saveVerified(context: Context, rule: ConventionProtectionCategoryV2.Rule) {
         require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable ou incertaine" }
@@ -103,9 +103,13 @@ object V2ConventionProtectionCategoryStore {
         .put("source", rule.source)
         .put("extensionStatus", rule.extensionStatus.name)
         .put("extensionEffectiveFrom", rule.extensionEffectiveFrom?.toString())
+        .put("conventionScopeKey", rule.conventionScopeKey)
         .put("approvalStatus", rule.approvalStatus.name)
         .put("approvalEffectiveFrom", rule.approvalEffectiveFrom?.toString())
         .put("approvalSource", rule.approvalSource)
+        .put("approvalScopeKey", rule.approvalScopeKey)
+        .put("approvalClassification", rule.approvalClassification?.let(::encodeClassification))
+        .put("approvalAniCategory", rule.approvalAniCategory?.name)
 
     private fun encodeClassification(value: ConventionClassificationV2): JSONObject = JSONObject()
         .put("coefficient", value.coefficient)
@@ -139,12 +143,20 @@ object V2ConventionProtectionCategoryStore {
             extensionEffectiveFrom = obj.optString("extensionEffectiveFrom")
                 .takeIf { it.isNotBlank() && it != "null" }
                 ?.let(LocalDate::parse),
+            conventionScopeKey = obj.optString("conventionScopeKey")
+                .takeIf { it.isNotBlank() && it != "null" },
             approvalStatus = approvalStatus,
             approvalEffectiveFrom = obj.optString("approvalEffectiveFrom")
                 .takeIf { it.isNotBlank() && it != "null" }
                 ?.let(LocalDate::parse),
             approvalSource = obj.optString("approvalSource")
+                .takeIf { it.isNotBlank() && it != "null" },
+            approvalScopeKey = obj.optString("approvalScopeKey")
+                .takeIf { it.isNotBlank() && it != "null" },
+            approvalClassification = obj.optJSONObject("approvalClassification")?.let(::decodeClassification),
+            approvalAniCategory = obj.optString("approvalAniCategory")
                 .takeIf { it.isNotBlank() && it != "null" }
+                ?.let(ProtectionCategoryV2.AniCategory::valueOf)
         )
     }.getOrNull()
 
