@@ -16,6 +16,9 @@ import java.util.Locale
  * Aucune fiche salarié n'est envoyée dans Firestore par ce composant. Une absence de règle
  * dans ce store ne prouve jamais une absence de droit : seule ConventionMatterCoverageV2
  * peut porter une conclusion de couverture, et uniquement après audit officiel complet.
+ *
+ * L'état d'agrément APEC est persisté séparément de la preuve KALI. Une règle KALI peut donc
+ * être conservée comme preuve tout en restant non applicable tant que l'agrément n'est pas vérifié.
  */
 object V2ConventionProtectionCategoryStore {
     private const val PREFS = "horatrack_v2_convention_protection_category_rules"
@@ -36,7 +39,7 @@ object V2ConventionProtectionCategoryStore {
 
     /**
      * Enregistre une preuve structurée. "Verified" ne signifie pas "applicable" :
-     * le résolveur contrôle encore période et extension avant tout classement automatique.
+     * le résolveur contrôle encore période, extension KALI et agrément APEC.
      */
     fun saveVerified(context: Context, rule: ConventionProtectionCategoryV2.Rule) {
         require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable ou incertaine" }
@@ -100,6 +103,9 @@ object V2ConventionProtectionCategoryStore {
         .put("source", rule.source)
         .put("extensionStatus", rule.extensionStatus.name)
         .put("extensionEffectiveFrom", rule.extensionEffectiveFrom?.toString())
+        .put("approvalStatus", rule.approvalStatus.name)
+        .put("approvalEffectiveFrom", rule.approvalEffectiveFrom?.toString())
+        .put("approvalSource", rule.approvalSource)
 
     private fun encodeClassification(value: ConventionClassificationV2): JSONObject = JSONObject()
         .put("coefficient", value.coefficient)
@@ -111,6 +117,10 @@ object V2ConventionProtectionCategoryStore {
         .put("employment", value.employment)
 
     private fun decode(obj: JSONObject): ConventionProtectionCategoryV2.Rule? = runCatching {
+        val approvalStatus = obj.optString("approvalStatus")
+            .takeIf { it.isNotBlank() && it != "null" }
+            ?.let(ConventionProtectionCategoryV2.ApprovalStatus::valueOf)
+            ?: ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED
         ConventionProtectionCategoryV2.Rule(
             idcc = obj.getString("idcc"),
             ruleId = obj.getString("ruleId"),
@@ -128,7 +138,13 @@ object V2ConventionProtectionCategoryStore {
             extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.valueOf(obj.getString("extensionStatus")),
             extensionEffectiveFrom = obj.optString("extensionEffectiveFrom")
                 .takeIf { it.isNotBlank() && it != "null" }
-                ?.let(LocalDate::parse)
+                ?.let(LocalDate::parse),
+            approvalStatus = approvalStatus,
+            approvalEffectiveFrom = obj.optString("approvalEffectiveFrom")
+                .takeIf { it.isNotBlank() && it != "null" }
+                ?.let(LocalDate::parse),
+            approvalSource = obj.optString("approvalSource")
+                .takeIf { it.isNotBlank() && it != "null" }
         )
     }.getOrNull()
 
