@@ -13,7 +13,8 @@ import java.util.Locale
  * (bénéficiaires, ancienneté, assiette, taux salarié/employeur) est prouvé sans ambiguïté.
  *
  * Ce parseur est volontairement fail-closed : il ne complète jamais un taux, une ancienneté,
- * une assiette, une classification ou une catégorie à partir d'un usage supposé de branche.
+ * une assiette, une classification, une catégorie ni une définition de tranche à partir d'un
+ * usage supposé de branche.
  */
 object OfficialKaliProvidentContributionParserV2 {
     data class Diagnostic(
@@ -143,19 +144,48 @@ object OfficialKaliProvidentContributionParserV2 {
         if (seniorityCandidates.size != 1) return null
         val seniorityMonths = seniorityCandidates.single()
 
-        val basisCandidates = profileCompatible.values.mapNotNull(::parseBasis).distinct()
-        if (basisCandidates.size != 1) return null
-        val basis = basisCandidates.single()
+        val bandParsing = OfficialKaliProvidentContributionBandParserV2.parse(profileCompatible.values)
+        var singleBasis: Basis? = null
+        var singleRates: Rates? = null
+        val bands: List<ConventionProvidentContributionV2.Band>
+        val financingArticles: Set<OfficialKaliOvertimeRuleParserV2.VerifiedArticle>
 
-        val rateCandidates = profileCompatible.values.mapNotNull(::parseRates).distinct()
-        if (rateCandidates.size != 1) return null
-        val rates = rateCandidates.single()
+        if (bandParsing.mentioned) {
+            if (!bandParsing.complete || bandParsing.bands.isEmpty()) return null
+            bands = bandParsing.bands
+            financingArticles = profileCompatible.filterValues { text ->
+                OfficialKaliProvidentContributionBandParserV2.parse(listOf(text)).bands.isNotEmpty()
+            }.keys
+            if (financingArticles.isEmpty()) return null
+        } else {
+            val basisCandidates = profileCompatible.values.mapNotNull(::parseBasis).distinct()
+            if (basisCandidates.size != 1) return null
+            singleBasis = basisCandidates.single()
+
+            val rateCandidates = profileCompatible.values.mapNotNull(::parseRates).distinct()
+            if (rateCandidates.size != 1) return null
+            singleRates = rateCandidates.single()
+
+            bands = listOf(
+                ConventionProvidentContributionV2.Band(
+                    label = singleBasis.label,
+                    lowerCeilingMultiple = singleBasis.lowerCeilingMultiple,
+                    upperCeilingMultiple = singleBasis.upperCeilingMultiple,
+                    employeeRate = singleRates.employeeRate,
+                    employerRate = singleRates.employerRate,
+                    minimumTotalRate = singleRates.minimumTotalRate,
+                    minimumEmployerRate = singleRates.minimumEmployerRate,
+                    allocationRule = singleRates.allocationRule
+                )
+            )
+            financingArticles = profileCompatible.filter { (_, text) ->
+                parseBasis(text) == singleBasis || parseRates(text) == singleRates
+            }.keys
+        }
 
         val usedArticles = buildSet {
             addAll(beneficiaryArticles)
-            profileCompatible.forEach { (article, text) ->
-                if (parseBasis(text) == basis || parseRates(text) == rates) add(article)
-            }
+            addAll(financingArticles)
         }.toList()
         if (usedArticles.isEmpty()) return null
 
@@ -198,18 +228,7 @@ object OfficialKaliProvidentContributionParserV2 {
             tiers = listOf(
                 ConventionProvidentContributionV2.SeniorityTier(
                     minimumSeniorityMonths = seniorityMonths,
-                    bands = listOf(
-                        ConventionProvidentContributionV2.Band(
-                            label = basis.label,
-                            lowerCeilingMultiple = basis.lowerCeilingMultiple,
-                            upperCeilingMultiple = basis.upperCeilingMultiple,
-                            employeeRate = rates.employeeRate,
-                            employerRate = rates.employerRate,
-                            minimumTotalRate = rates.minimumTotalRate,
-                            minimumEmployerRate = rates.minimumEmployerRate,
-                            allocationRule = rates.allocationRule
-                        )
-                    )
+                    bands = bands
                 )
             ),
             source = source,
@@ -227,15 +246,20 @@ object OfficialKaliProvidentContributionParserV2 {
                 add("KALI prévoyance : bénéficiaire compatible avec ${category.name} et statut $professionalStatus.")
                 add("KALI prévoyance : classification contrôlée : ${classification.label()}.")
                 add("KALI prévoyance : ancienneté minimale prouvée à $seniorityMonths mois.")
-                add("KALI prévoyance : assiette unique prouvée (${basis.label}).")
-                if (rates.allocationRule == ConventionProvidentContributionV2.AllocationRule.EXACT) {
-                    add("KALI prévoyance : taux exact salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} %.")
+                if (bandParsing.mentioned) {
+                    add("KALI prévoyance : ${bands.size} tranches PMSS explicites, contiguës et bornées par un plafond global prouvé.")
+                    add("KALI prévoyance : chaque tranche conserve ses taux salarié/employeur exacts ; aucune définition A/B/T1/T2 n'est supposée.")
                 } else {
-                    add(
-                        "KALI prévoyance : financement minimal ${(rates.minimumTotalRate!! * 100.0)} %, " +
-                            "minimum employeur ${(rates.minimumEmployerRate!! * 100.0)} %, " +
-                            "répartition par défaut salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} % ; accord d'entreprise susceptible de la modifier."
-                    )
+                    add("KALI prévoyance : assiette unique prouvée (${singleBasis!!.label}).")
+                    if (singleRates!!.allocationRule == ConventionProvidentContributionV2.AllocationRule.EXACT) {
+                        add("KALI prévoyance : taux exact salarié ${(singleRates.employeeRate * 100.0)} % / employeur ${(singleRates.employerRate * 100.0)} %.")
+                    } else {
+                        add(
+                            "KALI prévoyance : financement minimal ${(singleRates.minimumTotalRate!! * 100.0)} %, " +
+                                "minimum employeur ${(singleRates.minimumEmployerRate!! * 100.0)} %, " +
+                                "répartition par défaut salarié ${(singleRates.employeeRate * 100.0)} % / employeur ${(singleRates.employerRate * 100.0)} % ; accord d'entreprise susceptible de la modifier."
+                        )
+                    }
                 }
                 if (!allExtended) add("KALI prévoyance : statut VIGUEUR_ETEN + date d'extension non prouvés pour tous les articles utilisés ; applicabilité automatique bloquée.")
             }
