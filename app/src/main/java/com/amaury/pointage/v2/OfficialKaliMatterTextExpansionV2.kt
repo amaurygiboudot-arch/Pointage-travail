@@ -31,6 +31,7 @@ object OfficialKaliMatterTextExpansionV2 {
         val articleTextIds = linkedMapOf<String, String>()
         val ambiguousArticleIds = linkedSetOf<String>()
         val sectionIds = linkedSetOf<String>()
+        var traversalTruncated = false
 
         fun directId(map: Map<*, *>): String? = map.entries
             .firstOrNull { (key, _) -> key?.toString()?.lowercase(Locale.ROOT) in setOf("id", "cid") }
@@ -40,7 +41,10 @@ object OfficialKaliMatterTextExpansionV2 {
             ?.let { idRegex.find(it)?.value }
 
         fun walk(value: Any?, inheritedTextId: String?, depth: Int = 0) {
-            if (depth > 20) return
+            if (depth > 20) {
+                traversalTruncated = true
+                return
+            }
             when (value) {
                 is Map<*, *> -> {
                     val id = directId(value)
@@ -78,7 +82,7 @@ object OfficialKaliMatterTextExpansionV2 {
         }
 
         val unmapped = articleIds.filter { it !in articleTextIds && it !in ambiguousArticleIds }
-        if (ambiguousArticleIds.isNotEmpty() || unmapped.isNotEmpty()) {
+        if (traversalTruncated || ambiguousArticleIds.isNotEmpty() || unmapped.isNotEmpty()) {
             return Expansion(
                 expectedTextId = expected,
                 articleIds = articleIds.toList(),
@@ -86,6 +90,9 @@ object OfficialKaliMatterTextExpansionV2 {
                 sectionIds = sectionIds.toList(),
                 reliable = false,
                 warnings = buildList {
+                    if (traversalTruncated) {
+                        add("KALI : profondeur maximale de l'arbre dépassée ; expansion exhaustive non certifiée.")
+                    }
                     if (ambiguousArticleIds.isNotEmpty()) {
                         add(
                             "KALI : ${ambiguousArticleIds.size} KALIARTI apparaissent sous plusieurs KALITEXT dans la même réponse ; aucun parent unique n'est retenu."

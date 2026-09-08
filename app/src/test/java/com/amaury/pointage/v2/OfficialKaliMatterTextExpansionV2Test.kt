@@ -84,6 +84,23 @@ class OfficialKaliMatterTextExpansionV2Test {
     }
 
     @Test
+    fun `une profondeur depassee ne peut pas certifier une expansion exhaustive`() {
+        var nested: Any = mapOf("id" to "KALIARTI000000000099")
+        repeat(22) {
+            nested = mapOf("child" to nested)
+        }
+        val data = mapOf(
+            "id" to "KALITEXT000000000001",
+            "child" to nested
+        )
+
+        val result = OfficialKaliMatterTextExpansionV2.parse(data, "KALITEXT000000000001")
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("profondeur maximale") })
+    }
+
+    @Test
     fun `réponse portant sur un autre KALITEXT reste fail closed`() {
         val data = mapOf(
             "id" to "KALITEXT000000000002",
