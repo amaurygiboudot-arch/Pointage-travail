@@ -102,7 +102,9 @@ object MealBasketLegalArbitrationBridgeV2 {
                             effectiveTo = rule.effectiveTo,
                             verified = true,
                             scopeConfirmed = true,
-                            valueFingerprint = rule.fingerprint
+                            // L'identité ACCOTEXT ne fait pas partie de la valeur juridique comparée :
+                            // deux accords distincts avec exactement la même règle ne sont pas un conflit.
+                            valueFingerprint = companyFingerprint(rule)
                         )
                     )
                 }
@@ -150,11 +152,27 @@ object MealBasketLegalArbitrationBridgeV2 {
         subject(rule.benefitId),
         rule.deliveryMode.name,
         amountFingerprint(rule.amountFormula),
-        rule.eligibilityAnyOf.joinToString("||") { group -> group.allOf.joinToString("&") { it.toString() } },
-        rule.blockers.sortedBy { it.name }.joinToString(",") { it.name },
+        eligibilityFingerprint(rule.eligibilityAnyOf),
+        blockersFingerprint(rule.blockers),
         rule.countingUnit.name,
         rule.maxAwardsPerCalendarDay.toString()
     ).joinToString("|")
+
+    private fun companyFingerprint(rule: OfficialAccoMealBasketParserV2.Rule): String = listOf(
+        subject(rule.benefitId),
+        rule.deliveryMode.name,
+        amountFingerprint(rule.amountFormula),
+        eligibilityFingerprint(rule.eligibilityAnyOf),
+        blockersFingerprint(rule.blockers),
+        rule.countingUnit.name,
+        rule.maxAwardsPerCalendarDay.toString()
+    ).joinToString("|")
+
+    private fun eligibilityFingerprint(groups: List<ConventionMealBasketV2.EligibilityGroup>): String =
+        groups.joinToString("||") { group -> group.allOf.joinToString("&") { it.toString() } }
+
+    private fun blockersFingerprint(blockers: Set<ConventionMealBasketV2.Blocker>): String =
+        blockers.sortedBy { it.name }.joinToString(",") { it.name }
 
     private fun amountFingerprint(value: ConventionMealBasketV2.AmountFormula): String = when (value) {
         is ConventionMealBasketV2.AmountFormula.FixedEuro -> "FIXED:${value.amount}"
