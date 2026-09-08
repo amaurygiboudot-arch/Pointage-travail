@@ -85,6 +85,37 @@ class OfficialAccoMealBasketParserV2Test {
     }
 
     @Test
+    fun `conditions temporelles cumulatives restent dans le même groupe`() {
+        val result = OfficialAccoMealBasketParserV2.parse(
+            profile(),
+            "ACCOTEXT000000009901",
+            agreement(
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € pour le travail posté avec au moins 4 h entre 22 h et 6 h et dont le poste traverse minuit."
+            )
+        )
+
+        assertTrue(result.fullyStructured)
+        val groups = result.rules.single().eligibilityAnyOf
+        assertEquals(1, groups.size)
+        assertTrue(groups.single().allOf.any { it is ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInFixedWindow })
+        assertTrue(groups.single().allOf.contains(ConventionMealBasketV2.Condition.ShiftEnclosesMidnight))
+    }
+
+    @Test
+    fun `alternative temporelle non décomposable bloque la clause`() {
+        val result = OfficialAccoMealBasketParserV2.parse(
+            profile(),
+            "ACCOTEXT000000009901",
+            agreement(
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € avec au moins 4 h entre 22 h et 6 h ou si le poste traverse minuit."
+            )
+        )
+
+        assertFalse(result.fullyStructured)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
     fun `accord à durée déterminée contradictoire avec durée indéterminée est refusé`() {
         val text =
             "Le présent accord prend effet le 1 septembre 2026, est conclu pour une durée indéterminée et prendra fin le 31 décembre 2026. " +
