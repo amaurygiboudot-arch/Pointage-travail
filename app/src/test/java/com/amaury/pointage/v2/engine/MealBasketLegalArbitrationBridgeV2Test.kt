@@ -44,8 +44,12 @@ class MealBasketLegalArbitrationBridgeV2Test {
         extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
     )
 
-    private fun companyRule(benefitId: String, amount: Double) = OfficialAccoMealBasketParserV2.Rule(
-        agreementId = "ACCOTEXT000000000001",
+    private fun companyRule(
+        benefitId: String,
+        amount: Double,
+        agreementId: String = "ACCOTEXT000000000001"
+    ) = OfficialAccoMealBasketParserV2.Rule(
+        agreementId = agreementId,
         siret = "12345678901234",
         effectiveFrom = LocalDate.of(2026, 1, 1),
         effectiveTo = null,
@@ -73,6 +77,38 @@ class MealBasketLegalArbitrationBridgeV2Test {
 
         assertTrue(result.reliable)
         assertEquals(PayrollLegalArbitratorV2.Source.ACCO, result.selected.single().source)
+    }
+
+    @Test
+    fun `deux ACCOTEXT au meme panier exact ne créent pas de faux conflit`() {
+        val result = MealBasketLegalArbitrationBridgeV2.resolve(
+            profile = profile(),
+            referenceDate = date,
+            branchRules = listOf(branchRule("MEAL_DAY_1", 6.25)),
+            companyRules = listOf(
+                companyRule("MEAL_DAY_1", 8.0, "ACCOTEXT000000000001"),
+                companyRule("MEAL_DAY_1", 8.0, "ACCOTEXT000000000002")
+            )
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(PayrollLegalArbitratorV2.Source.ACCO, result.selected.single().source)
+    }
+
+    @Test
+    fun `deux ACCOTEXT avec montants incompatibles restent en conflit`() {
+        val result = MealBasketLegalArbitrationBridgeV2.resolve(
+            profile = profile(),
+            referenceDate = date,
+            branchRules = listOf(branchRule("MEAL_DAY_1", 6.25)),
+            companyRules = listOf(
+                companyRule("MEAL_DAY_1", 8.0, "ACCOTEXT000000000001"),
+                companyRule("MEAL_DAY_1", 8.5, "ACCOTEXT000000000002")
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.selected.isEmpty())
     }
 
     @Test
