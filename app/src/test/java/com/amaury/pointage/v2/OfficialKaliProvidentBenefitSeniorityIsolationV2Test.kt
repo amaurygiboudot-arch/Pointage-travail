@@ -50,7 +50,7 @@ class OfficialKaliProvidentBenefitSeniorityIsolationV2Test {
                 ),
                 article(
                     incapacityId,
-                    "Cadres coefficient 910. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence."
+                    "Cadres coefficient 910. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence, y compris les indemnités journalières de la sécurité sociale, après une franchise de 30 jours."
                 )
             ),
             articleTextIds = mapOf(
@@ -65,6 +65,14 @@ class OfficialKaliProvidentBenefitSeniorityIsolationV2Test {
             diagnostic.rules.single().guarantees.single().family
         )
         assertEquals(3, diagnostic.rules.single().minimumSeniorityMonths)
-        assertTrue(diagnostic.reasons.any { it.contains(incapacityId) && it.contains("ancienneté") })
+        assertEquals(
+            setOf(
+                ConventionProvidentBenefitV2.Family.DEATH_CAPITAL,
+                ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT
+            ),
+            diagnostic.observedFamilies
+        )
+        assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), diagnostic.structuredFamilies)
+        assertTrue(diagnostic.reasons.any { it.contains(incapacityId) })
     }
 }
