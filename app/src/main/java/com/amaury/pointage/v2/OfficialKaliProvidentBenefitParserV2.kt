@@ -17,7 +17,8 @@ object OfficialKaliProvidentBenefitParserV2 {
         val rules: List<ConventionProvidentBenefitV2.Rule>,
         val observedFamilies: Set<ConventionProvidentBenefitV2.Family>,
         val structuredFamilies: Set<ConventionProvidentBenefitV2.Family>,
-        val reasons: List<String>
+        val reasons: List<String>,
+        val unresolvedOccurrenceFamilies: Set<ConventionProvidentBenefitV2.Family> = emptySet()
     )
 
     private data class ParsedGuarantee(
@@ -79,6 +80,7 @@ object OfficialKaliProvidentBenefitParserV2 {
 
         val rules = mutableListOf<ConventionProvidentBenefitV2.Rule>()
         val observed = linkedSetOf<ConventionProvidentBenefitV2.Family>()
+        val unresolvedOccurrences = linkedSetOf<ConventionProvidentBenefitV2.Family>()
         val reasons = mutableListOf<String>()
         grouped.forEach { (scopeRaw, scopedArticles) ->
             val scope = scopeRaw ?: return@forEach
@@ -91,9 +93,18 @@ object OfficialKaliProvidentBenefitParserV2 {
             if (profileScoped.isEmpty()) return@forEach
 
             profileScoped.forEach { (article, texts) ->
+                val normalizedTitle = OfficialKaliProfileMatcherV2.normalize(article.title.orEmpty())
                 texts.forEach { text ->
                     val observedHere = observedFamilies(text, classification, status)
                     observed += observedHere
+                    val occurrenceText = if (normalizedTitle.isNotBlank() && text.startsWith(normalizedTitle)) {
+                        text.removePrefix(normalizedTitle).trimStart()
+                    } else text
+                    val unresolvedHere = unresolvedFamilyOccurrences(occurrenceText)
+                    unresolvedOccurrences += unresolvedHere
+                    if (unresolvedHere.isNotEmpty()) {
+                        reasons += "KALI garanties $scope ${article.articleId} : occurrence(s) ${unresolvedHere.joinToString()} observée(s) sans preuve complète dans leur propre clause ; le lot reste bloqué."
+                    }
                     val parsedGuarantees = parseGuarantees(
                         text = text,
                         articleId = article.articleId,
@@ -154,7 +165,8 @@ object OfficialKaliProvidentBenefitParserV2 {
                     add("KALI garanties : ${family.name} mentionnée mais formule/périmètre insuffisamment structurés ; aucun droit n'est inventé.")
                 }
                 if (distinctRules.isEmpty()) add("KALI garanties : aucune prestation complète et non ambiguë n'a été structurée.")
-            }.distinct()
+            }.distinct(),
+            unresolvedOccurrenceFamilies = unresolvedOccurrences
         )
     }
 
@@ -170,6 +182,52 @@ object OfficialKaliProvidentBenefitParserV2 {
         parseSpousePension(text, articleId, classification, professionalStatus)?.let(::add)
         parseEducationPension(text, articleId, classification, professionalStatus)?.let(::add)
     }
+
+    private fun unresolvedFamilyOccurrences(text: String): Set<ConventionProvidentBenefitV2.Family> = buildSet {
+        val deathWindows = familyContextWindows(text, deathRegex, 220, 320)
+        if (deathWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL)
+        }
+
+        val incapacityWindows = familyContextWindows(text, incapacityRegex, 240, 380)
+        if (incapacityWindows.any { window ->
+                val waiting = parseWaitingDays(window)
+                !incomeBenefitRegex.containsMatchIn(window) ||
+                    parseFormula(window) == null ||
+                    parseSeniorityMonths(window) == null ||
+                    waiting.ambiguous
+            }
+        ) {
+            add(ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT)
+        }
+
+        val invalidityWindows = familyContextWindows(text, invalidityRegex, 240, 440)
+        if (invalidityWindows.any { window ->
+                val categories = invalidityCategoryRegex.findAll(window).mapNotNull { match ->
+                    match.groupValues[1].toIntOrNull()
+                }.toSet()
+                !pensionRegex.containsMatchIn(window) ||
+                    parseFormula(window) == null ||
+                    parseSeniorityMonths(window) == null ||
+                    categories.size > 1
+            }
+        ) {
+            add(ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION)
+        }
+
+        val spouseWindows = familyContextWindows(text, spousePensionRegex, 220, 320)
+        if (spouseWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.SPOUSE_PENSION)
+        }
+
+        val educationWindows = familyContextWindows(text, educationPensionRegex, 220, 320)
+        if (educationWindows.any { parseFormula(it) == null || parseSeniorityMonths(it) == null }) {
+            add(ConventionProvidentBenefitV2.Family.EDUCATION_PENSION)
+        }
+    }
+
+    private fun familyContextWindows(text: String, regex: Regex, before: Int, after: Int): List<String> =
+        regex.findAll(text).map { match -> contextWindow(text, match, before, after) }.toList()
 
     private fun parseDeath(
         text: String,
