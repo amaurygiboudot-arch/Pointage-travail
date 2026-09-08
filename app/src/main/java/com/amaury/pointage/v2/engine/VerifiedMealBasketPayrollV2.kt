@@ -32,7 +32,9 @@ object VerifiedMealBasketPayrollV2 {
         val totalAmount: Double?,
         val reliable: Boolean,
         val warnings: List<String>,
-        val selectedSources: Set<PayrollLegalArbitratorV2.Source>
+        val selectedSources: Set<PayrollLegalArbitratorV2.Source>,
+        /** Renseigné seulement si tous les paniers effectivement attribués ont exactement le même montant. */
+        val unitAmount: Double? = null
     )
 
     fun calculate(
@@ -58,6 +60,7 @@ object VerifiedMealBasketPayrollV2 {
         }
         val targetMonth = YearMonth.of(year, monthZeroBased + 1)
         val awardsPerSubjectDay = mutableMapOf<Pair<String, LocalDate>, Int>()
+        val awardedAmounts = linkedSetOf<Double>()
         var count = 0
         var total = 0.0
         var reliable = true
@@ -117,6 +120,7 @@ object VerifiedMealBasketPayrollV2 {
                         awardsPerSubjectDay[key] = already + 1
                         count++
                         total += evaluated.cashAmount
+                        awardedAmounts += evaluated.cashAmount
                     }
                 }
             }
@@ -126,7 +130,8 @@ object VerifiedMealBasketPayrollV2 {
             totalAmount = total.takeIf { reliable },
             reliable = reliable,
             warnings = warnings.distinct(),
-            selectedSources = arbitration.selected.map { it.source }.toSet()
+            selectedSources = arbitration.selected.map { it.source }.toSet(),
+            unitAmount = awardedAmounts.singleOrNull().takeIf { reliable }
         )
     }
 
