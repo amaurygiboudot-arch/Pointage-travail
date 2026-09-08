@@ -165,14 +165,23 @@ object OfficialKaliProvidentContributionParserV2 {
         if (effectiveTo != null && effectiveTo.isBefore(effectiveFrom)) return null
         if (auditDate.isBefore(effectiveFrom) || effectiveTo?.let(auditDate::isAfter) == true) return null
 
-        val extensionDates = usedArticles.map { it.extensionEffectiveFrom }
-        val allExtended = extensionDates.all { it != null }
-        val extensionStatus = if (allExtended) {
-            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-        } else {
-            ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        // Une date seule n'est jamais une preuve d'extension : le statut officiel doit être
+        // VIGUEUR_ETEN pour chacun des articles qui composent la règle.
+        val allExtended = usedArticles.all { article ->
+            article.status.trim().uppercase(Locale.ROOT) == "VIGUEUR_ETEN" &&
+                article.extensionEffectiveFrom != null
         }
-        val extensionEffectiveFrom = if (allExtended) extensionDates.filterNotNull().maxOrNull() else null
+        val allExplicitlyNotExtended = usedArticles.all { article ->
+            article.status.trim().uppercase(Locale.ROOT) == "VIGUEUR_NON_ETEN"
+        }
+        val extensionStatus = when {
+            allExtended -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+            allExplicitlyNotExtended -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        }
+        val extensionEffectiveFrom = if (allExtended) {
+            usedArticles.mapNotNull { it.extensionEffectiveFrom }.maxOrNull()
+        } else null
 
         val articleIds = usedArticles.map { it.articleId.trim().uppercase(Locale.ROOT) }.sorted()
         val source = "Légifrance KALI — $scope — ${articleIds.joinToString(", ")}"
@@ -228,7 +237,7 @@ object OfficialKaliProvidentContributionParserV2 {
                             "répartition par défaut salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} % ; accord d'entreprise susceptible de la modifier."
                     )
                 }
-                if (!allExtended) add("KALI prévoyance : extension officielle de tous les articles utilisés non prouvée ; applicabilité automatique bloquée.")
+                if (!allExtended) add("KALI prévoyance : statut VIGUEUR_ETEN + date d'extension non prouvés pour tous les articles utilisés ; applicabilité automatique bloquée.")
             }
         )
     }
@@ -393,7 +402,13 @@ object OfficialKaliProvidentContributionParserV2 {
         ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
         ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
     )
-    private val acceptedStatuses = setOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_PARTIELLE")
+    private val acceptedStatuses = setOf(
+        "VIGUEUR",
+        "VIGUEUR_ETEN",
+        "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
+        "VIGUEUR_PARTIELLE"
+    )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
     private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
 
