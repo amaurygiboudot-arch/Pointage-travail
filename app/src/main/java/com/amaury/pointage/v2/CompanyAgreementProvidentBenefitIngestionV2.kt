@@ -9,12 +9,13 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
         val detected: Boolean,
         val structured: Boolean,
         val packageComplete: Boolean,
+        val structuredCount: Int,
         val savedCount: Int,
         val observedFamilies: Set<ConventionProvidentBenefitV2.Family>,
         val unresolvedFamilies: Set<ConventionProvidentBenefitV2.Family>,
         val warnings: List<String>
     ) {
-        val storageFailure: Boolean get() = structured && savedCount == 0
+        val storageFailure: Boolean get() = structuredCount > savedCount
     }
 
     fun ingestVerified(
@@ -24,7 +25,7 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
         verifiedContent: OfficialAgreementContentParserV2.VerifiedContent
     ): Result {
         val detected = detectsBenefits(verifiedContent.text)
-        if (!detected) return Result(false, false, false, 0, emptySet(), emptySet(), emptyList())
+        if (!detected) return Result(false, false, false, 0, 0, emptySet(), emptySet(), emptyList())
 
         val profile = ConventionLegalProfileV2.load(context, companyId)
             ?: return unresolved("profil juridique local introuvable")
@@ -51,12 +52,13 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
             detected = true,
             structured = diagnostic.rules.isNotEmpty(),
             packageComplete = complete,
+            structuredCount = diagnostic.rules.size,
             savedCount = saved,
             observedFamilies = diagnostic.observedFamilies,
             unresolvedFamilies = diagnostic.unresolvedOccurrenceFamilies,
             warnings = buildList {
                 addAll(diagnostic.reasons)
-                if (diagnostic.rules.isNotEmpty() && saved < diagnostic.rules.size) {
+                if (saved < diagnostic.rules.size) {
                     add("ACCO garanties : ${diagnostic.rules.size - saved} règle(s) structurée(s) n'ont pas pu être stockées localement.")
                 }
                 if (!complete) {
@@ -73,6 +75,7 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
         detected = true,
         structured = false,
         packageComplete = false,
+        structuredCount = 0,
         savedCount = 0,
         observedFamilies = emptySet(),
         unresolvedFamilies = emptySet(),
