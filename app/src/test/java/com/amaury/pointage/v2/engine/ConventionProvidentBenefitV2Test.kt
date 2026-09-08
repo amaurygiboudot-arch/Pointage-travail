@@ -2,7 +2,6 @@ package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -16,14 +15,29 @@ class ConventionProvidentBenefitV2Test {
         confirmed: Boolean = true
     ) = ProtectionCategoryV2.Result(aniCategory = value, confirmed = confirmed)
 
-    private fun deathGuarantee() = ConventionProvidentBenefitV2.Guarantee(
+    private fun deathGuarantee(
+        coefficient: Double = 1.0,
+        articleId: String = "KALIARTI000000000001"
+    ) = ConventionProvidentBenefitV2.Guarantee(
         family = ConventionProvidentBenefitV2.Family.DEATH_CAPITAL,
-        label = "Capital décès 100 % du salaire annuel de référence",
+        label = "Capital décès ${(coefficient * 100).toInt()} % du salaire annuel de référence",
         formula = ConventionProvidentBenefitV2.Formula(
             basis = ConventionProvidentBenefitV2.Basis.ANNUAL_REFERENCE_SALARY,
-            coefficient = 1.0
+            coefficient = coefficient
         ),
-        evidenceArticleIds = setOf("KALIARTI000000000001")
+        evidenceArticleIds = setOf(articleId)
+    )
+
+    private fun incapacityGuarantee() = ConventionProvidentBenefitV2.Guarantee(
+        family = ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT,
+        label = "Incapacité 80 % du salaire mensuel de référence",
+        formula = ConventionProvidentBenefitV2.Formula(
+            basis = ConventionProvidentBenefitV2.Basis.MONTHLY_REFERENCE_SALARY,
+            coefficient = 0.8
+        ),
+        waitingPeriodDays = 30,
+        socialSecurityTreatment = ConventionProvidentBenefitV2.SocialSecurityTreatment.INCLUDED_IN_TARGET_TOTAL,
+        evidenceArticleIds = setOf("KALIARTI000000000002")
     )
 
     private fun rule(
@@ -34,7 +48,9 @@ class ConventionProvidentBenefitV2Test {
         ani: Set<ProtectionCategoryV2.AniCategory> = setOf(ProtectionCategoryV2.AniCategory.ARTICLE_2_1),
         seniority: Int = 0,
         extensionFrom: LocalDate = LocalDate.of(2025, 1, 1),
-        effectiveFrom: LocalDate = LocalDate.of(2025, 1, 1)
+        effectiveFrom: LocalDate = LocalDate.of(2025, 1, 1),
+        scope: String = "KALITEXT000000000001",
+        guarantees: List<ConventionProvidentBenefitV2.Guarantee> = listOf(deathGuarantee())
     ) = ConventionProvidentBenefitV2.Rule(
         idcc = idcc,
         ruleId = id,
@@ -43,9 +59,9 @@ class ConventionProvidentBenefitV2Test {
         professionalStatus = status,
         aniCategories = ani,
         minimumSeniorityMonths = seniority,
-        guarantees = listOf(deathGuarantee()),
-        source = "Légifrance KALI — KALITEXT000000000001",
-        conventionScopeKey = "KALITEXT000000000001",
+        guarantees = guarantees,
+        source = "Légifrance KALI — $scope",
+        conventionScopeKey = scope,
         extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
         extensionEffectiveFrom = extensionFrom
     )
@@ -64,7 +80,37 @@ class ConventionProvidentBenefitV2Test {
 
         assertTrue(result.reliable)
         assertEquals(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL, result.guarantees.single().family)
-        assertEquals("r1", result.selectedRule?.ruleId)
+        assertEquals(listOf("r1"), result.selectedRules.map { it.ruleId })
+    }
+
+    @Test
+    fun `garanties réparties entre deux KALITEXT sont fusionnées sans perdre une famille`() {
+        val death = rule(id = "death")
+        val incapacity = rule(
+            id = "incapacity",
+            scope = "KALITEXT000000000002",
+            guarantees = listOf(incapacityGuarantee())
+        )
+
+        val result = ConventionProvidentBenefitV2.resolve(
+            rules = listOf(death, incapacity),
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            protectionCategory = category(),
+            seniorityMonths = 80
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(
+            setOf(
+                ConventionProvidentBenefitV2.Family.DEATH_CAPITAL,
+                ConventionProvidentBenefitV2.Family.INCAPACITY_INCOME_REPLACEMENT
+            ),
+            result.guarantees.map { it.family }.toSet()
+        )
+        assertEquals(setOf("death", "incapacity"), result.selectedRules.map { it.ruleId }.toSet())
     }
 
     @Test
@@ -145,13 +191,19 @@ class ConventionProvidentBenefitV2Test {
 
         assertTrue(result.reliable)
         assertTrue(result.guarantees.isEmpty())
-        assertNull(result.selectedRule)
+        assertTrue(result.selectedRules.isEmpty())
     }
 
     @Test
-    fun `deux règles de même précision bloquent même si elles ont la même famille`() {
+    fun `deux garanties décès différentes de même précision bloquent`() {
+        val first = rule(id = "r1", guarantees = listOf(deathGuarantee(coefficient = 1.0)))
+        val second = rule(
+            id = "r2",
+            scope = "KALITEXT000000000002",
+            guarantees = listOf(deathGuarantee(coefficient = 2.0, articleId = "KALIARTI000000000003"))
+        )
         val result = ConventionProvidentBenefitV2.resolve(
-            rules = listOf(rule(id = "r1"), rule(id = "r2")),
+            rules = listOf(first, second),
             idcc = "292",
             referenceDate = date,
             classification = classification,
@@ -161,7 +213,29 @@ class ConventionProvidentBenefitV2Test {
         )
 
         assertFalse(result.reliable)
-        assertTrue(result.warnings.any { it.contains("plusieurs") })
+        assertTrue(result.warnings.any { it.contains("contredisent") })
+    }
+
+    @Test
+    fun `même garantie prouvée par deux textes fusionne les preuves sans contradiction`() {
+        val first = rule(id = "r1", guarantees = listOf(deathGuarantee(articleId = "KALIARTI000000000001")))
+        val second = rule(
+            id = "r2",
+            scope = "KALITEXT000000000002",
+            guarantees = listOf(deathGuarantee(articleId = "KALIARTI000000000004"))
+        )
+        val result = ConventionProvidentBenefitV2.resolve(
+            rules = listOf(first, second),
+            idcc = "292",
+            referenceDate = date,
+            classification = classification,
+            professionalStatus = "CADRE",
+            protectionCategory = category(),
+            seniorityMonths = 80
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(2, result.guarantees.single().evidenceArticleIds.size)
     }
 
     @Test
