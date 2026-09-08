@@ -11,6 +11,7 @@ class V2CompanyProvidentContributionStoreTest {
     private fun rule(
         siret: String = "12345678901234",
         agreementId: String = "ACCOTEXT000000000001",
+        minimumSeniorityMonths: Int = 3,
         employeeRate: Double = 0.004,
         employerRate: Double = 0.006,
         evidence: String = "Cotisation de prévoyance : part salariale 0,40 %, part patronale 0,60 %."
@@ -21,7 +22,7 @@ class V2CompanyProvidentContributionStoreTest {
         effectiveTo = null,
         classification = ConventionClassificationV2(coefficient = 700),
         professionalStatus = "NON_CADRE",
-        minimumSeniorityMonths = 3,
+        minimumSeniorityMonths = minimumSeniorityMonths,
         basis = OfficialAccoProvidentContributionParserV2.Basis.GROSS_SALARY,
         employeeRate = employeeRate,
         employerRate = employerRate,
@@ -92,5 +93,23 @@ class V2CompanyProvidentContributionStoreTest {
     @Test
     fun `json invalide ne fabrique aucune regle`() {
         assertTrue(V2CompanyProvidentContributionStore.decodeRules("not-json").isEmpty())
+    }
+
+    @Test
+    fun `meme accotext et profil gardent une identite stable si taux ou anciennete changent`() {
+        val oldRule = rule(minimumSeniorityMonths = 0, employeeRate = 0.003, employerRate = 0.007)
+        val revised = rule(minimumSeniorityMonths = 6, employeeRate = 0.004, employerRate = 0.006)
+
+        assertTrue(V2CompanyProvidentContributionStore.sameLegalIdentity(oldRule, revised))
+    }
+
+    @Test
+    fun `deux accotext differents restent deux preuves juridiques distinctes`() {
+        assertFalse(
+            V2CompanyProvidentContributionStore.sameLegalIdentity(
+                rule(agreementId = "ACCOTEXT000000000001"),
+                rule(agreementId = "ACCOTEXT000000000002")
+            )
+        )
     }
 }
