@@ -17,6 +17,7 @@ object OfficialAccoProvidentContributionParserV2 {
 
     data class Rule(
         val agreementId: String,
+        val siret: String,
         val effectiveFrom: LocalDate,
         val effectiveTo: LocalDate?,
         val classification: ConventionClassificationV2,
@@ -31,6 +32,7 @@ object OfficialAccoProvidentContributionParserV2 {
             get() = listOf(
                 "ACCO_PROVIDENT_CONTRIBUTION",
                 agreementId,
+                siret,
                 effectiveFrom.toString(),
                 effectiveTo?.toString().orEmpty(),
                 classification.label(),
@@ -59,6 +61,8 @@ object OfficialAccoProvidentContributionParserV2 {
         if (!normalizedAgreementId.matches(accoTextIdRegex)) {
             return unresolved("identifiant ACCOTEXT officiel invalide")
         }
+        val siret = profile.siret.filter(Char::isDigit)
+        if (siret.length != 14) return unresolved("SIRET exact du profil manquant")
         if (officialText.isBlank()) return unresolved("texte officiel ACCO vide")
 
         val status = profile.professionalStatus
@@ -129,6 +133,7 @@ object OfficialAccoProvidentContributionParserV2 {
         return Diagnostic(
             rule = Rule(
                 agreementId = normalizedAgreementId,
+                siret = siret,
                 effectiveFrom = effectiveFrom,
                 effectiveTo = effectiveTo,
                 classification = profile.classification,
@@ -140,7 +145,7 @@ object OfficialAccoProvidentContributionParserV2 {
                 evidenceExcerpt = evidence
             ),
             reasons = listOf(
-                "ACCO prévoyance : date, durée, profil, ancienneté, assiette brute et répartition salarié/employeur sont explicites.",
+                "ACCO prévoyance : SIRET, date, durée, profil, ancienneté, assiette brute et répartition salarié/employeur sont explicites.",
                 "ACCO prévoyance : la règle reste soumise à l'arbitrage L2253-1 et ne prouve pas à elle seule l'équivalence des garanties avec la branche."
             )
         )
