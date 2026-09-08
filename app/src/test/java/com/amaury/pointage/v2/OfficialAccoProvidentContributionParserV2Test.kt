@@ -159,7 +159,7 @@ class OfficialAccoProvidentContributionParserV2Test {
         )
 
         assertNull(result.rule)
-        assertTrue(result.reasons.any { it.contains("contradictoire", ignoreCase = true) })
+        assertTrue(result.reasons.any { it.contains("clause unique", ignoreCase = true) })
     }
 
     @Test
@@ -207,5 +207,39 @@ class OfficialAccoProvidentContributionParserV2Test {
 
         assertNull(result.rule)
         assertTrue(result.reasons.any { it.contains("SIRET", ignoreCase = true) })
+    }
+
+    @Test
+    fun `quote parts 40 60 ne deviennent jamais des taux sur salaire brut`() {
+        val result = OfficialAccoProvidentContributionParserV2.parse(
+            profile,
+            "ACCOTEXT000000000011",
+            agreement(
+                "Tous les salariés sont couverts sans condition d'ancienneté. " +
+                    "La cotisation de prévoyance est fixée à 1 % du salaire brut et répartie à " +
+                    "40 % à la charge du salarié et 60 % à la charge de l'employeur."
+            )
+        )
+
+        assertNull(result.rule)
+        assertTrue(result.reasons.any { it.contains("clause unique", ignoreCase = true) })
+    }
+
+    @Test
+    fun `assiette taux et anciennete de clauses eloignees ne sont jamais reconstruits`() {
+        val filler = (1..180).joinToString(" ") { "Disposition générale sans valeur de cotisation applicable." }
+        val result = OfficialAccoProvidentContributionParserV2.parse(
+            profile,
+            "ACCOTEXT000000000012",
+            agreement(
+                "Tous les salariés sont couverts sans condition d'ancienneté. " +
+                    "La cotisation de prévoyance est assise sur le salaire brut. " +
+                    filler + " " +
+                    "La cotisation de prévoyance prévoit une part salariale de 0,40 % et une part patronale de 0,60 %."
+            )
+        )
+
+        assertNull(result.rule)
+        assertTrue(result.reasons.any { it.contains("même", ignoreCase = true) || it.contains("clause unique", ignoreCase = true) })
     }
 }
