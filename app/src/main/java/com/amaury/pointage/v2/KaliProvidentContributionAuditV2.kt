@@ -319,7 +319,8 @@ object KaliProvidentContributionAuditV2 {
             var articleHasExclusion = false
             profileMentions.forEach { mention ->
                 val clause = clauseAround(body, mention.range.first)
-                val excluded = exclusionPatterns.any { it.containsMatchIn(clause) }
+                val employeeOnly = employeeOnlyContributionQualifier.containsMatchIn(clause)
+                val excluded = !employeeOnly && exclusionPatterns.any { it.containsMatchIn(clause) }
                 if (excluded) articleHasExclusion = true else nonExcludedContributionMention = true
             }
             if (articleHasExclusion) {
@@ -419,6 +420,10 @@ object KaliProvidentContributionAuditV2 {
         "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b"
     )
     private val contributionMentionRegex = Regex("\\b(?:cotisation|cotisations|contribution|contributions)\\b")
+    private val employeeOnlyContributionQualifier = Regex(
+        "\\b(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance[^.;]{0,90}?" +
+            "\\b(?:salariale|salariales|salariee|salariees|du salarie|des salaries|a la charge du salarie|a la charge des salaries|due par le salarie|dues par les salaries|prelevee au salarie|prelevees aux salaries)\\b"
+    )
     private val exclusionPatterns = listOf(
         Regex("\\b(?:aucune|absence de|sans)\\s+(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance\\b"),
         Regex("\\b(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance[^.;]{0,100}?\\b(?:non due|non dues|n'est pas due|ne sont pas dues|n'est pas applicable|ne s'applique pas)\\b")
