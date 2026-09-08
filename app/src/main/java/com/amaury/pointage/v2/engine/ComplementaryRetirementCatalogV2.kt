@@ -95,7 +95,6 @@ object ComplementaryRetirementCatalogV2 {
                     add("Statut professionnel à préciser : APEC non appliquée tant que le statut cadre n'est pas confirmé.")
             }
             ceiling?.warnings?.let(::addAll)
-            protectionCategory?.warnings?.let(::addAll)
         }.distinct()
         return Estimate(
             lines=lines,
