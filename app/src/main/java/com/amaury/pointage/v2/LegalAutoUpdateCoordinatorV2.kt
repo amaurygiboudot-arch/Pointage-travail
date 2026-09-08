@@ -337,7 +337,7 @@ object LegalAutoUpdateCoordinatorV2 {
         jobs: List<LegalReanalysisPlanClientV2.Job>,
         nowMs: Long
     ): Task<LegiOutcome> {
-        if (jobs.isEmpty()) return Tasks.forResult(KaliOutcome()).continueWith { LegiOutcome() }
+        if (jobs.isEmpty()) return Tasks.forResult(LegiOutcome())
         markAttempt(context, jobs, "LEGI_ALL", nowMs)
         val atMs = referenceDate.atTime(12, 0).atZone(PARIS).toInstant().toEpochMilli()
         return LegalPayrollAuditV2.auditAll(context, atMs)
