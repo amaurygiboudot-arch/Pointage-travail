@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.LocalDate
@@ -143,7 +144,11 @@ object KaliProvidentBenefitAuditV2 {
                 protectionCategory = category.category,
                 evidence = evidence
             )
-            val exclusions = explicitExclusions(profile, evidence)
+            val exclusions = explicitExclusions(
+                profile = profile,
+                protectionCategory = category.category.aniCategory,
+                evidence = evidence
+            )
             val savedIds = mutableSetOf<String>()
             val saveWarnings = mutableListOf<String>()
             diagnostic.rules.forEach { rule ->
@@ -279,6 +284,7 @@ object KaliProvidentBenefitAuditV2 {
 
     internal fun explicitExclusions(
         profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.AniCategory,
         evidence: KaliMatterEvidenceAuditV2.Evidence
     ): List<ExclusionEvidence> {
         val ambiguous = evidence.ambiguousArticleTextIds.map { it.trim().uppercase(Locale.ROOT) }.toSet()
@@ -302,6 +308,7 @@ object KaliProvidentBenefitAuditV2 {
                 val text = OfficialKaliProfileMatcherV2.normalize(
                     listOfNotNull(article.title, article.content).joinToString("\n")
                 )
+                if (!OfficialKaliAniScopeMatcherV2.matches(text, protectionCategory)) return@articleLoop
                 val classified = classificationVocabulary.containsMatchIn(text)
 
                 exclusionPatterns.forEach { (family, patterns) ->
