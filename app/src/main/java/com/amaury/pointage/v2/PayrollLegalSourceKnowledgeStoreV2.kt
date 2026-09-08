@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/** Journal local non destructif des preuves de controle des sources juridiques prioritaires. */
+/** Journal local non destructif des preuves de contrôle des sources juridiques prioritaires. */
 object PayrollLegalSourceKnowledgeStoreV2 {
     private const val PREFS = "horatrack_v2_payroll_source_knowledge"
     private const val KEY_PROOFS = "proofs"
@@ -20,23 +20,45 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         val array = JSONArray()
         current.takeLast(MAX_PROOFS).forEach { array.put(encode(it)) }
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_PROOFS, array.toString()).apply()
+            .edit()
+            .putString(KEY_PROOFS, array.toString())
+            .apply()
     }
 
     fun knowledgeForOvertime(
-        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(load(context), companyId, idcc, referenceDate)
+        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
+            load(context), companyId, idcc, referenceDate
+        )
 
     fun knowledgeForProvidentContribution(
-        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(load(context), companyId, idcc, referenceDate)
+        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            load(context), companyId, idcc, referenceDate
+        )
 
-    fun knowledgeForMealBasket(
-        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
+    fun knowledgeForMealBasketSubject(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate,
+        subjectKey: String
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasket(load(context), companyId, idcc, referenceDate)
+        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
+            proofs = load(context),
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate,
+            subjectKey = subjectKey
+        )
 
     fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> = load(context)
 
@@ -45,15 +67,21 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             .getString(KEY_PROOFS, null) ?: return emptyList()
         val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
         return buildList {
-            for (index in 0 until array.length()) decode(array.optJSONObject(index) ?: continue)?.let(::add)
+            for (index in 0 until array.length()) {
+                decode(array.optJSONObject(index) ?: continue)?.let(::add)
+            }
         }
     }
 
-    private fun sameIdentity(left: PayrollSourceKnowledgeProofV2.Proof, right: PayrollSourceKnowledgeProofV2.Proof): Boolean =
+    private fun sameIdentity(
+        left: PayrollSourceKnowledgeProofV2.Proof,
+        right: PayrollSourceKnowledgeProofV2.Proof
+    ): Boolean =
         left.source == right.source &&
             left.matter == right.matter &&
             left.companyId.orEmpty().trim() == right.companyId.orEmpty().trim() &&
             normalizeIdcc(left.idcc) == normalizeIdcc(right.idcc) &&
+            left.subjectKey.orEmpty().trim().uppercase() == right.subjectKey.orEmpty().trim().uppercase() &&
             left.referenceFrom == right.referenceFrom &&
             left.referenceTo == right.referenceTo &&
             left.officialScopeId == right.officialScopeId
@@ -63,6 +91,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         .put("matter", proof.matter.name)
         .put("companyId", proof.companyId ?: JSONObject.NULL)
         .put("idcc", proof.idcc ?: JSONObject.NULL)
+        .put("subjectKey", proof.subjectKey ?: JSONObject.NULL)
         .put("referenceFrom", proof.referenceFrom.toString())
         .put("referenceTo", proof.referenceTo.toString())
         .put("officialCoverageThrough", proof.officialCoverageThrough.toString())
@@ -76,8 +105,9 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         PayrollSourceKnowledgeProofV2.Proof(
             source = PayrollLegalArbitratorV2.Source.valueOf(obj.getString("source")),
             matter = PayrollSourceKnowledgeProofV2.Matter.valueOf(obj.getString("matter")),
-            companyId = obj.optString("companyId").takeIf { it.isNotBlank() && it != "null" },
-            idcc = obj.optString("idcc").takeIf { it.isNotBlank() && it != "null" },
+            companyId = nullableString(obj, "companyId"),
+            idcc = nullableString(obj, "idcc"),
+            subjectKey = nullableString(obj, "subjectKey"),
             referenceFrom = LocalDate.parse(obj.getString("referenceFrom")),
             referenceTo = LocalDate.parse(obj.getString("referenceTo")),
             officialCoverageThrough = LocalDate.parse(obj.getString("officialCoverageThrough")),
@@ -88,6 +118,9 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             outcome = PayrollSourceKnowledgeProofV2.Outcome.valueOf(obj.getString("outcome"))
         )
     }.getOrNull()
+
+    private fun nullableString(obj: JSONObject, key: String): String? =
+        obj.optString(key).takeIf { it.isNotBlank() && it != "null" }
 
     private fun normalizeIdcc(value: String?): String {
         val raw = value.orEmpty().trim()
