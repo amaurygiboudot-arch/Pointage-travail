@@ -46,17 +46,17 @@ object V2CompanyMealBasketStore {
                 stored.professionalStatus == sample.professionalStatus
         }
         current += rules.distinctBy { it.fingerprint }
-
-        val array = JSONArray()
-        current.takeLast(MAX_RULES).forEach { array.put(encode(it)) }
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(companyId, array.toString())
-            .commit()
+        return commit(context, companyId, current)
     }
 
-    fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean =
-        saveVerifiedPackage(context, companyId, listOf(rule))
+    /** Remplacement unitaire historique : ne supprime jamais les autres objets du même accord. */
+    fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean {
+        if (companyId.isBlank() || !rule.structurallyValid()) return false
+        val current = load(context, companyId).toMutableList()
+        current.removeAll { sameLegalIdentity(it, rule) }
+        current += rule
+        return commit(context, companyId, current)
+    }
 
     internal fun sameLegalIdentity(
         left: OfficialAccoMealBasketParserV2.Rule,
@@ -66,6 +66,19 @@ object V2CompanyMealBasketStore {
         left.classification.normalized() == right.classification.normalized() &&
         left.professionalStatus == right.professionalStatus &&
         left.benefitId == right.benefitId
+
+    private fun commit(
+        context: Context,
+        companyId: String,
+        rules: List<OfficialAccoMealBasketParserV2.Rule>
+    ): Boolean {
+        val array = JSONArray()
+        rules.takeLast(MAX_RULES).forEach { array.put(encode(it)) }
+        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(companyId, array.toString())
+            .commit()
+    }
 
     private fun load(context: Context, companyId: String): List<OfficialAccoMealBasketParserV2.Rule> {
         val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
