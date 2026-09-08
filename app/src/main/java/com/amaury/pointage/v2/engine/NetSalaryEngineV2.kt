@@ -90,23 +90,29 @@ object NetSalaryEngineV2 {
         )
 
         // Phase de migration : tant qu'aucune couverture KALI n'est acquise, le repli Plasturgie
-        // historique reste disponible. Dès qu'une couverture KALI fiable existe pour ce profil,
-        // elle prend définitivement la priorité : si une preuve courante (ex. catégorie ANI) devient
-        // insuffisante, le calcul se bloque au lieu de revenir silencieusement à l'ancien barème.
-        val verifiedProvidentCoverageClaims = company.verifiedProvidentCoverage.reliable &&
-            company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true &&
-            company.verifiedProvidentCoverage.state in setOf(
+        // historique reste disponible. Dès qu'un chemin KALI fiable a été acquis pour ce profil,
+        // il reste prioritaire même si le refresh courant devient INCOMPLETE : dans ce cas le calcul
+        // se bloque, mais l'ancien barème ne ressuscite jamais.
+        val providentCoverage = company.verifiedProvidentCoverage
+        val currentKaliCoverageClaims = providentCoverage.reliable &&
+            providentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true &&
+            providentCoverage.state in setOf(
                 ConventionMatterCoverageV2.State.CONFIRMED_RULES,
                 ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
             )
+        val acquiredKaliProvidentPath =
+            providentCoverage.record?.hasAcquired(ConventionMatterCoverageV2.Authority.KALI) == true
         val verifiedProvidentCategoryReady = company.verifiedProtectionCategory.confirmed
-        val verifiedProvidentRulesPath = verifiedProvidentCoverageClaims && verifiedProvidentCategoryReady &&
-            company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
-        val verifiedProvidentNoRulePath = verifiedProvidentCoverageClaims && verifiedProvidentCategoryReady &&
-            company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
-        val verifiedProvidentPath = verifiedProvidentCoverageClaims
+        val verifiedProvidentRulesPath = currentKaliCoverageClaims && verifiedProvidentCategoryReady &&
+            providentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
+        val verifiedProvidentNoRulePath = currentKaliCoverageClaims && verifiedProvidentCategoryReady &&
+            providentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
+        val verifiedProvidentPath = acquiredKaliProvidentPath || currentKaliCoverageClaims
         val verifiedProvident = when {
-            !verifiedProvidentCoverageClaims -> null
+            !verifiedProvidentPath -> null
+            !currentKaliCoverageClaims -> blockedVerifiedProvident(
+                "Prévoyance conventionnelle : chemin KALI déjà acquis mais dernier audit incomplet ; calcul bloqué et aucun ancien barème n'est réutilisé."
+            )
             !verifiedProvidentCategoryReady -> blockedVerifiedProvident(
                 "Prévoyance conventionnelle : couverture KALI présente mais catégorie ANI actuelle non confirmée ; aucun ancien barème n'est réutilisé."
             )
