@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentContributionV2
 import com.amaury.pointage.v2.engine.ProtectionCategoryV2
@@ -12,7 +13,7 @@ import java.util.Locale
  * (bénéficiaires, ancienneté, assiette, taux salarié/employeur) est prouvé sans ambiguïté.
  *
  * Ce parseur est volontairement fail-closed : il ne complète jamais un taux, une ancienneté,
- * une assiette ou une catégorie à partir d'un usage supposé de branche.
+ * une assiette, une classification ou une catégorie à partir d'un usage supposé de branche.
  */
 object OfficialKaliProvidentContributionParserV2 {
     data class Diagnostic(
@@ -69,6 +70,10 @@ object OfficialKaliProvidentContributionParserV2 {
             ?.uppercase(Locale.ROOT)
             ?.takeIf { it == "CADRE" || it == "NON_CADRE" }
             ?: return unresolved("statut cadre/non-cadre exact manquant")
+        val classification = profile.classification.normalized()
+        if (classification.isEmpty()) {
+            return unresolved("classification conventionnelle exacte manquante")
+        }
 
         val ambiguousNormalized = ambiguousArticleTextIds.map { it.trim().uppercase(Locale.ROOT) }.toSet()
         val eligible = articles.filter { article ->
@@ -93,13 +98,14 @@ object OfficialKaliProvidentContributionParserV2 {
                 idcc = kaliIdcc,
                 scope = scope!!,
                 auditDate = auditDate,
+                classification = classification,
                 professionalStatus = professionalStatus,
                 category = protectionCategory.aniCategory,
                 articles = scopedArticles
             )
         }
         if (complete.isEmpty()) {
-            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et taux suffisamment prouvés")
+            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et taux suffisamment prouvés pour la classification exacte")
         }
         if (complete.size != 1) {
             return unresolved("plusieurs KALITEXT produisent des barèmes complets ; périmètre conventionnel unique non déterminé")
@@ -111,6 +117,7 @@ object OfficialKaliProvidentContributionParserV2 {
         idcc: String,
         scope: String,
         auditDate: LocalDate,
+        classification: ConventionClassificationV2,
         professionalStatus: String,
         category: ProtectionCategoryV2.AniCategory,
         articles: List<OfficialKaliOvertimeRuleParserV2.VerifiedArticle>
@@ -118,24 +125,31 @@ object OfficialKaliProvidentContributionParserV2 {
         val normalized = articles.associateWith { article ->
             OfficialKaliProfileMatcherV2.normalize(listOfNotNull(article.title, article.content).joinToString("\n"))
         }
-        val beneficiaryArticles = normalized.filterValues { text -> beneficiaryMatches(text, category, professionalStatus) }.keys
+        val profileCompatible = normalized.filterValues { text ->
+            clauseMatchesProfile(text, classification, professionalStatus)
+        }
+        val beneficiaryArticles = profileCompatible.filterValues { text ->
+            beneficiaryMatches(text, category, professionalStatus)
+        }.keys
         if (beneficiaryArticles.isEmpty()) return null
 
-        val seniorityCandidates = beneficiaryArticles.mapNotNull { article -> parseSeniorityMonths(normalized.getValue(article)) }.distinct()
+        val seniorityCandidates = beneficiaryArticles
+            .mapNotNull { article -> parseSeniorityMonths(profileCompatible.getValue(article)) }
+            .distinct()
         if (seniorityCandidates.size != 1) return null
         val seniorityMonths = seniorityCandidates.single()
 
-        val basisCandidates = normalized.values.mapNotNull(::parseBasis).distinct()
+        val basisCandidates = profileCompatible.values.mapNotNull(::parseBasis).distinct()
         if (basisCandidates.size != 1) return null
         val basis = basisCandidates.single()
 
-        val rateCandidates = normalized.values.mapNotNull(::parseRates).distinct()
+        val rateCandidates = profileCompatible.values.mapNotNull(::parseRates).distinct()
         if (rateCandidates.size != 1) return null
         val rates = rateCandidates.single()
 
         val usedArticles = buildSet {
             addAll(beneficiaryArticles)
-            normalized.forEach { (article, text) ->
+            profileCompatible.forEach { (article, text) ->
                 if (parseBasis(text) == basis || parseRates(text) == rates) add(article)
             }
         }.toList()
@@ -160,10 +174,12 @@ object OfficialKaliProvidentContributionParserV2 {
         val source = "Légifrance KALI — $scope — ${articleIds.joinToString(", ")}"
         val rule = ConventionProvidentContributionV2.Rule(
             idcc = idcc,
-            ruleId = "KALI-PROVIDENT-CONTRIBUTION-$scope-${category.name}",
+            ruleId = "KALI-PROVIDENT-CONTRIBUTION-$scope-${category.name}-${classification.label().hashCode().toUInt().toString(16)}",
             effectiveFrom = effectiveFrom,
             effectiveTo = effectiveTo,
-            classification = com.amaury.pointage.v2.engine.ConventionClassificationV2(),
+            // Même lorsqu'un texte couvre une population plus large, la preuve persistée reste
+            // limitée au profil exact qui a été contrôlé afin d'empêcher tout débordement voisin.
+            classification = classification,
             professionalStatus = professionalStatus,
             aniCategories = setOf(category),
             tiers = listOf(
@@ -193,6 +209,7 @@ object OfficialKaliProvidentContributionParserV2 {
             usedArticleIds = articleIds,
             reasons = buildList {
                 add("KALI prévoyance : bénéficiaire compatible avec ${category.name} et statut $professionalStatus.")
+                add("KALI prévoyance : classification contrôlée : ${classification.label()}.")
                 add("KALI prévoyance : ancienneté minimale prouvée à $seniorityMonths mois.")
                 add("KALI prévoyance : assiette unique prouvée (${basis.label}).")
                 add("KALI prévoyance : taux salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} %.")
@@ -200,6 +217,31 @@ object OfficialKaliProvidentContributionParserV2 {
             }
         )
     }
+
+    /**
+     * Une clause qui ne cite aucune classification est générale et peut être utilisée pour le
+     * profil déjà vérifié. Dès qu'une classification est citée, tous les critères locaux connus
+     * doivent apparaître dans une fenêtre compacte de cette même clause.
+     */
+    private fun clauseMatchesProfile(
+        text: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): Boolean {
+        if (!classificationVocabularyPresent(text)) return true
+        return OfficialKaliProfileMatcherV2.windows(
+            rawText = text,
+            classification = classification,
+            professionalStatus = professionalStatus,
+            before = 120,
+            after = 260,
+            maxClassificationSpan = 260
+        ).isNotEmpty()
+    }
+
+    private fun classificationVocabularyPresent(text: String): Boolean =
+        primaryClassificationVocabulary.containsMatchIn(text) ||
+            categoryClassificationVocabulary.containsMatchIn(text)
 
     private fun beneficiaryMatches(
         text: String,
@@ -299,6 +341,11 @@ object OfficialKaliProvidentContributionParserV2 {
     private val providentWords = listOf("prevoyance", "protection sociale complementaire", "incapacite", "invalidite", "deces")
     private val basisContextWords = listOf("salaire de reference", "assiette", "remuneration servant de base", "base de cotisation")
     private val rateContextWords = listOf("cotisation", "taux", "part salariale", "part patronale", "charge du salarie", "charge de l'employeur")
+
+    private val primaryClassificationVocabulary = Regex(
+        "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|emploi|fonction|poste)s?\\b"
+    )
+    private val categoryClassificationVocabulary = Regex("\\bcategorie\\s*(?:conventionnelle|[:.\\-])")
 
     private val article21Regex = Regex("\\b(?:article|art\\.?)\\s*2[.,]1\\b")
     private val article22Regex = Regex("\\b(?:article|art\\.?)\\s*2[.,]2\\b")
