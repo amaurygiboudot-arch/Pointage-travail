@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.CompanyUnemploymentAgsStoreV2
 import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
 import com.amaury.pointage.v2.ConventionLegalProfileV2
 import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
+import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
 import com.amaury.pointage.v2.V2ConventionProvidentContributionStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
@@ -159,9 +160,8 @@ object CompanyPayrollOverridesV2 {
         val verifiedProtectionCategory=VerifiedProtectionCategoryProviderV2.resolve(context,companyId,referenceDate)
         val legalProfile=ConventionLegalProfileV2.load(context,companyId)
         val verifiedProvidentClassification=legalProfile?.classification ?: ConventionClassificationV2()
-        val verifiedProvidentSeniorityStart=legalProfile?.conventionSeniorityDate ?: entryDate
-        val verifiedProvidentSeniorityMonths=verifiedProvidentSeniorityStart?.let { start ->
-            if(start.isAfter(referenceDate)) 0 else ChronoUnit.MONTHS.between(start,referenceDate).toInt().coerceAtLeast(0)
+        val verifiedProvidentSeniorityMonths=legalProfile?.let {
+            V2ConventionProvidentContributionBridge.seniorityMonths(it,referenceDate)
         }
         val verifiedProvidentRules=idcc?.let { V2ConventionProvidentContributionStore.rules(context,it) }.orEmpty()
         val verifiedProvidentCoverage=if(
@@ -214,6 +214,7 @@ object CompanyPayrollOverridesV2 {
         }else observedAbsenceImpact
         val warnings=buildList {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
+            if(legalProfile!=null && verifiedProvidentSeniorityMonths==null)add("Ancienneté conventionnelle vérifiée : à confirmer")
             addAll(absenceImpact.warnings)
             if(mutual==null)add("Mutuelle salariale : à confirmer")
             if(provident==null)add("Prévoyance salariale entreprise : à confirmer")
