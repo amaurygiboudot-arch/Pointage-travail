@@ -202,9 +202,10 @@ object NetSalaryEngineV2 {
             .filter { it.id == "csg_taxable" || it.id == "crds" }
             .sumOf { it.employeeAmount }
 
-        val providentDataComplete = company.providentEmployeeAmount != null ||
-            verifiedConventionProvidentKnown ||
-            (!verifiedProvidentPath && legacyConventionProvidentKnown)
+        // Un barème conventionnel KALI prouve l'obligation minimale, pas l'absence d'un régime
+        // d'entreprise différent ou plus favorable. Tant que le montant réellement prélevé par
+        // l'entreprise n'est pas connu, la partie fiscale reste donc volontairement incomplète.
+        val providentDataComplete = company.providentEmployeeAmount != null
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
             providentDataComplete &&
             company.transportEmployeeAmount != null &&
@@ -236,9 +237,12 @@ object NetSalaryEngineV2 {
             addAll(atMp.warnings)
             if (!hasMobilityWarning) addAll(mobility.warnings)
             addAll(company.warnings.filterNot {
-                (it.startsWith("Prévoyance salariale entreprise") && providentDataComplete) ||
+                it.startsWith("Prévoyance salariale entreprise") ||
                     (it.startsWith("AT/MP employeur") && atMp.complete)
             })
+            if (company.providentEmployeeAmount == null) {
+                add("Prévoyance salariale entreprise : montant réel à confirmer ; un barème conventionnel connu ne prouve pas l'absence d'un régime d'entreprise différent ou plus favorable.")
+            }
             if (company.providentEmployeeAmount != null && calculatedProvidentEmployee != null &&
                 calculatedProvidentEmployee > 0.0 &&
                 company.providentEmployeeAmount + 0.01 < calculatedProvidentEmployee) {
