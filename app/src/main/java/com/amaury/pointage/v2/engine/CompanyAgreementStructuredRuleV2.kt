@@ -35,7 +35,9 @@ object CompanyAgreementStructuredRuleV2 {
             CompanyAgreementRuleExtractorV2.Category.WORKING_TIME -> hours(source.excerpt)
             CompanyAgreementRuleExtractorV2.Category.MEAL,
             CompanyAgreementRuleExtractorV2.Category.PAID_LEAVE,
-            CompanyAgreementRuleExtractorV2.Category.RTT -> null
+            CompanyAgreementRuleExtractorV2.Category.RTT,
+            CompanyAgreementRuleExtractorV2.Category.PROVIDENT_CONTRIBUTION,
+            CompanyAgreementRuleExtractorV2.Category.PROVIDENT_BENEFITS -> null
         }
         return Rule(source, value)
     }
