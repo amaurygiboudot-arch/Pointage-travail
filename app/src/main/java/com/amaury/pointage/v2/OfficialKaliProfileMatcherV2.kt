@@ -32,6 +32,40 @@ object OfficialKaliProfileMatcherV2 {
         }.distinctBy { it.start to it.endExclusive }
     }
 
+    /**
+     * Vérifie qu'une occurrence métier située à targetOffset dépend bien de la classification
+     * exacte du salarié et qu'aucune nouvelle portée de classification ne commence entre les deux.
+     * Cette méthode évite qu'une règle du coefficient/niveau voisin soit capturée dans le même article.
+     */
+    fun nearestScopeMatches(
+        rawText: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String?,
+        targetOffset: Int,
+        maxClassificationSpan: Int = 450
+    ): Boolean {
+        if (classification.isEmpty()) return false
+        val text = normalize(rawText)
+        if (targetOffset !in 0..text.length) return false
+        val positionGroups = classificationPositionGroups(text, classification) ?: return false
+        if (positionGroups.isEmpty() || positionGroups.any { it.isEmpty() }) return false
+
+        val candidates = compactCombinations(positionGroups, maxClassificationSpan)
+            .filter { positions -> (positions.maxOrNull() ?: Int.MAX_VALUE) <= targetOffset }
+            .sortedByDescending { positions -> positions.maxOrNull() ?: Int.MIN_VALUE }
+
+        return candidates.any { positions ->
+            val first = positions.minOrNull() ?: return@any false
+            val last = positions.maxOrNull() ?: return@any false
+            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
+            if (nextScope != null && nextScope.range.first < targetOffset) return@any false
+
+            val start = (first - 140).coerceAtLeast(0)
+            val end = (targetOffset + 180).coerceAtMost(text.length)
+            statusMatches(text.substring(start, end), text, professionalStatus)
+        }
+    }
+
     fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.FRANCE), Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "")
         .replace('’', '\'')
@@ -109,6 +143,9 @@ object OfficialKaliProfileMatcherV2 {
     private fun labelRegex(label: String, raw: String): Regex =
         Regex("\\b$label\\s*[:.\\-]?\\s*${Regex.escape(normalize(raw))}\\b")
 
+    private val classificationAnchorRegex = Regex(
+        "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b"
+    )
     private val cadreRegex = Regex("\\b(?:cadre|cadres|ingenieur|ingenieurs)\\b")
     private val nonCadreRegexes = listOf(
         Regex("\\bnon[- ]cadres?\\b"),
