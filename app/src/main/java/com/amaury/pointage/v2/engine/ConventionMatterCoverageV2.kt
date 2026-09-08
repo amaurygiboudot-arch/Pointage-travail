@@ -31,6 +31,14 @@ object ConventionMatterCoverageV2 {
         OTHER_PREMIUM
     }
 
+    /** Autorités/sources officielles effectivement couvertes par l'audit ayant créé le record. */
+    enum class Authority {
+        KALI,
+        APEC,
+        ACCO,
+        NATIONAL
+    }
+
     enum class State {
         CONFIRMED_RULES,
         CONFIRMED_NO_RULE,
@@ -48,7 +56,9 @@ object ConventionMatterCoverageV2 {
         val professionalStatus: String? = null,
         val state: State,
         val source: String,
-        val checkedAtMs: Long
+        val checkedAtMs: Long,
+        /** Vide pour les anciennes données ; ne doit jamais être interprété comme une preuve implicite. */
+        val authorities: Set<Authority> = emptySet()
     ) {
         fun structurallyValid(): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
             source.isNotBlank() &&
@@ -89,7 +99,7 @@ object ConventionMatterCoverageV2 {
                 it.statusMatches(professionalStatus)
         }
         if (matching.isEmpty()) {
-            return incomplete(normalized, matter, classification, professionalStatus, "analyse KALI non confirmée pour cette période")
+            return incomplete(normalized, matter, classification, professionalStatus, "analyse officielle non confirmée pour cette période")
         }
 
         val latestDate = matching.maxOf { it.effectiveFrom }
