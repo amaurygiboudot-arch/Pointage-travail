@@ -95,6 +95,16 @@ object OfficialKaliProfileMatcherV2 {
         maxClassificationSpan = maxClassificationSpan
     ) != null
 
+    /**
+     * Vérifie le statut professionnel d'une clause sans exiger de classification. Si le texte
+     * ne distingue aucun statut, il est considéré général. S'il mélange plusieurs statuts dans
+     * la même portée, le résultat reste volontairement faux afin d'éviter toute extrapolation.
+     */
+    fun statusScopeMatches(rawText: String, professionalStatus: String?): Boolean {
+        val text = normalize(rawText)
+        return statusMatches(text, text, professionalStatus)
+    }
+
     fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.FRANCE), Normalizer.Form.NFD)
         .replace(Regex("\\p{M}+"), "")
         .replace('’', '\'')
