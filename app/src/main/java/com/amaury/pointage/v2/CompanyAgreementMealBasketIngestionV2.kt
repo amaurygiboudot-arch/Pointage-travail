@@ -117,23 +117,21 @@ object CompanyAgreementMealBasketIngestionV2 {
             )
         }
 
-        var saved = 0
-        val warnings = mutableListOf<String>()
-        structured.rules.forEach { rule ->
-            if (V2CompanyMealBasketStore.saveVerified(context, companyId, rule)) {
-                saved++
-            } else {
-                warnings += "ACCO repas : ${rule.agreementId}/${rule.benefitId} n'a pas pu être stocké localement."
-            }
-        }
+        val stored = V2CompanyMealBasketStore.saveVerifiedPackage(
+            context = context,
+            companyId = companyId,
+            rules = structured.rules
+        )
+        val warnings = if (stored) emptyList() else listOf(
+            "ACCO repas : le paquet ${agreementId.trim().uppercase()} n'a pas pu être stocké atomiquement ; aucune règle de ce paquet n'est remplacée."
+        )
 
-        val storageComplete = structured.rules.isNotEmpty() && saved == structured.rules.size
         return Result(
             detected = true,
             structured = structured.rules.isNotEmpty(),
             legalPackageComplete = true,
-            storageComplete = storageComplete,
-            savedCount = saved,
+            storageComplete = stored,
+            savedCount = if (stored) structured.rules.size else 0,
             ruleCount = structured.rules.size,
             subjects = structured.subjects,
             warnings = (structured.warnings + warnings).distinct()
