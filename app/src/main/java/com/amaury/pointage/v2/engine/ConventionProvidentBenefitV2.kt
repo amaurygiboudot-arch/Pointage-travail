@@ -1,0 +1,213 @@
+package com.amaury.pointage.v2.engine
+
+import java.time.LocalDate
+
+/**
+ * Garanties conventionnelles de prévoyance, génériques, datées et classifiées.
+ *
+ * Cette couche décrit uniquement des droits textuellement vérifiés. Elle ne transforme jamais
+ * une garantie en montant payable si la formule complète n'est pas connue. Décès, incapacité,
+ * invalidité et rentes restent des familles distinctes pour éviter les raccourcis juridiques.
+ */
+object ConventionProvidentBenefitV2 {
+    enum class Family {
+        DEATH_CAPITAL,
+        INCAPACITY_INCOME_REPLACEMENT,
+        INVALIDITY_PENSION,
+        SPOUSE_PENSION,
+        EDUCATION_PENSION
+    }
+
+    enum class Basis {
+        ANNUAL_REFERENCE_SALARY,
+        MONTHLY_REFERENCE_SALARY,
+        PMSS,
+        FIXED_EURO
+    }
+
+    enum class SocialSecurityTreatment {
+        /** Le texte ne rattache pas cette garantie à une prestation de Sécurité sociale. */
+        NOT_APPLICABLE,
+        /** La garantie s'ajoute explicitement aux prestations de Sécurité sociale. */
+        ADDITIONAL_TO_SOCIAL_SECURITY,
+        /** Le niveau annoncé inclut explicitement les prestations de Sécurité sociale. */
+        INCLUDED_IN_TARGET_TOTAL,
+        /** Les prestations de Sécurité sociale sont explicitement déduites du montant conventionnel. */
+        DEDUCT_SOCIAL_SECURITY
+    }
+
+    /**
+     * Formule exacte telle que prouvée par le texte : coefficient 1.0 = 100 % de l'assiette,
+     * coefficient 2.0 = 200 %, etc. Pour FIXED_EURO, fixedAmount doit être utilisé à la place.
+     */
+    data class Formula(
+        val basis: Basis,
+        val coefficient: Double? = null,
+        val fixedAmount: Double? = null
+    ) {
+        fun structurallyValid(): Boolean = when (basis) {
+            Basis.FIXED_EURO -> fixedAmount?.let { it.isFinite() && it >= 0.0 } == true && coefficient == null
+            else -> coefficient?.let { it.isFinite() && it > 0.0 && it <= 100.0 } == true && fixedAmount == null
+        }
+    }
+
+    data class Guarantee(
+        val family: Family,
+        val label: String,
+        val formula: Formula,
+        /** Franchise/carence explicitement prouvée ; null = le texte exploité n'en fixe pas. */
+        val waitingPeriodDays: Int? = null,
+        /** Durée maximale explicitement prouvée ; null = aucune durée maximale structurée ici. */
+        val maximumDurationDays: Int? = null,
+        /** Catégorie d'invalidité 1/2/3 lorsqu'elle est explicitement visée. */
+        val invalidityCategory: Int? = null,
+        val socialSecurityTreatment: SocialSecurityTreatment = SocialSecurityTreatment.NOT_APPLICABLE,
+        /** Article(s) KALI exact(s) ayant prouvé cette garantie. */
+        val evidenceArticleIds: Set<String>
+    ) {
+        fun structurallyValid(): Boolean {
+            if (label.isBlank() || !formula.structurallyValid() || evidenceArticleIds.isEmpty()) return false
+            if (waitingPeriodDays != null && waitingPeriodDays !in 0..3660) return false
+            if (maximumDurationDays != null && maximumDurationDays !in 1..36600) return false
+            if (invalidityCategory != null && invalidityCategory !in 1..3) return false
+            if (evidenceArticleIds.any { !it.trim().uppercase().matches(Regex("^KALIARTI\\d+$")) }) return false
+            if (family != Family.INVALIDITY_PENSION && invalidityCategory != null) return false
+            return true
+        }
+    }
+
+    data class Rule(
+        val idcc: String,
+        val ruleId: String,
+        val effectiveFrom: LocalDate,
+        val effectiveTo: LocalDate? = null,
+        val classification: ConventionClassificationV2 = ConventionClassificationV2(),
+        val professionalStatus: String? = null,
+        val aniCategories: Set<ProtectionCategoryV2.AniCategory> = emptySet(),
+        val minimumSeniorityMonths: Int = 0,
+        val guarantees: List<Guarantee>,
+        val source: String,
+        val conventionScopeKey: String,
+        val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus,
+        val extensionEffectiveFrom: LocalDate? = null
+    ) {
+        fun structurallyValid(): Boolean {
+            if (ConventionMinimumSalaryV2.normalizeIdcc(idcc).isBlank()) return false
+            if (ruleId.isBlank() || source.isBlank()) return false
+            if (effectiveTo?.isBefore(effectiveFrom) == true) return false
+            if (minimumSeniorityMonths !in 0..600) return false
+            if (guarantees.isEmpty() || guarantees.any { !it.structurallyValid() }) return false
+            if (guarantees.distinctBy { it.family to it.invalidityCategory }.size != guarantees.size) return false
+            if (!conventionScopeKey.trim().uppercase().matches(Regex("^KALITEXT\\d+$"))) return false
+            val status = professionalStatus?.trim()?.uppercase()
+            if (status != null && status !in setOf("CADRE", "NON_CADRE")) return false
+            if (aniCategories.any { it !in allowedAniCategories }) return false
+            if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED && extensionEffectiveFrom == null) return false
+            if (extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED && extensionEffectiveFrom != null) return false
+            return true
+        }
+
+        fun activeOn(date: LocalDate): Boolean = !date.isBefore(effectiveFrom) &&
+            (effectiveTo == null || !date.isAfter(effectiveTo))
+
+        fun statusMatches(value: String?): Boolean {
+            val wanted = professionalStatus?.trim()?.uppercase()
+            return wanted == null || wanted == value?.trim()?.uppercase()
+        }
+
+        fun extensionApplicableOn(date: LocalDate): Boolean =
+            extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
+                extensionEffectiveFrom?.let { !date.isBefore(it) } == true
+    }
+
+    data class Resolution(
+        val guarantees: List<Guarantee>,
+        val selectedRule: Rule?,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun resolve(
+        rules: List<Rule>,
+        idcc: String?,
+        referenceDate: LocalDate,
+        classification: ConventionClassificationV2,
+        professionalStatus: String?,
+        protectionCategory: ProtectionCategoryV2.Result?,
+        seniorityMonths: Int?
+    ): Resolution {
+        val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
+        if (normalized.isBlank()) return unresolved("IDCC manquant")
+        if (classification.isEmpty()) return unresolved("classification conventionnelle exacte manquante")
+        if (seniorityMonths != null && seniorityMonths < 0) return unresolved("ancienneté invalide")
+
+        val scoped = rules.filter { rule ->
+            rule.structurallyValid() &&
+                ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc) == normalized &&
+                rule.activeOn(referenceDate) &&
+                classification.matches(rule.classification) &&
+                rule.classification.matches(classification) &&
+                rule.statusMatches(professionalStatus)
+        }
+        if (scoped.isEmpty()) return unresolved("aucune garantie vérifiée ne correspond exactement au profil et à la période")
+
+        val extended = scoped.filter { it.extensionApplicableOn(referenceDate) }
+        if (extended.isEmpty()) return unresolved("extension officielle des garanties non démontrée à cette date")
+
+        val categoryDependent = extended.any { it.aniCategories.isNotEmpty() }
+        if (categoryDependent && protectionCategory?.confirmed != true) {
+            return unresolved("catégorie ANI vérifiée requise avant de sélectionner les garanties")
+        }
+        val category = protectionCategory?.aniCategory
+        val categoryMatched = extended.filter { it.aniCategories.isEmpty() || category in it.aniCategories }
+        if (categoryMatched.isEmpty()) return unresolved("aucune garantie vérifiée ne correspond à la catégorie ANI confirmée")
+
+        val seniorityMatched = if (seniorityMonths == null) {
+            if (categoryMatched.any { it.minimumSeniorityMonths > 0 }) {
+                return unresolved("ancienneté requise pour confirmer l'ouverture des garanties")
+            }
+            categoryMatched
+        } else {
+            categoryMatched.filter { seniorityMonths >= it.minimumSeniorityMonths }
+        }
+        if (seniorityMatched.isEmpty()) {
+            return Resolution(
+                guarantees = emptyList(),
+                selectedRule = null,
+                reliable = true,
+                warnings = listOf("Prévoyance conventionnelle IDCC $normalized : ancienneté insuffisante pour les garanties vérifiées à cette date.")
+            )
+        }
+
+        val latestDate = seniorityMatched.maxOf { it.effectiveFrom }
+        val latest = seniorityMatched.filter { it.effectiveFrom == latestDate }
+        fun specificity(rule: Rule) = rule.classification.specificity() +
+            (if (rule.professionalStatus == null) 0 else 1) +
+            (if (rule.aniCategories.isEmpty()) 0 else 1)
+        val maxSpecificity = latest.maxOf(::specificity)
+        val best = latest.filter { specificity(it) == maxSpecificity }
+        if (best.size != 1) return unresolved("plusieurs ensembles de garanties de même précision se contredisent")
+
+        val selected = best.single()
+        return Resolution(
+            guarantees = selected.guarantees,
+            selectedRule = selected,
+            reliable = true,
+            warnings = listOf("Garanties de prévoyance issues uniquement du texte conventionnel vérifié : ${selected.source}.")
+        )
+    }
+
+    private fun unresolved(reason: String) = Resolution(
+        guarantees = emptyList(),
+        selectedRule = null,
+        reliable = false,
+        warnings = listOf("Garanties de prévoyance : $reason ; aucun droit n'est inventé.")
+    )
+
+    private val allowedAniCategories = setOf(
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+        ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE,
+        ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2
+    )
+}
