@@ -77,6 +77,7 @@ class NetSalaryProvidentNoRuleV2Test {
         assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
         assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
         assertEquals(0.0, result.companyEmployeeDeductions, 0.001)
+        assertTrue(result.netTaxable != null)
         assertTrue(result.warnings.any { it.contains("absence de cotisation", ignoreCase = true) })
     }
 
@@ -92,6 +93,57 @@ class NetSalaryProvidentNoRuleV2Test {
         assertNull(result.netTaxable)
         assertNull(result.incomeTax)
         assertTrue(result.warnings.any { it.contains("catégorie ANI actuelle non confirmée", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("assiette fiscale incomplète", ignoreCase = true) })
+    }
+
+    @Test
+    fun `KALI rules confirmed but incompatible keep taxable net unknown instead of legacy fallback`() {
+        val mismatchedRule = ConventionProvidentContributionV2.Rule(
+            idcc = "292",
+            ruleId = "KALI-PROVIDENT-CONTRIBUTION-KALITEXT000000000001-ARTICLE_2_1",
+            effectiveFrom = LocalDate.of(2025, 1, 1),
+            classification = classification,
+            professionalStatus = "NON_CADRE",
+            aniCategories = setOf(ProtectionCategoryV2.AniCategory.ARTICLE_2_1),
+            tiers = listOf(
+                ConventionProvidentContributionV2.SeniorityTier(
+                    minimumSeniorityMonths = 0,
+                    bands = listOf(
+                        ConventionProvidentContributionV2.Band(
+                            label = "Salaire brut total",
+                            employeeRate = 0.005,
+                            employerRate = 0.007
+                        )
+                    )
+                )
+            ),
+            source = "Légifrance KALI test",
+            conventionScopeKey = "KALITEXT000000000001",
+            extensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
+            extensionEffectiveFrom = LocalDate.of(2025, 1, 1)
+        )
+        val rulesRecord = coverageRecord.copy(
+            state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+            source = "audit KALI rules test"
+        )
+        val verifiedCompany = company().copy(
+            verifiedProvidentRules = listOf(mismatchedRule),
+            verifiedProvidentCoverage = ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+                record = rulesRecord,
+                reliable = true,
+                warnings = emptyList()
+            )
+        )
+
+        val result = NetSalaryEngineV2.calculate(2500.0, 2026, verifiedCompany)
+
+        assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
+        assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
+        assertNull(result.netTaxable)
+        assertNull(result.incomeTax)
+        assertNull(result.netAfterIncomeTax)
+        assertTrue(result.warnings.any { it.contains("catégorie ANI", ignoreCase = true) })
         assertTrue(result.warnings.any { it.contains("assiette fiscale incomplète", ignoreCase = true) })
     }
 }
