@@ -66,11 +66,6 @@ object OfficialKaliProvidentBenefitParserV2 {
         }
         if (eligible.isEmpty()) return unresolved("aucun KALIARTI applicable et non ambigu")
 
-        val observed = linkedSetOf<ConventionProvidentBenefitV2.Family>()
-        eligible.forEach { article ->
-            observed += observedFamilies(normalizeArticle(article))
-        }
-
         val grouped = eligible.groupBy { article ->
             val id = article.articleId.trim().uppercase(Locale.ROOT)
             articleTextIds[id]
@@ -78,46 +73,50 @@ object OfficialKaliProvidentBenefitParserV2 {
         }.filterKeys { it?.matches(kaliTextIdRegex) == true }
 
         val rules = mutableListOf<ConventionProvidentBenefitV2.Rule>()
+        val observed = linkedSetOf<ConventionProvidentBenefitV2.Family>()
         val reasons = mutableListOf<String>()
         grouped.forEach { (scopeRaw, scopedArticles) ->
             val scope = scopeRaw ?: return@forEach
             val normalized = scopedArticles.associateWith(::normalizeArticle)
-            val profileCompatible = normalized.filterValues { text ->
-                clauseMatchesProfile(text, classification, status)
-            }
-            if (profileCompatible.isEmpty()) return@forEach
+            val profileScoped = normalized.mapValues { (_, text) ->
+                profileScopedTexts(text, classification, status)
+            }.filterValues { it.isNotEmpty() }
+            if (profileScoped.isEmpty()) return@forEach
 
-            profileCompatible.forEach articleLoop@ { (article, text) ->
-                val parsedGuarantees = parseGuarantees(text, article.articleId)
-                if (parsedGuarantees.isEmpty()) return@articleLoop
-                val seniority = parseSeniorityMonths(text)
-                if (seniority == null) {
-                    reasons += "KALI garanties $scope ${article.articleId} : ancienneté d'ouverture non prouvée dans le même article que la garantie ; cette garantie n'est pas persistée."
-                    return@articleLoop
-                }
-                val extensionDate = article.extensionEffectiveFrom
-                val extensionStatus = if (extensionDate != null) {
-                    ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-                } else {
-                    ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
-                }
-                parsedGuarantees.forEach { guarantee ->
-                    val rule = ConventionProvidentBenefitV2.Rule(
-                        idcc = kaliIdcc,
-                        ruleId = "KALI-PROVIDENT-BENEFIT-$scope-${article.articleId}-${guarantee.family.name}-${guarantee.invalidityCategory ?: 0}",
-                        effectiveFrom = article.effectiveFrom,
-                        effectiveTo = article.effectiveTo,
-                        classification = classification,
-                        professionalStatus = status,
-                        aniCategories = setOf(protectionCategory.aniCategory),
-                        minimumSeniorityMonths = seniority,
-                        guarantees = listOf(guarantee),
-                        source = "Légifrance KALI — $scope — ${article.articleId}",
-                        conventionScopeKey = scope,
-                        extensionStatus = extensionStatus,
-                        extensionEffectiveFrom = extensionDate
-                    )
-                    if (rule.structurallyValid()) rules += rule
+            profileScoped.forEach articleLoop@ { (article, texts) ->
+                texts.forEach textLoop@ { text ->
+                    observed += observedFamilies(text)
+                    val parsedGuarantees = parseGuarantees(text, article.articleId)
+                    if (parsedGuarantees.isEmpty()) return@textLoop
+                    val seniority = parseSeniorityMonths(text)
+                    if (seniority == null) {
+                        reasons += "KALI garanties $scope ${article.articleId} : ancienneté d'ouverture non prouvée dans la même clause que la garantie ; cette garantie n'est pas persistée."
+                        return@textLoop
+                    }
+                    val extensionDate = article.extensionEffectiveFrom
+                    val extensionStatus = if (extensionDate != null) {
+                        ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+                    } else {
+                        ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+                    }
+                    parsedGuarantees.forEach { guarantee ->
+                        val rule = ConventionProvidentBenefitV2.Rule(
+                            idcc = kaliIdcc,
+                            ruleId = "KALI-PROVIDENT-BENEFIT-$scope-${article.articleId}-${guarantee.family.name}-${guarantee.invalidityCategory ?: 0}-${guaranteeRuleSuffix(guarantee, seniority)}",
+                            effectiveFrom = article.effectiveFrom,
+                            effectiveTo = article.effectiveTo,
+                            classification = classification,
+                            professionalStatus = status,
+                            aniCategories = setOf(protectionCategory.aniCategory),
+                            minimumSeniorityMonths = seniority,
+                            guarantees = listOf(guarantee),
+                            source = "Légifrance KALI — $scope — ${article.articleId}",
+                            conventionScopeKey = scope,
+                            extensionStatus = extensionStatus,
+                            extensionEffectiveFrom = extensionDate
+                        )
+                        if (rule.structurallyValid()) rules += rule
+                    }
                 }
             }
         }
@@ -263,6 +262,19 @@ object OfficialKaliProvidentBenefitParserV2 {
         value.fixedAmount?.toString().orEmpty()
     ).joinToString("|")
 
+    private fun guaranteeRuleSuffix(
+        guarantee: ConventionProvidentBenefitV2.Guarantee,
+        seniorityMonths: Int
+    ): String = listOf(
+        guarantee.family.name,
+        guarantee.invalidityCategory?.toString().orEmpty(),
+        formulaFingerprint(guarantee.formula),
+        guarantee.waitingPeriodDays?.toString().orEmpty(),
+        guarantee.maximumDurationDays?.toString().orEmpty(),
+        guarantee.socialSecurityTreatment.name,
+        seniorityMonths.toString()
+    ).joinToString("|").hashCode().toUInt().toString(16)
+
     private fun percentFormula(
         basis: ConventionProvidentBenefitV2.Basis,
         raw: String
@@ -289,13 +301,31 @@ object OfficialKaliProvidentBenefitParserV2 {
 
     private fun parseSeniorityMonths(text: String): Int? {
         if (noSeniorityRegex.containsMatchIn(text)) return 0
-        val match = seniorityRegex.find(text) ?: return null
-        val value = match.groupValues[1].toIntOrNull() ?: return null
-        return when {
-            match.groupValues[2].startsWith("an") -> value * 12
-            match.groupValues[2].startsWith("mois") -> value
-            else -> null
-        }.takeIf { it in 0..600 }
+        val candidates = seniorityRegex.findAll(text).mapNotNull { match ->
+            val value = match.groupValues[1].toIntOrNull() ?: return@mapNotNull null
+            when {
+                match.groupValues[2].startsWith("an") -> value * 12
+                match.groupValues[2].startsWith("mois") -> value
+                else -> null
+            }?.takeIf { it in 0..600 }
+        }.distinct().toList()
+        return candidates.singleOrNull()
+    }
+
+    private fun profileScopedTexts(
+        text: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): List<String> {
+        if (!classificationVocabularyPresent(text)) return listOf(text)
+        return OfficialKaliProfileMatcherV2.windows(
+            rawText = text,
+            classification = classification,
+            professionalStatus = professionalStatus,
+            before = 180,
+            after = 760,
+            maxClassificationSpan = 320
+        ).map { it.text }.distinct()
     }
 
     private fun observedFamilies(text: String): Set<ConventionProvidentBenefitV2.Family> = buildSet {
@@ -304,22 +334,6 @@ object OfficialKaliProvidentBenefitParserV2 {
         if (invalidityRegex.containsMatchIn(text)) add(ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION)
         if (spousePensionRegex.containsMatchIn(text)) add(ConventionProvidentBenefitV2.Family.SPOUSE_PENSION)
         if (educationPensionRegex.containsMatchIn(text)) add(ConventionProvidentBenefitV2.Family.EDUCATION_PENSION)
-    }
-
-    private fun clauseMatchesProfile(
-        text: String,
-        classification: ConventionClassificationV2,
-        professionalStatus: String
-    ): Boolean {
-        if (!classificationVocabularyPresent(text)) return true
-        return OfficialKaliProfileMatcherV2.windows(
-            rawText = text,
-            classification = classification,
-            professionalStatus = professionalStatus,
-            before = 140,
-            after = 360,
-            maxClassificationSpan = 320
-        ).isNotEmpty()
     }
 
     private fun classificationVocabularyPresent(text: String): Boolean = classificationVocabulary.containsMatchIn(text)
