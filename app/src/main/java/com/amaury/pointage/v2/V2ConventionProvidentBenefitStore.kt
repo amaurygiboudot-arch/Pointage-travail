@@ -26,18 +26,33 @@ object V2ConventionProvidentBenefitStore {
         rule.structurallyValid() &&
             rule.conventionScopeKey.trim().uppercase(Locale.ROOT).matches(Regex("^KALITEXT\\d+$"))
 
+    /**
+     * Identité juridique stable d'une règle KALI.
+     *
+     * Le contenu calculable (formule, franchise, ancienneté...) peut être corrigé lors d'un audit
+     * ultérieur sans que la source juridique ait changé. Ces valeurs ne participent donc pas à
+     * l'identité. En revanche, le texte/article KALI, la famille, le profil et la période doivent
+     * rester strictement identiques avant qu'une variante précédente puisse être remplacée.
+     */
+    internal fun sameLegalIdentity(
+        left: ConventionProvidentBenefitV2.Rule,
+        right: ConventionProvidentBenefitV2.Rule
+    ): Boolean = legalIdentity(left) == legalIdentity(right)
+
     fun saveVerified(context: Context, rule: ConventionProvidentBenefitV2.Rule) {
         require(acceptsVerifiedRule(rule)) { "Règle de garanties prévoyance invalide ou sans périmètre KALI exact" }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
-        val current = load(context).toMutableList()
-        current.removeAll {
-            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == rule.ruleId
-        }
-        current += rule.copy(
+        val normalizedRule = rule.copy(
             idcc = normalized,
             professionalStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT),
             conventionScopeKey = rule.conventionScopeKey.trim().uppercase(Locale.ROOT)
         )
+        val current = load(context).toMutableList()
+        current.removeAll {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
+                (it.ruleId == normalizedRule.ruleId || sameLegalIdentity(it, normalizedRule))
+        }
+        current += normalizedRule
         persist(context, current)
     }
 
@@ -46,6 +61,29 @@ object V2ConventionProvidentBenefitStore {
         persist(context, load(context).filterNot {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == ruleId
         })
+    }
+
+    private fun legalIdentity(rule: ConventionProvidentBenefitV2.Rule): String {
+        val guarantees = rule.guarantees.map { guarantee ->
+            listOf(
+                guarantee.family.name,
+                guarantee.invalidityCategory?.toString().orEmpty(),
+                guarantee.evidenceArticleIds
+                    .map { it.trim().uppercase(Locale.ROOT) }
+                    .sorted()
+                    .joinToString(",")
+            ).joinToString("|")
+        }.sorted().joinToString(";")
+        return listOf(
+            ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc),
+            rule.conventionScopeKey.trim().uppercase(Locale.ROOT),
+            rule.effectiveFrom.toString(),
+            rule.effectiveTo?.toString().orEmpty(),
+            rule.classification.label(),
+            rule.professionalStatus?.trim()?.uppercase(Locale.ROOT).orEmpty(),
+            rule.aniCategories.map { it.name }.sorted().joinToString(","),
+            guarantees
+        ).joinToString("#")
     }
 
     private fun persist(context: Context, rules: List<ConventionProvidentBenefitV2.Rule>) {
