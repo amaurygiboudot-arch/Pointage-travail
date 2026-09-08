@@ -10,6 +10,8 @@ import org.junit.Test
 import java.time.LocalDate
 
 class V2ConventionProtectionCategoryStoreTest {
+    private val scopeKey = "IDCC0292:ACCORD-2024-06-27"
+
     private fun rule(
         category: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
         extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
@@ -17,24 +19,35 @@ class V2ConventionProtectionCategoryStoreTest {
         classification: ConventionClassificationV2 = ConventionClassificationV2(coefficient = 910),
         approvalStatus: ConventionProtectionCategoryV2.ApprovalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED,
         approvalDate: LocalDate? = LocalDate.of(2024, 10, 9),
-        approvalSource: String? = "Commission paritaire APEC — agrément test"
-    ) = ConventionProtectionCategoryV2.Rule(
-        idcc = "292",
-        ruleId = "KALI-PROTECTION-CATEGORY-test",
-        effectiveFrom = LocalDate.of(2025, 1, 1),
-        classification = classification,
-        professionalStatus = if (category == ProtectionCategoryV2.AniCategory.ARTICLE_2_1) "CADRE" else "NON_CADRE",
-        aniCategory = category,
-        source = "Légifrance KALI — KALIARTI000000000001",
-        extensionStatus = extensionStatus,
-        extensionEffectiveFrom = extensionDate,
-        approvalStatus = approvalStatus,
-        approvalEffectiveFrom = approvalDate,
-        approvalSource = approvalSource
-    )
+        approvalSource: String? = "Commission paritaire APEC — agrément test",
+        conventionScopeKey: String? = scopeKey,
+        approvalScopeKey: String? = scopeKey,
+        approvalClassification: ConventionClassificationV2? = classification,
+        approvalCategory: ProtectionCategoryV2.AniCategory? = category
+    ): ConventionProtectionCategoryV2.Rule {
+        val approved = approvalStatus == ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED
+        return ConventionProtectionCategoryV2.Rule(
+            idcc = "292",
+            ruleId = "KALI-PROTECTION-CATEGORY-test",
+            effectiveFrom = LocalDate.of(2025, 1, 1),
+            classification = classification,
+            professionalStatus = if (category == ProtectionCategoryV2.AniCategory.ARTICLE_2_1) "CADRE" else "NON_CADRE",
+            aniCategory = category,
+            source = "Légifrance KALI — KALIARTI000000000001",
+            extensionStatus = extensionStatus,
+            extensionEffectiveFrom = extensionDate,
+            conventionScopeKey = conventionScopeKey,
+            approvalStatus = approvalStatus,
+            approvalEffectiveFrom = if (approved) approvalDate else null,
+            approvalSource = if (approved) approvalSource else null,
+            approvalScopeKey = if (approved) approvalScopeKey else null,
+            approvalClassification = if (approved) approvalClassification else null,
+            approvalAniCategory = if (approved) approvalCategory else null
+        )
+    }
 
     @Test
-    fun `preuve KALI plus APEC structuree peut entrer dans le store local`() {
+    fun `preuve KALI plus APEC exacte peut entrer dans le store local`() {
         assertTrue(V2ConventionProtectionCategoryStore.acceptsVerifiedRule(rule()))
     }
 
@@ -42,11 +55,25 @@ class V2ConventionProtectionCategoryStoreTest {
     fun `preuve KALI sans agrément APEC peut etre stockee comme preuve non applicable`() {
         assertTrue(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
-                rule(
-                    approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
-                    approvalDate = null,
-                    approvalSource = null
-                )
+                rule(approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED)
+            )
+        )
+    }
+
+    @Test
+    fun `même IDCC mais périmètre APEC différent est refuse`() {
+        assertFalse(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
+                rule(approvalScopeKey = "IDCC0292:AUTRE-ACCORD")
+            )
+        )
+    }
+
+    @Test
+    fun `classification APEC différente de KALI est refusee`() {
+        assertFalse(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
+                rule(approvalClassification = ConventionClassificationV2(coefficient = 900))
             )
         )
     }
@@ -92,7 +119,7 @@ class V2ConventionProtectionCategoryStoreTest {
     fun `TO_CONFIRM ne peut jamais etre persiste comme preuve`() {
         assertFalse(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
-                rule(category = ProtectionCategoryV2.AniCategory.TO_CONFIRM)
+                rule(category = ProtectionCategoryV2.AniCategory.TO_CONFIRM, approvalCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM)
             )
         )
     }
@@ -101,7 +128,10 @@ class V2ConventionProtectionCategoryStoreTest {
     fun `absence conventionnelle ne peut jamais etre fabriquee par le store`() {
         assertFalse(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
-                rule(category = ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE)
+                rule(
+                    category = ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE,
+                    approvalCategory = ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE
+                )
             )
         )
     }
@@ -110,7 +140,10 @@ class V2ConventionProtectionCategoryStoreTest {
     fun `classification vide est refusee`() {
         assertFalse(
             V2ConventionProtectionCategoryStore.acceptsVerifiedRule(
-                rule(classification = ConventionClassificationV2())
+                rule(
+                    classification = ConventionClassificationV2(),
+                    approvalClassification = ConventionClassificationV2()
+                )
             )
         )
     }
