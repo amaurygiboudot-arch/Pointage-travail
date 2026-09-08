@@ -31,7 +31,11 @@ object OfficialKaliProvidentContributionParserV2 {
 
     private data class Rates(
         val employeeRate: Double,
-        val employerRate: Double
+        val employerRate: Double,
+        val minimumTotalRate: Double? = null,
+        val minimumEmployerRate: Double? = null,
+        val allocationRule: ConventionProvidentContributionV2.AllocationRule =
+            ConventionProvidentContributionV2.AllocationRule.EXACT
     )
 
     fun parse(
@@ -105,7 +109,7 @@ object OfficialKaliProvidentContributionParserV2 {
             )
         }
         if (complete.isEmpty()) {
-            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et taux suffisamment prouvés pour la classification exacte")
+            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et financement suffisamment prouvés pour la classification exacte")
         }
         if (complete.size != 1) {
             return unresolved("plusieurs KALITEXT produisent des barèmes complets ; périmètre conventionnel unique non déterminé")
@@ -191,7 +195,10 @@ object OfficialKaliProvidentContributionParserV2 {
                             lowerCeilingMultiple = basis.lowerCeilingMultiple,
                             upperCeilingMultiple = basis.upperCeilingMultiple,
                             employeeRate = rates.employeeRate,
-                            employerRate = rates.employerRate
+                            employerRate = rates.employerRate,
+                            minimumTotalRate = rates.minimumTotalRate,
+                            minimumEmployerRate = rates.minimumEmployerRate,
+                            allocationRule = rates.allocationRule
                         )
                     )
                 )
@@ -212,7 +219,15 @@ object OfficialKaliProvidentContributionParserV2 {
                 add("KALI prévoyance : classification contrôlée : ${classification.label()}.")
                 add("KALI prévoyance : ancienneté minimale prouvée à $seniorityMonths mois.")
                 add("KALI prévoyance : assiette unique prouvée (${basis.label}).")
-                add("KALI prévoyance : taux salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} %.")
+                if (rates.allocationRule == ConventionProvidentContributionV2.AllocationRule.EXACT) {
+                    add("KALI prévoyance : taux exact salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} %.")
+                } else {
+                    add(
+                        "KALI prévoyance : financement minimal ${(rates.minimumTotalRate!! * 100.0)} %, " +
+                            "minimum employeur ${(rates.minimumEmployerRate!! * 100.0)} %, " +
+                            "répartition par défaut salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} % ; accord d'entreprise susceptible de la modifier."
+                    )
+                }
                 if (!allExtended) add("KALI prévoyance : extension officielle de tous les articles utilisés non prouvée ; applicabilité automatique bloquée.")
             }
         )
@@ -296,16 +311,60 @@ object OfficialKaliProvidentContributionParserV2 {
     private fun parseRates(text: String): Rates? {
         if (!rateContextWords.any(text::contains)) return null
 
-        explicitPartsRegex.find(text)?.let { match ->
-            val employee = parsePercent(match.groupValues[1]) ?: return@let
-            val employer = parsePercent(match.groupValues[2]) ?: return@let
+        val explicitCandidates = buildList {
+            explicitPartsRegex.findAll(text).forEach { match ->
+                val employee = parsePercent(match.groupValues[1]) ?: return@forEach
+                val employer = parsePercent(match.groupValues[2]) ?: return@forEach
+                add(employee to employer)
+            }
+            explicitPartsEmployerFirstRegex.findAll(text).forEach { match ->
+                val employer = parsePercent(match.groupValues[1]) ?: return@forEach
+                val employee = parsePercent(match.groupValues[2]) ?: return@forEach
+                add(employee to employer)
+            }
+        }.distinct()
+
+        val minimumTotal = minimumTotalRateRegexes
+            .asSequence()
+            .mapNotNull { it.find(text)?.groupValues?.get(1)?.let(::parsePercent) }
+            .distinct()
+            .toList()
+        val minimumEmployer = minimumEmployerRateRegexes
+            .asSequence()
+            .mapNotNull { it.find(text)?.groupValues?.get(1)?.let(::parsePercent) }
+            .distinct()
+            .toList()
+        if (minimumTotal.size > 1 || minimumEmployer.size > 1) return null
+
+        val minTotal = minimumTotal.singleOrNull()
+        val minEmployer = minimumEmployer.singleOrNull()
+        val defaultWording = defaultAllocationRegex.containsMatchIn(text)
+        val companyOverride = companyAgreementOverrideRegex.containsMatchIn(text)
+        val flexibleFinancingMentioned = minTotal != null || minEmployer != null || defaultWording || companyOverride
+
+        if (flexibleFinancingMentioned) {
+            // Un plancher ou une répartition "par défaut" n'est jamais assimilé à une répartition exacte.
+            // Pour conserver la preuve, il faut les deux minima, les deux parts par défaut et la preuve
+            // qu'un accord d'entreprise peut modifier cette répartition.
+            if (minTotal == null || minEmployer == null || !defaultWording || !companyOverride) return null
+            if (explicitCandidates.size != 1) return null
+            val (employee, employer) = explicitCandidates.single()
+            if (employee + employer + RATE_EPSILON < minTotal) return null
+            if (employer + RATE_EPSILON < minEmployer) return null
+            return Rates(
+                employeeRate = employee,
+                employerRate = employer,
+                minimumTotalRate = minTotal,
+                minimumEmployerRate = minEmployer,
+                allocationRule = ConventionProvidentContributionV2.AllocationRule.DEFAULT_MODIFIABLE_BY_COMPANY_AGREEMENT
+            )
+        }
+
+        if (explicitCandidates.size == 1) {
+            val (employee, employer) = explicitCandidates.single()
             return Rates(employee, employer)
         }
-        explicitPartsEmployerFirstRegex.find(text)?.let { match ->
-            val employer = parsePercent(match.groupValues[1]) ?: return@let
-            val employee = parsePercent(match.groupValues[2]) ?: return@let
-            return Rates(employee, employer)
-        }
+        if (explicitCandidates.size > 1) return null
 
         val total = totalRateRegex.find(text)?.groupValues?.get(1)?.let(::parsePercent)
         val split = fiftyFiftyRegex.containsMatchIn(text)
@@ -340,7 +399,15 @@ object OfficialKaliProvidentContributionParserV2 {
 
     private val providentWords = listOf("prevoyance", "protection sociale complementaire", "incapacite", "invalidite", "deces")
     private val basisContextWords = listOf("salaire de reference", "assiette", "remuneration servant de base", "base de cotisation")
-    private val rateContextWords = listOf("cotisation", "taux", "part salariale", "part patronale", "charge du salarie", "charge de l'employeur")
+    private val rateContextWords = listOf(
+        "cotisation",
+        "taux",
+        "financement",
+        "part salariale",
+        "part patronale",
+        "charge du salarie",
+        "charge de l'employeur"
+    )
 
     private val primaryClassificationVocabulary = Regex(
         "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|emploi|fonction|poste)s?\\b"
@@ -378,4 +445,22 @@ object OfficialKaliProvidentContributionParserV2 {
     )
     private val totalRateRegex = Regex("\\b(?:cotisation|taux)\\s*(?:globale?|totale?)?\\s*[:=]?\\s*(\\d+(?:[.,]\\d+)?)\\s*%")
     private val fiftyFiftyRegex = Regex("\\b(?:50\\s*%\\s*(?:employeur|patronal)[^%]{0,80}50\\s*%\\s*(?:salarie|salarial)|reparti[e]?\\s+par moitie|a parts egales)\\b")
+
+    private val minimumTotalRateRegexes = listOf(
+        Regex("\\b(?:financement|cotisation|taux)\\s+(?:(?:global|total)e?\\s+)?(?:minimal[e]?|minimum)\\s*(?:est|de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:minimum|minimal[e]?)\\s+(?:(?:global|total)e?)\\s*(?:de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%")
+    )
+    private val minimumEmployerRateRegexes = listOf(
+        Regex("\\b(?:part|contribution|cotisation)\\s+(?:patronale|employeur)\\s+(?:minimal[e]?|minimum)\\s*(?:est|de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:part|contribution|cotisation)\\s+(?:patronale|employeur)\\s+ne peut etre inferieur[e]?\\s+a\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:au moins|minimum)\\s*(\\d+(?:[.,]\\d+)?)\\s*%\\s*(?:a la charge de l'employeur|employeur|patronal)\\b")
+    )
+    private val defaultAllocationRegex = Regex(
+        "\\b(?:par defaut|a defaut d[' ]accord(?: d[' ]entreprise)?|en l[' ]absence d[' ]accord(?: d[' ]entreprise)?)\\b"
+    )
+    private val companyAgreementOverrideRegex = Regex(
+        "\\b(?:a defaut d[' ]accord d[' ]entreprise|sauf accord d[' ]entreprise|accord d[' ]entreprise (?:peut|pourra) (?:modifier|modifie)|repartition[^.]{0,120}(?:peut|pourra) etre modifiee? par accord d[' ]entreprise)\\b"
+    )
+
+    private const val RATE_EPSILON = 1e-12
 }
