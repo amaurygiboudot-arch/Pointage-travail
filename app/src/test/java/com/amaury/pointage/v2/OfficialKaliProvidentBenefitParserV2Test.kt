@@ -107,7 +107,7 @@ class OfficialKaliProvidentBenefitParserV2Test {
                 article(
                     "KALIARTI000000000110",
                     "Cadres coefficient 910. Sans condition d'ancienneté. Le capital décès est égal à 100 % du salaire annuel de référence. " +
-                        "Cadres coefficient 920. Sans condition d'ancienneté. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence."
+                        "Cadres coefficient 920. Sans condition d'ancienneté. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence, y compris les indemnités journalières de la sécurité sociale."
                 )
             )
         )
@@ -194,7 +194,7 @@ class OfficialKaliProvidentBenefitParserV2Test {
         )
         val incapacity = article(
             "KALIARTI000000000108",
-            "Cadres coefficient 910. Sans condition d'ancienneté. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence après une franchise de 30 jours."
+            "Cadres coefficient 910. Sans condition d'ancienneté. En cas d'incapacité temporaire, des indemnités assurent 80 % du salaire mensuel de référence, y compris les indemnités journalières de la sécurité sociale, après une franchise de 30 jours."
         )
         val result = parse(listOf(death, incapacity))
 
