@@ -66,7 +66,7 @@ class OfficialKaliProtectionCategoryParserV2Test {
         assertNotNull(diagnostic.rule)
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_1, diagnostic.rule!!.aniCategory)
         assertEquals(910, diagnostic.rule!!.classification.coefficient)
-        assertEquals("0292", diagnostic.rule!!.idcc)
+        assertEquals("292", diagnostic.rule!!.idcc)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, diagnostic.rule!!.extensionStatus)
         assertEquals(
             ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
