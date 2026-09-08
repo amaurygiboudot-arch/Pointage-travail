@@ -4,12 +4,12 @@ import java.time.LocalDate
 import java.util.Locale
 
 /**
- * Résolution générique d'une catégorie objective ANI à partir de règles conventionnelles
- * prouvées pour une classification salariée exacte.
+ * Résolution générique d'une catégorie objective ANI à partir de preuves KALI + APEC
+ * portant sur la même classification salariée et le même périmètre conventionnel exact.
  *
- * Une classification de branche n'est applicable au classement ANI qu'après preuve de
- * l'agrément de la commission paritaire rattachée à l'APEC. Une preuve KALI seule peut être
- * conservée, mais reste bloquée tant que cet agrément n'est pas rattaché à la règle.
+ * L'IDCC seul ne suffit pas : une même IDCC peut contenir des accords nationaux/régionaux
+ * ayant des classifications distinctes. Un agrément APEC n'est donc applicable que si son
+ * périmètre, sa catégorie et sa classification ont été reliés explicitement à la règle KALI.
  */
 object ConventionProtectionCategoryV2 {
     enum class ApprovalStatus {
@@ -22,24 +22,49 @@ object ConventionProtectionCategoryV2 {
         val ruleId: String,
         val effectiveFrom: LocalDate,
         val effectiveTo: LocalDate? = null,
-        /** Classification exacte pour laquelle l'article officiel a été vérifié localement. */
+        /** Classification exacte pour laquelle l'article KALI a été vérifié localement. */
         val classification: ConventionClassificationV2,
         val professionalStatus: String? = null,
         val aniCategory: ProtectionCategoryV2.AniCategory,
         val source: String,
         val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus,
         val extensionEffectiveFrom: LocalDate? = null,
+        /** Identité exacte du périmètre KALI (accord national/régional, avenant, etc.) si prouvée. */
+        val conventionScopeKey: String? = null,
         val approvalStatus: ApprovalStatus = ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
         val approvalEffectiveFrom: LocalDate? = null,
-        val approvalSource: String? = null
+        val approvalSource: String? = null,
+        /** Périmètre exact déclaré par l'agrément APEC. Doit être identique au périmètre KALI. */
+        val approvalScopeKey: String? = null,
+        /** Classification exacte indépendamment prouvée par l'agrément APEC. */
+        val approvalClassification: ConventionClassificationV2? = null,
+        /** Catégorie indépendamment prouvée par l'agrément APEC. */
+        val approvalAniCategory: ProtectionCategoryV2.AniCategory? = null
     ) {
         fun structurallyValid(): Boolean {
             val normalizedStatus = professionalStatus?.trim()?.uppercase(Locale.ROOT) ?: return false
             if (normalizedStatus != "CADRE" && normalizedStatus != "NON_CADRE") return false
+
             val approvalProofValid = when (approvalStatus) {
-                ApprovalStatus.APEC_APPROVED -> approvalEffectiveFrom != null && !approvalSource.isNullOrBlank()
-                ApprovalStatus.APEC_REQUIRED_UNVERIFIED -> approvalEffectiveFrom == null && approvalSource.isNullOrBlank()
+                ApprovalStatus.APEC_APPROVED -> {
+                    val kaliScope = conventionScopeKey?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+                    val apecScope = approvalScopeKey?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+                    val apecClassification = approvalClassification?.takeIf { !it.isEmpty() } ?: return false
+                    approvalEffectiveFrom != null &&
+                        !approvalSource.isNullOrBlank() &&
+                        kaliScope == apecScope &&
+                        classification.matches(apecClassification) &&
+                        apecClassification.matches(classification) &&
+                        approvalAniCategory == aniCategory
+                }
+                ApprovalStatus.APEC_REQUIRED_UNVERIFIED ->
+                    approvalEffectiveFrom == null &&
+                        approvalSource.isNullOrBlank() &&
+                        approvalScopeKey.isNullOrBlank() &&
+                        approvalClassification == null &&
+                        approvalAniCategory == null
             }
+
             return ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
                 ruleId.isNotBlank() &&
                 !classification.isEmpty() &&
@@ -67,8 +92,8 @@ object ConventionProtectionCategoryV2 {
 
         fun approvalApplicableOn(date: LocalDate): Boolean =
             approvalStatus == ApprovalStatus.APEC_APPROVED &&
-                approvalEffectiveFrom?.let { !date.isBefore(it) } == true &&
-                !approvalSource.isNullOrBlank()
+                structurallyValid() &&
+                approvalEffectiveFrom?.let { !date.isBefore(it) } == true
     }
 
     data class Resolution(
@@ -131,7 +156,7 @@ object ConventionProtectionCategoryV2 {
         }
         val approved = extended.filter { it.approvalApplicableOn(referenceDate) }
         if (approved.isEmpty()) {
-            return unresolved("agrément APEC de la classification ANI non démontré à cette date")
+            return unresolved("agrément APEC exact (périmètre + classification + catégorie) non démontré à cette date")
         }
 
         val selected = approved.maxWithOrNull(
