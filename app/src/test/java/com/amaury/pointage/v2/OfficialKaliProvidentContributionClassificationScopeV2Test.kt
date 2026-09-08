@@ -111,4 +111,16 @@ class OfficialKaliProvidentContributionClassificationScopeV2Test {
 
         assertNull(result.rule)
     }
+
+    @Test
+    fun `plusieurs baremes de classifications dans le meme article bloquent au lieu de prendre le premier`() {
+        val result = parse(
+            baseArticles(
+                "Coefficient 700. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %. " +
+                    "Coefficient 800. Cotisation de prévoyance. Part salariale : 0,60 % ; part patronale : 0,20 %."
+            )
+        )
+
+        assertNull(result.rule)
+    }
 }
