@@ -77,8 +77,11 @@ class NetSalaryProvidentNoRuleV2Test {
         assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
         assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
         assertEquals(0.0, result.companyEmployeeDeductions, 0.001)
-        assertTrue(result.netTaxable != null)
+        assertNull(result.netTaxable)
+        assertNull(result.incomeTax)
         assertTrue(result.warnings.any { it.contains("absence de cotisation", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("montant réel à confirmer", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("assiette fiscale incomplète", ignoreCase = true) })
     }
 
     @Test
