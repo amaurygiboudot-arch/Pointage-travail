@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -49,12 +50,12 @@ class OfficialKaliMealBasketParserV2Test {
     @Test
     fun `montant fixe et jour travaille sont structures pour le coefficient exact`() {
         val result = parse("Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée.")
-
         assertEquals(1, result.observedOccurrences)
         assertEquals(1, result.structuredOccurrences)
         assertEquals(0, result.unresolvedOccurrences)
         val amount = result.rules.single().amountFormula as ConventionMealBasketV2.AmountFormula.FixedEuro
         assertEquals(6.25, amount.amount, 0.001)
+        assertTrue(result.rules.single().ruleId.startsWith(OfficialKaliMealBasketParserV2.SAFE_RULE_PREFIX))
     }
 
     @Test
@@ -63,7 +64,6 @@ class OfficialKaliMealBasketParserV2Test {
             "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée. " +
                 "Coefficient 800 non-cadres. Panier repas de 8,50 € par journée travaillée."
         )
-
         assertEquals(1, result.observedOccurrences)
         assertEquals(1, result.structuredOccurrences)
         assertEquals(0, result.unresolvedOccurrences)
@@ -77,7 +77,6 @@ class OfficialKaliMealBasketParserV2Test {
             "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée. " +
                 "Panier de nuit pour travail posté."
         )
-
         assertEquals(2, result.observedOccurrences)
         assertEquals(1, result.structuredOccurrences)
         assertEquals(1, result.unresolvedOccurrences)
@@ -85,11 +84,10 @@ class OfficialKaliMealBasketParserV2Test {
     }
 
     @Test
-    fun `deux formules dans la meme occurrence restent ambiguës`() {
+    fun `deux formules dans la meme occurrence restent ambigues`() {
         val result = parse(
             "Coefficient 700 non-cadres. Panier repas de 6,25 € correspondant à 1,5 fois le minimum garanti par journée travaillée."
         )
-
         assertEquals(1, result.observedOccurrences)
         assertEquals(0, result.structuredOccurrences)
         assertEquals(1, result.unresolvedOccurrences)
@@ -98,20 +96,62 @@ class OfficialKaliMealBasketParserV2Test {
 
     @Test
     fun `multiple du minimum garanti est conserve comme formule et non converti arbitrairement`() {
-        val result = parse(
-            "Coefficient 700 non-cadres. Panier de nuit de 2,65 fois le minimum garanti par journée travaillée."
-        )
-
+        val result = parse("Coefficient 700 non-cadres. Panier de nuit de 2,65 fois le minimum garanti par journée travaillée.")
         val amount = result.rules.single().amountFormula as ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple
         assertEquals(2.65, amount.multiplier, 0.001)
     }
 
     @Test
-    fun `portee territoriale non structuree bloque la clause`() {
+    fun `conditions temporelles d une clause sont cumulatives`() {
         val result = parse(
-            "Coefficient 700 non-cadres. Dans le département 85, panier repas de 6,25 € par journée travaillée."
+            "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si l'horaire comprend minuit et commence à minuit."
         )
+        assertEquals(1, result.rules.size)
+        val groups = result.rules.single().eligibilityAnyOf
+        assertEquals(1, groups.size)
+        assertTrue(groups.single().allOf.contains(ConventionMealBasketV2.Condition.ShiftEnclosesMidnight))
+        assertTrue(groups.single().allOf.contains(ConventionMealBasketV2.Condition.ShiftStartsAtMidnight))
+    }
 
+    @Test
+    fun `alternative temporelle non decomposable bloque la règle`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier de nuit de 8,50 € si l'horaire comprend minuit ou commence à minuit."
+        )
+        assertEquals(0, result.structuredOccurrences)
+        assertEquals(1, result.unresolvedOccurrences)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
+    fun `non cumul inconnu bloque la règle KALI`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée, non cumulable avec une indemnité de déplacement."
+        )
+        assertEquals(0, result.structuredOccurrences)
+        assertEquals(1, result.unresolvedOccurrences)
+    }
+
+    @Test
+    fun `maximum de deux paniers par jour est conserve`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier de nuit de 8,50 € lorsque l'horaire comprend minuit, maximum de 2 paniers par jour."
+        )
+        assertEquals(1, result.structuredOccurrences)
+        assertEquals(2, result.rules.single().maxAwardsPerCalendarDay)
+    }
+
+    @Test
+    fun `date propre a la clause remplace le debut general de l article`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. À compter du 1 septembre 2026, panier repas de 6,25 € par journée travaillée."
+        )
+        assertEquals(LocalDate.of(2026, 9, 1), result.rules.single().effectiveFrom)
+    }
+
+    @Test
+    fun `portee territoriale non structuree bloque la clause`() {
+        val result = parse("Coefficient 700 non-cadres. Dans le département 85, panier repas de 6,25 € par journée travaillée.")
         assertEquals(1, result.observedOccurrences)
         assertEquals(0, result.structuredOccurrences)
         assertEquals(1, result.unresolvedOccurrences)
@@ -123,7 +163,6 @@ class OfficialKaliMealBasketParserV2Test {
             "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée.",
             status = "VIGUEUR_NON_ETEN"
         )
-
         assertEquals(1, result.rules.size)
         assertEquals(com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED, result.rules.single().extensionStatus)
     }
@@ -131,7 +170,6 @@ class OfficialKaliMealBasketParserV2Test {
     @Test
     fun `absence de panier trouve ne devient jamais une preuve d absence`() {
         val result = parse("Coefficient 700 non-cadres. Prime d'ancienneté selon le barème applicable.")
-
         assertEquals(0, result.observedOccurrences)
         assertTrue(result.rules.isEmpty())
         assertTrue(result.reasons.any { it.contains("ne prouve jamais", ignoreCase = true) })
