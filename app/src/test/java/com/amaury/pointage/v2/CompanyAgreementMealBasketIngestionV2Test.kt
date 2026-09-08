@@ -41,6 +41,19 @@ class CompanyAgreementMealBasketIngestionV2Test {
     }
 
     @Test
+    fun `simple pause repas ne devient jamais une indemnité`() {
+        val result = CompanyAgreementMealBasketIngestionV2.structure(
+            profile,
+            "ACCOTEXT000000000001",
+            verified(agreement("La pause repas est fixée de 12 h à 13 h et n'est pas assimilée à du temps de travail effectif."))
+        )
+
+        assertFalse(result.detected)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
     fun `contenu verifie et paquet complet produit sujet jour`() {
         val result = CompanyAgreementMealBasketIngestionV2.structure(
             profile,
