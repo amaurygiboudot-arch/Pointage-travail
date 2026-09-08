@@ -475,8 +475,8 @@ object OfficialKaliProvidentBenefitParserV2 {
      * La preuve d'une garantie est bornée par les marqueurs des autres familles de garanties.
      * Une formule située après « invalidité » ne peut donc jamais compléter un « capital décès »
      * précédent (et inversement), même si les deux passages sont très proches dans l'article.
-     * La borne gauche conserve le contexte salarié/ancienneté précédant la garantie courante,
-     * sauf lorsqu'une autre famille de garantie se trouve déjà entre les deux.
+     * S'il existe une famille précédente dans la fenêtre, on coupe au début de la famille
+     * courante : aucun résidu de formule de la garantie précédente n'est conservé.
      */
     private fun contextWindow(text: String, match: MatchResult, before: Int, after: Int): String {
         val desiredStart = (match.range.first - before).coerceAtLeast(0)
@@ -487,7 +487,7 @@ object OfficialKaliProvidentBenefitParserV2 {
             .lastOrNull()
         val nextFamily = familyBoundaryRegex.find(text, (match.range.last + 1).coerceAtMost(text.length))
 
-        val start = maxOf(desiredStart, previousFamily?.range?.let { it.last + 1 } ?: desiredStart)
+        val start = if (previousFamily != null) match.range.first else desiredStart
         val end = minOf(desiredEnd, nextFamily?.range?.first ?: desiredEnd)
         return if (end > start) text.substring(start, end) else ""
     }
