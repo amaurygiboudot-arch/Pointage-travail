@@ -91,6 +91,9 @@ object V2ConventionProvidentContributionStore {
                         .put("upperCeilingMultiple", band.upperCeilingMultiple)
                         .put("employeeRate", band.employeeRate)
                         .put("employerRate", band.employerRate)
+                        .put("minimumTotalRate", band.minimumTotalRate)
+                        .put("minimumEmployerRate", band.minimumEmployerRate)
+                        .put("allocationRule", band.allocationRule.name)
                 )
             }
             tiers.put(
@@ -131,13 +134,19 @@ object V2ConventionProvidentContributionStore {
                 val bands = buildList {
                     for (bandIndex in 0 until bandsJson.length()) {
                         val band = bandsJson.getJSONObject(bandIndex)
+                        val allocationRule = text(band, "allocationRule")
+                            ?.let { ConventionProvidentContributionV2.AllocationRule.valueOf(it) }
+                            ?: ConventionProvidentContributionV2.AllocationRule.EXACT
                         add(
                             ConventionProvidentContributionV2.Band(
                                 label = band.getString("label"),
                                 lowerCeilingMultiple = band.getDouble("lowerCeilingMultiple"),
-                                upperCeilingMultiple = if (band.isNull("upperCeilingMultiple")) null else band.getDouble("upperCeilingMultiple"),
+                                upperCeilingMultiple = number(band, "upperCeilingMultiple"),
                                 employeeRate = band.getDouble("employeeRate"),
-                                employerRate = band.getDouble("employerRate")
+                                employerRate = band.getDouble("employerRate"),
+                                minimumTotalRate = number(band, "minimumTotalRate"),
+                                minimumEmployerRate = number(band, "minimumEmployerRate"),
+                                allocationRule = allocationRule
                             )
                         )
                     }
@@ -187,4 +196,7 @@ object V2ConventionProvidentContributionStore {
 
     private fun text(obj: JSONObject, key: String): String? =
         obj.optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+    private fun number(obj: JSONObject, key: String): Double? =
+        if (!obj.has(key) || obj.isNull(key)) null else obj.optDouble(key).takeIf { it.isFinite() }
 }

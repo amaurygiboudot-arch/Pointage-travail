@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.LocalDate
@@ -143,7 +144,11 @@ object KaliProvidentBenefitAuditV2 {
                 protectionCategory = category.category,
                 evidence = evidence
             )
-            val exclusions = explicitExclusions(profile, evidence)
+            val exclusions = explicitExclusions(
+                profile = profile,
+                protectionCategory = category.category.aniCategory,
+                evidence = evidence
+            )
             val savedIds = mutableSetOf<String>()
             val saveWarnings = mutableListOf<String>()
             diagnostic.rules.forEach { rule ->
@@ -172,7 +177,8 @@ object KaliProvidentBenefitAuditV2 {
                 structuredFamilies = diagnostic.structuredFamilies,
                 exclusions = exclusions,
                 resolutionReliable = !positiveRulesExist || resolution.reliable,
-                referenceDate = referenceDate
+                referenceDate = referenceDate,
+                unresolvedOccurrenceFamilies = diagnostic.unresolvedOccurrenceFamilies
             )
 
             markCoverage(
@@ -228,11 +234,17 @@ object KaliProvidentBenefitAuditV2 {
         structuredFamilies: Set<ConventionProvidentBenefitV2.Family>,
         exclusions: List<ExclusionEvidence>,
         resolutionReliable: Boolean,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        unresolvedOccurrenceFamilies: Set<ConventionProvidentBenefitV2.Family> = emptySet()
     ): Completion {
         val excludedFamilies = exclusions.map { it.family }.toSet()
         val contradictions = structuredFamilies intersect excludedFamilies
         val unresolvedObserved = observedFamilies - structuredFamilies - excludedFamilies
+        // Une clause d'exclusion explicite peut être repérée comme occurrence non structurée par
+        // le parseur : elle est neutralisée uniquement si l'exclusion correspondante est elle-même
+        // prouvée. Une occurrence positive incomplète reste bloquante même si une autre occurrence
+        // de la même famille a été correctement structurée.
+        val unresolvedOccurrences = unresolvedOccurrenceFamilies - excludedFamilies
         val covered = structuredFamilies + excludedFamilies
         val coreComplete = covered.containsAll(CORE_FAMILIES)
         val allRulesSaved = rules.all { it.ruleId in savedRuleIds }
@@ -248,6 +260,7 @@ object KaliProvidentBenefitAuditV2 {
         val completed = technicalCoverageComplete &&
             coreComplete &&
             unresolvedObserved.isEmpty() &&
+            unresolvedOccurrences.isEmpty() &&
             contradictions.isEmpty() &&
             allRulesSaved &&
             allRulesExtended &&
@@ -266,10 +279,13 @@ object KaliProvidentBenefitAuditV2 {
                 if (!technicalCoverageComplete) add("KALI garanties : couverture technique des recherches incomplète.")
                 if (!coreComplete) add("KALI garanties : décès, incapacité et invalidité ne sont pas toutes prouvées ou explicitement exclues.")
                 if (unresolvedObserved.isNotEmpty()) add("KALI garanties : ${unresolvedObserved.joinToString()} mentionnée(s) mais non structurée(s).")
+                if (unresolvedOccurrences.isNotEmpty()) {
+                    add("KALI garanties : occurrence(s) ${unresolvedOccurrences.joinToString()} non structurée(s) malgré une autre preuve de la même famille ; complétude bloquée.")
+                }
                 if (contradictions.isNotEmpty()) add("KALI garanties : contradiction présence/exclusion pour ${contradictions.joinToString()}.")
                 if (!allRulesSaved) add("KALI garanties : toutes les règles structurées n'ont pas été enregistrées.")
                 if (!allRulesExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les garanties structurées.")
-                if (!exclusionsExtended) add("KALI garanties : extension officielle active non démontrée pour toutes les exclusions utilisées.")
+                if (!exclusionsExtended) add("KALI garanties : statut VIGUEUR_ETEN + date d'extension active non démontrés pour toutes les exclusions utilisées.")
                 if (positiveResolutionRequired && !resolutionReliable) {
                     add("KALI garanties : les règles structurées ne produisent pas un ensemble de droits unique pour le profil.")
                 }
@@ -279,6 +295,7 @@ object KaliProvidentBenefitAuditV2 {
 
     internal fun explicitExclusions(
         profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.AniCategory,
         evidence: KaliMatterEvidenceAuditV2.Evidence
     ): List<ExclusionEvidence> {
         val ambiguous = evidence.ambiguousArticleTextIds.map { it.trim().uppercase(Locale.ROOT) }.toSet()
@@ -287,7 +304,8 @@ object KaliProvidentBenefitAuditV2 {
             evidence.articles.forEach articleLoop@ { article ->
                 val articleId = article.articleId.trim().uppercase(Locale.ROOT)
                 if (!articleId.matches(kaliArticleIdRegex) || articleId in ambiguous) return@articleLoop
-                if (article.status.trim().uppercase(Locale.ROOT) !in acceptedArticleStatuses) return@articleLoop
+                val officialStatus = article.status.trim().uppercase(Locale.ROOT)
+                if (officialStatus !in acceptedArticleStatuses) return@articleLoop
                 if (evidence.referenceDate.isBefore(article.effectiveFrom) ||
                     article.effectiveTo?.let(evidence.referenceDate::isAfter) == true
                 ) return@articleLoop
@@ -301,6 +319,7 @@ object KaliProvidentBenefitAuditV2 {
                 val text = OfficialKaliProfileMatcherV2.normalize(
                     listOfNotNull(article.title, article.content).joinToString("\n")
                 )
+                if (!OfficialKaliAniScopeMatcherV2.matches(text, protectionCategory)) return@articleLoop
                 val classified = classificationVocabulary.containsMatchIn(text)
 
                 exclusionPatterns.forEach { (family, patterns) ->
@@ -325,7 +344,11 @@ object KaliProvidentBenefitAuditV2 {
                                 family = family,
                                 articleId = articleId,
                                 conventionScopeKey = scope,
-                                extensionEffectiveFrom = article.extensionEffectiveFrom
+                                // Une date isolée n'est jamais suffisante : elle n'est conservée
+                                // comme preuve d'extension que pour un article officiellement étendu.
+                                extensionEffectiveFrom = article.extensionEffectiveFrom.takeIf {
+                                    officialStatus == "VIGUEUR_ETEN"
+                                }
                             )
                         )
                     }
@@ -382,6 +405,7 @@ object KaliProvidentBenefitAuditV2 {
         "VIGUEUR",
         "VIGUEUR_ETEN",
         "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
         "VIGUEUR_PARTIELLE"
     )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")

@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,6 +12,7 @@ class KaliProvidentBenefitExclusionScopeV2Test {
     private val date = LocalDate.of(2026, 9, 8)
     private val articleId = "KALIARTI000000009100"
     private val textId = "KALITEXT000000009100"
+    private val defaultAniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1
 
     private fun profile(status: String = "CADRE") = ConventionLegalProfileV2(
         companyId = "c1",
@@ -53,9 +55,19 @@ class KaliProvidentBenefitExclusionScopeV2Test {
         warnings = emptyList()
     )
 
+    private fun exclusions(
+        profile: ConventionLegalProfileV2,
+        source: KaliMatterEvidenceAuditV2.Evidence,
+        category: ProtectionCategoryV2.AniCategory = defaultAniCategory
+    ) = KaliProvidentBenefitAuditV2.explicitExclusions(
+        profile = profile,
+        protectionCategory = category,
+        evidence = source
+    )
+
     @Test
     fun `exclusion du coefficient voisin dans le même article est ignorée`() {
-        val exclusions = KaliProvidentBenefitAuditV2.explicitExclusions(
+        val exclusions = exclusions(
             profile(),
             evidence(
                 "Cadres coefficient 910. Le capital deces est garanti. " +
@@ -68,7 +80,7 @@ class KaliProvidentBenefitExclusionScopeV2Test {
 
     @Test
     fun `exclusion de la classification exacte est conservée`() {
-        val exclusions = KaliProvidentBenefitAuditV2.explicitExclusions(
+        val exclusions = exclusions(
             profile(),
             evidence("Cadres coefficient 910. Aucune garantie invalidite.")
         )
@@ -81,7 +93,7 @@ class KaliProvidentBenefitExclusionScopeV2Test {
 
     @Test
     fun `article KALI hors statut actif ne peut jamais prouver une exclusion`() {
-        val exclusions = KaliProvidentBenefitAuditV2.explicitExclusions(
+        val exclusions = exclusions(
             profile(),
             evidence("Cadres coefficient 910. Aucune garantie invalidite.", status = "ABROGE")
         )
@@ -93,8 +105,8 @@ class KaliProvidentBenefitExclusionScopeV2Test {
     fun `exclusion statut cadre sans classification est refusée au non cadre`() {
         val source = evidence("Cadres : aucune garantie capital deces n'est prévue.")
 
-        val cadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("CADRE"), source)
-        val nonCadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("NON_CADRE"), source)
+        val cadre = exclusions(profile("CADRE"), source)
+        val nonCadre = exclusions(profile("NON_CADRE"), source)
 
         assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), cadre.map { it.family }.toSet())
         assertTrue(nonCadre.isEmpty())
@@ -104,10 +116,41 @@ class KaliProvidentBenefitExclusionScopeV2Test {
     fun `exclusion générale sans statut reste applicable aux deux statuts`() {
         val source = evidence("Aucune garantie capital deces n'est prévue.")
 
-        val cadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("CADRE"), source)
-        val nonCadre = KaliProvidentBenefitAuditV2.explicitExclusions(profile("NON_CADRE"), source)
+        val cadre = exclusions(profile("CADRE"), source)
+        val nonCadre = exclusions(profile("NON_CADRE"), source)
 
         assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), cadre.map { it.family }.toSet())
         assertEquals(setOf(ConventionProvidentBenefitV2.Family.DEATH_CAPITAL), nonCadre.map { it.family }.toSet())
+    }
+
+    @Test
+    fun `exclusion article 2_2 ne couvre jamais un salarie hors 2_1 2_2`() {
+        val source = evidence(
+            "Non-cadres coefficient 910 relevant de l'article 2.2. Aucune garantie invalidite."
+        )
+
+        val outside = exclusions(
+            profile("NON_CADRE"),
+            source,
+            ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2
+        )
+
+        assertTrue(outside.isEmpty())
+    }
+
+    @Test
+    fun `exclusion article 2_2 reste valable pour la categorie 2_2 exacte`() {
+        val source = evidence(
+            "Non-cadres coefficient 910 relevant de l'article 2.2. Aucune garantie invalidite."
+        )
+
+        val article22 = exclusions(
+            profile("NON_CADRE"),
+            source,
+            ProtectionCategoryV2.AniCategory.ARTICLE_2_2
+        )
+
+        assertEquals(1, article22.size)
+        assertEquals(ConventionProvidentBenefitV2.Family.INVALIDITY_PENSION, article22.single().family)
     }
 }

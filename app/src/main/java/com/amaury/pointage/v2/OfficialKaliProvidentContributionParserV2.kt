@@ -13,7 +13,8 @@ import java.util.Locale
  * (bénéficiaires, ancienneté, assiette, taux salarié/employeur) est prouvé sans ambiguïté.
  *
  * Ce parseur est volontairement fail-closed : il ne complète jamais un taux, une ancienneté,
- * une assiette, une classification ou une catégorie à partir d'un usage supposé de branche.
+ * une assiette, une classification, une catégorie ni une définition de tranche à partir d'un
+ * usage supposé de branche.
  */
 object OfficialKaliProvidentContributionParserV2 {
     data class Diagnostic(
@@ -31,7 +32,11 @@ object OfficialKaliProvidentContributionParserV2 {
 
     private data class Rates(
         val employeeRate: Double,
-        val employerRate: Double
+        val employerRate: Double,
+        val minimumTotalRate: Double? = null,
+        val minimumEmployerRate: Double? = null,
+        val allocationRule: ConventionProvidentContributionV2.AllocationRule =
+            ConventionProvidentContributionV2.AllocationRule.EXACT
     )
 
     fun parse(
@@ -105,7 +110,7 @@ object OfficialKaliProvidentContributionParserV2 {
             )
         }
         if (complete.isEmpty()) {
-            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et taux suffisamment prouvés pour la classification exacte")
+            return unresolved("aucun KALITEXT ne contient à lui seul bénéficiaires, ancienneté, assiette et financement suffisamment prouvés pour la classification exacte")
         }
         if (complete.size != 1) {
             return unresolved("plusieurs KALITEXT produisent des barèmes complets ; périmètre conventionnel unique non déterminé")
@@ -126,7 +131,7 @@ object OfficialKaliProvidentContributionParserV2 {
             OfficialKaliProfileMatcherV2.normalize(listOfNotNull(article.title, article.content).joinToString("\n"))
         }
         val profileCompatible = normalized.filterValues { text ->
-            clauseMatchesProfile(text, classification, professionalStatus)
+            clauseMatchesProfile(text, classification, professionalStatus, category)
         }
         val beneficiaryArticles = profileCompatible.filterValues { text ->
             beneficiaryMatches(text, category, professionalStatus)
@@ -139,19 +144,48 @@ object OfficialKaliProvidentContributionParserV2 {
         if (seniorityCandidates.size != 1) return null
         val seniorityMonths = seniorityCandidates.single()
 
-        val basisCandidates = profileCompatible.values.mapNotNull(::parseBasis).distinct()
-        if (basisCandidates.size != 1) return null
-        val basis = basisCandidates.single()
+        val bandParsing = OfficialKaliProvidentContributionBandParserV2.parse(profileCompatible.values)
+        var singleBasis: Basis? = null
+        var singleRates: Rates? = null
+        val bands: List<ConventionProvidentContributionV2.Band>
+        val financingArticles: Set<OfficialKaliOvertimeRuleParserV2.VerifiedArticle>
 
-        val rateCandidates = profileCompatible.values.mapNotNull(::parseRates).distinct()
-        if (rateCandidates.size != 1) return null
-        val rates = rateCandidates.single()
+        if (bandParsing.mentioned) {
+            if (!bandParsing.complete || bandParsing.bands.isEmpty()) return null
+            bands = bandParsing.bands
+            financingArticles = profileCompatible.filterValues { text ->
+                OfficialKaliProvidentContributionBandParserV2.parse(listOf(text)).bands.isNotEmpty()
+            }.keys
+            if (financingArticles.isEmpty()) return null
+        } else {
+            val basisCandidates = profileCompatible.values.mapNotNull(::parseBasis).distinct()
+            if (basisCandidates.size != 1) return null
+            singleBasis = basisCandidates.single()
+
+            val rateCandidates = profileCompatible.values.mapNotNull(::parseRates).distinct()
+            if (rateCandidates.size != 1) return null
+            singleRates = rateCandidates.single()
+
+            bands = listOf(
+                ConventionProvidentContributionV2.Band(
+                    label = singleBasis.label,
+                    lowerCeilingMultiple = singleBasis.lowerCeilingMultiple,
+                    upperCeilingMultiple = singleBasis.upperCeilingMultiple,
+                    employeeRate = singleRates.employeeRate,
+                    employerRate = singleRates.employerRate,
+                    minimumTotalRate = singleRates.minimumTotalRate,
+                    minimumEmployerRate = singleRates.minimumEmployerRate,
+                    allocationRule = singleRates.allocationRule
+                )
+            )
+            financingArticles = profileCompatible.filter { (_, text) ->
+                parseBasis(text) == singleBasis || parseRates(text) == singleRates
+            }.keys
+        }
 
         val usedArticles = buildSet {
             addAll(beneficiaryArticles)
-            profileCompatible.forEach { (article, text) ->
-                if (parseBasis(text) == basis || parseRates(text) == rates) add(article)
-            }
+            addAll(financingArticles)
         }.toList()
         if (usedArticles.isEmpty()) return null
 
@@ -161,14 +195,23 @@ object OfficialKaliProvidentContributionParserV2 {
         if (effectiveTo != null && effectiveTo.isBefore(effectiveFrom)) return null
         if (auditDate.isBefore(effectiveFrom) || effectiveTo?.let(auditDate::isAfter) == true) return null
 
-        val extensionDates = usedArticles.map { it.extensionEffectiveFrom }
-        val allExtended = extensionDates.all { it != null }
-        val extensionStatus = if (allExtended) {
-            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-        } else {
-            ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        // Une date seule n'est jamais une preuve d'extension : le statut officiel doit être
+        // VIGUEUR_ETEN pour chacun des articles qui composent la règle.
+        val allExtended = usedArticles.all { article ->
+            article.status.trim().uppercase(Locale.ROOT) == "VIGUEUR_ETEN" &&
+                article.extensionEffectiveFrom != null
         }
-        val extensionEffectiveFrom = if (allExtended) extensionDates.filterNotNull().maxOrNull() else null
+        val allExplicitlyNotExtended = usedArticles.all { article ->
+            article.status.trim().uppercase(Locale.ROOT) == "VIGUEUR_NON_ETEN"
+        }
+        val extensionStatus = when {
+            allExtended -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+            allExplicitlyNotExtended -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+            else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+        }
+        val extensionEffectiveFrom = if (allExtended) {
+            usedArticles.mapNotNull { it.extensionEffectiveFrom }.maxOrNull()
+        } else null
 
         val articleIds = usedArticles.map { it.articleId.trim().uppercase(Locale.ROOT) }.sorted()
         val source = "Légifrance KALI — $scope — ${articleIds.joinToString(", ")}"
@@ -185,15 +228,7 @@ object OfficialKaliProvidentContributionParserV2 {
             tiers = listOf(
                 ConventionProvidentContributionV2.SeniorityTier(
                     minimumSeniorityMonths = seniorityMonths,
-                    bands = listOf(
-                        ConventionProvidentContributionV2.Band(
-                            label = basis.label,
-                            lowerCeilingMultiple = basis.lowerCeilingMultiple,
-                            upperCeilingMultiple = basis.upperCeilingMultiple,
-                            employeeRate = rates.employeeRate,
-                            employerRate = rates.employerRate
-                        )
-                    )
+                    bands = bands
                 )
             ),
             source = source,
@@ -211,24 +246,41 @@ object OfficialKaliProvidentContributionParserV2 {
                 add("KALI prévoyance : bénéficiaire compatible avec ${category.name} et statut $professionalStatus.")
                 add("KALI prévoyance : classification contrôlée : ${classification.label()}.")
                 add("KALI prévoyance : ancienneté minimale prouvée à $seniorityMonths mois.")
-                add("KALI prévoyance : assiette unique prouvée (${basis.label}).")
-                add("KALI prévoyance : taux salarié ${(rates.employeeRate * 100.0)} % / employeur ${(rates.employerRate * 100.0)} %.")
-                if (!allExtended) add("KALI prévoyance : extension officielle de tous les articles utilisés non prouvée ; applicabilité automatique bloquée.")
+                if (bandParsing.mentioned) {
+                    add("KALI prévoyance : ${bands.size} tranches PMSS explicites, contiguës et bornées par un plafond global prouvé.")
+                    add("KALI prévoyance : chaque tranche conserve ses taux salarié/employeur exacts ; aucune définition A/B/T1/T2 n'est supposée.")
+                } else {
+                    add("KALI prévoyance : assiette unique prouvée (${singleBasis!!.label}).")
+                    if (singleRates!!.allocationRule == ConventionProvidentContributionV2.AllocationRule.EXACT) {
+                        add("KALI prévoyance : taux exact salarié ${(singleRates.employeeRate * 100.0)} % / employeur ${(singleRates.employerRate * 100.0)} %.")
+                    } else {
+                        add(
+                            "KALI prévoyance : financement minimal ${(singleRates.minimumTotalRate!! * 100.0)} %, " +
+                                "minimum employeur ${(singleRates.minimumEmployerRate!! * 100.0)} %, " +
+                                "répartition par défaut salarié ${(singleRates.employeeRate * 100.0)} % / employeur ${(singleRates.employerRate * 100.0)} % ; accord d'entreprise susceptible de la modifier."
+                        )
+                    }
+                }
+                if (!allExtended) add("KALI prévoyance : statut VIGUEUR_ETEN + date d'extension non prouvés pour tous les articles utilisés ; applicabilité automatique bloquée.")
             }
         )
     }
 
     /**
-     * Une clause qui ne cite aucune classification est générale et peut être utilisée pour le
-     * profil déjà vérifié. Dès qu'une classification est citée, tous les critères locaux connus
-     * doivent apparaître dans une fenêtre compacte de cette même clause.
+     * Une clause qui ne cite aucune classification est générale uniquement si elle ne cible pas
+     * explicitement un autre statut professionnel ou une autre population ANI. Dès qu'une
+     * classification est citée, la fenêtre exacte doit aussi rester compatible avec la catégorie ANI.
      */
     private fun clauseMatchesProfile(
         text: String,
         classification: ConventionClassificationV2,
-        professionalStatus: String
+        professionalStatus: String,
+        category: ProtectionCategoryV2.AniCategory
     ): Boolean {
-        if (!classificationVocabularyPresent(text)) return true
+        if (!classificationVocabularyPresent(text)) {
+            return OfficialKaliProfileMatcherV2.statusScopeMatches(text, professionalStatus) &&
+                OfficialKaliAniScopeMatcherV2.matches(text, category)
+        }
         return OfficialKaliProfileMatcherV2.windows(
             rawText = text,
             classification = classification,
@@ -236,7 +288,7 @@ object OfficialKaliProvidentContributionParserV2 {
             before = 120,
             after = 260,
             maxClassificationSpan = 260
-        ).isNotEmpty()
+        ).any { window -> OfficialKaliAniScopeMatcherV2.matches(window.text, category) }
     }
 
     private fun classificationVocabularyPresent(text: String): Boolean =
@@ -264,15 +316,20 @@ object OfficialKaliProvidentContributionParserV2 {
     }
 
     private fun parseSeniorityMonths(text: String): Int? {
-        if (noSeniorityRegex.containsMatchIn(text)) return 0
-        val match = seniorityRegex.find(text) ?: return null
-        val value = match.groupValues[1].toIntOrNull() ?: return null
-        val unit = match.groupValues[2]
-        return when {
-            unit.startsWith("an") -> value * 12
-            unit.startsWith("mois") -> value
-            else -> null
-        }.takeIf { it in 0..600 }
+        val candidates = buildSet {
+            if (noSeniorityRegex.containsMatchIn(text)) add(0)
+            seniorityRegex.findAll(text).forEach { match ->
+                val value = match.groupValues[1].toIntOrNull() ?: return@forEach
+                val unit = match.groupValues[2]
+                val months = when {
+                    unit.startsWith("an") -> value * 12
+                    unit.startsWith("mois") -> value
+                    else -> return@forEach
+                }
+                if (months in 0..600) add(months)
+            }
+        }
+        return candidates.singleOrNull()
     }
 
     private fun parseBasis(text: String): Basis? {
@@ -296,16 +353,60 @@ object OfficialKaliProvidentContributionParserV2 {
     private fun parseRates(text: String): Rates? {
         if (!rateContextWords.any(text::contains)) return null
 
-        explicitPartsRegex.find(text)?.let { match ->
-            val employee = parsePercent(match.groupValues[1]) ?: return@let
-            val employer = parsePercent(match.groupValues[2]) ?: return@let
+        val explicitCandidates = buildList {
+            explicitPartsRegex.findAll(text).forEach { match ->
+                val employee = parsePercent(match.groupValues[1]) ?: return@forEach
+                val employer = parsePercent(match.groupValues[2]) ?: return@forEach
+                add(employee to employer)
+            }
+            explicitPartsEmployerFirstRegex.findAll(text).forEach { match ->
+                val employer = parsePercent(match.groupValues[1]) ?: return@forEach
+                val employee = parsePercent(match.groupValues[2]) ?: return@forEach
+                add(employee to employer)
+            }
+        }.distinct()
+
+        val minimumTotal = minimumTotalRateRegexes
+            .asSequence()
+            .mapNotNull { it.find(text)?.groupValues?.get(1)?.let(::parsePercent) }
+            .distinct()
+            .toList()
+        val minimumEmployer = minimumEmployerRateRegexes
+            .asSequence()
+            .mapNotNull { it.find(text)?.groupValues?.get(1)?.let(::parsePercent) }
+            .distinct()
+            .toList()
+        if (minimumTotal.size > 1 || minimumEmployer.size > 1) return null
+
+        val minTotal = minimumTotal.singleOrNull()
+        val minEmployer = minimumEmployer.singleOrNull()
+        val defaultWording = defaultAllocationRegex.containsMatchIn(text)
+        val companyOverride = companyAgreementOverrideRegex.containsMatchIn(text)
+        val flexibleFinancingMentioned = minTotal != null || minEmployer != null || defaultWording || companyOverride
+
+        if (flexibleFinancingMentioned) {
+            // Un plancher ou une répartition "par défaut" n'est jamais assimilé à une répartition exacte.
+            // Pour conserver la preuve, il faut les deux minima, les deux parts par défaut et la preuve
+            // qu'un accord d'entreprise peut modifier cette répartition.
+            if (minTotal == null || minEmployer == null || !defaultWording || !companyOverride) return null
+            if (explicitCandidates.size != 1) return null
+            val (employee, employer) = explicitCandidates.single()
+            if (employee + employer + RATE_EPSILON < minTotal) return null
+            if (employer + RATE_EPSILON < minEmployer) return null
+            return Rates(
+                employeeRate = employee,
+                employerRate = employer,
+                minimumTotalRate = minTotal,
+                minimumEmployerRate = minEmployer,
+                allocationRule = ConventionProvidentContributionV2.AllocationRule.DEFAULT_MODIFIABLE_BY_COMPANY_AGREEMENT
+            )
+        }
+
+        if (explicitCandidates.size == 1) {
+            val (employee, employer) = explicitCandidates.single()
             return Rates(employee, employer)
         }
-        explicitPartsEmployerFirstRegex.find(text)?.let { match ->
-            val employer = parsePercent(match.groupValues[1]) ?: return@let
-            val employee = parsePercent(match.groupValues[2]) ?: return@let
-            return Rates(employee, employer)
-        }
+        if (explicitCandidates.size > 1) return null
 
         val total = totalRateRegex.find(text)?.groupValues?.get(1)?.let(::parsePercent)
         val split = fiftyFiftyRegex.containsMatchIn(text)
@@ -334,13 +435,27 @@ object OfficialKaliProvidentContributionParserV2 {
         ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
         ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
     )
-    private val acceptedStatuses = setOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_PARTIELLE")
+    private val acceptedStatuses = setOf(
+        "VIGUEUR",
+        "VIGUEUR_ETEN",
+        "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
+        "VIGUEUR_PARTIELLE"
+    )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
     private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
 
     private val providentWords = listOf("prevoyance", "protection sociale complementaire", "incapacite", "invalidite", "deces")
     private val basisContextWords = listOf("salaire de reference", "assiette", "remuneration servant de base", "base de cotisation")
-    private val rateContextWords = listOf("cotisation", "taux", "part salariale", "part patronale", "charge du salarie", "charge de l'employeur")
+    private val rateContextWords = listOf(
+        "cotisation",
+        "taux",
+        "financement",
+        "part salariale",
+        "part patronale",
+        "charge du salarie",
+        "charge de l'employeur"
+    )
 
     private val primaryClassificationVocabulary = Regex(
         "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|emploi|fonction|poste)s?\\b"
@@ -378,4 +493,22 @@ object OfficialKaliProvidentContributionParserV2 {
     )
     private val totalRateRegex = Regex("\\b(?:cotisation|taux)\\s*(?:globale?|totale?)?\\s*[:=]?\\s*(\\d+(?:[.,]\\d+)?)\\s*%")
     private val fiftyFiftyRegex = Regex("\\b(?:50\\s*%\\s*(?:employeur|patronal)[^%]{0,80}50\\s*%\\s*(?:salarie|salarial)|reparti[e]?\\s+par moitie|a parts egales)\\b")
+
+    private val minimumTotalRateRegexes = listOf(
+        Regex("\\b(?:financement|cotisation|taux)\\s+(?:(?:global|total)e?\\s+)?(?:minimal[e]?|minimum)\\s*(?:est|de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:minimum|minimal[e]?)\\s+(?:(?:global|total)e?)\\s*(?:de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%")
+    )
+    private val minimumEmployerRateRegexes = listOf(
+        Regex("\\b(?:part|contribution|cotisation)\\s+(?:patronale|employeur)\\s+(?:minimal[e]?|minimum)\\s*(?:est|de|:|=)?\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:part|contribution|cotisation)\\s+(?:patronale|employeur)\\s+ne peut etre inferieur[e]?\\s+a\\s*(\\d+(?:[.,]\\d+)?)\\s*%"),
+        Regex("\\b(?:au moins|minimum)\\s*(\\d+(?:[.,]\\d+)?)\\s*%\\s*(?:a la charge de l'employeur|employeur|patronal)\\b")
+    )
+    private val defaultAllocationRegex = Regex(
+        "\\b(?:par defaut|a defaut d[' ]accord(?: d[' ]entreprise)?|en l[' ]absence d[' ]accord(?: d[' ]entreprise)?)\\b"
+    )
+    private val companyAgreementOverrideRegex = Regex(
+        "\\b(?:a defaut d[' ]accord d[' ]entreprise|sauf accord d[' ]entreprise|accord d[' ]entreprise (?:peut|pourra) (?:modifier|modifie)|repartition[^.]{0,120}(?:peut|pourra) etre modifiee? par accord d[' ]entreprise)\\b"
+    )
+
+    private const val RATE_EPSILON = 1e-12
 }

@@ -19,15 +19,27 @@ object V2ConventionMatterCoverageStore {
         require(record.structurallyValid()) { "État de couverture conventionnelle invalide" }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(record.idcc)
         val current = load(context).toMutableList()
-        current.removeAll {
-            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
-                it.matter == record.matter &&
-                it.effectiveFrom == record.effectiveFrom &&
-                it.effectiveTo == record.effectiveTo &&
-                it.classification.normalized() == record.classification.normalized() &&
-                it.professionalStatus?.trim()?.uppercase() == record.professionalStatus?.trim()?.uppercase()
+        val previousSameIdentity = current.filter { sameIdentity(it, record, normalized) }
+        val inheritedAuthorities = previousSameIdentity.flatMapTo(linkedSetOf()) { previous ->
+            buildSet {
+                addAll(previous.acquiredAuthorities)
+                if (previous.state != ConventionMatterCoverageV2.State.INCOMPLETE) {
+                    addAll(previous.authorities)
+                }
+            }
         }
-        current += record.copy(idcc = normalized)
+        val acquiredAuthorities = buildSet {
+            addAll(record.acquiredAuthorities)
+            addAll(inheritedAuthorities)
+            if (record.state != ConventionMatterCoverageV2.State.INCOMPLETE) {
+                addAll(record.authorities)
+            }
+        }
+        current.removeAll { sameIdentity(it, record, normalized) }
+        current += record.copy(
+            idcc = normalized,
+            acquiredAuthorities = acquiredAuthorities
+        )
         persist(context, current)
     }
 
@@ -41,6 +53,17 @@ object V2ConventionMatterCoverageStore {
     ): ConventionMatterCoverageV2.Snapshot = ConventionMatterCoverageV2.resolve(
         load(context), idcc, matter, date, classification, professionalStatus
     )
+
+    private fun sameIdentity(
+        existing: ConventionMatterCoverageV2.Record,
+        incoming: ConventionMatterCoverageV2.Record,
+        normalizedIncomingIdcc: String
+    ): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(existing.idcc) == normalizedIncomingIdcc &&
+        existing.matter == incoming.matter &&
+        existing.effectiveFrom == incoming.effectiveFrom &&
+        existing.effectiveTo == incoming.effectiveTo &&
+        existing.classification.normalized() == incoming.classification.normalized() &&
+        existing.professionalStatus?.trim()?.uppercase() == incoming.professionalStatus?.trim()?.uppercase()
 
     private fun persist(context: Context, records: List<ConventionMatterCoverageV2.Record>) {
         val array = JSONArray()
@@ -77,6 +100,7 @@ object V2ConventionMatterCoverageStore {
         .put("source", record.source)
         .put("checkedAtMs", record.checkedAtMs)
         .put("authorities", encodeAuthorities(record.authorities))
+        .put("acquiredAuthorities", encodeAuthorities(record.acquiredAuthorities))
 
     private fun encodeAuthorities(authorities: Set<ConventionMatterCoverageV2.Authority>): JSONArray = JSONArray().apply {
         authorities.sortedBy { it.name }.forEach { put(it.name) }
@@ -102,7 +126,8 @@ object V2ConventionMatterCoverageStore {
             state = ConventionMatterCoverageV2.State.valueOf(obj.getString("state")),
             source = obj.getString("source"),
             checkedAtMs = obj.getLong("checkedAtMs"),
-            authorities = decodeAuthorities(obj.optJSONArray("authorities"))
+            authorities = decodeAuthorities(obj.optJSONArray("authorities")),
+            acquiredAuthorities = decodeAuthorities(obj.optJSONArray("acquiredAuthorities"))
         )
     }.getOrNull()
 

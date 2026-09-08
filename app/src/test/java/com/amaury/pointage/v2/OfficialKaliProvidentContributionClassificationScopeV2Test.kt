@@ -50,14 +50,22 @@ class OfficialKaliProvidentContributionClassificationScopeV2Test {
             articleTextIds = articles.associate { it.articleId to scope }
         )
 
+    private fun baseArticles(rateContent: String) = listOf(
+        article(
+            "KALIARTI000000000003",
+            "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2 après 3 mois d'ancienneté."
+        ),
+        article(
+            "KALIARTI000000000004",
+            "Le salaire de référence servant d'assiette est limité à 4 fois le plafond mensuel de la sécurité sociale."
+        ),
+        article("KALIARTI000000000005", rateContent)
+    )
+
     @Test
     fun `preuve generale est persistee uniquement pour la classification exacte du profil`() {
         val result = parse(
-            listOf(
-                article("KALIARTI000000000003", "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2 après 3 mois d'ancienneté."),
-                article("KALIARTI000000000004", "Le salaire de référence servant d'assiette est limité à 4 fois le plafond mensuel de la sécurité sociale."),
-                article("KALIARTI000000000005", "Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
-            )
+            baseArticles("Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
         )
 
         assertTrue(result.rule != null)
@@ -67,11 +75,7 @@ class OfficialKaliProvidentContributionClassificationScopeV2Test {
     @Test
     fun `taux explicitement reserve a un coefficient voisin ne complete jamais la regle`() {
         val result = parse(
-            listOf(
-                article("KALIARTI000000000003", "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2 après 3 mois d'ancienneté."),
-                article("KALIARTI000000000004", "Le salaire de référence servant d'assiette est limité à 4 fois le plafond mensuel de la sécurité sociale."),
-                article("KALIARTI000000000005", "Coefficient 800. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
-            )
+            baseArticles("Coefficient 800. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
         )
 
         assertNull(result.rule)
@@ -80,14 +84,43 @@ class OfficialKaliProvidentContributionClassificationScopeV2Test {
     @Test
     fun `taux explicitement lie au coefficient exact peut etre utilise`() {
         val result = parse(
-            listOf(
-                article("KALIARTI000000000003", "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2 après 3 mois d'ancienneté."),
-                article("KALIARTI000000000004", "Le salaire de référence servant d'assiette est limité à 4 fois le plafond mensuel de la sécurité sociale."),
-                article("KALIARTI000000000005", "Coefficient 700. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
-            )
+            baseArticles("Coefficient 700. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
         )
 
         assertTrue(result.rule != null)
         assertEquals(700, result.rule!!.classification.coefficient)
+    }
+
+    @Test
+    fun `article sans coefficient mais reserve aux cadres ne finance jamais un non cadre`() {
+        val result = parse(
+            baseArticles("Cadres : cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %.")
+        )
+
+        assertNull(result.rule)
+    }
+
+    @Test
+    fun `article 2_2 ne finance jamais un salarie confirme hors 2_1 2_2`() {
+        val result = parse(
+            baseArticles(
+                "Salariés relevant de l'article 2.2 : cotisation de prévoyance. " +
+                    "Part salariale : 0,40 % ; part patronale : 0,40 %."
+            )
+        )
+
+        assertNull(result.rule)
+    }
+
+    @Test
+    fun `plusieurs baremes de classifications dans le meme article bloquent au lieu de prendre le premier`() {
+        val result = parse(
+            baseArticles(
+                "Coefficient 700. Cotisation de prévoyance. Part salariale : 0,40 % ; part patronale : 0,40 %. " +
+                    "Coefficient 800. Cotisation de prévoyance. Part salariale : 0,60 % ; part patronale : 0,20 %."
+            )
+        )
+
+        assertNull(result.rule)
     }
 }

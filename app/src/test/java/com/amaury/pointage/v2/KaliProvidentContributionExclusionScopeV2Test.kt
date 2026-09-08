@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -23,6 +24,14 @@ class KaliProvidentContributionExclusionScopeV2Test {
         weeklyHours = 35.0,
         forfaitAnnualHours = null,
         forfaitAnnualDays = null
+    )
+
+    private fun category(
+        value: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2
+    ) = ProtectionCategoryV2.Result(
+        aniCategory = value,
+        confirmed = true,
+        source = "test KALI + APEC"
     )
 
     private fun evidence(
@@ -56,85 +65,107 @@ class KaliProvidentContributionExclusionScopeV2Test {
         warnings = emptyList()
     )
 
+    private fun exclusion(
+        content: String,
+        title: String = "Cotisations du régime de prévoyance",
+        ani: ProtectionCategoryV2.Result = category(),
+        status: String = "NON_CADRE"
+    ) = KaliProvidentContributionAuditV2.explicitExclusion(
+        profile(status),
+        ani,
+        evidence(content, title)
+    )
+
     @Test
     fun `exclusion classification exacte est retenue`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile(),
-            evidence("Non-cadres coefficient 700. Aucune cotisation de prevoyance.")
-        )
-
-        assertNotNull(result)
+        assertNotNull(exclusion("Non-cadres coefficient 700. Aucune cotisation de prevoyance."))
     }
 
     @Test
     fun `exclusion cadres sans classification est refusee au non cadre`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile("NON_CADRE"),
-            evidence("Cadres : aucune cotisation de prevoyance.")
-        )
-
-        assertNull(result)
+        assertNull(exclusion("Cadres : aucune cotisation de prevoyance."))
     }
 
     @Test
     fun `titre cadres restreint une exclusion generale du corps`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile("NON_CADRE"),
-            evidence(
+        assertNull(
+            exclusion(
                 content = "Aucune cotisation de prevoyance.",
                 title = "Cadres - cotisations du régime de prévoyance"
             )
         )
-
-        assertNull(result)
     }
 
     @Test
     fun `titre coefficient voisin restreint une exclusion generale du corps`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile(),
-            evidence(
+        assertNull(
+            exclusion(
                 content = "Aucune cotisation de prevoyance.",
                 title = "Coefficient 920 - cotisations du régime de prévoyance"
             )
         )
-
-        assertNull(result)
     }
 
     @Test
     fun `titre generique cotisations ne vaut pas mention positive`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile(),
-            evidence(
+        assertNotNull(
+            exclusion(
                 content = "Aucune cotisation de prevoyance.",
                 title = "Cotisations du régime de prévoyance"
             )
         )
-
-        assertNotNull(result)
     }
 
     @Test
     fun `exclusion generale reste applicable au profil exact`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile(),
-            evidence("Aucune cotisation de prevoyance.")
-        )
+        assertNotNull(exclusion("Aucune cotisation de prevoyance."))
+    }
 
-        assertNotNull(result)
+    @Test
+    fun `absence de part salariale ne prouve jamais absence totale de cotisation`() {
+        assertNull(
+            exclusion(
+                "Non-cadres coefficient 700. Sans cotisation de prevoyance salariale. " +
+                    "Les garanties restent financees par l'employeur."
+            )
+        )
+    }
+
+    @Test
+    fun `cotisation non a la charge du salarie ne prouve jamais zero employeur`() {
+        assertNull(
+            exclusion(
+                "Non-cadres coefficient 700. Aucune cotisation de prevoyance n'est a la charge du salarie."
+            )
+        )
     }
 
     @Test
     fun `exclusion et mention positive dans la meme portee restent contradictoires`() {
-        val result = KaliProvidentContributionAuditV2.explicitExclusion(
-            profile(),
-            evidence(
+        assertNull(
+            exclusion(
                 "Non-cadres coefficient 700. Aucune cotisation de prevoyance. " +
                     "La cotisation de prevoyance est fixee a 1 %."
             )
         )
+    }
 
-        assertNull(result)
+    @Test
+    fun `exclusion article 2_2 ne vaut jamais pour un salarie hors 2_1 2_2`() {
+        assertNull(
+            exclusion(
+                "Salariés relevant de l'article 2.2. Aucune cotisation de prevoyance."
+            )
+        )
+    }
+
+    @Test
+    fun `exclusion article 2_2 reste exploitable pour la categorie 2_2 exacte`() {
+        assertNotNull(
+            exclusion(
+                content = "Salariés relevant de l'article 2.2. Aucune cotisation de prevoyance.",
+                ani = category(ProtectionCategoryV2.AniCategory.ARTICLE_2_2)
+            )
+        )
     }
 }

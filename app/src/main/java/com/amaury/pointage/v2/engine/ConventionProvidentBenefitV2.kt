@@ -204,11 +204,13 @@ object ConventionProvidentBenefitV2 {
                 val latestDate = familyCandidates.maxOf { it.rule.effectiveFrom }
                 val latest = familyCandidates.filter { it.rule.effectiveFrom == latestDate }
                 val maxSpecificity = latest.maxOf { specificity(it.rule) }
-                val best = latest.filter { specificity(it.rule) == maxSpecificity }
+                val mostSpecific = latest.filter { specificity(it.rule) == maxSpecificity }
+                val maxEligibleSeniority = mostSpecific.maxOf { it.rule.minimumSeniorityMonths }
+                val best = mostSpecific.filter { it.rule.minimumSeniorityMonths == maxEligibleSeniority }
                 val fingerprints = best.map { guaranteeFingerprint(it.guarantee) }.distinct()
                 if (fingerprints.size != 1) {
                     return unresolved(
-                        "plusieurs garanties ${key.first.name}${key.second?.let { " catégorie $it" }.orEmpty()} de même précision se contredisent"
+                        "plusieurs garanties ${key.first.name}${key.second?.let { " catégorie $it" }.orEmpty()} de même précision et ancienneté se contredisent"
                     )
                 }
                 val merged = best.first().guarantee.copy(

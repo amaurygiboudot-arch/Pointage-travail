@@ -175,14 +175,14 @@ class OfficialKaliProvidentContributionParserV2Test {
     }
 
     @Test
-    fun `extension absente conserve la preuve mais bloque son applicabilite automatique`() {
+    fun `texte explicitement non etendu conserve la preuve mais bloque son applicabilite automatique`() {
         val articles = standardArticles().map { it.copy(extensionEffectiveFrom = null, status = "VIGUEUR_NON_ETEN") }
 
         val result = parse(articles = articles)
 
         assertTrue(result.rule != null)
         assertEquals(
-            com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN,
+            com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED,
             result.rule!!.extensionStatus
         )
         assertTrue(result.reasons.any { it.contains("extension") })
@@ -204,6 +204,20 @@ class OfficialKaliProvidentContributionParserV2Test {
         val articles = standardArticles().mapIndexed { index, value ->
             if (index == 0) value.copy(
                 content = "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2."
+            ) else value
+        }
+
+        val result = parse(articles = articles)
+
+        assertNull(result.rule)
+    }
+
+    @Test
+    fun `deux anciennetes contradictoires dans le meme article beneficiaire bloquent`() {
+        val articles = standardArticles().mapIndexed { index, value ->
+            if (index == 0) value.copy(
+                content = "Le régime de prévoyance bénéficie aux salariés ne relevant pas des articles 2.1 et 2.2. " +
+                    "Sans condition d'ancienneté pour une première situation et après 3 mois d'ancienneté pour une autre."
             ) else value
         }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentContributionV2
+import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.Tasks
 import java.time.LocalDate
@@ -164,7 +165,7 @@ object KaliProvidentContributionAuditV2 {
                 evidence = evidence
             )
             val rule = diagnostic.rule
-            val exclusion = explicitExclusion(profile, evidence)
+            val exclusion = explicitExclusion(profile, category.category, evidence)
             var saved = false
             var saveError: String? = null
             if (rule != null) {
@@ -223,7 +224,7 @@ object KaliProvidentContributionAuditV2 {
                         rule == null && completion.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE ->
                             add("KALI prévoyance cotisations : absence de cotisation conventionnelle explicitement prouvée pour le profil et la période.")
                         rule == null ->
-                            add("KALI prévoyance cotisations : exclusion observée mais extension/applicabilité insuffisamment démontrée.")
+                            add("KALI prévoyance cotisations : exclusion observée mais statut VIGUEUR_ETEN + date d'extension/applicabilité insuffisamment démontrés.")
                         saveError != null ->
                             add("KALI prévoyance cotisations : règle structurée mais stockage impossible : $saveError.")
                         saved && completion.completed ->
@@ -262,9 +263,13 @@ object KaliProvidentContributionAuditV2 {
 
     internal fun explicitExclusion(
         profile: ConventionLegalProfileV2,
+        protectionCategory: ProtectionCategoryV2.Result,
         evidence: KaliMatterEvidenceAuditV2.Evidence
     ): ExclusionEvidence? {
         if (profile.classification.isEmpty()) return null
+        if (!protectionCategory.confirmed) return null
+        val category = protectionCategory.aniCategory
+        if (category !in supportedAniCategories) return null
         val status = profile.professionalStatus?.trim()?.uppercase(Locale.ROOT)
             ?.takeIf { it == "CADRE" || it == "NON_CADRE" }
             ?: return null
@@ -275,7 +280,8 @@ object KaliProvidentContributionAuditV2 {
         evidence.articles.forEach articleLoop@ { article ->
             val articleId = article.articleId.trim().uppercase(Locale.ROOT)
             if (!articleId.matches(kaliArticleIdRegex) || articleId in ambiguous) return@articleLoop
-            if (article.status.trim().uppercase(Locale.ROOT) !in acceptedArticleStatuses) return@articleLoop
+            val officialStatus = article.status.trim().uppercase(Locale.ROOT)
+            if (officialStatus !in acceptedArticleStatuses) return@articleLoop
             if (evidence.referenceDate.isBefore(article.effectiveFrom) ||
                 article.effectiveTo?.let(evidence.referenceDate::isAfter) == true
             ) return@articleLoop
@@ -286,7 +292,7 @@ object KaliProvidentContributionAuditV2 {
                 )?.trim()?.uppercase(Locale.ROOT) ?: return@articleLoop
             if (!scope.matches(kaliTextIdRegex)) return@articleLoop
 
-            // Le titre peut porter le périmètre (cadres, coefficient, niveau...), mais ses mots
+            // Le titre peut porter le périmètre (cadres, coefficient, niveau, ANI...), mais ses mots
             // "cotisation/contribution" ne constituent jamais une preuve métier. Les mentions et
             // exclusions sont donc lues uniquement dans le corps, avec la portée titre+corps.
             val title = OfficialKaliProfileMatcherV2.normalize(article.title.orEmpty())
@@ -295,27 +301,37 @@ object KaliProvidentContributionAuditV2 {
             val bodyOffsetInScope = if (title.isBlank()) 0 else title.length + 1
             val classified = classificationVocabulary.containsMatchIn(scopeText)
             val profileMentions = contributionMentionRegex.findAll(body).filter { match ->
-                profileMatchesAt(
+                val statusAndClassificationMatch = profileMatchesAt(
                     text = scopeText,
                     classified = classified,
                     profile = profile,
                     status = status,
                     offset = bodyOffsetInScope + match.range.first
                 )
+                if (!statusAndClassificationMatch) return@filter false
+
+                val clause = clauseAround(body, match.range.first)
+                val aniText = if (OfficialKaliAniScopeMatcherV2.hasExplicitScope(clause)) clause else scopeText
+                OfficialKaliAniScopeMatcherV2.matches(aniText, category)
             }.toList()
             if (profileMentions.isEmpty()) return@articleLoop
 
             var articleHasExclusion = false
             profileMentions.forEach { mention ->
                 val clause = clauseAround(body, mention.range.first)
-                val excluded = exclusionPatterns.any { it.containsMatchIn(clause) }
+                val employeeOnly = employeeOnlyContributionQualifier.containsMatchIn(clause)
+                val excluded = !employeeOnly && exclusionPatterns.any { it.containsMatchIn(clause) }
                 if (excluded) articleHasExclusion = true else nonExcludedContributionMention = true
             }
             if (articleHasExclusion) {
                 candidates += ExclusionEvidence(
                     articleId = articleId,
                     conventionScopeKey = scope,
-                    extensionEffectiveFrom = article.extensionEffectiveFrom
+                    // Une date isolée n'est pas une preuve d'extension. Elle n'est conservée que
+                    // si le statut de l'article est officiellement VIGUEUR_ETEN.
+                    extensionEffectiveFrom = article.extensionEffectiveFrom.takeIf {
+                        officialStatus == "VIGUEUR_ETEN"
+                    }
                 )
             }
         }
@@ -385,10 +401,17 @@ object KaliProvidentContributionAuditV2 {
         )
     }
 
+    private val supportedAniCategories = setOf(
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+        ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+        ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+        ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
+    )
     private val acceptedArticleStatuses = setOf(
         "VIGUEUR",
         "VIGUEUR_ETEN",
         "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
         "VIGUEUR_PARTIELLE"
     )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
@@ -397,6 +420,10 @@ object KaliProvidentContributionAuditV2 {
         "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b"
     )
     private val contributionMentionRegex = Regex("\\b(?:cotisation|cotisations|contribution|contributions)\\b")
+    private val employeeOnlyContributionQualifier = Regex(
+        "\\b(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance[^.;]{0,90}?" +
+            "\\b(?:salariale|salariales|salariee|salariees|du salarie|des salaries|a la charge du salarie|a la charge des salaries|due par le salarie|dues par les salaries|prelevee au salarie|prelevees aux salaries)\\b"
+    )
     private val exclusionPatterns = listOf(
         Regex("\\b(?:aucune|absence de|sans)\\s+(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance\\b"),
         Regex("\\b(?:cotisation|cotisations|contribution|contributions)(?:\\s+de)?\\s+prevoyance[^.;]{0,100}?\\b(?:non due|non dues|n'est pas due|ne sont pas dues|n'est pas applicable|ne s'applique pas)\\b")
