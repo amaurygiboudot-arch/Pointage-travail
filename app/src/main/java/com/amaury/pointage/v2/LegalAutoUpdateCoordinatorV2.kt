@@ -280,23 +280,44 @@ object LegalAutoUpdateCoordinatorV2 {
                         )
                     }
                     KaliProvidentContributionAuditV2.audit(context, companyId, referenceDate)
-                        .continueWith { contributionTask ->
+                        .continueWithTask { contributionTask ->
                             val contribution = if (contributionTask.isSuccessful) contributionTask.result else null
-                            val gate = ProvidentLegalReanalysisGateV2.resolve(
-                                category = ProvidentLegalReanalysisGateV2.Component(
-                                    completed = true,
-                                    saved = category.savedApprovedRule
-                                ),
-                                contribution = ProvidentLegalReanalysisGateV2.Component(
-                                    completed = contribution?.completed == true,
-                                    saved = contribution?.saved == true
-                                ),
-                                benefits = ProvidentLegalReanalysisGateV2.Component(
-                                    completed = false,
-                                    saved = false
+                            if (contribution?.completed != true) {
+                                val gate = ProvidentLegalReanalysisGateV2.resolve(
+                                    category = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = true,
+                                        saved = category.savedApprovedRule
+                                    ),
+                                    contribution = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = false,
+                                        saved = contribution?.saved == true
+                                    ),
+                                    benefits = ProvidentLegalReanalysisGateV2.Component(
+                                        completed = false,
+                                        saved = false
+                                    )
                                 )
-                            )
-                            gate.completed to gate.saved
+                                return@continueWithTask Tasks.forResult(gate.completed to gate.saved)
+                            }
+                            KaliProvidentBenefitAuditV2.audit(context, companyId, referenceDate)
+                                .continueWith { benefitTask ->
+                                    val benefits = if (benefitTask.isSuccessful) benefitTask.result else null
+                                    val gate = ProvidentLegalReanalysisGateV2.resolve(
+                                        category = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = true,
+                                            saved = category.savedApprovedRule
+                                        ),
+                                        contribution = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = true,
+                                            saved = contribution.saved
+                                        ),
+                                        benefits = ProvidentLegalReanalysisGateV2.Component(
+                                            completed = benefits?.completed == true,
+                                            saved = (benefits?.savedRules ?: 0) > 0
+                                        )
+                                    )
+                                    gate.completed to gate.saved
+                                }
                         }
                 }
             else -> Tasks.forResult(false to false)
@@ -334,7 +355,7 @@ object LegalAutoUpdateCoordinatorV2 {
         "KALI_MINIMUM_PAY" -> "KALI minimum salarial"
         "KALI_SENIORITY" -> "KALI ancienneté"
         "KALI_SICKNESS_MAINTENANCE" -> "KALI maintien maladie"
-        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations ; garanties restantes)"
+        "KALI_PROVIDENT" -> "KALI prévoyance (catégorie APEC + cotisations + garanties)"
         else -> "KALI"
     }
 
