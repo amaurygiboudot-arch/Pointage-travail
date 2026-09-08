@@ -104,12 +104,18 @@ object OfficialKaliProvidentBenefitParserV2 {
                         }
                         return@forEach
                     }
+                    val officialStatus = article.status.trim().uppercase(Locale.ROOT)
                     val extensionDate = article.extensionEffectiveFrom
-                    val extensionStatus = if (extensionDate != null) {
-                        ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
-                    } else {
-                        ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
+                    val extensionStatus = when {
+                        officialStatus == "VIGUEUR_ETEN" && extensionDate != null ->
+                            ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+                        officialStatus == "VIGUEUR_NON_ETEN" ->
+                            ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
+                        else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
                     }
+                    val applicableExtensionDate = if (extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED) {
+                        extensionDate
+                    } else null
                     parsedGuarantees.forEach { parsed ->
                         val guarantee = parsed.guarantee
                         val seniority = parsed.minimumSeniorityMonths
@@ -126,7 +132,7 @@ object OfficialKaliProvidentBenefitParserV2 {
                             source = "Légifrance KALI — $scope — ${article.articleId}",
                             conventionScopeKey = scope,
                             extensionStatus = extensionStatus,
-                            extensionEffectiveFrom = extensionDate
+                            extensionEffectiveFrom = applicableExtensionDate
                         )
                         if (rule.structurallyValid()) rules += rule
                     }
@@ -515,7 +521,13 @@ object OfficialKaliProvidentBenefitParserV2 {
         ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
         ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE
     )
-    private val acceptedStatuses = setOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN", "VIGUEUR_PARTIELLE")
+    private val acceptedStatuses = setOf(
+        "VIGUEUR",
+        "VIGUEUR_ETEN",
+        "VIGUEUR_NON_ETEN",
+        "VIGUEUR_DIFF",
+        "VIGUEUR_PARTIELLE"
+    )
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
     private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
 
