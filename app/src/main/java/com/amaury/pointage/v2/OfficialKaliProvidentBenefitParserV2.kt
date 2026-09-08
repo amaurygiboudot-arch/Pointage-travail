@@ -87,15 +87,14 @@ object OfficialKaliProvidentBenefitParserV2 {
             }
             if (profileCompatible.isEmpty()) return@forEach
 
-            val seniority = uniqueSeniority(profileCompatible.values)
-            if (seniority == null) {
-                reasons += "KALI garanties $scope : ancienneté d'ouverture non prouvée de façon unique ; garanties non persistées."
-                return@forEach
-            }
-
-            profileCompatible.forEach { (article, text) ->
+            profileCompatible.forEach articleLoop@ { (article, text) ->
                 val parsedGuarantees = parseGuarantees(text, article.articleId)
-                if (parsedGuarantees.isEmpty()) return@forEach
+                if (parsedGuarantees.isEmpty()) return@articleLoop
+                val seniority = parseSeniorityMonths(text)
+                if (seniority == null) {
+                    reasons += "KALI garanties $scope ${article.articleId} : ancienneté d'ouverture non prouvée dans le même article que la garantie ; cette garantie n'est pas persistée."
+                    return@articleLoop
+                }
                 val extensionDate = article.extensionEffectiveFrom
                 val extensionStatus = if (extensionDate != null) {
                     ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
@@ -286,11 +285,6 @@ object OfficialKaliProvidentBenefitParserV2 {
         includedSsRegex.containsMatchIn(window) -> ConventionProvidentBenefitV2.SocialSecurityTreatment.INCLUDED_IN_TARGET_TOTAL
         additionalSsRegex.containsMatchIn(window) -> ConventionProvidentBenefitV2.SocialSecurityTreatment.ADDITIONAL_TO_SOCIAL_SECURITY
         else -> ConventionProvidentBenefitV2.SocialSecurityTreatment.NOT_APPLICABLE
-    }
-
-    private fun uniqueSeniority(values: Collection<String>): Int? {
-        val candidates = values.mapNotNull(::parseSeniorityMonths).distinct()
-        return candidates.singleOrNull()
     }
 
     private fun parseSeniorityMonths(text: String): Int? {
