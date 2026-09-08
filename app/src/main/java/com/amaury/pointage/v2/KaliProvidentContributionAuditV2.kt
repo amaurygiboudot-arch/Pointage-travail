@@ -286,18 +286,28 @@ object KaliProvidentContributionAuditV2 {
                 )?.trim()?.uppercase(Locale.ROOT) ?: return@articleLoop
             if (!scope.matches(kaliTextIdRegex)) return@articleLoop
 
-            // Le titre décrit la matière du texte mais ne prouve jamais à lui seul une cotisation.
-            // Pour un no-rule, seules les clauses du corps de l'article peuvent prouver présence/absence.
-            val text = OfficialKaliProfileMatcherV2.normalize(article.content)
-            val classified = classificationVocabulary.containsMatchIn(text)
-            val profileMentions = contributionMentionRegex.findAll(text).filter { match ->
-                profileMatchesAt(text, classified, profile, status, match.range.first)
+            // Le titre peut porter le périmètre (cadres, coefficient, niveau...), mais ses mots
+            // "cotisation/contribution" ne constituent jamais une preuve métier. Les mentions et
+            // exclusions sont donc lues uniquement dans le corps, avec la portée titre+corps.
+            val title = OfficialKaliProfileMatcherV2.normalize(article.title.orEmpty())
+            val body = OfficialKaliProfileMatcherV2.normalize(article.content)
+            val scopeText = listOf(title, body).filter { it.isNotBlank() }.joinToString("\n")
+            val bodyOffsetInScope = if (title.isBlank()) 0 else title.length + 1
+            val classified = classificationVocabulary.containsMatchIn(scopeText)
+            val profileMentions = contributionMentionRegex.findAll(body).filter { match ->
+                profileMatchesAt(
+                    text = scopeText,
+                    classified = classified,
+                    profile = profile,
+                    status = status,
+                    offset = bodyOffsetInScope + match.range.first
+                )
             }.toList()
             if (profileMentions.isEmpty()) return@articleLoop
 
             var articleHasExclusion = false
             profileMentions.forEach { mention ->
-                val clause = clauseAround(text, mention.range.first)
+                val clause = clauseAround(body, mention.range.first)
                 val excluded = exclusionPatterns.any { it.containsMatchIn(clause) }
                 if (excluded) articleHasExclusion = true else nonExcludedContributionMention = true
             }
