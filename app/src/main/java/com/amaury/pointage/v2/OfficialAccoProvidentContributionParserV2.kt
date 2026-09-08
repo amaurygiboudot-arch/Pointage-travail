@@ -283,10 +283,10 @@ object OfficialAccoProvidentContributionParserV2 {
         "\\b(?:part patronale|a la charge de l'employeur)\\b\\s*(?:[:=.-]?\\s*)?(?:(?:est|fixee)\\s+(?:a|de)\\s+|(?:a|de)\\s+)?$"
     )
     private val employeeAfterRateRegex = Regex(
-        "^\\s*(?:[:=.-]?\\s*)?(?:a la charge du salarie|part salariale)\\b"
+        "^\\s*(?:a la charge du salarie|part salariale)\\b"
     )
     private val employerAfterRateRegex = Regex(
-        "^\\s*(?:[:=.-]?\\s*)?(?:a la charge de l'employeur|part patronale)\\b"
+        "^\\s*(?:a la charge de l'employeur|part patronale)\\b"
     )
     private val zeroSeniorityRegex = Regex(
         "\\b(?:sans condition d'anciennete|des l'embauche|a compter de l'embauche)\\b"
