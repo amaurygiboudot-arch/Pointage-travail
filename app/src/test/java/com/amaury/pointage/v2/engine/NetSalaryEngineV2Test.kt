@@ -247,4 +247,137 @@ class NetSalaryEngineV2Test {
         assertEquals(unverified.conventionProvidentEmployee,verified.conventionProvidentEmployee,0.001)
         assertEquals(unverified.conventionProvidentEmployer,verified.conventionProvidentEmployer,0.001)
     }
+
+    @Test
+    fun verifiedKaliProvidentOverridesLegacyWhenCoverageIsConfirmed() {
+        val classification=ConventionClassificationV2(coefficient=700)
+        val legacyOutsideAni=PlasturgieProtectionCategoryV2.classify("292",LocalDate.of(2026,1,31),700)
+        val company=snapshot(0.0,0.0).copy(
+            idcc="292",
+            providentEmployeeAmount=null,
+            protectionCategory=legacyOutsideAni,
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+                confirmed=true,
+                source="test KALI + APEC"
+            ),
+            verifiedProvidentClassification=classification,
+            verifiedProvidentSeniorityMonths=72,
+            verifiedProvidentRules=listOf(verifiedProvidentRule(classification,0.005,0.007)),
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+        )
+
+        val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
+
+        assertEquals(12.50,result.conventionProvidentEmployee,0.001)
+        assertEquals(17.50,result.conventionProvidentEmployer,0.001)
+        assertEquals(12.50,result.companyEmployeeDeductions,0.001)
+    }
+
+    @Test
+    fun confirmedKaliPathNeverFallsBackToLegacyWhenVerifiedRuleDoesNotMatch() {
+        val classification=ConventionClassificationV2(coefficient=700)
+        val legacyOutsideAni=PlasturgieProtectionCategoryV2.classify("292",LocalDate.of(2026,1,31),700)
+        val mismatchedRule=verifiedProvidentRule(classification,0.005,0.007).copy(
+            aniCategories=setOf(ProtectionCategoryV2.AniCategory.ARTICLE_2_1)
+        )
+        val company=snapshot(0.0,0.0).copy(
+            idcc="292",
+            providentEmployeeAmount=null,
+            protectionCategory=legacyOutsideAni,
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+                confirmed=true,
+                source="test KALI + APEC"
+            ),
+            verifiedProvidentClassification=classification,
+            verifiedProvidentSeniorityMonths=72,
+            verifiedProvidentRules=listOf(mismatchedRule),
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+        )
+
+        val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
+
+        assertEquals(0.0,result.conventionProvidentEmployee,0.001)
+        assertEquals(0.0,result.conventionProvidentEmployer,0.001)
+        assertTrue(result.warnings.any { it.contains("catégorie ANI",ignoreCase=true) })
+    }
+
+    @Test
+    fun explicitCompanyProvidentStillWinsOverVerifiedConventionMinimum() {
+        val classification=ConventionClassificationV2(coefficient=700)
+        val legacyOutsideAni=PlasturgieProtectionCategoryV2.classify("292",LocalDate.of(2026,1,31),700)
+        val company=snapshot(0.0,0.0).copy(
+            idcc="292",
+            providentEmployeeAmount=20.0,
+            protectionCategory=legacyOutsideAni,
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2,
+                confirmed=true,
+                source="test KALI + APEC"
+            ),
+            verifiedProvidentClassification=classification,
+            verifiedProvidentSeniorityMonths=72,
+            verifiedProvidentRules=listOf(verifiedProvidentRule(classification,0.005,0.007)),
+            verifiedProvidentCoverage=verifiedProvidentCoverage(classification)
+        )
+
+        val result=NetSalaryEngineV2.calculate(2500.0,2026,company)
+
+        assertEquals(0.0,result.conventionProvidentEmployee,0.001)
+        assertEquals(17.50,result.conventionProvidentEmployer,0.001)
+        assertEquals(20.0,result.companyEmployeeDeductions,0.001)
+    }
+
+    private fun verifiedProvidentRule(
+        classification:ConventionClassificationV2,
+        employeeRate:Double,
+        employerRate:Double
+    )=ConventionProvidentContributionV2.Rule(
+        idcc="292",
+        ruleId="KALI-PROVIDENT-CONTRIBUTION-KALITEXT000000000001-OUTSIDE_2_1_2_2",
+        effectiveFrom=LocalDate.of(2025,1,1),
+        classification=classification,
+        professionalStatus="NON_CADRE",
+        aniCategories=setOf(ProtectionCategoryV2.AniCategory.OUTSIDE_2_1_2_2),
+        tiers=listOf(
+            ConventionProvidentContributionV2.SeniorityTier(
+                minimumSeniorityMonths=0,
+                bands=listOf(
+                    ConventionProvidentContributionV2.Band(
+                        label="Salaire brut total",
+                        employeeRate=employeeRate,
+                        employerRate=employerRate
+                    )
+                )
+            )
+        ),
+        source="Légifrance KALI test",
+        conventionScopeKey="KALITEXT000000000001",
+        extensionStatus=ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
+        extensionEffectiveFrom=LocalDate.of(2025,1,1)
+    )
+
+    private fun verifiedProvidentCoverage(
+        classification:ConventionClassificationV2
+    ):ConventionMatterCoverageV2.Snapshot {
+        val record=ConventionMatterCoverageV2.Record(
+            idcc="292",
+            matter=ConventionMatterCoverageV2.Matter.PROVIDENT_CONTRIBUTION,
+            effectiveFrom=LocalDate.of(2026,1,1),
+            effectiveTo=LocalDate.of(2026,1,31),
+            classification=classification,
+            professionalStatus="NON_CADRE",
+            state=ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+            source="audit KALI test",
+            checkedAtMs=1L,
+            authorities=setOf(ConventionMatterCoverageV2.Authority.KALI)
+        )
+        return ConventionMatterCoverageV2.Snapshot(
+            state=ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+            record=record,
+            reliable=true,
+            warnings=emptyList()
+        )
+    }
 }
