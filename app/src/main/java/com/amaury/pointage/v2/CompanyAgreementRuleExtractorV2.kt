@@ -16,7 +16,9 @@ object CompanyAgreementRuleExtractorV2 {
         SUNDAY,
         PUBLIC_HOLIDAY,
         PAID_LEAVE,
-        RTT
+        RTT,
+        PROVIDENT_CONTRIBUTION,
+        PROVIDENT_BENEFITS
     }
 
     data class Candidate(
@@ -37,7 +39,27 @@ object CompanyAgreementRuleExtractorV2 {
         Category.SUNDAY to listOf("travail du dimanche", "dimanche", "majoration dimanche"),
         Category.PUBLIC_HOLIDAY to listOf("jour férié", "jours fériés", "majoration jour férié", "majoration jours fériés"),
         Category.PAID_LEAVE to listOf("congé payé", "congés payés"),
-        Category.RTT to listOf("rtt", "réduction du temps de travail", "jour de repos", "jours de repos")
+        Category.RTT to listOf("rtt", "réduction du temps de travail", "jour de repos", "jours de repos"),
+        Category.PROVIDENT_CONTRIBUTION to listOf(
+            "cotisation prévoyance",
+            "cotisations prévoyance",
+            "cotisation de prévoyance",
+            "cotisations de prévoyance",
+            "part salariale prévoyance",
+            "part patronale prévoyance",
+            "taux de cotisation prévoyance",
+            "financement du régime de prévoyance"
+        ),
+        Category.PROVIDENT_BENEFITS to listOf(
+            "garantie décès",
+            "capital décès",
+            "incapacité temporaire",
+            "rente invalidité",
+            "garantie invalidité",
+            "rente conjoint",
+            "rente éducation",
+            "prestations de prévoyance"
+        )
     )
 
     fun extract(text: String): List<Candidate> {
