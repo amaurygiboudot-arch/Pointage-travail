@@ -88,7 +88,27 @@ object NetSalaryEngineV2 {
             ceiling = ceiling,
             protectionCategory = company.verifiedProtectionCategory
         )
-        val conventionProvident = ConventionProvidentCatalogV2.estimate(
+
+        // Phase de migration : le nouveau chemin KALI prend la main dès que sa couverture est
+        // explicitement CONFIRMED_RULES pour ce profil. Le catalogue Plasturgie historique reste
+        // temporairement disponible uniquement tant que la nouvelle couverture n'est pas acquise.
+        val verifiedProvidentPath = company.verifiedProvidentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES &&
+            company.verifiedProvidentCoverage.reliable &&
+            company.verifiedProvidentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
+        val verifiedProvident = if (verifiedProvidentPath) {
+            ConventionProvidentContributionV2.calculate(
+                rules = company.verifiedProvidentRules,
+                idcc = company.idcc,
+                referenceDate = company.referenceDate,
+                classification = company.verifiedProvidentClassification,
+                professionalStatus = company.professionalStatus,
+                protectionCategory = company.verifiedProtectionCategory,
+                seniorityMonths = company.verifiedProvidentSeniorityMonths,
+                gross = contributionGross,
+                applicableMonthlyCeiling = ceiling.applicableMonthly
+            )
+        } else null
+        val legacyConventionProvident = ConventionProvidentCatalogV2.estimate(
             gross = contributionGross,
             year = year,
             idcc = company.idcc,
@@ -96,6 +116,31 @@ object NetSalaryEngineV2 {
             seniorityMonths = company.seniorityMonths,
             ceiling = ceiling
         )
+
+        val outsideAni = company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.OUTSIDE_2_1_2_2 ||
+            company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE
+        val legacyConventionProvidentKnown = year == 2026 && company.idcc == "292" &&
+            company.protectionCategory.confirmed && outsideAni && company.seniorityMonths != null
+        val verifiedConventionProvidentKnown = verifiedProvidentPath && verifiedProvident?.reliable == true
+
+        val calculatedProvidentEmployee: Double? = when {
+            verifiedProvidentPath && verifiedProvident?.reliable == true -> verifiedProvident.employeeAmount
+            verifiedProvidentPath -> null
+            legacyConventionProvidentKnown -> legacyConventionProvident.employeeDeductions
+            else -> null
+        }
+        val calculatedProvidentEmployer: Double? = when {
+            verifiedProvidentPath && verifiedProvident?.reliable == true -> verifiedProvident.employerAmount
+            verifiedProvidentPath -> null
+            legacyConventionProvidentKnown -> legacyConventionProvident.employerContributions
+            else -> null
+        }
+        val activeProvidentWarnings = if (verifiedProvidentPath) {
+            verifiedProvident?.warnings.orEmpty()
+        } else {
+            legacyConventionProvident.warnings
+        }
+
         val atMp = EmployerAtMpContributionV2.calculate(contributionGross, company.atMpEmployerRate)
         val mobility = EmployerMobilityContributionV2.calculate(contributionGross, company.employerMobilityRate)
         val unemploymentAgs = EmployerUnemploymentAgsV2.calculate(
@@ -121,13 +166,9 @@ object NetSalaryEngineV2 {
             balanceRate = company.employerApprenticeshipBalanceRate
         )
 
-        // Une retenue réellement renseignée par l'entreprise prime sur le minimum conventionnel calculé.
-        // Le minimum n'est donc jamais ajouté une seconde fois.
-        val effectiveProvident = company.providentEmployeeAmount ?: conventionProvident.employeeDeductions
-        val outsideAni = company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.OUTSIDE_2_1_2_2 ||
-            company.protectionCategory.category == PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE
-        val conventionProvidentKnown = year == 2026 && company.idcc == "292" &&
-            company.protectionCategory.confirmed && outsideAni && company.seniorityMonths != null
+        // Une retenue réellement renseignée par l'entreprise prime toujours sur le minimum
+        // conventionnel calculé. Le minimum n'est donc jamais ajouté une seconde fois.
+        val effectiveProvident = company.providentEmployeeAmount ?: calculatedProvidentEmployee
         val companyKnown = listOfNotNull(
             company.mutualEmployeeAmount,
             effectiveProvident,
@@ -143,7 +184,8 @@ object NetSalaryEngineV2 {
             .filter { it.id == "csg_taxable" || it.id == "crds" }
             .sumOf { it.employeeAmount }
 
-        val providentDataComplete = company.providentEmployeeAmount != null || conventionProvidentKnown
+        val providentDataComplete = company.providentEmployeeAmount != null ||
+            verifiedConventionProvidentKnown || legacyConventionProvidentKnown
         val taxableCompanyDataComplete = company.mutualEmployeeAmount != null &&
             providentDataComplete &&
             company.transportEmployeeAmount != null &&
@@ -171,16 +213,17 @@ object NetSalaryEngineV2 {
             addAll(statutory.warnings)
             addAll(retirement.warnings)
             addAll(statusContributions.warnings)
-            addAll(conventionProvident.warnings)
+            addAll(activeProvidentWarnings)
             addAll(atMp.warnings)
             if (!hasMobilityWarning) addAll(mobility.warnings)
             addAll(company.warnings.filterNot {
-                (it.startsWith("Prévoyance salariale entreprise") && conventionProvidentKnown) ||
+                (it.startsWith("Prévoyance salariale entreprise") && providentDataComplete) ||
                     (it.startsWith("AT/MP employeur") && atMp.complete)
             })
-            if (company.providentEmployeeAmount != null && conventionProvident.employeeDeductions > 0.0 &&
-                company.providentEmployeeAmount + 0.01 < conventionProvident.employeeDeductions) {
-                add("Prévoyance salariale renseignée inférieure au minimum conventionnel Plasturgie calculé : vérifier le bulletin ou le régime d’entreprise.")
+            if (company.providentEmployeeAmount != null && calculatedProvidentEmployee != null &&
+                calculatedProvidentEmployee > 0.0 &&
+                company.providentEmployeeAmount + 0.01 < calculatedProvidentEmployee) {
+                add("Prévoyance salariale renseignée inférieure au minimum conventionnel calculé : vérifier le bulletin ou le régime d’entreprise.")
             }
             if (!taxableCompanyDataComplete) add("Net imposable/PAS : assiette fiscale incomplète, aucun montant fiscal n'est inventé.")
             if (company.incomeTaxRate == null) add("PAS : taux personnel non renseigné.")
@@ -189,7 +232,7 @@ object NetSalaryEngineV2 {
         val knownEmployerContributions = listOfNotNull(
             statutory.employerContributions,
             retirement.employerContributions,
-            conventionProvident.employerContributions,
+            calculatedProvidentEmployer,
             statusContributions.employerContributions,
             atMp.employerAmount,
             mobility.employerAmount,
@@ -218,6 +261,9 @@ object NetSalaryEngineV2 {
             addAll(company.employerApprenticeshipWarnings)
             addAll(apprenticeship.warnings)
             addAll(company.employerReductionWarnings)
+            if (verifiedProvidentPath && verifiedProvident?.reliable != true) {
+                add("Coût employeur : cotisation conventionnelle de prévoyance KALI non calculable avec les données disponibles.")
+            }
             if (!reductionsFitKnownSubtotal) {
                 add("Réductions/exonérations patronales : le montant confirmé dépasse les cotisations actuellement connues ; le sous-total après réductions n'est pas affiché tant que les contributions manquantes ne sont pas identifiées.")
             }
@@ -230,8 +276,8 @@ object NetSalaryEngineV2 {
             socialSecurityCeilingComplete = ceiling.complete,
             statutory = statutory.employeeDeductions,
             complementaryRetirement = retirement.employeeDeductions,
-            conventionProvidentEmployee = if (company.providentEmployeeAmount == null) conventionProvident.employeeDeductions else 0.0,
-            conventionProvidentEmployer = conventionProvident.employerContributions,
+            conventionProvidentEmployee = if (company.providentEmployeeAmount == null) calculatedProvidentEmployee ?: 0.0 else 0.0,
+            conventionProvidentEmployer = calculatedProvidentEmployer ?: 0.0,
             companyEmployeeDeductions = companyKnown,
             employerStatusContributions = statusContributions.employerContributions,
             employerAtMpContribution = atMp.employerAmount,
