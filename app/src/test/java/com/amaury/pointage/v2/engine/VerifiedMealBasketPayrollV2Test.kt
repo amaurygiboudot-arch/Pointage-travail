@@ -94,6 +94,26 @@ class VerifiedMealBasketPayrollV2Test {
         assertTrue(result.reliable)
         assertEquals(1, result.count)
         assertEquals(6.25, result.totalAmount!!, 0.001)
+        assertEquals(6.25, result.unitAmount!!, 0.001)
+    }
+
+    @Test
+    fun `montants jour et nuit differents ne produisent jamais un faux montant unitaire`() {
+        val day = branchRule(benefitId = "MEAL_DAY_1", amount = 6.25)
+        val night = branchRule(benefitId = "MEAL_NIGHT_1", amount = 10.0)
+        val result = VerifiedMealBasketPayrollV2.calculate(
+            sessions = listOf(session("mixed", 8, 8, 16)),
+            year = 2026,
+            monthZeroBased = 8,
+            acceptedEmployerIds = setOf("employer"),
+            arbitration = arbitration(day, night),
+            zoneId = zone
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(2, result.count)
+        assertEquals(16.25, result.totalAmount!!, 0.001)
+        assertNull(result.unitAmount)
     }
 
     @Test
