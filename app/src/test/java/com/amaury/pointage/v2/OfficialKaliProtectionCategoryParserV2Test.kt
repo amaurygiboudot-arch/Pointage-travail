@@ -2,8 +2,10 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
+import com.amaury.pointage.v2.engine.ConventionProtectionCategoryV2
 import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -60,6 +62,7 @@ class OfficialKaliProtectionCategoryParserV2Test {
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_1, diagnostic.rule!!.aniCategory)
         assertEquals(910, diagnostic.rule!!.classification.coefficient)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, diagnostic.rule!!.extensionStatus)
+        assertTrue(diagnostic.rule!!.additionalApplicabilityConfirmed)
     }
 
     @Test
@@ -117,14 +120,15 @@ class OfficialKaliProtectionCategoryParserV2Test {
         assertNull(diagnostic.rule)
     }
 
+    private fun idcc493Text() = """
+        Pour l'application des dispositions conventionnelles de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, et sous réserve de l'agrément APEC, sont visés les salariés cadres et ingénieurs relevant des positions hiérarchiques conventionnelles 7A (niveau VII - échelon A) et au-delà ;
+        Pour l'application des dispositions conventionnelles de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, et sous réserve de l'agrément APEC, sont visés les salariés agents de maîtrise et agents techniques relevant des positions hiérarchiques conventionnelles 6A (niveau VI - échelon A) et 6B (niveau VI - échelon B).
+    """.trimIndent()
+
     @Test
-    fun `IDCC 493 niveau VII echelon A est traite sans code metier`() {
-        val text = """
-            Pour l'application des dispositions conventionnelles de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés cadres et ingénieurs relevant des positions hiérarchiques conventionnelles 7A (niveau VII - échelon A) et au-delà ;
-            Pour l'application des dispositions conventionnelles de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés agents de maîtrise et agents techniques relevant des positions hiérarchiques conventionnelles 6A (niveau VI - échelon A) et 6B (niveau VI - échelon B).
-        """.trimIndent()
+    fun `IDCC 493 niveau VII echelon A est extrait mais agrément APEC reste à confirmer`() {
         val diagnostic = OfficialKaliProtectionCategoryParserV2.parse(
-            article(text, id = "KALIARTI000050394592"),
+            article(idcc493Text(), id = "KALIARTI000050394592"),
             profile(
                 idcc = "493",
                 status = "CADRE",
@@ -137,16 +141,25 @@ class OfficialKaliProtectionCategoryParserV2Test {
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_1, diagnostic.rule!!.aniCategory)
         assertEquals("VII", diagnostic.rule!!.classification.level)
         assertEquals("A", diagnostic.rule!!.classification.echelon)
+        assertEquals("Agrément APEC requis par le texte source", diagnostic.rule!!.additionalApplicabilityCondition)
+        assertFalse(diagnostic.rule!!.additionalApplicabilityConfirmed)
+        assertTrue(diagnostic.reasons.any { it.contains("Agrément APEC") })
+
+        val resolution = ConventionProtectionCategoryV2.resolve(
+            idcc = "493",
+            referenceDate = auditDate,
+            classification = diagnostic.rule!!.classification,
+            professionalStatus = "CADRE",
+            rules = listOf(diagnostic.rule!!)
+        )
+        assertFalse(resolution.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, resolution.category.aniCategory)
     }
 
     @Test
-    fun `IDCC 493 niveau VI echelon B est traite en ANI 2 2`() {
-        val text = """
-            Pour l'application des dispositions conventionnelles de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés cadres et ingénieurs relevant des positions hiérarchiques conventionnelles 7A (niveau VII - échelon A) et au-delà ;
-            Pour l'application des dispositions conventionnelles de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés agents de maîtrise et agents techniques relevant des positions hiérarchiques conventionnelles 6A (niveau VI - échelon A) et 6B (niveau VI - échelon B).
-        """.trimIndent()
+    fun `IDCC 493 niveau VI echelon B est extrait en ANI 2 2 avec même verrou`() {
         val diagnostic = OfficialKaliProtectionCategoryParserV2.parse(
-            article(text, id = "KALIARTI000050394592"),
+            article(idcc493Text(), id = "KALIARTI000050394592"),
             profile(
                 idcc = "493",
                 status = "NON_CADRE",
@@ -157,6 +170,7 @@ class OfficialKaliProtectionCategoryParserV2Test {
 
         assertNotNull(diagnostic.rule)
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_2, diagnostic.rule!!.aniCategory)
+        assertFalse(diagnostic.rule!!.additionalApplicabilityConfirmed)
     }
 
     @Test
@@ -208,9 +222,9 @@ class OfficialKaliProtectionCategoryParserV2Test {
     }
 
     @Test
-    fun `deux categories contradictoires pour la meme classification sont refusees`() {
+    fun `deux categories dans le même texte ne créent pas de rapprochement croisé`() {
         val text = """
-            Pour l'application de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés relevant du coefficient 830 ;
+            Pour l'application de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés relevant du coefficient 900 ;
             Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés relevant du coefficient 830.
         """.trimIndent()
         val diagnostic = OfficialKaliProtectionCategoryParserV2.parse(
