@@ -7,7 +7,9 @@ import com.google.firebase.functions.HttpsCallableResult
 
 /**
  * Réanalyse officielle ACCO d'une entreprise : recherche par SIRET, consultation exacte,
- * puis extraction locale de candidats de paie. Aucune règle ni valeur n'est validée ici.
+ * puis extraction locale de candidats de paie. Aucune règle ni valeur n'est validée ici,
+ * sauf les cotisations de prévoyance qui passent par leur parseur fail-closed dédié avant
+ * stockage local ; leur articulation avec la branche reste ensuite soumise à L2253-1.
  */
 object CompanyAgreementOfficialAuditV2 {
     private const val PAGE_SIZE = 25
@@ -104,7 +106,7 @@ object CompanyAgreementOfficialAuditV2 {
                             add("ACCO : recherche officielle parcourue jusqu'à son terme sans accord candidat exploitable pour ce SIRET ; cela ne constitue pas une preuve d'absence d'accord interne.")
                         }
                         if (consult.verifiedAgreements.isNotEmpty()) {
-                            add("ACCO : les passages de paie extraits restent des candidats à valider ; aucune valeur n'est appliquée automatiquement.")
+                            add("ACCO : les passages de paie génériques extraits restent des candidats à valider ; aucune valeur générique n'est appliquée automatiquement.")
                         }
                     }.distinct()
 
@@ -253,16 +255,38 @@ object CompanyAgreementOfficialAuditV2 {
                             agreementId = candidate.id,
                             officialText = officialContent.text
                         )
+                        val provident = CompanyAgreementProvidentContributionIngestionV2.ingestVerified(
+                            context = context,
+                            companyId = companyId,
+                            agreementId = candidate.id,
+                            verifiedContent = officialContent
+                        )
+                        val localWarnings = buildList {
+                            if (!ingestion.saved) {
+                                add("ACCO : candidats extraits de ${candidate.id} mais stockage local impossible.")
+                            }
+                            when {
+                                provident.storageFailure ->
+                                    add("ACCO : cotisation de prévoyance structurée dans ${candidate.id} mais stockage local dédié impossible.")
+                                provident.detected && !provident.structured -> {
+                                    add("ACCO : cotisation de prévoyance détectée dans ${candidate.id}, mais règle exacte non démontrée ; aucun taux d'entreprise n'est retenu.")
+                                    addAll(provident.warnings.take(2))
+                                }
+                                provident.saved ->
+                                    add("ACCO : cotisation de prévoyance de ${candidate.id} structurée et stockée localement ; son application reste soumise à l'arbitrage L2253-1.")
+                            }
+                        }
                         accumulated.copy(
                             verifiedAgreements = accumulated.verifiedAgreements + candidate.copy(
                                 status = CompanyAgreementStoreV2.Status.UNKNOWN,
-                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles extraites et leur période restent à valider."
+                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles génériques extraites restent à valider ; une cotisation de prévoyance n'est structurée que par la chaîne dédiée fail-closed."
                             ),
                             consulted = accumulated.consulted + 1,
                             extractedCandidates = accumulated.extractedCandidates + ingestion.extractedCount,
-                            storageFailures = accumulated.storageFailures + if (ingestion.saved) 0 else 1,
-                            warnings = if (ingestion.saved) accumulated.warnings else accumulated.warnings +
-                                "ACCO : candidats extraits de ${candidate.id} mais stockage local impossible."
+                            storageFailures = accumulated.storageFailures +
+                                (if (ingestion.saved) 0 else 1) +
+                                (if (provident.storageFailure) 1 else 0),
+                            warnings = accumulated.warnings + localWarnings
                         )
                     }
                 }
