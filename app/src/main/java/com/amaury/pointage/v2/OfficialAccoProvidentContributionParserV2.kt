@@ -51,6 +51,11 @@ object OfficialAccoProvidentContributionParserV2 {
 
     private data class RatePair(val employee: Double, val employer: Double)
     private data class Window(val text: String, val targetOffset: Int)
+    private data class ClauseCandidate(
+        val window: Window,
+        val rates: RatePair,
+        val seniorityMonths: Int
+    )
 
     fun parse(
         profile: ConventionLegalProfileV2,
@@ -110,25 +115,21 @@ object OfficialAccoProvidentContributionParserV2 {
         if (windows.any { unsupportedBasisRegex.containsMatchIn(it.text) }) {
             return unresolved("assiette ACCO avec tranche/PMSS/plafond non prise en charge automatiquement")
         }
-        val basisConfirmed = windows.any { grossBasisRegex.containsMatchIn(it.text) }
-        if (!basisConfirmed) return unresolved("assiette salaire brut non explicitement démontrée")
 
-        val ratePairs = windows.mapNotNull(::parseRates).distinct()
-        if (ratePairs.size != 1) {
-            return unresolved("parts salariale et patronale absentes, incomplètes ou contradictoires")
+        val candidates = windows.mapNotNull { window ->
+            if (!grossBasisRegex.containsMatchIn(window.text)) return@mapNotNull null
+            val rates = parseRates(window) ?: return@mapNotNull null
+            if (looksLikeProportionalAllocation(window, rates)) return@mapNotNull null
+            val seniority = parseSeniority(window).singleOrNull() ?: return@mapNotNull null
+            ClauseCandidate(window = window, rates = rates, seniorityMonths = seniority)
+        }.distinctBy { candidate -> candidate.rates to candidate.seniorityMonths }
+
+        if (candidates.size != 1) {
+            return unresolved(
+                "aucune clause unique ne prouve ensemble assiette brute, répartition salarié/employeur et ancienneté sans ambiguïté"
+            )
         }
-        val rates = ratePairs.single()
-
-        val seniorityCandidates = windows.flatMap(::parseSeniority).distinct()
-        if (seniorityCandidates.size != 1) {
-            return unresolved("condition d'ancienneté ACCO absente ou ambiguë")
-        }
-
-        val evidence = windows
-            .firstOrNull { parseRates(it) == rates }
-            ?.text
-            ?.take(1600)
-            .orEmpty()
+        val selected = candidates.single()
 
         return Diagnostic(
             rule = Rule(
@@ -138,14 +139,14 @@ object OfficialAccoProvidentContributionParserV2 {
                 effectiveTo = effectiveTo,
                 classification = profile.classification,
                 professionalStatus = status,
-                minimumSeniorityMonths = seniorityCandidates.single(),
+                minimumSeniorityMonths = selected.seniorityMonths,
                 basis = Basis.GROSS_SALARY,
-                employeeRate = rates.employee,
-                employerRate = rates.employer,
-                evidenceExcerpt = evidence
+                employeeRate = selected.rates.employee,
+                employerRate = selected.rates.employer,
+                evidenceExcerpt = selected.window.text.take(1600)
             ),
             reasons = listOf(
-                "ACCO prévoyance : SIRET, date, durée, profil, ancienneté, assiette brute et répartition salarié/employeur sont explicites.",
+                "ACCO prévoyance : SIRET, date, durée, profil, ancienneté, assiette brute et répartition salarié/employeur sont explicites dans un même périmètre de preuve.",
                 "ACCO prévoyance : la règle reste soumise à l'arbitrage L2253-1 et ne prouve pas à elle seule l'équivalence des garanties avec la branche."
             )
         )
@@ -218,6 +219,15 @@ object OfficialAccoProvidentContributionParserV2 {
         return RatePair(employeeRates.single(), employerRates.single())
     }
 
+    /**
+     * Une répartition de la cotisation totale (ex. 40 % / 60 %) n'est pas un taux directement
+     * applicable au salaire brut. Tant que le produit « taux total × quote-part » n'est pas modélisé,
+     * ce cas reste bloqué afin de ne jamais appliquer 40 % ou 60 % du brut par erreur.
+     */
+    private fun looksLikeProportionalAllocation(window: Window, rates: RatePair): Boolean =
+        proportionalAllocationRegex.containsMatchIn(window.text) &&
+            rates.employee + rates.employer >= 0.95
+
     private fun parseSeniority(window: Window): List<Int> {
         val values = mutableListOf<Int>()
         if (zeroSeniorityRegex.containsMatchIn(window.text)) values += 0
@@ -275,6 +285,9 @@ object OfficialAccoProvidentContributionParserV2 {
     )
     private val grossBasisRegex = Regex("\\b(?:salaire|remuneration) brute?\\b|\\bassiette[^.;]{0,80}?(?:salaire|remuneration) brute?\\b")
     private val unsupportedBasisRegex = Regex("\\b(?:pmss|plafond(?: de la securite sociale)?|tranche[s]?|fraction du plafond)\\b")
+    private val proportionalAllocationRegex = Regex(
+        "\\b(?:reparti(?:e|es|s)?|repartition|ventilation|quote[- ]?part)\\b"
+    )
     private val percentRegex = Regex("(\\d{1,3}(?:[.,]\\d{1,4})?)\\s*%")
     private val employeeBeforeRateRegex = Regex(
         "\\b(?:part salariale|a la charge du salarie)\\b\\s*(?:[:=.-]?\\s*)?(?:(?:est|fixee)\\s+(?:a|de)\\s+|(?:a|de)\\s+)?$"
