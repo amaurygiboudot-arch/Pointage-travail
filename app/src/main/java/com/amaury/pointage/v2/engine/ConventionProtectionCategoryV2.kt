@@ -109,10 +109,9 @@ object ConventionProtectionCategoryV2 {
 
         val latestDate = matching.maxOf { it.effectiveFrom }
         val latest = matching.filter { it.effectiveFrom == latestDate }
-        val maxSpecificity = latest.maxOf { it.classification.specificity() + if (it.professionalStatus == null) 0 else 1 }
-        val best = latest.filter {
-            it.classification.specificity() + if (it.professionalStatus == null) 0 else 1 == maxSpecificity
-        }
+        fun specificity(rule: Rule): Int = rule.classification.specificity() + (if (rule.professionalStatus == null) 0 else 1)
+        val maxSpecificity = latest.maxOf(::specificity)
+        val best = latest.filter { specificity(it) == maxSpecificity }
         val categories = best.map { it.aniCategory }.distinct()
         if (categories.size != 1) {
             return unresolved("plusieurs catégories ANI contradictoires sont applicables à la même classification")
