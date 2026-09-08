@@ -21,25 +21,40 @@ object ProfessionalStatusContributionCatalogV2 {
 
     private const val SOURCE = "Légifrance — ANI du 17/11/2017 relatif à la prévoyance des cadres, article 1er"
 
+    /** Wrapper de compatibilité pendant la migration du moteur conventionnel. */
     fun estimate(
         gross: Double,
         year: Int,
         professionalStatus: String?,
         ceiling: SocialSecurityCeilingV2.Snapshot? = null,
         protectionCategory: PlasturgieProtectionCategoryV2.Result? = null
+    ): Estimate = estimateGeneric(
+        gross = gross,
+        year = year,
+        professionalStatus = professionalStatus,
+        ceiling = ceiling,
+        protectionCategory = protectionCategory?.let(PlasturgieProtectionCategoryV2::toGeneric)
+    )
+
+    fun estimateGeneric(
+        gross: Double,
+        year: Int,
+        professionalStatus: String?,
+        ceiling: SocialSecurityCeilingV2.Snapshot? = null,
+        protectionCategory: ProtectionCategoryV2.Result? = null
     ): Estimate {
         val g = gross.coerceAtLeast(0.0)
         val full = SocialSecurityCeilingV2.fullMonthly(year)
             ?: return Estimate(emptyList(), 0.0, listOf("Prévoyance cadre : barème non intégré pour $year"))
 
         val status = professionalStatus?.trim()?.uppercase()
-        val category = protectionCategory?.category
-        val categoryControlsAni = category != null && category != PlasturgieProtectionCategoryV2.Category.NOT_APPLICABLE
+        val category = protectionCategory?.aniCategory
+        val categoryControlsAni = protectionCategory?.conventionControlsAni == true
         val aniBeneficiary = when {
             !categoryControlsAni -> status == "CADRE"
-            protectionCategory?.confirmed != true -> false
-            category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 -> true
-            category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_2 -> true
+            protectionCategory.confirmed != true -> false
+            category == ProtectionCategoryV2.AniCategory.ARTICLE_2_1 -> true
+            category == ProtectionCategoryV2.AniCategory.ARTICLE_2_2 -> true
             else -> false
         }
         val applicable = ceiling?.applicableMonthly ?: full
@@ -63,8 +78,8 @@ object ProfessionalStatusContributionCatalogV2 {
             when {
                 categoryControlsAni && protectionCategory?.confirmed != true ->
                     add("Catégorie ANI 2.1/2.2 à confirmer : minimum employeur de 1,50 % non calculé.")
-                category == PlasturgieProtectionCategoryV2.Category.EXTENSION_ELIGIBLE ->
-                    add("Coefficient éligible à une extension du régime cadres : le 1,50 % ANI n'est pas appliqué automatiquement sans confirmation du régime d'entreprise.")
+                category == ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE ->
+                    add("Catégorie susceptible d'être intégrée au régime cadres : le 1,50 % ANI n'est pas appliqué automatiquement sans confirmation du régime d'entreprise.")
                 !categoryControlsAni && status != "CADRE" && status != "NON_CADRE" ->
                     add("Statut professionnel à préciser : prévoyance cadre minimale non calculée.")
             }
