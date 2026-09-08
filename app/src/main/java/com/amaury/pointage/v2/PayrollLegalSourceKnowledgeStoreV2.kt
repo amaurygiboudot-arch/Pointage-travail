@@ -7,13 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/**
- * Journal local non destructif des preuves de controle des sources juridiques prioritaires.
- *
- * Ce stockage ne deduit jamais une absence depuis un store vide. Il ne fait que conserver des
- * preuves produites par un audit officiel exhaustif, puis laisse PayrollSourceKnowledgeProofV2
- * verifier le perimetre, la date et la couverture avant d'autoriser un repli juridique.
- */
+/** Journal local non destructif des preuves de controle des sources juridiques prioritaires. */
 object PayrollLegalSourceKnowledgeStoreV2 {
     private const val PREFS = "horatrack_v2_payroll_source_knowledge"
     private const val KEY_PROOFS = "proofs"
@@ -26,36 +20,23 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         val array = JSONArray()
         current.takeLast(MAX_PROOFS).forEach { array.put(encode(it)) }
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_PROOFS, array.toString())
-            .apply()
+            .edit().putString(KEY_PROOFS, array.toString()).apply()
     }
 
     fun knowledgeForOvertime(
-        context: Context,
-        companyId: String,
-        idcc: String,
-        referenceDate: LocalDate
+        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
-            proofs = load(context),
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
-        )
+        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(load(context), companyId, idcc, referenceDate)
 
     fun knowledgeForProvidentContribution(
-        context: Context,
-        companyId: String,
-        idcc: String,
-        referenceDate: LocalDate
+        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
-            proofs = load(context),
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
-        )
+        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(load(context), companyId, idcc, referenceDate)
+
+    fun knowledgeForMealBasket(
+        context: Context, companyId: String, idcc: String, referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasket(load(context), companyId, idcc, referenceDate)
 
     fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> = load(context)
 
@@ -64,16 +45,11 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             .getString(KEY_PROOFS, null) ?: return emptyList()
         val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
         return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)?.let(::add)
-            }
+            for (index in 0 until array.length()) decode(array.optJSONObject(index) ?: continue)?.let(::add)
         }
     }
 
-    private fun sameIdentity(
-        left: PayrollSourceKnowledgeProofV2.Proof,
-        right: PayrollSourceKnowledgeProofV2.Proof
-    ): Boolean =
+    private fun sameIdentity(left: PayrollSourceKnowledgeProofV2.Proof, right: PayrollSourceKnowledgeProofV2.Proof): Boolean =
         left.source == right.source &&
             left.matter == right.matter &&
             left.companyId.orEmpty().trim() == right.companyId.orEmpty().trim() &&
