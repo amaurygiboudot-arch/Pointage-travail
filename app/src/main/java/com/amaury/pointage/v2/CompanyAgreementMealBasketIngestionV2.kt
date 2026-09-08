@@ -33,8 +33,8 @@ object CompanyAgreementMealBasketIngestionV2 {
         agreementId: String,
         verifiedContent: OfficialAgreementContentParserV2.VerifiedContent
     ): StructuredPackage {
-        val detected = CompanyAgreementRuleExtractorV2.extract(verifiedContent.text)
-            .any { it.category == CompanyAgreementRuleExtractorV2.Category.MEAL }
+        val normalizedText = OfficialKaliProfileMatcherV2.normalize(verifiedContent.text)
+        val detected = dedicatedMealMarkerRegex.containsMatchIn(normalizedText)
         if (!detected) {
             return StructuredPackage(
                 detected = false,
@@ -157,5 +157,9 @@ object CompanyAgreementMealBasketIngestionV2 {
         ruleCount = 0,
         subjects = emptySet(),
         warnings = listOf("ACCO repas : $reason ; aucune règle d'entreprise n'est enregistrée.")
+    )
+
+    private val dedicatedMealMarkerRegex = Regex(
+        "\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b"
     )
 }
