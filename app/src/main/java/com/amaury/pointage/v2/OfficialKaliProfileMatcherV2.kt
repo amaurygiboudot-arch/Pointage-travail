@@ -26,7 +26,10 @@ object OfficialKaliProfileMatcherV2 {
             val first = positions.minOrNull() ?: return@mapNotNull null
             val last = positions.maxOrNull() ?: return@mapNotNull null
             val start = (first - before).coerceAtLeast(0)
-            val end = (last + after).coerceAtMost(text.length)
+            val desiredEnd = (last + after).coerceAtMost(text.length)
+            val nextScope = classificationAnchorRegex.find(text, (last + 1).coerceAtMost(text.length))
+            val end = minOf(desiredEnd, nextScope?.range?.first ?: text.length)
+            if (end <= start) return@mapNotNull null
             val window = text.substring(start, end)
             if (statusMatches(window, text, professionalStatus)) Window(window, start, end) else null
         }.distinctBy { it.start to it.endExclusive }
