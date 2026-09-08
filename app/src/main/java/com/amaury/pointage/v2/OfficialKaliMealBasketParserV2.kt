@@ -4,13 +4,14 @@ import com.amaury.pointage.v2.engine.ConventionMealBasketV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import java.time.LocalDate
 import java.util.Locale
+import kotlin.math.abs
 
 /**
  * Parseur KALI strict des paniers / indemnités repas.
  *
  * Une occurrence n'est structurée que si le même bloc juridique prouve le profil, le montant,
- * les conditions d'ouverture et la filiation KALI. Toute occurrence voisine incomplète reste
- * bloquante pour la couverture de la matière.
+ * les conditions d'ouverture et la filiation KALI. Chaque occurrence est isolée de ses voisines :
+ * une formule appartenant à un autre panier ne peut jamais compléter la clause courante.
  */
 object OfficialKaliMealBasketParserV2 {
     data class Diagnostic(
@@ -62,7 +63,7 @@ object OfficialKaliMealBasketParserV2 {
             val officialStatus = article.status.trim().uppercase(Locale.ROOT)
             if (officialStatus !in acceptedStatuses) return@articleLoop
             if (auditDate.isBefore(article.effectiveFrom) || article.effectiveTo?.let(auditDate::isAfter) == true) return@articleLoop
-            val scope = (articleTextIds[articleId]
+            val kaliText = (articleTextIds[articleId]
                 ?: articleTextIds.entries.firstOrNull { it.key.equals(articleId, ignoreCase = true) }?.value)
                 ?.trim()?.uppercase(Locale.ROOT)
                 ?.takeIf { it.matches(kaliTextIdRegex) }
@@ -72,36 +73,41 @@ object OfficialKaliMealBasketParserV2 {
             val body = OfficialKaliProfileMatcherV2.normalize(article.content)
             val text = listOf(title, body).filter { it.isNotBlank() }.joinToString("\n")
             if (text.isBlank()) return@articleLoop
+            val bodyOffset = if (title.isBlank()) 0 else title.length + 1
             val classificationPresent = classificationVocabulary.containsMatchIn(text)
             val occurrences = mealOccurrenceRegex.findAll(body).toList()
             if (occurrences.isEmpty()) return@articleLoop
 
             occurrences.forEachIndexed { index, occurrence ->
                 observed++
-                val offsetInText = if (title.isBlank()) occurrence.range.first else title.length + 1 + occurrence.range.first
-                val scoped = if (classificationPresent) {
+                val targetOffset = bodyOffset + occurrence.range.first
+                val scopeWindow = if (classificationPresent) {
                     OfficialKaliProfileMatcherV2.nearestScopeWindow(
                         rawText = text,
                         classification = profile.classification,
                         professionalStatus = status,
-                        targetOffset = offsetInText,
+                        targetOffset = targetOffset,
                         before = 220,
                         after = 700,
                         maxClassificationSpan = 360
-                    )?.text
+                    )
                 } else {
                     text.takeIf { OfficialKaliProfileMatcherV2.statusScopeMatches(it, status) }
+                        ?.let { OfficialKaliProfileMatcherV2.Window(it, 0, it.length) }
                 }
-                if (scoped == null) {
+                if (scopeWindow == null) {
                     unresolved++
-                    reasons += "KALI repas $scope $articleId : occurrence ${index + 1} hors portée exacte du profil ; aucun droit n'est créé."
+                    reasons += "KALI repas $kaliText $articleId : occurrence ${index + 1} hors portée exacte du profil ; aucun droit n'est créé."
                     return@forEachIndexed
                 }
 
-                val occurrenceText = isolateMealOccurrence(scoped)
+                val occurrenceText = isolateMealOccurrence(
+                    scope = scopeWindow.text,
+                    targetOffset = targetOffset - scopeWindow.start
+                )
                 if (territorialVocabulary.containsMatchIn(occurrenceText)) {
                     unresolved++
-                    reasons += "KALI repas $scope $articleId : portée territoriale détectée mais non structurée dans ce lot ; règle bloquée."
+                    reasons += "KALI repas $kaliText $articleId : portée territoriale détectée mais non structurée dans ce lot ; règle bloquée."
                     return@forEachIndexed
                 }
 
@@ -109,29 +115,27 @@ object OfficialKaliMealBasketParserV2 {
                 val eligibility = parseEligibility(occurrenceText)
                 if (amount == null || eligibility.isEmpty()) {
                     unresolved++
-                    reasons += "KALI repas $scope $articleId : occurrence ${index + 1} sans montant/formule et conditions complètes dans la même portée ; règle bloquée."
+                    reasons += "KALI repas $kaliText $articleId : occurrence ${index + 1} sans montant/formule et conditions complètes dans sa propre clause ; règle bloquée."
                     return@forEachIndexed
                 }
 
-                val excludedEmployment = excludedEmploymentRegex.find(occurrenceText)?.groupValues?.getOrNull(1)
-                    ?.trim()?.takeIf { it.isNotBlank() }
                 val extensionStatus = when {
-                    officialStatus == "VIGUEUR_ETEN" && article.extensionEffectiveFrom != null ->
-                        ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
+                    officialStatus == "VIGUEUR_ETEN" && article.extensionEffectiveFrom != null -> ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
                     officialStatus == "VIGUEUR_NON_ETEN" -> ConventionMinimumSalaryV2.ExtensionStatus.NOT_EXTENDED
                     else -> ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN
                 }
                 val extensionDate = article.extensionEffectiveFrom.takeIf {
                     extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED
                 }
-                val blockers = parseBlockers(occurrenceText)
+                val excludedEmployment = excludedEmploymentRegex.find(occurrenceText)?.groupValues?.getOrNull(1)
+                    ?.trim()?.takeIf { it.isNotBlank() }
                 val delivery = if (mealOrCashRegex.containsMatchIn(occurrenceText)) {
                     ConventionMealBasketV2.DeliveryMode.EMPLOYER_MEAL_OR_CASH_IF_NOT_PROVIDED
                 } else ConventionMealBasketV2.DeliveryMode.CASH_ALLOWANCE
 
                 val rule = ConventionMealBasketV2.Rule(
                     idcc = kaliIdcc,
-                    ruleId = "KALI-MEAL-$scope-$articleId-${index + 1}",
+                    ruleId = "KALI-MEAL-$kaliText-$articleId-${index + 1}",
                     benefitId = benefitId(occurrenceText, index),
                     effectiveFrom = article.effectiveFrom,
                     effectiveTo = article.effectiveTo,
@@ -141,20 +145,20 @@ object OfficialKaliMealBasketParserV2 {
                     deliveryMode = delivery,
                     amountFormula = amount,
                     eligibilityAnyOf = eligibility,
-                    blockers = blockers,
+                    blockers = parseBlockers(occurrenceText),
                     countingUnit = if (perWorkedDayRegex.containsMatchIn(occurrenceText)) {
                         ConventionMealBasketV2.CountingUnit.WORKED_DAY
                     } else ConventionMealBasketV2.CountingUnit.SHIFT,
                     maxAwardsPerCalendarDay = 1,
-                    source = "Légifrance KALI — $scope — $articleId",
-                    conventionScopeKey = scope,
+                    source = "Légifrance KALI — $kaliText — $articleId",
+                    conventionScopeKey = kaliText,
                     evidenceArticleIds = setOf(articleId),
                     extensionStatus = extensionStatus,
                     extensionEffectiveFrom = extensionDate
                 )
                 if (!rule.structurallyValid()) {
                     unresolved++
-                    reasons += "KALI repas $scope $articleId : occurrence ${index + 1} structurée mais incohérente ; règle rejetée."
+                    reasons += "KALI repas $kaliText $articleId : occurrence ${index + 1} structurée mais incohérente ; règle rejetée."
                 } else {
                     structured++
                     rules += rule
@@ -176,65 +180,56 @@ object OfficialKaliMealBasketParserV2 {
     }
 
     private fun parseAmount(text: String): ConventionMealBasketV2.AmountFormula? {
-        val fixed = fixedAmountRegex.findAll(text).mapNotNull { match ->
-            parseNumber(match.groupValues[1])?.takeIf { it in 0.01..1000.0 }
-        }.distinct().toList()
-        val mg = minimumGuaranteedRegex.findAll(text).mapNotNull { match ->
-            parseNumber(match.groupValues[1])?.takeIf { it > 0.0 && it <= 100.0 }
-        }.distinct().toList()
-        val candidates = buildList<ConventionMealBasketV2.AmountFormula> {
-            if (fixed.size == 1) add(ConventionMealBasketV2.AmountFormula.FixedEuro(fixed.single()))
-            if (mg.size == 1) add(ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple(mg.single()))
-            if (fixed.isEmpty() && mg.isEmpty() && externalAgreementAmountRegex.containsMatchIn(text)) {
-                add(ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount)
-            }
+        val fixed = fixedAmountRegex.findAll(text).mapNotNull { parseNumber(it.groupValues[1])?.takeIf { value -> value in 0.01..1000.0 } }.distinct().toList()
+        val mg = minimumGuaranteedRegex.findAll(text).mapNotNull { parseNumber(it.groupValues[1])?.takeIf { value -> value > 0.0 && value <= 100.0 } }.distinct().toList()
+        if (fixed.size > 1 || mg.size > 1 || (fixed.isNotEmpty() && mg.isNotEmpty())) return null
+        return when {
+            fixed.size == 1 -> ConventionMealBasketV2.AmountFormula.FixedEuro(fixed.single())
+            mg.size == 1 -> ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple(mg.single())
+            externalAgreementAmountRegex.containsMatchIn(text) -> ConventionMealBasketV2.AmountFormula.ExternalAgreementAmount
+            else -> null
         }
-        return candidates.singleOrNull()
     }
 
     private fun parseEligibility(text: String): List<ConventionMealBasketV2.EligibilityGroup> {
         val groups = mutableListOf<ConventionMealBasketV2.EligibilityGroup>()
-        val common = mutableListOf<ConventionMealBasketV2.Condition>()
-        if (postedWorkerRegex.containsMatchIn(text)) common += ConventionMealBasketV2.Condition.PostedShiftWorker
-        if (unableHomeRegex.containsMatchIn(text)) common += ConventionMealBasketV2.Condition.UnableToReturnHomeForMeal
-        if (awayWorkplaceRegex.containsMatchIn(text)) common += ConventionMealBasketV2.Condition.WorksAwayFromUsualWorkplace
-        if (mustEatAtWorkRegex.containsMatchIn(text)) common += ConventionMealBasketV2.Condition.MustEatAtWorkplace
-        if (perWorkedDayRegex.containsMatchIn(text)) common += ConventionMealBasketV2.Condition.WorkedDay
+        val common = buildList<ConventionMealBasketV2.Condition> {
+            if (postedWorkerRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.PostedShiftWorker)
+            if (unableHomeRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.UnableToReturnHomeForMeal)
+            if (awayWorkplaceRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.WorksAwayFromUsualWorkplace)
+            if (mustEatAtWorkRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.MustEatAtWorkplace)
+            if (perWorkedDayRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.WorkedDay)
+        }
 
-        val fixedWindows = effectiveWindowRegex.findAll(text).mapNotNull { match ->
-            val minHours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
+        effectiveWindowRegex.findAll(text).mapNotNull { match ->
+            val hours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
             val start = parseClock(match.groupValues[2], match.groupValues[3]) ?: return@mapNotNull null
             val end = parseClock(match.groupValues[4], match.groupValues[5]) ?: return@mapNotNull null
-            val minutes = (minHours * 60.0).toInt().takeIf { kotlin.math.abs(it / 60.0 - minHours) < 0.001 } ?: return@mapNotNull null
+            val minutes = (hours * 60.0).toInt()
             ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInFixedWindow(
                 ConventionMealBasketV2.DailyWindow(start, end), minutes
             ).takeIf { it.structurallyValid() }
-        }.toList()
-        fixedWindows.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
+        }.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
 
-        val employerWindows = employerWindowRegex.findAll(text).mapNotNull { match ->
+        employerWindowRegex.findAll(text).mapNotNull { match ->
             val windowHours = parseNumber(match.groupValues[1]) ?: return@mapNotNull null
-            val envelopeStart = parseClock(match.groupValues[2], match.groupValues[3]) ?: return@mapNotNull null
-            val envelopeEnd = parseClock(match.groupValues[4], match.groupValues[5]) ?: return@mapNotNull null
-            val minHours = parseNumber(match.groupValues[6]) ?: return@mapNotNull null
-            val windowMinutes = (windowHours * 60.0).toInt()
-            val minimumMinutes = (minHours * 60.0).toInt()
+            val start = parseClock(match.groupValues[2], match.groupValues[3]) ?: return@mapNotNull null
+            val end = parseClock(match.groupValues[4], match.groupValues[5]) ?: return@mapNotNull null
+            val minimumHours = parseNumber(match.groupValues[6]) ?: return@mapNotNull null
             ConventionMealBasketV2.Condition.MinimumEffectiveMinutesInEmployerWindow(
-                ConventionMealBasketV2.DailyWindow(envelopeStart, envelopeEnd),
-                windowMinutes,
-                minimumMinutes
+                ConventionMealBasketV2.DailyWindow(start, end),
+                (windowHours * 60.0).toInt(),
+                (minimumHours * 60.0).toInt()
             ).takeIf { it.structurallyValid() }
-        }.toList()
-        employerWindows.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
+        }.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
 
-        val startEndWindows = startsEndsWindowRegex.findAll(text).mapNotNull { match ->
+        startsEndsWindowRegex.findAll(text).mapNotNull { match ->
             val start = parseClock(match.groupValues[1], match.groupValues[2]) ?: return@mapNotNull null
             val end = parseClock(match.groupValues[3], match.groupValues[4]) ?: return@mapNotNull null
             ConventionMealBasketV2.Condition.ShiftStartsOrEndsInWindow(
                 ConventionMealBasketV2.DailyWindow(start, end)
             ).takeIf { it.structurallyValid() }
-        }.toList()
-        startEndWindows.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
+        }.forEach { groups += ConventionMealBasketV2.EligibilityGroup((common + it).distinct()) }
 
         if (enclosesMidnightRegex.containsMatchIn(text)) {
             groups += ConventionMealBasketV2.EligibilityGroup((common + ConventionMealBasketV2.Condition.ShiftEnclosesMidnight).distinct())
@@ -256,12 +251,14 @@ object OfficialKaliMealBasketParserV2 {
         }
     }
 
-    private fun isolateMealOccurrence(scope: String): String {
-        val first = mealOccurrenceRegex.find(scope) ?: return scope
-        val next = mealOccurrenceRegex.find(scope, first.range.last + 1)
-        val start = (first.range.first - 260).coerceAtLeast(0)
-        val end = minOf(scope.length, next?.range?.first ?: scope.length, first.range.last + 1 + 760)
-        return scope.substring(start, end)
+    private fun isolateMealOccurrence(scope: String, targetOffset: Int): String {
+        val occurrences = mealOccurrenceRegex.findAll(scope).toList()
+        val target = occurrences.minByOrNull { abs(it.range.first - targetOffset) } ?: return scope
+        val previous = occurrences.lastOrNull { it.range.first < target.range.first }
+        val next = occurrences.firstOrNull { it.range.first > target.range.first }
+        val start = maxOf((target.range.first - 260).coerceAtLeast(0), previous?.range?.last?.plus(1) ?: 0)
+        val end = minOf(scope.length, next?.range?.first ?: scope.length, target.range.last + 1 + 760)
+        return if (end > start) scope.substring(start, end) else ""
     }
 
     private fun parseClock(hourRaw: String, minuteRaw: String): Int? {
@@ -280,12 +277,15 @@ object OfficialKaliMealBasketParserV2 {
     }
 
     private fun unresolved(reason: String) = Diagnostic(
-        rules = emptyList(), observedOccurrences = 0, structuredOccurrences = 0, unresolvedOccurrences = 0,
+        rules = emptyList(),
+        observedOccurrences = 0,
+        structuredOccurrences = 0,
+        unresolvedOccurrences = 0,
         reasons = listOf("KALI repas : $reason ; aucun droit n'est enregistré.")
     )
 
     private val mealOccurrenceRegex = Regex("\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b")
-    private val fixedAmountRegex = Regex("(?:panier|indemnite|allocation|prime)[^.;\\n]{0,100}?([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?)\\b")
+    private val fixedAmountRegex = Regex("(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?)\\b")
     private val minimumGuaranteedRegex = Regex("([0-9]+(?:[.,][0-9]+)?)\\s*(?:fois|x)\\s*(?:le\\s+)?minimum garanti\\b")
     private val externalAgreementAmountRegex = Regex("\\bmontant\\b[^.;\\n]{0,120}?\\b(?:fixe|determine|prevu)\\b[^.;\\n]{0,80}?\\b(?:accord|avenant)\\b")
     private val postedWorkerRegex = Regex("\\b(?:travail poste|travail en equipes?|equipes? successives?|personnel poste)\\b")
