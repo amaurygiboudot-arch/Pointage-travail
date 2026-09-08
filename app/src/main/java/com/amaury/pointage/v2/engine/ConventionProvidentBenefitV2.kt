@@ -122,10 +122,12 @@ object ConventionProvidentBenefitV2 {
 
     data class Resolution(
         val guarantees: List<Guarantee>,
-        val selectedRule: Rule?,
+        val selectedRules: List<Rule>,
         val reliable: Boolean,
         val warnings: List<String>
     )
+
+    private data class Candidate(val rule: Rule, val guarantee: Guarantee)
 
     fun resolve(
         rules: List<Rule>,
@@ -173,33 +175,64 @@ object ConventionProvidentBenefitV2 {
         if (seniorityMatched.isEmpty()) {
             return Resolution(
                 guarantees = emptyList(),
-                selectedRule = null,
+                selectedRules = emptyList(),
                 reliable = true,
                 warnings = listOf("Prévoyance conventionnelle IDCC $normalized : ancienneté insuffisante pour les garanties vérifiées à cette date.")
             )
         }
 
-        val latestDate = seniorityMatched.maxOf { it.effectiveFrom }
-        val latest = seniorityMatched.filter { it.effectiveFrom == latestDate }
-        fun specificity(rule: Rule) = rule.classification.specificity() +
-            (if (rule.professionalStatus == null) 0 else 1) +
-            (if (rule.aniCategories.isEmpty()) 0 else 1)
-        val maxSpecificity = latest.maxOf(::specificity)
-        val best = latest.filter { specificity(it) == maxSpecificity }
-        if (best.size != 1) return unresolved("plusieurs ensembles de garanties de même précision se contredisent")
+        val candidates = seniorityMatched.flatMap { rule -> rule.guarantees.map { Candidate(rule, it) } }
+        val selectedGuarantees = mutableListOf<Guarantee>()
+        val selectedRules = mutableListOf<Rule>()
 
-        val selected = best.single()
+        candidates.groupBy { it.guarantee.family to it.guarantee.invalidityCategory }
+            .toSortedMap(compareBy({ it.first.name }, { it.second ?: 0 }))
+            .forEach { (key, familyCandidates) ->
+                val latestDate = familyCandidates.maxOf { it.rule.effectiveFrom }
+                val latest = familyCandidates.filter { it.rule.effectiveFrom == latestDate }
+                val maxSpecificity = latest.maxOf { specificity(it.rule) }
+                val best = latest.filter { specificity(it.rule) == maxSpecificity }
+                val fingerprints = best.map { guaranteeFingerprint(it.guarantee) }.distinct()
+                if (fingerprints.size != 1) {
+                    return unresolved(
+                        "plusieurs garanties ${key.first.name}${key.second?.let { " catégorie $it" }.orEmpty()} de même précision se contredisent"
+                    )
+                }
+                val merged = best.first().guarantee.copy(
+                    evidenceArticleIds = best.flatMap { it.guarantee.evidenceArticleIds }.toSet()
+                )
+                selectedGuarantees += merged
+                selectedRules += best.map { it.rule }
+            }
+
         return Resolution(
-            guarantees = selected.guarantees,
-            selectedRule = selected,
+            guarantees = selectedGuarantees,
+            selectedRules = selectedRules.distinctBy { it.ruleId },
             reliable = true,
-            warnings = listOf("Garanties de prévoyance issues uniquement du texte conventionnel vérifié : ${selected.source}.")
+            warnings = listOf(
+                "Garanties de prévoyance issues uniquement de ${selectedRules.distinctBy { it.ruleId }.size} règle(s) conventionnelle(s) vérifiée(s)."
+            )
         )
     }
 
+    private fun specificity(rule: Rule) = rule.classification.specificity() +
+        (if (rule.professionalStatus == null) 0 else 1) +
+        (if (rule.aniCategories.isEmpty()) 0 else 1)
+
+    private fun guaranteeFingerprint(value: Guarantee): String = listOf(
+        value.family.name,
+        value.formula.basis.name,
+        value.formula.coefficient?.toString().orEmpty(),
+        value.formula.fixedAmount?.toString().orEmpty(),
+        value.waitingPeriodDays?.toString().orEmpty(),
+        value.maximumDurationDays?.toString().orEmpty(),
+        value.invalidityCategory?.toString().orEmpty(),
+        value.socialSecurityTreatment.name
+    ).joinToString("|")
+
     private fun unresolved(reason: String) = Resolution(
         guarantees = emptyList(),
-        selectedRule = null,
+        selectedRules = emptyList(),
         reliable = false,
         warnings = listOf("Garanties de prévoyance : $reason ; aucun droit n'est inventé.")
     )
