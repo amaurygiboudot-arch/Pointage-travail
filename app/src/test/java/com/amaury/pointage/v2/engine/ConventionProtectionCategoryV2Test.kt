@@ -245,7 +245,7 @@ class ConventionProtectionCategoryV2Test {
     }
 
     @Test
-    fun `absence de règle n est fiable que si couverture PROVIDENT_CATEGORY prouve le bon périmètre`() {
+    fun `absence de règle n est fiable que si KALI et APEC couvrent le bon périmètre`() {
         val scope = ConventionClassificationV2(level = "VII", echelon = "A")
         val record = ConventionMatterCoverageV2.Record(
             idcc = "1979",
@@ -255,8 +255,12 @@ class ConventionProtectionCategoryV2Test {
             classification = scope,
             professionalStatus = "CADRE",
             state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
-            source = "Légifrance KALI — couverture exhaustive test",
-            checkedAtMs = 1L
+            source = "Légifrance KALI + commission paritaire APEC — couverture exhaustive test",
+            checkedAtMs = 1L,
+            authorities = setOf(
+                ConventionMatterCoverageV2.Authority.KALI,
+                ConventionMatterCoverageV2.Authority.APEC
+            )
         )
         val coverage = ConventionMatterCoverageV2.Snapshot(
             state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
@@ -276,6 +280,39 @@ class ConventionProtectionCategoryV2Test {
         assertTrue(result.reliable)
         assertEquals(ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE, result.category.aniCategory)
         assertTrue(result.category.confirmed)
+    }
+
+    @Test
+    fun `couverture KALI seule ne peut jamais conclure a aucune règle ANI`() {
+        val scope = ConventionClassificationV2(level = "VII", echelon = "A")
+        val record = ConventionMatterCoverageV2.Record(
+            idcc = "1979",
+            matter = ConventionMatterCoverageV2.Matter.PROVIDENT_CATEGORY,
+            effectiveFrom = LocalDate.of(2026, 9, 1),
+            effectiveTo = LocalDate.of(2026, 9, 30),
+            classification = scope,
+            professionalStatus = "CADRE",
+            state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+            source = "Légifrance KALI — couverture incomplète sans APEC",
+            checkedAtMs = 1L,
+            authorities = setOf(ConventionMatterCoverageV2.Authority.KALI)
+        )
+        val result = ConventionProtectionCategoryV2.resolve(
+            idcc = "1979",
+            referenceDate = date,
+            classification = scope,
+            professionalStatus = "CADRE",
+            rules = emptyList(),
+            coverage = ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+                record = record,
+                reliable = true,
+                warnings = emptyList()
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(ProtectionCategoryV2.AniCategory.TO_CONFIRM, result.category.aniCategory)
     }
 
     @Test
@@ -311,7 +348,11 @@ class ConventionProtectionCategoryV2Test {
             professionalStatus = "CADRE",
             state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
             source = "Légifrance KALI — test mauvaise matière",
-            checkedAtMs = 1L
+            checkedAtMs = 1L,
+            authorities = setOf(
+                ConventionMatterCoverageV2.Authority.KALI,
+                ConventionMatterCoverageV2.Authority.APEC
+            )
         )
         val result = ConventionProtectionCategoryV2.resolve(
             idcc = "1979",
