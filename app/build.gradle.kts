@@ -77,12 +77,13 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    // PDFBox-Android 2.0.27.0 déclare encore Bouncy Castle 1.72. Aligner explicitement
-    // la famille jdk15to18 sur 1.85.2 corrige les CVE transitives et le doublon Android de 1.85.
-    implementation(platform("org.bouncycastle:bc-jdk15to18-bom:1.85.2"))
-    implementation("org.bouncycastle:bcprov-jdk15to18")
-    implementation("org.bouncycastle:bcpkix-jdk15to18")
-    implementation("org.bouncycastle:bcutil-jdk15to18")
+    // PDFBox-Android 2.0.27.0 déclare Bouncy Castle 1.72. Les versions ci-dessous
+    // remplacent explicitement ces transitives par les correctifs officiels 1.85.x :
+    // bcprov 1.85.2 et bcutil 1.85.1 corrigent le défaut de packaging Android de 1.85,
+    // tandis que bcpkix reste sur sa version publiée 1.85 compatible avec ces patchs.
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.85.2")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.85")
+    implementation("org.bouncycastle:bcutil-jdk15to18:1.85.1")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.biometric:biometric:1.1.0")
