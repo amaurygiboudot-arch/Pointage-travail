@@ -37,6 +37,7 @@ object OfficialKaliProfileMatcherV2 {
         .replace('’', '\'')
         .replace(Regex("\\s+"), " ")
         .trim()
+        .trimEnd('.', ',', ';', ':')
 
     private fun classificationPositionGroups(text: String, value: ConventionClassificationV2): List<List<Int>>? {
         val groups = mutableListOf<List<Int>>()
