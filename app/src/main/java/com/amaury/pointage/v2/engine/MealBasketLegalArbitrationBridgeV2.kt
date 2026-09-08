@@ -8,8 +8,8 @@ import java.time.LocalDate
  * Arbitrage L2253-3 des paniers repas : accord d'entreprise avant branche pour le même objet.
  *
  * Les familles jour/nuit/poste/hors domicile sont arbitrées séparément. Si une règle KALI existe
- * sans règle ACCO du même objet, le repli vers KALI exige une preuve explicite d'absence ACCO ;
- * un store ACCO vide ou une recherche vide ne suffisent jamais.
+ * sans règle ACCO du même objet, le repli vers KALI exige une preuve explicite d'absence ACCO
+ * POUR CET OBJET. Une absence globale ou un store ACCO vide ne suffisent jamais.
  */
 object MealBasketLegalArbitrationBridgeV2 {
     data class Selected(
@@ -31,7 +31,10 @@ object MealBasketLegalArbitrationBridgeV2 {
         branchRules: List<ConventionMealBasketV2.Rule>,
         companyRules: List<OfficialAccoMealBasketParserV2.Rule>,
         territoryCode: String? = null,
-        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
+        sourceKnowledgeBySubject: Map<
+            String,
+            Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge>
+        > = emptyMap()
     ): Result {
         val siret = profile.siret.filter(Char::isDigit)
         if (siret.length != 14 || profile.classification.isEmpty() || profile.professionalStatus == null) {
@@ -70,11 +73,12 @@ object MealBasketLegalArbitrationBridgeV2 {
             )
         }
 
+        val normalizedKnowledge = sourceKnowledgeBySubject.mapKeys { subject(it.key) }
         val selected = mutableListOf<Selected>()
         val warnings = mutableListOf<String>()
-        subjects.forEach { subject ->
-            val branch = branchBySubject[subject].orEmpty()
-            val company = companyBySubject[subject].orEmpty()
+        subjects.forEach { currentSubject ->
+            val branch = branchBySubject[currentSubject].orEmpty()
+            val company = companyBySubject[currentSubject].orEmpty()
             val candidates = buildList {
                 branch.forEach { rule ->
                     add(
@@ -107,9 +111,9 @@ object MealBasketLegalArbitrationBridgeV2 {
                 candidates = candidates,
                 referenceDate = referenceDate,
                 policy = PayrollLegalArbitratorV2.Policy.ENTERPRISE_PREVAILS_L2253_3,
-                sourceKnowledge = sourceKnowledge
+                sourceKnowledge = normalizedKnowledge[currentSubject].orEmpty()
             )
-            warnings += "Panier $subject : ${arbitration.explanation}"
+            warnings += "Panier $currentSubject : ${arbitration.explanation}"
             if (arbitration.state != PayrollLegalArbitratorV2.State.RESOLVED || arbitration.selected == null) {
                 return Result(emptyList(), false, warnings.distinct())
             }
@@ -117,16 +121,16 @@ object MealBasketLegalArbitrationBridgeV2 {
                 PayrollLegalArbitratorV2.Source.ACCO -> {
                     val id = arbitration.selected.id.removePrefix("ACCO:")
                     val chosen = company.singleOrNull { "${it.agreementId}:${it.benefitId}" == id }
-                        ?: return blocked("règle ACCO arbitrée introuvable ou ambiguë pour $subject", warnings)
-                    selected += Selected(subject, PayrollLegalArbitratorV2.Source.ACCO, companyRule = chosen)
+                        ?: return blocked("règle ACCO arbitrée introuvable ou ambiguë pour $currentSubject", warnings)
+                    selected += Selected(currentSubject, PayrollLegalArbitratorV2.Source.ACCO, companyRule = chosen)
                 }
                 PayrollLegalArbitratorV2.Source.KALI -> {
                     val id = arbitration.selected.id.removePrefix("KALI:")
                     val chosen = branch.singleOrNull { it.ruleId == id }
-                        ?: return blocked("règle KALI arbitrée introuvable ou ambiguë pour $subject", warnings)
-                    selected += Selected(subject, PayrollLegalArbitratorV2.Source.KALI, branchRule = chosen)
+                        ?: return blocked("règle KALI arbitrée introuvable ou ambiguë pour $currentSubject", warnings)
+                    selected += Selected(currentSubject, PayrollLegalArbitratorV2.Source.KALI, branchRule = chosen)
                 }
-                else -> return blocked("source arbitrée non autorisée pour $subject", warnings)
+                else -> return blocked("source arbitrée non autorisée pour $currentSubject", warnings)
             }
         }
 
