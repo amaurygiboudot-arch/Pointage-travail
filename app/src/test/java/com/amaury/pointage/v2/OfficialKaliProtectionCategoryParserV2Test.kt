@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
+import com.amaury.pointage.v2.engine.ConventionProtectionCategoryV2
 import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -55,7 +56,7 @@ class OfficialKaliProtectionCategoryParserV2Test {
     ) = OfficialKaliProtectionCategoryParserV2.parse(article, profile, auditDate, verifiedIdcc)
 
     @Test
-    fun `Plasturgie plage 900 a 940 classe 910 en ANI 2 1`() {
+    fun `Plasturgie plage 900 a 940 produit une preuve KALI 2 1 mais pas un agrément APEC`() {
         val diagnostic = parse(
             article(
                 "Pour l'application des stipulations de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les ingénieurs et cadres relevant des coefficients 900 à 940 de la classification."
@@ -67,6 +68,12 @@ class OfficialKaliProtectionCategoryParserV2Test {
         assertEquals(910, diagnostic.rule!!.classification.coefficient)
         assertEquals("0292", diagnostic.rule!!.idcc)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED, diagnostic.rule!!.extensionStatus)
+        assertEquals(
+            ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+            diagnostic.rule!!.approvalStatus
+        )
+        assertNull(diagnostic.rule!!.conventionScopeKey)
+        assertTrue(diagnostic.reasons.any { it.contains("APEC") })
     }
 
     @Test
@@ -83,6 +90,22 @@ class OfficialKaliProtectionCategoryParserV2Test {
 
         assertNotNull(accepted.rule)
         assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_2, accepted.rule!!.aniCategory)
+        assertNull(rejected.rule)
+    }
+
+    @Test
+    fun `coefficient explicite a un chiffre reste lisible sans inventer une plage`() {
+        val text = "Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les agents de maîtrise relevant du coefficient 5."
+        val accepted = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(coefficient = 5))
+        )
+        val rejected = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(coefficient = 6))
+        )
+
+        assertNotNull(accepted.rule)
         assertNull(rejected.rule)
     }
 
@@ -197,8 +220,55 @@ class OfficialKaliProtectionCategoryParserV2Test {
     }
 
     @Test
+    fun `niveau alphanumerique et echelon doivent former un couple explicite`() {
+        val text = "Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés du niveau F11 - échelon A."
+        val accepted = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(level = "F11", echelon = "A"))
+        )
+        val rejected = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(level = "F11", echelon = "B"))
+        )
+
+        assertNotNull(accepted.rule)
+        assertNull(rejected.rule)
+    }
+
+    @Test
     fun `niveau et echelon ne sont jamais croises entre deux couples`() {
         val text = "Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les salariés du niveau VI - échelon A et du niveau VII - échelon B."
+        val diagnostic = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(level = "VI", echelon = "B"))
+        )
+
+        assertNull(diagnostic.rule)
+    }
+
+    @Test
+    fun `en tete ANI suivi de puces explicites conserve seulement le contexte immediat`() {
+        val text = """
+            Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres :
+            - niveau VI - échelon A
+            - niveau VI - échelon B
+        """.trimIndent()
+        val accepted = parse(
+            article(text),
+            profile(status = "NON_CADRE", classification = ConventionClassificationV2(level = "VI", echelon = "B"))
+        )
+
+        assertNotNull(accepted.rule)
+        assertEquals(ProtectionCategoryV2.AniCategory.ARTICLE_2_2, accepted.rule!!.aniCategory)
+    }
+
+    @Test
+    fun `paragraphe ordinaire coupe le contexte ANI avant une puce`() {
+        val text = """
+            Pour l'application de l'article 2.2 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres :
+            Ce paragraphe traite désormais d'un autre objet sans classification.
+            - niveau VI - échelon B
+        """.trimIndent()
         val diagnostic = parse(
             article(text),
             profile(status = "NON_CADRE", classification = ConventionClassificationV2(level = "VI", echelon = "B"))
@@ -243,7 +313,39 @@ class OfficialKaliProtectionCategoryParserV2Test {
 
         assertNotNull(diagnostic.rule)
         assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN, diagnostic.rule!!.extensionStatus)
-        assertTrue(diagnostic.reasons.any { it.contains("applicabilité automatique bloquée") })
+        assertTrue(diagnostic.reasons.any { it.contains("extension officielle exacte non prouvée") })
+    }
+
+    @Test
+    fun `statut VIGUEUR conserve une preuve avec extension inconnue`() {
+        val diagnostic = parse(
+            article(
+                content = "Pour l'application de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les cadres relevant du coefficient 910.",
+                status = "VIGUEUR",
+                extension = null
+            )
+        )
+
+        assertNotNull(diagnostic.rule)
+        assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN, diagnostic.rule!!.extensionStatus)
+        assertEquals(
+            ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+            diagnostic.rule!!.approvalStatus
+        )
+    }
+
+    @Test
+    fun `statut VIGUEUR_DIFF conserve une preuve mais jamais une extension supposee`() {
+        val diagnostic = parse(
+            article(
+                content = "Pour l'application de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les cadres relevant du coefficient 910.",
+                status = "VIGUEUR_DIFF",
+                extension = null
+            )
+        )
+
+        assertNotNull(diagnostic.rule)
+        assertEquals(ConventionMinimumSalaryV2.ExtensionStatus.UNKNOWN, diagnostic.rule!!.extensionStatus)
     }
 
     @Test
@@ -299,11 +401,11 @@ class OfficialKaliProtectionCategoryParserV2Test {
     }
 
     @Test
-    fun `statut officiel inconnu est refuse`() {
+    fun `statut officiel abroge est refuse`() {
         val diagnostic = parse(
             article(
                 content = "Pour l'application de l'article 2.1 de l'accord national interprofessionnel du 17 novembre 2017 relatif à la prévoyance des cadres, sont visés les cadres relevant du coefficient 910.",
-                status = "VIGUEUR"
+                status = "ABROGE"
             )
         )
 
