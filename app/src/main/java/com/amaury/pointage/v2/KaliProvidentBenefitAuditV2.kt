@@ -71,39 +71,68 @@ object KaliProvidentBenefitAuditV2 {
             ?: return Tasks.forResult(emptySummary("", referenceDate, "entreprise introuvable"))
         if (profile.idcc.isBlank()) return Tasks.forResult(emptySummary("", referenceDate, "IDCC manquant"))
         if (profile.classification.isEmpty()) {
-            markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, emptySet(),
-                "Classification locale manquante")
+            markCoverage(
+                context,
+                profile,
+                referenceDate,
+                ConventionMatterCoverageV2.State.INCOMPLETE,
+                emptySet(),
+                "Classification locale manquante"
+            )
             return Tasks.forResult(emptySummary(profile.idcc, referenceDate, "classification conventionnelle exacte requise"))
         }
         if (profile.professionalStatus == null) {
-            markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, emptySet(),
-                "Statut cadre/non-cadre local manquant")
+            markCoverage(
+                context,
+                profile,
+                referenceDate,
+                ConventionMatterCoverageV2.State.INCOMPLETE,
+                emptySet(),
+                "Statut cadre/non-cadre local manquant"
+            )
             return Tasks.forResult(emptySummary(profile.idcc, referenceDate, "statut cadre/non-cadre exact requis"))
         }
 
         val category = VerifiedProtectionCategoryProviderV2.resolve(context, companyId, referenceDate)
         if (!category.reliable || !category.category.confirmed) {
-            markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, emptySet(),
-                "Catégorie ANI KALI + APEC non confirmée")
+            markCoverage(
+                context,
+                profile,
+                referenceDate,
+                ConventionMatterCoverageV2.State.INCOMPLETE,
+                emptySet(),
+                "Catégorie ANI KALI + APEC non confirmée"
+            )
             return Tasks.forResult(
                 emptySummary(profile.idcc, referenceDate, "catégorie ANI exacte requise").copy(
-                    warnings = (category.warnings + "KALI garanties prévoyance : catégorie ANI exacte requise avant audit.").distinct()
+                    warnings = (category.warnings +
+                        "KALI garanties prévoyance : catégorie ANI exacte requise avant audit.").distinct()
                 )
             )
         }
 
         val seniorityMonths = seniorityMonths(profile, referenceDate)
         if (seniorityMonths == null) {
-            markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, emptySet(),
-                "Ancienneté conventionnelle locale non déterminable")
+            markCoverage(
+                context,
+                profile,
+                referenceDate,
+                ConventionMatterCoverageV2.State.INCOMPLETE,
+                emptySet(),
+                "Ancienneté conventionnelle locale non déterminable"
+            )
             return Tasks.forResult(emptySummary(profile.idcc, referenceDate, "ancienneté conventionnelle requise"))
         }
 
         return KaliMatterEvidenceAuditV2.audit(profile.idcc, referenceDate, EXPRESSIONS).continueWith { task ->
             if (!task.isSuccessful) {
                 markCoverage(
-                    context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE,
-                    setOf(ConventionMatterCoverageV2.Authority.KALI), "Collecte KALI garanties prévoyance interrompue"
+                    context,
+                    profile,
+                    referenceDate,
+                    ConventionMatterCoverageV2.State.INCOMPLETE,
+                    setOf(ConventionMatterCoverageV2.Authority.KALI),
+                    "Collecte KALI garanties prévoyance interrompue"
                 )
                 return@continueWith emptySummary(profile.idcc, referenceDate, "collecte officielle impossible")
             }
@@ -245,29 +274,38 @@ object KaliProvidentBenefitAuditV2 {
         val ambiguous = evidence.ambiguousArticleTextIds.map { it.trim().uppercase(Locale.ROOT) }.toSet()
         val status = profile.professionalStatus ?: return emptyList()
         return buildList {
-            evidence.articles.forEach { article ->
+            evidence.articles.forEach articleLoop@ { article ->
                 val articleId = article.articleId.trim().uppercase(Locale.ROOT)
-                if (articleId in ambiguous) return@forEach
-                if (evidence.referenceDate.isBefore(article.effectiveFrom) || article.effectiveTo?.let(evidence.referenceDate::isAfter) == true) {
-                    return@forEach
-                }
-                val scope = evidence.articleTextIds[articleId]
-                    ?: evidence.articleTextIds.entries.firstOrNull { it.key.equals(articleId, ignoreCase = true) }?.value
-                    ?: return@forEach
-                if (!scope.matches(Regex("^KALITEXT\\d+$"))) return@forEach
-                val text = OfficialKaliProfileMatcherV2.normalize(listOfNotNull(article.title, article.content).joinToString("\n"))
-                if (classificationVocabulary.containsMatchIn(text) && OfficialKaliProfileMatcherV2.windows(
-                        rawText = text,
-                        classification = profile.classification,
-                        professionalStatus = status,
-                        before = 140,
-                        after = 360,
-                        maxClassificationSpan = 320
-                    ).isEmpty()
-                ) return@forEach
+                if (!articleId.matches(kaliArticleIdRegex) || articleId in ambiguous) return@articleLoop
+                if (article.status.trim().uppercase(Locale.ROOT) !in acceptedArticleStatuses) return@articleLoop
+                if (evidence.referenceDate.isBefore(article.effectiveFrom) ||
+                    article.effectiveTo?.let(evidence.referenceDate::isAfter) == true
+                ) return@articleLoop
+
+                val scope = (
+                    evidence.articleTextIds[articleId]
+                        ?: evidence.articleTextIds.entries.firstOrNull { it.key.equals(articleId, ignoreCase = true) }?.value
+                    )?.trim()?.uppercase(Locale.ROOT) ?: return@articleLoop
+                if (!scope.matches(kaliTextIdRegex)) return@articleLoop
+
+                val text = OfficialKaliProfileMatcherV2.normalize(
+                    listOfNotNull(article.title, article.content).joinToString("\n")
+                )
+                val classified = classificationVocabulary.containsMatchIn(text)
 
                 exclusionPatterns.forEach { (family, patterns) ->
-                    if (patterns.any { it.containsMatchIn(text) }) {
+                    val exactProfileExclusion = patterns.any { pattern ->
+                        pattern.findAll(text).any { match ->
+                            !classified || OfficialKaliProfileMatcherV2.nearestScopeMatches(
+                                rawText = text,
+                                classification = profile.classification,
+                                professionalStatus = status,
+                                targetOffset = match.range.first,
+                                maxClassificationSpan = 320
+                            )
+                        }
+                    }
+                    if (exactProfileExclusion) {
                         add(
                             ExclusionEvidence(
                                 family = family,
@@ -326,7 +364,17 @@ object KaliProvidentBenefitAuditV2 {
         )
     }
 
-    private val classificationVocabulary = Regex("\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b")
+    private val acceptedArticleStatuses = setOf(
+        "VIGUEUR",
+        "VIGUEUR_ETEN",
+        "VIGUEUR_NON_ETEN",
+        "VIGUEUR_PARTIELLE"
+    )
+    private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
+    private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
+    private val classificationVocabulary = Regex(
+        "\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b"
+    )
     private val exclusionPatterns = mapOf(
         ConventionProvidentBenefitV2.Family.DEATH_CAPITAL to listOf(
             Regex("\\b(?:aucune|absence de|sans)\\s+(?:garantie|prestation|couverture|capital)[^.;]{0,70}?deces\\b"),
