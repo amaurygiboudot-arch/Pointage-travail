@@ -41,7 +41,9 @@ object KaliProtectionCategoryAuditV2 {
         val kaliTechnicalCoverageComplete: Boolean,
         /** Toujours false dans ce lot : KALI seul ne suffit pas sans APEC. */
         val completed: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /** Identifiants effectivement persistés pendant CETTE exécution, jamais hérités du store. */
+        val savedRuleIds: List<String> = emptyList()
     )
 
     fun audit(context: Context, companyId: String, referenceDate: LocalDate): Task<Summary> {
@@ -82,10 +84,14 @@ object KaliProtectionCategoryAuditV2 {
             val evidence = task.result
             val structured = structureEvidence(profile, referenceDate, evidence)
             var saved = 0
+            val savedRuleIds = mutableListOf<String>()
             val saveWarnings = mutableListOf<String>()
             structured.scopedRules.forEach { rule ->
                 runCatching { V2ConventionProtectionCategoryStore.saveVerified(context, rule) }
-                    .onSuccess { saved += 1 }
+                    .onSuccess {
+                        saved += 1
+                        savedRuleIds += rule.ruleId
+                    }
                     .onFailure { error ->
                         saveWarnings += "KALI catégorie ANI : preuve ${rule.ruleId} non enregistrée : ${error.message ?: "stockage impossible"}."
                     }
@@ -123,7 +129,8 @@ object KaliProtectionCategoryAuditV2 {
                     }
                     add("KALI catégorie ANI : l'audit reste INCOMPLETE tant que l'agrément APEC exact n'est pas rapproché.")
                     add("KALI catégorie ANI : une recherche ciblée vide ne vaut jamais preuve d'absence de catégorie conventionnelle.")
-                }.distinct()
+                }.distinct(),
+                savedRuleIds = savedRuleIds.distinct()
             )
         }
     }
