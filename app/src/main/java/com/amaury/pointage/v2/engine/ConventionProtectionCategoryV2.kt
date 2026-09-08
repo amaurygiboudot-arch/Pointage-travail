@@ -6,8 +6,17 @@ import java.util.Locale
 /**
  * Résolution générique d'une catégorie objective ANI à partir de règles conventionnelles
  * prouvées pour une classification salariée exacte.
+ *
+ * Une classification de branche n'est applicable au classement ANI qu'après preuve de
+ * l'agrément de la commission paritaire rattachée à l'APEC. Une preuve KALI seule peut être
+ * conservée, mais reste bloquée tant que cet agrément n'est pas rattaché à la règle.
  */
 object ConventionProtectionCategoryV2 {
+    enum class ApprovalStatus {
+        APEC_APPROVED,
+        APEC_REQUIRED_UNVERIFIED
+    }
+
     data class Rule(
         val idcc: String,
         val ruleId: String,
@@ -19,11 +28,18 @@ object ConventionProtectionCategoryV2 {
         val aniCategory: ProtectionCategoryV2.AniCategory,
         val source: String,
         val extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus,
-        val extensionEffectiveFrom: LocalDate? = null
+        val extensionEffectiveFrom: LocalDate? = null,
+        val approvalStatus: ApprovalStatus = ApprovalStatus.APEC_REQUIRED_UNVERIFIED,
+        val approvalEffectiveFrom: LocalDate? = null,
+        val approvalSource: String? = null
     ) {
         fun structurallyValid(): Boolean {
             val normalizedStatus = professionalStatus?.trim()?.uppercase(Locale.ROOT) ?: return false
             if (normalizedStatus != "CADRE" && normalizedStatus != "NON_CADRE") return false
+            val approvalProofValid = when (approvalStatus) {
+                ApprovalStatus.APEC_APPROVED -> approvalEffectiveFrom != null && !approvalSource.isNullOrBlank()
+                ApprovalStatus.APEC_REQUIRED_UNVERIFIED -> approvalEffectiveFrom == null && approvalSource.isNullOrBlank()
+            }
             return ConventionMinimumSalaryV2.normalizeIdcc(idcc).isNotBlank() &&
                 ruleId.isNotBlank() &&
                 !classification.isEmpty() &&
@@ -32,7 +48,8 @@ object ConventionProtectionCategoryV2 {
                 aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE &&
                 source.isNotBlank() &&
                 (effectiveTo == null || !effectiveTo.isBefore(effectiveFrom)) &&
-                (extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED || extensionEffectiveFrom != null)
+                (extensionStatus != ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED || extensionEffectiveFrom != null) &&
+                approvalProofValid
         }
 
         fun activeOn(date: LocalDate): Boolean = !date.isBefore(effectiveFrom) &&
@@ -47,6 +64,11 @@ object ConventionProtectionCategoryV2 {
         fun extensionApplicableOn(date: LocalDate): Boolean =
             extensionStatus == ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED &&
                 extensionEffectiveFrom?.let { !date.isBefore(it) } == true
+
+        fun approvalApplicableOn(date: LocalDate): Boolean =
+            approvalStatus == ApprovalStatus.APEC_APPROVED &&
+                approvalEffectiveFrom?.let { !date.isBefore(it) } == true &&
+                !approvalSource.isNullOrBlank()
     }
 
     data class Resolution(
@@ -103,21 +125,30 @@ object ConventionProtectionCategoryV2 {
             return unresolved("plusieurs catégories ANI contradictoires sont applicables à la même classification")
         }
 
-        val applicable = best.filter { it.extensionApplicableOn(referenceDate) }
-        if (applicable.isEmpty()) {
-            return unresolved("applicabilité de la règle conventionnelle à l'entreprise non démontrée à cette date")
+        val extended = best.filter { it.extensionApplicableOn(referenceDate) }
+        if (extended.isEmpty()) {
+            return unresolved("extension officielle de la règle conventionnelle non démontrée à cette date")
         }
-        val selected = applicable.maxByOrNull { it.extensionEffectiveFrom ?: LocalDate.MIN }!!
+        val approved = extended.filter { it.approvalApplicableOn(referenceDate) }
+        if (approved.isEmpty()) {
+            return unresolved("agrément APEC de la classification ANI non démontré à cette date")
+        }
+
+        val selected = approved.maxWithOrNull(
+            compareBy<Rule> { it.effectiveFrom }
+                .thenBy { it.extensionEffectiveFrom ?: LocalDate.MIN }
+                .thenBy { it.approvalEffectiveFrom ?: LocalDate.MIN }
+        )!!
         val warnings = buildList {
             if (selected.aniCategory == ProtectionCategoryV2.AniCategory.EXTENSION_ELIGIBLE) {
-                add("Extension au régime cadres possible : l'affiliation effective au régime de l'entreprise reste à confirmer avant d'appliquer les contributions propres aux articles 2.1/2.2.")
+                add("Extension au régime cadres autorisée par la branche/APEC : l'affiliation effective au régime de l'entreprise reste à confirmer avant d'appliquer les contributions propres aux articles 2.1/2.2.")
             }
         }
         return Resolution(
             category = ProtectionCategoryV2.Result(
                 aniCategory = selected.aniCategory,
                 confirmed = true,
-                source = selected.source,
+                source = listOfNotNull(selected.source, selected.approvalSource).joinToString(" + "),
                 warnings = warnings
             ),
             selectedRule = selected,
