@@ -316,15 +316,20 @@ object OfficialKaliProvidentContributionParserV2 {
     }
 
     private fun parseSeniorityMonths(text: String): Int? {
-        if (noSeniorityRegex.containsMatchIn(text)) return 0
-        val match = seniorityRegex.find(text) ?: return null
-        val value = match.groupValues[1].toIntOrNull() ?: return null
-        val unit = match.groupValues[2]
-        return when {
-            unit.startsWith("an") -> value * 12
-            unit.startsWith("mois") -> value
-            else -> null
-        }.takeIf { it in 0..600 }
+        val candidates = buildSet {
+            if (noSeniorityRegex.containsMatchIn(text)) add(0)
+            seniorityRegex.findAll(text).forEach { match ->
+                val value = match.groupValues[1].toIntOrNull() ?: return@forEach
+                val unit = match.groupValues[2]
+                val months = when {
+                    unit.startsWith("an") -> value * 12
+                    unit.startsWith("mois") -> value
+                    else -> return@forEach
+                }
+                if (months in 0..600) add(months)
+            }
+        }
+        return candidates.singleOrNull()
     }
 
     private fun parseBasis(text: String): Basis? {
