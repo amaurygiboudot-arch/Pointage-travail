@@ -6,6 +6,10 @@ import kotlin.math.abs
 /**
  * Parse uniquement des tranches de cotisation dont les bornes PMSS et les deux taux sont écrits.
  * Les noms « tranche A/B/T1/T2 » n'emportent aucune définition implicite.
+ *
+ * Le parseur est volontairement fail-closed : une tranche explicitement présente mais incomplète,
+ * une contradiction de taux, une rupture de continuité ou un plafond global porté uniquement par
+ * un autre article que ceux contenant les tranches bloque le barème complet.
  */
 object OfficialKaliProvidentContributionBandParserV2 {
     data class Parsed(
@@ -15,20 +19,75 @@ object OfficialKaliProvidentContributionBandParserV2 {
         val reason: String? = null
     )
 
+    private data class ParsedBand(
+        val band: ConventionProvidentContributionV2.Band,
+        val sourceText: String
+    )
+
+    private data class CapEvidence(
+        val multiple: Double,
+        val sourceText: String
+    )
+
     fun parse(texts: Collection<String>): Parsed {
         val mentioned = texts.any { trancheVocabulary.containsMatchIn(it) }
         if (!mentioned) return Parsed(false, emptyList(), false)
 
-        val parsedBands = texts.flatMap(::parseText)
-        if (parsedBands.isEmpty()) {
-            return Parsed(true, emptyList(), false, "tranches mentionnées mais aucune tranche à bornes et taux explicites n'est complète")
+        val namedHeaders = texts.sumOf { namedBandHeaderRegex.findAll(it).count() }
+        val boundedMentions = texts.sumOf { boundedBandRegex.findAll(it).count() }
+        if (namedHeaders > boundedMentions) {
+            return Parsed(
+                true,
+                emptyList(),
+                false,
+                "au moins une tranche nommée est dépourvue de bornes PMSS explicites"
+            )
         }
-        val unique = parsedBands.distinctBy(::fingerprint).sortedBy { it.lowerCeilingMultiple }
-        if (unique.size != parsedBands.distinctBy(::fingerprint).size) {
-            return Parsed(true, emptyList(), false, "tranches dupliquées ou contradictoires")
+
+        val parsedEntries = texts.flatMap { text ->
+            parseText(text).map { ParsedBand(it, text) }
         }
+        if (parsedEntries.isEmpty()) {
+            return Parsed(
+                true,
+                emptyList(),
+                false,
+                "tranches mentionnées mais aucune tranche à bornes et taux explicites n'est complète"
+            )
+        }
+        if (parsedEntries.size < boundedMentions) {
+            return Parsed(
+                true,
+                parsedEntries.map { it.band }.distinctBy(::fingerprint),
+                false,
+                "au moins une tranche bornée ne contient pas une répartition salarié/employeur exacte et exploitable"
+            )
+        }
+
+        val contradictoryBounds = parsedEntries
+            .groupBy { boundsFingerprint(it.band) }
+            .values
+            .any { sameBounds -> sameBounds.map { fingerprint(it.band) }.distinct().size > 1 }
+        if (contradictoryBounds) {
+            return Parsed(
+                true,
+                emptyList(),
+                false,
+                "des tranches de mêmes bornes portent des taux contradictoires"
+            )
+        }
+
+        val unique = parsedEntries
+            .map { it.band }
+            .distinctBy(::boundsFingerprint)
+            .sortedBy { it.lowerCeilingMultiple }
         if (unique.size < 2) {
-            return Parsed(true, unique, false, "une seule tranche explicite ne suffit pas à prouver un barème multi-tranches complet")
+            return Parsed(
+                true,
+                unique,
+                false,
+                "une seule tranche explicite ne suffit pas à prouver un barème multi-tranches complet"
+            )
         }
         if (abs(unique.first().lowerCeilingMultiple) > EPSILON) {
             return Parsed(true, unique, false, "la première tranche ne commence pas explicitement à 0 PMSS")
@@ -42,20 +101,43 @@ object OfficialKaliProvidentContributionBandParserV2 {
         }
 
         val finalUpper = unique.last().upperCeilingMultiple
-            ?: return Parsed(true, unique, true)
-        val caps = texts.flatMap { text ->
+            ?: return Parsed(true, unique, false, "la dernière tranche doit avoir une borne haute explicite")
+        val capEvidence = texts.flatMap { text ->
             overallCapRegex.findAll(text).mapNotNull { match ->
-                parseNumber(match.groupValues[1])?.takeIf { it > 0.0 && it <= 100.0 }
+                parseNumber(match.groupValues[1])
+                    ?.takeIf { it > 0.0 && it <= 100.0 }
+                    ?.let { CapEvidence(it, text) }
             }.toList()
-        }.distinct()
-        if (caps.size != 1 || abs(caps.single() - finalUpper) > EPSILON) {
+        }
+        val capValues = capEvidence.map { it.multiple }.distinct()
+        if (capValues.size != 1 || abs(capValues.single() - finalUpper) > EPSILON) {
             return Parsed(
                 true,
                 unique,
                 false,
-                "la borne haute finale n'est pas confirmée par un plafond global explicite"
+                "la borne haute finale n'est pas confirmée par un plafond global explicite unique"
             )
         }
+
+        // Le parseur appelant identifie actuellement les articles de financement par la présence
+        // d'au moins une tranche structurée. Pour que le statut/date d'extension du plafond global
+        // soit donc nécessairement contrôlé, ce plafond doit apparaître dans au moins un article
+        // qui contient lui-même une tranche structurée. Un plafond porté uniquement par un article
+        // séparé reste une preuve partielle et ne ferme pas la chaîne juridique.
+        val bandSourceTexts = parsedEntries.map { it.sourceText }.toSet()
+        val matchingCapSourceTexts = capEvidence
+            .filter { abs(it.multiple - finalUpper) <= EPSILON }
+            .map { it.sourceText }
+            .toSet()
+        if (bandSourceTexts.intersect(matchingCapSourceTexts).isEmpty()) {
+            return Parsed(
+                true,
+                unique,
+                false,
+                "le plafond global est porté uniquement par un article séparé ; chaîne de preuve dates/extension incomplète"
+            )
+        }
+
         return Parsed(true, unique, true)
     }
 
@@ -99,9 +181,13 @@ object OfficialKaliProvidentContributionBandParserV2 {
         }
     }.distinct()
 
-    private fun fingerprint(value: ConventionProvidentContributionV2.Band): String = listOf(
+    private fun boundsFingerprint(value: ConventionProvidentContributionV2.Band): String = listOf(
         value.lowerCeilingMultiple.toString(),
-        value.upperCeilingMultiple?.toString().orEmpty(),
+        value.upperCeilingMultiple?.toString().orEmpty()
+    ).joinToString("|")
+
+    private fun fingerprint(value: ConventionProvidentContributionV2.Band): String = listOf(
+        boundsFingerprint(value),
         value.employeeRate.toString(),
         value.employerRate.toString(),
         value.allocationRule.name
@@ -114,6 +200,7 @@ object OfficialKaliProvidentContributionBandParserV2 {
     private fun parseNumber(raw: String): Double? = raw.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
 
     private val trancheVocabulary = Regex("\\btranches?\\s*(?:[a-z0-9]+)?\\b")
+    private val namedBandHeaderRegex = Regex("\\btranche\\s+[a-z0-9]+\\b")
     private val boundedBandRegex = Regex(
         "\\btranche\\s*([a-z0-9]+)?\\s*[:.\\-]?\\s*(?:de\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:a|au|-)\\s*(\\d+(?:[.,]\\d+)?)\\s*(?:(?:fois|x)\\s*)?(?:le\\s+)?(?:pmss|plafond(?: mensuel)?(?: de la securite sociale)?)\\b"
     )
