@@ -25,7 +25,7 @@ object CompanyAgreementMealBasketIngestionV2 {
         val warnings: List<String>
     ) {
         val packageComplete: Boolean get() = legalPackageComplete && storageComplete
-        val storageFailure: Boolean get() = legalPackageComplete && !storageComplete
+        val storageFailure: Boolean get() = detected && !storageComplete
     }
 
     internal fun structure(
@@ -56,18 +56,22 @@ object CompanyAgreementMealBasketIngestionV2 {
             agreementId = agreementId,
             officialText = verifiedContent.text
         )
-        val subjects = diagnostic.rules
+        val hardened = diagnostic.rules.map(AccoMealBasketRuleHardeningV2::harden)
+        val hardenedRules = hardened.mapNotNull { it.rule }
+        val hardeningWarnings = hardened.flatMap { it.warnings }
+        val subjects = hardenedRules
             .map { com.amaury.pointage.v2.engine.MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) }
             .toSet()
+        val hardeningComplete = hardenedRules.size == diagnostic.rules.size
 
-        if (!diagnostic.fullyStructured) {
+        if (!diagnostic.fullyStructured || !hardeningComplete) {
             return StructuredPackage(
                 detected = true,
-                rules = diagnostic.rules,
+                rules = hardenedRules,
                 packageComplete = false,
-                subjects = subjects,
+                subjects = subjects + "MEAL_OTHER",
                 warnings = (
-                    diagnostic.reasons +
+                    diagnostic.reasons + hardeningWarnings +
                         "ACCO repas : le paquet du profil n'est pas intégralement structuré ; aucune règle partielle ne peut alimenter le calcul."
                     ).distinct()
             )
@@ -75,10 +79,10 @@ object CompanyAgreementMealBasketIngestionV2 {
 
         return StructuredPackage(
             detected = true,
-            rules = diagnostic.rules,
+            rules = hardenedRules,
             packageComplete = true,
             subjects = subjects,
-            warnings = diagnostic.reasons.distinct()
+            warnings = (diagnostic.reasons + hardeningWarnings).distinct()
         )
     }
 
@@ -105,15 +109,25 @@ object CompanyAgreementMealBasketIngestionV2 {
             )
         }
         if (!structured.packageComplete) {
+            val markerStored = V2CompanyMealBasketAuditStateStore.mark(
+                context = context,
+                companyId = companyId,
+                agreementId = agreementId,
+                profile = profile,
+                state = V2CompanyMealBasketAuditStateStore.State.UNRESOLVED,
+                subjects = structured.subjects + "MEAL_OTHER"
+            )
             return Result(
                 detected = true,
                 structured = structured.structured,
                 legalPackageComplete = false,
-                storageComplete = true,
+                storageComplete = markerStored,
                 savedCount = 0,
                 ruleCount = structured.rules.size,
                 subjects = structured.subjects,
-                warnings = structured.warnings
+                warnings = (structured.warnings + if (markerStored) emptyList() else listOf(
+                    "ACCO repas : état d'incertitude non persisté ; stockage local à contrôler."
+                )).distinct()
             )
         }
 
@@ -122,16 +136,30 @@ object CompanyAgreementMealBasketIngestionV2 {
             companyId = companyId,
             rules = structured.rules
         )
-        val warnings = if (stored) emptyList() else listOf(
-            "ACCO repas : le paquet ${agreementId.trim().uppercase()} n'a pas pu être stocké atomiquement ; aucune règle de ce paquet n'est remplacée."
+        val stateStored = stored && V2CompanyMealBasketAuditStateStore.mark(
+            context = context,
+            companyId = companyId,
+            agreementId = agreementId,
+            profile = profile,
+            state = V2CompanyMealBasketAuditStateStore.State.COMPLETE,
+            subjects = structured.subjects
         )
+        val storageComplete = stored && stateStored
+        val warnings = buildList {
+            if (!stored) add(
+                "ACCO repas : le paquet ${agreementId.trim().uppercase()} n'a pas pu être stocké atomiquement ; aucune règle de ce paquet n'est remplacée."
+            )
+            if (stored && !stateStored) add(
+                "ACCO repas : règles stockées mais marqueur d'audit complet impossible à persister ; elles resteront inutilisables en paie."
+            )
+        }
 
         return Result(
             detected = true,
             structured = structured.rules.isNotEmpty(),
             legalPackageComplete = true,
-            storageComplete = stored,
-            savedCount = if (stored) structured.rules.size else 0,
+            storageComplete = storageComplete,
+            savedCount = if (storageComplete) structured.rules.size else 0,
             ruleCount = structured.rules.size,
             subjects = structured.subjects,
             warnings = (structured.warnings + warnings).distinct()
@@ -142,7 +170,7 @@ object CompanyAgreementMealBasketIngestionV2 {
         detected = true,
         rules = emptyList(),
         packageComplete = false,
-        subjects = emptySet(),
+        subjects = setOf("MEAL_OTHER"),
         warnings = listOf("ACCO repas : $reason ; aucune règle d'entreprise n'est structurée.")
     )
 
@@ -150,10 +178,10 @@ object CompanyAgreementMealBasketIngestionV2 {
         detected = true,
         structured = false,
         legalPackageComplete = false,
-        storageComplete = true,
+        storageComplete = false,
         savedCount = 0,
         ruleCount = 0,
-        subjects = emptySet(),
+        subjects = setOf("MEAL_OTHER"),
         warnings = listOf("ACCO repas : $reason ; aucune règle d'entreprise n'est enregistrée.")
     )
 
