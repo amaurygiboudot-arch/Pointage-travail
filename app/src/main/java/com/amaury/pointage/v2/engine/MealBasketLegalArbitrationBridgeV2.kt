@@ -40,18 +40,9 @@ object MealBasketLegalArbitrationBridgeV2 {
         if (siret.length != 14 || profile.classification.isEmpty() || profile.professionalStatus == null) {
             return blocked("profil juridique exact ou SIRET manquant")
         }
+        val normalizedStatus = profile.professionalStatus.trim().uppercase()
+        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
 
-        val branchScope = ConventionMealBasketV2.scopeRules(
-            rules = branchRules,
-            idcc = profile.idcc,
-            referenceDate = referenceDate,
-            classification = profile.classification,
-            professionalStatus = profile.professionalStatus,
-            territoryCode = territoryCode
-        )
-        if (!branchScope.reliable && branchRules.isNotEmpty()) {
-            return blocked(branchScope.warnings.joinToString(" "))
-        }
         val scopedCompany = companyRules.filter { rule ->
             rule.structurallyValid() &&
                 rule.siret == siret &&
@@ -59,10 +50,42 @@ object MealBasketLegalArbitrationBridgeV2 {
                 (rule.effectiveTo == null || !referenceDate.isAfter(rule.effectiveTo)) &&
                 profile.classification.matches(rule.classification) &&
                 rule.classification.matches(profile.classification) &&
-                rule.professionalStatus == profile.professionalStatus
+                rule.professionalStatus == normalizedStatus
         }
+        val companySubjects = scopedCompany.mapTo(linkedSetOf()) { subject(it.benefitId) }
 
-        val branchBySubject = branchScope.rules.groupBy { subject(it.benefitId) }
+        // Écarte d'abord les règles KALI manifestement étrangères au salarié/date. Ainsi un article
+        // historique ou un coefficient voisin dans le cache partagé ne peut pas invalider un ACCO
+        // exact. En revanche, une règle KALI potentiellement pertinente sur un objet non couvert par
+        // ACCO reste bloquante si sa portée finale (extension/territoire/exclusion) est indémontrable.
+        val potentiallyRelevantBranch = branchRules.filter { rule ->
+            rule.structurallyValid() &&
+                ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc) == normalizedIdcc &&
+                rule.activeOn(referenceDate) &&
+                profile.classification.matches(rule.classification) &&
+                rule.classification.matches(profile.classification) &&
+                (rule.professionalStatus == null || rule.professionalStatus.trim().uppercase() == normalizedStatus)
+        }
+        val branchScope = ConventionMealBasketV2.scopeRules(
+            rules = potentiallyRelevantBranch,
+            idcc = profile.idcc,
+            referenceDate = referenceDate,
+            classification = profile.classification,
+            professionalStatus = profile.professionalStatus,
+            territoryCode = territoryCode
+        )
+        if (!branchScope.reliable && potentiallyRelevantBranch.isNotEmpty()) {
+            val unresolvedSubjects = potentiallyRelevantBranch
+                .mapTo(linkedSetOf()) { subject(it.benefitId) } - companySubjects
+            if (unresolvedSubjects.isNotEmpty()) {
+                return blocked(
+                    "portée KALI non résolue pour ${unresolvedSubjects.sorted().joinToString()} : ${branchScope.warnings.joinToString(" ")}"
+                )
+            }
+        }
+        val usableBranchRules = if (branchScope.reliable) branchScope.rules else emptyList()
+
+        val branchBySubject = usableBranchRules.groupBy { subject(it.benefitId) }
         val companyBySubject = scopedCompany.groupBy { subject(it.benefitId) }
         val subjects = (branchBySubject.keys + companyBySubject.keys).toSortedSet()
         if (subjects.isEmpty()) {
@@ -76,6 +99,9 @@ object MealBasketLegalArbitrationBridgeV2 {
         val normalizedKnowledge = sourceKnowledgeBySubject.mapKeys { subject(it.key) }
         val selected = mutableListOf<Selected>()
         val warnings = mutableListOf<String>()
+        if (!branchScope.reliable && scopedCompany.isNotEmpty()) {
+            warnings += "Panier repas : règles KALI étrangères ou de portée non nécessaire ignorées pour les objets couverts par un ACCO exact."
+        }
         subjects.forEach { currentSubject ->
             val branch = branchBySubject[currentSubject].orEmpty()
             val company = companyBySubject[currentSubject].orEmpty()
@@ -102,8 +128,6 @@ object MealBasketLegalArbitrationBridgeV2 {
                             effectiveTo = rule.effectiveTo,
                             verified = true,
                             scopeConfirmed = true,
-                            // L'identité ACCOTEXT ne fait pas partie de la valeur juridique comparée :
-                            // deux accords distincts avec exactement la même règle ne sont pas un conflit.
                             valueFingerprint = companyFingerprint(rule)
                         )
                     )
