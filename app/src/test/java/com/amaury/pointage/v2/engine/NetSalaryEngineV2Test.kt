@@ -172,4 +172,79 @@ class NetSalaryEngineV2Test {
         )
         assertEquals(3204.0,result.socialSecurityCeiling!!,0.001)
     }
+
+    @Test
+    fun verifiedAniCategoryAloneControlsNationalApecAndEmployerMinimum() {
+        val legacyArticle21=PlasturgieProtectionCategoryV2.classify(
+            "292",
+            LocalDate.of(2026,1,31),
+            900
+        )
+        assertEquals(PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1,legacyArticle21.category)
+
+        val blockedCompany=snapshot(0.0,0.0).copy(
+            idcc="292",
+            professionalStatus="NON_CADRE",
+            protectionCategory=legacyArticle21,
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.TO_CONFIRM,
+                confirmed=false,
+                warnings=listOf("Preuve KALI/APEC incomplète")
+            )
+        )
+        val verifiedCompany=blockedCompany.copy(
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+                confirmed=true,
+                source="test KALI + APEC"
+            )
+        )
+
+        val blocked=NetSalaryEngineV2.calculate(2500.0,2026,blockedCompany)
+        val verified=NetSalaryEngineV2.calculate(2500.0,2026,verifiedCompany)
+
+        assertEquals(0.0,blocked.employerStatusContributions,0.001)
+        assertEquals(37.50,verified.employerStatusContributions,0.001)
+        assertEquals(0.60,verified.complementaryRetirement-blocked.complementaryRetirement,0.001)
+        assertEquals(0.90,verified.complementaryRetirementEmployer-blocked.complementaryRetirementEmployer,0.001)
+        assertTrue(blocked.warnings.any { it.contains("APEC non appliquée automatiquement") })
+        assertTrue(blocked.warnings.any { it.contains("1,50 % non calculé") })
+        assertEquals(blocked.conventionProvidentEmployee,verified.conventionProvidentEmployee,0.001)
+        assertEquals(blocked.conventionProvidentEmployer,verified.conventionProvidentEmployer,0.001)
+    }
+
+    @Test
+    fun verifiedAniMigrationDoesNotChangeLegacyConventionProvidentCalculation() {
+        val legacyOutsideAni=PlasturgieProtectionCategoryV2.classify(
+            "292",
+            LocalDate.of(2026,1,31),
+            700
+        )
+        assertEquals(PlasturgieProtectionCategoryV2.Category.OUTSIDE_2_1_2_2,legacyOutsideAni.category)
+
+        val unverifiedCompany=snapshot(0.0,0.0).copy(
+            idcc="292",
+            providentEmployeeAmount=null,
+            protectionCategory=legacyOutsideAni,
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.TO_CONFIRM,
+                confirmed=false
+            )
+        )
+        val verifiedCompany=unverifiedCompany.copy(
+            verifiedProtectionCategory=ProtectionCategoryV2.Result(
+                aniCategory=ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
+                confirmed=true,
+                source="test KALI + APEC"
+            )
+        )
+
+        val unverified=NetSalaryEngineV2.calculate(2500.0,2026,unverifiedCompany)
+        val verified=NetSalaryEngineV2.calculate(2500.0,2026,verifiedCompany)
+
+        assertEquals(10.0,unverified.conventionProvidentEmployee,0.001)
+        assertEquals(10.0,unverified.conventionProvidentEmployer,0.001)
+        assertEquals(unverified.conventionProvidentEmployee,verified.conventionProvidentEmployee,0.001)
+        assertEquals(unverified.conventionProvidentEmployer,verified.conventionProvidentEmployer,0.001)
+    }
 }
