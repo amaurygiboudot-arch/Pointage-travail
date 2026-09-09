@@ -29,6 +29,14 @@ object CompanyEmployerReductionDialogV2 {
             textSize=13f;setPadding(0,0,0,dp(context,8))
         })
         var listDialog:AlertDialog?=null
+        box.addView(Button(context).apply{
+            isAllCaps=false
+            text="CONTEXTE RGDU AUTOMATIQUE"
+            setOnClickListener{
+                listDialog?.dismiss()
+                CompanyEmployerGeneralReductionContextDialogV2.show(context,companyId)
+            }
+        },rowParams(context))
         val records=CompanyEmployerReductionStoreV2.list(context,companyId).sortedByDescending{it.month}
         if(records.isEmpty()) box.addView(TextView(context).apply{text="Aucun mois confirmé.";textSize=13f})
         else records.forEach{r->
