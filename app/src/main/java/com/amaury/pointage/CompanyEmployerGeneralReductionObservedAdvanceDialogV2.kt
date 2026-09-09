@@ -97,6 +97,19 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
+            text = "CONTEXTE ET RÉGULARISATION ANNUELLE"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyEmployerGeneralReductionAnnualDialogV2.show(
+                    context = context,
+                    companyId = companyId,
+                    year = selectedMonth.year
+                )
+            }
+        }, rowParams(context))
+
+        box.addView(Button(context).apply {
+            isAllCaps = false
             text = if (current == null) {
                 "CONFIRMER LA RGDU DE ${selectedMonth.format(monthFormatter)}"
             } else {
