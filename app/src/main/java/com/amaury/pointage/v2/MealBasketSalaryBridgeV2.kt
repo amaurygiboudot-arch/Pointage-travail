@@ -13,6 +13,7 @@ import java.time.ZoneId
 /**
  * Pont mensuel Salaire : l'arbitrage juridique est refait pour la date réelle de chaque journée.
  * Cela respecte les avenants/règles qui commencent ou expirent en cours de mois.
+ * Les faits locaux sont eux aussi résolus pour chaque session ; un fait inconnu reste null.
  */
 object MealBasketSalaryBridgeV2 {
     data class Result(
@@ -103,6 +104,21 @@ object MealBasketSalaryBridgeV2 {
                     externalAgreementAmount = null
                 )
             }
+
+            val factsBySessionId = daySessions.associate { session ->
+                val local = V2MealBasketFactStore.resolve(
+                    context = context,
+                    companyId = companyId,
+                    day = day,
+                    sessionId = session.id
+                )
+                warnings += local.warnings
+                session.id to MealBasketFactJournalV2.overlay(
+                    fallback = facts,
+                    specific = local.facts
+                )
+            }
+
             val daily = VerifiedMealBasketPayrollV2.calculate(
                 sessions = daySessions,
                 year = year,
@@ -111,7 +127,8 @@ object MealBasketSalaryBridgeV2 {
                 arbitration = legal.resolution,
                 amountContextsBySubject = contexts,
                 facts = facts,
-                zoneId = zoneId
+                zoneId = zoneId,
+                factsBySessionId = factsBySessionId
             )
             warnings += daily.warnings
             sources += daily.selectedSources
