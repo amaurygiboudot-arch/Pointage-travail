@@ -12,6 +12,7 @@ import com.amaury.pointage.v2.engine.EmployerGeneralReductionAnnualContextV2
 import com.amaury.pointage.v2.engine.EmployerGeneralReductionAnnualInputV2
 import com.amaury.pointage.v2.engine.EmployerGeneralReductionAnnualRegularizationV2
 import com.amaury.pointage.v2.engine.EmployerGeneralReductionContextV2
+import com.amaury.pointage.v2.engine.EmployerGeneralReductionObservedAdvanceV2
 import com.amaury.pointage.v2.engine.EmployerWorkforceContributionsV2
 import java.time.YearMonth
 
@@ -21,12 +22,13 @@ import java.time.YearMonth
  * Les paramètres de contrat utilisés ici viennent exclusivement du snapshot annuel historique
  * confirmé. Les préférences de contrat courantes ne sont jamais recopiées dans le passé.
  *
- * Les avances retournées par ce pont sont des avances automatiques HoraTrack reconstruites à
- * partir des faits mensuels. Elles ne constituent pas, à elles seules, la preuve du montant
- * effectivement déclaré/appliqué sur une DSN ou un bulletin historique.
+ * Pour la régularisation, douze montants RGDU réellement constatés et sourcés sont prioritaires.
+ * Tant que cette série historique est incomplète, HoraTrack conserve une reconstruction
+ * automatique distinctement étiquetée, sans jamais l'assimiler à une déclaration DSN réelle.
  */
 object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
     enum class AdvanceBasis {
+        CONFIRMED_OBSERVED,
         RECONSTRUCTED_AUTOMATIC
     }
 
@@ -35,6 +37,14 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
         val regularization: EmployerGeneralReductionAnnualRegularizationV2.Result?,
         val monthlyFacts: List<EmployerGeneralReductionAnnualInputV2.Month>,
         val advanceBasis: AdvanceBasis?,
+        val reliable: Boolean,
+        val warnings: List<String>,
+        val notes: List<String>
+    )
+
+    internal data class AdvanceSelection(
+        val monthlyAdvances: List<EmployerGeneralReductionAnnualRegularizationV2.MonthlyAdvance>,
+        val basis: AdvanceBasis?,
         val reliable: Boolean,
         val warnings: List<String>,
         val notes: List<String>
@@ -125,19 +135,80 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             )
         }
 
+        val observed = CompanyEmployerGeneralReductionObservedAdvanceStoreV2.resolveYear(
+            context = context,
+            companyId = companyId,
+            year = year
+        )
+        val selection = selectAdvances(
+            reconstructed = prepared.monthlyAdvances,
+            observed = observed
+        )
+        if (!selection.reliable) {
+            return Result(
+                annualEntitlement = annual,
+                regularization = null,
+                monthlyFacts = monthlyFacts,
+                advanceBasis = null,
+                reliable = false,
+                warnings = selection.warnings,
+                notes = selection.notes
+            )
+        }
+
         val regularization = EmployerGeneralReductionAnnualRegularizationV2.resolve(
             year = year,
             annual = annual,
-            monthlyAdvances = prepared.monthlyAdvances
+            monthlyAdvances = selection.monthlyAdvances
         )
         return Result(
             annualEntitlement = annual,
             regularization = regularization,
             monthlyFacts = monthlyFacts,
-            advanceBasis = AdvanceBasis.RECONSTRUCTED_AUTOMATIC,
+            advanceBasis = selection.basis,
             reliable = regularization.reliable,
             warnings = regularization.warnings,
-            notes = reconstructionNotes()
+            notes = selection.notes
+        )
+    }
+
+    internal fun selectAdvances(
+        reconstructed: List<EmployerGeneralReductionAnnualRegularizationV2.MonthlyAdvance>,
+        observed: EmployerGeneralReductionObservedAdvanceV2.YearSnapshot
+    ): AdvanceSelection = when (observed.state) {
+        EmployerGeneralReductionObservedAdvanceV2.YearState.COMPLETE_CONFIRMED -> AdvanceSelection(
+            monthlyAdvances = observed.monthlyAdvances,
+            basis = AdvanceBasis.CONFIRMED_OBSERVED,
+            reliable = true,
+            warnings = emptyList(),
+            notes = listOf(
+                buildString {
+                    append("RGDU annuelle : régularisation basée sur 12 montants RGDU réellement constatés et confirmés")
+                    if (observed.sources.isNotEmpty()) {
+                        append(" ; sources : ")
+                        append(observed.sources.joinToString(" | "))
+                    }
+                    append(".")
+                }
+            )
+        )
+
+        EmployerGeneralReductionObservedAdvanceV2.YearState.INCOMPLETE -> AdvanceSelection(
+            monthlyAdvances = reconstructed,
+            basis = AdvanceBasis.RECONSTRUCTED_AUTOMATIC,
+            reliable = true,
+            warnings = emptyList(),
+            notes = (observed.warnings + reconstructionNotes()).distinct()
+        )
+
+        EmployerGeneralReductionObservedAdvanceV2.YearState.INVALID -> AdvanceSelection(
+            monthlyAdvances = emptyList(),
+            basis = null,
+            reliable = false,
+            warnings = observed.warnings.ifEmpty {
+                listOf("RGDU observée : base historique invalide ; régularisation bloquée.")
+            },
+            notes = emptyList()
         )
     }
 
