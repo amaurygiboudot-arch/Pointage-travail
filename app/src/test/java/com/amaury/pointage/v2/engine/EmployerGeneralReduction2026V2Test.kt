@@ -13,7 +13,7 @@ class EmployerGeneralReduction2026V2Test {
         band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
-        additionalMinutes: Int? = 0,
+        additionalMinutes: Double? = 0.0,
         fullMonth: Boolean? = true,
         standardCase: Boolean? = true
     ) = EmployerGeneralReduction2026V2.Input(
@@ -76,13 +76,23 @@ class EmployerGeneralReduction2026V2Test {
                 gross = 1600.0,
                 type = ContractTypeV2.PART_TIME,
                 weeklyMinutes = 28 * 60,
-                additionalMinutes = 120
+                additionalMinutes = 120.0
             )
         )
         val expected = (12.02 * 35.0 * 52.0 / 12.0 * 0.8) + (12.02 * 2.0)
 
         assertEquals(expected, result.referenceMinimumMonthly!!, 0.000001)
         assertTrue(result.reliable)
+    }
+
+    @Test
+    fun `fractional paid minutes are preserved in reference minimum`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
+            input(additionalMinutes = 1040.5)
+        )
+        val expected = (12.02 * 35.0 * 52.0 / 12.0) + 12.02 * (1040.5 / 60.0)
+
+        assertEquals(expected, result.referenceMinimumMonthly!!, 0.000001)
     }
 
     @Test
