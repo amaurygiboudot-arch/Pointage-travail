@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.Instant
 import java.time.LocalDate
@@ -145,6 +146,7 @@ object VerifiedMealBasketPayrollV2 {
         val rawExit = session.countedExitMs ?: session.realExitMs ?: return null
         if (rawExit <= rawEntry) return null
         if (session.legacyFixedUnpaidPauseMs < 0L || session.legacyFixedUnpaidPauseMs > rawExit - rawEntry) return null
+        if (session.pauses.any { it.status != DecisionStatusV2.CONFIRMED || it.paid == null }) return null
 
         val shiftStart = toLocal(rawEntry, zoneId)
         val shiftEnd = toLocal(rawExit, zoneId)
