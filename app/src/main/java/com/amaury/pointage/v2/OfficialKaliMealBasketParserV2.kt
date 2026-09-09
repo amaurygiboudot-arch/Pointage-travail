@@ -196,8 +196,6 @@ object OfficialKaliMealBasketParserV2 {
         return when {
             fixed.size == 1 -> ConventionMealBasketV2.AmountFormula.FixedEuro(fixed.single())
             mg.size == 1 -> ConventionMealBasketV2.AmountFormula.MinimumGuaranteedMultiple(mg.single())
-            // Le montant renvoyé à un autre accord reste non calculable tant que la filiation vers
-            // l'acte et son montant exact n'est pas structurée par une source officielle.
             externalAgreementAmountRegex.containsMatchIn(text) -> null
             else -> null
         }
@@ -234,13 +232,29 @@ object OfficialKaliMealBasketParserV2 {
             ).takeIf { it.structurallyValid() }
         }.forEach(temporal::add)
 
-        startsEndsWindowRegex.findAll(text).mapNotNull { match ->
-            val start = parseClock(match.groupValues[1], match.groupValues[2]) ?: return@mapNotNull null
-            val end = parseClock(match.groupValues[3], match.groupValues[4]) ?: return@mapNotNull null
+        var unsafeBoundaryOrientation = false
+        startsEndsWindowRegex.findAll(text).forEach { match ->
+            val verbs = listOf(match.groupValues[1], match.groupValues[2]).filter { it.isNotBlank() }
+            val hasStart = verbs.any { it == "commence" || it == "debute" }
+            val hasEnd = verbs.any { it == "se termine" || it == "finit" }
+            if (!hasStart || !hasEnd) {
+                unsafeBoundaryOrientation = true
+                return@forEach
+            }
+            val start = parseClock(match.groupValues[3], match.groupValues[4]) ?: run {
+                unsafeBoundaryOrientation = true
+                return@forEach
+            }
+            val end = parseClock(match.groupValues[5], match.groupValues[6]) ?: run {
+                unsafeBoundaryOrientation = true
+                return@forEach
+            }
             ConventionMealBasketV2.Condition.ShiftStartsOrEndsInWindow(
                 ConventionMealBasketV2.DailyWindow(start, end)
-            ).takeIf { it.structurallyValid() }
-        }.forEach(temporal::add)
+            ).takeIf { it.structurallyValid() }?.let(temporal::add)
+                ?: run { unsafeBoundaryOrientation = true }
+        }
+        if (unsafeBoundaryOrientation) return emptyList()
 
         if (enclosesMidnightRegex.containsMatchIn(text)) temporal += ConventionMealBasketV2.Condition.ShiftEnclosesMidnight
         if (startsMidnightRegex.containsMatchIn(text)) temporal += ConventionMealBasketV2.Condition.ShiftStartsAtMidnight
@@ -328,7 +342,8 @@ object OfficialKaliMealBasketParserV2 {
 
     private fun benefitId(text: String, index: Int): String = when {
         unableHomeRegex.containsMatchIn(text) || awayWorkplaceRegex.containsMatchIn(text) -> "MEAL_AWAY_${index + 1}"
-        employerWindowRegex.containsMatchIn(text) || effectiveWindowRegex.containsMatchIn(text) || enclosesMidnightRegex.containsMatchIn(text) -> "MEAL_NIGHT_${index + 1}"
+        explicitNightBenefitRegex.containsMatchIn(text) || employerWindowRegex.containsMatchIn(text) ||
+            effectiveWindowRegex.containsMatchIn(text) || enclosesMidnightRegex.containsMatchIn(text) -> "MEAL_NIGHT_${index + 1}"
         postedWorkerRegex.containsMatchIn(text) -> "MEAL_SHIFT_${index + 1}"
         else -> "MEAL_DAY_${index + 1}"
     }
@@ -340,6 +355,7 @@ object OfficialKaliMealBasketParserV2 {
 
     private val dateToken = "[0-9]{1,2}(?:er)?(?:[ /.-]+[a-z]+|[ /.-]+[0-9]{1,2})[ /.-]+[0-9]{4}"
     private val mealOccurrenceRegex = Regex("\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b")
+    private val explicitNightBenefitRegex = Regex("\\b(?:paniers? de nuit|prime(?:s)? de panier de nuit|indemnite(?:s)? repas de nuit)\\b")
     private val fixedAmountRegex = Regex("(?:(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?|\\bou\\s+)([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?\\b)")
     private val minimumGuaranteedRegex = Regex("([0-9]+(?:[.,][0-9]+)?)\\s*(?:fois|x)\\s*(?:le\\s+)?minimum garanti\\b")
     private val externalAgreementAmountRegex = Regex("\\bmontant\\b[^.;\\n]{0,120}?\\b(?:fixe|determine|prevu)\\b[^.;\\n]{0,80}?\\b(?:accord|avenant)\\b")
@@ -350,7 +366,7 @@ object OfficialKaliMealBasketParserV2 {
     private val perWorkedDayRegex = Regex("\\b(?:par|pour chaque)\\s+(?:jour|journee)\\s+travaille(?:e)?\\b")
     private val effectiveWindowRegex = Regex("(?:au moins|minimum de)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h(?:eures?)?[^.;\\n]{0,80}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?")
     private val employerWindowRegex = Regex("plage\\s+de\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h(?:eures?)?[^.;\\n]{0,80}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?[^.;\\n]{0,120}?(?:au moins|minimum de)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h")
-    private val startsEndsWindowRegex = Regex("(?:commence|debute|se termine|finit)(?:\\s+ou\\s+(?:commence|debute|se termine|finit))?[^.;\\n]{0,60}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?")
+    private val startsEndsWindowRegex = Regex("(commence|debute|se termine|finit)(?:\\s+ou\\s+(commence|debute|se termine|finit))?[^.;\\n]{0,60}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?")
     private val temporalAlternativeRegex = Regex("\\b(?:ou|soit)\\b")
     private val enclosesMidnightRegex = Regex("\\b(?:encadre|comprend|inclut|traverse)\\s+minuit\\b")
     private val startsMidnightRegex = Regex("\\b(?:commence|debute)\\s+a\\s+minuit\\b")
@@ -374,7 +390,7 @@ object OfficialKaliMealBasketParserV2 {
     )
     private val excludedEmploymentRegex = Regex("\\b(?:sauf|a l'exception des?)\\s+([a-z][a-z -]{2,40}?)(?:[.;,]|$)")
     private val territorialVocabulary = Regex("\\b(?:departement|departements|region|regions|zone geographique|territoire territorial)\\b")
-    private val classificationVocabulary = Regex("\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction|poste)s?\\b")
+    private val classificationVocabulary = Regex("\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction)s?\\b|\\bposte\\s*[:\\-]")
     private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
     private val kaliArticleIdRegex = Regex("^KALIARTI\\d+$")
     private val acceptedStatuses = setOf("VIGUEUR", "VIGUEUR_ETEN", "VIGUEUR_NON_ETEN")
