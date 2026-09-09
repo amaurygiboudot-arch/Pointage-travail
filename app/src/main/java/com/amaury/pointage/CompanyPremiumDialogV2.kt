@@ -17,6 +17,7 @@ import com.amaury.pointage.v2.CompanyPremiumStoreV2
 import com.amaury.pointage.v2.engine.CompanyPremiumResolverV2
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
 
@@ -26,6 +27,9 @@ object CompanyPremiumDialogV2 {
 
     fun show(context: Context, companyId: String) {
         if (companyId.isBlank()) return
+        val period = selectedPayrollMonth(context)
+        val coverage = CompanyPremiumStoreV2.monthCoverage(context, companyId, period)
+        val resolved = CompanyPremiumStoreV2.resolve(context, companyId, period)
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 8))
@@ -35,15 +39,61 @@ object CompanyPremiumDialogV2 {
             textSize = 13f
             setPadding(0, 0, 0, dp(context, 8))
         })
+        box.addView(TextView(context).apply {
+            text = buildString {
+                append("MOIS DE PAIE — ").append(period.format(monthFormatter)).append('\n')
+                if (coverage.confirmed && coverage.storageReliable && resolved.reliable) {
+                    append("Liste exhaustive confirmée — ").append(eur(resolved.totalGross)).append(" brut")
+                    coverage.source?.let { append("\nSource : ").append(it) }
+                } else {
+                    append("À confirmer — aucune absence de prime n'est supposée automatiquement.")
+                    val warnings = (coverage.warnings + resolved.warnings).distinct()
+                    if (warnings.isNotEmpty()) append("\n• ").append(warnings.joinToString("\n• "))
+                }
+            }
+            textSize = 13f
+            setPadding(0, dp(context, 2), 0, dp(context, 8))
+        })
 
         var listDialog: AlertDialog? = null
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = if (coverage.confirmed) {
+                "RECONFIRMER LA LISTE DE ${period.format(monthFormatter)}"
+            } else {
+                "CONFIRMER LA LISTE DE ${period.format(monthFormatter)}"
+            }
+            isEnabled = coverage.storageReliable
+            setOnClickListener {
+                listDialog?.dismiss()
+                showMonthConfirmation(context, companyId, period, coverage.source)
+            }
+        }, rowParams(context))
+
+        if (coverage.confirmed) {
+            box.addView(Button(context).apply {
+                isAllCaps = false
+                text = "RETIRER LA CONFIRMATION DU MOIS"
+                isEnabled = coverage.storageReliable
+                setOnClickListener {
+                    if (CompanyPremiumStoreV2.clearMonthConfirmation(context, companyId, period)) {
+                        listDialog?.dismiss()
+                        Toast.makeText(context, "Exhaustivité des primes remise à confirmer", Toast.LENGTH_SHORT).show()
+                        show(context, companyId)
+                    } else {
+                        Toast.makeText(context, "Échec de la modification", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }, rowParams(context))
+        }
+
         val records = CompanyPremiumStoreV2.list(context, companyId)
             .sortedWith(compareBy({ it.kind.name }, { it.label.lowercase(Locale.FRANCE) }))
         if (records.isEmpty()) {
             box.addView(TextView(context).apply {
-                text = "Aucune prime contractuelle/personnelle enregistrée."
+                text = "Aucune prime contractuelle/personnelle enregistrée. Pour retenir 0 € de façon fiable, confirme explicitement que cette liste vide est complète pour le mois."
                 textSize = 13f
-                setPadding(0, dp(context, 4), 0, dp(context, 8))
+                setPadding(0, dp(context, 8), 0, dp(context, 8))
             })
         } else {
             records.forEach { record ->
@@ -157,6 +207,50 @@ object CompanyPremiumDialogV2 {
         listDialog.show()
     }
 
+    private fun showMonthConfirmation(
+        context: Context,
+        companyId: String,
+        period: YearMonth,
+        existingSource: String?
+    ) {
+        val box = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
+        }
+        box.addView(TextView(context).apply {
+            text = "Confirmer signifie que toutes les primes contractuelles/personnelles entrant dans le brut de ${period.format(monthFormatter)} sont enregistrées dans HoraTrack. Si la liste est vide, cette confirmation établit explicitement 0 €. Sans confirmation, le moteur conserve le total comme inconnu."
+            textSize = 13f
+            setPadding(0, 0, 0, dp(context, 8))
+        })
+        val source = field(context, "Source — ex. bulletin ${period.format(monthFormatter)} / attestation employeur")
+        source.setText(existingSource.orEmpty())
+        box.addView(source, rowParams(context))
+
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Exhaustivité des primes")
+            .setView(box)
+            .setPositiveButton("CONFIRMER", null)
+            .setNegativeButton("ANNULER", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val rawSource = source.text.toString().trim()
+                if (rawSource.isBlank()) {
+                    source.error = "Indique une source vérifiable"
+                    return@setOnClickListener
+                }
+                if (!CompanyPremiumStoreV2.confirmMonth(context, companyId, period, rawSource)) {
+                    Toast.makeText(context, "Confirmation impossible : vérifie les primes enregistrées", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                Toast.makeText(context, "Liste des primes du mois confirmée", Toast.LENGTH_SHORT).show()
+                show(context, companyId)
+            }
+        }
+        dialog.show()
+    }
+
     private fun showEditor(context: Context, companyId: String, existing: CompanyPremiumResolverV2.Record?) {
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -173,7 +267,7 @@ object CompanyPremiumDialogV2 {
 
         listOf(label, amount, kind, start, end, payment).forEach { box.addView(it, rowParams(context)) }
         box.addView(TextView(context).apply {
-            text = "Une prime mensuelle est appliquée de son mois de début à son mois de fin inclus. Une prime ponctuelle n'est ajoutée que sur son mois de versement."
+            text = "Une prime mensuelle est appliquée de son mois de début à son mois de fin inclus. Une prime ponctuelle n'est ajoutée que sur son mois de versement. Toute modification invalide les anciennes confirmations mensuelles d’exhaustivité."
             textSize = 12f
             setPadding(0, dp(context, 6), 0, 0)
         })
@@ -242,14 +336,14 @@ object CompanyPremiumDialogV2 {
                     return@setOnClickListener
                 }
                 dialog.dismiss()
-                Toast.makeText(context, "Prime enregistrée", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Prime enregistrée ; confirmations mensuelles à refaire", Toast.LENGTH_LONG).show()
                 show(context, companyId)
             }
             if (existing != null) {
                 dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                     if (CompanyPremiumStoreV2.remove(context, companyId, existing.id)) {
                         dialog.dismiss()
-                        Toast.makeText(context, "Prime supprimée", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Prime supprimée ; confirmations mensuelles à refaire", Toast.LENGTH_LONG).show()
                         show(context, companyId)
                     } else {
                         Toast.makeText(context, "Échec de la suppression", Toast.LENGTH_LONG).show()
@@ -258,6 +352,14 @@ object CompanyPremiumDialogV2 {
             }
         }
         dialog.show()
+    }
+
+    private fun selectedPayrollMonth(context: Context): YearMonth {
+        val ms = context.getSharedPreferences("navigation_state", Context.MODE_PRIVATE)
+            .getLong("report_month_ms", -1L)
+        val calendar = Calendar.getInstance(Locale.FRANCE)
+        if (ms > 0L) calendar.timeInMillis = ms
+        return YearMonth.of(calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1)
     }
 
     private fun parseRequiredMonth(field: EditText, error: String): YearMonth? {
