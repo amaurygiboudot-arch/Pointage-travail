@@ -3,6 +3,8 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.EmployerGeneralReductionAnnualContextV2
+import com.amaury.pointage.v2.engine.EmployerWorkforceContributionsV2
+import com.amaury.pointage.v2.model.ContractTypeV2
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -112,6 +114,9 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         .put("standardCommonLawCaseConfirmed", record.standardCommonLawCaseConfirmed)
         .put("homogeneousAnnualParametersConfirmed", record.homogeneousAnnualParametersConfirmed ?: JSONObject.NULL)
         .put("source", record.source)
+        .put("confirmedWorkforceBand", record.confirmedWorkforceBand?.name ?: JSONObject.NULL)
+        .put("confirmedContractType", record.confirmedContractType?.name ?: JSONObject.NULL)
+        .put("confirmedContractualWeeklyMinutes", record.confirmedContractualWeeklyMinutes ?: JSONObject.NULL)
 
     private fun fromJson(o: JSONObject?): EmployerGeneralReductionAnnualContextV2.Record? {
         o ?: return null
@@ -126,13 +131,35 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
             else -> return null
         }
         val source = o.opt("source") as? String ?: return null
+        val confirmedWorkforceBand = when (val value = o.opt("confirmedWorkforceBand")) {
+            null, JSONObject.NULL -> null
+            is String -> runCatching { EmployerWorkforceContributionsV2.Band.valueOf(value) }.getOrNull() ?: return null
+            else -> return null
+        }
+        val confirmedContractType = when (val value = o.opt("confirmedContractType")) {
+            null, JSONObject.NULL -> null
+            is String -> runCatching { ContractTypeV2.valueOf(value) }.getOrNull() ?: return null
+            else -> return null
+        }
+        val confirmedContractualWeeklyMinutes = when (val value = o.opt("confirmedContractualWeeklyMinutes")) {
+            null, JSONObject.NULL -> null
+            is Number -> {
+                val raw = value.toDouble()
+                val minutes = value.toInt()
+                minutes.takeIf { raw.isFinite() && it > 0 && raw == it.toDouble() } ?: return null
+            }
+            else -> return null
+        }
         return EmployerGeneralReductionAnnualContextV2.Record(
             id = id,
             year = year,
             fullCalendarYearPresent = fullCalendarYearPresent,
             standardCommonLawCaseConfirmed = standardCommonLawCaseConfirmed,
             homogeneousAnnualParametersConfirmed = homogeneousAnnualParametersConfirmed,
-            source = source
+            source = source,
+            confirmedWorkforceBand = confirmedWorkforceBand,
+            confirmedContractType = confirmedContractType,
+            confirmedContractualWeeklyMinutes = confirmedContractualWeeklyMinutes
         )
     }
 }
