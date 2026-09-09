@@ -30,8 +30,11 @@ object EmployerGeneralReduction2026V2 {
         val workforceBand: EmployerWorkforceContributionsV2.Band?,
         val contractType: ContractTypeV2?,
         val contractualWeeklyMinutes: Int?,
-        /** Heures supplémentaires ou complémentaires rémunérées, sans leur majoration. */
-        val additionalPaidMinutes: Int?,
+        /**
+         * Heures supplémentaires ou complémentaires rémunérées, sans leur majoration.
+         * Les fractions de minute sont conservées afin de ne pas arrondir le temps payé en amont.
+         */
+        val additionalPaidMinutes: Double?,
         /** true uniquement si la présence du salarié couvre le mois selon les règles RGDU. */
         val fullMonthPresent: Boolean?,
         /**
@@ -69,7 +72,7 @@ object EmployerGeneralReduction2026V2 {
             ?.takeIf { it > 0 }
             ?: return blocked("RGDU 2026 : durée contractuelle hebdomadaire à confirmer.")
         val additionalMinutes = input.additionalPaidMinutes
-            ?.takeIf { it >= 0 }
+            ?.takeIf { it.isFinite() && it >= 0.0 }
             ?: return blocked("RGDU 2026 : heures supplémentaires/complémentaires rémunérées à confirmer, même si elles sont nulles.")
         if (input.fullMonthPresent != true) {
             return blocked("RGDU 2026 : mois incomplet ou présence non confirmée ; proratisation légale à établir.")
@@ -80,7 +83,7 @@ object EmployerGeneralReduction2026V2 {
 
         val baseRatio = (weekly.toDouble() / LEGAL_WEEKLY_MINUTES.toDouble()).coerceAtMost(1.0)
         val contractualMinimum = SMIC_HOURLY_2026 * 35.0 * 52.0 / 12.0 * baseRatio
-        val additionalMinimum = SMIC_HOURLY_2026 * (additionalMinutes.toDouble() / 60.0)
+        val additionalMinimum = SMIC_HOURLY_2026 * (additionalMinutes / 60.0)
         val referenceMinimum = contractualMinimum + additionalMinimum
         val threshold = 3.0 * referenceMinimum
         val remuneration = input.reductionRemunerationMonthly
