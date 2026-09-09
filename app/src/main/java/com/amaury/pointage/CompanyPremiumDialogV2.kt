@@ -79,6 +79,15 @@ object CompanyPremiumDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
+            text = "GÉRER LE TAUX PAS DATÉ"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyIncomeTaxRateDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
+        box.addView(Button(context).apply {
+            isAllCaps = false
             text = "GÉRER LES AVANTAGES EN NATURE"
             setOnClickListener {
                 listDialog?.dismiss()
