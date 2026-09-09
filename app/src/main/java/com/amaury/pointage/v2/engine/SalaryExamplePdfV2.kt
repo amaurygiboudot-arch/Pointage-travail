@@ -11,6 +11,7 @@ import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
+import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
@@ -222,8 +223,14 @@ object SalaryExamplePdfV2 {
                     if (it.benefitsInKindDeduction > 0.0) {
                         add("Avantages en nature non versés en espèces" to "-${String.format(Locale.FRANCE, "%.2f €", it.benefitsInKindDeduction)}")
                     }
-                    add("Net estimé avant impôt" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))
-                    it.netTaxable?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
+                    val reliableNet = NetSalaryReferencePolicyV2.beforeIncomeTax(it)
+                    if (reliableNet != null) {
+                        add("Net estimé avant impôt" to String.format(Locale.FRANCE, "%.2f €", reliableNet))
+                        it.netTaxable?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
+                    } else {
+                        add("Net estimé avant impôt" to "À confirmer")
+                        add("Sous-total net sur retenues connues" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))
+                    }
                 } ?: add("Cotisations / net" to "Affichés uniquement quand leurs sources applicables sont déterminées")
             }
             section("ESTIMATION DE RÉMUNÉRATION", estimateLines)
