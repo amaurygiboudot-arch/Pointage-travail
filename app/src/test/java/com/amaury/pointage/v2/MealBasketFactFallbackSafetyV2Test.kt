@@ -106,6 +106,72 @@ class MealBasketFactFallbackSafetyV2Test {
     }
 
     @Test
+    fun `fait jour confirme vaut pour toutes les sessions du jour mais pas le lendemain`() {
+        val company = entry(
+            "company-default",
+            MealBasketFactJournalV2.Scope.COMPANY,
+            false,
+            DecisionStatusV2.CONFIRMED
+        )
+        val dayFact = entry(
+            "day-confirmed",
+            MealBasketFactJournalV2.Scope.DAY,
+            true,
+            DecisionStatusV2.CONFIRMED,
+            dayEpochDay = day.toEpochDay()
+        )
+        val entries = listOf(company, dayFact)
+
+        val sessionA = MealBasketFactJournalV2.resolve(entries, "company", day, "session-a")
+        val sessionB = MealBasketFactJournalV2.resolve(entries, "company", day, "session-b")
+        val nextDay = MealBasketFactJournalV2.resolve(entries, "company", day.plusDays(1), "session-c")
+
+        assertEquals(true, sessionA.facts.mealVoucherProvided)
+        assertEquals(true, sessionB.facts.mealVoucherProvided)
+        assertEquals(false, nextDay.facts.mealVoucherProvided)
+    }
+
+    @Test
+    fun `fait session confirme reste prioritaire sur journee a confirmer`() {
+        val dayUnknown = MealBasketFactJournalV2.Entry(
+            id = "day-unknown",
+            companyId = "company",
+            scope = MealBasketFactJournalV2.Scope.DAY,
+            key = MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED,
+            value = MealBasketFactJournalV2.Value.Unknown,
+            source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+            status = DecisionStatusV2.TO_CONFIRM,
+            recordedAtMs = 2L,
+            dayEpochDay = day.toEpochDay()
+        )
+        val sessionConfirmed = entry(
+            "session-confirmed",
+            MealBasketFactJournalV2.Scope.SESSION,
+            true,
+            DecisionStatusV2.CONFIRMED,
+            sessionId = "session-a"
+        )
+
+        val specific = MealBasketFactJournalV2.resolve(
+            listOf(dayUnknown, sessionConfirmed),
+            "company",
+            day,
+            "session-a"
+        )
+        val other = MealBasketFactJournalV2.resolve(
+            listOf(dayUnknown, sessionConfirmed),
+            "company",
+            day,
+            "session-b"
+        )
+
+        assertEquals(true, specific.facts.mealVoucherProvided)
+        assertTrue(MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED !in specific.blockedKeys)
+        assertNull(other.facts.mealVoucherProvided)
+        assertTrue(MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED in other.blockedKeys)
+    }
+
+    @Test
     fun `absence de fait local autorise encore le fallback explicite`() {
         val resolution = MealBasketFactJournalV2.resolve(
             entries = emptyList(),

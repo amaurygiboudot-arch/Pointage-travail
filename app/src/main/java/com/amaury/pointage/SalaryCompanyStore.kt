@@ -78,6 +78,24 @@ object SalaryCompanyStore {
         return ids
     }
 
+    /**
+     * Résout un identifiant employeur historique vers l'identifiant stable de l'entreprise.
+     *
+     * Une correspondance ambiguë reste volontairement inconnue : HoraTrack ne doit jamais rattacher
+     * silencieusement une ancienne session ou un fait salarial à la mauvaise entreprise.
+     */
+    fun canonicalCompanyIdForEmployerId(context: Context, employerId: String?): String? {
+        val raw = employerId?.trim().orEmpty()
+        if (raw.isBlank()) return null
+        val companies = list(context)
+        companies.firstOrNull { it.id == raw }?.let { return it.id }
+        return companies
+            .filter { raw in acceptedEmployerIds(context, it.id) }
+            .map { it.id }
+            .distinct()
+            .singleOrNull()
+    }
+
     private fun read(context: Context): List<Company> {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
         return runCatching {

@@ -13,21 +13,22 @@ import android.widget.Toast
 import com.amaury.pointage.v2.MealBasketFactJournalV2
 import com.amaury.pointage.v2.V2MealBasketFactStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
-import com.amaury.pointage.v2.model.SessionStatusV2
-import com.amaury.pointage.v2.model.WorkSessionV2
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /**
- * Saisie locale des faits repas propres à une session de travail précise.
+ * Saisie locale des faits repas communs à toutes les sessions d'une entreprise sur une journée.
  *
- * Aucun signal GPS, horaire ou lieu n'est transformé automatiquement en fait métier. La session
- * sert uniquement d'identifiant et de contexte d'affichage ; seules les réponses explicites créent
- * un fait SESSION. L'absence de réponse laisse le moteur résoudre les niveaux plus généraux.
+ * La journée est calculée avec la même entrée réparée que le pont salarial. Aucun horaire, GPS,
+ * chantier ou poste n'est converti en fait métier : ces données servent uniquement à retrouver la
+ * journée et l'entreprise auxquelles l'utilisateur choisit explicitement d'attacher une réponse.
  */
-object SessionMealFactsDialogV2 {
+object DayMealFactsDialogV2 {
     private val managedKeys = listOf(
         MealBasketFactJournalV2.Key.POSTED_SHIFT_WORKER,
         MealBasketFactJournalV2.Key.CAN_RETURN_HOME_FOR_MEAL,
@@ -45,46 +46,49 @@ object SessionMealFactsDialogV2 {
         val detail: String
     )
 
+    private data class TargetKey(val companyId: String, val day: LocalDate)
+    private data class DayTarget(val companyId: String, val day: LocalDate, val sessionCount: Int)
+
     private val questions = listOf(
         Question(
             MealBasketFactJournalV2.Key.POSTED_SHIFT_WORKER,
             "Travail posté / en équipes",
-            "Pour cette session seulement : étais-tu réellement en travail posté ou en équipes ?"
+            "Pour toutes les sessions de cette entreprise ce jour-là, étais-tu réellement en travail posté ou en équipes ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.CAN_RETURN_HOME_FOR_MEAL,
             "Retour au domicile possible pour le repas",
-            "Pendant la pause repas concernée par cette session, pouvais-tu réellement rentrer chez toi et revenir dans le temps disponible ?"
+            "Pour le ou les repas concernés ce jour-là, pouvais-tu réellement rentrer chez toi et revenir dans le temps disponible ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.WORKS_AWAY_FROM_USUAL_WORKPLACE,
             "Travail hors du lieu habituel",
-            "Cette session a-t-elle été effectuée hors de ton lieu de travail habituel ? Le lieu GPS affiché n'est jamais utilisé pour répondre automatiquement."
+            "Toutes les sessions concernées de cette journée ont-elles été effectuées hors de ton lieu de travail habituel ? Aucun lieu GPS n'est utilisé pour répondre automatiquement."
         ),
         Question(
             MealBasketFactJournalV2.Key.MUST_EAT_AT_WORKPLACE,
             "Repas imposé sur le lieu de travail",
-            "Pour cette session, l'organisation du travail t'imposait-elle réellement de prendre le repas sur le lieu de travail ?"
+            "L'organisation du travail t'imposait-elle réellement de prendre le ou les repas concernés sur le lieu de travail pendant toute cette journée ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.COMPANY_CANTEEN_AVAILABLE,
             "Cantine / restauration d'entreprise accessible",
-            "Une cantine ou restauration d'entreprise était-elle réellement accessible pendant cette session et au moment du repas concerné ?"
+            "Une cantine ou restauration d'entreprise était-elle réellement accessible pour le ou les repas concernés de cette journée ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.EMPLOYER_MEAL_PROVIDED,
             "Repas fourni par l'employeur",
-            "L'employeur a-t-il effectivement fourni ou pris directement en charge le repas concerné pendant cette session ?"
+            "L'employeur a-t-il effectivement fourni ou pris directement en charge le ou les repas concernés de cette journée ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED,
             "Titre-restaurant fourni",
-            "Un titre-restaurant a-t-il effectivement été attribué pour le repas concerné par cette session ?"
+            "Un titre-restaurant a-t-il effectivement été attribué pour le ou les repas concernés de cette journée ?"
         ),
         Question(
             MealBasketFactJournalV2.Key.OTHER_SAME_NATURE_MEAL_BENEFIT,
             "Autre avantage couvrant le même repas",
-            "As-tu reçu un autre avantage clairement destiné à couvrir ce même repas (par exemple une autre indemnité, un panier ou un remboursement) ? En cas de doute, choisis À confirmer."
+            "Un autre avantage a-t-il clairement couvert le ou les mêmes repas ce jour-là ? En cas de doute ou si la réponse varie entre sessions, n'impose pas un fait journée."
         )
     )
 
@@ -92,7 +96,7 @@ object SessionMealFactsDialogV2 {
         val loaded = V2MealBasketFactStore.load(context)
         if (loaded.malformedCount > 0) {
             AlertDialog.Builder(context)
-                .setTitle("Faits repas par session")
+                .setTitle("Faits repas par journée")
                 .setMessage(
                     "Le journal local contient ${loaded.malformedCount} fait(s) illisible(s). " +
                         "HoraTrack refuse de le réécrire pour ne pas effacer une information potentiellement bloquante."
@@ -102,64 +106,57 @@ object SessionMealFactsDialogV2 {
             return
         }
 
-        val sessions = V2RuntimeStore.allSessions(context)
-            .filter { it.id.isNotBlank() && (it.realArrivalMs ?: 0L) > 0L }
-            .sortedByDescending { it.realArrivalMs }
+        val zoneId = ZoneId.systemDefault()
+        val grouped = linkedMapOf<TargetKey, Int>()
+        V2RuntimeStore.allSessions(context).forEach { session ->
+            val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
+                ?: return@forEach
+            val entry = WorkTimePolicyV2.repairKnownCountedEntry(session.realArrivalMs, session.countedEntryMs)
+                ?: session.countedEntryMs
+                ?: session.realArrivalMs
+                ?: return@forEach
+            val day = Instant.ofEpochMilli(entry).atZone(zoneId).toLocalDate()
+            val key = TargetKey(companyId, day)
+            grouped[key] = (grouped[key] ?: 0) + 1
+        }
 
-        if (sessions.isEmpty()) {
+        val targets = grouped.map { (key, count) -> DayTarget(key.companyId, key.day, count) }
+            .sortedWith(compareByDescending<DayTarget> { it.day }.thenBy { it.companyId })
+        if (targets.isEmpty()) {
             AlertDialog.Builder(context)
-                .setTitle("Faits repas par session")
-                .setMessage("Aucune session V2 n'est encore disponible.")
+                .setTitle("Faits repas par journée")
+                .setMessage("Aucune journée V2 rattachée sans ambiguïté à une entreprise n'est disponible.")
                 .setPositiveButton("FERMER", null)
                 .show()
             return
         }
 
         val companies = SalaryCompanyStore.list(context).associateBy { it.id }
-        val labels = sessions.map { session ->
-            val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
-            sessionLabel(session, companyId?.let { companies[it]?.name })
+        val labels = targets.map { target ->
+            targetLabel(target, companies[target.companyId]?.name)
         }.toTypedArray()
 
         AlertDialog.Builder(context)
-            .setTitle("Choisir une session")
+            .setTitle("Choisir une journée")
             .setItems(labels) { _, which ->
-                val session = sessions[which]
-                val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
-                if (companyId == null) {
-                    AlertDialog.Builder(context)
-                        .setTitle("Entreprise de la session à confirmer")
-                        .setMessage(
-                            "HoraTrack ne peut pas rattacher cette session à une entreprise unique. " +
-                                "Le lien reste inconnu plutôt que d'affecter les faits repas à la mauvaise entreprise."
-                        )
-                        .setPositiveButton("FERMER", null)
-                        .show()
-                } else {
-                    showEditor(context, session, companyId, companies[companyId]?.name)
-                }
+                val target = targets[which]
+                showEditor(context, target, companies[target.companyId]?.name)
             }
             .setNegativeButton("FERMER", null)
             .show()
     }
 
-    private fun showEditor(
-        context: Context,
-        session: WorkSessionV2,
-        companyId: String,
-        companyName: String?
-    ) {
-        if (companyId.isBlank() || session.id.isBlank()) return
-
+    private fun showEditor(context: Context, target: DayTarget, companyName: String?) {
         val loaded = V2MealBasketFactStore.load(context)
         if (loaded.malformedCount > 0) {
             Toast.makeText(context, "Journal factuel illisible : modification refusée", Toast.LENGTH_LONG).show()
             return
         }
+        val epochDay = target.day.toEpochDay()
         val existing = loaded.entries.filter {
-            belongsToCompany(context, it.companyId, companyId) &&
-                it.scope == MealBasketFactJournalV2.Scope.SESSION &&
-                it.sessionId == session.id &&
+            belongsToCompany(context, it.companyId, target.companyId) &&
+                it.scope == MealBasketFactJournalV2.Scope.DAY &&
+                it.dayEpochDay == epochDay &&
                 it.key in managedKeys
         }
 
@@ -168,14 +165,15 @@ object SessionMealFactsDialogV2 {
             setPadding(dp(context, 20), dp(context, 10), dp(context, 20), dp(context, 8))
         }
         body.addView(TextView(context).apply {
-            text = sessionLabel(session, companyName)
+            text = targetLabel(target, companyName)
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
             setPadding(0, 0, 0, dp(context, 8))
         })
         body.addView(TextView(context).apply {
-            text = "Ces réponses valent uniquement pour cette session. HoraTrack ne déduit rien du GPS, du chantier, de l'heure ou du poste. " +
-                "« Pas de fait session » conserve les niveaux plus généraux ; « À confirmer » bloque volontairement ce fait pour cette session."
+            text = "Un fait JOURNÉE doit être vrai pour toutes les sessions de cette entreprise rattachées à cette date. " +
+                "Si une réponse varie dans la journée, laisse « Pas de fait journée » et renseigne la session concernée. " +
+                "Les faits SESSION restent prioritaires sur les faits JOURNÉE. HoraTrack ne déduit aucune réponse du GPS, du chantier, de l'heure ou du poste."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -193,7 +191,7 @@ object SessionMealFactsDialogV2 {
                 textSize = 12f
                 setPadding(0, dp(context, 2), 0, dp(context, 2))
             })
-            val spinner = sessionStateSpinner(context).apply {
+            val spinner = dayStateSpinner(context).apply {
                 setSelection(selection(existing, question.key))
             }
             spinners[question.key] = spinner
@@ -205,7 +203,7 @@ object SessionMealFactsDialogV2 {
             addView(body)
         }
         val dialog = AlertDialog.Builder(context)
-            .setTitle("Faits repas de la session")
+            .setTitle("Faits repas de la journée")
             .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)
             .setNeutralButton("EFFACER LES FAITS", null)
@@ -219,40 +217,38 @@ object SessionMealFactsDialogV2 {
                     Toast.makeText(context, "Journal factuel illisible : enregistrement refusé", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                // On relit les IDs au moment de sauvegarder afin de retirer aussi une ancienne entrée
-                // de la même session enregistrée sous company_1/company_2 avant la migration stable.
                 val idsToReplace = fresh.entries.filter {
-                    belongsToCompany(context, it.companyId, companyId) &&
-                        it.scope == MealBasketFactJournalV2.Scope.SESSION &&
-                        it.sessionId == session.id &&
+                    belongsToCompany(context, it.companyId, target.companyId) &&
+                        it.scope == MealBasketFactJournalV2.Scope.DAY &&
+                        it.dayEpochDay == epochDay &&
                         it.key in managedKeys
                 }.map { it.id }.toSet()
 
                 val now = System.currentTimeMillis()
                 val replacements = questions.mapNotNull { question ->
                     when (val selected = spinners.getValue(question.key).selectedItemPosition) {
-                        0 -> null // aucun override SESSION : le moteur garde DAY/COMPANY/fallback explicite
+                        0 -> null
                         1 -> MealBasketFactJournalV2.Entry(
-                            id = entryId(companyId, session.id, question.key),
-                            companyId = companyId,
-                            scope = MealBasketFactJournalV2.Scope.SESSION,
+                            id = entryId(target.companyId, epochDay, question.key),
+                            companyId = target.companyId,
+                            scope = MealBasketFactJournalV2.Scope.DAY,
                             key = question.key,
                             value = MealBasketFactJournalV2.Value.Unknown,
                             source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
                             status = DecisionStatusV2.TO_CONFIRM,
                             recordedAtMs = now,
-                            sessionId = session.id
+                            dayEpochDay = epochDay
                         )
                         2, 3 -> MealBasketFactJournalV2.Entry(
-                            id = entryId(companyId, session.id, question.key),
-                            companyId = companyId,
-                            scope = MealBasketFactJournalV2.Scope.SESSION,
+                            id = entryId(target.companyId, epochDay, question.key),
+                            companyId = target.companyId,
+                            scope = MealBasketFactJournalV2.Scope.DAY,
                             key = question.key,
                             value = MealBasketFactJournalV2.Value.Flag(selected == 2),
                             source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
                             status = DecisionStatusV2.CONFIRMED,
                             recordedAtMs = now,
-                            sessionId = session.id
+                            dayEpochDay = epochDay
                         )
                         else -> null
                     }
@@ -263,7 +259,7 @@ object SessionMealFactsDialogV2 {
                     return@setOnClickListener
                 }
                 dialog.dismiss()
-                Toast.makeText(context, "Faits de la session enregistrés", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Faits de la journée enregistrés", Toast.LENGTH_SHORT).show()
             }
 
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -273,14 +269,14 @@ object SessionMealFactsDialogV2 {
                     return@setOnClickListener
                 }
                 val ids = fresh.entries.filter {
-                    belongsToCompany(context, it.companyId, companyId) &&
-                        it.scope == MealBasketFactJournalV2.Scope.SESSION &&
-                        it.sessionId == session.id &&
+                    belongsToCompany(context, it.companyId, target.companyId) &&
+                        it.scope == MealBasketFactJournalV2.Scope.DAY &&
+                        it.dayEpochDay == epochDay &&
                         it.key in managedKeys
                 }.map { it.id }.toSet()
                 if (ids.isEmpty() || V2MealBasketFactStore.replaceAtomically(context, ids, emptyList())) {
                     dialog.dismiss()
-                    Toast.makeText(context, "Faits de la session effacés", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Faits de la journée effacés", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, "Échec de la suppression", Toast.LENGTH_LONG).show()
                 }
@@ -289,10 +285,6 @@ object SessionMealFactsDialogV2 {
         dialog.show()
     }
 
-    /**
-     * 0 = aucun fait SESSION ; 1 = TO_CONFIRM ; 2 = oui ; 3 = non.
-     * Les doublons/contradictions restent affichés À confirmer plutôt que d'être normalisés en silence.
-     */
     private fun selection(
         entries: List<MealBasketFactJournalV2.Entry>,
         key: MealBasketFactJournalV2.Key
@@ -306,33 +298,25 @@ object SessionMealFactsDialogV2 {
         return if (flag.value) 2 else 3
     }
 
-    private fun sessionStateSpinner(context: Context) = Spinner(context).apply {
+    private fun dayStateSpinner(context: Context) = Spinner(context).apply {
         adapter = ArrayAdapter(
             context,
             android.R.layout.simple_spinner_dropdown_item,
             listOf(
-                "Pas de fait session — résoudre le niveau plus général",
-                "À confirmer — bloquer pour cette session",
-                "Oui — confirmé pour cette session",
-                "Non — confirmé pour cette session"
+                "Pas de fait journée — résoudre le niveau entreprise",
+                "À confirmer — bloquer le niveau entreprise ce jour-là",
+                "Oui — confirmé pour cette journée",
+                "Non — confirmé pour cette journée"
             )
         )
     }
 
-    private fun sessionLabel(session: WorkSessionV2, companyName: String?): String {
-        val formatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
-        val start = session.realArrivalMs?.let { formatter.format(Date(it)) } ?: "début inconnu"
-        val endFormatter = SimpleDateFormat("HH:mm", Locale.FRANCE)
-        val end = session.realExitMs?.let { endFormatter.format(Date(it)) }
-            ?: if (session.status == SessionStatusV2.OPEN) "en cours" else "fin inconnue"
+    private fun targetLabel(target: DayTarget, companyName: String?): String {
+        val date = target.day.format(DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE))
         val company = companyName?.trim().takeUnless { it.isNullOrBlank() }
-            ?: session.employerId?.let { "Entreprise ${it.take(8)}…" }
-            ?: "Sans entreprise"
-        val place = session.placeLabel?.trim().takeUnless { it.isNullOrBlank() }
-        return buildString {
-            append(start).append(" → ").append(end).append(" · ").append(company)
-            if (place != null) append("\n").append(place)
-        }
+            ?: "Entreprise ${target.companyId.take(8)}…"
+        val sessions = if (target.sessionCount == 1) "1 session" else "${target.sessionCount} sessions"
+        return "$date · $company · $sessions"
     }
 
     private fun belongsToCompany(context: Context, storedCompanyId: String, companyId: String): Boolean =
@@ -341,9 +325,9 @@ object SessionMealFactsDialogV2 {
 
     private fun entryId(
         companyId: String,
-        sessionId: String,
+        epochDay: Long,
         key: MealBasketFactJournalV2.Key
-    ): String = "session_meal:$companyId:$sessionId:${key.name}"
+    ): String = "day_meal:$companyId:$epochDay:${key.name}"
 
     private fun rowParams(context: Context) = LinearLayout.LayoutParams(
         ViewGroup.LayoutParams.MATCH_PARENT,
