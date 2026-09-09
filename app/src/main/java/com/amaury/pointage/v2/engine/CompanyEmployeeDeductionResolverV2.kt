@@ -15,6 +15,7 @@ object CompanyEmployeeDeductionResolverV2 {
         PROVIDENT_EMPLOYEE("Prévoyance salariale entreprise"),
         TRANSPORT_EMPLOYEE("Retenue transport"),
         EMPLOYER_PROTECTION_TAXABLE("Part employeur mutuelle/prévoyance réintégrable au net imposable"),
+        EMPLOYER_PROTECTION_CSG_CRDS_BASE("Part employeur protection sociale complémentaire soumise à CSG/CRDS"),
         EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE("Part salariale de prévoyance non déductible")
     }
 
