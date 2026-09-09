@@ -50,25 +50,35 @@ object V2MealBasketFactStore {
         )
     }
 
-    fun save(context: Context, entry: MealBasketFactJournalV2.Entry): Boolean {
-        if (!entry.structurallyValid()) return false
+    fun save(context: Context, entry: MealBasketFactJournalV2.Entry): Boolean =
+        replaceAtomically(context, setOf(entry.id), listOf(entry))
+
+    fun remove(context: Context, entryId: String): Boolean =
+        replaceAtomically(context, setOf(entryId), emptyList())
+
+    /**
+     * Remplace plusieurs faits en une seule écriture SharedPreferences.
+     *
+     * Cette API est utilisée par les formulaires qui décrivent une même période : soit tout le lot
+     * est validé et écrit, soit le journal reste strictement inchangé.
+     */
+    fun replaceAtomically(
+        context: Context,
+        removeEntryIds: Set<String>,
+        replacements: List<MealBasketFactJournalV2.Entry>
+    ): Boolean {
+        if (removeEntryIds.any { it.isBlank() }) return false
+        if (replacements.any { !it.structurallyValid() }) return false
+        if (replacements.map { it.id }.toSet().size != replacements.size) return false
+
         val loaded = load(context)
         // Ne jamais réécrire une version partiellement décodée : cela pourrait effacer un fait
         // bloquant que cette version de l'app n'a pas réussi à relire.
         if (loaded.malformedCount > 0) return false
-        val next = loaded.entries.filterNot { it.id == entry.id } + entry
-        if (next.size > MAX_ENTRIES) return false
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_ENTRIES, encode(next).toString())
-            .commit()
-    }
 
-    fun remove(context: Context, entryId: String): Boolean {
-        if (entryId.isBlank()) return false
-        val loaded = load(context)
-        if (loaded.malformedCount > 0) return false
-        val next = loaded.entries.filterNot { it.id == entryId }
+        val idsToReplace = removeEntryIds + replacements.map { it.id }
+        val next = loaded.entries.filterNot { it.id in idsToReplace } + replacements
+        if (next.size > MAX_ENTRIES) return false
         return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_ENTRIES, encode(next).toString())
@@ -97,6 +107,7 @@ object V2MealBasketFactStore {
                 put("dayEpochDay", entry.dayEpochDay ?: JSONObject.NULL)
                 put("sessionId", entry.sessionId ?: JSONObject.NULL)
                 when (val value = entry.value) {
+                    MealBasketFactJournalV2.Value.Unknown -> put("valueKind", "UNKNOWN")
                     is MealBasketFactJournalV2.Value.Flag -> {
                         put("valueKind", "FLAG")
                         put("flag", value.value)
@@ -130,6 +141,7 @@ object V2MealBasketFactStore {
         val source = MealBasketFactJournalV2.Source.valueOf(json.getString("source"))
         val status = DecisionStatusV2.valueOf(json.getString("status"))
         val value = when (json.getString("valueKind")) {
+            "UNKNOWN" -> MealBasketFactJournalV2.Value.Unknown
             "FLAG" -> MealBasketFactJournalV2.Value.Flag(json.getBoolean("flag"))
             "NIGHT_WINDOW" -> MealBasketFactJournalV2.Value.NightWindow(
                 ConventionMealBasketV2.DailyWindow(
