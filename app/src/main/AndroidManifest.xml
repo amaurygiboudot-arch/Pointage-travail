@@ -47,6 +47,7 @@
         <activity android:name=".V2MonthlyPdfActivity" android:exported="false" />
         <activity android:name=".V2RestoreActivity" android:exported="false" />
         <activity android:name=".V2PayslipImportActivity" android:exported="false" />
+        <activity android:name=".RgduObservedDocumentImportActivity" android:exported="false" />
         <activity android:name=".CompanyAgreementImportActivity" android:exported="false" android:configChanges="orientation|screenSize|keyboardHidden" />
         <activity android:name=".SalaryPayslipPhotoActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".DriveFolderPickerActivity" android:exported="false" />
