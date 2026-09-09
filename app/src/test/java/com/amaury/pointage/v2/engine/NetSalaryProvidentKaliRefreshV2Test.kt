@@ -37,7 +37,6 @@ class NetSalaryProvidentKaliRefreshV2Test {
             forfaitAnnualDays = null,
             unpaidAbsenceDays = 0,
             hasUnpaidAbsence = false,
-            mealAmount = 0.0,
             mutualEmployeeAmount = 0.0,
             providentEmployeeAmount = null,
             transportEmployeeAmount = 0.0,

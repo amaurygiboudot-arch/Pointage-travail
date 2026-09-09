@@ -98,7 +98,6 @@ class NetSalaryAccoProvidentIntegrationV2Test {
         forfaitAnnualDays = null,
         unpaidAbsenceDays = 0,
         hasUnpaidAbsence = false,
-        mealAmount = 0.0,
         mutualEmployeeAmount = 0.0,
         providentEmployeeAmount = actualProvident,
         transportEmployeeAmount = 0.0,

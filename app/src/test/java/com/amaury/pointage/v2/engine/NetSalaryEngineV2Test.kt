@@ -31,7 +31,6 @@ class NetSalaryEngineV2Test {
         forfaitAnnualDays=null,
         unpaidAbsenceDays=unpaidAbsenceDays,
         hasUnpaidAbsence=unpaidAbsenceDays>0,
-        mealAmount=0.0,
         mutualEmployeeAmount=0.0,
         providentEmployeeAmount=0.0,
         transportEmployeeAmount=0.0,
