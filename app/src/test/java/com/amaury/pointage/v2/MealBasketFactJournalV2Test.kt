@@ -29,6 +29,7 @@ class MealBasketFactJournalV2Test {
         source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
         status = status,
         recordedAtMs = 1L,
+        effectiveFromEpochDay = if (scope == MealBasketFactJournalV2.Scope.COMPANY) day.minusYears(1).toEpochDay() else null,
         dayEpochDay = dayEpochDay,
         sessionId = sessionId
     )
@@ -112,7 +113,8 @@ class MealBasketFactJournalV2Test {
             value = MealBasketFactJournalV2.Value.NightWindow(ConventionMealBasketV2.DailyWindow(21 * 60, 6 * 60)),
             source = MealBasketFactJournalV2.Source.COMPANY_CONFIGURATION,
             status = DecisionStatusV2.CONFIRMED,
-            recordedAtMs = 1L
+            recordedAtMs = 1L,
+            effectiveFromEpochDay = day.minusYears(1).toEpochDay()
         )
 
         val result = MealBasketFactJournalV2.resolve(listOf(entry), "company", day, "session")
@@ -130,7 +132,8 @@ class MealBasketFactJournalV2Test {
             value = MealBasketFactJournalV2.Value.NightWindow(ConventionMealBasketV2.DailyWindow(21 * 60, 6 * 60)),
             source = MealBasketFactJournalV2.Source.IMPORT,
             status = DecisionStatusV2.CONFIRMED,
-            recordedAtMs = 1L
+            recordedAtMs = 1L,
+            effectiveFromEpochDay = day.minusYears(1).toEpochDay()
         )
 
         assertFalse(invalid.structurallyValid())
