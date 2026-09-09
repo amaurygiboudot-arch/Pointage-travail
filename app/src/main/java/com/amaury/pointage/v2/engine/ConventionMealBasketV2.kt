@@ -206,12 +206,18 @@ object ConventionMealBasketV2 {
         if (territorial.isEmpty()) return ScopeResult(emptyList(), true, listOf("Aucune règle repas vérifiée pour le territoire confirmé."))
 
         val employment = classification.employment?.trim()?.let(::normalizeText)
-        if (territorial.any { it.excludedEmployments.isNotEmpty() } && employment == null) {
+        val rulesWithEmploymentExclusions = territorial.filter { it.excludedEmployments.isNotEmpty() }
+        if (rulesWithEmploymentExclusions.isNotEmpty() && employment == null) {
             return unresolved("emploi exact requis pour contrôler une exclusion professionnelle")
         }
-        val notExcluded = territorial.filterNot { rule ->
+        val exactExclusions = rulesWithEmploymentExclusions.filter { rule ->
             employment != null && employment in rule.excludedEmployments.map(::normalizeText).toSet()
         }
+        val uncertainExclusions = rulesWithEmploymentExclusions - exactExclusions.toSet()
+        if (uncertainExclusions.isNotEmpty()) {
+            return unresolved("exclusion professionnelle présente mais correspondance exacte au profil non démontrée")
+        }
+        val notExcluded = territorial - exactExclusions.toSet()
         return ScopeResult(
             rules = notExcluded,
             reliable = true,
