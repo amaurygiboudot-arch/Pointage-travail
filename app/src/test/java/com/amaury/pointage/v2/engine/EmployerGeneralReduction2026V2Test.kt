@@ -13,7 +13,7 @@ class EmployerGeneralReduction2026V2Test {
         band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
-        additionalMinutes: Int? = 0,
+        additionalMinutes: Double? = 0.0,
         fullMonth: Boolean? = true,
         standardCase: Boolean? = true
     ) = EmployerGeneralReduction2026V2.Input(
@@ -76,7 +76,7 @@ class EmployerGeneralReduction2026V2Test {
                 gross = 1600.0,
                 type = ContractTypeV2.PART_TIME,
                 weeklyMinutes = 28 * 60,
-                additionalMinutes = 120
+                additionalMinutes = 120.0
             )
         )
         val expected = (12.02 * 35.0 * 52.0 / 12.0 * 0.8) + (12.02 * 2.0)
@@ -86,8 +86,30 @@ class EmployerGeneralReduction2026V2Test {
     }
 
     @Test
+    fun `fractional paid minutes are preserved without upstream rounding`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
+            input(additionalMinutes = 0.5)
+        )
+        val expected = (12.02 * 35.0 * 52.0 / 12.0) + (12.02 * 0.5 / 60.0)
+
+        assertTrue(result.reliable)
+        assertEquals(expected, result.referenceMinimumMonthly!!, 0.000000001)
+    }
+
+    @Test
     fun `additional paid hours must be explicitly known even when zero`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(input(additionalMinutes = null))
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertTrue(result.warnings.any { it.contains("heures supplémentaires/complémentaires") })
+    }
+
+    @Test
+    fun `non finite additional paid minutes are rejected`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
+            input(additionalMinutes = Double.POSITIVE_INFINITY)
+        )
 
         assertFalse(result.reliable)
         assertNull(result.amount)
