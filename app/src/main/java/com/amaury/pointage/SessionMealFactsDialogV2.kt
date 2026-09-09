@@ -3,7 +3,6 @@ package com.amaury.pointage
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Typeface
-import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
@@ -25,8 +24,8 @@ import java.util.Locale
  * Saisie locale des faits repas propres à une session de travail précise.
  *
  * Aucun signal GPS, horaire ou lieu n'est transformé automatiquement en fait métier. La session
- * sert uniquement d'identifiant et de contexte d'affichage ; toutes les valeurs sont confirmées
- * explicitement par l'utilisateur ou restent TO_CONFIRM.
+ * sert uniquement d'identifiant et de contexte d'affichage ; seules les réponses explicites créent
+ * un fait SESSION. L'absence de réponse laisse le moteur résoudre les niveaux plus généraux.
  */
 object SessionMealFactsDialogV2 {
     private val managedKeys = listOf(
@@ -85,7 +84,7 @@ object SessionMealFactsDialogV2 {
         Question(
             MealBasketFactJournalV2.Key.OTHER_SAME_NATURE_MEAL_BENEFIT,
             "Autre avantage couvrant le même repas",
-            "As-tu reçu un autre avantage clairement destiné à couvrir ce même repas (par exemple une autre indemnité, un panier ou un remboursement) ? En cas de doute, laisse À confirmer."
+            "As-tu reçu un autre avantage clairement destiné à couvrir ce même repas (par exemple une autre indemnité, un panier ou un remboursement) ? En cas de doute, choisis À confirmer."
         )
     )
 
@@ -104,7 +103,7 @@ object SessionMealFactsDialogV2 {
         }
 
         val sessions = V2RuntimeStore.allSessions(context)
-            .filter { !it.id.isBlank() && (it.realArrivalMs ?: 0L) > 0L }
+            .filter { it.id.isNotBlank() && (it.realArrivalMs ?: 0L) > 0L }
             .sortedByDescending { it.realArrivalMs }
 
         if (sessions.isEmpty()) {
@@ -169,7 +168,8 @@ object SessionMealFactsDialogV2 {
             setPadding(0, 0, 0, dp(context, 8))
         })
         body.addView(TextView(context).apply {
-            text = "Ces réponses valent uniquement pour cette session. HoraTrack ne déduit rien du GPS, du chantier, de l'heure ou du poste. « À confirmer » bloque le fait concerné au lieu d'inventer une réponse."
+            text = "Ces réponses valent uniquement pour cette session. HoraTrack ne déduit rien du GPS, du chantier, de l'heure ou du poste. " +
+                "« Pas de fait session » conserve les niveaux plus généraux ; « À confirmer » bloque volontairement ce fait pour cette session."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -187,7 +187,7 @@ object SessionMealFactsDialogV2 {
                 textSize = 12f
                 setPadding(0, dp(context, 2), 0, dp(context, 2))
             })
-            val spinner = triStateSpinner(context).apply {
+            val spinner = sessionStateSpinner(context).apply {
                 setSelection(selection(existing, question.key))
             }
             spinners[question.key] = spinner
@@ -223,23 +223,33 @@ object SessionMealFactsDialogV2 {
                 }.map { it.id }.toSet()
 
                 val now = System.currentTimeMillis()
-                val replacements = questions.map { question ->
-                    val selected = spinners.getValue(question.key).selectedItemPosition
-                    MealBasketFactJournalV2.Entry(
-                        id = entryId(companyId, session.id, question.key),
-                        companyId = companyId,
-                        scope = MealBasketFactJournalV2.Scope.SESSION,
-                        key = question.key,
-                        value = when (selected) {
-                            1 -> MealBasketFactJournalV2.Value.Flag(true)
-                            2 -> MealBasketFactJournalV2.Value.Flag(false)
-                            else -> MealBasketFactJournalV2.Value.Unknown
-                        },
-                        source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
-                        status = if (selected in 1..2) DecisionStatusV2.CONFIRMED else DecisionStatusV2.TO_CONFIRM,
-                        recordedAtMs = now,
-                        sessionId = session.id
-                    )
+                val replacements = questions.mapNotNull { question ->
+                    when (val selected = spinners.getValue(question.key).selectedItemPosition) {
+                        0 -> null // aucun override SESSION : le moteur garde DAY/COMPANY/fallback explicite
+                        1 -> MealBasketFactJournalV2.Entry(
+                            id = entryId(companyId, session.id, question.key),
+                            companyId = companyId,
+                            scope = MealBasketFactJournalV2.Scope.SESSION,
+                            key = question.key,
+                            value = MealBasketFactJournalV2.Value.Unknown,
+                            source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+                            status = DecisionStatusV2.TO_CONFIRM,
+                            recordedAtMs = now,
+                            sessionId = session.id
+                        )
+                        2, 3 -> MealBasketFactJournalV2.Entry(
+                            id = entryId(companyId, session.id, question.key),
+                            companyId = companyId,
+                            scope = MealBasketFactJournalV2.Scope.SESSION,
+                            key = question.key,
+                            value = MealBasketFactJournalV2.Value.Flag(selected == 2),
+                            source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+                            status = DecisionStatusV2.CONFIRMED,
+                            recordedAtMs = now,
+                            sessionId = session.id
+                        )
+                        else -> null
+                    }
                 }
 
                 if (!V2MealBasketFactStore.replaceAtomically(context, idsToReplace, replacements)) {
@@ -273,23 +283,33 @@ object SessionMealFactsDialogV2 {
         dialog.show()
     }
 
+    /**
+     * 0 = aucun fait SESSION ; 1 = TO_CONFIRM ; 2 = oui ; 3 = non.
+     * Les doublons/contradictions restent affichés À confirmer plutôt que d'être normalisés en silence.
+     */
     private fun selection(
         entries: List<MealBasketFactJournalV2.Entry>,
         key: MealBasketFactJournalV2.Key
     ): Int {
         val matching = entries.filter { it.key == key }
-        if (matching.size != 1) return 0
+        if (matching.isEmpty()) return 0
+        if (matching.size != 1) return 1
         val entry = matching.single()
-        if (entry.status != DecisionStatusV2.CONFIRMED) return 0
-        val flag = entry.value as? MealBasketFactJournalV2.Value.Flag ?: return 0
-        return if (flag.value) 1 else 2
+        if (entry.status != DecisionStatusV2.CONFIRMED) return 1
+        val flag = entry.value as? MealBasketFactJournalV2.Value.Flag ?: return 1
+        return if (flag.value) 2 else 3
     }
 
-    private fun triStateSpinner(context: Context) = Spinner(context).apply {
+    private fun sessionStateSpinner(context: Context) = Spinner(context).apply {
         adapter = ArrayAdapter(
             context,
             android.R.layout.simple_spinner_dropdown_item,
-            listOf("À confirmer", "Oui — confirmé", "Non — confirmé")
+            listOf(
+                "Pas de fait session — résoudre le niveau plus général",
+                "À confirmer — bloquer pour cette session",
+                "Oui — confirmé pour cette session",
+                "Non — confirmé pour cette session"
+            )
         )
     }
 
