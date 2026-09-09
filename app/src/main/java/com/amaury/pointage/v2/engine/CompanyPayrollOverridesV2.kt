@@ -124,7 +124,9 @@ object CompanyPayrollOverridesV2 {
         /** Preuves explicites de contrôle/absence des sources, jamais déduites d'un store vide. */
         val verifiedProvidentSourceKnowledge:Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap(),
         /** Équivalence L2253-1 des garanties. null tant qu'une preuve distincte sur les prestations ne l'a pas démontrée. */
-        val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null
+        val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null,
+        /** Part employeur de protection sociale complémentaire incluse dans l'assiette CSG/CRDS du mois. */
+        val employerProtectionCsgCrdsBaseAmount:Double? = null
     )
 
     fun load(
@@ -237,6 +239,7 @@ object CompanyPayrollOverridesV2 {
         val provident=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].amount
         val transport=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].amount
         val employerProtectionTaxable=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE].amount
+        val employerProtectionCsgCrdsBase=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE].amount
         val employeeProvidentNonDeductible=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE].amount
         val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,payrollMonth)
         val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
@@ -271,6 +274,7 @@ object CompanyPayrollOverridesV2 {
             if(provident==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].warnings.isEmpty())add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].warnings.isEmpty())add("Retenue transport : à confirmer")
             if(employerProtectionTaxable==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE].warnings.isEmpty())add("Part employeur mutuelle/prévoyance réintégrable au net imposable : à confirmer")
+            if(employerProtectionCsgCrdsBase==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE].warnings.isEmpty())add("Part employeur protection sociale complémentaire soumise à CSG/CRDS : à confirmer, même si elle est nulle")
             if(employeeProvidentNonDeductible==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE].warnings.isEmpty())add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
             if(tax==null && incomeTaxRate.warnings.isEmpty())add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
@@ -337,7 +341,8 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentLegalProfile=legalProfile,
             verifiedCompanyProvidentRules=verifiedCompanyProvidentRules,
             verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
-            verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent
+            verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent,
+            employerProtectionCsgCrdsBaseAmount=employerProtectionCsgCrdsBase
         )
     }
 
