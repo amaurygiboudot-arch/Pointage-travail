@@ -15,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ScheduleStore
 import java.util.Locale
 
@@ -62,7 +63,7 @@ class ShiftControlView @JvmOverloads constructor(
         addView(stateText)
 
         val configure = Button(context).apply {
-            text = "Horaires, pauses et paniers"
+            text = if (HoraTrackV2.ENABLED) "Horaires et pauses" else "Horaires, pauses et paniers"
             isAllCaps = false
             textSize = 11f
             minHeight = 0
@@ -131,6 +132,15 @@ class ShiftControlView @JvmOverloads constructor(
             addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
+        if (HoraTrackV2.ENABLED) {
+            box.addView(TextView(context).apply {
+                text = "Les paniers ne se règlent plus par poste : HoraTrack V2 les détermine uniquement à partir des faits confirmés et des règles officielles vérifiées."
+                textSize = 12f
+                setTextColor(Color.parseColor("#B0B0B0"))
+                setPadding(0, dp(4), 0, dp(6))
+            })
+        }
+
         val startInputs = linkedMapOf<ShiftType, EditText>()
         val endInputs = linkedMapOf<ShiftType, EditText>()
         val pauseInputs = linkedMapOf<ShiftType, EditText>()
@@ -190,21 +200,23 @@ class ShiftControlView @JvmOverloads constructor(
             pauseInputs[shift] = pause
             box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(5) })
 
-            val meal = Switch(context).apply {
-                text = "Panier pour ce poste"
-                textSize = 14f
-                setTextColor(Color.parseColor("#111111"))
-                gravity = Gravity.CENTER_VERTICAL
-                minHeight = dp(54)
-                setPadding(0, dp(4), 0, dp(4))
-                isChecked = ShiftProfileManager.mealEnabled(context, shift)
+            if (!HoraTrackV2.ENABLED) {
+                val meal = Switch(context).apply {
+                    text = "Panier pour ce poste"
+                    textSize = 14f
+                    setTextColor(Color.parseColor("#111111"))
+                    gravity = Gravity.CENTER_VERTICAL
+                    minHeight = dp(54)
+                    setPadding(0, dp(4), 0, dp(4))
+                    isChecked = ShiftProfileManager.mealEnabled(context, shift)
+                }
+                mealSwitches[shift] = meal
+                box.addView(meal, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
             }
-            mealSwitches[shift] = meal
-            box.addView(meal, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
         }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle("Horaires, pauses et paniers")
+            .setTitle(if (HoraTrackV2.ENABLED) "Horaires et pauses" else "Horaires, pauses et paniers")
             .setView(scroll)
             .setPositiveButton("Enregistrer", null)
             .setNegativeButton("Annuler", null)
@@ -232,9 +244,11 @@ class ShiftControlView @JvmOverloads constructor(
                     V2ScheduleStore.save(context, shift.id, startInputs[shift]?.text?.toString(), endInputs[shift]?.text?.toString())
                     val minutes = pauseInputs[shift]?.text.toString().trim().toIntOrNull()?.coerceIn(0, 240) ?: 0
                     ShiftProfileManager.setPauseMinutes(context, shift, minutes)
-                    ShiftProfileManager.setMealEnabled(context, shift, mealSwitches[shift]?.isChecked == true)
+                    if (!HoraTrackV2.ENABLED) {
+                        ShiftProfileManager.setMealEnabled(context, shift, mealSwitches[shift]?.isChecked == true)
+                    }
                 }
-                Toast.makeText(context, "Profils V2 enregistrés", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (HoraTrackV2.ENABLED) "Profils horaires V2 enregistrés" else "Profils enregistrés", Toast.LENGTH_SHORT).show()
                 refresh()
                 dialog.dismiss()
             }
