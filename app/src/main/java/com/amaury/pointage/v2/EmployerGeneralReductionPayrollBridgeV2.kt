@@ -12,14 +12,14 @@ import java.time.YearMonth
  *
  * Elle ne déduit volontairement aucune donnée depuis le pointage : la rémunération RGDU et les
  * minutes supplémentaires/complémentaires rémunérées doivent être fournies explicitement par
- * l'appelant une fois leur assiette démontrée.
+ * l'appelant une fois leur assiette démontrée. Une valeur absente reste inconnue, jamais 0.
  */
 object EmployerGeneralReductionPayrollBridgeV2 {
     fun resolve(
         context: Context,
         companyId: String,
         period: YearMonth,
-        reductionRemunerationMonthly: Double,
+        reductionRemunerationMonthly: Double?,
         workforceBand: EmployerWorkforceContributionsV2.Band?,
         contractType: ContractTypeV2?,
         contractualWeeklyMinutes: Int?,
@@ -41,18 +41,29 @@ object EmployerGeneralReductionPayrollBridgeV2 {
             companyId = companyId,
             month = period
         )
-        val automatic = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
-            EmployerGeneralReduction2026V2.Input(
-                year = period.year,
-                reductionRemunerationMonthly = reductionRemunerationMonthly,
-                workforceBand = workforceBand,
-                contractType = contractType,
-                contractualWeeklyMinutes = contractualWeeklyMinutes,
-                additionalPaidMinutes = additionalPaidMinutes,
-                fullMonthPresent = monthlyContext.fullMonthPresent,
-                standardCommonLawCaseConfirmed = monthlyContext.standardCommonLawCaseConfirmed
+        val automatic = if (reductionRemunerationMonthly == null) {
+            EmployerGeneralReduction2026V2.Result(
+                amount = null,
+                coefficient = null,
+                referenceMinimumMonthly = null,
+                thresholdMonthly = null,
+                reliable = false,
+                warnings = listOf("RGDU 2026 : rémunération de référence à confirmer ; calcul automatique bloqué.")
             )
-        )
+        } else {
+            EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
+                EmployerGeneralReduction2026V2.Input(
+                    year = period.year,
+                    reductionRemunerationMonthly = reductionRemunerationMonthly,
+                    workforceBand = workforceBand,
+                    contractType = contractType,
+                    contractualWeeklyMinutes = contractualWeeklyMinutes,
+                    additionalPaidMinutes = additionalPaidMinutes,
+                    fullMonthPresent = monthlyContext.fullMonthPresent,
+                    standardCommonLawCaseConfirmed = monthlyContext.standardCommonLawCaseConfirmed
+                )
+            )
+        }
 
         return EmployerReductionResolutionV2.resolve(
             month = period,
