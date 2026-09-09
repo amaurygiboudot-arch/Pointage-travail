@@ -26,7 +26,12 @@ object EmployerGeneralReductionAnnual2026V2 {
         /** true uniquement si le contrat couvre toute l'année civile selon le cas standard pris en charge. */
         val fullCalendarYearPresent: Boolean?,
         /** true uniquement si le cas de droit commun du noyau RGDU standard est confirmé sur toute l'année. */
-        val standardCommonLawCaseConfirmed: Boolean?
+        val standardCommonLawCaseConfirmed: Boolean?,
+        /**
+         * true uniquement si le type de contrat, la durée contractuelle et la tranche d'effectif
+         * utilisés ici sont confirmés comme stables sur toute la période annuelle.
+         */
+        val homogeneousAnnualParametersConfirmed: Boolean?
     )
 
     data class Result(
@@ -51,6 +56,11 @@ object EmployerGeneralReductionAnnual2026V2 {
         }
         if (input.standardCommonLawCaseConfirmed != true) {
             return blocked("RGDU annuelle 2026 : cas de droit commun non confirmé sur toute l'année.")
+        }
+        if (input.homogeneousAnnualParametersConfirmed != true) {
+            return blocked(
+                "RGDU annuelle 2026 : stabilité du contrat, de la durée contractuelle et de la tranche d'effectif à confirmer sur toute l'année."
+            )
         }
 
         // Le noyau mensuel porte déjà les paramètres réglementaires 2026 et leur arrondi du
