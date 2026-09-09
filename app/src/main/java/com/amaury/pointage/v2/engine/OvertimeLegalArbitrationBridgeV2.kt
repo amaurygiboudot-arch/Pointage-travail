@@ -88,8 +88,14 @@ object OvertimeLegalArbitrationBridgeV2 {
         sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
     ): Snapshot {
         val warnings = mutableListOf<String>()
+        val companyReliable = companyAgreement?.reliable != false
+        if (!companyReliable) {
+            warnings += companyAgreement?.warnings.orEmpty().ifEmpty {
+                listOf("ACCO : règles d'entreprise non fiables ; tout repli vers KALI/LEGI est bloqué.")
+            }
+        }
 
-        val companySchedule = companyAgreement?.let { agreement ->
+        val companySchedule = companyAgreement?.takeIf { it.reliable }?.let { agreement ->
             when {
                 agreement.hasOvertimeConflicts -> {
                     warnings += "ACCO : conflit entre plusieurs règles d'heures supplémentaires ; aucune priorité automatique n'est appliquée."
@@ -171,11 +177,16 @@ object OvertimeLegalArbitrationBridgeV2 {
                 valueFingerprint = schedule.fingerprint
             )
         }
+        val effectiveKnowledge = if (companyReliable) {
+            sourceKnowledge
+        } else {
+            sourceKnowledge + (PayrollLegalArbitratorV2.Source.ACCO to PayrollLegalArbitratorV2.Knowledge.UNKNOWN)
+        }
         val resolution = PayrollLegalArbitratorV2.resolve(
             candidates = candidates,
             referenceDate = referenceDate,
             policy = PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
-            sourceKnowledge = sourceKnowledge
+            sourceKnowledge = effectiveKnowledge
         )
 
         if (resolution.state != PayrollLegalArbitratorV2.State.RESOLVED) {
