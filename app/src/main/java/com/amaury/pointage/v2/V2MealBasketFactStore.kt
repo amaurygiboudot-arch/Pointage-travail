@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
+import com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,17 +24,12 @@ object V2MealBasketFactStore {
         val malformedCount: Int
     )
 
-    data class Resolution(
-        val facts: com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2.FactDefaults,
-        val warnings: List<String>
-    )
-
     fun resolve(
         context: Context,
         companyId: String,
         day: LocalDate,
         sessionId: String
-    ): Resolution {
+    ): MealBasketFactJournalV2.Resolution {
         val loaded = load(context)
         val resolved = MealBasketFactJournalV2.resolve(
             entries = loaded.entries,
@@ -41,13 +37,17 @@ object V2MealBasketFactStore {
             day = day,
             sessionId = sessionId
         )
-        val warnings = buildList {
-            addAll(resolved.warnings)
-            if (loaded.malformedCount > 0) {
-                add("Panier : ${loaded.malformedCount} fait(s) local(aux) illisible(s) ; valeur concernée laissée inconnue.")
-            }
-        }.distinct()
-        return Resolution(resolved.facts, warnings)
+        if (loaded.malformedCount == 0) return resolved
+
+        // Une entrée illisible pourrait être précisément le fait plus spécifique qui contredit un
+        // ancien fallback. Comme sa clé/portée ne sont plus prouvables, toutes les clés factuelles
+        // restent inconnues pour cette résolution plutôt que de traverser la corruption.
+        return MealBasketFactJournalV2.Resolution(
+            facts = VerifiedMealBasketPayrollV2.FactDefaults(),
+            warnings = (resolved.warnings +
+                "Panier : ${loaded.malformedCount} fait(s) local(aux) illisible(s) ; journal factuel non exploitable pour cette session.").distinct(),
+            blockedKeys = MealBasketFactJournalV2.Key.entries.toSet()
+        )
     }
 
     fun save(context: Context, entry: MealBasketFactJournalV2.Entry): Boolean {
