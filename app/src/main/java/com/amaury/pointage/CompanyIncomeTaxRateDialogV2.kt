@@ -34,14 +34,24 @@ object CompanyIncomeTaxRateDialogV2 {
         })
 
         var listDialog: AlertDialog? = null
-        val records = CompanyIncomeTaxRateStoreV2.list(context, companyId)
-            .sortedWith(compareBy({ it.effectiveFrom }, { it.id }))
+        val stored = CompanyIncomeTaxRateStoreV2.read(context, companyId)
+        val records = stored.records.sortedWith(compareBy({ it.effectiveFrom }, { it.id }))
 
-        addLegacyMigrationInfo(context, companyId, records, box)
+        if (!stored.reliable) {
+            box.addView(TextView(context).apply {
+                text = "⚠ Stockage des taux PAS incohérent. Le calcul après impôt reste bloqué et HoraTrack ne réutilise pas l'ancien taux sans date.\n• " +
+                    stored.warnings.joinToString("\n• ")
+                textSize = 12f
+                setPadding(0, 0, 0, dp(context, 8))
+            })
+        } else {
+            addLegacyMigrationInfo(context, companyId, records, box)
+        }
 
         if (records.isEmpty()) {
             box.addView(TextView(context).apply {
-                text = "Aucun taux PAS daté enregistré."
+                text = if (stored.reliable) "Aucun taux PAS daté enregistré."
+                else "Aucun taux PAS exploitable n'a pu être lu dans le stockage incohérent."
                 textSize = 13f
                 setPadding(0, dp(context, 4), 0, dp(context, 8))
             })
@@ -51,6 +61,7 @@ object CompanyIncomeTaxRateDialogV2 {
                     isAllCaps = false
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     text = recordLabel(record)
+                    isEnabled = stored.reliable
                     setOnClickListener {
                         listDialog?.dismiss()
                         showEditor(context, companyId, record)
@@ -62,6 +73,7 @@ object CompanyIncomeTaxRateDialogV2 {
         box.addView(Button(context).apply {
             isAllCaps = false
             text = "AJOUTER UN TAUX PAS DATÉ"
+            isEnabled = stored.reliable
             setOnClickListener {
                 listDialog?.dismiss()
                 showEditor(context, companyId, null)
@@ -81,6 +93,11 @@ object CompanyIncomeTaxRateDialogV2 {
         companyId: String,
         existing: CompanyIncomeTaxRateResolverV2.Record?
     ) {
+        if (!CompanyIncomeTaxRateStoreV2.read(context, companyId).reliable) {
+            Toast.makeText(context, "Stockage PAS incohérent : modification bloquée", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
@@ -135,7 +152,12 @@ object CompanyIncomeTaxRateDialogV2 {
                     return@setOnClickListener
                 }
 
-                val overlapping = CompanyIncomeTaxRateStoreV2.list(context, companyId)
+                val current = CompanyIncomeTaxRateStoreV2.read(context, companyId)
+                if (!current.reliable) {
+                    Toast.makeText(context, "Stockage PAS devenu incohérent : enregistrement bloqué", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val overlapping = current.records
                     .asSequence()
                     .filter { it.id != existing?.id }
                     .firstOrNull { other ->
