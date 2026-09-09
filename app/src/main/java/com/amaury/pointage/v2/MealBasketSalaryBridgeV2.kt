@@ -115,7 +115,7 @@ object MealBasketSalaryBridgeV2 {
                 warnings += local.warnings
                 session.id to MealBasketFactJournalV2.overlay(
                     fallback = facts,
-                    specific = local.facts
+                    resolution = local
                 )
             }
 
