@@ -141,9 +141,10 @@ object OfficialAccoMealBasketParserV2 {
 
             val amount = parseAmount(clause)
             val eligibility = parseEligibility(clause)
-            if (amount == null || eligibility.isEmpty()) {
+            val blockers = parseBlockers(clause)
+            if (amount == null || eligibility.isEmpty() || blockers == null) {
                 unresolved++
-                reasons += "ACCO repas $acco : occurrence ${index + 1} sans montant/formule et conditions complètes dans sa propre clause."
+                reasons += "ACCO repas $acco : occurrence ${index + 1} sans montant/formule, conditions ou non-cumul complètement structurés dans sa propre clause."
                 return@forEachIndexed
             }
 
@@ -162,7 +163,7 @@ object OfficialAccoMealBasketParserV2 {
                 },
                 amountFormula = amount,
                 eligibilityAnyOf = eligibility,
-                blockers = parseBlockers(clause),
+                blockers = blockers,
                 countingUnit = if (perWorkedDayRegex.containsMatchIn(clause)) {
                     ConventionMealBasketV2.CountingUnit.WORKED_DAY
                 } else {
@@ -245,6 +246,14 @@ object OfficialAccoMealBasketParserV2 {
     }
 
     private fun parseEligibility(text: String): List<ConventionMealBasketV2.EligibilityGroup> {
+        // Une plage horaire explicite dans la clause doit être entièrement comprise par l'un des
+        // parseurs temporels. Sinon, ne jamais conserver une condition plus large (ex. WorkedDay)
+        // en laissant tomber silencieusement un seuil écrit en toutes lettres.
+        val explicitTimeRange = timeRangeVocabulary.containsMatchIn(text)
+        val parsedTimeRange = effectiveWindowRegex.containsMatchIn(text) ||
+            employerWindowRegex.containsMatchIn(text) || startsEndsWindowRegex.containsMatchIn(text)
+        if (explicitTimeRange && !parsedTimeRange) return emptyList()
+
         val common = buildList<ConventionMealBasketV2.Condition> {
             if (postedWorkerRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.PostedShiftWorker)
             if (unableHomeRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.UnableToReturnHomeForMeal)
@@ -321,14 +330,19 @@ object OfficialAccoMealBasketParserV2 {
         return listOf(group).filter { it.structurallyValid() }
     }
 
-    private fun parseBlockers(text: String): Set<ConventionMealBasketV2.Blocker> {
-        if (!nonCumulationRegex.containsMatchIn(text)) return emptySet()
-        return buildSet {
+    /** null = vocabulaire de non-cumul présent mais cible/forme insuffisamment structurée. */
+    private fun parseBlockers(text: String): Set<ConventionMealBasketV2.Blocker>? {
+        if (!nonCumulationRegex.containsMatchIn(text)) {
+            return if (cumulationVocabularyRegex.containsMatchIn(text)) null else emptySet()
+        }
+        if (unknownNonCumulationTargetRegex.containsMatchIn(text)) return null
+        val blockers = buildSet {
             if (canteenRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Blocker.COMPANY_CANTEEN)
             if (providedMealRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Blocker.EMPLOYER_PROVIDED_MEAL)
             if (mealVoucherRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Blocker.MEAL_VOUCHER)
             if (sameNatureRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Blocker.OTHER_SAME_NATURE_MEAL_BENEFIT)
         }
+        return blockers.takeIf { it.isNotEmpty() }
     }
 
     private fun mealOccurrences(text: String): List<MatchResult> {
@@ -453,16 +467,25 @@ object OfficialAccoMealBasketParserV2 {
     private val startsEndsWindowRegex = Regex(
         "(commence|debute|se termine|finit)(?:\\s+ou\\s+(commence|debute|se termine|finit))?[^.;\\n]{0,60}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?"
     )
+    private val timeRangeVocabulary = Regex(
+        "\\bentre\\s+[0-9]{1,2}\\s*h(?:\\s*[0-9]{1,2})?\\s+et\\s+[0-9]{1,2}\\s*h(?:\\s*[0-9]{1,2})?"
+    )
     private val temporalAlternativeRegex = Regex(
         "\\b(?:ou|soit)\\b"
     )
     private val enclosesMidnightRegex = Regex("\\b(?:encadre|comprend|inclut|traverse)\\s+minuit\\b")
     private val startsMidnightRegex = Regex("\\b(?:commence|debute)\\s+a\\s+minuit\\b")
-    private val nonCumulationRegex = Regex("\\b(?:non cumulable|ne se cumule pas|pas cumulable|exclusif)\\b")
+    private val nonCumulationRegex = Regex(
+        "\\b(?:non cumulable|ne se cumule pas|ne peut(?: pas)? se cumuler|ne peut etre cumule(?:e)?|pas cumulable|exclusif)\\b"
+    )
+    private val cumulationVocabularyRegex = Regex("\\b(?:cumul|cumulable|cumule(?:e)?|cumuler)\\b")
     private val canteenRegex = Regex("\\b(?:cantine|restaurant d'entreprise)\\b")
     private val providedMealRegex = Regex("\\brepas\\s+(?:fourni|pris en charge)\\s+par\\s+l'employeur\\b")
     private val mealVoucherRegex = Regex("\\b(?:titre|ticket)[- ]restaurant\\b")
     private val sameNatureRegex = Regex("\\bavantage\\s+(?:de )?meme nature\\b")
+    private val unknownNonCumulationTargetRegex = Regex(
+        "\\b(?:indemnite de deplacement|indemnite kilometrique|frais de transport|prime de transport|prime de deplacement)\\b"
+    )
     private val mealOrCashRegex = Regex(
         "\\brepas\\s+fourni\\s+par\\s+l'employeur[^.;\\n]{0,160}?(?:a defaut|sinon)[^.;\\n]{0,100}?(?:indemnite|panier)\\b"
     )
