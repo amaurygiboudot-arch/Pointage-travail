@@ -13,10 +13,10 @@ object CompanyAgreementImportCommitV2 {
         agreement: CompanyAgreementStoreV2.Agreement,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
     ): Result {
-        val agreements = CompanyAgreementStoreV2.list(context, companyId)
-        val previous = agreements.firstOrNull { it.id == agreement.id }
+        val storedAgreements = CompanyAgreementStoreV2.read(context, companyId)
         val storedCandidates = CompanyAgreementRuleStoreV2.read(context, companyId)
-        if (!storedCandidates.reliable) {
+        val previous = storedAgreements.agreements.firstOrNull { it.id == agreement.id }
+        if (!storedAgreements.reliable || !storedCandidates.reliable) {
             return Result(
                 saved = false,
                 duplicate = previous != null,
@@ -24,6 +24,7 @@ object CompanyAgreementImportCommitV2 {
             )
         }
 
+        val agreements = storedAgreements.agreements
         val imported = agreement.copy(
             status = if (previous?.status == CompanyAgreementStoreV2.Status.VERIFIED) {
                 CompanyAgreementStoreV2.Status.VERIFIED
