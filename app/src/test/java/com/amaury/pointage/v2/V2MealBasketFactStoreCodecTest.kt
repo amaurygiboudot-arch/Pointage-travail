@@ -5,10 +5,12 @@ import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class V2MealBasketFactStoreCodecTest {
     @Test
-    fun `encodage et decodage conservent provenance scope et valeurs`() {
+    fun `encodage et decodage conservent provenance scope periode et valeurs`() {
+        val from = LocalDate.of(2026, 1, 1).toEpochDay()
         val entries = listOf(
             MealBasketFactJournalV2.Entry(
                 id = "company-posted",
@@ -18,7 +20,8 @@ class V2MealBasketFactStoreCodecTest {
                 value = MealBasketFactJournalV2.Value.Flag(true),
                 source = MealBasketFactJournalV2.Source.COMPANY_CONFIGURATION,
                 status = DecisionStatusV2.CONFIRMED,
-                recordedAtMs = 10L
+                recordedAtMs = 10L,
+                effectiveFromEpochDay = from
             ),
             MealBasketFactJournalV2.Entry(
                 id = "session-voucher",
@@ -41,7 +44,9 @@ class V2MealBasketFactStoreCodecTest {
                 ),
                 source = MealBasketFactJournalV2.Source.COMPANY_CONFIGURATION,
                 status = DecisionStatusV2.CONFIRMED,
-                recordedAtMs = 30L
+                recordedAtMs = 30L,
+                effectiveFromEpochDay = from,
+                effectiveToEpochDay = LocalDate.of(2026, 12, 31).toEpochDay()
             )
         )
 
