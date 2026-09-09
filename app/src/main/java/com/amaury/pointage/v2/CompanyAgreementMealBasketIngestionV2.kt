@@ -131,6 +131,31 @@ object CompanyAgreementMealBasketIngestionV2 {
             )
         }
 
+        // Avant de remplacer les règles, l'ancien état COMPLETE est explicitement invalidé. Si
+        // l'écriture du paquet ou du nouveau marqueur COMPLETE échoue, UNRESOLVED reste visible et
+        // le provider bloque le calcul au lieu de consommer un paquet à moitié mis à jour.
+        val pendingStored = V2CompanyMealBasketAuditStateStore.mark(
+            context = context,
+            companyId = companyId,
+            agreementId = agreementId,
+            profile = profile,
+            state = V2CompanyMealBasketAuditStateStore.State.UNRESOLVED,
+            subjects = structured.subjects + "MEAL_OTHER"
+        )
+        if (!pendingStored) {
+            return Result(
+                detected = true,
+                structured = true,
+                legalPackageComplete = true,
+                storageComplete = false,
+                savedCount = 0,
+                ruleCount = structured.rules.size,
+                subjects = structured.subjects,
+                warnings = (structured.warnings +
+                    "ACCO repas : impossible d'invalider l'ancien marqueur avant remplacement ; paquet non écrit.").distinct()
+            )
+        }
+
         val stored = V2CompanyMealBasketStore.saveVerifiedPackage(
             context = context,
             companyId = companyId,
@@ -147,10 +172,10 @@ object CompanyAgreementMealBasketIngestionV2 {
         val storageComplete = stored && stateStored
         val warnings = buildList {
             if (!stored) add(
-                "ACCO repas : le paquet ${agreementId.trim().uppercase()} n'a pas pu être stocké atomiquement ; aucune règle de ce paquet n'est remplacée."
+                "ACCO repas : le paquet ${agreementId.trim().uppercase()} n'a pas pu être stocké atomiquement ; l'état UNRESOLVED reste actif."
             )
             if (stored && !stateStored) add(
-                "ACCO repas : règles stockées mais marqueur d'audit complet impossible à persister ; elles resteront inutilisables en paie."
+                "ACCO repas : règles stockées mais marqueur d'audit complet impossible à persister ; l'état UNRESOLVED reste actif et bloque la paie."
             )
         }
 
