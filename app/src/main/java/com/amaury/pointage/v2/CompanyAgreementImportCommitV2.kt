@@ -15,6 +15,15 @@ object CompanyAgreementImportCommitV2 {
     ): Result {
         val agreements = CompanyAgreementStoreV2.list(context, companyId)
         val previous = agreements.firstOrNull { it.id == agreement.id }
+        val storedCandidates = CompanyAgreementRuleStoreV2.read(context, companyId)
+        if (!storedCandidates.reliable) {
+            return Result(
+                saved = false,
+                duplicate = previous != null,
+                candidateCount = candidates.size
+            )
+        }
+
         val imported = agreement.copy(
             status = if (previous?.status == CompanyAgreementStoreV2.Status.VERIFIED) {
                 CompanyAgreementStoreV2.Status.VERIFIED
@@ -28,7 +37,7 @@ object CompanyAgreementImportCommitV2 {
             agreements.map { if (it.id == agreement.id) imported else it }
         }
         val mergedCandidates = CompanyAgreementRuleStoreV2.mergePreservingValidation(
-            CompanyAgreementRuleStoreV2.list(context, companyId),
+            storedCandidates.records,
             agreement.id,
             candidates
         )
