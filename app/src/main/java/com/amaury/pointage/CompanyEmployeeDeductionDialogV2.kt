@@ -36,14 +36,28 @@ object CompanyEmployeeDeductionDialogV2 {
         })
 
         var listDialog: AlertDialog? = null
-        val records = CompanyEmployeeDeductionStoreV2.list(context, companyId)
+        val stored = CompanyEmployeeDeductionStoreV2.read(context, companyId)
+        val records = stored.records
             .sortedWith(compareBy({ it.kind.ordinal }, { it.effectiveFrom }, { it.id }))
 
-        addLegacyMigrationInfo(context, companyId, records, box)
+        if (!stored.reliable) {
+            box.addView(TextView(context).apply {
+                text = "⚠ Stockage des retenues incohérent. HoraTrack bloque les calculs concernés et n'utilise aucune ancienne valeur sans date en remplacement.\n• " +
+                    stored.warnings.joinToString("\n• ")
+                textSize = 12f
+                setPadding(0, 0, 0, dp(context, 8))
+            })
+        } else {
+            addLegacyMigrationInfo(context, companyId, records, box)
+        }
 
         if (records.isEmpty()) {
             box.addView(TextView(context).apply {
-                text = "Aucune retenue datée enregistrée."
+                text = if (stored.reliable) {
+                    "Aucune retenue datée enregistrée."
+                } else {
+                    "Aucune retenue exploitable n'a pu être lue dans le stockage incohérent."
+                }
                 textSize = 13f
                 setPadding(0, dp(context, 4), 0, dp(context, 8))
             })
@@ -53,6 +67,7 @@ object CompanyEmployeeDeductionDialogV2 {
                     isAllCaps = false
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     text = recordLabel(record)
+                    isEnabled = stored.reliable
                     setOnClickListener {
                         listDialog?.dismiss()
                         showEditor(context, companyId, record)
@@ -64,6 +79,7 @@ object CompanyEmployeeDeductionDialogV2 {
         box.addView(Button(context).apply {
             isAllCaps = false
             text = "AJOUTER UNE RETENUE DATÉE"
+            isEnabled = stored.reliable
             setOnClickListener {
                 listDialog?.dismiss()
                 showEditor(context, companyId, null)
@@ -83,6 +99,12 @@ object CompanyEmployeeDeductionDialogV2 {
         companyId: String,
         existing: CompanyEmployeeDeductionResolverV2.Record?
     ) {
+        val storedAtOpen = CompanyEmployeeDeductionStoreV2.read(context, companyId)
+        if (!storedAtOpen.reliable) {
+            Toast.makeText(context, "Stockage incohérent : modification bloquée", Toast.LENGTH_LONG).show()
+            return
+        }
+
         val box = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
@@ -149,7 +171,12 @@ object CompanyEmployeeDeductionDialogV2 {
                     return@setOnClickListener
                 }
 
-                val overlapping = CompanyEmployeeDeductionStoreV2.list(context, companyId)
+                val current = CompanyEmployeeDeductionStoreV2.read(context, companyId)
+                if (!current.reliable) {
+                    Toast.makeText(context, "Stockage devenu incohérent : enregistrement bloqué", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val overlapping = current.records
                     .asSequence()
                     .filter { it.kind == selectedKind && it.id != existing?.id }
                     .firstOrNull { other ->
