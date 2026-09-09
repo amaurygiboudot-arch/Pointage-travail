@@ -10,19 +10,30 @@ import java.time.YearMonth
 /** Stockage local, mensuel et séparé par entreprise du contexte factuel RGDU. */
 object CompanyEmployerGeneralReductionContextStoreV2 {
     private const val KEY = "employer_general_reduction_context_v2"
+    private const val STORAGE_WARNING =
+        "RGDU : stockage local du contexte mensuel incohérent ; calcul automatique bloqué."
 
-    fun list(context: Context, companyId: String): List<EmployerGeneralReductionContextV2.Record> {
-        if (companyId.isBlank()) return emptyList()
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]").orEmpty()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    fromJson(array.optJSONObject(i))?.let(::add)
-                }
-            }
-        }.getOrDefault(emptyList())
+    data class ReadResult(
+        val records: List<EmployerGeneralReductionContextV2.Record>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun read(context: Context, companyId: String): ReadResult {
+        if (companyId.isBlank()) {
+            return ReadResult(
+                records = emptyList(),
+                reliable = false,
+                warnings = listOf("RGDU : entreprise non identifiée ; contexte mensuel inaccessible.")
+            )
+        }
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
     }
+
+    fun list(context: Context, companyId: String): List<EmployerGeneralReductionContextV2.Record> =
+        read(context, companyId).records
 
     fun save(
         context: Context,
@@ -30,22 +41,57 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         record: EmployerGeneralReductionContextV2.Record
     ): Boolean {
         if (companyId.isBlank()) return false
-        // Un seul contexte factuel par mois. Un nouvel enregistrement remplace explicitement
-        // le précédent pour ce mois au lieu de créer une ambiguïté silencieuse.
-        val items = list(context, companyId).filterNot { it.month == record.month }.toMutableList()
+        val stored = read(context, companyId)
+        // Une donnée illisible ne doit jamais disparaître par une réécriture automatique du seul
+        // sous-ensemble décodable. Une correction explicite sera nécessaire avant toute mutation.
+        if (!stored.reliable) return false
+        val items = stored.records.filterNot { it.month == record.month }.toMutableList()
         items += record
         return write(context, companyId, items)
     }
 
-    fun remove(context: Context, companyId: String, id: String): Boolean =
-        write(context, companyId, list(context, companyId).filterNot { it.id == id })
+    fun remove(context: Context, companyId: String, id: String): Boolean {
+        if (companyId.isBlank()) return false
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        return write(context, companyId, stored.records.filterNot { it.id == id })
+    }
 
     fun resolve(
         context: Context,
         companyId: String,
         month: YearMonth
-    ): EmployerGeneralReductionContextV2.Snapshot =
-        EmployerGeneralReductionContextV2.resolve(list(context, companyId), month)
+    ): EmployerGeneralReductionContextV2.Snapshot {
+        val stored = read(context, companyId)
+        if (!stored.reliable) {
+            return EmployerGeneralReductionContextV2.Snapshot(
+                fullMonthPresent = null,
+                standardCommonLawCaseConfirmed = null,
+                noOtherEmployerReductionConfirmed = null,
+                source = null,
+                reliable = false,
+                warnings = stored.warnings
+            )
+        }
+        return EmployerGeneralReductionContextV2.resolve(stored.records, month)
+    }
+
+    internal fun decode(raw: String): ReadResult = runCatching {
+        val array = JSONArray(raw)
+        val records = mutableListOf<EmployerGeneralReductionContextV2.Record>()
+        var malformed = false
+        for (i in 0 until array.length()) {
+            val record = fromJson(array.opt(i) as? JSONObject)
+            if (record == null) malformed = true else records += record
+        }
+        ReadResult(
+            records = records,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }.getOrElse {
+        ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+    }
 
     private fun write(
         context: Context,
@@ -70,19 +116,21 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
 
     private fun fromJson(o: JSONObject?): EmployerGeneralReductionContextV2.Record? {
         o ?: return null
-        val id = o.optString("id").takeIf { it.isNotBlank() } ?: return null
-        val month = o.optString("month")
-            .let { runCatching { YearMonth.parse(it) }.getOrNull() }
-            ?: return null
-        if (!o.has("fullMonthPresent") || !o.has("standardCommonLawCaseConfirmed") ||
-            !o.has("noOtherEmployerReductionConfirmed")) return null
-        val source = o.optString("source")
+        val id = (o.opt("id") as? String)?.takeIf { it.isNotBlank() } ?: return null
+        val monthRaw = o.opt("month") as? String ?: return null
+        val month = runCatching { YearMonth.parse(monthRaw) }.getOrNull() ?: return null
+        val fullMonthPresent = o.opt("fullMonthPresent") as? Boolean ?: return null
+        val standardCommonLawCaseConfirmed =
+            o.opt("standardCommonLawCaseConfirmed") as? Boolean ?: return null
+        val noOtherEmployerReductionConfirmed =
+            o.opt("noOtherEmployerReductionConfirmed") as? Boolean ?: return null
+        val source = o.opt("source") as? String ?: return null
         return EmployerGeneralReductionContextV2.Record(
             id = id,
             month = month,
-            fullMonthPresent = o.optBoolean("fullMonthPresent"),
-            standardCommonLawCaseConfirmed = o.optBoolean("standardCommonLawCaseConfirmed"),
-            noOtherEmployerReductionConfirmed = o.optBoolean("noOtherEmployerReductionConfirmed"),
+            fullMonthPresent = fullMonthPresent,
+            standardCommonLawCaseConfirmed = standardCommonLawCaseConfirmed,
+            noOtherEmployerReductionConfirmed = noOtherEmployerReductionConfirmed,
             source = source
         )
     }
