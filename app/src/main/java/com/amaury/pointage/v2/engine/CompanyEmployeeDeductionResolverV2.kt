@@ -66,7 +66,7 @@ object CompanyEmployeeDeductionResolverV2 {
                     source = null,
                     hasDatedRecords = true,
                     reliable = false,
-                    warnings = listOf("${kind.label} : période ou montant daté invalide, calcul bloqué.")
+                    warnings = listOf("${kind.label} : période, montant ou source datée invalide, calcul bloqué.")
                 )
                 return@forEach
             }
@@ -87,7 +87,7 @@ object CompanyEmployeeDeductionResolverV2 {
                 1 -> applicable.single().let { record ->
                     Value(
                         amount = record.amount,
-                        source = record.source?.trim()?.takeIf { it.isNotBlank() },
+                        source = record.source!!.trim(),
                         hasDatedRecords = true,
                         reliable = true
                     )
@@ -148,6 +148,7 @@ object CompanyEmployeeDeductionResolverV2 {
 
     private fun valid(record: Record): Boolean {
         if (record.id.isBlank() || !record.amount.isFinite() || record.amount < 0.0) return false
+        if (record.source?.trim().isNullOrEmpty()) return false
         val start = record.effectiveFrom ?: return false
         val end = record.effectiveTo
         return end == null || end >= start
