@@ -62,6 +62,25 @@ object MealBasketLegalProviderV2 {
             companyId = companyId,
             expectedSiret = normalizedSiret
         )
+        val accoTrust = MealBasketAuditTrustStoreV2.acco(context, companyId, profile)
+        if (storedCompany.isNotEmpty() && accoTrust?.state != MealBasketAuditTrustStoreV2.State.COMPLETE) {
+            return blocked(
+                "cache ACCO repas présent sans marqueur d'audit SIRET complet lié au paquet courant ; nouvel audit ACCO requis"
+            )
+        }
+
+        val globallyTrustedCompany = if (accoTrust?.state == MealBasketAuditTrustStoreV2.State.COMPLETE) {
+            val byFingerprint = storedCompany.associateBy(MealBasketAuditTrustStoreV2::accoFingerprint)
+            val missingFingerprints = accoTrust.fingerprints - byFingerprint.keys
+            if (missingFingerprints.isNotEmpty()) {
+                return blocked("paquet ACCO repas du dernier audit incomplet dans le stockage local")
+            }
+            storedCompany.filter { rule ->
+                MealBasketAuditTrustStoreV2.accoFingerprint(rule) in accoTrust.fingerprints &&
+                    rule.agreementId in accoTrust.sourceIds
+            }
+        } else emptyList()
+
         val completeAgreementIds = V2CompanyMealBasketAuditStateStore.completeAgreementIdsFor(
             context = context,
             companyId = companyId,
@@ -69,13 +88,13 @@ object MealBasketLegalProviderV2 {
             classification = profile.classification,
             professionalStatus = status
         )
-        val unmarkedCompanyRules = storedCompany.filter { it.agreementId !in completeAgreementIds }
+        val unmarkedCompanyRules = globallyTrustedCompany.filter { it.agreementId !in completeAgreementIds }
         if (unmarkedCompanyRules.isNotEmpty()) {
             return blocked(
-                "règle(s) ACCO repas issue(s) d'un ancien cache sans marqueur d'audit complet ; nouvel audit requis avant calcul"
+                "règle(s) ACCO repas issue(s) d'un paquet sans marqueur d'audit complet ; nouvel audit requis avant calcul"
             )
         }
-        val companyRules = storedCompany.filter { it.agreementId in completeAgreementIds }
+        val companyRules = globallyTrustedCompany.filter { it.agreementId in completeAgreementIds }
 
         val coverage = V2ConventionMatterCoverageStore.resolve(
             context = context,
@@ -104,8 +123,29 @@ object MealBasketLegalProviderV2 {
         if (branchTrusted && legacyApplicableBranch.isNotEmpty()) {
             return blocked("cache KALI panier antérieur au durcissement V2C ; nouvel audit KALI requis")
         }
-        val branchRules = if (branchTrusted) storedBranch.filter {
+
+        val safeStoredBranch = storedBranch.filter {
             it.ruleId.startsWith(OfficialKaliMealBasketParserV2.SAFE_RULE_PREFIX)
+        }
+        val kaliTrust = if (branchTrusted) {
+            MealBasketAuditTrustStoreV2.kali(context, profile, referenceDate)
+        } else null
+        if (branchTrusted && (
+                kaliTrust?.state != MealBasketAuditTrustStoreV2.State.COMPLETE ||
+                    kaliTrust.fingerprints.isEmpty()
+                )) {
+            return blocked("couverture KALI repas confirmée sans paquet de règles lié au même audit ; nouvel audit KALI requis")
+        }
+
+        val branchRules = if (branchTrusted && kaliTrust != null) {
+            val byFingerprint = safeStoredBranch.associateBy(MealBasketAuditTrustStoreV2::kaliFingerprint)
+            val missingFingerprints = kaliTrust.fingerprints - byFingerprint.keys
+            if (missingFingerprints.isNotEmpty()) {
+                return blocked("paquet KALI repas du dernier audit incomplet dans le stockage local")
+            }
+            safeStoredBranch.filter {
+                MealBasketAuditTrustStoreV2.kaliFingerprint(it) in kaliTrust.fingerprints
+            }
         } else emptyList()
 
         val subjects = (branchRules.map { MealBasketLegalArbitrationBridgeV2.subject(it.benefitId) } +
@@ -131,8 +171,14 @@ object MealBasketLegalProviderV2 {
         )
 
         val warnings = buildList {
+            if (storedCompany.size > companyRules.size && accoTrust?.state == MealBasketAuditTrustStoreV2.State.COMPLETE) {
+                add("Panier repas ACCO : ancienne(s) règle(s) locale(s) hors paquet du dernier audit complet ignorée(s).")
+            }
             if (!branchTrusted && storedBranch.isNotEmpty()) {
                 add("Panier repas KALI : règle(s) locale(s) présentes mais couverture officielle MEAL_BASKET non exploitable à cette date ; elles sont ignorées.")
+            }
+            if (branchTrusted && safeStoredBranch.size > branchRules.size) {
+                add("Panier repas KALI : ancienne(s) règle(s) V2C absente(s) du dernier audit complet ignorée(s).")
             }
             if (!coverage.reliable && companyRules.isEmpty()) addAll(coverage.warnings)
             addAll(arbitration.warnings)
