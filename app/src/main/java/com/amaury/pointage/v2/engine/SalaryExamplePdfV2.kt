@@ -231,6 +231,16 @@ object SalaryExamplePdfV2 {
                         add("Net estimé avant impôt" to "À confirmer")
                         add("Sous-total net sur retenues connues" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))
                     }
+                    add(
+                        "Réductions / exonérations patronales" to
+                            (it.confirmedEmployerReductions?.let { value -> String.format(Locale.FRANCE, "%.2f €", value) }
+                                ?: "À confirmer")
+                    )
+                    add(
+                        "Sous-total patronal connu après réductions" to
+                            (it.knownEmployerContributionsAfterReductions?.let { value -> String.format(Locale.FRANCE, "%.2f €", value) }
+                                ?: "À confirmer")
+                    )
                 } ?: add("Cotisations / net" to "Affichés uniquement quand leurs sources applicables sont déterminées")
             }
             section("ESTIMATION DE RÉMUNÉRATION", estimateLines)
@@ -249,7 +259,11 @@ object SalaryExamplePdfV2 {
         }
 
         if (Field.SOURCES in fields) {
-            val warnings = (salary?.warnings.orEmpty() + payroll?.warnings.orEmpty()).distinct()
+            val warnings = (
+                salary?.warnings.orEmpty() +
+                    payroll?.warnings.orEmpty() +
+                    payroll?.employerCostWarnings.orEmpty()
+                ).distinct()
             val legalRefs = legalSnapshot.records.mapNotNull { it.articleNumber }.distinct()
             val legalRefText = when {
                 legalRefs.isEmpty() -> "Non vérifié pour la date de paie"
