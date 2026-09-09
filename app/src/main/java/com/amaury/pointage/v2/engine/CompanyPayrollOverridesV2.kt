@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.CompanyApprenticeshipTaxStoreV2
 import com.amaury.pointage.v2.CompanyBenefitInKindStoreV2
+import com.amaury.pointage.v2.CompanyEmployeeDeductionStoreV2
 import com.amaury.pointage.v2.CompanyEmployerReductionStoreV2
 import com.amaury.pointage.v2.CompanyHealthFamilyStoreV2
 import com.amaury.pointage.v2.CompanyMobilityContributionStoreV2
@@ -157,11 +158,11 @@ object CompanyPayrollOverridesV2 {
             ?.takeIf { it > 0.0 }
             ?.let { (it * 60.0).roundToInt() }
         val forfaitAnnualDays=number("forfait_annual_days")?.takeIf { it > 0.0 }
-        val mutual=number("mutual_employee_amount")
-        val provident=number("provident_employee_amount")
-        val transport=number("transport_employee_amount")
-        val employerProtectionTaxable=number("employer_protection_taxable_amount")
-        val employeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
+        val legacyMutual=number("mutual_employee_amount")
+        val legacyProvident=number("provident_employee_amount")
+        val legacyTransport=number("transport_employee_amount")
+        val legacyEmployerProtectionTaxable=number("employer_protection_taxable_amount")
+        val legacyEmployeeProvidentNonDeductible=number("employee_provident_nondeductible_amount")
         val tax=number("income_tax_rate_percent")?.div(100.0)
         val atMpEmployerRate=number("atmp_employer_rate_percent")?.takeIf{it<=100.0}?.div(100.0)
         val professionalStatus=p.getString("professional_status","").orEmpty().trim().uppercase().takeIf{it=="CADRE"||it=="NON_CADRE"}
@@ -216,6 +217,21 @@ object CompanyPayrollOverridesV2 {
             else -> null
         }
         val payrollMonth=YearMonth.from(referenceDate)
+        val employeeDeductions=CompanyEmployeeDeductionResolverV2.withLegacyFallback(
+            CompanyEmployeeDeductionStoreV2.resolve(context,companyId,payrollMonth),
+            mapOf(
+                CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE to legacyMutual,
+                CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE to legacyProvident,
+                CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE to legacyTransport,
+                CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE to legacyEmployerProtectionTaxable,
+                CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE to legacyEmployeeProvidentNonDeductible
+            )
+        )
+        val mutual=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE].amount
+        val provident=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].amount
+        val transport=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].amount
+        val employerProtectionTaxable=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE].amount
+        val employeeProvidentNonDeductible=employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE].amount
         val benefitsInKind=CompanyBenefitInKindStoreV2.resolve(context,companyId,payrollMonth)
         val mobility=CompanyMobilityContributionStoreV2.resolve(context,companyId,payrollMonth)
         val unemploymentAgs=CompanyUnemploymentAgsStoreV2.resolve(context,companyId,payrollMonth)
@@ -243,11 +259,12 @@ object CompanyPayrollOverridesV2 {
             if(entryDate==null)add("Date d’entrée : à confirmer pour les règles liées à l’ancienneté et au plafond social")
             if(legalProfile!=null && verifiedProvidentSeniorityMonths==null)add("Ancienneté conventionnelle vérifiée : à confirmer")
             addAll(absenceImpact.warnings)
-            if(mutual==null)add("Mutuelle salariale : à confirmer")
-            if(provident==null)add("Prévoyance salariale entreprise : à confirmer")
-            if(transport==null)add("Retenue transport : à confirmer")
-            if(employerProtectionTaxable==null)add("Part employeur mutuelle/prévoyance réintégrable au net imposable : à confirmer")
-            if(employeeProvidentNonDeductible==null)add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
+            addAll(employeeDeductions.warnings)
+            if(mutual==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE].warnings.isEmpty())add("Mutuelle salariale : à confirmer")
+            if(provident==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].warnings.isEmpty())add("Prévoyance salariale entreprise : à confirmer")
+            if(transport==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].warnings.isEmpty())add("Retenue transport : à confirmer")
+            if(employerProtectionTaxable==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE].warnings.isEmpty())add("Part employeur mutuelle/prévoyance réintégrable au net imposable : à confirmer")
+            if(employeeProvidentNonDeductible==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE].warnings.isEmpty())add("Part salariale de prévoyance non déductible : à confirmer, même si elle est nulle")
             if(tax==null)add("Taux de prélèvement à la source : à confirmer")
             if(professionalStatus==null)add("Statut professionnel cadre/non-cadre : à préciser")
             if(alsaceMoselleLocalRegime==null)add("Régime local Alsace-Moselle : affiliation à confirmer (oui/non)")
