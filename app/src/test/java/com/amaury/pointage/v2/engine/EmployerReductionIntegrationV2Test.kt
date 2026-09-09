@@ -9,7 +9,7 @@ class EmployerReductionIntegrationV2Test {
     private fun company(reduction:Double?)=CompanyPayrollOverridesV2.Snapshot(
         companyId="company",idcc=null,referenceDate=LocalDate.of(2026,9,30),entryDate=LocalDate.of(2020,1,1),
         seniorityMonths=80,contractType=ContractTypeV2.FULL_TIME,contractualWeeklyMinutes=35*60,
-        forfaitAnnualDays=null,unpaidAbsenceDays=0,hasUnpaidAbsence=false,mealAmount=0.0,
+        forfaitAnnualDays=null,unpaidAbsenceDays=0,hasUnpaidAbsence=false,
         mutualEmployeeAmount=0.0,providentEmployeeAmount=0.0,transportEmployeeAmount=0.0,
         employerProtectionTaxableAmount=0.0,employeeProvidentNonDeductibleAmount=0.0,incomeTaxRate=0.05,
         professionalStatus="NON_CADRE",protectionCategory=PlasturgieProtectionCategoryV2.classify(null,LocalDate.of(2026,9,30),null),
