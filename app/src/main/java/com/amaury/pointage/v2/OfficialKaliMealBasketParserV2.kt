@@ -77,7 +77,7 @@ object OfficialKaliMealBasketParserV2 {
             if (text.isBlank()) return@articleLoop
             val bodyOffset = if (title.isBlank()) 0 else title.length + 1
             val classificationPresent = classificationVocabulary.containsMatchIn(text)
-            val occurrences = mealOccurrenceRegex.findAll(body).toList()
+            val occurrences = mealOccurrences(body)
             if (occurrences.isEmpty()) return@articleLoop
 
             occurrences.forEachIndexed { index, occurrence ->
@@ -289,8 +289,15 @@ object OfficialKaliMealBasketParserV2 {
         return from to to
     }
 
+    private fun mealOccurrences(text: String): List<MatchResult> {
+        val dailyCapRanges = dailyCapRegex.findAll(text).map { it.range }.toList()
+        return mealOccurrenceRegex.findAll(text)
+            .filterNot { occurrence -> dailyCapRanges.any { cap -> occurrence.range.first in cap } }
+            .toList()
+    }
+
     private fun isolateMealOccurrence(scope: String, targetOffset: Int): String {
-        val occurrences = mealOccurrenceRegex.findAll(scope).toList()
+        val occurrences = mealOccurrences(scope)
         val target = occurrences.minByOrNull { abs(it.range.first - targetOffset) } ?: return scope
         val previous = occurrences.lastOrNull { it.range.first < target.range.first }
         val next = occurrences.firstOrNull { it.range.first > target.range.first }

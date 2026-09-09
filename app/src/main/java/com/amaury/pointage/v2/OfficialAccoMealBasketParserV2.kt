@@ -97,7 +97,7 @@ object OfficialAccoMealBasketParserV2 {
             ?: return unresolved("date d'effet ou durée de l'accord ACCO absente/ambiguë")
 
         val classificationPresent = classificationVocabulary.containsMatchIn(text)
-        val occurrences = mealOccurrenceRegex.findAll(text).toList()
+        val occurrences = mealOccurrences(text)
         if (occurrences.isEmpty()) {
             return unresolved("aucune occurrence panier/indemnité repas dans l'accord")
         }
@@ -309,8 +309,15 @@ object OfficialAccoMealBasketParserV2 {
         }
     }
 
+    private fun mealOccurrences(text: String): List<MatchResult> {
+        val dailyCapRanges = dailyCapRegex.findAll(text).map { it.range }.toList()
+        return mealOccurrenceRegex.findAll(text)
+            .filterNot { occurrence -> dailyCapRanges.any { cap -> occurrence.range.first in cap } }
+            .toList()
+    }
+
     private fun isolateOccurrence(scope: String, targetOffset: Int): String {
-        val occurrences = mealOccurrenceRegex.findAll(scope).toList()
+        val occurrences = mealOccurrences(scope)
         val target = occurrences.minByOrNull { abs(it.range.first - targetOffset) } ?: return scope
         val previous = occurrences.lastOrNull { it.range.first < target.range.first }
         val next = occurrences.firstOrNull { it.range.first > target.range.first }
@@ -391,6 +398,9 @@ object OfficialAccoMealBasketParserV2 {
     )
     private val mealOccurrenceRegex = Regex(
         "\\b(?:paniers?(?: repas| de nuit)?|indemnite(?:s)?(?: de)? repas|allocation(?:s)? de repas|prime(?:s)? de panier)\\b"
+    )
+    private val dailyCapRegex = Regex(
+        "\\b(?:maximum(?: de)?|au plus|limite(?: de)?)\\s+(un|une|deux|trois|quatre|[0-9]{1,2})\\s+(?:paniers?|indemnites? repas|allocations? repas)[^.;\\n]{0,45}?\\b(?:par jour|par journee|quotidien)\\b"
     )
     private val fixedAmountRegex = Regex(
         "(?:(?:panier|indemnite|allocation|prime)[^.;\\n]{0,120}?|\\bou\\s+)([0-9]+(?:[.,][0-9]+)?)\\s*(?:€|euros?\\b)"
