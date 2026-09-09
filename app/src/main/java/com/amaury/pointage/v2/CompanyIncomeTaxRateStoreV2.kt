@@ -10,35 +10,87 @@ import java.time.YearMonth
 /** Stockage local et daté du taux personnel de prélèvement à la source pour une entreprise. */
 object CompanyIncomeTaxRateStoreV2 {
     private const val KEY = "income_tax_rates_v2"
+    private const val STORAGE_WARNING =
+        "PAS : stockage local des taux datés incohérent ; calcul après impôt bloqué et ancien taux non réutilisé."
 
-    fun list(context: Context, companyId: String): List<CompanyIncomeTaxRateResolverV2.Record> {
-        if (companyId.isBlank()) return emptyList()
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]").orEmpty()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (i in 0 until array.length()) {
-                    fromJson(array.optJSONObject(i))?.let(::add)
-                }
-            }
-        }.getOrDefault(emptyList())
+    data class ReadResult(
+        val records: List<CompanyIncomeTaxRateResolverV2.Record>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun read(context: Context, companyId: String): ReadResult {
+        if (companyId.isBlank()) {
+            return ReadResult(
+                emptyList(),
+                false,
+                listOf("PAS : entreprise non identifiée ; taux personnel inaccessible.")
+            )
+        }
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
     }
 
+    fun list(context: Context, companyId: String): List<CompanyIncomeTaxRateResolverV2.Record> =
+        read(context, companyId).records
+
     fun save(context: Context, companyId: String, record: CompanyIncomeTaxRateResolverV2.Record): Boolean {
-        if (companyId.isBlank()) return false
-        val items = list(context, companyId).toMutableList()
+        if (companyId.isBlank() || !valid(record)) return false
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        val items = stored.records.toMutableList()
         val index = items.indexOfFirst { it.id == record.id }
         if (index >= 0) items[index] = record else items += record
         return write(context, companyId, items)
     }
 
-    fun remove(context: Context, companyId: String, id: String): Boolean =
-        write(context, companyId, list(context, companyId).filterNot { it.id == id })
+    fun remove(context: Context, companyId: String, id: String): Boolean {
+        if (companyId.isBlank() || id.isBlank()) return false
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        return write(context, companyId, stored.records.filterNot { it.id == id })
+    }
 
     fun resolve(context: Context, companyId: String, period: YearMonth): CompanyIncomeTaxRateResolverV2.Snapshot =
-        CompanyIncomeTaxRateResolverV2.resolve(list(context, companyId), period)
+        resolve(read(context, companyId), period)
+
+    /**
+     * hasDatedRecords=true est volontaire en cas de corruption : le fallback legacy ne doit
+     * jamais masquer un store V2 incohérent en réutilisant un ancien taux sans période.
+     */
+    internal fun resolve(stored: ReadResult, period: YearMonth): CompanyIncomeTaxRateResolverV2.Snapshot {
+        if (stored.reliable) return CompanyIncomeTaxRateResolverV2.resolve(stored.records, period)
+        return CompanyIncomeTaxRateResolverV2.Snapshot(
+            rate = null,
+            ratePercent = null,
+            source = null,
+            hasDatedRecords = true,
+            reliable = false,
+            warnings = stored.warnings.ifEmpty { listOf(STORAGE_WARNING) }
+        )
+    }
+
+    internal fun decode(raw: String): ReadResult = runCatching {
+        val array = JSONArray(raw)
+        val records = mutableListOf<CompanyIncomeTaxRateResolverV2.Record>()
+        var malformed = false
+        for (i in 0 until array.length()) {
+            val record = fromJson(array.opt(i) as? JSONObject)
+            if (record == null) malformed = true else records += record
+        }
+        if (records.groupingBy { it.id }.eachCount().any { it.value > 1 }) malformed = true
+        ReadResult(
+            records = records,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }.getOrElse {
+        ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+    }
 
     private fun write(context: Context, companyId: String, items: List<CompanyIncomeTaxRateResolverV2.Record>): Boolean {
+        if (items.any { !valid(it) } || items.groupingBy { it.id }.eachCount().any { it.value > 1 }) return false
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)
@@ -56,17 +108,43 @@ object CompanyIncomeTaxRateStoreV2 {
 
     private fun fromJson(o: JSONObject?): CompanyIncomeTaxRateResolverV2.Record? {
         o ?: return null
-        val id = o.optString("id").takeIf { it.isNotBlank() } ?: return null
+        val id = (o.opt("id") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
         val ratePercent = (o.opt("ratePercent") as? Number)?.toDouble() ?: return null
-        fun month(key: String): YearMonth? = o.optString(key)
-            .takeIf { it.isNotBlank() && it != "null" }
-            ?.let { runCatching { YearMonth.parse(it) }.getOrNull() }
+        val effectiveFrom = parseRequiredMonth(o, "effectiveFrom") ?: return null
+        val effectiveTo = parseOptionalMonth(o, "effectiveTo") ?: return null
+        val source = (o.opt("source") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
         return CompanyIncomeTaxRateResolverV2.Record(
             id = id,
             ratePercent = ratePercent,
-            effectiveFrom = month("effectiveFrom"),
-            effectiveTo = month("effectiveTo"),
-            source = o.optString("source").takeIf { it.isNotBlank() && it != "null" }
-        )
+            effectiveFrom = effectiveFrom,
+            effectiveTo = effectiveTo.value,
+            source = source
+        ).takeIf(::valid)
+    }
+
+    private data class OptionalMonth(val value: YearMonth?)
+
+    private fun parseRequiredMonth(o: JSONObject, key: String): YearMonth? {
+        val raw = o.opt(key) as? String ?: return null
+        if (raw.isBlank() || raw == "null") return null
+        return runCatching { YearMonth.parse(raw) }.getOrNull()
+    }
+
+    private fun parseOptionalMonth(o: JSONObject, key: String): OptionalMonth? = when (val raw = o.opt(key)) {
+        null, JSONObject.NULL -> OptionalMonth(null)
+        is String -> {
+            if (raw.isBlank() || raw == "null") OptionalMonth(null)
+            else runCatching { OptionalMonth(YearMonth.parse(raw)) }.getOrNull()
+        }
+        else -> null
+    }
+
+    private fun valid(record: CompanyIncomeTaxRateResolverV2.Record): Boolean {
+        if (record.id.isBlank()) return false
+        if (!record.ratePercent.isFinite() || record.ratePercent < 0.0 || record.ratePercent > 100.0) return false
+        val start = record.effectiveFrom ?: return false
+        val end = record.effectiveTo
+        if (end != null && end < start) return false
+        return !record.source.isNullOrBlank()
     }
 }
