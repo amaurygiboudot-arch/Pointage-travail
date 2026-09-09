@@ -74,7 +74,9 @@ object MealBasketFactJournalV2 {
 
     data class Resolution(
         val facts: VerifiedMealBasketPayrollV2.FactDefaults,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /** Une clé bloquée ne doit jamais retomber sur un fallback moins précis. */
+        val blockedKeys: Set<Key> = emptySet()
     )
 
     fun resolve(
@@ -86,35 +88,51 @@ object MealBasketFactJournalV2 {
         if (companyId.isBlank() || sessionId.isBlank()) {
             return Resolution(
                 facts = VerifiedMealBasketPayrollV2.FactDefaults(),
-                warnings = listOf("Panier : identité entreprise/session manquante pour résoudre les faits locaux.")
+                warnings = listOf("Panier : identité entreprise/session manquante pour résoudre les faits locaux."),
+                blockedKeys = Key.entries.toSet()
             )
         }
 
         val warnings = mutableListOf<String>()
+        val blockedKeys = linkedSetOf<Key>()
         val companyEntries = entries.filter { it.companyId == companyId }
         val invalid = companyEntries.count { !it.structurallyValid() }
         if (invalid > 0) {
-            warnings += "Panier : $invalid fait(s) local(aux) invalide(s) ignoré(s) ; aucune valeur n'est inventée."
+            warnings += "Panier : $invalid fait(s) local(aux) invalide(s) détecté(s) ; toute clé concernée reste inconnue."
         }
 
-        val candidates = companyEntries.filter { entry ->
-            entry.structurallyValid() &&
-                entry.status == DecisionStatusV2.CONFIRMED &&
-                when (entry.scope) {
-                    Scope.COMPANY -> true
-                    Scope.DAY -> entry.dayEpochDay == day.toEpochDay()
-                    Scope.SESSION -> entry.sessionId == sessionId
-                }
+        // La portée est déterminée avant le statut. Un fait DAY/SESSION TO_CONFIRM doit donc masquer
+        // un ancien fait COMPANY confirmé, sinon une incertitude plus précise serait contournée.
+        val applicable = companyEntries.filter { entry ->
+            when (entry.scope) {
+                Scope.COMPANY -> true
+                Scope.DAY -> entry.dayEpochDay == day.toEpochDay()
+                Scope.SESSION -> entry.sessionId == sessionId
+            }
         }
 
         fun valueFor(key: Key): Value? {
-            val matching = candidates.filter { it.key == key }
+            val matching = applicable.filter { it.key == key }
             if (matching.isEmpty()) return null
             val highestRank = matching.maxOf { it.scope.rank }
             val strongest = matching.filter { it.scope.rank == highestRank }
+            val scope = strongest.first().scope
+
+            if (strongest.any { !it.structurallyValid() }) {
+                blockedKeys += key
+                warnings += "Panier : fait ${key.name} invalide au scope ${scope.name} ; fallback moins précis interdit."
+                return null
+            }
+            if (strongest.any { it.status != DecisionStatusV2.CONFIRMED }) {
+                blockedKeys += key
+                warnings += "Panier : fait ${key.name} à confirmer au scope ${scope.name} ; fallback moins précis interdit."
+                return null
+            }
+
             val values = strongest.map { it.value }.distinct()
             if (values.size != 1) {
-                warnings += "Panier : faits confirmés contradictoires pour ${key.name} au scope ${strongest.first().scope.name} ; valeur laissée inconnue."
+                blockedKeys += key
+                warnings += "Panier : faits confirmés contradictoires pour ${key.name} au scope ${scope.name} ; valeur laissée inconnue."
                 return null
             }
             return values.single()
@@ -136,23 +154,45 @@ object MealBasketFactJournalV2 {
                 otherSameNatureMealBenefit = flag(Key.OTHER_SAME_NATURE_MEAL_BENEFIT),
                 employerNightWindow = window(Key.EMPLOYER_NIGHT_WINDOW)
             ),
-            warnings = warnings.distinct()
+            warnings = warnings.distinct(),
+            blockedKeys = blockedKeys
         )
     }
 
-    /** Les faits spécifiques remplacent uniquement les valeurs effectivement connues. */
+    /**
+     * Les faits spécifiques remplacent les fallbacks. Une clé explicitement bloquée par une
+     * information plus précise reste null : l'incertitude ne peut pas être contournée.
+     */
     fun overlay(
         fallback: VerifiedMealBasketPayrollV2.FactDefaults,
-        specific: VerifiedMealBasketPayrollV2.FactDefaults
-    ) = VerifiedMealBasketPayrollV2.FactDefaults(
-        postedShiftWorker = specific.postedShiftWorker ?: fallback.postedShiftWorker,
-        canReturnHomeForMeal = specific.canReturnHomeForMeal ?: fallback.canReturnHomeForMeal,
-        worksAwayFromUsualWorkplace = specific.worksAwayFromUsualWorkplace ?: fallback.worksAwayFromUsualWorkplace,
-        mustEatAtWorkplace = specific.mustEatAtWorkplace ?: fallback.mustEatAtWorkplace,
-        companyCanteenAvailable = specific.companyCanteenAvailable ?: fallback.companyCanteenAvailable,
-        employerMealProvided = specific.employerMealProvided ?: fallback.employerMealProvided,
-        mealVoucherProvided = specific.mealVoucherProvided ?: fallback.mealVoucherProvided,
-        otherSameNatureMealBenefit = specific.otherSameNatureMealBenefit ?: fallback.otherSameNatureMealBenefit,
-        employerNightWindow = specific.employerNightWindow ?: fallback.employerNightWindow
-    )
+        resolution: Resolution
+    ): VerifiedMealBasketPayrollV2.FactDefaults {
+        fun flag(key: Key, specific: Boolean?, fallbackValue: Boolean?): Boolean? = when {
+            key in resolution.blockedKeys -> null
+            specific != null -> specific
+            else -> fallbackValue
+        }
+        fun window(
+            key: Key,
+            specific: ConventionMealBasketV2.DailyWindow?,
+            fallbackValue: ConventionMealBasketV2.DailyWindow?
+        ): ConventionMealBasketV2.DailyWindow? = when {
+            key in resolution.blockedKeys -> null
+            specific != null -> specific
+            else -> fallbackValue
+        }
+
+        val specific = resolution.facts
+        return VerifiedMealBasketPayrollV2.FactDefaults(
+            postedShiftWorker = flag(Key.POSTED_SHIFT_WORKER, specific.postedShiftWorker, fallback.postedShiftWorker),
+            canReturnHomeForMeal = flag(Key.CAN_RETURN_HOME_FOR_MEAL, specific.canReturnHomeForMeal, fallback.canReturnHomeForMeal),
+            worksAwayFromUsualWorkplace = flag(Key.WORKS_AWAY_FROM_USUAL_WORKPLACE, specific.worksAwayFromUsualWorkplace, fallback.worksAwayFromUsualWorkplace),
+            mustEatAtWorkplace = flag(Key.MUST_EAT_AT_WORKPLACE, specific.mustEatAtWorkplace, fallback.mustEatAtWorkplace),
+            companyCanteenAvailable = flag(Key.COMPANY_CANTEEN_AVAILABLE, specific.companyCanteenAvailable, fallback.companyCanteenAvailable),
+            employerMealProvided = flag(Key.EMPLOYER_MEAL_PROVIDED, specific.employerMealProvided, fallback.employerMealProvided),
+            mealVoucherProvided = flag(Key.MEAL_VOUCHER_PROVIDED, specific.mealVoucherProvided, fallback.mealVoucherProvided),
+            otherSameNatureMealBenefit = flag(Key.OTHER_SAME_NATURE_MEAL_BENEFIT, specific.otherSameNatureMealBenefit, fallback.otherSameNatureMealBenefit),
+            employerNightWindow = window(Key.EMPLOYER_NIGHT_WINDOW, specific.employerNightWindow, fallback.employerNightWindow)
+        )
+    }
 }
