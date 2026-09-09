@@ -15,7 +15,8 @@ class EmployerGeneralReductionAnnual2026V2Test {
         weeklyMinutes: Int? = 35 * 60,
         additionalMinutes: Double? = 0.0,
         fullYear: Boolean? = true,
-        standardCase: Boolean? = true
+        standardCase: Boolean? = true,
+        homogeneousParameters: Boolean? = true
     ) = EmployerGeneralReductionAnnual2026V2.Input(
         year = 2026,
         annualReductionRemuneration = remuneration,
@@ -24,7 +25,8 @@ class EmployerGeneralReductionAnnual2026V2Test {
         contractualWeeklyMinutes = weeklyMinutes,
         additionalPaidMinutesAnnual = additionalMinutes,
         fullCalendarYearPresent = fullYear,
-        standardCommonLawCaseConfirmed = standardCase
+        standardCommonLawCaseConfirmed = standardCase,
+        homogeneousAnnualParametersConfirmed = homogeneousParameters
     )
 
     @Test
@@ -69,6 +71,28 @@ class EmployerGeneralReductionAnnual2026V2Test {
         assertFalse(result.reliable)
         assertNull(result.amount)
         assertTrue(result.warnings.any { it.contains("année civile complète", ignoreCase = true) })
+    }
+
+    @Test
+    fun `annual calculation blocks when parameters may have changed during year`() {
+        val result = EmployerGeneralReductionAnnual2026V2.calculate(
+            annualInput(homogeneousParameters = false)
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertTrue(result.warnings.any { it.contains("stabilité", ignoreCase = true) })
+    }
+
+    @Test
+    fun `unknown annual parameter stability is not treated as stable`() {
+        val result = EmployerGeneralReductionAnnual2026V2.calculate(
+            annualInput(homogeneousParameters = null)
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertTrue(result.warnings.any { it.contains("stabilité", ignoreCase = true) })
     }
 
     @Test
