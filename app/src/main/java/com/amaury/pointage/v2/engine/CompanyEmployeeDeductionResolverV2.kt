@@ -15,6 +15,7 @@ object CompanyEmployeeDeductionResolverV2 {
         PROVIDENT_EMPLOYEE("Prévoyance salariale entreprise"),
         TRANSPORT_EMPLOYEE("Retenue transport"),
         EMPLOYER_PROTECTION_TAXABLE("Part employeur mutuelle/prévoyance réintégrable au net imposable"),
+        EMPLOYER_PROTECTION_CSG_CRDS_BASE("Part employeur protection sociale complémentaire soumise à CSG/CRDS"),
         EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE("Part salariale de prévoyance non déductible")
     }
 
@@ -65,7 +66,7 @@ object CompanyEmployeeDeductionResolverV2 {
                     source = null,
                     hasDatedRecords = true,
                     reliable = false,
-                    warnings = listOf("${kind.label} : période ou montant daté invalide, calcul bloqué.")
+                    warnings = listOf("${kind.label} : période, montant ou source datée invalide, calcul bloqué.")
                 )
                 return@forEach
             }
@@ -86,7 +87,7 @@ object CompanyEmployeeDeductionResolverV2 {
                 1 -> applicable.single().let { record ->
                     Value(
                         amount = record.amount,
-                        source = record.source?.trim()?.takeIf { it.isNotBlank() },
+                        source = record.source!!.trim(),
                         hasDatedRecords = true,
                         reliable = true
                     )
@@ -147,6 +148,7 @@ object CompanyEmployeeDeductionResolverV2 {
 
     private fun valid(record: Record): Boolean {
         if (record.id.isBlank() || !record.amount.isFinite() || record.amount < 0.0) return false
+        if (record.source?.trim().isNullOrEmpty()) return false
         val start = record.effectiveFrom ?: return false
         val end = record.effectiveTo
         return end == null || end >= start

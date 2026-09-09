@@ -46,7 +46,8 @@ class CompanyEmployeeDeductionResolverV2Test {
                     id = "transport_zero",
                     kind = CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE,
                     amount = 0.0,
-                    effectiveFrom = YearMonth.of(2026, 1)
+                    effectiveFrom = YearMonth.of(2026, 1),
+                    source = "Bulletin janvier 2026"
                 )
             ),
             YearMonth.of(2026, 9)
@@ -57,6 +58,58 @@ class CompanyEmployeeDeductionResolverV2Test {
     }
 
     @Test
+    fun `part employeur CSG CRDS reste distincte de la reintegration fiscale`() {
+        val period = YearMonth.of(2026, 9)
+        val snapshot = CompanyEmployeeDeductionResolverV2.resolve(
+            listOf(
+                CompanyEmployeeDeductionResolverV2.Record(
+                    id = "csg_base",
+                    kind = CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE,
+                    amount = 62.50,
+                    effectiveFrom = period,
+                    source = "Bulletin septembre 2026"
+                ),
+                CompanyEmployeeDeductionResolverV2.Record(
+                    id = "taxable",
+                    kind = CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE,
+                    amount = 48.20,
+                    effectiveFrom = period,
+                    source = "Bulletin septembre 2026"
+                )
+            ),
+            period
+        )
+
+        val csgBase = snapshot[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE]
+        val taxable = snapshot[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_TAXABLE]
+        assertEquals(62.50, csgBase.amount!!, 0.001)
+        assertEquals(48.20, taxable.amount!!, 0.001)
+        assertTrue(csgBase.reliable)
+        assertTrue(taxable.reliable)
+    }
+
+    @Test
+    fun `une donnee datee sans source bloque le type`() {
+        val value = CompanyEmployeeDeductionResolverV2.resolve(
+            listOf(
+                CompanyEmployeeDeductionResolverV2.Record(
+                    id = "missing_source",
+                    kind = CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE,
+                    amount = 50.0,
+                    effectiveFrom = YearMonth.of(2026, 9),
+                    source = "   "
+                )
+            ),
+            YearMonth.of(2026, 9)
+        )[CompanyEmployeeDeductionResolverV2.Kind.EMPLOYER_PROTECTION_CSG_CRDS_BASE]
+
+        assertNull(value.amount)
+        assertFalse(value.reliable)
+        assertTrue(value.hasDatedRecords)
+        assertTrue(value.warnings.any { it.contains("source") })
+    }
+
+    @Test
     fun `deux periodes qui se chevauchent bloquent le type`() {
         val records = listOf(
             CompanyEmployeeDeductionResolverV2.Record(
@@ -64,13 +117,15 @@ class CompanyEmployeeDeductionResolverV2Test {
                 kind = kind,
                 amount = 20.0,
                 effectiveFrom = YearMonth.of(2026, 1),
-                effectiveTo = YearMonth.of(2026, 12)
+                effectiveTo = YearMonth.of(2026, 12),
+                source = "Bulletin janvier 2026"
             ),
             CompanyEmployeeDeductionResolverV2.Record(
                 id = "b",
                 kind = kind,
                 amount = 30.0,
-                effectiveFrom = YearMonth.of(2026, 6)
+                effectiveFrom = YearMonth.of(2026, 6),
+                source = "Bulletin juin 2026"
             )
         )
 
@@ -93,7 +148,8 @@ class CompanyEmployeeDeductionResolverV2Test {
                     kind = kind,
                     amount = 25.0,
                     effectiveFrom = YearMonth.of(2026, 10),
-                    effectiveTo = YearMonth.of(2026, 9)
+                    effectiveTo = YearMonth.of(2026, 9),
+                    source = "Bulletin octobre 2026"
                 )
             ),
             YearMonth.of(2026, 9)
