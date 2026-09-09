@@ -70,6 +70,15 @@ object CompanyPremiumDialogV2 {
 
         box.addView(Button(context).apply {
             isAllCaps = false
+            text = "GÉRER LES RETENUES SALARIÉ / FISCALES DATÉES"
+            setOnClickListener {
+                listDialog?.dismiss()
+                CompanyEmployeeDeductionDialogV2.show(context, companyId)
+            }
+        }, rowParams(context))
+
+        box.addView(Button(context).apply {
+            isAllCaps = false
             text = "GÉRER LES AVANTAGES EN NATURE"
             setOnClickListener {
                 listDialog?.dismiss()
