@@ -116,6 +116,36 @@ class OfficialAccoMealBasketParserV2Test {
     }
 
     @Test
+    fun `restriction temporelle en lettres ne peut pas retomber sur la seule journée travaillée`() {
+        val result = OfficialAccoMealBasketParserV2.parse(
+            profile(),
+            "ACCOTEXT000000009901",
+            agreement(
+                "Coefficient 700 non-cadres. Panier de nuit de 8,50 € par journée travaillée si au moins quatre heures sont effectuées entre 21 h et 6 h."
+            )
+        )
+
+        assertEquals(1, result.observedOccurrences)
+        assertEquals(0, result.structuredOccurrences)
+        assertEquals(1, result.unresolvedOccurrences)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
+    fun `ne peut se cumuler avec un titre restaurant conserve le blocker`() {
+        val result = OfficialAccoMealBasketParserV2.parse(
+            profile(),
+            "ACCOTEXT000000009901",
+            agreement(
+                "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée et ne peut se cumuler avec un titre-restaurant."
+            )
+        )
+
+        assertTrue(result.fullyStructured)
+        assertTrue(result.rules.single().blockers.contains(ConventionMealBasketV2.Blocker.MEAL_VOUCHER))
+    }
+
+    @Test
     fun `accord à durée déterminée contradictoire avec durée indéterminée est refusé`() {
         val text =
             "Le présent accord prend effet le 1 septembre 2026, est conclu pour une durée indéterminée et prendra fin le 31 décembre 2026. " +
