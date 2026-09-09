@@ -26,6 +26,7 @@ class MealBasketFactFallbackSafetyV2Test {
         source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
         status = status,
         recordedAtMs = 1L,
+        effectiveFromEpochDay = if (scope == MealBasketFactJournalV2.Scope.COMPANY) day.minusYears(1).toEpochDay() else null,
         dayEpochDay = dayEpochDay,
         sessionId = sessionId
     )
