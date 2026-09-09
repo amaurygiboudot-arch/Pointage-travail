@@ -131,7 +131,8 @@ object MealBasketLegalProviderV2 {
             MealBasketAuditTrustStoreV2.kali(context, profile, referenceDate)
         } else null
         if (branchTrusted && (
-                kaliTrust?.state != MealBasketAuditTrustStoreV2.State.COMPLETE ||
+                kaliTrust == null ||
+                    kaliTrust.state != MealBasketAuditTrustStoreV2.State.COMPLETE ||
                     kaliTrust.fingerprints.isEmpty()
                 )) {
             return blocked("couverture KALI repas confirmée sans paquet de règles lié au même audit ; nouvel audit KALI requis")
