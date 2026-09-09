@@ -7,6 +7,9 @@ import org.json.JSONObject
 
 /** Stockage séparé des règles candidates extraites des accords. */
 object CompanyAgreementRuleStoreV2 {
+    private const val STORAGE_WARNING =
+        "Règles ACCO : stockage local incohérent ; les règles d'entreprise ne peuvent pas être utilisées pour la paie."
+
     data class StoredCandidate(
         val agreementId: String,
         val category: CompanyAgreementRuleExtractorV2.Category,
@@ -19,14 +22,43 @@ object CompanyAgreementRuleStoreV2 {
         val calculationValueVerified: Boolean = false
     )
 
+    data class ReadResult(
+        val records: List<StoredCandidate>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
     internal const val KEY = "company_agreement_rule_candidates_v2"
+
+    fun read(context: Context, companyId: String): ReadResult {
+        if (companyId.isBlank()) {
+            return ReadResult(
+                records = emptyList(),
+                reliable = false,
+                warnings = listOf("Règles ACCO : entreprise non identifiée.")
+            )
+        }
+        val raw = runCatching {
+            SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+        }.getOrNull() ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeRecords(raw)
+    }
 
     fun replaceForAgreement(
         context: Context,
         companyId: String,
         agreementId: String,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
-    ): Boolean = save(context, companyId, mergePreservingValidation(list(context, companyId), agreementId, candidates))
+    ): Boolean {
+        if (companyId.isBlank() || agreementId.isBlank()) return false
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        return save(
+            context,
+            companyId,
+            mergePreservingValidation(stored.records, agreementId, candidates)
+        )
+    }
 
     internal fun mergePreservingValidation(
         existing: List<StoredCandidate>,
@@ -53,29 +85,7 @@ object CompanyAgreementRuleStoreV2 {
         return kept + refreshed
     }
 
-    fun list(context: Context, companyId: String): List<StoredCandidate> {
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]") ?: "[]"
-        return runCatching {
-            val array = JSONArray(raw)
-            (0 until array.length()).mapNotNull { i ->
-                val o = array.getJSONObject(i)
-                val category = runCatching {
-                    CompanyAgreementRuleExtractorV2.Category.valueOf(o.optString("category"))
-                }.getOrNull() ?: return@mapNotNull null
-                StoredCandidate(
-                    agreementId = o.optString("agreementId"),
-                    category = category,
-                    excerpt = o.optString("excerpt"),
-                    confidence = o.optDouble("confidence", 0.0),
-                    verified = o.optBoolean("verified", false),
-                    effectiveFrom = o.optString("effectiveFrom").takeIf { it.isNotBlank() },
-                    effectiveTo = o.optString("effectiveTo").takeIf { it.isNotBlank() },
-                    scope = o.optString("scope").takeIf { it.isNotBlank() },
-                    calculationValueVerified = o.optBoolean("calculationValueVerified", false)
-                )
-            }
-        }.getOrDefault(emptyList())
-    }
+    fun list(context: Context, companyId: String): List<StoredCandidate> = read(context, companyId).records
 
     fun setVerified(
         context: Context,
@@ -85,9 +95,10 @@ object CompanyAgreementRuleStoreV2 {
         excerpt: String,
         verified: Boolean
     ): Boolean {
-        val current = list(context, companyId)
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
         var matched = false
-        val updated = current.map { candidate ->
+        val updated = stored.records.map { candidate ->
             if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
                 matched = true
                 candidate.copy(
@@ -107,9 +118,10 @@ object CompanyAgreementRuleStoreV2 {
         excerpt: String,
         verified: Boolean
     ): Boolean {
-        val current = list(context, companyId)
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
         var matched = false
-        val updated = current.map { candidate ->
+        val updated = stored.records.map { candidate ->
             if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
                 matched = true
                 candidate.copy(calculationValueVerified = candidate.verified && verified)
@@ -128,9 +140,10 @@ object CompanyAgreementRuleStoreV2 {
         effectiveTo: String?,
         scope: String?
     ): Boolean {
-        val current = list(context, companyId)
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
         var matched = false
-        val updated = current.map { candidate ->
+        val updated = stored.records.map { candidate ->
             if (!matched && candidate.agreementId == agreementId && candidate.category == category && candidate.excerpt == excerpt) {
                 matched = true
                 candidate.copy(
@@ -143,8 +156,38 @@ object CompanyAgreementRuleStoreV2 {
         return matched && save(context, companyId, updated)
     }
 
-    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean =
-        SalaryCompanyStore.prefs(context, companyId).edit().putString(KEY, encode(values)).commit()
+    internal fun decodeRecords(raw: String): ReadResult = runCatching {
+        val array = JSONArray(raw)
+        val records = mutableListOf<StoredCandidate>()
+        var malformed = false
+        for (i in 0 until array.length()) {
+            val record = fromJson(array.opt(i) as? JSONObject)
+            if (record == null) malformed = true else records += record
+        }
+        val duplicateIdentity = records
+            .groupingBy { Triple(it.agreementId, it.category, it.excerpt) }
+            .eachCount()
+            .any { it.value > 1 }
+        if (duplicateIdentity) malformed = true
+        ReadResult(
+            records = records,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }.getOrElse {
+        ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+    }
+
+    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
+        if (companyId.isBlank() || values.any { !validStorageCandidate(it) }) return false
+        if (values.groupingBy { Triple(it.agreementId, it.category, it.excerpt) }.eachCount().any { it.value > 1 }) {
+            return false
+        }
+        return SalaryCompanyStore.prefs(context, companyId)
+            .edit()
+            .putString(KEY, encode(values))
+            .commit()
+    }
 
     internal fun encode(values: List<StoredCandidate>): String {
         val array = JSONArray()
@@ -162,5 +205,53 @@ object CompanyAgreementRuleStoreV2 {
             })
         }
         return array.toString()
+    }
+
+    private fun fromJson(o: JSONObject?): StoredCandidate? {
+        o ?: return null
+        val agreementId = (o.opt("agreementId") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val categoryRaw = o.opt("category") as? String ?: return null
+        val category = runCatching { CompanyAgreementRuleExtractorV2.Category.valueOf(categoryRaw) }.getOrNull()
+            ?: return null
+        val excerpt = (o.opt("excerpt") as? String)?.trim()?.takeIf { it.isNotBlank() } ?: return null
+        val confidence = (o.opt("confidence") as? Number)?.toDouble() ?: return null
+        val verified = optionalBoolean(o, "verified") ?: return null
+        val effectiveFrom = optionalString(o, "effectiveFrom") ?: return null
+        val effectiveTo = optionalString(o, "effectiveTo") ?: return null
+        val scope = optionalString(o, "scope") ?: return null
+        val calculationValueVerified = optionalBoolean(o, "calculationValueVerified") ?: return null
+        val candidate = StoredCandidate(
+            agreementId = agreementId,
+            category = category,
+            excerpt = excerpt,
+            confidence = confidence,
+            verified = verified,
+            effectiveFrom = effectiveFrom.value,
+            effectiveTo = effectiveTo.value,
+            scope = scope.value,
+            calculationValueVerified = calculationValueVerified
+        )
+        return candidate.takeIf(::validStorageCandidate)
+    }
+
+    private data class OptionalString(val value: String?)
+
+    private fun optionalString(o: JSONObject, key: String): OptionalString? = when (val raw = o.opt(key)) {
+        null, JSONObject.NULL -> OptionalString(null)
+        is String -> OptionalString(raw.trim().takeIf { it.isNotBlank() })
+        else -> null
+    }
+
+    private fun optionalBoolean(o: JSONObject, key: String): Boolean? = when (val raw = o.opt(key)) {
+        null, JSONObject.NULL -> false
+        is Boolean -> raw
+        else -> null
+    }
+
+    private fun validStorageCandidate(candidate: StoredCandidate): Boolean {
+        if (candidate.agreementId.isBlank() || candidate.excerpt.isBlank()) return false
+        if (!candidate.confidence.isFinite() || candidate.confidence < 0.0 || candidate.confidence > 1.0) return false
+        if (candidate.calculationValueVerified && !candidate.verified) return false
+        return true
     }
 }
