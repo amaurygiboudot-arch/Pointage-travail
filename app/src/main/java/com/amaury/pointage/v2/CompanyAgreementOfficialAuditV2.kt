@@ -54,6 +54,24 @@ object CompanyAgreementOfficialAuditV2 {
                 Summary(siret.filter(Char::isDigit), 0, 0, 0, 0, 0, 0, false, listOf("ACCO : SIRET invalide."))
             )
         val app = context.applicationContext
+        val mealProfile = ConventionLegalProfileV2.load(app, companyId)?.takeIf { profile ->
+            profile.siret.filter(Char::isDigit) == normalizedSiret &&
+                !profile.classification.isEmpty() &&
+                profile.professionalStatus?.trim()?.uppercase() in setOf("CADRE", "NON_CADRE")
+        }
+        if (mealProfile != null && !MealBasketAuditTrustStoreV2.markAcco(
+                context = app,
+                companyId = companyId,
+                profile = mealProfile,
+                state = MealBasketAuditTrustStoreV2.State.INCOMPLETE
+            )) {
+            return Tasks.forResult(
+                Summary(
+                    normalizedSiret, 0, 0, 0, 0, 0, 0, false,
+                    listOf("ACCO : impossible de verrouiller localement le début de l'audit repas ; aucun cache ACCO précédent n'est revalidé.")
+                )
+            )
+        }
 
         return fetchPages(normalizedSiret)
             .continueWithTask { searchTask ->
@@ -90,18 +108,51 @@ object CompanyAgreementOfficialAuditV2 {
                     val existing = CompanyAgreementStoreV2.list(app, companyId)
                     val merged = mergePreservingExisting(existing, consult.verifiedAgreements)
                     val agreementStoreSaved = merged == existing || CompanyAgreementStoreV2.save(app, companyId, merged)
-                    val completed = auditCompleted(
+                    val technicalCompleted = auditCompleted(
                         searchComplete = search.complete,
                         searchStored = searchStored,
                         transientFailures = consult.transientFailures,
                         candidateStorageFailures = consult.storageFailures,
                         agreementStoreSaved = agreementStoreSaved
                     )
+
+                    val mealTrustStored = if (mealProfile != null) {
+                        val status = mealProfile.professionalStatus!!.trim().uppercase()
+                        val verifiedAgreementIds = consult.verifiedAgreements.mapTo(linkedSetOf()) { it.id.trim().uppercase() }
+                        val completeAgreementIds = V2CompanyMealBasketAuditStateStore.completeAgreementIdsFor(
+                            context = app,
+                            companyId = companyId,
+                            expectedSiret = normalizedSiret,
+                            classification = mealProfile.classification,
+                            professionalStatus = status
+                        )
+                        val trustedRules = V2CompanyMealBasketStore.rules(app, companyId, normalizedSiret)
+                            .filter { it.agreementId in verifiedAgreementIds && it.agreementId in completeAgreementIds }
+                        MealBasketAuditTrustStoreV2.markAcco(
+                            context = app,
+                            companyId = companyId,
+                            profile = mealProfile,
+                            state = if (technicalCompleted) {
+                                MealBasketAuditTrustStoreV2.State.COMPLETE
+                            } else {
+                                MealBasketAuditTrustStoreV2.State.INCOMPLETE
+                            },
+                            verifiedAgreementIds = if (technicalCompleted) verifiedAgreementIds else emptySet(),
+                            fingerprints = if (technicalCompleted) {
+                                trustedRules.mapTo(linkedSetOf(), MealBasketAuditTrustStoreV2::accoFingerprint)
+                            } else emptySet()
+                        )
+                    } else true
+                    val completed = technicalCompleted && mealTrustStored
+
                     val warnings = buildList {
                         addAll(search.warnings)
                         addAll(consult.warnings)
                         if (!searchStored) add("ACCO : résultat de recherche reçu mais stockage local impossible.")
                         if (!agreementStoreSaved) add("ACCO : accords vérifiés reçus mais stockage local impossible.")
+                        if (mealProfile != null && !mealTrustStored) {
+                            add("ACCO : audit technique terminé mais paquet de confiance repas non persisté ; calcul repas bloqué.")
+                        }
                         if (search.candidates.isEmpty() && search.complete) {
                             add("ACCO : recherche officielle parcourue jusqu'à son terme sans accord candidat exploitable pour ce SIRET ; cela ne constitue pas une preuve d'absence d'accord interne.")
                         }
