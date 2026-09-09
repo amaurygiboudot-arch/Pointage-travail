@@ -60,6 +60,15 @@ object EmployerGeneralReductionAnnualInputV2 {
             if (annualContext.homogeneousAnnualParametersConfirmed != true) {
                 add("RGDU annuelle : stabilité annuelle du contrat, de la durée contractuelle et de l'effectif non confirmée.")
             }
+            if (annualContext.confirmedWorkforceBand == null) {
+                add("RGDU annuelle : tranche d'effectif annuelle exacte non confirmée.")
+            }
+            if (annualContext.confirmedContractType == null) {
+                add("RGDU annuelle : type de contrat annuel exact non confirmé.")
+            }
+            if (annualContext.confirmedContractualWeeklyMinutes == null) {
+                add("RGDU annuelle : durée contractuelle hebdomadaire annuelle exacte non confirmée.")
+            }
             addAll(annualContext.warnings)
         }.distinct()
         if (contextBlockers.isNotEmpty()) return blocked(contextBlockers)
@@ -144,6 +153,18 @@ object EmployerGeneralReductionAnnualInputV2 {
         val band = bands.single()
         val contractType = contractTypes.single()
         val contractualWeeklyMinutes = weeklyDurations.single()
+        val annualSnapshotBlockers = buildList {
+            if (annualContext.confirmedWorkforceBand != band) {
+                add("RGDU annuelle : la tranche d'effectif des 12 mois ne correspond pas au contexte annuel confirmé.")
+            }
+            if (annualContext.confirmedContractType != contractType) {
+                add("RGDU annuelle : le type de contrat des 12 mois ne correspond pas au contexte annuel confirmé.")
+            }
+            if (annualContext.confirmedContractualWeeklyMinutes != contractualWeeklyMinutes) {
+                add("RGDU annuelle : la durée contractuelle hebdomadaire des 12 mois ne correspond pas au contexte annuel confirmé.")
+            }
+        }
+        if (annualSnapshotBlockers.isNotEmpty()) return blocked(annualSnapshotBlockers)
 
         // Une avance automatique transmise doit correspondre exactement aux mêmes faits mensuels.
         // Cela évite de régulariser une ancienne avance contre un contexte recalculé ou modifié.
