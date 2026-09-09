@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
 import com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
@@ -31,8 +32,9 @@ object V2MealBasketFactStore {
         sessionId: String
     ): MealBasketFactJournalV2.Resolution {
         val loaded = load(context)
+        val entries = entriesForCanonicalCompany(context, companyId, loaded.entries)
         val resolved = MealBasketFactJournalV2.resolve(
-            entries = loaded.entries,
+            entries = entries,
             companyId = companyId,
             day = day,
             sessionId = sessionId
@@ -90,6 +92,30 @@ object V2MealBasketFactStore {
             .getString(KEY_ENTRIES, null)
             ?: return LoadResult(emptyList(), 0)
         return decode(raw)
+    }
+
+    /**
+     * Relit les faits historiques `company_1/company_2` seulement si l'alias se résout sans
+     * ambiguïté vers l'entreprise demandée. Le journal n'est pas réécrit automatiquement.
+     */
+    private fun entriesForCanonicalCompany(
+        context: Context,
+        companyId: String,
+        entries: List<MealBasketFactJournalV2.Entry>
+    ): List<MealBasketFactJournalV2.Entry> {
+        val accepted = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
+        val safeIds = accepted.filterTo(linkedSetOf()) { employerId ->
+            employerId == companyId ||
+                SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, employerId) == companyId
+        }
+        if (safeIds.size == 1 && companyId in safeIds) return entries
+        return entries.map { entry ->
+            if (entry.companyId != companyId && entry.companyId in safeIds) {
+                entry.copy(companyId = companyId)
+            } else {
+                entry
+            }
+        }
     }
 
     internal fun encode(entries: List<MealBasketFactJournalV2.Entry>): JSONArray = JSONArray().apply {
