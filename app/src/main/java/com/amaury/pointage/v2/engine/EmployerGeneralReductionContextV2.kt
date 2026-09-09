@@ -25,7 +25,13 @@ object EmployerGeneralReductionContextV2 {
          */
         val noOtherEmployerReductionConfirmed: Boolean,
         /** Source humaine vérifiable : bulletin, DSN, attestation employeur, contrôle qualifié, etc. */
-        val source: String
+        val source: String,
+        /**
+         * true uniquement si toutes les heures rémunérées du mois sont couvertes par les faits
+         * HoraTrack. null reste « à confirmer » et interdit notamment d'inventer 0 heure
+         * supplémentaire/complémentaire à partir d'une liste vide.
+         */
+        val paidHoursComplete: Boolean? = null
     )
 
     data class Snapshot(
@@ -34,7 +40,8 @@ object EmployerGeneralReductionContextV2 {
         val noOtherEmployerReductionConfirmed: Boolean?,
         val source: String?,
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val paidHoursComplete: Boolean? = null
     )
 
     fun resolve(records: List<Record>, month: YearMonth): Snapshot {
@@ -48,7 +55,7 @@ object EmployerGeneralReductionContextV2 {
         val active = records.filter { it.month == month }
         if (active.isEmpty()) {
             return blocked(
-                "RGDU : contexte factuel à confirmer pour ${month.monthValue.toString().padStart(2, '0')}/${month.year} (présence, droit commun et autres réductions)."
+                "RGDU : contexte factuel à confirmer pour ${month.monthValue.toString().padStart(2, '0')}/${month.year} (présence, droit commun, autres réductions et exhaustivité des heures payées)."
             )
         }
         if (active.size > 1) {
@@ -64,7 +71,8 @@ object EmployerGeneralReductionContextV2 {
             noOtherEmployerReductionConfirmed = selected.noOtherEmployerReductionConfirmed,
             source = selected.source,
             reliable = true,
-            warnings = emptyList()
+            warnings = emptyList(),
+            paidHoursComplete = selected.paidHoursComplete
         )
     }
 
@@ -74,6 +82,7 @@ object EmployerGeneralReductionContextV2 {
         noOtherEmployerReductionConfirmed = null,
         source = null,
         reliable = false,
-        warnings = listOf(message)
+        warnings = listOf(message),
+        paidHoursComplete = null
     )
 }
