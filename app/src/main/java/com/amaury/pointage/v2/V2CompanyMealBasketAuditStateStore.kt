@@ -65,7 +65,11 @@ object V2CompanyMealBasketAuditStateStore {
         val current = load(context).toMutableList()
         current.removeAll { sameIdentity(it, record) }
         current += record
-        return persist(context, current.sortedByDescending { it.checkedAtMs }.take(MAX_RECORDS))
+        // Ne jamais faire disparaître silencieusement un ancien UNRESOLVED (ou tout autre état)
+        // pour respecter une limite de cache. Si le paquet complet ne peut plus être conservé,
+        // l'écriture échoue : l'audit appelant doit rester INCOMPLETE/fail-closed.
+        if (current.size > MAX_RECORDS) return false
+        return persist(context, current.sortedByDescending { it.checkedAtMs })
     }
 
     /** Supprime l'ancien état d'un ACCOTEXT quand le nouveau contenu officiel n'a plus d'objet repas. */
