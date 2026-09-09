@@ -23,7 +23,7 @@ object EmployerGeneralReductionPayrollBridgeV2 {
         workforceBand: EmployerWorkforceContributionsV2.Band?,
         contractType: ContractTypeV2?,
         contractualWeeklyMinutes: Int?,
-        additionalPaidMinutes: Int?
+        additionalPaidMinutes: Double?
     ): EmployerReductionResolutionV2.Result {
         if (companyId.isBlank()) {
             return EmployerReductionResolutionV2.Result(
