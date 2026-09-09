@@ -265,6 +265,10 @@ class V2PayslipImportActivity : Activity() {
         val baskets = amountField("Paniers / indemnités repas (€)", parsed?.mealBaskets)
         val mutual = amountField("Mutuelle — part salariale (€)", parsed?.mutualEmployee)
         val provident = amountField("Prévoyance — part salariale (€)", parsed?.providentEmployee)
+        val complementaryRetirement = amountField(
+            "Retraite complémentaire / Agirc-Arrco — part salariale totale (€)",
+            parsed?.complementaryRetirementEmployee
+        )
 
         val info = TextView(this).apply {
             text = buildString {
@@ -281,7 +285,17 @@ class V2PayslipImportActivity : Activity() {
             setPadding(dp(18), dp(8), dp(18), dp(8))
             addView(info)
             addView(monthButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
-            listOf(gross, netBeforeTax, netTaxable, overtime, premiums, baskets, mutual, provident).forEach { field ->
+            listOf(
+                gross,
+                netBeforeTax,
+                netTaxable,
+                overtime,
+                premiums,
+                baskets,
+                mutual,
+                provident,
+                complementaryRetirement
+            ).forEach { field ->
                 addView(field, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(4) })
             }
         }
@@ -310,7 +324,8 @@ class V2PayslipImportActivity : Activity() {
                     PayslipDocumentParserV2.KEY_PREMIUMS_GROSS to parseAmount(premiums.text.toString()),
                     PayslipDocumentParserV2.KEY_MEAL_BASKETS to parseAmount(baskets.text.toString()),
                     PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE to parseAmount(mutual.text.toString()),
-                    PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to parseAmount(provident.text.toString())
+                    PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE to parseAmount(provident.text.toString()),
+                    PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE to parseAmount(complementaryRetirement.text.toString())
                 )
                 if (fields.values.filterNotNull().any { it < 0.0 || !it.isFinite() }) {
                     Toast.makeText(this, "Un montant du bulletin est invalide", Toast.LENGTH_LONG).show()
