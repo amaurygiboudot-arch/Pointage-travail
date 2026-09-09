@@ -10,6 +10,7 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -112,9 +113,13 @@ object CompanyMealFactsDialogV2 {
             }
         }, rowParams(context))
 
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true
+            addView(box)
+        }
         dialog = AlertDialog.Builder(context)
             .setTitle("Faits repas / organisation")
-            .setView(box)
+            .setView(scroll)
             .setNegativeButton("FERMER", null)
             .create()
         dialog.show()
@@ -133,8 +138,8 @@ object CompanyMealFactsDialogV2 {
             setPadding(dp(context, 20), dp(context, 8), dp(context, 20), 0)
         }
         box.addView(TextView(context).apply {
-            text = "Ces réponses décrivent ta situation réelle dans cette entreprise pour la période indiquée. " +
-                "« À confirmer » bloque le fait concerné au lieu d’inventer une valeur."
+            text = "Confirme un fait au niveau entreprise uniquement s’il est vrai pour toute la période indiquée. " +
+                "Sinon laisse « À confirmer » : HoraTrack bloquera ce fait au lieu d’inventer une valeur."
             textSize = 12f
             setPadding(0, 0, 0, dp(context, 8))
         })
@@ -155,21 +160,21 @@ object CompanyMealFactsDialogV2 {
             context,
             box,
             "Travail posté / en équipes",
-            "Confirme uniquement si ton organisation habituelle dans cette entreprise te place réellement en travail posté ou en équipes sur cette période.",
+            "Confirme uniquement si ce fait est vrai sur toute la période pour ton organisation dans cette entreprise.",
             posted
         )
         addQuestion(
             context,
             box,
             "Cantine / restauration d’entreprise disponible",
-            "Indique si une cantine ou restauration d’entreprise est réellement accessible pour les journées concernées sur cette période.",
+            "Confirme uniquement si cette restauration est réellement accessible de façon stable pour les journées concernées sur toute la période.",
             canteen
         )
         addQuestion(
             context,
             box,
             "Titres-restaurant fournis de manière récurrente",
-            "Confirme seulement si l’employeur fournit habituellement des titres-restaurant pour les journées concernées sur cette période.",
+            "Confirme uniquement si l’employeur les fournit de façon stable pour les journées concernées sur toute la période.",
             vouchers
         )
 
@@ -186,7 +191,7 @@ object CompanyMealFactsDialogV2 {
             context,
             box,
             "Plage de nuit définie par l’employeur",
-            "Saisis cette plage uniquement si elle est connue. Elle peut traverser minuit (ex. 21:00 → 06:00).",
+            "Saisis cette plage uniquement si elle est connue et stable sur toute la période. Elle peut traverser minuit (ex. 21:00 → 06:00).",
             nightState
         )
         box.addView(nightStart, rowParams(context))
@@ -215,9 +220,13 @@ object CompanyMealFactsDialogV2 {
         }
         updateNightFields()
 
+        val scroll = ScrollView(context).apply {
+            isFillViewport = true
+            addView(box)
+        }
         val builder = AlertDialog.Builder(context)
             .setTitle(if (existing.isEmpty()) "Nouvelle période factuelle" else "Modifier la période factuelle")
-            .setView(box)
+            .setView(scroll)
             .setPositiveButton("ENREGISTRER", null)
             .setNegativeButton("ANNULER", null)
         if (existing.isNotEmpty()) builder.setNeutralButton("SUPPRIMER", null)
