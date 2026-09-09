@@ -58,7 +58,6 @@ object SalaryExamplePdfV2 {
         val legacyContract = legacyProfile?.contract
         val legacyEmployer = legacyProfile?.employer
         val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
-        val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
 
         val rawContractType = companyPrefs?.getString("contract_type", "").orEmpty().trim()
         val contractualWeeklyMinutes = if (company != null) {
@@ -78,9 +77,6 @@ object SalaryExamplePdfV2 {
             .replace(',', '.')
             .toDoubleOrNull()
             ?.takeIf { it > 0.0 }
-        val mealRaw = if (company != null) {
-            companyPrefs?.getString("meal_amount", "").orEmpty().trim()
-        } else legacyPrefs.all["meal_amount"]?.toString().orEmpty().trim()
 
         val companyName = company?.name?.takeIf { it.isNotBlank() }
             ?: legacyEmployer?.name?.takeIf { it.isNotBlank() }
@@ -185,7 +181,6 @@ object SalaryExamplePdfV2 {
                 add("Durée hebdomadaire" to (contractualWeeklyMinutes?.let { "%dh%02d".format(Locale.FRANCE, it / 60, it % 60) } ?: "À confirmer"))
                 add("Taux horaire brut" to (rate?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À compléter"))
                 if (monthlyGross != null) add("Salaire brut mensuel convenu" to String.format(Locale.FRANCE, "%.2f €", monthlyGross))
-                add("Panier déclaré" to (mealRaw.takeIf { it.isNotBlank() }?.let { "$it €" } ?: "Non renseigné"))
             }
             section("CONTRAT", contractLines)
         }
