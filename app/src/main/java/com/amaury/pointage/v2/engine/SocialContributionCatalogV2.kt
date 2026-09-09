@@ -69,21 +69,28 @@ object SocialContributionCatalogV2 {
     }
 
     /**
-     * Assiette CSG/CRDS sur le salaire brut seul : 98,25 % jusqu'à quatre fois
-     * le plafond social applicable au salarié, puis 100 % au-delà.
+     * Assiette CSG/CRDS 2026 : le salaire bénéficie de l'abattement de 1,75 %
+     * jusqu'à quatre fois le plafond social applicable, tandis que la part employeur
+     * de protection sociale complémentaire soumise à CSG/CRDS est ajoutée ensuite,
+     * sans appliquer cet abattement à cette part patronale.
      */
-    private fun csgCrdsBase2026(gross: Double, applicableMonthlyPass: Double): Double {
+    private fun csgCrdsBase2026(
+        gross: Double,
+        applicableMonthlyPass: Double,
+        employerProtectionCsgCrdsBaseAmount: Double
+    ): Double {
         val cap = (applicableMonthlyPass * 4.0).coerceAtLeast(0.0)
         val abatedPart = min(gross, cap)
         val excess = (gross - cap).coerceAtLeast(0.0)
-        return abatedPart * 0.9825 + excess
+        return abatedPart * 0.9825 + excess + employerProtectionCsgCrdsBaseAmount
     }
 
     fun estimateEmployeeDeductions(
         gross: Double,
         year: Int,
         ceiling: SocialSecurityCeilingV2.Snapshot? = null,
-        alsaceMoselleLocalRegime: Boolean? = null
+        alsaceMoselleLocalRegime: Boolean? = null,
+        employerProtectionCsgCrdsBaseAmount: Double? = null
     ): Estimate {
         val safeGross = gross.coerceAtLeast(0.0)
         val rules = employeeRules(year)
@@ -97,13 +104,19 @@ object SocialContributionCatalogV2 {
             )
         }
 
+        val validEmployerProtectionCsgCrdsBase = employerProtectionCsgCrdsBaseAmount
+            ?.takeIf { it.isFinite() && it >= 0.0 }
         val monthlyPass = ceiling?.applicableMonthly
             ?: SocialSecurityCeilingV2.fullMonthly(year)
             ?: Double.POSITIVE_INFINITY
         val baseLines = rules.map { rule ->
             val base = when (rule.base) {
                 Base.GROSS -> safeGross
-                Base.CSG_CRDS_2026 -> csgCrdsBase2026(safeGross, monthlyPass)
+                Base.CSG_CRDS_2026 -> csgCrdsBase2026(
+                    safeGross,
+                    monthlyPass,
+                    validEmployerProtectionCsgCrdsBase ?: 0.0
+                )
                 Base.GROSS_CAPPED_MONTHLY_PASS -> min(safeGross, monthlyPass)
             }
             Line(
@@ -139,7 +152,11 @@ object SocialContributionCatalogV2 {
             warnings = buildList {
                 add("Couche 1/6 : ce net est volontairement partiel.")
                 add("Les parts patronales vieillesse, CSA et dialogue social 2026 sont intégrées séparément ; les autres cotisations patronales légales de base restent à compléter.")
-                add("L'assiette CSG/CRDS est calculée sur le brut connu ; les éventuelles contributions patronales à réintégrer restent à fournir par la couche entreprise.")
+                when {
+                    employerProtectionCsgCrdsBaseAmount == null -> add("Assiette CSG/CRDS : part employeur de protection sociale complémentaire à confirmer, même si elle est nulle ; le sous-total courant reste calculé sur le brut connu uniquement.")
+                    validEmployerProtectionCsgCrdsBase == null -> add("Assiette CSG/CRDS : part employeur de protection sociale complémentaire invalide ; aucune valeur n'est inventée.")
+                    else -> add("Assiette CSG/CRDS : part employeur de protection sociale complémentaire confirmée ajoutée après l'abattement applicable au salaire.")
+                }
                 add("Retraite complémentaire, CEG/CET, mutuelle/prévoyance, convention et retenues propres à l'entreprise sont traitées dans les couches suivantes.")
                 if (year == 2026 && alsaceMoselleLocalRegime == null) {
                     add("Régime local Alsace-Moselle : affiliation à confirmer ; aucune cotisation locale n'est inventée.")
