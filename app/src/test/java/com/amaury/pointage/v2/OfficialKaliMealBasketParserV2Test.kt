@@ -72,6 +72,17 @@ class OfficialKaliMealBasketParserV2Test {
     }
 
     @Test
+    fun `exclusion professionnelle composee bloque la clause`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée, sauf les gardiens et les veilleurs."
+        )
+        assertEquals(1, result.observedOccurrences)
+        assertEquals(0, result.structuredOccurrences)
+        assertEquals(1, result.unresolvedOccurrences)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
     fun `deux occurrences du meme profil restent independantes si la seconde est incomplete`() {
         val result = parse(
             "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée. " +
@@ -121,6 +132,27 @@ class OfficialKaliMealBasketParserV2Test {
         assertEquals(0, result.structuredOccurrences)
         assertEquals(1, result.unresolvedOccurrences)
         assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
+    fun `restriction temporelle en lettres ne peut pas retomber sur la seule journée travaillée`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier de nuit de 8,50 € par journée travaillée si au moins quatre heures sont effectuées entre 21 h et 6 h."
+        )
+        assertEquals(1, result.observedOccurrences)
+        assertEquals(0, result.structuredOccurrences)
+        assertEquals(1, result.unresolvedOccurrences)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
+    fun `ne peut se cumuler avec un titre restaurant conserve le blocker`() {
+        val result = parse(
+            "Coefficient 700 non-cadres. Panier repas de 6,25 € par journée travaillée et ne peut se cumuler avec un titre-restaurant."
+        )
+        assertEquals(1, result.structuredOccurrences)
+        assertEquals(0, result.unresolvedOccurrences)
+        assertTrue(result.rules.single().blockers.contains(ConventionMealBasketV2.Blocker.MEAL_VOUCHER))
     }
 
     @Test
