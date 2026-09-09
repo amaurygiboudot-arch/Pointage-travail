@@ -85,11 +85,13 @@ object KaliMealBasketAuditV2 {
                     .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
             }
 
+            val lineageComplete = articleLineageComplete(evidence)
             val parsedCompletion = evaluateCompletion(
                 technicalCoverageComplete = evidence.technicalCoverageComplete,
                 diagnostic = diagnostic,
                 savedRules = saved,
-                referenceDate = referenceDate
+                referenceDate = referenceDate,
+                articleLineageComplete = lineageComplete
             )
             val trustStored = MealBasketAuditTrustStoreV2.markKali(
                 context = context,
@@ -128,6 +130,7 @@ object KaliMealBasketAuditV2 {
                     addAll(saveWarnings)
                     if (!trustStored) add("KALI repas : paquet de règles non lié au marqueur d'audit local ; couverture automatique bloquée.")
                     if (!evidence.technicalCoverageComplete) add("KALI repas : couverture technique incomplète ; aucune règle n'est déclarée applicable.")
+                    if (!lineageComplete) add("KALI repas : filiation KALIARTI → KALITEXT incomplète ou ambiguë pour au moins un article consulté ; paquet non certifiable.")
                     if (diagnostic.observedOccurrences == 0) add("KALI repas : recherche ciblée sans occurrence exploitable ; cela ne constitue jamais une preuve d'absence de droit.")
                     if (diagnostic.unresolvedOccurrences > 0) add("KALI repas : occurrence(s) incomplète(s) détectée(s) ; couverture de la matière bloquée.")
                     if (completion.completed) add("KALI repas : toutes les occurrences observées sont structurées, stockées, liées à cet audit et étendues à la date contrôlée.")
@@ -136,11 +139,23 @@ object KaliMealBasketAuditV2 {
         }
     }
 
+    internal fun articleLineageComplete(evidence: KaliMatterEvidenceAuditV2.Evidence): Boolean {
+        val ambiguous = evidence.ambiguousArticleTextIds.mapTo(linkedSetOf()) { it.trim().uppercase() }
+        val mappings = evidence.articleTextIds.entries.associate { (articleId, textId) ->
+            articleId.trim().uppercase() to textId.trim().uppercase()
+        }
+        return evidence.articles.all { article ->
+            val articleId = article.articleId.trim().uppercase()
+            articleId !in ambiguous && mappings[articleId]?.matches(Regex("^KALITEXT\\d+$")) == true
+        }
+    }
+
     internal fun evaluateCompletion(
         technicalCoverageComplete: Boolean,
         diagnostic: OfficialKaliMealBasketParserV2.Diagnostic,
         savedRules: Int,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        articleLineageComplete: Boolean = true
     ): Completion {
         val allRulesApplicable = diagnostic.rules.isNotEmpty() && diagnostic.rules.all { rule ->
             rule.structurallyValid() &&
@@ -148,6 +163,7 @@ object KaliMealBasketAuditV2 {
                 rule.extensionEffectiveFrom?.let { !referenceDate.isBefore(it) } == true
         }
         val completed = technicalCoverageComplete &&
+            articleLineageComplete &&
             diagnostic.observedOccurrences > 0 &&
             diagnostic.unresolvedOccurrences == 0 &&
             diagnostic.structuredOccurrences == diagnostic.observedOccurrences &&
