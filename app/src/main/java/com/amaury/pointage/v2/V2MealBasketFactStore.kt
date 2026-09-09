@@ -92,6 +92,8 @@ object V2MealBasketFactStore {
                 put("source", entry.source.name)
                 put("status", entry.status.name)
                 put("recordedAtMs", entry.recordedAtMs)
+                put("effectiveFromEpochDay", entry.effectiveFromEpochDay ?: JSONObject.NULL)
+                put("effectiveToEpochDay", entry.effectiveToEpochDay ?: JSONObject.NULL)
                 put("dayEpochDay", entry.dayEpochDay ?: JSONObject.NULL)
                 put("sessionId", entry.sessionId ?: JSONObject.NULL)
                 when (val value = entry.value) {
@@ -146,6 +148,8 @@ object V2MealBasketFactStore {
             source = source,
             status = status,
             recordedAtMs = json.getLong("recordedAtMs"),
+            effectiveFromEpochDay = nullableLong(json, "effectiveFromEpochDay"),
+            effectiveToEpochDay = nullableLong(json, "effectiveToEpochDay"),
             dayEpochDay = nullableLong(json, "dayEpochDay"),
             sessionId = nullableString(json, "sessionId")
         ).takeIf { it.structurallyValid() }
