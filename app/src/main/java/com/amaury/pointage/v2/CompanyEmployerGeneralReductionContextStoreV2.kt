@@ -70,7 +70,8 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
                 noOtherEmployerReductionConfirmed = null,
                 source = null,
                 reliable = false,
-                warnings = stored.warnings
+                warnings = stored.warnings,
+                paidHoursComplete = null
             )
         }
         return EmployerGeneralReductionContextV2.resolve(stored.records, month)
@@ -113,6 +114,7 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         .put("standardCommonLawCaseConfirmed", record.standardCommonLawCaseConfirmed)
         .put("noOtherEmployerReductionConfirmed", record.noOtherEmployerReductionConfirmed)
         .put("source", record.source)
+        .put("paidHoursComplete", record.paidHoursComplete ?: JSONObject.NULL)
 
     private fun fromJson(o: JSONObject?): EmployerGeneralReductionContextV2.Record? {
         o ?: return null
@@ -125,13 +127,19 @@ object CompanyEmployerGeneralReductionContextStoreV2 {
         val noOtherEmployerReductionConfirmed =
             o.opt("noOtherEmployerReductionConfirmed") as? Boolean ?: return null
         val source = o.opt("source") as? String ?: return null
+        val paidHoursComplete = when (val value = o.opt("paidHoursComplete")) {
+            null, JSONObject.NULL -> null
+            is Boolean -> value
+            else -> return null
+        }
         return EmployerGeneralReductionContextV2.Record(
             id = id,
             month = month,
             fullMonthPresent = fullMonthPresent,
             standardCommonLawCaseConfirmed = standardCommonLawCaseConfirmed,
             noOtherEmployerReductionConfirmed = noOtherEmployerReductionConfirmed,
-            source = source
+            source = source,
+            paidHoursComplete = paidHoursComplete
         )
     }
 }

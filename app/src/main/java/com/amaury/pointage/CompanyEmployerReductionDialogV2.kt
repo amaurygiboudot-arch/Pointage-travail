@@ -14,6 +14,7 @@ import com.amaury.pointage.v2.CompanyEmployerReductionStoreV2
 import com.amaury.pointage.v2.engine.EmployerReductionAdjustmentV2
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
+import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
 
@@ -28,16 +29,41 @@ object CompanyEmployerReductionDialogV2 {
             text="Saisis le total mensuel réellement confirmé des réductions/exonérations patronales (RGDU, Lodeom, etc.) depuis la DSN, le bulletin ou un calcul employeur validé. Saisis 0 € pour confirmer qu'aucune réduction ne s'applique ce mois."
             textSize=13f;setPadding(0,0,0,dp(context,8))
         })
+        val selectedMonth=selectedPayrollMonth(context)
+        val resolved=CompanyEmployerReductionStoreV2.resolve(context,companyId,selectedMonth)
+        box.addView(TextView(context).apply{
+            text=buildString{
+                append("RÉSULTAT ").append(selectedMonth.format(monthFormatter)).append("\n")
+                if(resolved.reliable&&resolved.amount!=null){
+                    append(String.format(Locale.FRANCE,"%.2f €",resolved.amount))
+                    resolved.source?.takeIf{it.isNotBlank()}?.let{append(" — ").append(it)}
+                    resolved.note?.takeIf{it.isNotBlank()}?.let{append("\n").append(it)}
+                }else{
+                    append("À confirmer")
+                    if(resolved.warnings.isNotEmpty())append("\n• ").append(resolved.warnings.joinToString("\n• "))
+                }
+            }
+            textSize=13f
+            setPadding(0,dp(context,4),0,dp(context,8))
+        })
         var listDialog:AlertDialog?=null
+        box.addView(Button(context).apply{
+            isAllCaps=false
+            text="CONTEXTE RGDU AUTOMATIQUE"
+            setOnClickListener{
+                listDialog?.dismiss()
+                CompanyEmployerGeneralReductionContextDialogV2.show(context,companyId)
+            }
+        },rowParams(context))
         val records=CompanyEmployerReductionStoreV2.list(context,companyId).sortedByDescending{it.month}
-        if(records.isEmpty()) box.addView(TextView(context).apply{text="Aucun mois confirmé.";textSize=13f})
+        if(records.isEmpty()) box.addView(TextView(context).apply{text="Aucun total manuel confirmé.";textSize=13f})
         else records.forEach{r->
             box.addView(Button(context).apply{
                 isAllCaps=false;gravity=Gravity.START or Gravity.CENTER_VERTICAL;text=recordLabel(r)
                 setOnClickListener{listDialog?.dismiss();showEditor(context,companyId,r)}
             },rowParams(context))
         }
-        box.addView(Button(context).apply{isAllCaps=false;text="AJOUTER / CONFIRMER UN MOIS";setOnClickListener{listDialog?.dismiss();showEditor(context,companyId,null)}},rowParams(context))
+        box.addView(Button(context).apply{isAllCaps=false;text="AJOUTER / CONFIRMER UN TOTAL MANUEL";setOnClickListener{listDialog?.dismiss();showEditor(context,companyId,null)}},rowParams(context))
         listDialog=AlertDialog.Builder(context).setTitle("Réductions / exonérations employeur").setView(box).setNegativeButton("FERMER",null).create()
         listDialog.show()
     }
@@ -77,6 +103,12 @@ object CompanyEmployerReductionDialogV2 {
     private fun recordLabel(r:EmployerReductionAdjustmentV2.Record)=buildString{
         append(r.month.format(monthFormatter)).append(" — ").append(String.format(Locale.FRANCE,"%.2f €",r.totalReductionAmount))
         append("\n").append(r.source);if(r.note.isNotBlank())append(" • ").append(r.note)
+    }
+    private fun selectedPayrollMonth(context:Context):YearMonth{
+        val ms=context.getSharedPreferences("navigation_state",Context.MODE_PRIVATE).getLong("report_month_ms",-1L)
+        val calendar=Calendar.getInstance(Locale.FRANCE)
+        if(ms>0L)calendar.timeInMillis=ms
+        return YearMonth.of(calendar.get(Calendar.YEAR),calendar.get(Calendar.MONTH)+1)
     }
     private fun field(context:Context,hint:String,type:Int=InputType.TYPE_CLASS_TEXT)=EditText(context).apply{this.hint=hint;inputType=type;isSingleLine=true}
     private fun rowParams(context:Context)=LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT).apply{topMargin=dp(context,6)}
