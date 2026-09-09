@@ -5,6 +5,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.util.AttributeSet
 import android.view.View
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -35,6 +36,14 @@ class HistorySearchFilterView @JvmOverloads constructor(
     private val entryBox = filterBox("Entrée")
     private val pauseBox = filterBox("Pause")
     private val exitBox = filterBox("Sortie")
+    private val mealFactsButton = Button(context).apply {
+        text = "🍽  FAITS REPAS / SESSION"
+        isAllCaps = false
+        setTextColor(context.getColor(R.color.hp_gold_light))
+        textSize = 14f
+        background = context.getDrawable(R.drawable.hp_panel)
+        setOnClickListener { SessionMealFactsDialogV2.show(context) }
+    }
     private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
     private val fullDateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
@@ -64,6 +73,9 @@ class HistorySearchFilterView @JvmOverloads constructor(
             addView(pauseBox, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
             addView(exitBox, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(mealFactsButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(6)
+        })
 
         search.addTextChangedListener(simpleWatcher { renderFilteredHistory() })
         entryBox.setOnCheckedChangeListener { _, _ -> renderFilteredHistory() }

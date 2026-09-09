@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,6 +65,44 @@ class MealBasketFactFallbackSafetyV2Test {
         )
 
         assertNull(merged.mealVoucherProvided)
+    }
+
+    @Test
+    fun `inconnu de session masque entreprise seulement pour cette session`() {
+        val company = entry(
+            "company-confirmed",
+            MealBasketFactJournalV2.Scope.COMPANY,
+            true,
+            DecisionStatusV2.CONFIRMED
+        )
+        val sessionUnknown = MealBasketFactJournalV2.Entry(
+            id = "session-unknown",
+            companyId = "company",
+            scope = MealBasketFactJournalV2.Scope.SESSION,
+            key = MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED,
+            value = MealBasketFactJournalV2.Value.Unknown,
+            source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+            status = DecisionStatusV2.TO_CONFIRM,
+            recordedAtMs = 2L,
+            sessionId = "session-a"
+        )
+
+        val first = MealBasketFactJournalV2.resolve(
+            entries = listOf(company, sessionUnknown),
+            companyId = "company",
+            day = day,
+            sessionId = "session-a"
+        )
+        val second = MealBasketFactJournalV2.resolve(
+            entries = listOf(company, sessionUnknown),
+            companyId = "company",
+            day = day,
+            sessionId = "session-b"
+        )
+
+        assertNull(first.facts.mealVoucherProvided)
+        assertTrue(MealBasketFactJournalV2.Key.MEAL_VOUCHER_PROVIDED in first.blockedKeys)
+        assertEquals(true, second.facts.mealVoucherProvided)
     }
 
     @Test

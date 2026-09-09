@@ -14,7 +14,7 @@ object V2MigrationManager {
     private const val LEGACY_PREFS = "pointage"
     private const val LEGACY_KEY = "data"
     private const val HISTORY_KEY = "history"
-    private const val VERSION = 5
+    private const val VERSION = 6
 
     private const val RUNTIME_REAL_ENTRY = "real_entry"
     private const val RUNTIME_COUNTED_ENTRY = "counted_entry"
@@ -33,6 +33,11 @@ object V2MigrationManager {
         val app = context.applicationContext
         val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
         val history = runCatching { JSONArray(runtime.getString(HISTORY_KEY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+
+        // Les toutes premières versions V2 pouvaient contenir un historique sans identifiant de
+        // session. Les faits SESSION ont besoin d'une identité durable : on répare donc ces rares
+        // entrées avant toute lecture et on persiste l'identifiant dans le même historique local.
+        ensureStableHistoryIds(history)
 
         // Réparation strictement ciblée de la régression 15 min / 5 min. Les valeurs
         // manuelles ou historiques qui ne correspondent pas exactement à ce bug restent intactes.
@@ -84,6 +89,16 @@ object V2MigrationManager {
             .putLong("checked_at", System.currentTimeMillis())
             .apply()
         return Result(imported, skipped, legacy.length(), history.length())
+    }
+
+    private fun ensureStableHistoryIds(history: JSONArray) {
+        for (i in 0 until history.length()) {
+            val item = history.optJSONObject(i) ?: continue
+            val current = item.optString("id").trim()
+            if (current.isNotBlank() && current != "null") continue
+            val signature = signatureV2(item).replace(':', '-')
+            item.put("id", "legacy-v2-$signature-$i")
+        }
     }
 
     private fun repairKnownCountedEntries(runtime: android.content.SharedPreferences, history: JSONArray) {
