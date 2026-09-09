@@ -128,7 +128,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
         val regularization = EmployerGeneralReductionAnnualRegularizationV2.resolve(
             year = year,
             annual = annual,
-            advances = prepared.monthlyAdvances
+            monthlyAdvances = prepared.monthlyAdvances
         )
         return Result(
             annualEntitlement = annual,
