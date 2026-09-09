@@ -114,7 +114,7 @@ object CompanyAgreementOfficialAuditV2 {
                         transientFailures = consult.transientFailures,
                         candidateStorageFailures = consult.storageFailures,
                         agreementStoreSaved = agreementStoreSaved
-                    )
+                    ) && consult.rejected == 0
 
                     val mealTrustStored = if (mealProfile != null) {
                         val status = mealProfile.professionalStatus!!.trim().uppercase()
@@ -150,6 +150,9 @@ object CompanyAgreementOfficialAuditV2 {
                         addAll(consult.warnings)
                         if (!searchStored) add("ACCO : résultat de recherche reçu mais stockage local impossible.")
                         if (!agreementStoreSaved) add("ACCO : accords vérifiés reçus mais stockage local impossible.")
+                        if (consult.rejected > 0) {
+                            add("ACCO : ${consult.rejected} accord(s) candidat(s) n'ont pas pu être reliés de façon certaine au SIRET après consultation ; audit repas global incomplet.")
+                        }
                         if (mealProfile != null && !mealTrustStored) {
                             add("ACCO : audit technique terminé mais paquet de confiance repas non persisté ; calcul repas bloqué.")
                         }
