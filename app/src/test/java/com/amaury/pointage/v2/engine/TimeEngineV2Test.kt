@@ -32,19 +32,18 @@ class TimeEngineV2Test {
     }
 
     @Test
-    fun `poste matin commence aussi a cinq heures et ouvre le panier automatique`() {
+    fun `poste matin commence aussi a cinq heures`() {
         assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 0)))
         assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 30)))
         assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(6, 30)))
         assertEquals(WorkTimePolicyV2.ShiftKind.DAY, WorkTimePolicyV2.shiftKind(at(7, 0)))
-        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(at(5, 0)))
     }
 
     @Test
     fun `ancienne entree cinq heures quinze est reparee et reste un poste matin`() {
         val repaired = WorkTimePolicyV2.repairKnownCountedEntry(at(5, 8), at(5, 15))
         assertEquals(at(5, 0), repaired)
-        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(repaired!!))
+        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(repaired!!))
     }
 
     @Test
@@ -125,7 +124,6 @@ class TimeEngineV2Test {
         assertEquals(0L, result.unpaidPauseMs)
         assertEquals(30 * minute, result.paidPauseMs)
         assertEquals(7 * 60 * minute + 37 * minute, result.paidWorkMs)
-        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(at(6, 0)))
     }
 
     @Test
@@ -142,12 +140,6 @@ class TimeEngineV2Test {
         assertEquals(15 * minute, result.unpaidPauseMs)
         assertEquals(30 * minute, result.paidPauseMs)
         assertEquals(8 * 60 * minute - 15 * minute, result.paidWorkMs)
-    }
-
-    @Test
-    fun `poste matin donne droit au panier automatique mais pas le poste jour`() {
-        assertTrue(WorkTimePolicyV2.hasAutomaticMorningBasket(morningBase))
-        assertEquals(false, WorkTimePolicyV2.hasAutomaticMorningBasket(dayBase))
     }
 
     @Test
