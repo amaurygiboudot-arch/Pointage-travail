@@ -18,6 +18,7 @@ object PayslipDocumentParserV2 {
     const val KEY_MEAL_BASKETS = "Paniers"
     const val KEY_MUTUAL_EMPLOYEE = "Mutuelle salariale"
     const val KEY_PROVIDENT_EMPLOYEE = "Prévoyance salariale"
+    const val KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE = "Retraite complémentaire salariale"
 
     data class Candidate(
         val amount: Double?,
@@ -36,6 +37,7 @@ object PayslipDocumentParserV2 {
         val mealBaskets: Candidate,
         val mutualEmployee: Candidate,
         val providentEmployee: Candidate,
+        val complementaryRetirementEmployee: Candidate,
         val warnings: List<String>
     ) {
         fun confirmedCandidates(): Map<String, Candidate> = linkedMapOf(
@@ -46,7 +48,8 @@ object PayslipDocumentParserV2 {
             KEY_PREMIUMS_GROSS to premiumsGross,
             KEY_MEAL_BASKETS to mealBaskets,
             KEY_MUTUAL_EMPLOYEE to mutualEmployee,
-            KEY_PROVIDENT_EMPLOYEE to providentEmployee
+            KEY_PROVIDENT_EMPLOYEE to providentEmployee,
+            KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE to complementaryRetirementEmployee
         )
     }
 
@@ -67,6 +70,7 @@ object PayslipDocumentParserV2 {
         val baskets = aggregateRows(lines, ::basketScore)
         val mutual = singleTotal(lines, ::mutualEmployeeScore)
         val provident = singleTotal(lines, ::providentEmployeeScore)
+        val complementaryRetirement = aggregateRows(lines, ::complementaryRetirementEmployeeScore)
 
         val warnings = buildList {
             if (!gross.highConfidence) add("Brut : vérification manuelle nécessaire.")
@@ -74,8 +78,20 @@ object PayslipDocumentParserV2 {
             if (!netTaxable.highConfidence) add("Net imposable : non prérempli faute de libellé suffisamment explicite.")
             if (!mutual.highConfidence) add("Mutuelle salariale : part salarié non identifiée avec certitude.")
             if (!provident.highConfidence) add("Prévoyance salariale : part salarié non identifiée avec certitude.")
+            if (!complementaryRetirement.highConfidence) add("Retraite complémentaire salariale : non préremplie sans identification explicite de la part salarié.")
         }
-        return Result(gross, netBeforeTax, netTaxable, overtime, premiums, baskets, mutual, provident, warnings)
+        return Result(
+            gross,
+            netBeforeTax,
+            netTaxable,
+            overtime,
+            premiums,
+            baskets,
+            mutual,
+            provident,
+            complementaryRetirement,
+            warnings
+        )
     }
 
     private fun singleTotal(lines: List<String>, scorer: (String) -> Double): Candidate {
@@ -167,6 +183,22 @@ object PayslipDocumentParserV2 {
 
     private fun providentEmployeeScore(text: String): Double {
         if (!text.contains("prevoyance")) return 0.0
+        val employee = text.contains("salarie") || text.contains("salariale") || text.contains("part sal")
+        return if (employee) 0.92 else 0.0
+    }
+
+    /**
+     * Une ligne de retraite n'est préremplie que lorsqu'elle désigne explicitement la part salarié.
+     * Sur les bulletins à colonnes, le dernier nombre peut être une part patronale : aucune position
+     * de colonne n'est donc devinée. L'utilisateur peut toujours saisir le total manuellement.
+     */
+    private fun complementaryRetirementEmployeeScore(text: String): Double {
+        val retirement =
+            text.contains("retraite complementaire") ||
+                text.contains("agirc") ||
+                text.contains("arrco") ||
+                Regex("\\b(ceg|cet|apec)\\b").containsMatchIn(text)
+        if (!retirement) return 0.0
         val employee = text.contains("salarie") || text.contains("salariale") || text.contains("part sal")
         return if (employee) 0.92 else 0.0
     }
