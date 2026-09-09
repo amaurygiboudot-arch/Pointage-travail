@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
@@ -42,6 +43,18 @@ class OvertimeLegalArbitrationBridgeV2Test {
 
     private fun absent(vararg sources: PayrollLegalArbitratorV2.Source) =
         sources.associateWith { PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE }
+
+    private fun unreliableCompany() = CompanyAgreementPayrollBridgeV2.Snapshot(
+        referenceDate = date,
+        applicableRules = emptyList(),
+        calculationReadyRules = emptyList(),
+        overtimePercentRules = emptyList(),
+        overtimeRules = emptyList(),
+        safeOvertimeRules = emptyList(),
+        conflictingOvertimeRules = emptyList(),
+        reliable = false,
+        warnings = listOf("Règles ACCO : stockage local incohérent")
+    )
 
     @Test
     fun `KALI est retenu avant le bareme LEGI si absence ACCO confirmee`() {
@@ -87,5 +100,20 @@ class OvertimeLegalArbitrationBridgeV2Test {
 
         assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
         assertNull(result.selectedSchedule)
+    }
+
+    @Test
+    fun `un stockage ACCO incoherent annule une ancienne preuve dabsence et bloque KALI`() {
+        val result = OvertimeLegalArbitrationBridgeV2.assemble(
+            referenceDate = date,
+            companyAgreement = unreliableCompany(),
+            branchSnapshot = branch(),
+            legalRecords = listOf(legalFallbackRecord()),
+            sourceKnowledge = absent(PayrollLegalArbitratorV2.Source.ACCO)
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
+        assertNull(result.selectedSchedule)
+        assertTrue(result.warnings.any { it.contains("stockage local incohérent") })
     }
 }
