@@ -1,19 +1,20 @@
 package com.amaury.pointage.v2.engine
 
 import java.time.LocalDate
+import java.util.Locale
 
 /**
- * Preuve explicite qu'une source juridique prioritaire a ete controlee pour une matiere,
- * un champ d'application et une date donnes.
+ * Preuve explicite qu'une source juridique prioritaire a été contrôlée pour une matière,
+ * un champ d'application et une date donnés.
  *
- * L'absence de donnees locales ne vaut jamais preuve d'absence officielle. Une source ne passe
- * a CONFIRMED_ABSENCE que si un controle officiel exhaustif a conclu qu'aucune regle applicable
- * n'existe, que le champ est confirme et que la couverture officielle atteint la date de paie.
+ * L'absence de données locales ne vaut jamais preuve d'absence officielle. Pour les paniers repas,
+ * la preuve est en plus liée à l'objet exact (jour, nuit, poste, hors domicile, etc.).
  */
 object PayrollSourceKnowledgeProofV2 {
     enum class Matter {
         OVERTIME_RATE,
-        PROVIDENT_CONTRIBUTION
+        PROVIDENT_CONTRIBUTION,
+        MEAL_BASKET
     }
 
     enum class Outcome {
@@ -27,6 +28,8 @@ object PayrollSourceKnowledgeProofV2 {
         val matter: Matter,
         val companyId: String? = null,
         val idcc: String? = null,
+        /** Requis pour MEAL_BASKET afin d'isoler les objets MEAL_DAY, MEAL_NIGHT, etc. */
+        val subjectKey: String? = null,
         val referenceFrom: LocalDate,
         val referenceTo: LocalDate,
         val officialCoverageThrough: LocalDate,
@@ -37,9 +40,14 @@ object PayrollSourceKnowledgeProofV2 {
         val outcome: Outcome
     ) {
         init {
-            require(!referenceTo.isBefore(referenceFrom)) { "Periode de preuve invalide" }
-            require(checkedAtMs > 0L) { "Date de controle obligatoire" }
-            require(officialScopeId.isNotBlank()) { "Empreinte du perimetre officiel obligatoire" }
+            require(!referenceTo.isBefore(referenceFrom)) { "Période de preuve invalide" }
+            require(checkedAtMs > 0L) { "Date de contrôle obligatoire" }
+            require(officialScopeId.isNotBlank()) { "Empreinte du périmètre officiel obligatoire" }
+            if (matter == Matter.MEAL_BASKET) {
+                require(normalizeSubject(subjectKey).isNotBlank()) {
+                    "Objet de panier obligatoire pour une preuve MEAL_BASKET"
+                }
+            }
         }
     }
 
@@ -49,7 +57,8 @@ object PayrollSourceKnowledgeProofV2 {
         matter: Matter,
         companyId: String,
         idcc: String,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        subjectKey: String? = null
     ): PayrollLegalArbitratorV2.Knowledge {
         val confirmed = proofs.any { proof ->
             proof.source == source &&
@@ -60,13 +69,11 @@ object PayrollSourceKnowledgeProofV2 {
                 !referenceDate.isBefore(proof.referenceFrom) &&
                 !referenceDate.isAfter(proof.referenceTo) &&
                 !proof.officialCoverageThrough.isBefore(referenceDate) &&
-                scopeMatches(proof, source, companyId, idcc)
+                scopeMatches(proof, source, companyId, idcc) &&
+                subjectMatches(proof, matter, subjectKey)
         }
-        return if (confirmed) {
-            PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
-        } else {
-            PayrollLegalArbitratorV2.Knowledge.UNKNOWN
-        }
+        return if (confirmed) PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
+        else PayrollLegalArbitratorV2.Knowledge.UNKNOWN
     }
 
     fun knowledgeMapForOvertime(
@@ -97,12 +104,29 @@ object PayrollSourceKnowledgeProofV2 {
             referenceDate = referenceDate
         )
 
+    fun knowledgeMapForMealBasketSubject(
+        proofs: List<Proof>,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate,
+        subjectKey: String
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeMapForMatter(
+            proofs = proofs,
+            matter = Matter.MEAL_BASKET,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate,
+            subjectKey = subjectKey
+        )
+
     private fun knowledgeMapForMatter(
         proofs: List<Proof>,
         matter: Matter,
         companyId: String,
         idcc: String,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        subjectKey: String? = null
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = buildMap {
         listOf(PayrollLegalArbitratorV2.Source.ACCO, PayrollLegalArbitratorV2.Source.KALI).forEach { source ->
             val knowledge = knowledgeFor(
@@ -111,7 +135,8 @@ object PayrollSourceKnowledgeProofV2 {
                 matter = matter,
                 companyId = companyId,
                 idcc = idcc,
-                referenceDate = referenceDate
+                referenceDate = referenceDate,
+                subjectKey = subjectKey
             )
             if (knowledge == PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE) {
                 put(source, knowledge)
@@ -133,6 +158,19 @@ object PayrollSourceKnowledgeProofV2 {
 
         else -> false
     }
+
+    private fun subjectMatches(proof: Proof, matter: Matter, requested: String?): Boolean {
+        if (matter != Matter.MEAL_BASKET) return true
+        val wanted = normalizeSubject(requested)
+        return wanted.isNotBlank() && normalizeSubject(proof.subjectKey) == wanted
+    }
+
+    private fun normalizeSubject(value: String?): String = value.orEmpty()
+        .trim()
+        .uppercase(Locale.ROOT)
+        .replace(Regex("_[0-9]+$"), "")
+        .takeIf { it.startsWith("MEAL_") }
+        ?: ""
 
     private fun normalizeIdcc(value: String?): String {
         val raw = value.orEmpty().trim()

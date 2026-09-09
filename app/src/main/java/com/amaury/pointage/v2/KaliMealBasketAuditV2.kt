@@ -50,8 +50,27 @@ object KaliMealBasketAuditV2 {
             )
         }
 
+        val trustPrimed = MealBasketAuditTrustStoreV2.markKali(
+            context = context,
+            profile = profile,
+            referenceDate = referenceDate,
+            state = MealBasketAuditTrustStoreV2.State.INCOMPLETE
+        )
+        if (!trustPrimed) {
+            markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, "État d'audit KALI repas non persistable")
+            return Tasks.forResult(
+                Summary(
+                    profile.idcc, referenceDate, 0, 0, 0, 0, false,
+                    listOf("KALI repas : impossible de verrouiller localement le début de l'audit ; aucun cache précédent n'est revalidé.")
+                )
+            )
+        }
+
         return KaliMatterEvidenceAuditV2.audit(profile.idcc, referenceDate, EXPRESSIONS).continueWith { task ->
             if (!task.isSuccessful) {
+                MealBasketAuditTrustStoreV2.markKali(
+                    context, profile, referenceDate, MealBasketAuditTrustStoreV2.State.INCOMPLETE
+                )
                 markCoverage(context, profile, referenceDate, ConventionMatterCoverageV2.State.INCOMPLETE, "Collecte KALI repas interrompue")
                 return@continueWith Summary(profile.idcc, referenceDate, 0, 0, 0, 0, false,
                     listOf("KALI repas : collecte officielle impossible."))
@@ -66,12 +85,31 @@ object KaliMealBasketAuditV2 {
                     .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
             }
 
-            val completion = evaluateCompletion(
+            val lineageComplete = articleLineageComplete(evidence)
+            val parsedCompletion = evaluateCompletion(
                 technicalCoverageComplete = evidence.technicalCoverageComplete,
                 diagnostic = diagnostic,
                 savedRules = saved,
-                referenceDate = referenceDate
+                referenceDate = referenceDate,
+                articleLineageComplete = lineageComplete
             )
+            val trustStored = MealBasketAuditTrustStoreV2.markKali(
+                context = context,
+                profile = profile,
+                referenceDate = referenceDate,
+                state = if (parsedCompletion.completed) {
+                    MealBasketAuditTrustStoreV2.State.COMPLETE
+                } else {
+                    MealBasketAuditTrustStoreV2.State.INCOMPLETE
+                },
+                fingerprints = if (parsedCompletion.completed) {
+                    diagnostic.rules.mapTo(linkedSetOf(), MealBasketAuditTrustStoreV2::kaliFingerprint)
+                } else emptySet()
+            )
+            val completion = if (parsedCompletion.completed && !trustStored) {
+                Completion(ConventionMatterCoverageV2.State.INCOMPLETE, completed = false)
+            } else parsedCompletion
+
             markCoverage(
                 context, profile, referenceDate, completion.state,
                 if (completion.completed) "Légifrance KALI — règles repas structurées, étendues et applicables"
@@ -90,12 +128,25 @@ object KaliMealBasketAuditV2 {
                     addAll(evidence.warnings)
                     addAll(diagnostic.reasons)
                     addAll(saveWarnings)
+                    if (!trustStored) add("KALI repas : paquet de règles non lié au marqueur d'audit local ; couverture automatique bloquée.")
                     if (!evidence.technicalCoverageComplete) add("KALI repas : couverture technique incomplète ; aucune règle n'est déclarée applicable.")
+                    if (!lineageComplete) add("KALI repas : filiation KALIARTI → KALITEXT incomplète ou ambiguë pour au moins un article consulté ; paquet non certifiable.")
                     if (diagnostic.observedOccurrences == 0) add("KALI repas : recherche ciblée sans occurrence exploitable ; cela ne constitue jamais une preuve d'absence de droit.")
                     if (diagnostic.unresolvedOccurrences > 0) add("KALI repas : occurrence(s) incomplète(s) détectée(s) ; couverture de la matière bloquée.")
-                    if (completion.completed) add("KALI repas : toutes les occurrences observées sont structurées, stockées et étendues à la date contrôlée.")
+                    if (completion.completed) add("KALI repas : toutes les occurrences observées sont structurées, stockées, liées à cet audit et étendues à la date contrôlée.")
                 }.distinct()
             )
+        }
+    }
+
+    internal fun articleLineageComplete(evidence: KaliMatterEvidenceAuditV2.Evidence): Boolean {
+        val ambiguous = evidence.ambiguousArticleTextIds.mapTo(linkedSetOf()) { it.trim().uppercase() }
+        val mappings = evidence.articleTextIds.entries.associate { (articleId, textId) ->
+            articleId.trim().uppercase() to textId.trim().uppercase()
+        }
+        return evidence.articles.all { article ->
+            val articleId = article.articleId.trim().uppercase()
+            articleId !in ambiguous && mappings[articleId]?.matches(Regex("^KALITEXT\\d+$")) == true
         }
     }
 
@@ -103,7 +154,8 @@ object KaliMealBasketAuditV2 {
         technicalCoverageComplete: Boolean,
         diagnostic: OfficialKaliMealBasketParserV2.Diagnostic,
         savedRules: Int,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        articleLineageComplete: Boolean = true
     ): Completion {
         val allRulesApplicable = diagnostic.rules.isNotEmpty() && diagnostic.rules.all { rule ->
             rule.structurallyValid() &&
@@ -111,6 +163,7 @@ object KaliMealBasketAuditV2 {
                 rule.extensionEffectiveFrom?.let { !referenceDate.isBefore(it) } == true
         }
         val completed = technicalCoverageComplete &&
+            articleLineageComplete &&
             diagnostic.observedOccurrences > 0 &&
             diagnostic.unresolvedOccurrences == 0 &&
             diagnostic.structuredOccurrences == diagnostic.observedOccurrences &&

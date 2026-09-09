@@ -7,13 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.LocalDate
 
-/**
- * Journal local non destructif des preuves de controle des sources juridiques prioritaires.
- *
- * Ce stockage ne deduit jamais une absence depuis un store vide. Il ne fait que conserver des
- * preuves produites par un audit officiel exhaustif, puis laisse PayrollSourceKnowledgeProofV2
- * verifier le perimetre, la date et la couverture avant d'autoriser un repli juridique.
- */
+/** Journal local non destructif des preuves de contrôle des sources juridiques prioritaires. */
 object PayrollLegalSourceKnowledgeStoreV2 {
     private const val PREFS = "horatrack_v2_payroll_source_knowledge"
     private const val KEY_PROOFS = "proofs"
@@ -38,10 +32,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
         PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
-            proofs = load(context),
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate
+            load(context), companyId, idcc, referenceDate
         )
 
     fun knowledgeForProvidentContribution(
@@ -51,10 +42,22 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
         PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            load(context), companyId, idcc, referenceDate
+        )
+
+    fun knowledgeForMealBasketSubject(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate,
+        subjectKey: String
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
             proofs = load(context),
             companyId = companyId,
             idcc = idcc,
-            referenceDate = referenceDate
+            referenceDate = referenceDate,
+            subjectKey = subjectKey
         )
 
     fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> = load(context)
@@ -78,6 +81,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             left.matter == right.matter &&
             left.companyId.orEmpty().trim() == right.companyId.orEmpty().trim() &&
             normalizeIdcc(left.idcc) == normalizeIdcc(right.idcc) &&
+            left.subjectKey.orEmpty().trim().uppercase() == right.subjectKey.orEmpty().trim().uppercase() &&
             left.referenceFrom == right.referenceFrom &&
             left.referenceTo == right.referenceTo &&
             left.officialScopeId == right.officialScopeId
@@ -87,6 +91,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         .put("matter", proof.matter.name)
         .put("companyId", proof.companyId ?: JSONObject.NULL)
         .put("idcc", proof.idcc ?: JSONObject.NULL)
+        .put("subjectKey", proof.subjectKey ?: JSONObject.NULL)
         .put("referenceFrom", proof.referenceFrom.toString())
         .put("referenceTo", proof.referenceTo.toString())
         .put("officialCoverageThrough", proof.officialCoverageThrough.toString())
@@ -100,8 +105,9 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         PayrollSourceKnowledgeProofV2.Proof(
             source = PayrollLegalArbitratorV2.Source.valueOf(obj.getString("source")),
             matter = PayrollSourceKnowledgeProofV2.Matter.valueOf(obj.getString("matter")),
-            companyId = obj.optString("companyId").takeIf { it.isNotBlank() && it != "null" },
-            idcc = obj.optString("idcc").takeIf { it.isNotBlank() && it != "null" },
+            companyId = nullableString(obj, "companyId"),
+            idcc = nullableString(obj, "idcc"),
+            subjectKey = nullableString(obj, "subjectKey"),
             referenceFrom = LocalDate.parse(obj.getString("referenceFrom")),
             referenceTo = LocalDate.parse(obj.getString("referenceTo")),
             officialCoverageThrough = LocalDate.parse(obj.getString("officialCoverageThrough")),
@@ -112,6 +118,9 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             outcome = PayrollSourceKnowledgeProofV2.Outcome.valueOf(obj.getString("outcome"))
         )
     }.getOrNull()
+
+    private fun nullableString(obj: JSONObject, key: String): String? =
+        obj.optString(key).takeIf { it.isNotBlank() && it != "null" }
 
     private fun normalizeIdcc(value: String?): String {
         val raw = value.orEmpty().trim()

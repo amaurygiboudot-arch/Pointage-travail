@@ -7,9 +7,9 @@ import com.google.firebase.functions.HttpsCallableResult
 
 /**
  * Réanalyse officielle ACCO d'une entreprise : recherche par SIRET, consultation exacte,
- * puis extraction locale de candidats de paie. Les cotisations et garanties de prévoyance passent
- * par leurs parseurs fail-closed dédiés avant stockage local ; leur articulation avec la branche
- * reste ensuite soumise à L2253-1.
+ * puis extraction locale de candidats de paie. Les cotisations, garanties de prévoyance et
+ * paniers/indemnités repas passent par leurs parseurs fail-closed dédiés avant stockage local.
+ * Leur articulation avec la branche reste ensuite soumise à l'arbitrage juridique applicable.
  */
 object CompanyAgreementOfficialAuditV2 {
     private const val PAGE_SIZE = 25
@@ -54,6 +54,24 @@ object CompanyAgreementOfficialAuditV2 {
                 Summary(siret.filter(Char::isDigit), 0, 0, 0, 0, 0, 0, false, listOf("ACCO : SIRET invalide."))
             )
         val app = context.applicationContext
+        val mealProfile = ConventionLegalProfileV2.load(app, companyId)?.takeIf { profile ->
+            profile.siret.filter(Char::isDigit) == normalizedSiret &&
+                !profile.classification.isEmpty() &&
+                profile.professionalStatus?.trim()?.uppercase() in setOf("CADRE", "NON_CADRE")
+        }
+        if (mealProfile != null && !MealBasketAuditTrustStoreV2.markAcco(
+                context = app,
+                companyId = companyId,
+                profile = mealProfile,
+                state = MealBasketAuditTrustStoreV2.State.INCOMPLETE
+            )) {
+            return Tasks.forResult(
+                Summary(
+                    normalizedSiret, 0, 0, 0, 0, 0, 0, false,
+                    listOf("ACCO : impossible de verrouiller localement le début de l'audit repas ; aucun cache ACCO précédent n'est revalidé.")
+                )
+            )
+        }
 
         return fetchPages(normalizedSiret)
             .continueWithTask { searchTask ->
@@ -90,18 +108,54 @@ object CompanyAgreementOfficialAuditV2 {
                     val existing = CompanyAgreementStoreV2.list(app, companyId)
                     val merged = mergePreservingExisting(existing, consult.verifiedAgreements)
                     val agreementStoreSaved = merged == existing || CompanyAgreementStoreV2.save(app, companyId, merged)
-                    val completed = auditCompleted(
+                    val technicalCompleted = auditCompleted(
                         searchComplete = search.complete,
                         searchStored = searchStored,
                         transientFailures = consult.transientFailures,
                         candidateStorageFailures = consult.storageFailures,
                         agreementStoreSaved = agreementStoreSaved
-                    )
+                    ) && consult.rejected == 0
+
+                    val mealTrustStored = if (mealProfile != null) {
+                        val status = mealProfile.professionalStatus!!.trim().uppercase()
+                        val verifiedAgreementIds = consult.verifiedAgreements.mapTo(linkedSetOf()) { it.id.trim().uppercase() }
+                        val completeAgreementIds = V2CompanyMealBasketAuditStateStore.completeAgreementIdsFor(
+                            context = app,
+                            companyId = companyId,
+                            expectedSiret = normalizedSiret,
+                            classification = mealProfile.classification,
+                            professionalStatus = status
+                        )
+                        val trustedRules = V2CompanyMealBasketStore.rules(app, companyId, normalizedSiret)
+                            .filter { it.agreementId in verifiedAgreementIds && it.agreementId in completeAgreementIds }
+                        MealBasketAuditTrustStoreV2.markAcco(
+                            context = app,
+                            companyId = companyId,
+                            profile = mealProfile,
+                            state = if (technicalCompleted) {
+                                MealBasketAuditTrustStoreV2.State.COMPLETE
+                            } else {
+                                MealBasketAuditTrustStoreV2.State.INCOMPLETE
+                            },
+                            verifiedAgreementIds = if (technicalCompleted) verifiedAgreementIds else emptySet(),
+                            fingerprints = if (technicalCompleted) {
+                                trustedRules.mapTo(linkedSetOf(), MealBasketAuditTrustStoreV2::accoFingerprint)
+                            } else emptySet()
+                        )
+                    } else true
+                    val completed = technicalCompleted && mealTrustStored
+
                     val warnings = buildList {
                         addAll(search.warnings)
                         addAll(consult.warnings)
                         if (!searchStored) add("ACCO : résultat de recherche reçu mais stockage local impossible.")
                         if (!agreementStoreSaved) add("ACCO : accords vérifiés reçus mais stockage local impossible.")
+                        if (consult.rejected > 0) {
+                            add("ACCO : ${consult.rejected} accord(s) candidat(s) n'ont pas pu être reliés de façon certaine au SIRET après consultation ; audit repas global incomplet.")
+                        }
+                        if (mealProfile != null && !mealTrustStored) {
+                            add("ACCO : audit technique terminé mais paquet de confiance repas non persisté ; calcul repas bloqué.")
+                        }
                         if (search.candidates.isEmpty() && search.complete) {
                             add("ACCO : recherche officielle parcourue jusqu'à son terme sans accord candidat exploitable pour ce SIRET ; cela ne constitue pas une preuve d'absence d'accord interne.")
                         }
@@ -267,6 +321,12 @@ object CompanyAgreementOfficialAuditV2 {
                             agreementId = candidate.id,
                             verifiedContent = officialContent
                         )
+                        val meals = CompanyAgreementMealBasketIngestionV2.ingestVerified(
+                            context = context,
+                            companyId = companyId,
+                            agreementId = candidate.id,
+                            verifiedContent = officialContent
+                        )
                         val localWarnings = buildList {
                             if (!ingestion.saved) {
                                 add("ACCO : candidats extraits de ${candidate.id} mais stockage local impossible.")
@@ -297,18 +357,31 @@ object CompanyAgreementOfficialAuditV2 {
                                 benefits.packageComplete ->
                                     add("ACCO : paquet de garanties de prévoyance de ${candidate.id} structuré et stocké localement ; l'équivalence reste à comparer au paquet KALI.")
                             }
+                            when {
+                                meals.storageFailure -> {
+                                    add("ACCO : panier/indemnité repas juridiquement structuré dans ${candidate.id}, mais stockage local dédié incomplet.")
+                                    addAll(meals.warnings.take(2))
+                                }
+                                meals.detected && !meals.legalPackageComplete -> {
+                                    add("ACCO : panier/indemnité repas détecté dans ${candidate.id}, mais paquet juridique incomplet ; aucune règle partielle n'alimente le calcul.")
+                                    addAll(meals.warnings.take(2))
+                                }
+                                meals.packageComplete ->
+                                    add("ACCO : panier/indemnité repas de ${candidate.id} structuré et stocké localement ; l'arbitrage L2253-3 reste à effectuer par objet.")
+                            }
                         }
                         accumulated.copy(
                             verifiedAgreements = accumulated.verifiedAgreements + candidate.copy(
                                 status = CompanyAgreementStoreV2.Status.UNKNOWN,
-                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles génériques extraites restent à valider ; cotisations et garanties de prévoyance ne sont structurées que par leurs chaînes fail-closed dédiées."
+                                notes = "SIRET et contenu vérifiés dans la consultation officielle. Les règles génériques extraites restent à valider ; prévoyance et paniers/indemnités repas ne sont structurés que par leurs chaînes fail-closed dédiées."
                             ),
                             consulted = accumulated.consulted + 1,
                             extractedCandidates = accumulated.extractedCandidates + ingestion.extractedCount,
                             storageFailures = accumulated.storageFailures +
                                 (if (ingestion.saved) 0 else 1) +
                                 (if (provident.storageFailure) 1 else 0) +
-                                (if (benefits.storageFailure) 1 else 0),
+                                (if (benefits.storageFailure) 1 else 0) +
+                                (if (meals.storageFailure) 1 else 0),
                             warnings = accumulated.warnings + localWarnings
                         )
                     }

@@ -119,6 +119,25 @@ class ConventionMealBasketV2Test {
     }
 
     @Test
+    fun `exclusion plurielle non reliee exactement au profil bloque le scope`() {
+        val uncertain = ConventionMealBasketV2.scopeRules(
+            rules = listOf(rule(
+                classification = ConventionClassificationV2(coefficient = 700, employment = "gardien"),
+                excludedEmployments = setOf("les gardiens")
+            )),
+            idcc = "292",
+            referenceDate = date,
+            classification = ConventionClassificationV2(coefficient = 700, employment = "gardien"),
+            professionalStatus = "NON_CADRE",
+            territoryCode = null
+        )
+
+        assertFalse(uncertain.reliable)
+        assertTrue(uncertain.rules.isEmpty())
+        assertTrue(uncertain.warnings.any { it.contains("exclusion professionnelle", ignoreCase = true) })
+    }
+
+    @Test
     fun `extension future reste non exploitable`() {
         val future = rule().copy(extensionEffectiveFrom = LocalDate.of(2027, 1, 1))
         val result = ConventionMealBasketV2.scopeRules(

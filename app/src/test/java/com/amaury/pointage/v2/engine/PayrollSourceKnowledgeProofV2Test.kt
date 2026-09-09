@@ -17,12 +17,14 @@ class PayrollSourceKnowledgeProofV2Test {
         exhaustive: Boolean = true,
         scopeConfirmed: Boolean = true,
         outcome: PayrollSourceKnowledgeProofV2.Outcome = PayrollSourceKnowledgeProofV2.Outcome.NO_APPLICABLE_RULE,
-        matter: PayrollSourceKnowledgeProofV2.Matter = PayrollSourceKnowledgeProofV2.Matter.OVERTIME_RATE
+        matter: PayrollSourceKnowledgeProofV2.Matter = PayrollSourceKnowledgeProofV2.Matter.OVERTIME_RATE,
+        subjectKey: String? = null
     ) = PayrollSourceKnowledgeProofV2.Proof(
         source = source,
         matter = matter,
         companyId = companyId,
         idcc = idcc,
+        subjectKey = subjectKey,
         referenceFrom = date,
         referenceTo = date,
         officialCoverageThrough = coverageThrough,
@@ -164,5 +166,63 @@ class PayrollSourceKnowledgeProofV2Test {
         )
 
         assertTrue(provident.isEmpty())
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `preuve panier sans objet exact est refusee`() {
+        proof(
+            source = PayrollLegalArbitratorV2.Source.ACCO,
+            matter = PayrollSourceKnowledgeProofV2.Matter.MEAL_BASKET,
+            subjectKey = null
+        )
+    }
+
+    @Test
+    fun `preuve absence panier nuit deverrouille uniquement panier nuit`() {
+        val nightProof = proof(
+            source = PayrollLegalArbitratorV2.Source.ACCO,
+            matter = PayrollSourceKnowledgeProofV2.Matter.MEAL_BASKET,
+            subjectKey = "MEAL_NIGHT_1"
+        )
+
+        val night = PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
+            proofs = listOf(nightProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date,
+            subjectKey = "MEAL_NIGHT"
+        )
+        val day = PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
+            proofs = listOf(nightProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date,
+            subjectKey = "MEAL_DAY"
+        )
+
+        assertEquals(
+            PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE,
+            night[PayrollLegalArbitratorV2.Source.ACCO]
+        )
+        assertTrue(day.isEmpty())
+    }
+
+    @Test
+    fun `preuve panier jour ne deverrouille jamais panier nuit`() {
+        val dayProof = proof(
+            source = PayrollLegalArbitratorV2.Source.ACCO,
+            matter = PayrollSourceKnowledgeProofV2.Matter.MEAL_BASKET,
+            subjectKey = "MEAL_DAY"
+        )
+
+        val night = PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
+            proofs = listOf(dayProof),
+            companyId = "company-oceplast",
+            idcc = "0292",
+            referenceDate = date,
+            subjectKey = "MEAL_NIGHT"
+        )
+
+        assertTrue(night.isEmpty())
     }
 }
