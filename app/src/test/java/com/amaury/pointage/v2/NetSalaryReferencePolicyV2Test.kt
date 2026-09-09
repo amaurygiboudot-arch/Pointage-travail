@@ -24,4 +24,33 @@ class NetSalaryReferencePolicyV2Test {
         assertNull(NetSalaryReferencePolicyV2.beforeIncomeTax(Double.NaN, complete = true))
         assertNull(NetSalaryReferencePolicyV2.beforeIncomeTax(-1.0, complete = true))
     }
+
+    @Test
+    fun `net imposable reste bloque sans reference nette principale`() {
+        assertNull(
+            NetSalaryReferencePolicyV2.taxable(
+                2_150.0,
+                beforeIncomeTaxReferenceAvailable = false
+            )
+        )
+    }
+
+    @Test
+    fun `net imposable fini peut devenir une reference apres validation du net principal`() {
+        assertEquals(
+            2_150.0,
+            NetSalaryReferencePolicyV2.taxable(
+                2_150.0,
+                beforeIncomeTaxReferenceAvailable = true
+            )!!,
+            0.001
+        )
+    }
+
+    @Test
+    fun `net imposable invalide reste bloque`() {
+        assertNull(NetSalaryReferencePolicyV2.taxable(null, beforeIncomeTaxReferenceAvailable = true))
+        assertNull(NetSalaryReferencePolicyV2.taxable(Double.NaN, beforeIncomeTaxReferenceAvailable = true))
+        assertNull(NetSalaryReferencePolicyV2.taxable(-1.0, beforeIncomeTaxReferenceAvailable = true))
+    }
 }
