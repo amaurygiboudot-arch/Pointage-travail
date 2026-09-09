@@ -117,7 +117,8 @@ object SessionMealFactsDialogV2 {
 
         val companies = SalaryCompanyStore.list(context).associateBy { it.id }
         val labels = sessions.map { session ->
-            sessionLabel(session, companies[session.employerId]?.name)
+            val companyName = session.employerId?.let { companies[it]?.name }
+            sessionLabel(session, companyName)
         }.toTypedArray()
 
         AlertDialog.Builder(context)
