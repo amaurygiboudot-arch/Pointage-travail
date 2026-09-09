@@ -25,7 +25,7 @@ object CompanyAgreementMealBasketIngestionV2 {
         val warnings: List<String>
     ) {
         val packageComplete: Boolean get() = legalPackageComplete && storageComplete
-        val storageFailure: Boolean get() = detected && !storageComplete
+        val storageFailure: Boolean get() = !storageComplete
     }
 
     internal fun structure(
@@ -97,15 +97,35 @@ object CompanyAgreementMealBasketIngestionV2 {
 
         val structured = structure(profile, agreementId, verifiedContent)
         if (!structured.detected) {
+            val rulesCleared = V2CompanyMealBasketStore.removeAgreementPackage(
+                context = context,
+                companyId = companyId,
+                agreementId = agreementId,
+                expectedSiret = profile.siret,
+                classification = profile.classification,
+                professionalStatus = profile.professionalStatus.orEmpty()
+            )
+            val stateCleared = rulesCleared && V2CompanyMealBasketAuditStateStore.clearAgreement(
+                context = context,
+                companyId = companyId,
+                agreementId = agreementId,
+                profile = profile
+            )
+            val cleaned = rulesCleared && stateCleared
             return Result(
                 detected = false,
                 structured = false,
                 legalPackageComplete = false,
-                storageComplete = true,
+                storageComplete = cleaned,
                 savedCount = 0,
                 ruleCount = 0,
                 subjects = emptySet(),
-                warnings = structured.warnings
+                warnings = buildList {
+                    addAll(structured.warnings)
+                    if (!cleaned) add(
+                        "ACCO repas : le contenu officiel ne contient plus de panier, mais l'ancien paquet local n'a pas pu être purgé complètement ; audit global bloqué."
+                    )
+                }.distinct()
             )
         }
         if (!structured.packageComplete) {
