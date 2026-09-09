@@ -241,7 +241,9 @@ object V2PayslipStore {
     NetSalaryReferencePolicyV2.beforeIncomeTax(calculated)?.let{
      expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=it
     }
-    calculated.netTaxable?.let{expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it}
+    NetSalaryReferencePolicyV2.taxable(calculated)?.let{
+     expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it
+    }
    }
    overrides.mutualEmployeeAmount?.let{expectedValues[PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE]=it}
    val providentExpected=overrides.providentEmployeeAmount ?: net?.conventionProvidentEmployee?.takeIf{it>0.0}
