@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.ContractTypeV2
+
 /**
  * Faits annuels nécessaires avant d'autoriser le calcul RGDU annuel standard.
  *
@@ -22,7 +24,11 @@ object EmployerGeneralReductionAnnualContextV2 {
          */
         val homogeneousAnnualParametersConfirmed: Boolean? = null,
         /** Source humaine vérifiable : DSN, bulletins, attestation employeur, contrôle qualifié, etc. */
-        val source: String
+        val source: String,
+        /** Valeurs exactes confirmées stables sur l'année ; null reste inconnu, jamais recopié du profil courant. */
+        val confirmedWorkforceBand: EmployerWorkforceContributionsV2.Band? = null,
+        val confirmedContractType: ContractTypeV2? = null,
+        val confirmedContractualWeeklyMinutes: Int? = null
     )
 
     data class Snapshot(
@@ -31,14 +37,23 @@ object EmployerGeneralReductionAnnualContextV2 {
         val homogeneousAnnualParametersConfirmed: Boolean?,
         val source: String?,
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /** Valeurs historiques exactes prouvées pour l'année, distinctes des paramètres courants. */
+        val confirmedWorkforceBand: EmployerWorkforceContributionsV2.Band? = null,
+        val confirmedContractType: ContractTypeV2? = null,
+        val confirmedContractualWeeklyMinutes: Int? = null
     )
 
     fun resolve(records: List<Record>, year: Int): Snapshot {
-        val malformed = records.filter { it.id.isBlank() || it.source.isBlank() || it.year <= 0 }
+        val malformed = records.filter {
+            it.id.isBlank() ||
+                it.source.isBlank() ||
+                it.year <= 0 ||
+                (it.confirmedContractualWeeklyMinutes != null && it.confirmedContractualWeeklyMinutes <= 0)
+        }
         if (malformed.isNotEmpty()) {
             return blocked(
-                "RGDU annuelle : un contexte enregistré est incomplet ou sans source ; calcul automatique bloqué."
+                "RGDU annuelle : un contexte enregistré est incomplet ou incohérent ; calcul automatique bloqué."
             )
         }
 
@@ -55,15 +70,33 @@ object EmployerGeneralReductionAnnualContextV2 {
         }
 
         val selected = active.single()
+        val warnings = buildList {
+            if (selected.homogeneousAnnualParametersConfirmed == null) {
+                add("RGDU annuelle : stabilité des paramètres à confirmer pour $year.")
+            }
+            if (selected.homogeneousAnnualParametersConfirmed == true) {
+                if (selected.confirmedWorkforceBand == null) {
+                    add("RGDU annuelle : tranche d'effectif annuelle exacte à confirmer pour $year.")
+                }
+                if (selected.confirmedContractType == null) {
+                    add("RGDU annuelle : type de contrat annuel exact à confirmer pour $year.")
+                }
+                if (selected.confirmedContractualWeeklyMinutes == null) {
+                    add("RGDU annuelle : durée contractuelle hebdomadaire annuelle exacte à confirmer pour $year.")
+                }
+            }
+        }
+
         return Snapshot(
             fullCalendarYearPresent = selected.fullCalendarYearPresent,
             standardCommonLawCaseConfirmed = selected.standardCommonLawCaseConfirmed,
             homogeneousAnnualParametersConfirmed = selected.homogeneousAnnualParametersConfirmed,
             source = selected.source,
             reliable = true,
-            warnings = if (selected.homogeneousAnnualParametersConfirmed == null) {
-                listOf("RGDU annuelle : stabilité des paramètres à confirmer pour $year.")
-            } else emptyList()
+            warnings = warnings.distinct(),
+            confirmedWorkforceBand = selected.confirmedWorkforceBand,
+            confirmedContractType = selected.confirmedContractType,
+            confirmedContractualWeeklyMinutes = selected.confirmedContractualWeeklyMinutes
         )
     }
 
@@ -73,6 +106,9 @@ object EmployerGeneralReductionAnnualContextV2 {
         homogeneousAnnualParametersConfirmed = null,
         source = null,
         reliable = false,
-        warnings = listOf(message)
+        warnings = listOf(message),
+        confirmedWorkforceBand = null,
+        confirmedContractType = null,
+        confirmedContractualWeeklyMinutes = null
     )
 }

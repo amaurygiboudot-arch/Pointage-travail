@@ -16,14 +16,20 @@ class EmployerGeneralReductionAnnualInputV2Test {
         homogeneous: Boolean? = true,
         source: String? = "DSN annuelle 2026",
         reliable: Boolean = true,
-        warnings: List<String> = emptyList()
+        warnings: List<String> = emptyList(),
+        confirmedBand: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        confirmedContractType: ContractTypeV2? = ContractTypeV2.FULL_TIME,
+        confirmedWeeklyMinutes: Int? = 35 * 60
     ) = EmployerGeneralReductionAnnualContextV2.Snapshot(
         fullCalendarYearPresent = fullYear,
         standardCommonLawCaseConfirmed = standard,
         homogeneousAnnualParametersConfirmed = homogeneous,
         source = source,
         reliable = reliable,
-        warnings = warnings
+        warnings = warnings,
+        confirmedWorkforceBand = confirmedBand,
+        confirmedContractType = confirmedContractType,
+        confirmedContractualWeeklyMinutes = confirmedWeeklyMinutes
     )
 
     private fun month(
@@ -161,11 +167,10 @@ class EmployerGeneralReductionAnnualInputV2Test {
     fun `actual monthly workforce variation blocks standard annual case`() {
         val months = fullYear().map {
             if (it.period.monthValue == 7) {
-                val changed = month(
+                month(
                     month = 7,
                     band = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49
                 )
-                changed
             } else it
         }
 
@@ -235,6 +240,59 @@ class EmployerGeneralReductionAnnualInputV2Test {
 
         assertFalse(result.reliable)
         assertTrue(result.warnings.contains("preuve mensuelle partielle"))
+    }
+
+    @Test
+    fun `missing exact annual parameter snapshot blocks even when homogeneity flag is true`() {
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(
+            2026,
+            fullYear(),
+            context(
+                homogeneous = true,
+                confirmedBand = null,
+                confirmedContractType = null,
+                confirmedWeeklyMinutes = null
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("annuelle exacte", ignoreCase = true) })
+    }
+
+    @Test
+    fun `confirmed annual workforce band must match all monthly facts`() {
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(
+            2026,
+            fullYear(),
+            context(confirmedBand = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49)
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("tranche d'effectif", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
+    }
+
+    @Test
+    fun `confirmed annual contract type must match all monthly facts`() {
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(
+            2026,
+            fullYear(),
+            context(confirmedContractType = ContractTypeV2.PART_TIME)
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("type de contrat", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
+    }
+
+    @Test
+    fun `confirmed annual weekly duration must match all monthly facts`() {
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(
+            2026,
+            fullYear(),
+            context(confirmedWeeklyMinutes = 30 * 60)
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("durée contractuelle", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
     }
 
     @Test
