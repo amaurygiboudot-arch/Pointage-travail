@@ -74,7 +74,8 @@ object NetSalaryEngineV2 {
             gross = contributionGross,
             year = year,
             ceiling = ceiling,
-            alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime
+            alsaceMoselleLocalRegime = company.alsaceMoselleLocalRegime,
+            employerProtectionCsgCrdsBaseAmount = company.employerProtectionCsgCrdsBaseAmount
         )
         val retirement = ComplementaryRetirementCatalogV2.estimateGeneric(
             gross = contributionGross,
