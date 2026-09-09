@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
+import com.amaury.pointage.v2.engine.VerifiedMealBasketPayrollV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -52,6 +53,34 @@ class MealBasketFactJournalV2Test {
         )
 
         assertNull(result.facts.postedShiftWorker)
+    }
+
+    @Test
+    fun `inconnu explicite bloque un fallback sans fabriquer de valeur`() {
+        val pending = MealBasketFactJournalV2.Entry(
+            id = "pending-unknown",
+            companyId = "company",
+            scope = MealBasketFactJournalV2.Scope.COMPANY,
+            key = MealBasketFactJournalV2.Key.POSTED_SHIFT_WORKER,
+            value = MealBasketFactJournalV2.Value.Unknown,
+            source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+            status = DecisionStatusV2.TO_CONFIRM,
+            recordedAtMs = 1L,
+            effectiveFromEpochDay = day.minusDays(1).toEpochDay()
+        )
+
+        assertTrue(pending.structurallyValid())
+        assertFalse(pending.copy(status = DecisionStatusV2.CONFIRMED).structurallyValid())
+
+        val result = MealBasketFactJournalV2.resolve(listOf(pending), "company", day, "session")
+        assertNull(result.facts.postedShiftWorker)
+        assertTrue(MealBasketFactJournalV2.Key.POSTED_SHIFT_WORKER in result.blockedKeys)
+
+        val overlaid = MealBasketFactJournalV2.overlay(
+            VerifiedMealBasketPayrollV2.FactDefaults(postedShiftWorker = true),
+            result
+        )
+        assertNull(overlaid.postedShiftWorker)
     }
 
     @Test

@@ -40,6 +40,8 @@ object MealBasketFactJournalV2 {
     }
 
     sealed interface Value {
+        /** Valeur volontairement inconnue. Utilisée avec TO_CONFIRM sans fabriquer un faux fait. */
+        data object Unknown : Value
         data class Flag(val value: Boolean) : Value
         data class NightWindow(val window: ConventionMealBasketV2.DailyWindow) : Value
     }
@@ -74,6 +76,7 @@ object MealBasketFactJournalV2 {
                         dayEpochDay == null && !sessionId.isNullOrBlank()
             }
             if (!scopeValid || !sourceCompatibleWithScope()) return false
+            if (value is Value.Unknown) return status == DecisionStatusV2.TO_CONFIRM
             return when (key) {
                 Key.EMPLOYER_NIGHT_WINDOW ->
                     value is Value.NightWindow && value.window.structurallyValid()
