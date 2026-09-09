@@ -108,6 +108,14 @@ object OfficialKaliMealBasketParserV2 {
                     reasons += "KALI repas $kaliText $articleId : portée territoriale détectée mais non structurée ; règle bloquée."
                     return@forEachIndexed
                 }
+                // Le moteur d'applicabilité compare les emplois exacts. Une liste composée telle que
+                // « sauf les gardiens et les veilleurs » ne peut donc pas être transformée sûrement
+                // en exclusions singulières sans inventer une normalisation métier. On bloque.
+                if (compoundEmploymentExclusionRegex.containsMatchIn(occurrenceText)) {
+                    unresolved++
+                    reasons += "KALI repas $kaliText $articleId : exclusion professionnelle composée non structurée ; règle bloquée."
+                    return@forEachIndexed
+                }
 
                 val amount = parseAmount(occurrenceText)
                 val eligibility = parseEligibility(occurrenceText)
@@ -202,6 +210,11 @@ object OfficialKaliMealBasketParserV2 {
     }
 
     private fun parseEligibility(text: String): List<ConventionMealBasketV2.EligibilityGroup> {
+        val explicitTimeRange = timeRangeVocabulary.containsMatchIn(text)
+        val parsedTimeRange = effectiveWindowRegex.containsMatchIn(text) ||
+            employerWindowRegex.containsMatchIn(text) || startsEndsWindowRegex.containsMatchIn(text)
+        if (explicitTimeRange && !parsedTimeRange) return emptyList()
+
         val common = buildList<ConventionMealBasketV2.Condition> {
             if (postedWorkerRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.PostedShiftWorker)
             if (unableHomeRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Condition.UnableToReturnHomeForMeal)
@@ -268,7 +281,9 @@ object OfficialKaliMealBasketParserV2 {
 
     /** null = non-cumul présent mais insuffisamment décrit. */
     private fun parseBlockers(text: String): Set<ConventionMealBasketV2.Blocker>? {
-        if (!nonCumulationRegex.containsMatchIn(text)) return emptySet()
+        if (!nonCumulationRegex.containsMatchIn(text)) {
+            return if (cumulationVocabularyRegex.containsMatchIn(text)) null else emptySet()
+        }
         if (unknownNonCumulationTargetRegex.containsMatchIn(text)) return null
         val blockers = buildSet {
             if (canteenRegex.containsMatchIn(text)) add(ConventionMealBasketV2.Blocker.COMPANY_CANTEEN)
@@ -367,10 +382,12 @@ object OfficialKaliMealBasketParserV2 {
     private val effectiveWindowRegex = Regex("(?:au moins|minimum de)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h(?:eures?)?[^.;\\n]{0,80}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?")
     private val employerWindowRegex = Regex("plage\\s+de\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h(?:eures?)?[^.;\\n]{0,80}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?[^.;\\n]{0,120}?(?:au moins|minimum de)\\s+([0-9]+(?:[.,][0-9]+)?)\\s*h")
     private val startsEndsWindowRegex = Regex("(commence|debute|se termine|finit)(?:\\s+ou\\s+(commence|debute|se termine|finit))?[^.;\\n]{0,60}?entre\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?\\s+et\\s+([0-9]{1,2})\\s*h(?:\\s*([0-9]{1,2}))?")
+    private val timeRangeVocabulary = Regex("\\bentre\\s+[0-9]{1,2}\\s*h(?:\\s*[0-9]{1,2})?\\s+et\\s+[0-9]{1,2}\\s*h(?:\\s*[0-9]{1,2})?")
     private val temporalAlternativeRegex = Regex("\\b(?:ou|soit)\\b")
     private val enclosesMidnightRegex = Regex("\\b(?:encadre|comprend|inclut|traverse)\\s+minuit\\b")
     private val startsMidnightRegex = Regex("\\b(?:commence|debute)\\s+a\\s+minuit\\b")
-    private val nonCumulationRegex = Regex("\\b(?:non cumulable|ne se cumule pas|pas cumulable|exclusif)\\b")
+    private val nonCumulationRegex = Regex("\\b(?:non cumulable|ne se cumule pas|ne peut(?: pas)? se cumuler|ne peut etre cumule(?:e)?|pas cumulable|exclusif)\\b")
+    private val cumulationVocabularyRegex = Regex("\\b(?:cumul|cumulable|cumule(?:e)?|cumuler)\\b")
     private val canteenRegex = Regex("\\b(?:cantine|restaurant d'entreprise)\\b")
     private val providedMealRegex = Regex("\\brepas\\s+(?:fourni|pris en charge)\\s+par\\s+l'employeur\\b")
     private val mealVoucherRegex = Regex("\\b(?:titre|ticket)[- ]restaurant\\b")
@@ -389,6 +406,7 @@ object OfficialKaliMealBasketParserV2 {
         "juillet" to 7, "aout" to 8, "septembre" to 9, "octobre" to 10, "novembre" to 11, "decembre" to 12
     )
     private val excludedEmploymentRegex = Regex("\\b(?:sauf|a l'exception des?)\\s+([a-z][a-z -]{2,40}?)(?:[.;,]|$)")
+    private val compoundEmploymentExclusionRegex = Regex("\\b(?:sauf|a l'exception des?)\\s+[^.;\\n]{1,80}?\\b(?:et|ou)\\b[^.;\\n]{1,80}(?:[.;,]|$)")
     private val territorialVocabulary = Regex("\\b(?:departement|departements|region|regions|zone geographique|territoire territorial)\\b")
     private val classificationVocabulary = Regex("\\b(?:coefficient|coef(?:ficient)?|niveau|echelon|position|groupe|categorie|emploi|fonction)s?\\b|\\bposte\\s*[:\\-]")
     private val kaliTextIdRegex = Regex("^KALITEXT\\d+$")
