@@ -65,9 +65,21 @@ object EmployerGeneralReductionPayrollBridgeV2 {
             )
         }
 
+        val manualStore = CompanyEmployerReductionStoreV2.read(context, companyId)
+        if (!manualStore.reliable) {
+            return EmployerReductionResolutionV2.Result(
+                totalReductionAmount = null,
+                automaticRgduAmount = automatic.amount?.takeIf { automatic.reliable },
+                mode = EmployerReductionResolutionV2.Mode.BLOCKED,
+                source = null,
+                reliable = false,
+                warnings = manualStore.warnings
+            )
+        }
+
         return EmployerReductionResolutionV2.resolve(
             month = period,
-            manualRecords = CompanyEmployerReductionStoreV2.list(context, companyId),
+            manualRecords = manualStore.records,
             automaticRgdu = automatic,
             context = monthlyContext
         )
