@@ -117,33 +117,38 @@ object SessionMealFactsDialogV2 {
 
         val companies = SalaryCompanyStore.list(context).associateBy { it.id }
         val labels = sessions.map { session ->
-            val companyName = session.employerId?.let { companies[it]?.name }
-            sessionLabel(session, companyName)
+            val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
+            sessionLabel(session, companyId?.let { companies[it]?.name })
         }.toTypedArray()
 
         AlertDialog.Builder(context)
             .setTitle("Choisir une session")
             .setItems(labels) { _, which ->
                 val session = sessions[which]
-                val companyId = session.employerId?.trim().orEmpty()
-                if (companyId.isBlank()) {
+                val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
+                if (companyId == null) {
                     AlertDialog.Builder(context)
-                        .setTitle("Session sans entreprise")
+                        .setTitle("Entreprise de la session à confirmer")
                         .setMessage(
-                            "Cette session n'a pas d'entreprise identifiée. HoraTrack ne peut pas rattacher ses faits au moteur salarial sans fabriquer ce lien."
+                            "HoraTrack ne peut pas rattacher cette session à une entreprise unique. " +
+                                "Le lien reste inconnu plutôt que d'affecter les faits repas à la mauvaise entreprise."
                         )
                         .setPositiveButton("FERMER", null)
                         .show()
                 } else {
-                    showEditor(context, session, companies[companyId]?.name)
+                    showEditor(context, session, companyId, companies[companyId]?.name)
                 }
             }
             .setNegativeButton("FERMER", null)
             .show()
     }
 
-    private fun showEditor(context: Context, session: WorkSessionV2, companyName: String?) {
-        val companyId = session.employerId?.trim().orEmpty()
+    private fun showEditor(
+        context: Context,
+        session: WorkSessionV2,
+        companyId: String,
+        companyName: String?
+    ) {
         if (companyId.isBlank() || session.id.isBlank()) return
 
         val loaded = V2MealBasketFactStore.load(context)
@@ -152,7 +157,7 @@ object SessionMealFactsDialogV2 {
             return
         }
         val existing = loaded.entries.filter {
-            it.companyId == companyId &&
+            belongsToCompany(context, it.companyId, companyId) &&
                 it.scope == MealBasketFactJournalV2.Scope.SESSION &&
                 it.sessionId == session.id &&
                 it.key in managedKeys
@@ -214,10 +219,10 @@ object SessionMealFactsDialogV2 {
                     Toast.makeText(context, "Journal factuel illisible : enregistrement refusé", Toast.LENGTH_LONG).show()
                     return@setOnClickListener
                 }
-                // On relit les IDs au moment de sauvegarder afin de ne pas laisser une ancienne
-                // entrée concurrente de la même session survivre à l'édition.
+                // On relit les IDs au moment de sauvegarder afin de retirer aussi une ancienne entrée
+                // de la même session enregistrée sous company_1/company_2 avant la migration stable.
                 val idsToReplace = fresh.entries.filter {
-                    it.companyId == companyId &&
+                    belongsToCompany(context, it.companyId, companyId) &&
                         it.scope == MealBasketFactJournalV2.Scope.SESSION &&
                         it.sessionId == session.id &&
                         it.key in managedKeys
@@ -268,7 +273,7 @@ object SessionMealFactsDialogV2 {
                     return@setOnClickListener
                 }
                 val ids = fresh.entries.filter {
-                    it.companyId == companyId &&
+                    belongsToCompany(context, it.companyId, companyId) &&
                         it.scope == MealBasketFactJournalV2.Scope.SESSION &&
                         it.sessionId == session.id &&
                         it.key in managedKeys
@@ -329,6 +334,10 @@ object SessionMealFactsDialogV2 {
             if (place != null) append("\n").append(place)
         }
     }
+
+    private fun belongsToCompany(context: Context, storedCompanyId: String, companyId: String): Boolean =
+        storedCompanyId == companyId ||
+            SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, storedCompanyId) == companyId
 
     private fun entryId(
         companyId: String,
