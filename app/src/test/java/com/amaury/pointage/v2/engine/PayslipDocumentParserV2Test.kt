@@ -20,6 +20,8 @@ class PayslipDocumentParserV2Test {
             Net à payer avant impôt sur le revenu 1 845,32 €
             Mutuelle part salariale 28,40 €
             Prévoyance part salarié 12,60 €
+            Agirc-Arrco tranche 1 part salariale 86,20 €
+            CEG part salarié 22,40 €
             """.trimIndent()
         )
 
@@ -32,6 +34,8 @@ class PayslipDocumentParserV2Test {
         assertEquals(53.80, result.mealBaskets.amount!!, 0.001)
         assertEquals(28.40, result.mutualEmployee.amount!!, 0.001)
         assertEquals(12.60, result.providentEmployee.amount!!, 0.001)
+        assertEquals(108.60, result.complementaryRetirementEmployee.amount!!, 0.001)
+        assertTrue(result.complementaryRetirementEmployee.highConfidence)
     }
 
     @Test
@@ -50,19 +54,23 @@ class PayslipDocumentParserV2Test {
     }
 
     @Test
-    fun `ne devine pas une part salariale quand mutuelle et prevoyance sont ambigues`() {
+    fun `ne devine pas une part salariale quand mutuelle prevoyance et retraite sont ambigues`() {
         val result = PayslipDocumentParserV2.parse(
             """
             Mutuelle 3428,00 1,00 34,28 51,42
             Prévoyance 3428,00 0,50 17,14 25,71
+            Agirc-Arrco tranche 1 3428,00 3,15 107,98 161,97
+            CEG 3428,00 0,86 29,48 44,22
             Total brut 3 428,00 €
             """.trimIndent()
         )
 
         assertNull(result.mutualEmployee.amount)
         assertNull(result.providentEmployee.amount)
+        assertNull(result.complementaryRetirementEmployee.amount)
         assertFalse(result.mutualEmployee.highConfidence)
         assertFalse(result.providentEmployee.highConfidence)
+        assertFalse(result.complementaryRetirementEmployee.highConfidence)
     }
 
     @Test
