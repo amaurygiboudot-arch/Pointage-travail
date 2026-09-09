@@ -38,6 +38,8 @@ object V2CompanyMealBasketAuditStateStore {
             checkedAtMs > 0L
     }
 
+    internal fun canPersistCompleteRecordSet(recordCount: Int): Boolean = recordCount in 0..MAX_RECORDS
+
     fun mark(
         context: Context,
         companyId: String,
@@ -68,7 +70,7 @@ object V2CompanyMealBasketAuditStateStore {
         // Ne jamais faire disparaître silencieusement un ancien UNRESOLVED (ou tout autre état)
         // pour respecter une limite de cache. Si le paquet complet ne peut plus être conservé,
         // l'écriture échoue : l'audit appelant doit rester INCOMPLETE/fail-closed.
-        if (current.size > MAX_RECORDS) return false
+        if (!canPersistCompleteRecordSet(current.size)) return false
         return persist(context, current.sortedByDescending { it.checkedAtMs })
     }
 
