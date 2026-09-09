@@ -68,6 +68,30 @@ object V2CompanyMealBasketAuditStateStore {
         return persist(context, current.sortedByDescending { it.checkedAtMs }.take(MAX_RECORDS))
     }
 
+    /** Supprime l'ancien état d'un ACCOTEXT quand le nouveau contenu officiel n'a plus d'objet repas. */
+    fun clearAgreement(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        profile: ConventionLegalProfileV2
+    ): Boolean {
+        val acco = agreementId.trim().uppercase()
+        val siret = profile.siret.filter(Char::isDigit)
+        val status = profile.professionalStatus?.trim()?.uppercase().orEmpty()
+        if (companyId.isBlank() || !acco.matches(Regex("^ACCOTEXT\\d+$")) || siret.length != 14 ||
+            profile.classification.isEmpty() || status !in setOf("CADRE", "NON_CADRE")) return false
+
+        val current = load(context).toMutableList()
+        val changed = current.removeAll { record ->
+            record.companyId == companyId &&
+                record.agreementId == acco &&
+                record.siret == siret &&
+                record.classification.normalized() == profile.classification.normalized() &&
+                record.professionalStatus == status
+        }
+        return if (!changed) true else persist(context, current)
+    }
+
     fun unresolvedFor(
         context: Context,
         companyId: String,
@@ -108,10 +132,10 @@ object V2CompanyMealBasketAuditStateStore {
 
     private fun sameIdentity(left: Record, right: Record): Boolean =
         left.companyId == right.companyId &&
-            left.agreementId == right.agreementId &&
-            left.siret == right.siret &&
-            left.classification.normalized() == right.classification.normalized() &&
-            left.professionalStatus == right.professionalStatus
+        left.agreementId == right.agreementId &&
+        left.siret == right.siret &&
+        left.classification.normalized() == right.classification.normalized() &&
+        left.professionalStatus == right.professionalStatus
 
     private fun persist(context: Context, records: List<Record>): Boolean {
         val array = JSONArray()
