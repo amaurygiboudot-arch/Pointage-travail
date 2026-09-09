@@ -26,7 +26,7 @@ object CompanyEmployerReductionDialogV2 {
         if(companyId.isBlank())return
         val box=LinearLayout(context).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(context,16),dp(context,8),dp(context,16),dp(context,8))}
         box.addView(TextView(context).apply{
-            text="Saisis le total mensuel réellement confirmé des réductions/exonérations patronales (RGDU, Lodeom, etc.) depuis la DSN, le bulletin ou un calcul employeur validé. Saisis 0 € pour confirmer qu'aucune réduction ne s'applique ce mois."
+            text="Saisis le total mensuel réellement confirmé des réductions/exonérations patronales (RGDU, Lodeom, etc.) depuis la DSN, le bulletin ou un calcul employeur validé. Saisis 0 € pour confirmer qu'aucune réduction ne s'applique ce mois. Ce total global n'est jamais utilisé comme montant RGDU historique : la RGDU réellement constatée possède son propre stockage séparé."
             textSize=13f;setPadding(0,0,0,dp(context,8))
         })
         val selectedMonth=selectedPayrollMonth(context)
@@ -47,6 +47,14 @@ object CompanyEmployerReductionDialogV2 {
             setPadding(0,dp(context,4),0,dp(context,8))
         })
         var listDialog:AlertDialog?=null
+        box.addView(Button(context).apply{
+            isAllCaps=false
+            text="RGDU RÉELLEMENT CONSTATÉE / DSN"
+            setOnClickListener{
+                listDialog?.dismiss()
+                CompanyEmployerGeneralReductionObservedAdvanceDialogV2.show(context,companyId)
+            }
+        },rowParams(context))
         box.addView(Button(context).apply{
             isAllCaps=false
             text="CONTEXTE RGDU AUTOMATIQUE"
