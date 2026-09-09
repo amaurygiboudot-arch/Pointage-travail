@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
@@ -82,6 +83,18 @@ object CompanyEmployerGeneralReductionObservedAdvanceDialogV2 {
         })
 
         var listDialog: AlertDialog? = null
+        box.addView(Button(context).apply {
+            isAllCaps = false
+            text = "IMPORTER DEPUIS BULLETIN / DSN"
+            setOnClickListener {
+                listDialog?.dismiss()
+                context.startActivity(
+                    Intent(context, RgduObservedDocumentImportActivity::class.java)
+                        .putExtra(RgduObservedDocumentImportActivity.EXTRA_COMPANY_ID, companyId)
+                )
+            }
+        }, rowParams(context))
+
         box.addView(Button(context).apply {
             isAllCaps = false
             text = if (current == null) {
