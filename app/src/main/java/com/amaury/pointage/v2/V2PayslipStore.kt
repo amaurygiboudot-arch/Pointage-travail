@@ -184,7 +184,12 @@ object V2PayslipStore {
     if(net==null){
      bridgeWarnings += "Base nette maladie : conversion brut/net impossible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
     }else{
-     monthlyNet[ym]=net.netBeforeIncomeTax
+     val referenceNet=NetSalaryReferencePolicyV2.beforeIncomeTax(net)
+     if(referenceNet==null){
+      bridgeWarnings += "Base nette maladie : net HoraTrack V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
+     }else{
+      monthlyNet[ym]=referenceNet
+     }
     }
    }
    ym=ym.plusMonths(1)
@@ -233,7 +238,9 @@ object V2PayslipStore {
    }.getOrNull()
    net?.let{calculated->
     expectedValues[PayslipDocumentParserV2.KEY_GROSS]=calculated.gross
-    expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=calculated.netBeforeIncomeTax
+    NetSalaryReferencePolicyV2.beforeIncomeTax(calculated)?.let{
+     expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=it
+    }
     calculated.netTaxable?.let{expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it}
    }
    overrides.mutualEmployeeAmount?.let{expectedValues[PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE]=it}
