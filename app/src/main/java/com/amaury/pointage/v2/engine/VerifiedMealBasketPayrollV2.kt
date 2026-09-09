@@ -46,7 +46,8 @@ object VerifiedMealBasketPayrollV2 {
         arbitration: MealBasketLegalArbitrationBridgeV2.Result,
         amountContextsBySubject: Map<String, ConventionMealBasketEvaluatorV2.AmountContext> = emptyMap(),
         facts: FactDefaults = FactDefaults(),
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        factsBySessionId: Map<String, FactDefaults> = emptyMap()
     ): Result {
         require(monthZeroBased in 0..11) { "Mois invalide" }
         if (!arbitration.reliable) {
@@ -71,7 +72,8 @@ object VerifiedMealBasketPayrollV2 {
             .filter { it.employerId in acceptedEmployerIds && it.realExitMs != null }
             .sortedBy { it.countedEntryMs ?: it.realArrivalMs ?: Long.MAX_VALUE }
             .forEach sessionLoop@ { session ->
-                val sessionFacts = workFacts(session, facts, zoneId)
+                val sessionDefaults = factsBySessionId[session.id] ?: facts
+                val sessionFacts = workFacts(session, sessionDefaults, zoneId)
                 if (sessionFacts == null) {
                     reliable = false
                     warnings += "Panier : session ${session.id} non exploitable (horaires ou pauses incomplets/incohérents) ; total mensuel non certifié."
