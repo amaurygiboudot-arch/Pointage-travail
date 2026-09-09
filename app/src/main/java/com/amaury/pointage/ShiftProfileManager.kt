@@ -73,12 +73,12 @@ object ShiftProfileManager {
     }
 
     /**
-     * En V2, le panier du poste du matin est automatique et ne dépend plus du vieux
-     * réglage global shift_profiles. Le chemin historique reste seulement disponible
-     * quand V2 est désactivée, jusqu'à la suppression finale de V1.
+     * Compatibilité V1 uniquement. En V2, ce booléen ne peut pas représenter l'état juridique
+     * « à confirmer » et ne doit donc jamais accorder automatiquement un panier à partir du poste.
+     * Le droit et le montant sont résolus par le moteur repas V2 vérifié.
      */
     fun mealEnabled(context: Context, shift: ShiftType): Boolean {
-        if (HoraTrackV2.ENABLED) return shift == ShiftType.MORNING
+        if (HoraTrackV2.ENABLED) return false
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val default = shift == ShiftType.MORNING
         return prefs.getBoolean("meal_${shift.id}", default)
