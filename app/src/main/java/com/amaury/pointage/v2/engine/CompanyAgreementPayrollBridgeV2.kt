@@ -20,7 +20,9 @@ object CompanyAgreementPayrollBridgeV2 {
         val overtimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
         val safeOvertimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
         val conflictingOvertimeRules: List<CompanyAgreementOvertimeRuleV2.Rule>,
-        val periodSegments: List<CompanyAgreementPayrollSegmentsV2.Segment> = emptyList()
+        val periodSegments: List<CompanyAgreementPayrollSegmentsV2.Segment> = emptyList(),
+        val reliable: Boolean = true,
+        val warnings: List<String> = emptyList()
     ) {
         val hasApplicableRules: Boolean get() = applicableRules.isNotEmpty()
         val hasCalculationReadyRules: Boolean get() = calculationReadyRules.isNotEmpty()
@@ -37,10 +39,15 @@ object CompanyAgreementPayrollBridgeV2 {
         referenceDate: LocalDate,
         period: PayrollPeriodV2.Period? = null
     ): Snapshot {
-        val applicable = ApplicableCompanyAgreementRulesV2.list(context, companyId, referenceDate)
-        val calculationReady = applicable
-            .map(CompanyAgreementStructuredRuleV2::structure)
-            .filter { it.calculationReady }
+        val applicability = ApplicableCompanyAgreementRulesV2.resolve(context, companyId, referenceDate)
+        val applicable = applicability.rules
+        val calculationReady = if (applicability.reliable) {
+            applicable
+                .map(CompanyAgreementStructuredRuleV2::structure)
+                .filter { it.calculationReady }
+        } else {
+            emptyList()
+        }
         val overtimePercent = calculationReady.filter { rule ->
             rule.source.category == CompanyAgreementRuleExtractorV2.Category.OVERTIME &&
                 rule.value?.type == CompanyAgreementStructuredRuleV2.ValueType.PERCENT
@@ -49,9 +56,13 @@ object CompanyAgreementPayrollBridgeV2 {
             overtimePercent.mapNotNull(CompanyAgreementOvertimeRuleV2::from)
         )
         val conflictCheck = CompanyAgreementOvertimeConflictV2.check(overtime)
-        val periodSegments = period?.let {
-            CompanyAgreementPayrollSegmentsV2.load(context, companyId, it)
-        }.orEmpty()
+        val periodSegments = if (applicability.reliable) {
+            period?.let {
+                CompanyAgreementPayrollSegmentsV2.load(context, companyId, it)
+            }.orEmpty()
+        } else {
+            emptyList()
+        }
         return Snapshot(
             referenceDate = referenceDate,
             applicableRules = applicable,
@@ -60,7 +71,9 @@ object CompanyAgreementPayrollBridgeV2 {
             overtimeRules = overtime,
             safeOvertimeRules = conflictCheck.safeRules,
             conflictingOvertimeRules = conflictCheck.conflictingRules,
-            periodSegments = periodSegments
+            periodSegments = periodSegments,
+            reliable = applicability.reliable,
+            warnings = applicability.warnings
         )
     }
 }
