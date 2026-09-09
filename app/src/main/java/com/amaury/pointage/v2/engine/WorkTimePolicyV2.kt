@@ -59,8 +59,6 @@ object WorkTimePolicyV2 {
 
     fun isTeamShift(countedEntryMs: Long): Boolean = shiftKind(countedEntryMs) != ShiftKind.DAY
 
-    fun hasAutomaticMorningBasket(countedEntryMs: Long): Boolean = shiftKind(countedEntryMs) == ShiftKind.MORNING
-
     private fun roundEntry(realArrivalMs: Long, slotMs: Long, graceMs: Long): Long {
         val remainder = Math.floorMod(realArrivalMs, slotMs)
         val currentSlot = realArrivalMs - remainder

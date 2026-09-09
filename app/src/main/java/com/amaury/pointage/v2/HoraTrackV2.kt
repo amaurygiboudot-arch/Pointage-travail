@@ -3,7 +3,6 @@ package com.amaury.pointage.v2
 import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
 import com.amaury.pointage.v2.engine.GpsEngineV2
 import com.amaury.pointage.v2.engine.TimeEngineV2
-import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import java.util.Calendar
 
 object HoraTrackV2 {
@@ -66,7 +65,6 @@ object V2ValidationSuite {
 
         val slotMs = 30L * 60_000L
         val base = localTime(7)
-        val morning = localTime(6)
         val expectedEnd = localTime(16)
 
         addCheck(
@@ -92,14 +90,6 @@ object V2ValidationSuite {
         addCheck(
             "Sortie sans horaire prévu -> réelle",
             HoraTrackV2.time.countedExitFromRealExit(expectedEnd + 5L * 60_000L, null) == expectedEnd + 5L * 60_000L
-        )
-        addCheck(
-            "Poste matin -> panier automatique",
-            WorkTimePolicyV2.hasAutomaticMorningBasket(morning)
-        )
-        addCheck(
-            "Poste journée -> pas de panier automatique",
-            !WorkTimePolicyV2.hasAutomaticMorningBasket(base)
         )
         addCheck(
             "Toutes les couches V2 actives",
