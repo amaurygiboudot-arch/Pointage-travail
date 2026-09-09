@@ -49,6 +49,34 @@ object V2CompanyMealBasketStore {
         return commit(context, companyId, current)
     }
 
+    /**
+     * Supprime le paquet d'un accord/profil quand une nouvelle consultation officielle prouve que
+     * cet ACCOTEXT ne contient plus d'objet repas. L'opération est elle-même atomique.
+     */
+    fun removeAgreementPackage(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        expectedSiret: String,
+        classification: ConventionClassificationV2,
+        professionalStatus: String
+    ): Boolean {
+        val acco = agreementId.trim().uppercase()
+        val siret = expectedSiret.filter(Char::isDigit)
+        val status = professionalStatus.trim().uppercase()
+        if (companyId.isBlank() || !acco.matches(Regex("^ACCOTEXT\\d+$")) || siret.length != 14 ||
+            classification.isEmpty() || status !in setOf("CADRE", "NON_CADRE")) return false
+
+        val current = load(context, companyId).toMutableList()
+        val changed = current.removeAll { stored ->
+            stored.agreementId == acco &&
+                stored.siret == siret &&
+                stored.classification.normalized() == classification.normalized() &&
+                stored.professionalStatus == status
+        }
+        return if (!changed) true else commit(context, companyId, current)
+    }
+
     /** Remplacement unitaire historique : ne supprime jamais les autres objets du même accord. */
     fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean {
         if (companyId.isBlank() || !rule.structurallyValid()) return false
