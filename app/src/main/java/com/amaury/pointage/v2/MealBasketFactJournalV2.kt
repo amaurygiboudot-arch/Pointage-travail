@@ -53,22 +53,39 @@ object MealBasketFactJournalV2 {
         val source: Source,
         val status: DecisionStatusV2,
         val recordedAtMs: Long,
+        /** Obligatoire pour COMPANY afin de ne jamais appliquer un réglage actuel au passé entier. */
+        val effectiveFromEpochDay: Long? = null,
+        val effectiveToEpochDay: Long? = null,
         val dayEpochDay: Long? = null,
         val sessionId: String? = null
     ) {
         fun structurallyValid(): Boolean {
             if (id.isBlank() || companyId.isBlank() || recordedAtMs < 0L) return false
             val scopeValid = when (scope) {
-                Scope.COMPANY -> dayEpochDay == null && sessionId == null
-                Scope.DAY -> dayEpochDay != null && sessionId == null
-                Scope.SESSION -> dayEpochDay == null && !sessionId.isNullOrBlank()
+                Scope.COMPANY ->
+                    effectiveFromEpochDay != null &&
+                        (effectiveToEpochDay == null || effectiveToEpochDay >= effectiveFromEpochDay) &&
+                        dayEpochDay == null && sessionId == null
+                Scope.DAY ->
+                    effectiveFromEpochDay == null && effectiveToEpochDay == null &&
+                        dayEpochDay != null && sessionId == null
+                Scope.SESSION ->
+                    effectiveFromEpochDay == null && effectiveToEpochDay == null &&
+                        dayEpochDay == null && !sessionId.isNullOrBlank()
             }
-            if (!scopeValid) return false
+            if (!scopeValid || !sourceCompatibleWithScope()) return false
             return when (key) {
                 Key.EMPLOYER_NIGHT_WINDOW ->
                     value is Value.NightWindow && value.window.structurallyValid()
                 else -> value is Value.Flag
             }
+        }
+
+        private fun sourceCompatibleWithScope(): Boolean = when (source) {
+            Source.COMPANY_CONFIGURATION -> scope == Scope.COMPANY
+            Source.SESSION_EVENT -> scope == Scope.SESSION
+            Source.WORK_FACTS_ENGINE -> scope == Scope.DAY || scope == Scope.SESSION
+            Source.USER_CONFIRMED, Source.IMPORT -> true
         }
     }
 
@@ -100,13 +117,22 @@ object MealBasketFactJournalV2 {
         if (invalid > 0) {
             warnings += "Panier : $invalid fait(s) local(aux) invalide(s) détecté(s) ; toute clé concernée reste inconnue."
         }
+        val epochDay = day.toEpochDay()
 
         // La portée est déterminée avant le statut. Un fait DAY/SESSION TO_CONFIRM doit donc masquer
         // un ancien fait COMPANY confirmé, sinon une incertitude plus précise serait contournée.
         val applicable = companyEntries.filter { entry ->
             when (entry.scope) {
-                Scope.COMPANY -> true
-                Scope.DAY -> entry.dayEpochDay == day.toEpochDay()
+                Scope.COMPANY -> {
+                    val from = entry.effectiveFromEpochDay
+                    when {
+                        from == null -> true // donnée invalide potentiellement applicable => bloquante
+                        epochDay < from -> false
+                        entry.effectiveToEpochDay?.let { epochDay > it } == true -> false
+                        else -> true
+                    }
+                }
+                Scope.DAY -> entry.dayEpochDay == epochDay
                 Scope.SESSION -> entry.sessionId == sessionId
             }
         }
