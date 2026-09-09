@@ -47,6 +47,17 @@ class V2MealBasketFactStoreCodecTest {
                 recordedAtMs = 30L,
                 effectiveFromEpochDay = from,
                 effectiveToEpochDay = LocalDate.of(2026, 12, 31).toEpochDay()
+            ),
+            MealBasketFactJournalV2.Entry(
+                id = "unknown-canteen",
+                companyId = "company",
+                scope = MealBasketFactJournalV2.Scope.COMPANY,
+                key = MealBasketFactJournalV2.Key.COMPANY_CANTEEN_AVAILABLE,
+                value = MealBasketFactJournalV2.Value.Unknown,
+                source = MealBasketFactJournalV2.Source.USER_CONFIRMED,
+                status = DecisionStatusV2.TO_CONFIRM,
+                recordedAtMs = 40L,
+                effectiveFromEpochDay = from
             )
         )
 
