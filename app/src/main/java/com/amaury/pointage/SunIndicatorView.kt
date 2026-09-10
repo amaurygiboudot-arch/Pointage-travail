@@ -114,19 +114,13 @@ class SunIndicatorView @JvmOverloads constructor(
                 celestialSnapshot = tracking.snapshot
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
-                val snapshot = tracking.snapshot
-                if (snapshot != null) {
-                    setNightMode(snapshot.night)
-                } else {
-                    CelestialLightingState.clearSunDirection()
-                }
+                tracking.snapshot?.let { setNightMode(it.night) }
                 invalidate()
             }
         } else if (!shouldSubscribe && trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
             celestialSnapshot = null
-            CelestialLightingState.clearSunDirection()
         }
     }
 
