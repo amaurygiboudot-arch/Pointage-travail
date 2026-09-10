@@ -45,14 +45,16 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
             gross = gross,
             applicableMonthlyCeiling = applicableMonthlyCeiling
         )
-        val companyRules = V2CompanyProvidentContributionStore.rules(context, companyId)
+        val companyStored = V2CompanyProvidentContributionStore.readVerified(context, companyId)
         return resolve(
             profile = profile,
             referenceDate = referenceDate,
             branch = branch,
-            companyRules = companyRules,
+            companyRules = companyStored.rules,
             companyGuaranteesEquivalent = companyGuaranteesEquivalent,
-            sourceKnowledge = sourceKnowledge
+            sourceKnowledge = sourceKnowledge,
+            companyStoreReliable = companyStored.reliable,
+            companyStoreWarnings = companyStored.warnings
         )
     }
 
@@ -62,7 +64,9 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
         branch: V2ConventionProvidentContributionBridge.Snapshot,
         companyRules: List<OfficialAccoProvidentContributionParserV2.Rule>,
         companyGuaranteesEquivalent: Boolean? = null,
-        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
+        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap(),
+        companyStoreReliable: Boolean = true,
+        companyStoreWarnings: List<String> = emptyList()
     ): Snapshot {
         val normalizedSiret = profile.siret.filter(Char::isDigit)
         if (normalizedSiret.length != 14) {
@@ -70,6 +74,13 @@ object ProvidentContributionLegalArbitrationBridgeV2 {
         }
         if (profile.idcc.isBlank() || profile.classification.isEmpty() || profile.professionalStatus == null) {
             return unavailable("Prévoyance ACCO/KALI : IDCC, classification et statut professionnel exacts requis.")
+        }
+        if (!companyStoreReliable) {
+            return unavailable(
+                (listOf(
+                    "Prévoyance ACCO/KALI : stockage ACCO local incohérent ; aucun arbitrage automatique n'est autorisé."
+                ) + companyStoreWarnings).distinct().joinToString(" ")
+            )
         }
 
         val candidates = mutableListOf<PayrollLegalArbitratorV2.Candidate>()
