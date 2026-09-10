@@ -27,6 +27,20 @@ import kotlin.math.roundToInt
 object SalaryExamplePdfV2 {
     enum class Field { COMPANY, CONTRACT, HOURS, PAUSES, ESTIMATED_GROSS, COUNTERS, SOURCES }
 
+    internal data class WarningSections(
+        val salaryAndNet: List<String>,
+        val employerCost: List<String>
+    )
+
+    internal fun warningSections(
+        salaryWarnings: List<String>,
+        payrollWarnings: List<String>,
+        employerCostWarnings: List<String>
+    ): WarningSections = WarningSections(
+        salaryAndNet = (salaryWarnings + payrollWarnings).distinct(),
+        employerCost = employerCostWarnings.distinct()
+    )
+
     /**
      * Point d'entrée historique conservé pendant la migration.
      * Les nouveaux écrans multi-entreprises doivent utiliser la surcharge avec [company].
@@ -259,11 +273,11 @@ object SalaryExamplePdfV2 {
         }
 
         if (Field.SOURCES in fields) {
-            val warnings = (
-                salary?.warnings.orEmpty() +
-                    payroll?.warnings.orEmpty() +
-                    payroll?.employerCostWarnings.orEmpty()
-                ).distinct()
+            val warningSections = warningSections(
+                salaryWarnings = salary?.warnings.orEmpty(),
+                payrollWarnings = payroll?.warnings.orEmpty(),
+                employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
+            )
             val legalRefs = legalSnapshot.records.mapNotNull { it.articleNumber }.distinct()
             val legalRefText = when {
                 legalRefs.isEmpty() -> "Non vérifié pour la date de paie"
@@ -297,7 +311,20 @@ object SalaryExamplePdfV2 {
                     }
                 )
                 add("Références BOCC" to boccRefText)
-                add("Éléments à vérifier" to if (warnings.isEmpty()) "Aucun avertissement moteur" else warnings.joinToString(" • "))
+                add(
+                    "Contrôles salaire / net" to
+                        if (warningSections.salaryAndNet.isEmpty()) "Aucun avertissement moteur"
+                        else warningSections.salaryAndNet.joinToString(" • ")
+                )
+                if (payroll != null) {
+                    add(
+                        "Contrôles coût employeur" to when {
+                            warningSections.employerCost.isNotEmpty() -> warningSections.employerCost.joinToString(" • ")
+                            payroll.employerCostComplete -> "Aucun avertissement coût employeur"
+                            else -> "Coût employeur non certifié"
+                        }
+                    )
+                }
             })
         }
 
