@@ -16,6 +16,8 @@ La Terre reste au centre. HoraTrack représente le ciel apparent topocentrique �
 - phase lunaire physique et terminateur dirigé vers le vrai Soleil ;
 - éclipses lunaires avec umbra/pénombre physiques ;
 - GPS fail-closed, acquisition capteurs centralisée et Nord magnétique corrigé vers le Nord vrai ;
+- arbitrage multi-provider corrigé : une mesure récente mais non qualifiée ne peut plus écraser une position encore valide ;
+- fraîcheur maximale de localisation ramenée de 10 à 5 minutes ;
 - cap filtré unique partagé par tous les rendus, sans bascule artificielle entre téléphone à plat et vertical ;
 - chaîne cardinale verrouillée : cap = 12 h, +90° = 3 h, +180° = 6 h, -90° = 9 h ;
 - extraction du cap corrigée pour éviter un retournement de 180° lors d’un fort roulis ;
@@ -81,6 +83,26 @@ L’éphéméride, elle, doit garder une vraie date UTC : elle continue donc d�
 **Limite assumée :** si l’utilisateur règle une date/heure système réellement fausse, les aiguilles et le ciel seront faux ensemble. HoraTrack ne substitue pas silencieusement une autre horloge pour éviter une incohérence visuelle. Un futur diagnostic réseau/GNSS pourra signaler un écart important.
 
 Audit détaillé : `docs/audits/HoraTrack_Celestial_Time_Audit.md`.
+
+### ÉLEVÉ — arbitrage de localisation basé uniquement sur la récence
+
+L’audit de localisation a montré que le vrai risque n’était pas principalement le seuil horizontal de 2 km. Une erreur de 2 km correspond à environ **0,018°** sur la sphère terrestre : elle est trop petite pour expliquer à elle seule un Soleil décalé de plusieurs degrés sur le cadran.
+
+Le défaut réel était l’arbitrage entre providers : une nouvelle mesure plus récente pouvait remplacer une bonne position simplement parce que son timestamp était supérieur, même si cette nouvelle mesure était ensuite classée `INACCURATE`.
+
+**Correction V2 :**
+
+- ajout de `CelestialTrackingPolicyV2.shouldReplaceLocation()` ;
+- une position `VALID` reste prioritaire sur une mesure non qualifiée ;
+- entre deux positions valides, la plus fraîche gagne ;
+- à âge égal, la meilleure précision horizontale départage ;
+- même arbitrage pour live, live + last-known et les différents last-known providers ;
+- une exception d’un provider pendant `requestLocationUpdates()` n’empêche plus l’enregistrement des autres providers ;
+- fraîcheur maximale réduite de **10 à 5 minutes**.
+
+Le seuil de **2 km** est volontairement conservé : le resserrer arbitrairement aurait surtout augmenté les disparitions du ciel en localisation approximative sans résoudre les décalages de plusieurs degrés constatables visuellement.
+
+Audit détaillé : `docs/audits/HoraTrack_Celestial_Location_Quality_Audit.md`.
 
 ### CONTRÔLE HAUTE PRIORITÉ — précision astronomique brute
 
@@ -155,6 +177,7 @@ heure civile Android + GPS + capteurs Android
         v
 CelestialTrackerV2
         +--> âge GPS monotone / localisation qualifiée
+        +--> arbitrage multi-provider fail-closed
         +--> Nord vrai + cap filtré
         +--> CelestialHeadingPolicyV2 / qualité du cap
         +--> ticker astronomique 1 s
@@ -170,11 +193,11 @@ CelestialTrackerV2
 
 ## Tests de référence
 
-Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, qualité/fraîcheur du cap, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, roulis au-delà de 90°, chaîne cardinale complète, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
+Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, arbitrage entre providers, mesure imprécise ne remplaçant pas une position valide, qualité/fraîcheur du cap, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, roulis au-delà de 90°, chaîne cardinale complète, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
 
 ## État actuel
 
-Le moteur céleste V2 est maintenant organisé autour de responsabilités séparées : éphéméride géométrique, acquisition GPS/capteurs, qualification du cap, temps de rafraîchissement, correction optique d'altitude pour le rendu et projection 360° Terre au centre.
+Le moteur céleste V2 est maintenant organisé autour de responsabilités séparées : éphéméride géométrique, acquisition GPS/capteurs, arbitrage et qualification de localisation, qualification du cap, temps de rafraîchissement, correction optique d'altitude pour le rendu et projection 360° Terre au centre.
 
 La prochaine validation téléphone doit vérifier surtout :
 
@@ -182,8 +205,9 @@ La prochaine validation téléphone doit vérifier surtout :
 2. que la direction angulaire correspond au ciel réel ;
 3. que le cap reste stable sans retard excessif, y compris lorsque le téléphone est fortement incliné ou roulé ;
 4. qu'une boussole volontairement perturbée ne continue plus à déplacer le ciel comme si la mesure était fiable ;
-5. que le mouvement céleste ne présente plus de petits sauts temporels de 30 secondes ;
-6. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
-7. que la phase et les ombres restent orientées correctement.
+5. qu'une mesure réseau médiocre n'efface plus une bonne position GPS encore valide ;
+6. que le mouvement céleste ne présente plus de petits sauts temporels de 30 secondes ;
+7. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
+8. que la phase et les ombres restent orientées correctement.
 
 Après validation visuelle, le nettoyage `heroClockHands` pourra être traité séparément. Le widget céleste restera ensuite un lot de parité distinct.
