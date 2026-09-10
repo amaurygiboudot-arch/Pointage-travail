@@ -22,7 +22,8 @@ La Terre reste au centre. HoraTrack représente le ciel apparent topocentrique �
 - `headingAccuracyDeg` disponible pour diagnostiquer une boussole perturbée ;
 - réfraction atmosphérique standard appliquée à la position graphique près de l’horizon ;
 - éphéméride rafraîchie chaque seconde indépendamment de la cadence GPS ;
-- âge de la localisation calculé en priorité sur l’horloge monotone Android.
+- âge de la localisation calculé en priorité sur l’horloge monotone Android ;
+- précision brute du solveur contrôlée contre une éphéméride indépendante haute précision sur 960 positions Soleil/Lune.
 
 ### ÉLEVÉ — horizon géométrique confondu avec lever/coucher apparent
 
@@ -79,6 +80,25 @@ L’éphéméride, elle, doit garder une vraie date UTC : elle continue donc d�
 
 Audit détaillé : `docs/audits/HoraTrack_Celestial_Time_Audit.md`.
 
+### CONTRÔLE HAUTE PRIORITÉ — précision astronomique brute
+
+Le solveur Soleil/Lune a été contrôlé séparément du rendu et de la boussole afin de déterminer si une grosse erreur visible pouvait encore venir de l’éphéméride elle-même.
+
+Une comparaison indépendante contre **Swiss Ephemeris 2.10.03 en topocentrique** a été exécutée sur une grille 2026 comprenant Aizenay/Vendée, Londres, Sydney, Quito et Tromsø, les 1er et 15 de chaque mois à 00:00, 06:00, 12:00 et 18:00 UTC : **480 instants, soit 960 positions d’astre**.
+
+Erreur angulaire globale maximale observée :
+
+- Soleil : **0,0118°** ;
+- Lune : **0,0605°**.
+
+Erreurs moyennes : environ **0,0054°** pour le Soleil et **0,0222°** pour la Lune. Le contrôle séparé de phase lunaire a montré un écart maximal d’environ **0,037 point de pourcentage** sur la fraction éclairée.
+
+**Conclusion : aucun défaut majeur du solveur astronomique V2 n’a été trouvé.** À l’échelle de l’horloge, cette précision est largement suffisante. Une erreur visible de plusieurs degrés doit désormais être recherchée d’abord dans le cap téléphone, sa calibration, le Nord vrai, la projection ou le rendu plutôt que dans la position astronomique brute.
+
+Des valeurs de référence sont maintenant verrouillées dans `CelestialEngineV2Test` pour la Vendée, Sydney, Quito et Tromsø. Tolérances de non-régression : 0,03° Soleil et 0,08° Lune sur azimut/altitude.
+
+Audit détaillé : `docs/audits/HoraTrack_Celestial_Ephemeris_Accuracy_Audit.md`.
+
 ### MOYEN — deux vues d’horloge
 
 `activity_main.xml` contient encore `heroClockPermanent` et la vue fantôme `heroClockHands` 1×1. `heroClockPermanent` reste l’horloge canonique. Nettoyage différé jusqu’à validation visuelle finale.
@@ -109,7 +129,7 @@ CelestialTrackerV2
 
 ## Tests de référence
 
-Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, éclipses lunaires, qualité GPS et âge monotone, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
+Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
 
 ## État actuel
 
