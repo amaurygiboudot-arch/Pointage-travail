@@ -12,7 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ProfileStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -121,7 +121,13 @@ class HistorySearchFilterView @JvmOverloads constructor(
             }
         }
 
-        val sessions = V2RuntimeStore.allSessions(context, now)
+        val runtime = V2RuntimeReader.allSessions(context, now)
+        if (!runtime.reliable) {
+            target.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}"
+            return
+        }
+
+        val sessions = runtime.sessions
             .filter { session ->
                 if (query.isBlank()) return@filter true
                 val arrival = session.realArrivalMs ?: return@filter false
