@@ -27,13 +27,15 @@ class CelestialScreenGeometryV2Test {
         normalUp = 1.0
     )
 
+    // Repère droit physiquement cohérent : écran vertical, normale vers le Nord,
+    // haut d'écran vers le bas du monde après bascule depuis la position à plat.
     private val uprightFacingNorth = CelestialDeviceFrameV2(
         rightEast = 1.0,
         rightNorth = 0.0,
         rightUp = 0.0,
         topEast = 0.0,
         topNorth = 0.0,
-        topUp = 1.0,
+        topUp = -1.0,
         normalEast = 0.0,
         normalNorth = 1.0,
         normalUp = 0.0
@@ -45,7 +47,7 @@ class CelestialScreenGeometryV2Test {
         rightUp = 0.0,
         topEast = 0.0,
         topNorth = 0.0,
-        topUp = 1.0,
+        topUp = -1.0,
         normalEast = 1.0,
         normalNorth = 0.0,
         normalUp = 0.0
@@ -83,13 +85,57 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
-    fun `cap est deduit du haut ecran a plat`() {
+    fun `cap est stable de plat a vertical vers nord`() {
+        val c = kotlin.math.sqrt(0.5)
+        val halfTilt = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = c,
+            topUp = -c,
+            normalEast = 0.0,
+            normalNorth = c,
+            normalUp = c
+        )
+
         assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(flatFacingNorth), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(halfTilt), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingNorth), 1e-9)
     }
 
     @Test
-    fun `cap est deduit de normale quand telephone vertical`() {
-        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingNorth), 1e-9)
+    fun `incliner dans lautre sens ne retourne pas le ciel de 180 degres`() {
+        val c = kotlin.math.sqrt(0.5)
+        val halfTiltTowardUser = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = c,
+            topUp = c,
+            normalEast = 0.0,
+            normalNorth = -c,
+            normalUp = c
+        )
+        val uprightFacingSouth = CelestialDeviceFrameV2(
+            rightEast = 1.0,
+            rightNorth = 0.0,
+            rightUp = 0.0,
+            topEast = 0.0,
+            topNorth = 0.0,
+            topUp = 1.0,
+            normalEast = 0.0,
+            normalNorth = -1.0,
+            normalUp = 0.0
+        )
+
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(halfTiltTowardUser), 1e-9)
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingSouth), 1e-9)
+    }
+
+    @Test
+    fun `cap est deduit de axe droit pour orientation est`() {
         assertEquals(90.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingEast), 1e-9)
     }
 
