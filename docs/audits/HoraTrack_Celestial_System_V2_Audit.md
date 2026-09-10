@@ -19,9 +19,9 @@ La Terre reste au centre. HoraTrack représente le ciel apparent topocentrique �
 - cap filtré unique partagé par tous les rendus, sans bascule artificielle entre téléphone à plat et vertical ;
 - chaîne cardinale verrouillée : cap = 12 h, +90° = 3 h, +180° = 6 h, -90° = 9 h ;
 - extraction du cap corrigée pour éviter un retournement de 180° lors d’un fort roulis ;
+- qualité du cap désormais fail-closed : erreur connue >15°, état Android non fiable ou cap périmé bloquent le rendu directionnel ;
 - carte 360° : un astre ne disparaît plus simplement parce qu’il est derrière le téléphone ;
 - proximité Soleil/Lune séparée d’une vraie éclipse solaire grâce à `SolarEclipseGeometryV2` ;
-- `headingAccuracyDeg` disponible pour diagnostiquer une boussole perturbée ;
 - réfraction atmosphérique standard appliquée à la position graphique près de l’horizon ;
 - éphéméride rafraîchie chaque seconde indépendamment de la cadence GPS ;
 - âge de la localisation calculé en priorité sur l’horloge monotone Android ;
@@ -118,6 +118,27 @@ La correction de déclinaison magnétique est également cohérente avec la conv
 
 Audit détaillé : `docs/audits/HoraTrack_Celestial_Heading_Chain_Audit.md`.
 
+### ÉLEVÉ — boussole non fiable encore présentée comme ciel réel
+
+`headingAccuracyDeg` existait déjà mais n'était qu'une information diagnostique. Le rendu Soleil/Lune et le relief pouvaient continuer à suivre un cap alors qu'Android le déclarait explicitement non fiable. En plus, l'ancien code transformait cet état en `null`, valeur qui peut aussi signifier qu'un appareil ne fournit simplement pas d'incertitude numérique.
+
+**Correction V2 :**
+
+- ajout de `CelestialHeadingPolicyV2` ;
+- états distincts `VALID`, `UNKNOWN_ACCURACY`, `INACCURATE`, `UNRELIABLE`, `STALE`, `UNAVAILABLE` ;
+- seuil qualité HoraTrack : précision connue au-delà de **15°** = direction bloquée ;
+- état Android `SENSOR_STATUS_UNRELIABLE` = direction bloquée ;
+- dernier repère d'orientation vieux de plus de **5 s** = direction bloquée ;
+- absence d'incertitude numérique sans alerte Android = `UNKNOWN_ACCURACY`, encore exploitable pour compatibilité ;
+- le fallback magnétomètre est soumis à la même surveillance ;
+- `SunIndicatorView` n'affiche plus une direction céleste que le système sait mauvaise ;
+- `LightDirectionController` repasse sur son angle neutre et efface la direction solaire partagée lorsque le cap n'est pas exploitable ;
+- le jour/nuit et l'altitude astronomique restent calculables car ils ne dépendent pas de la boussole.
+
+Cette règle peut donc faire disparaître temporairement Soleil/Lune **uniquement lorsqu'une direction crédible n'est plus disponible**. C'est volontaire et différent de l'ancien bug : un astre ne disparaît plus parce qu'il est derrière le téléphone.
+
+Audit détaillé : `docs/audits/HoraTrack_Celestial_Heading_Quality_Audit.md`.
+
 ### MOYEN — deux vues d’horloge
 
 `activity_main.xml` contient encore `heroClockPermanent` et la vue fantôme `heroClockHands` 1×1. `heroClockPermanent` reste l’horloge canonique. Nettoyage différé jusqu’à validation visuelle finale.
@@ -135,6 +156,7 @@ heure civile Android + GPS + capteurs Android
 CelestialTrackerV2
         +--> âge GPS monotone / localisation qualifiée
         +--> Nord vrai + cap filtré
+        +--> CelestialHeadingPolicyV2 / qualité du cap
         +--> ticker astronomique 1 s
         +--> recheck localisation 30 s
         +--> HoraTrackV2.celestial / CelestialEngineV2
@@ -148,19 +170,20 @@ CelestialTrackerV2
 
 ## Tests de référence
 
-Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, roulis au-delà de 90°, chaîne cardinale complète, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
+Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, qualité/fraîcheur du cap, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, roulis au-delà de 90°, chaîne cardinale complète, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
 
 ## État actuel
 
-Le moteur céleste V2 est maintenant organisé autour de responsabilités séparées : éphéméride géométrique, acquisition GPS/capteurs, temps de rafraîchissement, correction optique d’altitude pour le rendu et projection 360° Terre au centre.
+Le moteur céleste V2 est maintenant organisé autour de responsabilités séparées : éphéméride géométrique, acquisition GPS/capteurs, qualification du cap, temps de rafraîchissement, correction optique d'altitude pour le rendu et projection 360° Terre au centre.
 
 La prochaine validation téléphone doit vérifier surtout :
 
-1. que Soleil/Lune ne disparaissent plus pendant un tour 360° tant qu’ils sont dans la fenêtre de visibilité ;
+1. que Soleil/Lune ne disparaissent plus pendant un tour 360° lorsque le cap reste qualifié ;
 2. que la direction angulaire correspond au ciel réel ;
 3. que le cap reste stable sans retard excessif, y compris lorsque le téléphone est fortement incliné ou roulé ;
-4. que le mouvement céleste ne présente plus de petits sauts temporels de 30 secondes ;
-5. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
-6. que la phase et les ombres restent orientées correctement.
+4. qu'une boussole volontairement perturbée ne continue plus à déplacer le ciel comme si la mesure était fiable ;
+5. que le mouvement céleste ne présente plus de petits sauts temporels de 30 secondes ;
+6. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
+7. que la phase et les ombres restent orientées correctement.
 
 Après validation visuelle, le nettoyage `heroClockHands` pourra être traité séparément. Le widget céleste restera ensuite un lot de parité distinct.
