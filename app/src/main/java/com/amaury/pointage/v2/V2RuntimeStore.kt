@@ -27,6 +27,10 @@ object V2RuntimeStore {
     private const val KEY_PLACE_ID = "place_id"
     private const val KEY_PLACE_LABEL = "place_label"
     private const val KEY_HISTORY = "history"
+    private const val CURRENT_RUNTIME_WARNING =
+        "Session de pointage V2 courante illisible ou incohérente : la chronologie complète doit être vérifiée avant tout calcul."
+    private const val RUNTIME_PARSE_WARNING =
+        "Historique de pointage V2 validé mais impossible à reconstruire sans perte : calcul bloqué."
 
     @Volatile private var boundContext: Context? = null
 
@@ -339,22 +343,64 @@ object V2RuntimeStore {
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
         bind(context)
         val prefs = prefs(context)
-        val realEntry = safeLong(prefs.all[KEY_REAL_ENTRY]).takeIf { it > 0L } ?: return Snapshot(null, null)
-        val realExit = safeLong(prefs.all[KEY_REAL_EXIT]).takeIf { it > 0L }
-        val countedEntry = safeLong(prefs.all[KEY_COUNTED_ENTRY]).takeIf { it > 0L }
-        val countedExit = safeLong(prefs.all[KEY_COUNTED_EXIT]).takeIf { it > 0L }
-        val pauses = parsePauses(prefs.getString(KEY_PAUSES, "[]").orEmpty()).toMutableList()
-        safeLong(prefs.all[KEY_PAUSE_START]).takeIf { it > 0L }?.let {
-            pauses += PauseV2(it, null, paid = false, source = parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)))
+        val values = prefs.all
+        if (!prefs.contains(KEY_REAL_ENTRY)) return Snapshot(null, null)
+        val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
+        val realExit = optionalStrictPositive(values, KEY_REAL_EXIT) ?: return corruptCurrentSnapshot()
+        if (realExit != null && realExit <= realEntry) return corruptCurrentSnapshot()
+        val countedEntry = optionalStrictPositive(values, KEY_COUNTED_ENTRY) ?: return corruptCurrentSnapshot()
+        val countedExit = optionalStrictPositive(values, KEY_COUNTED_EXIT) ?: return corruptCurrentSnapshot()
+        if (countedEntry != null && countedExit != null && countedExit <= countedEntry) return corruptCurrentSnapshot()
+        val expectedEnd = optionalStrictPositive(values, KEY_EXPECTED_END) ?: return corruptCurrentSnapshot()
+        if (expectedEnd != null && expectedEnd <= realEntry) return corruptCurrentSnapshot()
+
+        val id = runCatching { prefs.getString(KEY_ID, null) }.getOrNull()?.trim()
+            ?.takeIf { it.isNotBlank() && it != "null" }
+            ?: return corruptCurrentSnapshot()
+
+        val rawPauses = runCatching { prefs.getString(KEY_PAUSES, null) }.getOrNull()
+            ?: return corruptCurrentSnapshot()
+        val pauseArray = pauseArrayOrNull(rawPauses) ?: return corruptCurrentSnapshot()
+        val pauses = parsePauseArray(pauseArray)?.toMutableList() ?: return corruptCurrentSnapshot()
+
+        val pauseStart = optionalStrictPositive(values, KEY_PAUSE_START) ?: return corruptCurrentSnapshot()
+        val storedPauseSource = runCatching { prefs.getString(KEY_PAUSE_SOURCE, null) }.getOrNull()
+        if (pauseStart != null) {
+            if (realExit != null || pauseStart < realEntry) return corruptCurrentSnapshot()
+            val source = parseSourceOrNull(storedPauseSource) ?: return corruptCurrentSnapshot()
+            pauses += PauseV2(pauseStart, null, paid = false, source = source)
+        } else if (prefs.contains(KEY_PAUSE_SOURCE)) {
+            return corruptCurrentSnapshot()
         }
-        val storedSlot = safeInt(prefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
-        val employerId = prefs.getString(KEY_EMPLOYER_ID, null)
+
+        val storedSlot = if (prefs.contains(KEY_COMPANY_SLOT)) {
+            val slot = strictInt(values[KEY_COMPANY_SLOT]) ?: return corruptCurrentSnapshot()
+            slot.takeIf { it in 1..2 } ?: return corruptCurrentSnapshot()
+        } else null
+
+        fun optionalStoredString(key: String): String? {
+            if (!prefs.contains(key)) return null
+            return runCatching { prefs.getString(key, null) }.getOrNull()?.trim()
+                ?.takeIf { it.isNotBlank() && it != "null" }
+        }
+
+        val directEmployerId = optionalStoredString(KEY_EMPLOYER_ID)
+        if (prefs.contains(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
+        val employerId = directEmployerId
             ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
             ?: V2ProfileStore.loadActive(context).employer?.id
-        val placeId = prefs.getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
-        val placeLabel = prefs.getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
+        val placeId = optionalStoredString(KEY_PLACE_ID)
+        if (prefs.contains(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
+        val placeLabel = optionalStoredString(KEY_PLACE_LABEL)
+        if (prefs.contains(KEY_PLACE_LABEL) && placeLabel == null) return corruptCurrentSnapshot()
+
+        if (pauses.any { pause ->
+                val end = pause.endMs ?: return@any false
+                pause.startMs < realEntry || (realExit != null && end > realExit)
+            }) return corruptCurrentSnapshot()
+
         val session = WorkSessionV2(
-            id = prefs.getString(KEY_ID, null) ?: "v2-runtime",
+            id = id,
             employerId = employerId,
             realArrivalMs = realEntry,
             countedEntryMs = countedEntry,
@@ -370,9 +416,21 @@ object V2RuntimeStore {
 
     fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> {
         bind(context)
-        V2MigrationManager.ensureMigrated(context)
-        val history = parseHistory(context, prefs(context).getString(KEY_HISTORY, "[]").orEmpty()).toMutableList()
+        val migration = V2MigrationManager.ensureMigrated(context)
+        if (!migration.reliable) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
+            return emptyList()
+        }
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return emptyList()
+        val parsed = parseHistory(context, stored.history)
+        if (parsed == null) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(RUNTIME_PARSE_WARNING))
+            return emptyList()
+        }
+        val history = parsed.toMutableList()
         val current = snapshot(context, nowMs).session
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return emptyList()
         if (current != null && history.none { it.id == current.id }) history += current
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
     }
@@ -405,27 +463,31 @@ object V2RuntimeStore {
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
         .put(KEY_PAUSES, pausesToJson(session.pauses))
 
-    private fun parseHistory(context: Context, raw: String): List<WorkSessionV2> {
-        val a = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        return buildList {
-            for (i in 0 until a.length()) {
-                val o = a.optJSONObject(i) ?: continue
-                val realEntry = positive(o, "realEntry") ?: continue
+    private fun parseHistory(context: Context, array: JSONArray): List<WorkSessionV2>? = runCatching {
+        buildList {
+            for (i in 0 until array.length()) {
+                val o = array.getJSONObject(i)
+                val realEntry = positive(o, "realEntry") ?: error("realEntry invalide")
                 val realExit = positive(o, "realExit")
-                val slot = o.optInt("companySlot", 1).coerceIn(1, 2)
+                val slot = if (o.has("companySlot") && !o.isNull("companySlot")) {
+                    strictInt(o.opt("companySlot"))?.takeIf { it in 1..2 } ?: error("companySlot invalide")
+                } else 1
                 val employerId = o.optString("employerId").takeIf { it.isNotBlank() && it != "null" }
                     ?: V2ProfileStore.load(context, slot).employer?.id
                 val placeId = o.optString("placeId").trim().takeIf { it.isNotBlank() && it != "null" }
                 val placeLabel = o.optString("placeLabel").trim().takeIf { it.isNotBlank() && it != "null" }
+                val pauses = parsePauseArray(o.getJSONArray(KEY_PAUSES)) ?: error("pauses invalides")
+                val id = o.getString("id").trim().takeIf { it.isNotBlank() && it != "null" }
+                    ?: error("id invalide")
                 add(
                     WorkSessionV2(
-                        id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                        id = id,
                         employerId = employerId,
                         realArrivalMs = realEntry,
                         countedEntryMs = positive(o, "countedEntry"),
                         countedExitMs = positive(o, "countedExit"),
                         realExitMs = realExit,
-                        pauses = parsePauses(o.optJSONArray(KEY_PAUSES)?.toString() ?: "[]"),
+                        pauses = pauses,
                         status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
                         placeId = placeId,
                         placeLabel = placeLabel,
@@ -434,7 +496,7 @@ object V2RuntimeStore {
                 )
             }
         }
-    }
+    }.getOrNull()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -463,32 +525,67 @@ object V2RuntimeStore {
         }
     }
 
-    private fun parsePauses(raw: String): List<PauseV2> {
-        val array = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        return buildList {
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val start = positive(item, "start") ?: continue
-                val end = positive(item, "end") ?: continue
-                if (end > start) {
+    private fun parsePauseArray(array: JSONArray): List<PauseV2>? {
+        if (!V2RuntimeHistoryGuardV2.validPauseArray(array)) return null
+        return runCatching {
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    val start = positive(item, "start") ?: error("pause start invalide")
+                    val end = positive(item, "end") ?: error("pause end invalide")
+                    val source = parseSourceOrNull(item.getString("source")) ?: error("pause source invalide")
                     add(
                         PauseV2(
                             startMs = start,
                             endMs = end,
-                            paid = item.optBoolean("paid", false),
-                            source = parseSource(item.optString("source"))
+                            paid = item.getBoolean("paid"),
+                            source = source
                         )
                     )
                 }
             }
-        }
+        }.getOrNull()
     }
+
+    private fun parsePauses(raw: String): List<PauseV2> =
+        pauseArrayOrNull(raw)?.let(::parsePauseArray).orEmpty()
 
     private fun parseSource(raw: String?): EventSourceV2 = parseSourceOrNull(raw) ?: EventSourceV2.MANUAL
 
     private fun parseSourceOrNull(raw: String?): EventSourceV2? = runCatching {
         EventSourceV2.valueOf(raw.orEmpty())
     }.getOrNull()
+
+    private fun corruptCurrentSnapshot(): Snapshot {
+        V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(CURRENT_RUNTIME_WARNING))
+        return Snapshot(null, null)
+    }
+
+    private fun optionalStrictPositive(values: Map<String, *>, key: String): Long? {
+        if (!values.containsKey(key)) return null
+        return strictPositive(values[key])
+    }
+
+    private fun strictPositive(value: Any?): Long? = when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong().takeIf { it > 0L }
+        is Float, is Double -> {
+            val number = (value as Number).toDouble()
+            number.takeIf { it.isFinite() && it % 1.0 == 0.0 && it > 0.0 }?.toLong()
+        }
+        is String -> value.trim().toLongOrNull()?.takeIf { it > 0L }
+        else -> null
+    }
+
+    private fun strictInt(value: Any?): Int? = when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+            .takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }?.toInt()
+        is Float, is Double -> {
+            val number = (value as Number).toDouble()
+            number.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() }?.toInt()
+        }
+        is String -> value.trim().toIntOrNull()
+        else -> null
+    }
 
     private fun safeLong(value: Any?): Long = when (value) {
         is Long -> value
