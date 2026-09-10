@@ -1,9 +1,7 @@
 package com.amaury.pointage
 
-import android.Manifest
 import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -13,18 +11,9 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.Location
-import android.location.LocationManager
-import android.os.Handler
-import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
-import androidx.core.content.ContextCompat
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
@@ -37,15 +26,15 @@ import kotlin.math.sqrt
 /**
  * Couche astronomique de l'horloge.
  *
- * Depuis la migration V2, cette vue ne calcule plus elle-même la phase de Lune
- * ni les éclipses : elle ne fait que rendre le snapshot fourni par le moteur
- * astronomique V2. Sans position GPS disponible, aucun faux Soleil/Lune n'est
+ * Depuis la migration V2, cette vue ne calcule plus la phase de Lune, les
+ * éclipses, le GPS ni l'orientation Android. Elle rend uniquement l'état fourni
+ * par CelestialTrackerV2. Sans position qualifiée, aucun faux Soleil/Lune n'est
  * inventé.
  */
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null
-) : View(context, attrs), SensorEventListener {
+) : View(context, attrs) {
 
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val moonLightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -59,24 +48,12 @@ class SunIndicatorView @JvmOverloads constructor(
     private val sunBitmap: Bitmap by lazy { HpDesignAssets.sun }
     private val moonBitmap: Bitmap by lazy { HpDesignAssets.moon }
 
-    private val handler = Handler(Looper.getMainLooper())
-    private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-    private val rotationMatrix = FloatArray(9)
-    private val orientation = FloatArray(3)
-
     private var visibleCelestial = false
+    private var trackerSubscribed = false
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
-
-    private val refreshTask = object : Runnable {
-        override fun run() {
-            refreshAstronomy()
-            if (isAttachedToWindow && visibleCelestial) handler.postDelayed(this, 30_000L)
-        }
-    }
 
     init {
         isClickable = false
@@ -87,6 +64,7 @@ class SunIndicatorView @JvmOverloads constructor(
     /** Conservé pour compatibilité avec l'installateur de relief historique. */
     fun updateLightAngle(newAngle: Float) = Unit
 
+    /** Conservé pour compatibilité avec d'anciens appelants de l'UI. */
     fun setDeviceOrientation(azimuth: Float, pitch: Float) {
         deviceAzimuth = normalize(azimuth)
         devicePitch = pitch.coerceIn(-90f, 90f)
@@ -98,12 +76,7 @@ class SunIndicatorView @JvmOverloads constructor(
             .getBoolean("solar_lighting_enabled", false)
         visibleCelestial = visible || dynamicEnabled
         visibility = if (visibleCelestial) VISIBLE else GONE
-        handler.removeCallbacks(refreshTask)
-        updateSensorRegistration()
-        if (visibleCelestial) {
-            refreshAstronomy()
-            handler.postDelayed(refreshTask, 30_000L)
-        }
+        updateTrackingSubscription()
         invalidate()
     }
 
@@ -122,67 +95,39 @@ class SunIndicatorView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        updateSensorRegistration()
-        if (visibleCelestial) {
-            handler.removeCallbacks(refreshTask)
-            refreshAstronomy()
-            handler.postDelayed(refreshTask, 30_000L)
-        }
+        updateTrackingSubscription()
     }
 
     override fun onDetachedFromWindow() {
-        sensorManager.unregisterListener(this)
-        handler.removeCallbacks(refreshTask)
+        if (trackerSubscribed) {
+            CelestialTrackerV2.unsubscribe(this)
+            trackerSubscribed = false
+        }
         super.onDetachedFromWindow()
     }
 
-    private fun updateSensorRegistration() {
-        sensorManager.unregisterListener(this)
-        if (isAttachedToWindow && visibleCelestial && rotationSensor != null) {
-            sensorManager.registerListener(this, rotationSensor, SensorManager.SENSOR_DELAY_GAME)
+    private fun updateTrackingSubscription() {
+        val shouldSubscribe = isAttachedToWindow && visibleCelestial
+        if (shouldSubscribe && !trackerSubscribed) {
+            trackerSubscribed = true
+            CelestialTrackerV2.subscribe(context, this) { tracking ->
+                celestialSnapshot = tracking.snapshot
+                deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
+                devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
+                val snapshot = tracking.snapshot
+                if (snapshot != null) {
+                    setNightMode(snapshot.night)
+                } else {
+                    CelestialLightingState.clearSunDirection()
+                }
+                invalidate()
+            }
+        } else if (!shouldSubscribe && trackerSubscribed) {
+            CelestialTrackerV2.unsubscribe(this)
+            trackerSubscribed = false
+            celestialSnapshot = null
+            CelestialLightingState.clearSunDirection()
         }
-    }
-
-    override fun onSensorChanged(event: SensorEvent) {
-        if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-        SensorManager.getOrientation(rotationMatrix, orientation)
-        deviceAzimuth = normalize(Math.toDegrees(orientation[0].toDouble()).toFloat())
-        devicePitch = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
-        invalidate()
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-
-    private fun refreshAstronomy() {
-        val location = lastKnownLocation()
-        val now = System.currentTimeMillis()
-        celestialSnapshot = if (location != null && HoraTrackV2.ENABLED) {
-            runCatching {
-                HoraTrackV2.celestial.snapshot(
-                    latitudeDeg = location.latitude,
-                    longitudeDeg = location.longitude,
-                    timeMs = now,
-                    observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
-                )
-            }.getOrNull()
-        } else {
-            null
-        }
-        celestialSnapshot?.let { setNightMode(it.night) }
-        invalidate()
-    }
-
-    private fun lastKnownLocation(): Location? {
-        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fine && !coarse) return null
-        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return runCatching {
-            manager.getProviders(true)
-                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-                .maxByOrNull { it.time }
-        }.getOrNull()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -272,7 +217,8 @@ class SunIndicatorView @JvmOverloads constructor(
 
     /**
      * Phase lunaire rendue à partir de la fraction éclairée réelle calculée par V2.
-     * Le terminateur est orienté vers la position affichée du Soleil.
+     * Le terminateur est encore orienté vers la position affichée du Soleil ; la
+     * projection finale du véritable angle de limbe V2 est le chantier suivant.
      */
     private fun drawMoonSunlight(
         canvas: Canvas,
@@ -484,5 +430,7 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
-    private fun shortestDelta(from: Float, to: Float): Float = ((to - from + 540f) % 360f) - 180f
+
+    private fun shortestDelta(from: Float, to: Float): Float =
+        ((to - from + 540f) % 360f) - 180f
 }
