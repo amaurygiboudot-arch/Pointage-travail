@@ -23,12 +23,34 @@ import java.util.Locale
 object V2ConventionProtectionCategoryStore {
     private const val PREFS = "horatrack_v2_convention_protection_category_rules"
     private const val KEY_VERIFIED = "verified_rules"
+    private const val STORAGE_WARNING =
+        "KALI catégorie ANI : stockage local des preuves KALI/APEC incohérent ; aucune catégorie de prévoyance ne peut être déduite de ce stockage."
 
-    fun rules(context: Context): List<ConventionProtectionCategoryV2.Rule> = load(context)
+    data class ReadResult(
+        val rules: List<ConventionProtectionCategoryV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun readVerified(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_VERIFIED)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_VERIFIED, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
+
+    fun rules(context: Context): List<ConventionProtectionCategoryV2.Rule> {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules
+    }
 
     fun rules(context: Context, idcc: String): List<ConventionProtectionCategoryV2.Rule> {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
     /**
@@ -41,6 +63,9 @@ object V2ConventionProtectionCategoryStore {
             rule.aniCategory != ProtectionCategoryV2.AniCategory.TO_CONFIRM &&
             rule.aniCategory != ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE
 
+    internal fun acceptsVerifiedPackage(rules: List<ConventionProtectionCategoryV2.Rule>): Boolean =
+        rules.all(::acceptsVerifiedRule) && !hasDuplicateRuleIds(rules)
+
     /**
      * Enregistre une preuve structurée. "Verified" ne signifie pas "applicable" :
      * le résolveur contrôle encore période, extension KALI et agrément APEC exact.
@@ -48,9 +73,11 @@ object V2ConventionProtectionCategoryStore {
     fun saveVerified(context: Context, rule: ConventionProtectionCategoryV2.Rule) {
         require(acceptsVerifiedRule(rule)) { "Règle de catégorie ANI non vérifiable, sans périmètre KALI exact ou incertaine" }
 
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
         val normalizedStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT)
-        val current = load(context).toMutableList()
+        val current = stored.rules.toMutableList()
         current.removeAll {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == rule.ruleId
         }
@@ -59,16 +86,43 @@ object V2ConventionProtectionCategoryStore {
     }
 
     fun delete(context: Context, idcc: String, ruleId: String) {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
         persist(
             context,
-            load(context).filterNot {
+            stored.rules.filterNot {
                 ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == ruleId
             }
         )
     }
 
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<ConventionProtectionCategoryV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decode)?.takeIf(::acceptsVerifiedRule)
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
+            }
+        }
+        if (hasDuplicateRuleIds(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
     private fun persist(context: Context, rules: List<ConventionProtectionCategoryV2.Rule>) {
+        check(acceptsVerifiedPackage(rules)) {
+            "KALI catégorie ANI : historique local invalide ou ambigu."
+        }
         val array = JSONArray()
         rules.sortedWith(
             compareBy<ConventionProtectionCategoryV2.Rule> { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) }
@@ -77,24 +131,19 @@ object V2ConventionProtectionCategoryStore {
                 .thenBy { it.professionalStatus.orEmpty() }
                 .thenBy { it.ruleId }
         ).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_VERIFIED, array.toString())
-            .apply()
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_VERIFIED, array.toString())
+                .commit()
+        }.getOrDefault(false)
+        check(saved) { "KALI catégorie ANI : stockage local des preuves impossible." }
     }
 
-    private fun load(context: Context): List<ConventionProtectionCategoryV2.Rule> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_VERIFIED, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)
-                    ?.takeIf(::acceptsVerifiedRule)
-                    ?.let(::add)
-            }
-        }
-    }
+    private fun hasDuplicateRuleIds(rules: List<ConventionProtectionCategoryV2.Rule>): Boolean =
+        rules.groupBy {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) to it.ruleId
+        }.values.any { it.size > 1 }
 
     private fun encode(rule: ConventionProtectionCategoryV2.Rule): JSONObject = JSONObject()
         .put("idcc", ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc))
