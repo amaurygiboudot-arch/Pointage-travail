@@ -13,21 +13,49 @@ import java.util.Locale
 /** Cache LOCAL des garanties de prévoyance d'entreprise structurées depuis ACCO. */
 object V2CompanyProvidentBenefitStore {
     internal const val KEY = "company_provident_benefit_rules_v2"
+    private const val STORAGE_WARNING =
+        "ACCO garanties prévoyance : stockage local des preuves d'entreprise incohérent ; aucune équivalence de garanties ne peut être déduite de ce stockage."
+
+    data class ReadResult(
+        val rules: List<CompanyProvidentBenefitV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    /**
+     * Lit toutes les preuves historiques de l'entreprise locale, sans filtrer le SIRET courant.
+     * Un ancien SIRET structurellement valide reste de l'historique ; il n'est simplement plus
+     * applicable au profil courant. À l'inverse, une entrée illisible/invalide rend le paquet entier
+     * non fiable afin qu'une corruption ne ressemble jamais à une absence de garanties ACCO.
+     */
+    fun readVerified(context: Context, companyId: String): ReadResult {
+        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
 
     fun rules(context: Context, companyId: String): List<CompanyProvidentBenefitV2.Rule> {
         val profile = ConventionLegalProfileV2.load(context, companyId) ?: return emptyList()
         val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return emptyList()
-        return decodeRules(SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]") ?: "[]")
-            .filter { acceptsVerifiedRule(it, expectedSiret) }
+        val stored = readVerified(context, companyId)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) }
     }
 
     fun saveVerified(context: Context, companyId: String, rule: CompanyProvidentBenefitV2.Rule): Boolean {
         val profile = ConventionLegalProfileV2.load(context, companyId) ?: return false
         val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return false
         if (!acceptsVerifiedRule(rule, expectedSiret)) return false
-        val current = rules(context, companyId).toMutableList()
+
+        val stored = readVerified(context, companyId)
+        if (!stored.reliable) return false
+        val current = stored.rules.toMutableList()
         current.removeAll { sameLegalIdentity(it, rule) }
         current += normalized(rule)
+        if (!acceptsVerifiedPackage(current)) return false
+
         return SalaryCompanyStore.prefs(context, companyId).edit()
             .putString(KEY, encodeRules(current))
             .commit()
@@ -36,6 +64,9 @@ object V2CompanyProvidentBenefitStore {
     internal fun acceptsVerifiedRule(rule: CompanyProvidentBenefitV2.Rule, expectedSiret: String): Boolean =
         rule.structurallyValid() &&
             expectedSiret.filter(Char::isDigit).let { it.length == 14 && rule.siret.filter(Char::isDigit) == it }
+
+    internal fun acceptsVerifiedPackage(rules: List<CompanyProvidentBenefitV2.Rule>): Boolean =
+        rules.all { it.structurallyValid() } && !hasDuplicateStoredIdentity(rules)
 
     internal fun sameLegalIdentity(left: CompanyProvidentBenefitV2.Rule, right: CompanyProvidentBenefitV2.Rule): Boolean =
         left.agreementId.equals(right.agreementId, ignoreCase = true) &&
@@ -48,8 +79,12 @@ object V2CompanyProvidentBenefitStore {
             left.guarantee.invalidityCategory == right.guarantee.invalidityCategory
 
     internal fun encodeRules(rules: List<CompanyProvidentBenefitV2.Rule>): String {
+        require(acceptsVerifiedPackage(rules)) {
+            "ACCO garanties prévoyance : paquet local invalide ou ambigu."
+        }
         val array = JSONArray()
         rules.sortedWith(compareBy<CompanyProvidentBenefitV2.Rule> { it.agreementId }
+            .thenBy { it.siret }
             .thenBy { it.effectiveFrom }
             .thenBy { it.guarantee.family.name }
             .thenBy { it.guarantee.invalidityCategory ?: 0 })
@@ -57,14 +92,37 @@ object V2CompanyProvidentBenefitStore {
         return array.toString()
     }
 
-    internal fun decodeRules(raw: String): List<CompanyProvidentBenefitV2.Rule> {
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decodeRule(array.optJSONObject(index) ?: continue)?.let(::add)
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<CompanyProvidentBenefitV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decodeRule)?.takeIf { it.structurallyValid() }
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
             }
         }
+        if (hasDuplicateStoredIdentity(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
     }
+
+    /** Compatibilité des tests/outils de sérialisation : la fiabilité doit être lue via decodeVerified. */
+    internal fun decodeRules(raw: String): List<CompanyProvidentBenefitV2.Rule> = decodeVerified(raw).rules
+
+    private fun hasDuplicateStoredIdentity(rules: List<CompanyProvidentBenefitV2.Rule>): Boolean =
+        rules.indices.any { leftIndex ->
+            ((leftIndex + 1) until rules.size).any { rightIndex ->
+                sameLegalIdentity(rules[leftIndex], rules[rightIndex])
+            }
+        }
 
     private fun encodeRule(rule: CompanyProvidentBenefitV2.Rule): JSONObject = JSONObject()
         .put("agreementId", rule.agreementId)
