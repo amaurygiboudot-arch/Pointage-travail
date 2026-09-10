@@ -3,6 +3,7 @@ package com.amaury.pointage
 import android.content.Context
 import android.util.AttributeSet
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import kotlin.math.min
 
@@ -27,6 +28,24 @@ class CelestialHomePanel @JvmOverloads constructor(
     init {
         clipChildren = false
         clipToPadding = false
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+
+        // L'onglet Accueil doit conserver exactement la même position verticale
+        // que les autres onglets. Le panneau céleste est donc toujours placé
+        // sous la barre de navigation, sans modifier son style ni ses dimensions.
+        val parentGroup = parent as? ViewGroup ?: return
+        val tabs = parentGroup.findViewById<View>(R.id.navigationTabs) ?: return
+        if (tabs.parent !== parentGroup) return
+
+        val panelIndex = parentGroup.indexOfChild(this)
+        val tabsIndex = parentGroup.indexOfChild(tabs)
+        if (panelIndex >= 0 && tabsIndex > panelIndex) {
+            parentGroup.removeView(tabs)
+            parentGroup.addView(tabs, panelIndex)
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
