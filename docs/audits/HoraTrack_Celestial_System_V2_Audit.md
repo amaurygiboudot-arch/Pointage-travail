@@ -37,9 +37,9 @@ Le moteur expose aussi l’angle de position du limbe éclairé (`brightLimbPosi
 
 Le rendu orientait la partie éclairée de la Lune avec une simple ligne 2D entre l’image de la Lune et l’image du Soleil sur l’anneau du cadran. Comme l’altitude des deux astres n’était pas représentée sur cet anneau, l’ombre pouvait être orientée incorrectement dès que la différence Soleil/Lune était principalement verticale dans le ciel.
 
-**Correction V2 terminée :** `CelestialScreenGeometryV2` reconstruit les vecteurs réels Soleil/Lune dans le repère local Est–Nord–Zénith, projette la direction tangentielle Lune → Soleil sur la géométrie du cadran et fournit une direction écran normalisée. Le terminateur utilise maintenant cette direction réelle plutôt que la ligne décorative entre deux sprites.
+**Correction V2 terminée :** `CelestialScreenGeometryV2` reconstruit les vecteurs réels Soleil/Lune dans le repère local Est–Nord–Zénith, projette la direction tangentielle Lune → Soleil sur la géométrie du cadran et fournit une direction écran normalisée. Le terminateur utilise cette direction réelle plutôt qu’une ligne décorative entre deux sprites.
 
-Le même principe est utilisé pour orienter l’axe de l’ombre terrestre vers l’anti-Soleil pendant une éclipse.
+Le même principe oriente l’axe de l’ombre terrestre vers le vrai anti-Soleil pendant une éclipse.
 
 ### CRITIQUE — ombre terrestre / éclipses
 
@@ -57,11 +57,11 @@ Ce modèle n’est pas physique : à la distance de la Lune, l’ombre centrale 
 - magnitude ombrale ;
 - classification `NONE / PENUMBRAL / PARTIAL / TOTAL` ;
 - rendu de l’umbra et de la pénombre avec les rayons V2 au lieu d’un disque arbitraire ;
-- orientation écran de l’axe d’ombre calculée vers le vrai anti-Soleil.
+- orientation écran de l’axe d’ombre vers le vrai anti-Soleil.
 
 ### ÉLEVÉ — parallaxe lunaire absente
 
-La Lune étant proche, sa position apparente dépend de la position de l’observateur sur Terre, surtout près de l’horizon.
+La Lune étant proche, sa position apparente dépend fortement de la position de l’observateur sur Terre, surtout près de l’horizon.
 
 **Correction V2 :** calcul topocentrique de la Lune à partir de la latitude, longitude et altitude de l’observateur avant conversion en azimut/altitude.
 
@@ -83,7 +83,7 @@ Cela contredit l’objectif de suivi céleste réel.
 
 La vue céleste et le contrôleur d’éclairage avaient chacun leur propre lecture de la localisation et leur propre abonnement aux capteurs d’orientation.
 
-**Correction V2 terminée :** `CelestialTrackerV2` est désormais l’unique couche Android d’acquisition pour ce sous-système. `SunIndicatorView` et `LightDirectionController` s’y abonnent sans enregistrer leurs propres capteurs.
+**Correction V2 terminée :** `CelestialTrackerV2` est l’unique couche Android d’acquisition pour ce sous-système. `SunIndicatorView` et `LightDirectionController` s’y abonnent sans enregistrer leurs propres capteurs.
 
 Le tracker :
 
@@ -109,25 +109,33 @@ L’ancien système utilisait n’importe quelle `lastKnownLocation()` disponibl
 
 Une direction solaire devenue non fiable est explicitement effacée de `CelestialLightingState` afin d’éviter de conserver une ancienne direction comme si elle était actuelle.
 
-### MOYEN — altitude des astres non encore utilisée pour leur position radiale
+### ÉLEVÉ — altitude réelle absente de la position graphique
 
-L’altitude réelle participe désormais à l’orientation locale du terminateur et de l’axe d’éclipse, mais le Soleil et la Lune restent placés sur l’anneau historique selon leur azimut.
+Le système historique plaçait Soleil et Lune sur un anneau fixe : seul l’azimut changeait. Deux astres de même azimut mais à des altitudes très différentes se retrouvaient donc au même rayon.
 
-Cela préserve le design validé pendant l’audit, mais ce n’est pas encore une carte complète du dôme céleste où horizon et zénith auraient des rayons différents.
+**Correction V2 terminée :** `CelestialScreenGeometryV2.projectOnWatchDome()` encode maintenant l’altitude réelle dans le rayon du cadran :
 
-**Décision à valider visuellement :** conserver l’anneau azimutal comme choix de design ou passer à une projection de dôme utilisant aussi l’altitude pour la position de l’astre.
+- azimut réel → angle autour de la montre ;
+- horizon civil → bord externe du dôme ;
+- astre montant → déplacement progressif vers le centre ;
+- zénith → rayon interne de 34 % du rayon d’horizon afin de préserver la Terre centrale et la lisibilité des aiguilles ;
+- astre sous l’horizon civil → aucun sprite affiché.
+
+Il s’agit volontairement d’un **compas céleste d’horloge**, pas d’un mode caméra/AR. Le rayon est comprimé près du zénith pour conserver le design de l’horloge, mais il est désormais monotone avec l’altitude réelle et le ciel sous l’horizon n’est plus représenté comme visible.
 
 ### MOYEN — deux vues d’horloge dans `activity_main.xml`
 
-Le dépôt possède actuellement `heroClockPermanent` et `heroClockHands`, alors que plusieurs installateurs historiques n’utilisent pas le même identifiant.
+Le layout contient `heroClockPermanent` (vue réellement dimensionnée à 210 dp) et `heroClockHands` (1 × 1 dp, alpha 0). Les recherches de références montrent que la seconde vue n’est utilisée que par l’ancien contrôle de visibilité de `LuxuryUiInstaller` et par la liste de protection de `ThemeFrameStyler`.
 
-**Reste à faire :** définir une horloge canonique, rediriger toutes les références vers elle, valider visuellement, puis supprimer la vue fantôme.
+**Décision V2 :** `heroClockPermanent` est l’horloge canonique visible. `ThemeFrameStyler` la protège désormais explicitement contre les styles génériques.
+
+**Nettoyage différé volontairement :** `heroClockHands` reste physiquement dans le layout tant que le rendu n’a pas été validé sur appareil. On ne redirige pas encore la logique de visibilité de `LuxuryUiInstaller`, car cela pourrait modifier le comportement historique « permanent » de l’horloge sur les autres onglets. Après validation visuelle, la vue fantôme et le code mort associé pourront être supprimés dans un commit séparé et minimal.
 
 ### FAIBLE / PARITÉ — widget Android
 
 Le widget dessine son propre cadran, ses aiguilles et sa Terre via `WidgetVisualRenderer`. Il ne dessine pas actuellement Soleil/Lune ni la phase réelle.
 
-Il reste volontairement séparé tant que le rendu principal V2 n’est pas totalement validé.
+Il reste volontairement séparé tant que le rendu principal V2 n’est pas validé sur appareil.
 
 ## Architecture V2 actuelle
 
@@ -150,6 +158,8 @@ CelestialTrackerV2
         |              +--> umbra / pénombre / magnitude éclipse
         |
         +--> CelestialScreenGeometryV2
+        |       +--> azimut réel autour du cadran
+        |       +--> altitude réelle dans le rayon du dôme
         |       +--> vraie direction Lune -> Soleil
         |       +--> vraie direction Lune -> anti-Soleil
         |
@@ -171,12 +181,17 @@ Les tests V2 couvrent notamment :
 - éclipse lunaire totale du 3 mars 2026 ;
 - éclipse lunaire partielle du 28 août 2026 ;
 - éclipse pénombrale du 20 février 2027 ;
-- proximité Soleil/Lune dans le ciel local pendant la nouvelle Lune ;
+- proximité Soleil/Lune pendant la nouvelle Lune ;
 - rejet d’une latitude invalide ;
 - position GPS récente/précise acceptée ;
 - position GPS ancienne, imprécise ou sans précision refusée ;
-- direction écran de l’éclairage lunaire selon azimut, altitude et rotation du cadran ;
-- direction écran de l’axe anti-solaire lors d’une éclipse.
+- direction écran de l’éclairage lunaire selon azimut et altitude ;
+- direction écran de l’axe anti-solaire lors d’une éclipse ;
+- horizon placé sur le bord du dôme ;
+- altitude intermédiaire rapprochant progressivement l’astre du centre ;
+- zénith au rayon interne protégé ;
+- astre sous l’horizon civil non dessiné ;
+- rotation du téléphone faisant tourner le compas céleste.
 
 Références astronomiques utilisées pour choisir les cas astronomiques : U.S. Naval Observatory (phases) et NASA/GSFC (catalogue des éclipses).
 
@@ -185,24 +200,25 @@ Références astronomiques utilisées pour choisir les cas astronomiques : U.S. 
 - `app/src/main/java/com/amaury/pointage/v2/engine/CelestialEngineV2.kt` — moteur astronomique pur V2 ;
 - `app/src/main/java/com/amaury/pointage/v2/engine/CelestialTrackingPolicyV2.kt` — qualification fail-closed de la localisation ;
 - `app/src/main/java/com/amaury/pointage/v2/CelestialTrackerV2.kt` — acquisition Android partagée GPS + orientation ;
-- `app/src/main/java/com/amaury/pointage/v2/engine/CelestialScreenGeometryV2.kt` — géométrie physique des directions d’éclairage sur l’écran ;
+- `app/src/main/java/com/amaury/pointage/v2/engine/CelestialScreenGeometryV2.kt` — projection altitude/azimut + directions physiques d’éclairage ;
 - `app/src/test/java/com/amaury/pointage/v2/engine/CelestialEngineV2Test.kt` — références astronomiques ;
 - `app/src/test/java/com/amaury/pointage/v2/engine/CelestialTrackingPolicyV2Test.kt` — tests qualité GPS ;
-- `app/src/test/java/com/amaury/pointage/v2/engine/CelestialScreenGeometryV2Test.kt` — tests d’orientation écran ;
+- `app/src/test/java/com/amaury/pointage/v2/engine/CelestialScreenGeometryV2Test.kt` — tests projection/orientation écran ;
 - `app/src/main/java/com/amaury/pointage/v2/HoraTrackV2.kt` — couche `CELESTIAL` ;
 - `app/src/main/java/com/amaury/pointage/v2/V2LegacyPolicy.kt` — domaine `CELESTIAL` ;
 - `app/src/main/java/com/amaury/pointage/CelestialEphemeris.kt` — façade historique vers V2 ;
 - `app/src/main/java/com/amaury/pointage/SunIndicatorView.kt` — rendu piloté par tracker et géométrie V2 ;
 - `app/src/main/java/com/amaury/pointage/LightDirectionController.kt` — éclairage piloté par tracker V2 ;
-- `app/src/main/java/com/amaury/pointage/CelestialLightingState.kt` — état lumineux partagé, avec invalidation explicite.
+- `app/src/main/java/com/amaury/pointage/CelestialLightingState.kt` — état lumineux partagé avec invalidation explicite ;
+- `app/src/main/java/com/amaury/pointage/ThemeFrameStyler.kt` — protection explicite de l’horloge canonique.
 
 ## État actuel
 
-Le moteur astronomique, l’acquisition Android et l’orientation physique de la lumière sur la Lune sont maintenant centralisés dans V2. La phase lunaire, la géométrie des éclipses et la qualité de la position ne reposent plus sur les approximations historiques.
+Le moteur astronomique, l’acquisition Android, la position altitude/azimut des astres et l’orientation physique de la lumière sur la Lune sont maintenant centralisés dans V2. La phase lunaire, la géométrie des éclipses et la qualité de la position ne reposent plus sur les approximations historiques.
 
-Il reste deux décisions/chantiers avant de considérer le suivi céleste principal comme totalement terminé :
+Avant de considérer le rendu principal définitivement validé, il reste une validation **sur appareil réel** : vérifier visuellement le déplacement radial Soleil/Lune sur une journée, le comportement près de l’horizon, la phase/ombre lunaire et le maintien de l’horloge canonique sur les différents onglets.
 
-1. valider visuellement si les astres doivent rester sur l’anneau azimutal ou adopter une vraie projection radiale par altitude ;
-2. définir l’horloge canonique puis nettoyer `heroClockPermanent` / `heroClockHands` après validation visuelle.
+Après cette validation seulement :
 
-La parité céleste du widget Android restera une étape séparée après validation du rendu principal.
+1. supprimer `heroClockHands` et le code mort qui le cible ;
+2. décider séparément si le widget Android doit obtenir la même parité céleste V2.
