@@ -1,6 +1,6 @@
 package com.amaury.pointage.v2.engine
 
-import kotlin.math.acos
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -10,7 +10,7 @@ data class CelestialScreenDirectionV2(val x: Double, val y: Double)
 
 /**
  * Repère physique de l'écran exprimé dans le monde local Est / Nord vrai / Zénith.
- * Conservé pour l'éclairage physique et un éventuel mode viseur/AR séparé.
+ * Il reste utile pour déduire un cap fiable quelle que soit l'inclinaison du téléphone.
  */
 data class CelestialDeviceFrameV2(
     val rightEast: Double,
@@ -34,14 +34,11 @@ data class CelestialWatchProjectionV2(
 /**
  * Géométrie du rendu céleste V2.
  *
- * L'horloge principale est volontairement une carte topocentrique 360° :
- * la Terre au centre représente l'observateur, l'azimut place l'astre autour
- * du cadran et son altitude règle sa distance au centre. Tourner le téléphone
- * fait tourner cette carte par rapport au Nord vrai, mais un astre ne disparaît
- * jamais simplement parce qu'il se trouve derrière l'écran.
- *
- * Le repère 3D complet reste disponible séparément pour l'éclairage physique
- * et un éventuel mode AR ; ce n'est plus le référentiel de position de l'horloge.
+ * Référentiel canonique HoraTrack : carte topocentrique 360° centrée sur la Terre.
+ * La Terre représente l'observateur. L'azimut place Soleil/Lune autour du cadran,
+ * l'altitude règle leur distance au centre et le cap réel du téléphone fait tourner
+ * la carte. Un astre ne disparaît donc jamais parce qu'il est « derrière l'écran » :
+ * cette notion appartient à un viseur AR, pas à une carte du ciel 360°.
  */
 object CelestialScreenGeometryV2 {
     const val CIVIL_HORIZON_DEG = -0.833
@@ -49,11 +46,9 @@ object CelestialScreenGeometryV2 {
 
     /**
      * Projection canonique de l'horloge : ciel visible complet sur 360°.
-     *
-     * - cap du haut de l'écran = 12 h ;
-     * - azimut réel = angle autour de la Terre ;
+     * - direction du cap = 12 h ;
      * - horizon = bord externe ;
-     * - zénith = rayon interne compact pour préserver la Terre centrale ;
+     * - zénith = rayon interne compact afin de préserver la Terre centrale ;
      * - sous l'horizon civil = non rendu.
      */
     fun projectEarthCenteredSky(
@@ -75,49 +70,27 @@ object CelestialScreenGeometryV2 {
     }
 
     /**
-     * Projection viseur/AR conservée comme outil secondaire. Contrairement à
-     * l'horloge 360°, elle ne représente que l'hémisphère devant l'écran.
+     * Compatibilité avec le lot 3D précédent.
+     *
+     * Le nom historique est conservé pour ne pas casser les appelants, mais la
+     * sémantique est maintenant celle de l'horloge 360° : le repère 3D sert à
+     * déduire le cap vrai, pas à découper le ciel en hémisphère avant/arrière.
      */
     fun projectInDeviceSky(
         body: CelestialBodyV2,
         frame: CelestialDeviceFrameV2
-    ): CelestialWatchProjectionV2? {
-        if (body.altitudeDeg < CIVIL_HORIZON_DEG) return null
+    ): CelestialWatchProjectionV2? = projectEarthCenteredSky(
+        body = body,
+        deviceAzimuthDeg = headingFromFrame(frame).toFloat()
+    )
 
-        val world = horizontalUnit(body.azimuthDeg, body.altitudeDeg)
-        val screenX = dot(world, frame.rightEast, frame.rightNorth, frame.rightUp)
-        val screenTop = dot(world, frame.topEast, frame.topNorth, frame.topUp)
-        val screenNormal = dot(world, frame.normalEast, frame.normalNorth, frame.normalUp)
-            .coerceIn(-1.0, 1.0)
-
-        if (screenNormal < -1e-6) return null
-
-        val angularDistance = acos(screenNormal)
-        val radialFraction = (angularDistance / (Math.PI / 2.0)).coerceIn(0.0, 1.0)
-        val tangentLength = sqrt(screenX * screenX + screenTop * screenTop)
-
-        if (tangentLength < 1e-9 || radialFraction < 1e-9) {
-            return CelestialWatchProjectionV2(0.0, 0.0, 0.0)
-        }
-
-        return CelestialWatchProjectionV2(
-            xRadiusFraction = (screenX / tangentLength) * radialFraction,
-            yRadiusFraction = (-screenTop / tangentLength) * radialFraction,
-            radialFraction = radialFraction
-        )
-    }
-
-    /** Compatibilité : l'ancien nom désigne désormais la carte 360° canonique. */
+    /** Compatibilité de l'ancien nom du dôme. */
     fun projectOnWatchDome(
         body: CelestialBodyV2,
         deviceAzimuthDeg: Float
     ): CelestialWatchProjectionV2? = projectEarthCenteredSky(body, deviceAzimuthDeg)
 
-    /**
-     * Direction du limbe éclairé dans la carte topocentrique 360°.
-     * La tangente céleste réelle Lune -> Soleil est convertie dans le repère
-     * azimut/altitude du cadran.
-     */
+    /** Direction du limbe éclairé dans la carte topocentrique 360°. */
     fun directionToward(
         from: CelestialBodyV2,
         to: CelestialBodyV2,
@@ -142,45 +115,53 @@ object CelestialScreenGeometryV2 {
         )
     }
 
-    /** Variante 3D conservée pour un éventuel mode viseur/AR. */
+    /** Compatibilité : direction 3D précédente convertie dans la carte 360°. */
     fun directionToward(
         from: CelestialBodyV2,
         to: CelestialBodyV2,
         frame: CelestialDeviceFrameV2
-    ): CelestialScreenDirectionV2? = directionTowardVectorInDeviceFrame(
+    ): CelestialScreenDirectionV2? = directionToward(
         from = from,
-        targetVector = horizontalUnit(to.azimuthDeg, to.altitudeDeg),
-        frame = frame
+        to = to,
+        deviceAzimuthDeg = headingFromFrame(frame).toFloat()
     )
 
-    /** Variante 3D conservée pour un éventuel mode viseur/AR. */
+    /** Compatibilité : anti-Soleil 3D précédent converti dans la carte 360°. */
     fun directionTowardAntiSun(
         moon: CelestialBodyV2,
         sun: CelestialBodyV2,
         frame: CelestialDeviceFrameV2
-    ): CelestialScreenDirectionV2? {
-        val sunVector = horizontalUnit(sun.azimuthDeg, sun.altitudeDeg)
-        return directionTowardVectorInDeviceFrame(
-            from = moon,
-            targetVector = doubleArrayOf(-sunVector[0], -sunVector[1], -sunVector[2]),
-            frame = frame
+    ): CelestialScreenDirectionV2? = directionTowardAntiSun(
+        moon = moon,
+        sun = sun,
+        deviceAzimuthDeg = headingFromFrame(frame).toFloat()
+    )
+
+    /**
+     * Déduit le cap horizontal du repère d'écran sans imposer une posture.
+     * Téléphone plutôt à plat : le haut de l'écran fournit le cap.
+     * Téléphone plutôt vertical : la normale de l'écran fournit la direction regardée.
+     * Les deux axes sont déjà exprimés en Nord vrai par CelestialTrackerV2.
+     */
+    fun headingFromFrame(frame: CelestialDeviceFrameV2): Double {
+        val topHorizontal = sqrt(frame.topEast * frame.topEast + frame.topNorth * frame.topNorth)
+        val normalHorizontal = sqrt(
+            frame.normalEast * frame.normalEast + frame.normalNorth * frame.normalNorth
         )
-    }
 
-    private fun directionTowardVectorInDeviceFrame(
-        from: CelestialBodyV2,
-        targetVector: DoubleArray,
-        frame: CelestialDeviceFrameV2
-    ): CelestialScreenDirectionV2? {
-        val fromVector = horizontalUnit(from.azimuthDeg, from.altitudeDeg)
-        val tangent = tangentToward(fromVector, targetVector) ?: return null
+        val east: Double
+        val north: Double
+        if (topHorizontal >= normalHorizontal && topHorizontal > 1e-9) {
+            east = frame.topEast / topHorizontal
+            north = frame.topNorth / topHorizontal
+        } else if (normalHorizontal > 1e-9) {
+            east = frame.normalEast / normalHorizontal
+            north = frame.normalNorth / normalHorizontal
+        } else {
+            return 0.0
+        }
 
-        val screenX = dot(tangent, frame.rightEast, frame.rightNorth, frame.rightUp)
-        val screenY = -dot(tangent, frame.topEast, frame.topNorth, frame.topUp)
-        val length = sqrt(screenX * screenX + screenY * screenY)
-        if (length < 1e-9) return null
-
-        return CelestialScreenDirectionV2(screenX / length, screenY / length)
+        return normalizeDegrees(Math.toDegrees(atan2(east, north)))
     }
 
     private fun directionTowardEarthCentered(
@@ -245,4 +226,6 @@ object CelestialScreenGeometryV2 {
 
     private fun shortestDelta(from: Double, to: Double): Double =
         ((to - from + 540.0) % 360.0) - 180.0
+
+    private fun normalizeDegrees(value: Double): Double = ((value % 360.0) + 360.0) % 360.0
 }
