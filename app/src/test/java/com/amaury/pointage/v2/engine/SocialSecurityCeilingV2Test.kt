@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -53,6 +54,42 @@ class SocialSecurityCeilingV2Test {
 
         assertEquals(4005.0 * 27.0 / 30.0, result.applicableMonthly, 0.001)
         assertTrue(result.warnings.any { it.contains("3 jour(s) d'absence") })
+    }
+
+    @Test
+    fun `jours absence inconnus ne deviennent jamais zero fiable`() {
+        val result = SocialSecurityCeilingV2.calculate(
+            SocialSecurityCeilingV2.Input(
+                year = 2026,
+                referenceDate = LocalDate.of(2026, 9, 30),
+                contractType = ContractTypeV2.FULL_TIME,
+                contractualWeeklyMinutes = 35 * 60,
+                entryDate = LocalDate.of(2020, 1, 1),
+                unpaidAbsenceDays = null
+            )
+        )
+
+        assertEquals(4005.0, result.applicableMonthly, 0.001)
+        assertFalse(result.complete)
+        assertTrue(result.warnings.any { it.contains("non fiabilisés") })
+    }
+
+    @Test
+    fun `nombre absence incoherent ne reduit pas silencieusement le plafond`() {
+        val result = SocialSecurityCeilingV2.calculate(
+            SocialSecurityCeilingV2.Input(
+                year = 2026,
+                referenceDate = LocalDate.of(2026, 9, 30),
+                contractType = ContractTypeV2.FULL_TIME,
+                contractualWeeklyMinutes = 35 * 60,
+                entryDate = LocalDate.of(2020, 1, 1),
+                unpaidAbsenceDays = 31
+            )
+        )
+
+        assertEquals(4005.0, result.applicableMonthly, 0.001)
+        assertFalse(result.complete)
+        assertTrue(result.warnings.any { it.contains("incohérent") })
     }
 
     @Test
