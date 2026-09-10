@@ -6,7 +6,7 @@ import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import org.json.JSONArray
@@ -30,7 +30,8 @@ object AnnualPdfReports {
             return
         }
 
-        val sessions = V2RuntimeStore.allSessions(context).filter { session ->
+        val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
+        val sessions = runtimeSessions.filter { session ->
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.YEAR) == year
         }
@@ -126,6 +127,7 @@ object AnnualPdfReports {
             return
         }
 
+        val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
@@ -180,7 +182,7 @@ object AnnualPdfReports {
         var ruleWarnings = 0
 
         for (month in 0..11) {
-            val monthSessions = V2RuntimeStore.allSessions(context).filter { session ->
+            val monthSessions = runtimeSessions.filter { session ->
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
                 val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }
                 val correctEmployer = acceptedEmployerIds.isEmpty() || session.employerId in acceptedEmployerIds

@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import org.json.JSONArray
@@ -74,8 +76,17 @@ object DriveBackupManager {
         }
     }
 
-    private fun syncCompletedDays(context: Context) {
+    private fun loadReliablePointage(context: Context): JSONArray {
         val all = PointageStore.load(context)
+        if (HoraTrackV2.ENABLED) {
+            val source = V2RuntimeHistoryGuardV2.sourceState()
+            check(source.reliable) { V2RuntimeReader.warningText(source.warnings) }
+        }
+        return all
+    }
+
+    private fun syncCompletedDays(context: Context) {
+        val all = loadReliablePointage(context)
         if (all.length() == 0) return
         val today = startOfDay(System.currentTimeMillis())
         val days = linkedSetOf<Long>()
@@ -120,7 +131,7 @@ object DriveBackupManager {
     }
 
     private fun syncClosedMonths(context: Context) {
-        val all = PointageStore.load(context)
+        val all = loadReliablePointage(context)
         if (all.length() == 0) return
         val current = Calendar.getInstance(Locale.FRANCE)
         val currentKey = current.get(Calendar.YEAR) * 12 + current.get(Calendar.MONTH)
@@ -143,7 +154,7 @@ object DriveBackupManager {
 
     private fun syncMonthLocked(context: Context, year: Int, month: Int) {
         val treeUri = savedTreeUri(context) ?: return
-        val all = PointageStore.load(context)
+        val all = loadReliablePointage(context)
         if (all.length() == 0) return
         val root = ensureDirectory(context, treeRootDocumentUri(treeUri), ROOT_FOLDER)
         val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(

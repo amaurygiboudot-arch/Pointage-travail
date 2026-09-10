@@ -15,7 +15,7 @@ import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import java.io.OutputStream
 import java.text.DateFormatSymbols
 import java.time.ZoneId
@@ -118,7 +118,7 @@ object SalaryExamplePdfV2 {
         val acceptedEmployerIds = if (company != null) {
             SalaryCompanyStore.acceptedEmployerIds(context, company.id)
         } else legacyContract?.let { setOf(it.employerId) }.orEmpty()
-        val sessions = V2RuntimeStore.allSessions(context).filter { session ->
+        val sessions = V2RuntimeReader.allSessions(context).requireReliable().filter { session ->
             val at = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }
             session.employerId in acceptedEmployerIds &&

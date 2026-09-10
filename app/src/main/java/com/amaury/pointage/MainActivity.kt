@@ -22,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -150,7 +151,12 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.POINTAGE)
                 PointageStore.entry(this)
             }
-            Toast.makeText(this, if (ok) "Entrée enregistrée" else "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+            val message = when {
+                ok -> "Entrée enregistrée"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                else -> "Une entrée est déjà en cours"
+            }
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             if (ok) refreshScreen()
         }
 
@@ -162,7 +168,12 @@ class MainActivity : Activity() {
                 V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.POINTAGE)
                 PointageStore.exit(this)
             }
-            Toast.makeText(this, if (ok) "Sortie enregistrée" else "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+            val message = when {
+                ok -> "Sortie enregistrée"
+                HoraTrackV2.ENABLED && !V2RuntimeReader.current(this).reliable -> "Pointage bloqué : données HoraTrack à vérifier"
+                else -> "Aucune entrée en cours"
+            }
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             if (ok) refreshScreen()
         }
 
@@ -245,7 +256,12 @@ class MainActivity : Activity() {
         try {
             contentResolver.openOutputStream(uri)?.use { output ->
                 if (HoraTrackV2.ENABLED) {
-                    MonthlyPdfReportV2.write(V2RuntimeStore.allSessions(this), pendingPdfYear, pendingPdfMonth, output)
+                    MonthlyPdfReportV2.write(
+                        V2RuntimeReader.allSessions(this).requireReliable(),
+                        pendingPdfYear,
+                        pendingPdfMonth,
+                        output
+                    )
                 } else {
                     V2LegacyPolicy.requireLegacyAllowed(V2LegacyPolicy.Domain.PDF)
                     MonthlyPdfReport.write(this, PointageStore.load(this), pendingPdfYear, pendingPdfMonth, output)
@@ -511,8 +527,13 @@ class MainActivity : Activity() {
 
     private fun refreshScreen() {
         if (HoraTrackV2.ENABLED) {
-            val snap = V2RuntimeStore.snapshot(this)
-            val session = snap.session
+            val read = V2RuntimeReader.current(this)
+            if (!read.reliable) {
+                statusCard.text = "STATUT ACTUEL\n⚠ DONNÉES À VÉRIFIER"
+                historyText.text = "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+                return
+            }
+            val session = read.snapshot.session
             val openPause = session?.pauses?.lastOrNull { it.endMs == null }
             statusCard.text = when {
                 session == null -> "STATUT ACTUEL\n○ Aucune entrée en cours"
@@ -536,8 +557,12 @@ class MainActivity : Activity() {
 
     private fun buildV2HistoryText(todayOnly: Boolean): String {
         val now = System.currentTimeMillis()
+        val read = V2RuntimeReader.allSessions(this, now)
+        if (!read.reliable) {
+            return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+        }
         val today = Calendar.getInstance(Locale.FRANCE)
-        val sessions = V2RuntimeStore.allSessions(this, now).filter { session ->
+        val sessions = read.sessions.filter { session ->
             if (!todayOnly) true else session.realArrivalMs?.let { at ->
                 val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }
                 c.get(Calendar.YEAR) == today.get(Calendar.YEAR) && c.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
@@ -560,8 +585,11 @@ class MainActivity : Activity() {
     }
 
     private fun buildV2AnalyticsText(): String {
-        val sessions = V2RuntimeStore.allSessions(this)
-        val analytics = com.amaury.pointage.v2.engine.AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
+        val read = V2RuntimeReader.allSessions(this)
+        if (!read.reliable) {
+            return "⚠️ ANALYSE INDISPONIBLE\n${V2RuntimeReader.warningText(read.warnings)}"
+        }
+        val analytics = com.amaury.pointage.v2.engine.AnalyticsEngineV2.summarize(read.sessions, HoraTrackV2.time, System.currentTimeMillis())
         return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
     }
 

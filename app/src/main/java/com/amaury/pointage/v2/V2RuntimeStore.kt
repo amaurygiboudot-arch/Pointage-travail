@@ -27,12 +27,26 @@ object V2RuntimeStore {
     private const val KEY_PLACE_ID = "place_id"
     private const val KEY_PLACE_LABEL = "place_label"
     private const val KEY_HISTORY = "history"
+    private const val CURRENT_RUNTIME_WARNING =
+        "Session de pointage V2 courante illisible ou incohérente : la chronologie complète doit être vérifiée avant tout calcul."
+    private const val RUNTIME_PARSE_WARNING =
+        "Historique de pointage V2 validé mais impossible à reconstruire sans perte : calcul bloqué."
 
     @Volatile private var boundContext: Context? = null
 
     data class Snapshot(
         val session: WorkSessionV2?,
         val result: com.amaury.pointage.v2.engine.TimeResultV2?
+    )
+
+    internal data class OptionalPositiveRead(
+        val valid: Boolean,
+        val value: Long?
+    )
+
+    private data class WriteRead(
+        val reliable: Boolean,
+        val session: WorkSessionV2?
     )
 
     fun bind(context: Context) {
@@ -43,17 +57,35 @@ object V2RuntimeStore {
     fun snapshotBound(nowMs: Long = System.currentTimeMillis()): Snapshot? = boundContext?.let { snapshot(it, nowMs) }
     fun allSessionsBound(nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> = boundContext?.let { allSessions(it, nowMs) }.orEmpty()
 
+    /**
+     * Prélecture commune à toute mutation du runtime.
+     * Une écriture est refusée si la migration, l'historique ou la session courante ne peuvent pas
+     * être relus sans perte. Cela évite qu'une nouvelle action utilisateur écrase une corruption.
+     */
+    private fun readForWrite(context: Context, nowMs: Long = System.currentTimeMillis()): WriteRead {
+        bind(context)
+        val migration = V2MigrationManager.ensureMigrated(context)
+        if (!migration.reliable) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
+            return WriteRead(false, null)
+        }
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return WriteRead(false, null)
+        val current = snapshot(context, nowMs)
+        val source = V2RuntimeHistoryGuardV2.sourceState()
+        return WriteRead(source.reliable, if (source.reliable) current.session else null)
+    }
+
     fun entry(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null,
         companySlot: Int? = null
     ): Boolean {
-        bind(context)
-        V2MigrationManager.ensureMigrated(context)
+        if (nowMs <= 0L) return false
+        val current = readForWrite(context, nowMs)
+        if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
         val prefs = prefs(context)
-        val open = safeLong(prefs.all[KEY_REAL_ENTRY]) > 0L && safeLong(prefs.all[KEY_REAL_EXIT]) == 0L
-        if (open) return false
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
         // l'identifiant stable de l'entreprise active, ce qui permet plus de deux entreprises.
@@ -87,11 +119,11 @@ object V2RuntimeStore {
     }
 
     fun setExpectedEnd(context: Context, expectedEndMs: Long?): Boolean {
-        bind(context)
+        val current = readForWrite(context)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        val closed = safeLong(prefs.all[KEY_REAL_EXIT]) > 0L
-        if (entry <= 0L || closed) return false
         val editor = prefs.edit()
         if (expectedEndMs == null) {
             editor.remove(KEY_EXPECTED_END).apply()
@@ -110,9 +142,12 @@ object V2RuntimeStore {
         source: EventSourceV2 = EventSourceV2.MANUAL,
         paid: Boolean = false
     ): Boolean {
-        bind(context)
+        val current = readForWrite(context, nowMs)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
+        if (nowMs < entry) return false
         val prefs = prefs(context)
-        if (safeLong(prefs.all[KEY_REAL_ENTRY]) <= 0L || safeLong(prefs.all[KEY_REAL_EXIT]) > 0L) return false
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
             return prefs.edit()
@@ -131,11 +166,12 @@ object V2RuntimeStore {
     }
 
     fun addManualPauses(context: Context, ranges: List<Pair<Long, Long>>): Int {
-        bind(context)
+        val current = readForWrite(context)
+        val session = current.session ?: return 0
+        if (!current.reliable) return 0
+        val entry = session.realArrivalMs ?: return 0
+        val realExit = session.realExitMs
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        if (entry <= 0L) return 0
-        val realExit = safeLong(prefs.all[KEY_REAL_EXIT]).takeIf { it > 0L }
         var raw = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseArrayOrNull(raw) == null) return 0
         var added = 0
@@ -194,11 +230,13 @@ object V2RuntimeStore {
         val p = prefs(context)
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
         if (!storedHistory.reliable) return false
+        val currentSnapshot = snapshot(context)
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
         val history = storedHistory.history
-        val currentEntry = safeLong(p.all[KEY_REAL_ENTRY])
-        val currentExit = safeLong(p.all[KEY_REAL_EXIT]).takeIf { it > 0L }
-        val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { it > currentEntry }
-        val currentId = p.getString(KEY_ID, null)
+        val currentEntry = currentSnapshot.session?.realArrivalMs ?: 0L
+        val currentExit = currentSnapshot.session?.realExitMs
+        val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { currentEntry > 0L && it > currentEntry }
+        val currentId = currentSnapshot.session?.id
 
         data class Target(val historyIndex: Int? = null, val current: Boolean = false)
 
@@ -218,8 +256,8 @@ object V2RuntimeStore {
         for ((start, end) in clean) {
             var found: Target? = null
             for (i in 0 until history.length()) {
-                val session = history.optJSONObject(i) ?: return false
-                if (historyContains(session, start, end)) {
+                val sessionItem = history.optJSONObject(i) ?: return false
+                if (historyContains(sessionItem, start, end)) {
                     found = Target(historyIndex = i)
                     break
                 }
@@ -245,9 +283,9 @@ object V2RuntimeStore {
         }
 
         for (i in 0 until history.length()) {
-            val session = history.optJSONObject(i) ?: return false
-            val pauses = session.optJSONArray(KEY_PAUSES) ?: return false
-            session.put(KEY_PAUSES, filtered(pauses) ?: return false)
+            val sessionItem = history.optJSONObject(i) ?: return false
+            val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
+            sessionItem.put(KEY_PAUSES, filtered(pauses) ?: return false)
         }
 
         val rawCurrentPauses = p.getString(KEY_PAUSES, "[]").orEmpty()
@@ -261,8 +299,8 @@ object V2RuntimeStore {
                 .put("paid", false)
             when {
                 target.historyIndex != null -> {
-                    val session = history.optJSONObject(target.historyIndex) ?: return false
-                    val pauses = session.optJSONArray(KEY_PAUSES) ?: return false
+                    val sessionItem = history.optJSONObject(target.historyIndex) ?: return false
+                    val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
                     pauses.put(pause)
                 }
                 target.current -> currentPauses.put(pause)
@@ -273,9 +311,9 @@ object V2RuntimeStore {
         // avec sa copie d'historique afin qu'une modification ne réapparaisse pas après redémarrage.
         if (!currentId.isNullOrBlank() && currentEntry > 0L) {
             for (i in 0 until history.length()) {
-                val session = history.optJSONObject(i) ?: return false
-                if (session.optString("id") == currentId) {
-                    currentPauses = session.optJSONArray(KEY_PAUSES) ?: return false
+                val sessionItem = history.optJSONObject(i) ?: return false
+                if (sessionItem.optString("id") == currentId) {
+                    currentPauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
                     break
                 }
             }
@@ -294,14 +332,12 @@ object V2RuntimeStore {
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null
     ): Boolean {
-        bind(context)
+        val current = readForWrite(context, nowMs)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
+        if (nowMs <= entry) return false
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        if (entry <= 0L || safeLong(prefs.all[KEY_REAL_EXIT]) > 0L) return false
-
-        // Une sortie ne doit jamais fermer la session puis recréer un historique vide si le journal
-        // historique ou le tableau de pauses courant est devenu illisible.
-        if (!V2RuntimeHistoryGuardV2.read(context).reliable) return false
         val pauseStart = safeLong(prefs.all[KEY_PAUSE_START])
         var pauses = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseArrayOrNull(pauses) == null) return false
@@ -324,8 +360,9 @@ object V2RuntimeStore {
             .commit()
         if (!closed) return false
 
-        val session = snapshot(context, nowMs).session ?: return false
-        if (!persistClosed(context, session)) return false
+        val closedSession = snapshot(context, nowMs).session ?: return false
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
+        if (!persistClosed(context, closedSession)) return false
         WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
     }
@@ -339,22 +376,78 @@ object V2RuntimeStore {
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
         bind(context)
         val prefs = prefs(context)
-        val realEntry = safeLong(prefs.all[KEY_REAL_ENTRY]).takeIf { it > 0L } ?: return Snapshot(null, null)
-        val realExit = safeLong(prefs.all[KEY_REAL_EXIT]).takeIf { it > 0L }
-        val countedEntry = safeLong(prefs.all[KEY_COUNTED_ENTRY]).takeIf { it > 0L }
-        val countedExit = safeLong(prefs.all[KEY_COUNTED_EXIT]).takeIf { it > 0L }
-        val pauses = parsePauses(prefs.getString(KEY_PAUSES, "[]").orEmpty()).toMutableList()
-        safeLong(prefs.all[KEY_PAUSE_START]).takeIf { it > 0L }?.let {
-            pauses += PauseV2(it, null, paid = false, source = parseSource(prefs.getString(KEY_PAUSE_SOURCE, null)))
+        val values = prefs.all
+        if (!prefs.contains(KEY_REAL_ENTRY)) return Snapshot(null, null)
+        val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
+
+        val realExitRead = optionalStrictPositive(values, KEY_REAL_EXIT)
+        if (!realExitRead.valid) return corruptCurrentSnapshot()
+        val realExit = realExitRead.value
+        if (realExit != null && realExit <= realEntry) return corruptCurrentSnapshot()
+
+        val countedEntryRead = optionalStrictPositive(values, KEY_COUNTED_ENTRY)
+        if (!countedEntryRead.valid) return corruptCurrentSnapshot()
+        val countedEntry = countedEntryRead.value
+
+        val countedExitRead = optionalStrictPositive(values, KEY_COUNTED_EXIT)
+        if (!countedExitRead.valid) return corruptCurrentSnapshot()
+        val countedExit = countedExitRead.value
+        if (countedEntry != null && countedExit != null && countedExit <= countedEntry) return corruptCurrentSnapshot()
+
+        val expectedEndRead = optionalStrictPositive(values, KEY_EXPECTED_END)
+        if (!expectedEndRead.valid) return corruptCurrentSnapshot()
+        val expectedEnd = expectedEndRead.value
+        if (expectedEnd != null && expectedEnd <= realEntry) return corruptCurrentSnapshot()
+
+        val id = runCatching { prefs.getString(KEY_ID, null) }.getOrNull()?.trim()
+            ?.takeIf { it.isNotBlank() && it != "null" }
+            ?: return corruptCurrentSnapshot()
+
+        val rawPauses = runCatching { prefs.getString(KEY_PAUSES, null) }.getOrNull()
+            ?: return corruptCurrentSnapshot()
+        val pauseArray = pauseArrayOrNull(rawPauses) ?: return corruptCurrentSnapshot()
+        val pauses = parsePauseArray(pauseArray)?.toMutableList() ?: return corruptCurrentSnapshot()
+
+        val pauseStartRead = optionalStrictPositive(values, KEY_PAUSE_START)
+        if (!pauseStartRead.valid) return corruptCurrentSnapshot()
+        val pauseStart = pauseStartRead.value
+        val storedPauseSource = runCatching { prefs.getString(KEY_PAUSE_SOURCE, null) }.getOrNull()
+        if (pauseStart != null) {
+            if (realExit != null || pauseStart < realEntry) return corruptCurrentSnapshot()
+            val source = parseSourceOrNull(storedPauseSource) ?: return corruptCurrentSnapshot()
+            pauses += PauseV2(pauseStart, null, paid = false, source = source)
+        } else if (prefs.contains(KEY_PAUSE_SOURCE)) {
+            return corruptCurrentSnapshot()
         }
-        val storedSlot = safeInt(prefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
-        val employerId = prefs.getString(KEY_EMPLOYER_ID, null)
+
+        val storedSlot = if (prefs.contains(KEY_COMPANY_SLOT)) {
+            val slot = strictInt(values[KEY_COMPANY_SLOT]) ?: return corruptCurrentSnapshot()
+            slot.takeIf { it in 1..2 } ?: return corruptCurrentSnapshot()
+        } else null
+
+        fun optionalStoredString(key: String): String? {
+            if (!prefs.contains(key)) return null
+            return runCatching { prefs.getString(key, null) }.getOrNull()?.trim()
+                ?.takeIf { it.isNotBlank() && it != "null" }
+        }
+
+        val directEmployerId = optionalStoredString(KEY_EMPLOYER_ID)
+        if (prefs.contains(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
+        val employerId = directEmployerId
             ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
             ?: V2ProfileStore.loadActive(context).employer?.id
-        val placeId = prefs.getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
-        val placeLabel = prefs.getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
+        val placeId = optionalStoredString(KEY_PLACE_ID)
+        if (prefs.contains(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
+        val placeLabel = optionalStoredString(KEY_PLACE_LABEL)
+        if (prefs.contains(KEY_PLACE_LABEL) && placeLabel == null) return corruptCurrentSnapshot()
+
+        if (pauses.any { pause ->
+                val end = pause.endMs ?: return@any false
+                pause.startMs < realEntry || (realExit != null && end > realExit)
+            }) return corruptCurrentSnapshot()
+
         val session = WorkSessionV2(
-            id = prefs.getString(KEY_ID, null) ?: "v2-runtime",
+            id = id,
             employerId = employerId,
             realArrivalMs = realEntry,
             countedEntryMs = countedEntry,
@@ -370,9 +463,21 @@ object V2RuntimeStore {
 
     fun allSessions(context: Context, nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> {
         bind(context)
-        V2MigrationManager.ensureMigrated(context)
-        val history = parseHistory(context, prefs(context).getString(KEY_HISTORY, "[]").orEmpty()).toMutableList()
+        val migration = V2MigrationManager.ensureMigrated(context)
+        if (!migration.reliable) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
+            return emptyList()
+        }
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return emptyList()
+        val parsed = parseHistory(context, stored.history)
+        if (parsed == null) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(RUNTIME_PARSE_WARNING))
+            return emptyList()
+        }
+        val history = parsed.toMutableList()
         val current = snapshot(context, nowMs).session
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return emptyList()
         if (current != null && history.none { it.id == current.id }) history += current
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
     }
@@ -405,27 +510,31 @@ object V2RuntimeStore {
         .put("legacyFixedUnpaidPauseMs", session.legacyFixedUnpaidPauseMs)
         .put(KEY_PAUSES, pausesToJson(session.pauses))
 
-    private fun parseHistory(context: Context, raw: String): List<WorkSessionV2> {
-        val a = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        return buildList {
-            for (i in 0 until a.length()) {
-                val o = a.optJSONObject(i) ?: continue
-                val realEntry = positive(o, "realEntry") ?: continue
+    private fun parseHistory(context: Context, array: JSONArray): List<WorkSessionV2>? = runCatching {
+        buildList {
+            for (i in 0 until array.length()) {
+                val o = array.getJSONObject(i)
+                val realEntry = positive(o, "realEntry") ?: error("realEntry invalide")
                 val realExit = positive(o, "realExit")
-                val slot = o.optInt("companySlot", 1).coerceIn(1, 2)
+                val slot = if (o.has("companySlot") && !o.isNull("companySlot")) {
+                    strictInt(o.opt("companySlot"))?.takeIf { it in 1..2 } ?: error("companySlot invalide")
+                } else 1
                 val employerId = o.optString("employerId").takeIf { it.isNotBlank() && it != "null" }
                     ?: V2ProfileStore.load(context, slot).employer?.id
                 val placeId = o.optString("placeId").trim().takeIf { it.isNotBlank() && it != "null" }
                 val placeLabel = o.optString("placeLabel").trim().takeIf { it.isNotBlank() && it != "null" }
+                val pauses = parsePauseArray(o.getJSONArray(KEY_PAUSES)) ?: error("pauses invalides")
+                val id = o.getString("id").trim().takeIf { it.isNotBlank() && it != "null" }
+                    ?: error("id invalide")
                 add(
                     WorkSessionV2(
-                        id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
+                        id = id,
                         employerId = employerId,
                         realArrivalMs = realEntry,
                         countedEntryMs = positive(o, "countedEntry"),
                         countedExitMs = positive(o, "countedExit"),
                         realExitMs = realExit,
-                        pauses = parsePauses(o.optJSONArray(KEY_PAUSES)?.toString() ?: "[]"),
+                        pauses = pauses,
                         status = if (realExit == null) SessionStatusV2.OPEN else SessionStatusV2.CLOSED,
                         placeId = placeId,
                         placeLabel = placeLabel,
@@ -434,7 +543,7 @@ object V2RuntimeStore {
                 )
             }
         }
-    }
+    }.getOrNull()
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -463,32 +572,68 @@ object V2RuntimeStore {
         }
     }
 
-    private fun parsePauses(raw: String): List<PauseV2> {
-        val array = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
-        return buildList {
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val start = positive(item, "start") ?: continue
-                val end = positive(item, "end") ?: continue
-                if (end > start) {
+    private fun parsePauseArray(array: JSONArray): List<PauseV2>? {
+        if (!V2RuntimeHistoryGuardV2.validPauseArray(array)) return null
+        return runCatching {
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    val start = positive(item, "start") ?: error("pause start invalide")
+                    val end = positive(item, "end") ?: error("pause end invalide")
+                    val source = parseSourceOrNull(item.getString("source")) ?: error("pause source invalide")
                     add(
                         PauseV2(
                             startMs = start,
                             endMs = end,
-                            paid = item.optBoolean("paid", false),
-                            source = parseSource(item.optString("source"))
+                            paid = item.getBoolean("paid"),
+                            source = source
                         )
                     )
                 }
             }
-        }
+        }.getOrNull()
     }
+
+    private fun parsePauses(raw: String): List<PauseV2> =
+        pauseArrayOrNull(raw)?.let(::parsePauseArray).orEmpty()
 
     private fun parseSource(raw: String?): EventSourceV2 = parseSourceOrNull(raw) ?: EventSourceV2.MANUAL
 
     private fun parseSourceOrNull(raw: String?): EventSourceV2? = runCatching {
         EventSourceV2.valueOf(raw.orEmpty())
     }.getOrNull()
+
+    private fun corruptCurrentSnapshot(): Snapshot {
+        V2RuntimeHistoryGuardV2.publishSourceState(false, listOf(CURRENT_RUNTIME_WARNING))
+        return Snapshot(null, null)
+    }
+
+    internal fun optionalStrictPositive(values: Map<String, *>, key: String): OptionalPositiveRead {
+        if (!values.containsKey(key)) return OptionalPositiveRead(valid = true, value = null)
+        val value = strictPositive(values[key])
+        return OptionalPositiveRead(valid = value != null, value = value)
+    }
+
+    private fun strictPositive(value: Any?): Long? = when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong().takeIf { it > 0L }
+        is Float, is Double -> {
+            val number = (value as Number).toDouble()
+            number.takeIf { it.isFinite() && it % 1.0 == 0.0 && it > 0.0 }?.toLong()
+        }
+        is String -> value.trim().toLongOrNull()?.takeIf { it > 0L }
+        else -> null
+    }
+
+    private fun strictInt(value: Any?): Int? = when (value) {
+        is Byte, is Short, is Int, is Long -> (value as Number).toLong()
+            .takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }?.toInt()
+        is Float, is Double -> {
+            val number = (value as Number).toDouble()
+            number.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() }?.toInt()
+        }
+        is String -> value.trim().toIntOrNull()
+        else -> null
+    }
 
     private fun safeLong(value: Any?): Long = when (value) {
         is Long -> value

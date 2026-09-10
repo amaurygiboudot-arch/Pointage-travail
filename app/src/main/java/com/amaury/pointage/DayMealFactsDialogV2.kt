@@ -12,7 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.MealBasketFactJournalV2
 import com.amaury.pointage.v2.V2MealBasketFactStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import java.time.Instant
@@ -106,9 +106,19 @@ object DayMealFactsDialogV2 {
             return
         }
 
+        val runtime = V2RuntimeReader.allSessions(context)
+        if (!runtime.reliable) {
+            AlertDialog.Builder(context)
+                .setTitle("Faits repas par journée")
+                .setMessage("Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
+                .setPositiveButton("FERMER", null)
+                .show()
+            return
+        }
+
         val zoneId = ZoneId.systemDefault()
         val grouped = linkedMapOf<TargetKey, Int>()
-        V2RuntimeStore.allSessions(context).forEach { session ->
+        runtime.sessions.forEach { session ->
             val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
                 ?: return@forEach
             val entry = WorkTimePolicyV2.repairKnownCountedEntry(session.realArrivalMs, session.countedEntryMs)

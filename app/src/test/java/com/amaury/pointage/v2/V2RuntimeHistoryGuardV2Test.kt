@@ -87,6 +87,34 @@ class V2RuntimeHistoryGuardV2Test {
     }
 
     @Test
+    fun `champs temporels optionnels absents ou null restent fiables`() {
+        val absent = session().apply {
+            remove("realExit")
+            remove("countedEntry")
+            remove("countedExit")
+        }
+        val explicitNull = session(id = "session-2").apply {
+            put("realExit", JSONObject.NULL)
+            put("countedEntry", JSONObject.NULL)
+            put("countedExit", JSONObject.NULL)
+        }
+
+        assertTrue(V2RuntimeHistoryGuardV2.decode(JSONArray().put(absent).toString()).reliable)
+        assertTrue(V2RuntimeHistoryGuardV2.decode(JSONArray().put(explicitNull).toString()).reliable)
+    }
+
+    @Test
+    fun `champs temporels optionnels presents mais invalides sont refuses`() {
+        val invalidExit = session().put("realExit", 0L)
+        val invalidCountedEntry = session(id = "session-2").put("countedEntry", "not-a-time")
+        val invalidCountedExit = session(id = "session-3").put("countedExit", 12.5)
+
+        assertFalse(V2RuntimeHistoryGuardV2.decode(JSONArray().put(invalidExit).toString()).reliable)
+        assertFalse(V2RuntimeHistoryGuardV2.decode(JSONArray().put(invalidCountedEntry).toString()).reliable)
+        assertFalse(V2RuntimeHistoryGuardV2.decode(JSONArray().put(invalidCountedExit).toString()).reliable)
+    }
+
+    @Test
     fun `pause corrompue ne devient jamais aucune pause`() {
         val missingPaid = pause().apply { remove("paid") }
         val unknownSource = pause().put("source", "UNKNOWN_SOURCE")
