@@ -41,7 +41,8 @@ object AbsencePayrollImpactV2 {
         "Pointages V2 : historique local illisible ou migration incomplète ; aucun jour travaillé n'est supposé absent et le calcul de paie reste à confirmer."
 
     data class Snapshot(
-        val unpaidFullCalendarDays: Int,
+        /** null = le nombre de jours réducteurs du plafond SS n'est pas certifiable. */
+        val unpaidFullCalendarDays: Int?,
         val hasUnpaidAbsence: Boolean,
         val hasCompensatedAbsence: Boolean,
         val requiresPayrollReview: Boolean,
@@ -58,7 +59,7 @@ object AbsencePayrollImpactV2 {
         val sourceState = absences as? AbsenceSourceStateV2
         if (sourceState?.absenceSourceReliable == false) {
             return Snapshot(
-                unpaidFullCalendarDays = 0,
+                unpaidFullCalendarDays = null,
                 hasUnpaidAbsence = false,
                 hasCompensatedAbsence = false,
                 requiresPayrollReview = true,
@@ -69,7 +70,7 @@ object AbsencePayrollImpactV2 {
         val runtimeState = V2RuntimeHistoryGuardV2.sourceState()
         if (!runtimeState.reliable) {
             return Snapshot(
-                unpaidFullCalendarDays = 0,
+                unpaidFullCalendarDays = null,
                 hasUnpaidAbsence = false,
                 hasCompensatedAbsence = false,
                 requiresPayrollReview = true,
@@ -83,6 +84,7 @@ object AbsencePayrollImpactV2 {
         val monthEndMs = monthEndExclusive.atStartOfDay(zoneId).toInstant().toEpochMilli()
         val workedDays = workedCalendarDays(workSessions, acceptedEmployerIds, monthStartMs, monthEndMs, zoneId)
         val unpaidDays = linkedSetOf<LocalDate>()
+        var unpaidDaysReliable = true
         var hasUnpaid = false
         var hasCompensated = false
         var requiresReview = false
@@ -91,10 +93,16 @@ object AbsencePayrollImpactV2 {
 
         absences.forEach { absence ->
             if (acceptedEmployerIds.isNotEmpty() && absence.employerId !in acceptedEmployerIds) return@forEach
-            if (absence.endMs <= absence.startMs) return@forEach
+            if (absence.endMs <= absence.startMs) {
+                unpaidDaysReliable = false
+                requiresReview = true
+                warnings += "Absence avec période invalide : le nombre de jours réducteurs du plafond SS est inconnu."
+                return@forEach
+            }
             if (absence.startMs >= monthEndMs || absence.endMs <= monthStartMs) return@forEach
 
             if (absence.status != DecisionStatusV2.CONFIRMED) {
+                unpaidDaysReliable = false
                 requiresReview = true
                 warnings += "Absence à confirmer sur cette période : aucun impact automatique sur la paie."
                 return@forEach
@@ -102,6 +110,7 @@ object AbsencePayrollImpactV2 {
 
             when (absence.salaryTreatment) {
                 AbsenceSalaryTreatmentV2.TO_CONFIRM -> {
+                    unpaidDaysReliable = false
                     requiresReview = true
                     warnings += "${label(absence.type)} : maintien de salaire à confirmer avant le calcul précis."
                     return@forEach
@@ -119,6 +128,7 @@ object AbsencePayrollImpactV2 {
             }
 
             if (absence.type == TYPE_PAID_LEAVE) {
+                unpaidDaysReliable = false
                 requiresReview = true
                 warnings += "Congé payé déclaré sans maintien employeur : traitement incohérent à confirmer. Aucun jour n'est retiré automatiquement du plafond SS."
                 return@forEach
@@ -148,12 +158,15 @@ object AbsencePayrollImpactV2 {
             }
         }
 
-        if (unpaidDays.isNotEmpty()) {
+        if (unpaidDays.isNotEmpty() && unpaidDaysReliable) {
             warnings += "${unpaidDays.size} jour(s) d'absence non rémunérée complète pris en compte pour le plafond SS."
+        }
+        if (!unpaidDaysReliable) {
+            warnings += "Plafond SS : nombre de jours d'absence non rémunérée non certifiable ; aucune réduction d'absence ne doit être déduite d'un faux zéro."
         }
 
         return Snapshot(
-            unpaidFullCalendarDays = unpaidDays.size,
+            unpaidFullCalendarDays = unpaidDays.size.takeIf { unpaidDaysReliable },
             hasUnpaidAbsence = hasUnpaid,
             hasCompensatedAbsence = hasCompensated,
             requiresPayrollReview = requiresReview,
