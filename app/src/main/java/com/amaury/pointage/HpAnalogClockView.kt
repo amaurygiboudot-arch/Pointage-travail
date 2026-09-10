@@ -16,6 +16,7 @@ import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import java.util.Calendar
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * Horloge HP modulaire : cadran, aiguilles et Terre indépendants.
@@ -41,6 +42,17 @@ class HpAnalogClockView @JvmOverloads constructor(
     private val faceBitmap: Bitmap by lazy { HpDesignAssets.clockFace }
     private val handBitmap: Bitmap by lazy { HpDesignAssets.hand }
     private val secondBitmap: Bitmap by lazy { HpDesignAssets.secondHand }
+    private val sharpHandBitmap: Bitmap by lazy {
+        HighQualityBitmapScaler.scaleBy(handBitmap, RASTER_OVERSAMPLE_FACTOR)
+    }
+    private val sharpSecondBitmap: Bitmap by lazy {
+        HighQualityBitmapScaler.scaleBy(secondBitmap, RASTER_OVERSAMPLE_FACTOR)
+    }
+    private val sharpFallbackEarthBitmap: Bitmap by lazy {
+        HighQualityBitmapScaler.scaleBy(EarthDesignAsset.bitmap, RASTER_OVERSAMPLE_FACTOR)
+    }
+    private var sharpFaceBitmap: Bitmap? = null
+    private var sharpFaceSize = 0
     private val earthGlobeRenderer = EarthGlobeRendererV2()
 
     private val globeHandler = Handler(Looper.getMainLooper())
@@ -88,9 +100,9 @@ class HpAnalogClockView @JvmOverloads constructor(
         val minutes = now.get(Calendar.MINUTE) + seconds / 60f
         val hours = (now.get(Calendar.HOUR) % 12) + minutes / 60f
 
-        drawHandPng(canvas, handBitmap, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
-        drawHandPng(canvas, handBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
-        drawHandPng(canvas, secondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
+        drawHandPng(canvas, sharpHandBitmap, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
+        drawHandPng(canvas, sharpHandBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
+        drawHandPng(canvas, sharpSecondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
 
         val earthRadius = max(faceRadius * 0.16f, 13f)
         drawEarthGlobe(canvas, cx, cy, earthRadius)
@@ -107,6 +119,13 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+        val targetSize = max(1, (radius * 2f).roundToInt())
+        if (sharpFaceBitmap == null || sharpFaceSize != targetSize) {
+            sharpFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
+            sharpFaceBitmap = HighQualityBitmapScaler.scale(faceBitmap, targetSize, targetSize)
+            sharpFaceSize = targetSize
+        }
+        val bitmap = sharpFaceBitmap ?: faceBitmap
 
         val contrast = 1.20f
         val translate = (-128f * contrast + 128f) + 4f
@@ -121,7 +140,7 @@ class HpAnalogClockView @JvmOverloads constructor(
             )
         )
         facePaint.alpha = 255
-        canvas.drawBitmap(faceBitmap, null, rect, facePaint)
+        canvas.drawBitmap(bitmap, null, rect, facePaint)
         facePaint.colorFilter = null
     }
 
@@ -147,7 +166,7 @@ class HpAnalogClockView @JvmOverloads constructor(
             snapshot = celestialSnapshot
         )
         if (!rendered) {
-            drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
+            drawFallbackEarthPng(canvas, sharpFallbackEarthBitmap, cx, cy, radius)
         }
     }
 
@@ -214,5 +233,6 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     companion object {
         private const val GLOBE_LOCATION_REFRESH_MS = 30_000L
+        private const val RASTER_OVERSAMPLE_FACTOR = 4
     }
 }
