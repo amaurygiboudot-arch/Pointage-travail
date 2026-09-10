@@ -101,4 +101,72 @@ class V2ConventionProvidentBenefitStoreTest {
 
         assertFalse(V2ConventionProvidentBenefitStore.sameLegalIdentity(first, second))
     }
+
+    @Test
+    fun `historique vide explicite est fiable`() {
+        val result = V2ConventionProvidentBenefitStore.decodeVerified("[]")
+
+        assertTrue(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `json illisible rend le stockage non fiable`() {
+        val result = V2ConventionProvidentBenefitStore.decodeVerified("not-json")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide rend le stockage non fiable`() {
+        val result = V2ConventionProvidentBenefitStore.decodeVerified("[{}]")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `paquet vide reste valide pour permettre une suppression explicite`() {
+        assertTrue(V2ConventionProvidentBenefitStore.acceptsVerifiedPackage(emptyList()))
+    }
+
+    @Test
+    fun `paquet refuse deux variantes concurrentes de la meme identite juridique`() {
+        assertFalse(
+            V2ConventionProvidentBenefitStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(ruleId = "benefit-old", coefficient = 1.0),
+                    rule(ruleId = "benefit-new", coefficient = 1.5)
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `paquet refuse un meme ruleId pour deux preuves juridiques differentes`() {
+        assertFalse(
+            V2ConventionProvidentBenefitStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(articleId = "KALIARTI000000000001", ruleId = "same-id"),
+                    rule(articleId = "KALIARTI000000000002", ruleId = "same-id")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `paquet accepte deux preuves juridiquement distinctes avec des ids distincts`() {
+        assertTrue(
+            V2ConventionProvidentBenefitStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(articleId = "KALIARTI000000000001", ruleId = "benefit-a"),
+                    rule(articleId = "KALIARTI000000000002", ruleId = "benefit-b")
+                )
+            )
+        )
+    }
 }
