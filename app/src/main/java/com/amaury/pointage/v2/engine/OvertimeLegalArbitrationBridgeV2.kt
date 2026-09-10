@@ -68,26 +68,30 @@ object OvertimeLegalArbitrationBridgeV2 {
             ConventionRuleHistoryV2(branchState.snapshots).applicable(idcc, referenceDate.toEpochDay())
         } else null
         val atMs = referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-        val legalRecords = LegalPayrollSourceStoreV2.snapshot(context, atMs).records
+        val legalState = LegalPayrollSourceStoreV2.snapshot(context, atMs)
 
         // Une absence n'est jamais déduite d'un store vide. Seules les preuves d'audit officielles,
         // exhaustives et couvrant réellement la date de paie peuvent déverrouiller le repli.
-        val storedKnowledge = PayrollLegalSourceKnowledgeStoreV2.knowledgeForOvertime(
+        val storedKnowledge = PayrollLegalSourceKnowledgeStoreV2.knowledgeForOvertimeResult(
             context = context,
             companyId = companyId,
             idcc = idcc,
             referenceDate = referenceDate
         )
-        val effectiveKnowledge = storedKnowledge + sourceKnowledge
+        val effectiveKnowledge =
+            (if (storedKnowledge.reliable) storedKnowledge.knowledge else emptyMap()) + sourceKnowledge
 
         return assemble(
             referenceDate = referenceDate,
             companyAgreement = agreement,
             branchSnapshot = branch,
-            legalRecords = legalRecords,
+            legalRecords = legalState.records,
             sourceKnowledge = effectiveKnowledge,
             branchReliable = branchState.reliable,
-            branchWarnings = branchState.warnings
+            branchWarnings = branchState.warnings,
+            legalReliable = legalState.reliable,
+            legalWarnings = legalState.warnings,
+            sourceKnowledgeWarnings = storedKnowledge.warnings
         )
     }
 
@@ -98,7 +102,10 @@ object OvertimeLegalArbitrationBridgeV2 {
         legalRecords: List<LegalPayrollSourceStoreV2.Record>,
         sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap(),
         branchReliable: Boolean = true,
-        branchWarnings: List<String> = emptyList()
+        branchWarnings: List<String> = emptyList(),
+        legalReliable: Boolean = true,
+        legalWarnings: List<String> = emptyList(),
+        sourceKnowledgeWarnings: List<String> = emptyList()
     ): Snapshot {
         val warnings = mutableListOf<String>()
         val companyReliable = companyAgreement?.reliable != false
@@ -112,6 +119,12 @@ object OvertimeLegalArbitrationBridgeV2 {
                 listOf("KALI : historique conventionnel non fiable ; tout repli vers LEGI est bloqué.")
             }
         }
+        if (!legalReliable) {
+            warnings += legalWarnings.ifEmpty {
+                listOf("LEGI : stockage local incohérent ; aucun barème légal supplétif n'est considéré fiable.")
+            }
+        }
+        warnings += sourceKnowledgeWarnings
 
         val companySchedule = companyAgreement?.takeIf { it.reliable }?.let { agreement ->
             when {
@@ -172,7 +185,9 @@ object OvertimeLegalArbitrationBridgeV2 {
                 }
             }
 
-        val statutoryRule = StatutoryOvertimeRulesV2.fallbackRule(legalRecords, referenceDate)
+        val statutoryRule = if (legalReliable) {
+            StatutoryOvertimeRulesV2.fallbackRule(legalRecords, referenceDate)
+        } else null
         val statutorySchedule = statutoryRule?.let { rule ->
             Schedule(
                 source = PayrollLegalArbitratorV2.Source.LEGI,
@@ -204,12 +219,22 @@ object OvertimeLegalArbitrationBridgeV2 {
             effectiveKnowledge = effectiveKnowledge +
                 (PayrollLegalArbitratorV2.Source.KALI to PayrollLegalArbitratorV2.Knowledge.UNKNOWN)
         }
-        val resolution = PayrollLegalArbitratorV2.resolve(
+        val resolved = PayrollLegalArbitratorV2.resolve(
             candidates = candidates,
             referenceDate = referenceDate,
             policy = PayrollLegalArbitratorV2.Policy.OVERTIME_RATE_L3121_33_36,
             sourceKnowledge = effectiveKnowledge
         )
+        val resolution = if (
+            !legalReliable &&
+            resolved.state == PayrollLegalArbitratorV2.State.NO_APPLICABLE_RULE &&
+            resolved.selected == null
+        ) {
+            resolved.copy(
+                state = PayrollLegalArbitratorV2.State.REVIEW_REQUIRED,
+                explanation = "LEGI : stockage local non fiable ; impossible de conclure à l'absence de barème légal supplétif applicable."
+            )
+        } else resolved
 
         if (resolution.state != PayrollLegalArbitratorV2.State.RESOLVED) {
             warnings += resolution.explanation
