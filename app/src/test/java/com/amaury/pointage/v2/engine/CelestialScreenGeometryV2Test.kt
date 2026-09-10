@@ -67,6 +67,24 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
+    fun `chaine cardinale place cap a midi est a droite sud en bas ouest a gauche`() {
+        val heading = 37f
+        val ahead = CelestialScreenGeometryV2.projectEarthCenteredSky(body(37.0, 0.0), heading)!!
+        val right = CelestialScreenGeometryV2.projectEarthCenteredSky(body(127.0, 0.0), heading)!!
+        val behind = CelestialScreenGeometryV2.projectEarthCenteredSky(body(217.0, 0.0), heading)!!
+        val left = CelestialScreenGeometryV2.projectEarthCenteredSky(body(307.0, 0.0), heading)!!
+
+        assertTrue(ahead.yRadiusFraction < -0.99)
+        assertTrue(kotlin.math.abs(ahead.xRadiusFraction) < 1e-9)
+        assertTrue(right.xRadiusFraction > 0.99)
+        assertTrue(kotlin.math.abs(right.yRadiusFraction) < 1e-9)
+        assertTrue(behind.yRadiusFraction > 0.99)
+        assertTrue(kotlin.math.abs(behind.xRadiusFraction) < 1e-9)
+        assertTrue(left.xRadiusFraction < -0.99)
+        assertTrue(kotlin.math.abs(left.yRadiusFraction) < 1e-9)
+    }
+
+    @Test
     fun `astre oppose au cap reste visible sur carte 360`() {
         val south = CelestialScreenGeometryV2.projectEarthCenteredSky(body(180.0, 0.0), 0f)
         assertNotNull(south)
@@ -145,6 +163,31 @@ class CelestialScreenGeometryV2Test {
 
         assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(halfTiltTowardUser), 1e-9)
         assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(uprightFacingSouth), 1e-9)
+    }
+
+    @Test
+    fun `roulis au dela de 90 degres ne retourne plus le ciel`() {
+        // Le haut physique reste exactement vers le Nord. Seul l'axe droit passe
+        // de l'autre côté de la verticale. L'ancien algorithme basé en priorité
+        // sur Up x Right aurait renvoyé 180° au lieu de 0°.
+        val roll120 = Math.toRadians(120.0)
+        val c = kotlin.math.cos(roll120)
+        val s = kotlin.math.sin(roll120)
+        val frame = CelestialDeviceFrameV2(
+            rightEast = c,
+            rightNorth = 0.0,
+            rightUp = s,
+            topEast = 0.0,
+            topNorth = 1.0,
+            topUp = 0.0,
+            normalEast = -s,
+            normalNorth = 0.0,
+            normalUp = c
+        )
+
+        assertEquals(0.0, CelestialScreenGeometryV2.headingFromFrame(frame), 1e-9)
+        val north = CelestialScreenGeometryV2.projectInDeviceSky(body(0.0, 0.0), frame)!!
+        assertTrue(north.yRadiusFraction < -0.99)
     }
 
     @Test
