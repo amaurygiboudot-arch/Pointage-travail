@@ -7,7 +7,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import org.json.JSONArray
 import java.io.OutputStream
 import java.text.SimpleDateFormat
@@ -28,7 +28,8 @@ object DailyPdfReport {
     }
 
     private fun writeV2(context: Context, dayStart: Long, dayEnd: Long, output: OutputStream) {
-        val sessions = V2RuntimeStore.allSessions(context).filter { s ->
+        val runtime = V2RuntimeReader.allSessions(context)
+        val sessions = runtime.requireReliable().filter { s ->
             val entry = s.countedEntryMs ?: s.realArrivalMs ?: return@filter false
             entry in dayStart until dayEnd && s.realExitMs != null
         }
