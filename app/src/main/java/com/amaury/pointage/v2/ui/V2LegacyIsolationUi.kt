@@ -6,7 +6,7 @@ import android.widget.TextView
 import com.amaury.pointage.R
 import com.amaury.pointage.SalaryV2RootView
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import java.text.SimpleDateFormat
@@ -36,7 +36,9 @@ object V2LegacyIsolationUi {
     }
 
     private fun buildStatus(activity: Activity): String {
-        val session = V2RuntimeStore.snapshot(activity).session ?: return "STATUT ACTUEL\n●  AUCUNE SESSION EN COURS"
+        val read = V2RuntimeReader.current(activity)
+        if (!read.reliable) return "STATUT ACTUEL\n●  DONNÉES À VÉRIFIER"
+        val session = read.snapshot.session ?: return "STATUT ACTUEL\n●  AUCUNE SESSION EN COURS"
         return when (session.status) {
             SessionStatusV2.OPEN -> if (session.pauses.any { it.endMs == null }) "STATUT ACTUEL\n●  PAUSE EN COURS" else "STATUT ACTUEL\n●  TRAVAIL EN COURS"
             SessionStatusV2.CLOSED -> "STATUT ACTUEL\n●  SESSION TERMINÉE"
@@ -45,7 +47,15 @@ object V2LegacyIsolationUi {
     }
 
     private fun buildHistory(activity: Activity, currentOnly: Boolean): String {
-        val sessions = if (currentOnly) listOfNotNull(V2RuntimeStore.snapshot(activity).session) else V2RuntimeStore.allSessions(activity)
+        val sessions = if (currentOnly) {
+            val read = V2RuntimeReader.current(activity)
+            if (!read.reliable) return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            listOfNotNull(read.snapshot.session)
+        } else {
+            val read = V2RuntimeReader.allSessions(activity)
+            if (!read.reliable) return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+            read.sessions
+        }
         if (sessions.isEmpty()) return "Aucune session HoraTrack."
         val f = SimpleDateFormat("dd/MM HH:mm", Locale.FRANCE)
         fun time(ms: Long?) = ms?.let { f.format(Date(it)) } ?: "—"
@@ -67,7 +77,9 @@ object V2LegacyIsolationUi {
     }
 
     private fun buildAnalytics(activity: Activity): String {
-        val sessions = V2RuntimeStore.allSessions(activity)
+        val read = V2RuntimeReader.allSessions(activity)
+        if (!read.reliable) return "Analyse HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
+        val sessions = read.sessions
         if (sessions.isEmpty()) return "Aucune donnée HoraTrack à analyser."
         val a = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
         fun duration(ms: Long) = "%02dh %02dm".format(Locale.FRANCE, ms / 3_600_000L, (ms / 60_000L) % 60L)
