@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
+import com.amaury.pointage.v2.HoraTrackV2
 import java.util.Calendar
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -127,18 +128,32 @@ object LightDirectionController {
         fun recomputeCelestial() {
             val now = System.currentTimeMillis()
             val loc = lastKnownLocation(activity)
-            if (loc != null) {
-                val sun = CelestialEphemeris.sun(loc.latitude, loc.longitude, now)
-                val moon = CelestialEphemeris.moon(loc.latitude, loc.longitude, now)
-                night = sun.altitude < -0.833
-                val active = if (night) moon else sun
-                locationBased = true
-                celestialAzimuth = active.azimuth
-                elevation = active.altitude.toFloat().coerceIn(-10f, 90f)
-                intensity = if (night) {
-                    ((active.altitude + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
+            if (loc != null && HoraTrackV2.ENABLED) {
+                val snapshot = runCatching {
+                    HoraTrackV2.celestial.snapshot(
+                        latitudeDeg = loc.latitude,
+                        longitudeDeg = loc.longitude,
+                        timeMs = now,
+                        observerAltitudeMeters = if (loc.hasAltitude()) loc.altitude else 0.0
+                    )
+                }.getOrNull()
+                if (snapshot != null) {
+                    night = snapshot.night
+                    val active = if (night) snapshot.moon else snapshot.sun
+                    locationBased = true
+                    celestialAzimuth = active.azimuthDeg
+                    elevation = active.altitudeDeg.toFloat().coerceIn(-10f, 90f)
+                    intensity = if (night) {
+                        ((active.altitudeDeg + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
+                    } else {
+                        ((snapshot.sun.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
+                    }
                 } else {
-                    ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
+                    locationBased = false
+                    celestialAzimuth = null
+                    night = fallbackNightByClock()
+                    elevation = if (night) 25f else 45f
+                    intensity = if (night) .24f else .72f
                 }
             } else {
                 locationBased = false
@@ -224,8 +239,18 @@ object LightDirectionController {
     }
 
     fun isNight(context: Context): Boolean {
-        val l = lastKnownLocation(context)
-        return if (l != null) CelestialEphemeris.sun(l.latitude, l.longitude).altitude < -0.833 else fallbackNightByClock()
+        val location = lastKnownLocation(context)
+        if (location != null && HoraTrackV2.ENABLED) {
+            val night = runCatching {
+                HoraTrackV2.celestial.snapshot(
+                    latitudeDeg = location.latitude,
+                    longitudeDeg = location.longitude,
+                    observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
+                ).night
+            }.getOrNull()
+            if (night != null) return night
+        }
+        return fallbackNightByClock()
     }
 
     private fun fallbackNightByClock(): Boolean {
@@ -237,15 +262,17 @@ object LightDirectionController {
         val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!fine && !coarse) return null
-        val m = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return runCatching {
-            m.getProviders(true).mapNotNull { p -> runCatching { m.getLastKnownLocation(p) }.getOrNull() }.maxByOrNull { it.time }
+            manager.getProviders(true)
+                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
+                .maxByOrNull { it.time }
         }.getOrNull()
     }
 
-    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) =
+    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double): Float =
         normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()))
 
-    private fun normalize(v: Float) = ((v % 360f) + 360f) % 360f
-    private fun shortestDelta(from: Float, to: Float) = ((to - from + 540f) % 360f) - 180f
+    private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
+    private fun shortestDelta(from: Float, to: Float): Float = ((to - from + 540f) % 360f) - 180f
 }
