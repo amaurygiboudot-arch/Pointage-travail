@@ -35,10 +35,9 @@ object V2MigrationManager {
         val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
         if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(context, JSONArray())
         val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
-            ?: return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
-        if (raw.isBlank()) return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
-        val legacy = runCatching { JSONArray(raw) }.getOrNull()
-            ?: return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
+        if (raw == null) return migrationFailure()
+        if (raw.isBlank()) return migrationFailure()
+        val legacy = runCatching { JSONArray(raw) }.getOrNull() ?: return migrationFailure()
         return importLegacyArray(context, legacy)
     }
 
@@ -116,13 +115,17 @@ object V2MigrationManager {
 
         val inspected = V2RuntimeHistoryGuardV2.inspect(history)
         if (!inspected.reliable || !V2RuntimeHistoryGuardV2.save(app, history)) {
+            val warnings = inspected.warnings.ifEmpty {
+                listOf("Historique V2 : sauvegarde de migration impossible ; données précédentes conservées.")
+            }
+            V2RuntimeHistoryGuardV2.publishSourceState(false, warnings)
             return Result(
                 imported = 0,
                 skipped = legacy.length(),
                 legacyCount = legacy.length(),
                 v2Count = storedHistory.history.length(),
                 reliable = false,
-                warnings = inspected.warnings.ifEmpty { listOf("Historique V2 : sauvegarde de migration impossible ; données précédentes conservées.") }
+                warnings = warnings
             )
         }
         app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE).edit()
@@ -132,6 +135,12 @@ object V2MigrationManager {
             .putLong("checked_at", System.currentTimeMillis())
             .commit()
         return Result(imported, skipped, legacy.length(), history.length())
+    }
+
+    private fun migrationFailure(): Result {
+        val warnings = listOf(LEGACY_STORAGE_WARNING)
+        V2RuntimeHistoryGuardV2.publishSourceState(false, warnings)
+        return Result(0, 0, 0, 0, false, warnings)
     }
 
     private fun ensureStableHistoryIds(history: JSONArray) {

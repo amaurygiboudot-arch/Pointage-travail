@@ -38,6 +38,20 @@ object MealBasketSalaryBridgeV2 {
         zoneId: ZoneId = ZoneId.systemDefault()
     ): Result {
         require(monthZeroBased in 0..11) { "Mois invalide" }
+
+        val runtimeState = V2RuntimeHistoryGuardV2.sourceState()
+        if (!runtimeState.reliable) {
+            return Result(
+                count = 0,
+                totalAmount = null,
+                unitAmount = null,
+                reliable = false,
+                warnings = (runtimeState.warnings +
+                    "Panier : historique de pointage V2 non fiable ; aucun droit repas n'est valorisé à partir d'une chronologie partielle.").distinct(),
+                selectedSources = emptySet()
+            )
+        }
+
         val targetMonth = YearMonth.of(year, monthZeroBased + 1)
         if (acceptedEmployerIds.isEmpty()) {
             return Result(0, 0.0, null, true, emptyList(), emptySet())
