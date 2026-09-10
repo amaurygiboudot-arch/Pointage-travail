@@ -17,6 +17,8 @@ La Terre reste au centre. HoraTrack représente le ciel apparent topocentrique �
 - éclipses lunaires avec umbra/pénombre physiques ;
 - GPS fail-closed, acquisition capteurs centralisée et Nord magnétique corrigé vers le Nord vrai ;
 - cap filtré unique partagé par tous les rendus, sans bascule artificielle entre téléphone à plat et vertical ;
+- chaîne cardinale verrouillée : cap = 12 h, +90° = 3 h, +180° = 6 h, -90° = 9 h ;
+- extraction du cap corrigée pour éviter un retournement de 180° lors d’un fort roulis ;
 - carte 360° : un astre ne disparaît plus simplement parce qu’il est derrière le téléphone ;
 - proximité Soleil/Lune séparée d’une vraie éclipse solaire grâce à `SolarEclipseGeometryV2` ;
 - `headingAccuracyDeg` disponible pour diagnostiquer une boussole perturbée ;
@@ -99,6 +101,23 @@ Des valeurs de référence sont maintenant verrouillées dans `CelestialEngineV2
 
 Audit détaillé : `docs/audits/HoraTrack_Celestial_Ephemeris_Accuracy_Audit.md`.
 
+### ÉLEVÉ — chaîne Nord vrai → cap → cadran sensible au roulis
+
+Le contrôle degré par degré de la chaîne de rendu a confirmé la convention cardinale : lorsque l’azimut de l’astre égale le cap du téléphone, il est à 12 h ; +90° va à 3 h ; +180° à 6 h ; -90° à 9 h. Aucun signe Est/Ouest inversé n’a été trouvé dans cette projection.
+
+La correction de déclinaison magnétique est également cohérente avec la convention Android : une déclinaison positive signifie que le Nord magnétique est tourné vers l’Est par rapport au Nord vrai.
+
+**Défaut trouvé :** `headingFromFrame()` choisissait presque toujours `Up × Right` pour reconstruire le cap. Cette technique résiste bien au passage du téléphone à la verticale, mais lors d’un roulis supérieur à 90° l’axe droit peut traverser la verticale et inverser sa projection horizontale. Le ciel pouvait alors se retourner artificiellement de 180° alors que le haut physique du téléphone gardait la même direction.
+
+**Correction V2 :**
+
+- le cap stabilisé injecté par le tracker reste prioritaire ;
+- en posture ordinaire, le haut physique de l’écran définit directement la direction 12 h ;
+- seulement lorsque ce haut devient presque vertical, `Up × Right` sert de prolongement de secours ;
+- tests cardinaux et test de roulis > 90° ajoutés.
+
+Audit détaillé : `docs/audits/HoraTrack_Celestial_Heading_Chain_Audit.md`.
+
 ### MOYEN — deux vues d’horloge
 
 `activity_main.xml` contient encore `heroClockPermanent` et la vue fantôme `heroClockHands` 1×1. `heroClockPermanent` reste l’horloge canonique. Nettoyage différé jusqu’à validation visuelle finale.
@@ -129,7 +148,7 @@ CelestialTrackerV2
 
 ## Tests de référence
 
-Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
+Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, progression temporelle sur 10 secondes, positions Soleil/Lune comparées à une référence indépendante sur plusieurs latitudes, éclipses lunaires, qualité GPS et âge monotone, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, roulis au-delà de 90°, chaîne cardinale complète, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
 
 ## État actuel
 
@@ -139,7 +158,7 @@ La prochaine validation téléphone doit vérifier surtout :
 
 1. que Soleil/Lune ne disparaissent plus pendant un tour 360° tant qu’ils sont dans la fenêtre de visibilité ;
 2. que la direction angulaire correspond au ciel réel ;
-3. que le cap reste stable sans retard excessif ;
+3. que le cap reste stable sans retard excessif, y compris lorsque le téléphone est fortement incliné ou roulé ;
 4. que le mouvement céleste ne présente plus de petits sauts temporels de 30 secondes ;
 5. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
 6. que la phase et les ombres restent orientées correctement.
