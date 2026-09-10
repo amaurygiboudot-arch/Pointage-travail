@@ -15,9 +15,10 @@ class V2CompanyProvidentBenefitStoreTest {
     private fun rule(
         siret: String = "12345678901234",
         coefficient: Double = 1.0,
-        seniority: Int = 0
+        seniority: Int = 0,
+        agreementId: String = "ACCOTEXT000000000001"
     ) = CompanyProvidentBenefitV2.Rule(
-        agreementId = "ACCOTEXT000000000001",
+        agreementId = agreementId,
         siret = siret,
         effectiveFrom = LocalDate.of(2026, 1, 1),
         effectiveTo = null,
@@ -67,5 +68,57 @@ class V2CompanyProvidentBenefitStoreTest {
         assertTrue(decoded.single().packageComplete)
         assertEquals(initial.guarantee.family, decoded.single().guarantee.family)
         assertEquals(initial.guarantee.formula.coefficient!!, decoded.single().guarantee.formula.coefficient!!, 0.0001)
+    }
+
+    @Test
+    fun `historique vide explicite est fiable`() {
+        val result = V2CompanyProvidentBenefitStore.decodeVerified("[]")
+
+        assertTrue(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `json illisible rend le stockage non fiable`() {
+        val result = V2CompanyProvidentBenefitStore.decodeVerified("not-json")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide rend le stockage non fiable`() {
+        val result = V2CompanyProvidentBenefitStore.decodeVerified("[{}]")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `variantes concurrentes de la meme identite rendent le paquet ambigu`() {
+        val first = rule(coefficient = 1.0, seniority = 0)
+        val revised = rule(coefficient = 1.25, seniority = 12)
+        val raw = "[${V2CompanyProvidentBenefitStore.encodeRules(listOf(first)).removePrefix("[").removeSuffix("]")},${V2CompanyProvidentBenefitStore.encodeRules(listOf(revised)).removePrefix("[").removeSuffix("]")} ]"
+
+        val result = V2CompanyProvidentBenefitStore.decodeVerified(raw)
+
+        assertFalse(result.reliable)
+        assertEquals(2, result.rules.size)
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `deux ACCOTEXT distincts restent un paquet valide`() {
+        assertTrue(
+            V2CompanyProvidentBenefitStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(agreementId = "ACCOTEXT000000000001"),
+                    rule(agreementId = "ACCOTEXT000000000002")
+                )
+            )
+        )
     }
 }

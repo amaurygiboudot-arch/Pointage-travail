@@ -36,13 +36,16 @@ object CompanyProvidentGuaranteeEquivalenceV2 {
         val seniority = V2ConventionProvidentContributionBridge.seniorityMonths(profile, referenceDate)
             ?: return unresolved("ancienneté conventionnelle non déterminable")
         val branch = VerifiedProvidentBenefitProviderV2.resolve(context, companyId, referenceDate)
+        val companyStored = V2CompanyProvidentBenefitStore.readVerified(context, companyId)
         return resolve(
             profile = profile,
             referenceDate = referenceDate,
             seniorityMonths = seniority,
             branch = branch,
-            companyRules = V2CompanyProvidentBenefitStore.rules(context, companyId),
-            contributionAgreementIds = contributionAgreementIds
+            companyRules = companyStored.rules,
+            contributionAgreementIds = contributionAgreementIds,
+            companyStoreReliable = companyStored.reliable,
+            companyStoreWarnings = companyStored.warnings
         )
     }
 
@@ -52,8 +55,16 @@ object CompanyProvidentGuaranteeEquivalenceV2 {
         seniorityMonths: Int,
         branch: VerifiedProvidentBenefitProviderV2.Snapshot,
         companyRules: List<CompanyProvidentBenefitV2.Rule>,
-        contributionAgreementIds: Set<String>
+        contributionAgreementIds: Set<String>,
+        companyStoreReliable: Boolean = true,
+        companyStoreWarnings: List<String> = emptyList()
     ): Result {
+        if (!companyStoreReliable) {
+            return unresolved(
+                "stockage local ACCO des garanties incohérent ; aucune équivalence n'est déduite d'un paquet potentiellement tronqué",
+                companyStoreWarnings
+            )
+        }
         if (!branch.reliable) return unresolved("paquet KALI de garanties non fiable", branch.warnings)
         if (branch.guarantees.isEmpty()) {
             return unresolved("aucune garantie KALI structurée à comparer ; l'équivalence n'est pas déduite d'une absence")
