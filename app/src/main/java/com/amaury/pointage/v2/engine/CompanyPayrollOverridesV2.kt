@@ -126,7 +126,10 @@ object CompanyPayrollOverridesV2 {
         /** Équivalence L2253-1 des garanties. null tant qu'une preuve distincte sur les prestations ne l'a pas démontrée. */
         val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null,
         /** Part employeur de protection sociale complémentaire incluse dans l'assiette CSG/CRDS du mois. */
-        val employerProtectionCsgCrdsBaseAmount:Double? = null
+        val employerProtectionCsgCrdsBaseAmount:Double? = null,
+        /** Fiabilité du stockage local des cotisations KALI. false interdit tout repli vers un ancien barème. */
+        val verifiedProvidentStoreReliable:Boolean = true,
+        val verifiedProvidentStoreWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -177,7 +180,10 @@ object CompanyPayrollOverridesV2 {
         val verifiedProvidentSeniorityMonths=legalProfile?.let {
             V2ConventionProvidentContributionBridge.seniorityMonths(it,referenceDate)
         }
-        val verifiedProvidentRules=idcc?.let { V2ConventionProvidentContributionStore.rules(context,it) }.orEmpty()
+        val verifiedProvidentStored=V2ConventionProvidentContributionStore.readVerified(context)
+        val verifiedProvidentRules=if(idcc!=null && verifiedProvidentStored.reliable){
+            verifiedProvidentStored.rules.filter { normalizeIdcc(it.idcc)==idcc }
+        }else emptyList()
         val verifiedProvidentCoverage=if(
             idcc!=null && !verifiedProvidentClassification.isEmpty() && professionalStatus!=null
         ) {
@@ -270,6 +276,7 @@ object CompanyPayrollOverridesV2 {
             addAll(absenceImpact.warnings)
             addAll(employeeDeductions.warnings)
             addAll(incomeTaxRate.warnings)
+            addAll(verifiedProvidentStored.warnings)
             if(mutual==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE].warnings.isEmpty())add("Mutuelle salariale : à confirmer")
             if(provident==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].warnings.isEmpty())add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].warnings.isEmpty())add("Retenue transport : à confirmer")
@@ -342,7 +349,9 @@ object CompanyPayrollOverridesV2 {
             verifiedCompanyProvidentRules=verifiedCompanyProvidentRules,
             verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
             verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent,
-            employerProtectionCsgCrdsBaseAmount=employerProtectionCsgCrdsBase
+            employerProtectionCsgCrdsBaseAmount=employerProtectionCsgCrdsBase,
+            verifiedProvidentStoreReliable=verifiedProvidentStored.reliable,
+            verifiedProvidentStoreWarnings=verifiedProvidentStored.warnings
         )
     }
 
