@@ -116,4 +116,25 @@ class OvertimeLegalArbitrationBridgeV2Test {
         assertNull(result.selectedSchedule)
         assertTrue(result.warnings.any { it.contains("stockage local incohérent") })
     }
+
+    @Test
+    fun `un historique KALI incoherent annule une ancienne preuve dabsence et bloque LEGI`() {
+        val result = OvertimeLegalArbitrationBridgeV2.assemble(
+            referenceDate = date,
+            companyAgreement = null,
+            branchSnapshot = branch(),
+            legalRecords = listOf(legalFallbackRecord()),
+            sourceKnowledge = absent(
+                PayrollLegalArbitratorV2.Source.ACCO,
+                PayrollLegalArbitratorV2.Source.KALI
+            ),
+            branchReliable = false,
+            branchWarnings = listOf("KALI : historique local incohérent")
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
+        assertNull(result.branchSchedule)
+        assertNull(result.selectedSchedule)
+        assertTrue(result.warnings.any { it.contains("historique local incohérent") })
+    }
 }
