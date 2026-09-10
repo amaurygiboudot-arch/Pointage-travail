@@ -13,7 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.V2PayslipStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.PlasturgieProtectionCategoryV2
 import com.amaury.pointage.v2.engine.RestEngineV2
@@ -128,16 +128,21 @@ class V2RightsRestView @JvmOverloads constructor(
                 }
             }
         }
+        val runtime = V2RuntimeReader.allSessions(context)
         val sessions = if (companyId.isBlank()) {
-            V2RuntimeStore.allSessions(context)
+            runtime.sessions
         } else {
             val accepted = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
-            V2RuntimeStore.allSessions(context).filter { it.employerId in accepted }
+            runtime.sessions.filter { it.employerId in accepted }
         }
-        val latest = RestEngineV2.dailyRests(sessions).lastOrNull()
-        val rest = latest?.let {
-            "Dernier repos entre journées : ${duration(it.restMs)} • conformité légale : À confirmer selon la règle applicable"
-        } ?: "Repos quotidien : pas encore assez de journées terminées pour calculer un intervalle."
+        val rest = if (!runtime.reliable) {
+            "Repos quotidien : indisponible — ${V2RuntimeReader.warningText(runtime.warnings)}"
+        } else {
+            val latest = RestEngineV2.dailyRests(sessions).lastOrNull()
+            latest?.let {
+                "Dernier repos entre journées : ${duration(it.restMs)} • conformité légale : À confirmer selon la règle applicable"
+            } ?: "Repos quotidien : pas encore assez de journées terminées pour calculer un intervalle."
+        }
         val warnings = if (companyId.isBlank()) {
             V2RightsStore.snapshot(context).warnings
         } else {
