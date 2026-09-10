@@ -95,8 +95,10 @@ object NetSalaryEngineV2 {
         // Phase de migration : tant qu'aucune couverture KALI n'est acquise, le repli Plasturgie
         // historique reste disponible. Dès qu'un chemin KALI fiable a été acquis pour ce profil,
         // il reste prioritaire même si le refresh courant devient INCOMPLETE : dans ce cas le calcul
-        // se bloque, mais l'ancien barème ne ressuscite jamais.
+        // se bloque, mais l'ancien barème ne ressuscite jamais. Un store KALI corrompu bloque aussi
+        // explicitement ce repli, car son contenu perdu peut précisément contenir la règle applicable.
         val providentCoverage = company.verifiedProvidentCoverage
+        val providentStoreReliable = company.verifiedProvidentStoreReliable
         val currentKaliCoverageClaims = providentCoverage.reliable &&
             providentCoverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true &&
             providentCoverage.state in setOf(
@@ -110,9 +112,12 @@ object NetSalaryEngineV2 {
             providentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES
         val verifiedProvidentNoRulePath = currentKaliCoverageClaims && verifiedProvidentCategoryReady &&
             providentCoverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE
-        val verifiedProvidentPath = acquiredKaliProvidentPath || currentKaliCoverageClaims
+        val verifiedProvidentPath = !providentStoreReliable || acquiredKaliProvidentPath || currentKaliCoverageClaims
         val verifiedProvident = when {
             !verifiedProvidentPath -> null
+            !providentStoreReliable -> blockedVerifiedProvident(
+                "Prévoyance conventionnelle : stockage KALI local incohérent ; calcul bloqué et aucun ancien barème n'est réutilisé."
+            )
             !currentKaliCoverageClaims -> blockedVerifiedProvident(
                 "Prévoyance conventionnelle : chemin KALI déjà acquis mais dernier audit incomplet ; calcul bloqué et aucun ancien barème n'est réutilisé."
             )
@@ -138,21 +143,33 @@ object NetSalaryEngineV2 {
 
         // Dès qu'un chemin KALI a été acquis, la règle calculable doit passer par l'arbitrage
         // ACCO/KALI. Un store ACCO vide n'est jamais interprété comme une absence d'accord : seule
-        // une preuve explicite de connaissance de source peut autoriser la branche seule.
+        // une preuve explicite de connaissance de source peut autoriser la branche seule. Si le
+        // store KALI est corrompu, l'arbitrage entier reste bloqué : ACCO ne peut pas devenir fiable
+        // par simple disparition accidentelle de la branche.
         val arbitratedProvident = if (verifiedProvidentPath) {
             val profile = company.verifiedProvidentLegalProfile
-            if (profile == null || verifiedProvident == null) {
-                ProvidentContributionPayrollResolutionV2.Result(
+            when {
+                !providentStoreReliable -> ProvidentContributionPayrollResolutionV2.Result(
                     employeeAmount = null,
                     employerAmount = null,
                     reliable = false,
                     selectedSource = null,
-                    warnings = listOf(
-                        "Prévoyance ACCO/KALI : profil juridique local indisponible ; calcul collectif bloqué."
-                    )
+                    warnings = (listOf(
+                        "Prévoyance ACCO/KALI : stockage KALI local incohérent ; arbitrage bloqué jusqu'à réparation des preuves de branche."
+                    ) + company.verifiedProvidentStoreWarnings).distinct()
                 )
-            } else {
-                ProvidentContributionPayrollResolutionV2.resolve(
+                profile == null || verifiedProvident == null -> {
+                    ProvidentContributionPayrollResolutionV2.Result(
+                        employeeAmount = null,
+                        employerAmount = null,
+                        reliable = false,
+                        selectedSource = null,
+                        warnings = listOf(
+                            "Prévoyance ACCO/KALI : profil juridique local indisponible ; calcul collectif bloqué."
+                        )
+                    )
+                }
+                else -> ProvidentContributionPayrollResolutionV2.resolve(
                     profile = profile,
                     referenceDate = company.referenceDate,
                     branch = V2ConventionProvidentContributionBridge.Snapshot(
@@ -194,7 +211,11 @@ object NetSalaryEngineV2 {
             else -> null
         }
         val activeProvidentWarnings = if (verifiedProvidentPath) {
-            (verifiedProvident?.warnings.orEmpty() + arbitratedProvident?.warnings.orEmpty()).distinct()
+            (
+                verifiedProvident?.warnings.orEmpty() +
+                    arbitratedProvident?.warnings.orEmpty() +
+                    company.verifiedProvidentStoreWarnings
+                ).distinct()
         } else {
             legacyConventionProvident.warnings
         }
