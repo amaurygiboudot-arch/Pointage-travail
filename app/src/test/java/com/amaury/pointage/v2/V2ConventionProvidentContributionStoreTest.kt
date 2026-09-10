@@ -17,10 +17,11 @@ class V2ConventionProvidentContributionStoreTest {
         conventionScopeKey: String? = "KALITEXT000000000001",
         extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
         extensionEffectiveFrom: LocalDate? = LocalDate.of(2025, 1, 1),
-        employeeRate: Double = 0.004
+        employeeRate: Double = 0.004,
+        ruleId: String = "KALIARTI000000000001"
     ) = ConventionProvidentContributionV2.Rule(
         idcc = "292",
-        ruleId = "KALIARTI000000000001",
+        ruleId = ruleId,
         effectiveFrom = LocalDate.of(2025, 1, 1),
         classification = classification,
         professionalStatus = professionalStatus,
@@ -38,7 +39,7 @@ class V2ConventionProvidentContributionStoreTest {
                 )
             )
         ),
-        source = "Légifrance KALI — KALIARTI000000000001",
+        source = "Légifrance KALI — $ruleId",
         conventionScopeKey = conventionScopeKey,
         extensionStatus = extensionStatus,
         extensionEffectiveFrom = extensionEffectiveFrom
@@ -119,6 +120,62 @@ class V2ConventionProvidentContributionStoreTest {
         assertFalse(
             V2ConventionProvidentContributionStore.acceptsVerifiedRule(
                 rule(aniCategories = setOf(ProtectionCategoryV2.AniCategory.NO_CONVENTION_OVERRIDE))
+            )
+        )
+    }
+
+    @Test
+    fun `historique vide explicite est fiable`() {
+        val result = V2ConventionProvidentContributionStore.decodeVerified("[]")
+
+        assertTrue(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `json illisible rend le stockage non fiable`() {
+        val result = V2ConventionProvidentContributionStore.decodeVerified("not-json")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide rend le stockage non fiable au lieu de disparaitre`() {
+        val result = V2ConventionProvidentContributionStore.decodeVerified("[{}]")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `paquet vide reste valide pour une suppression explicite`() {
+        assertTrue(V2ConventionProvidentContributionStore.acceptsVerifiedPackage(emptyList()))
+    }
+
+    @Test
+    fun `meme ruleId duplique dans un IDCC rend le paquet ambigu`() {
+        assertFalse(
+            V2ConventionProvidentContributionStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(ruleId = "KALIARTI000000000001", employeeRate = 0.004),
+                    rule(ruleId = "kaliarti000000000001", employeeRate = 0.006)
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `deux preuves KALI distinctes restent acceptables`() {
+        assertTrue(
+            V2ConventionProvidentContributionStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(ruleId = "KALIARTI000000000001"),
+                    rule(ruleId = "KALIARTI000000000002")
+                )
             )
         )
     }
