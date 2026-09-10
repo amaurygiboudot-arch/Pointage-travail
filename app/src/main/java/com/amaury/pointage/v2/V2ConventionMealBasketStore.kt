@@ -13,22 +13,41 @@ object V2ConventionMealBasketStore {
     private const val PREFS = "horatrack_v2_convention_meal_basket_rules"
     private const val KEY_RULES = "verified_rules"
     private const val MAX_RULES = 500
+    private const val STORAGE_WARNING =
+        "KALI panier repas : stockage local des règles vérifiées incohérent ; aucune règle de branche ne peut être déduite de ce stockage."
+
+    data class ReadResult(
+        val rules: List<ConventionMealBasketV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun readVerified(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_RULES)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_RULES, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
 
     fun rules(context: Context, idcc: String): List<ConventionMealBasketV2.Rule> {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
         if (normalized.isBlank()) return emptyList()
-        return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
+        return stored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
     fun saveVerified(context: Context, rule: ConventionMealBasketV2.Rule) {
         require(rule.structurallyValid()) { "Règle panier KALI invalide" }
-        val current = load(context).toMutableList()
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        val current = stored.rules.toMutableList()
         current.removeAll { sameLegalIdentity(it, rule) }
         current += rule
-        val array = JSONArray()
-        current.takeLast(MAX_RULES).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_RULES, array.toString()).apply()
+        check(current.all { it.structurallyValid() }) { "KALI panier repas : historique local invalide." }
+        check(!hasDuplicateLegalIdentity(current)) { "KALI panier repas : identité juridique dupliquée." }
+        persist(context, current.takeLast(MAX_RULES))
     }
 
     internal fun acceptsVerifiedRule(rule: ConventionMealBasketV2.Rule): Boolean = rule.structurallyValid()
@@ -41,14 +60,48 @@ object V2ConventionMealBasketStore {
             left.classification.normalized() == right.classification.normalized() &&
             left.professionalStatus?.trim()?.uppercase() == right.professionalStatus?.trim()?.uppercase()
 
-    private fun load(context: Context): List<ConventionMealBasketV2.Rule> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_RULES, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) decode(array.optJSONObject(index) ?: continue)?.let(::add)
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<ConventionMealBasketV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decode)
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
+            }
         }
+        if (hasDuplicateLegalIdentity(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
     }
+
+    private fun persist(context: Context, rules: List<ConventionMealBasketV2.Rule>) {
+        check(rules.all { it.structurallyValid() }) { "KALI panier repas : historique local invalide." }
+        check(!hasDuplicateLegalIdentity(rules)) { "KALI panier repas : identité juridique dupliquée." }
+        val array = JSONArray()
+        rules.forEach { array.put(encode(it)) }
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_RULES, array.toString())
+                .commit()
+        }.getOrDefault(false)
+        check(saved) { "KALI panier repas : stockage local des règles impossible." }
+    }
+
+    private fun hasDuplicateLegalIdentity(rules: List<ConventionMealBasketV2.Rule>): Boolean =
+        rules.indices.any { leftIndex ->
+            ((leftIndex + 1) until rules.size).any { rightIndex ->
+                sameLegalIdentity(rules[leftIndex], rules[rightIndex])
+            }
+        }
 
     private fun encode(rule: ConventionMealBasketV2.Rule): JSONObject = JSONObject()
         .put("idcc", rule.idcc)
