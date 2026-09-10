@@ -78,7 +78,7 @@ object V2RuntimeHistoryGuardV2 {
 
             if (item.has("companySlot") && !item.isNull("companySlot")) {
                 val slot = strictInt(item.opt("companySlot"))
-                if (slot !in 1..2) malformed = true
+                if (slot == null || slot !in 1..2) malformed = true
             }
             if (item.has("employerId") && !item.isNull("employerId") && optionalString(item, "employerId") == null) {
                 malformed = true
