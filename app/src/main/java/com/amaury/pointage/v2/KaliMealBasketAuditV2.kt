@@ -77,15 +77,39 @@ object KaliMealBasketAuditV2 {
             }
             val evidence = task.result
             val diagnostic = OfficialKaliMealBasketParserV2.parse(profile, evidence)
+            val lineageComplete = articleLineageComplete(evidence)
+            val storedBeforeAudit = V2ConventionMealBasketStore.readVerified(context)
             var saved = 0
             val saveWarnings = mutableListOf<String>()
-            diagnostic.rules.forEach { rule ->
-                runCatching { V2ConventionMealBasketStore.saveVerified(context, rule) }
-                    .onSuccess { saved++ }
-                    .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
+
+            if (storedBeforeAudit.reliable) {
+                diagnostic.rules.forEach { rule ->
+                    runCatching { V2ConventionMealBasketStore.saveVerified(context, rule) }
+                        .onSuccess { saved++ }
+                        .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
+                }
+            } else {
+                val repairEligible = evaluateCompletion(
+                    technicalCoverageComplete = evidence.technicalCoverageComplete,
+                    diagnostic = diagnostic,
+                    savedRules = diagnostic.rules.size,
+                    referenceDate = referenceDate,
+                    articleLineageComplete = lineageComplete
+                ).completed && V2ConventionMealBasketStore.acceptsVerifiedPackage(diagnostic.rules)
+
+                if (repairEligible) {
+                    val rebuilt = V2ConventionMealBasketStore.replaceVerifiedPackage(context, diagnostic.rules)
+                    if (rebuilt) {
+                        saved = diagnostic.rules.size
+                        saveWarnings += "KALI repas : ancien cache local incohérent remplacé atomiquement par le paquet certifié de cet audit."
+                    } else {
+                        saveWarnings += "KALI repas : audit certifiable mais reconstruction atomique du cache local impossible."
+                    }
+                } else {
+                    saveWarnings += "KALI repas : cache local incohérent conservé ; l'audit courant n'est pas assez complet pour autoriser sa reconstruction."
+                }
             }
 
-            val lineageComplete = articleLineageComplete(evidence)
             val parsedCompletion = evaluateCompletion(
                 technicalCoverageComplete = evidence.technicalCoverageComplete,
                 diagnostic = diagnostic,
