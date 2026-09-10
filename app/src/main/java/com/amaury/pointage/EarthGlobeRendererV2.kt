@@ -9,7 +9,6 @@ import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.EarthGlobeProjectionV2
 import kotlin.math.abs
 import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sin
@@ -65,10 +64,13 @@ class EarthGlobeRendererV2 {
     ): Boolean {
         if (snapshot == null || radius <= 1f) return false
 
-        val diameter = max(24, (radius * 2f).roundToInt())
+        // Le globe est calculé à 2x sa taille affichée puis réduit par Canvas.
+        // C'est du supersampling uniquement : taille, forme et couleurs restent identiques.
+        val displayDiameter = max(24, (radius * 2f).roundToInt())
+        val renderDiameter = displayDiameter * GLOBE_SUPERSAMPLE
         val needsRebuild =
             cachedBitmap == null ||
-                cachedDiameter != diameter ||
+                cachedDiameter != renderDiameter ||
                 angularDifference(cachedLatitude, snapshot.latitudeDeg) > LOCATION_CACHE_EPSILON_DEG ||
                 angularDifferenceLongitude(cachedLongitude, snapshot.longitudeDeg) > LOCATION_CACHE_EPSILON_DEG ||
                 angularDifference(cachedSunAzimuth, snapshot.sun.azimuthDeg) > SUN_CACHE_EPSILON_DEG ||
@@ -77,13 +79,13 @@ class EarthGlobeRendererV2 {
         if (needsRebuild) {
             cachedBitmap?.recycle()
             cachedBitmap = buildGlobe(
-                diameter = diameter * GLOBE_SUPERSAMPLE_FACTOR,
+                diameter = renderDiameter,
                 observerLatitudeDeg = snapshot.latitudeDeg,
                 observerLongitudeDeg = snapshot.longitudeDeg,
                 sunAzimuthDeg = snapshot.sun.azimuthDeg,
                 sunAltitudeDeg = snapshot.sun.altitudeDeg
             )
-            cachedDiameter = diameter
+            cachedDiameter = renderDiameter
             cachedLatitude = snapshot.latitudeDeg
             cachedLongitude = snapshot.longitudeDeg
             cachedSunAzimuth = snapshot.sun.azimuthDeg
@@ -166,13 +168,15 @@ class EarthGlobeRendererV2 {
                     observerLongitudeDeg = observerLongitudeDeg
                 ) ?: continue
 
-                val source = sampleTextureBilinear(
-                    pixels = texturePixels,
-                    width = textureWidth,
-                    height = textureHeight,
-                    longitudeDeg = geo.longitudeDeg,
-                    latitudeDeg = geo.latitudeDeg
-                )
+                val tx = (
+                    ((geo.longitudeDeg + 180.0) / 360.0) *
+                        (textureWidth - 1)
+                    ).roundToInt().coerceIn(0, textureWidth - 1)
+                val ty = (
+                    ((90.0 - geo.latitudeDeg) / 180.0) *
+                        (textureHeight - 1)
+                    ).roundToInt().coerceIn(0, textureHeight - 1)
+                val source = texturePixels[ty * textureWidth + tx]
 
                 // Lambert simplifié avec le vrai Soleil local. La face nocturne
                 // reste volontairement lisible : ce globe est aussi un repère GPS.
@@ -195,54 +199,6 @@ class EarthGlobeRendererV2 {
         return output
     }
 
-    private fun sampleTextureBilinear(
-        pixels: IntArray,
-        width: Int,
-        height: Int,
-        longitudeDeg: Double,
-        latitudeDeg: Double
-    ): Int {
-        var x = ((longitudeDeg + 180.0) / 360.0) * width
-        x %= width.toDouble()
-        if (x < 0.0) x += width
-        val y = (((90.0 - latitudeDeg) / 180.0) * (height - 1))
-            .coerceIn(0.0, (height - 1).toDouble())
-
-        val xFloor = floor(x)
-        val yFloor = floor(y)
-        val x0 = xFloor.toInt().coerceIn(0, width - 1)
-        val x1 = (x0 + 1) % width
-        val y0 = yFloor.toInt().coerceIn(0, height - 1)
-        val y1 = (y0 + 1).coerceIn(0, height - 1)
-        val fx = x - xFloor
-        val fy = y - yFloor
-
-        val c00 = pixels[y0 * width + x0]
-        val c10 = pixels[y0 * width + x1]
-        val c01 = pixels[y1 * width + x0]
-        val c11 = pixels[y1 * width + x1]
-
-        return Color.argb(
-            bilinearChannel(Color.alpha(c00), Color.alpha(c10), Color.alpha(c01), Color.alpha(c11), fx, fy),
-            bilinearChannel(Color.red(c00), Color.red(c10), Color.red(c01), Color.red(c11), fx, fy),
-            bilinearChannel(Color.green(c00), Color.green(c10), Color.green(c01), Color.green(c11), fx, fy),
-            bilinearChannel(Color.blue(c00), Color.blue(c10), Color.blue(c01), Color.blue(c11), fx, fy)
-        )
-    }
-
-    private fun bilinearChannel(
-        c00: Int,
-        c10: Int,
-        c01: Int,
-        c11: Int,
-        fx: Double,
-        fy: Double
-    ): Int {
-        val top = c00 + (c10 - c00) * fx
-        val bottom = c01 + (c11 - c01) * fx
-        return (top + (bottom - top) * fy).roundToInt().coerceIn(0, 255)
-    }
-
     private fun angularDifference(a: Double, b: Double): Double {
         if (!a.isFinite() || !b.isFinite()) return Double.POSITIVE_INFINITY
         return abs(a - b)
@@ -254,10 +210,10 @@ class EarthGlobeRendererV2 {
     }
 
     companion object {
+        private const val GLOBE_SUPERSAMPLE = 2
         // Quelques kilomètres : assez stable pour éviter que le globe ne tremble
         // sur le bruit GPS, tout en se réorientant réellement lors d'un déplacement.
         private const val LOCATION_CACHE_EPSILON_DEG = 0.04
         private const val SUN_CACHE_EPSILON_DEG = 0.20
-        private const val GLOBE_SUPERSAMPLE_FACTOR = 2
     }
 }
