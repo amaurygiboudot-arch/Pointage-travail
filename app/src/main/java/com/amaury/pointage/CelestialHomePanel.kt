@@ -13,6 +13,10 @@ import kotlin.math.min
  * d'une taille fixe en dp. La largeur disponible pilote donc le diamètre, avec
  * une limite liée à la hauteur réelle de l'écran pour rester confortable sur
  * téléphone comme sur tablette.
+ *
+ * Le panneau est légèrement plus haut que large : le cadran reste circulaire,
+ * mais Soleil/Lune disposent de la marge verticale nécessaire près de l'horizon
+ * sans être rognés par le bas du conteneur.
  */
 class CelestialHomePanel @JvmOverloads constructor(
     context: Context,
@@ -35,9 +39,10 @@ class CelestialHomePanel @JvmOverloads constructor(
 
         val density = resources.displayMetrics.density
         val screenHeight = resources.displayMetrics.heightPixels
-        val minHeight = (260f * density).toInt()
-        val maxHeight = min((520f * density).toInt(), (screenHeight * 0.62f).toInt())
-        val targetHeight = availableWidth.coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
+        val minHeight = (280f * density).toInt()
+        val maxHeight = min((540f * density).toInt(), (screenHeight * 0.64f).toInt())
+        val desiredHeight = (availableWidth * 1.14f).toInt()
+        val targetHeight = desiredHeight.coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
 
         super.onMeasure(
             widthMeasureSpec,
