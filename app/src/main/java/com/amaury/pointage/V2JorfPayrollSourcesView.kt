@@ -49,22 +49,29 @@ class V2JorfPayrollSourcesView(context: Context) : LinearLayout(context) {
 
     fun refresh() {
         val reference = referenceDate()
-        val records = JorfPayrollSourceStoreV2.snapshot(context, reference.atMs)
+        val stored = JorfPayrollSourceStoreV2.snapshotResult(context, reference.atMs)
+        val records = stored.records
         status.text = buildString {
             append("Date de paie contrôlée : ").append(reference.label).append('\n')
             append("Périmètre JORF : derniers journaux disponibles jusqu'à cette date\n")
-            if (records.isEmpty()) {
-                append("Aucune référence JORF vérifiée pour cette date.")
-            } else {
-                append(records.size).append(" référence(s) JORF vérifiée(s)\n")
-                records.take(12).forEach { record ->
-                    append("• ").append(record.title)
-                    val details = listOfNotNull(record.nature, record.nor, displayDate(record.publicationDate))
-                    if (details.isNotEmpty()) append(" — ").append(details.joinToString(" · "))
-                    append('\n')
+            when {
+                !stored.reliable -> {
+                    append("⚠ Stockage JORF local incohérent : aucune référence enregistrée n'est considérée fiable. Relance la vérification officielle après contrôle du stockage.")
                 }
-                if (records.size > 12) append("… +").append(records.size - 12).append(" autre(s) référence(s)\n")
-                append("Ces textes sont des publications officielles confirmées. Leur effet précis sur la paie reste contrôlé par les moteurs LEGI/KALI et les règles applicables à la date concernée.")
+                records.isEmpty() -> {
+                    append("Aucune référence JORF vérifiée pour cette date.")
+                }
+                else -> {
+                    append(records.size).append(" référence(s) JORF vérifiée(s)\n")
+                    records.take(12).forEach { record ->
+                        append("• ").append(record.title)
+                        val details = listOfNotNull(record.nature, record.nor, displayDate(record.publicationDate))
+                        if (details.isNotEmpty()) append(" — ").append(details.joinToString(" · "))
+                        append('\n')
+                    }
+                    if (records.size > 12) append("… +").append(records.size - 12).append(" autre(s) référence(s)\n")
+                    append("Ces textes sont des publications officielles confirmées. Leur effet précis sur la paie reste contrôlé par les moteurs LEGI/KALI et les règles applicables à la date concernée.")
+                }
             }
         }
     }
