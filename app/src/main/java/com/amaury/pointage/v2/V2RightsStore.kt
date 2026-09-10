@@ -6,6 +6,7 @@ import com.amaury.pointage.v2.engine.RightsEngineV2
 import com.amaury.pointage.v2.engine.RightsSnapshotV2
 import com.amaury.pointage.v2.model.AbsenceProvidentTreatmentV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceSourceStateV2
 import com.amaury.pointage.v2.model.AbsenceSubrogationV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.CounterV2
@@ -26,6 +27,8 @@ object V2RightsStore {
     private const val PREFS = "horatrack_v2_rights"
     private const val KEY_COUNTERS = "counters"
     private const val KEY_ABSENCES = "absences"
+    private const val ABSENCE_STORAGE_WARNING =
+        "Absences : stockage local illisible ou incohérent ; les données doivent être vérifiées avant tout calcul de paie."
 
     data class Balance(
         val id:String,
@@ -41,6 +44,23 @@ object V2RightsStore {
         val source:String="MANUAL",
         val companyId:String=""
     )
+
+    data class AbsenceReadResult(
+        val absences:List<AbsenceV2>,
+        val reliable:Boolean,
+        val warnings:List<String>
+    )
+
+    private data class OptionalNumber(val valid:Boolean,val value:Double?)
+
+    private class StoredAbsenceList(
+        private val values:List<AbsenceV2>,
+        override val absenceSourceReliable:Boolean,
+        override val absenceSourceWarnings:List<String>
+    ) : AbstractList<AbsenceV2>(), AbsenceSourceStateV2 {
+        override val size:Int get()=values.size
+        override fun get(index:Int):AbsenceV2=values[index]
+    }
 
     fun all(context:Context):List<Balance> = decode(
         context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
@@ -58,46 +78,48 @@ object V2RightsStore {
         save(context,list)
     }
 
-    fun absences(context:Context):List<AbsenceV2> = decodeAbsences(
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-            .getString(KEY_ABSENCES,"[]").orEmpty()
-    )
+    /**
+     * Renvoie toujours une List pour préserver l'API historique, mais la liste porte aussi l'état
+     * de fiabilité du stockage via AbsenceSourceStateV2. Le moteur de paie peut ainsi distinguer
+     * une liste réellement vide d'un fichier d'absences corrompu.
+     */
+    fun absences(context:Context):List<AbsenceV2> = asAbsenceList(readAbsences(context))
 
-    fun absencesForCompany(context:Context,companyId:String):List<AbsenceV2> =
-        absences(context).filter { it.employerId == companyId }
-
-    fun upsertAbsence(context:Context,absence:AbsenceV2){
-        require(absence.id.isNotBlank()){"Identifiant absence manquant"}
-        require(absence.employerId?.isNotBlank()==true){"Entreprise de l'absence manquante"}
-        require(absence.endMs>absence.startMs){"Période d'absence invalide"}
-        when(absence.providentTreatment){
-            AbsenceProvidentTreatmentV2.TO_CONFIRM ->
-                require(absence.employerProvidentOverlapNetAmount==null){"Prévoyance à confirmer : aucun montant ne doit être figé"}
-            AbsenceProvidentTreatmentV2.NONE_CONFIRMED ->
-                require(absence.employerProvidentOverlapNetAmount==null || absence.employerProvidentOverlapNetAmount==0.0){"Aucune prévoyance chevauchante : montant incohérent"}
-            AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED ->
-                require(absence.employerProvidentOverlapNetAmount?.let{it.isFinite()&&it>=0.0}==true){"Montant net de prévoyance chevauchante manquant ou invalide"}
-        }
-        val relayValues=listOf(
-            absence.providentRelayTargetGross60Amount,
-            absence.providentRelaySocialSecurityGrossAmount,
-            absence.providentRelayObservedGrossAmount
-        )
-        val relayAny=relayValues.any{it!=null}
-        val relayAll=relayValues.all{it!=null}
-        require(!relayAny || relayAll){"Contrôle relais prévoyance incomplet : les trois montants doivent être renseignés ensemble"}
-        if(relayAll){
-            require(relayValues.all{it!!.isFinite()&&it>=0.0}){"Contrôle relais prévoyance : montant invalide"}
-        }
-        val list=absences(context).toMutableList()
-        val index=list.indexOfFirst{it.id==absence.id}
-        if(index>=0)list[index]=absence else list+=absence
-        saveAbsences(context,list)
+    fun absencesForCompany(context:Context,companyId:String):List<AbsenceV2> {
+        val stored=readAbsences(context)
+        return asAbsenceList(stored.copy(absences=stored.absences.filter { it.employerId == companyId }))
     }
 
-    fun removeAbsence(context:Context,id:String){
-        val kept=absences(context).filterNot { it.id==id }
-        saveAbsences(context,kept)
+    internal fun readAbsences(context:Context):AbsenceReadResult {
+        val prefs=context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+        if(!prefs.contains(KEY_ABSENCES)) return AbsenceReadResult(emptyList(),true,emptyList())
+        val raw=runCatching { prefs.getString(KEY_ABSENCES,null) }.getOrNull()
+            ?:return corruptAbsenceResult()
+        return decodeAbsences(raw)
+    }
+
+    internal fun asAbsenceList(result:AbsenceReadResult):List<AbsenceV2> = StoredAbsenceList(
+        values=result.absences,
+        absenceSourceReliable=result.reliable,
+        absenceSourceWarnings=result.warnings.distinct()
+    )
+
+    fun upsertAbsence(context:Context,absence:AbsenceV2):Boolean{
+        validateAbsenceForWrite(absence)
+        val stored=readAbsences(context)
+        if(!stored.reliable)return false
+        val list=stored.absences.toMutableList()
+        val index=list.indexOfFirst{it.id==absence.id}
+        if(index>=0)list[index]=absence else list+=absence
+        return saveAbsences(context,list)
+    }
+
+    fun removeAbsence(context:Context,id:String):Boolean{
+        if(id.isBlank())return false
+        val stored=readAbsences(context)
+        if(!stored.reliable)return false
+        val kept=stored.absences.filterNot { it.id==id }
+        return saveAbsences(context,kept)
     }
 
     fun snapshot(context:Context,nowMs:Long=System.currentTimeMillis(),companyId:String?=null):RightsSnapshotV2{
@@ -125,7 +147,12 @@ object V2RightsStore {
         val zone=ZoneId.systemDefault()
         val currentYear=Instant.ofEpochMilli(nowMs).atZone(zone).year
         val display=DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE)
-        return absencesForCompany(context,companyId)
+        val storedAbsences=absencesForCompany(context,companyId)
+        val sourceState=storedAbsences as? AbsenceSourceStateV2
+        if(sourceState?.absenceSourceReliable==false){
+            return (sourceState.absenceSourceWarnings+ABSENCE_STORAGE_WARNING).distinct()
+        }
+        return storedAbsences
             .filter{it.type==AbsencePayrollImpactV2.TYPE_SICKNESS}
             .filter{Instant.ofEpochMilli(it.startMs).atZone(zone).year==currentYear}
             .sortedByDescending{it.startMs}
@@ -220,7 +247,9 @@ object V2RightsStore {
             .edit().putString(KEY_COUNTERS,a.toString()).apply()
     }
 
-    private fun saveAbsences(context:Context,absences:List<AbsenceV2>){
+    private fun saveAbsences(context:Context,absences:List<AbsenceV2>):Boolean{
+        if(absences.groupingBy{it.id}.eachCount().any{it.value>1})return false
+        absences.forEach(::validateAbsenceForWrite)
         val a=JSONArray()
         absences.sortedBy { it.startMs }.forEach { absence ->
             a.put(JSONObject()
@@ -239,8 +268,34 @@ object V2RightsStore {
                 .put("providentRelaySocialSecurityGrossAmount",absence.providentRelaySocialSecurityGrossAmount?:JSONObject.NULL)
                 .put("providentRelayObservedGrossAmount",absence.providentRelayObservedGrossAmount?:JSONObject.NULL))
         }
-        context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
-            .edit().putString(KEY_ABSENCES,a.toString()).apply()
+        return runCatching{
+            context.applicationContext.getSharedPreferences(PREFS,Context.MODE_PRIVATE)
+                .edit().putString(KEY_ABSENCES,a.toString()).commit()
+        }.getOrDefault(false)
+    }
+
+    private fun validateAbsenceForWrite(absence:AbsenceV2){
+        require(absence.id.isNotBlank()){"Identifiant absence manquant"}
+        require(absence.employerId?.isNotBlank()==true){"Entreprise de l'absence manquante"}
+        require(absence.type.isNotBlank()){"Type d'absence manquant"}
+        require(absence.startMs>=0L&&absence.endMs>absence.startMs){"Période d'absence invalide"}
+        when(absence.providentTreatment){
+            AbsenceProvidentTreatmentV2.TO_CONFIRM ->
+                require(absence.employerProvidentOverlapNetAmount==null){"Prévoyance à confirmer : aucun montant ne doit être figé"}
+            AbsenceProvidentTreatmentV2.NONE_CONFIRMED ->
+                require(absence.employerProvidentOverlapNetAmount==null||absence.employerProvidentOverlapNetAmount==0.0){"Aucune prévoyance chevauchante : montant incohérent"}
+            AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED ->
+                require(absence.employerProvidentOverlapNetAmount?.let{it.isFinite()&&it>=0.0}==true){"Montant net de prévoyance chevauchante manquant ou invalide"}
+        }
+        val relayValues=listOf(
+            absence.providentRelayTargetGross60Amount,
+            absence.providentRelaySocialSecurityGrossAmount,
+            absence.providentRelayObservedGrossAmount
+        )
+        val relayAny=relayValues.any{it!=null}
+        val relayAll=relayValues.all{it!=null}
+        require(!relayAny||relayAll){"Contrôle relais prévoyance incomplet : les trois montants doivent être renseignés ensemble"}
+        if(relayAll)require(relayValues.all{it!!.isFinite()&&it>=0.0}){"Contrôle relais prévoyance : montant invalide"}
     }
 
     private fun decode(raw:String):List<Balance> = runCatching{
@@ -268,52 +323,111 @@ object V2RightsStore {
         }
     }.getOrElse{emptyList()}
 
-    private fun decodeAbsences(raw:String):List<AbsenceV2> = runCatching{
-        val a=JSONArray(raw.ifBlank{"[]"})
-        buildList{
-            for(i in 0 until a.length()){
-                val o=a.optJSONObject(i)?:continue
-                val id=o.optString("id").trim()
-                val employerId=o.optString("employerId").trim().takeIf { it.isNotBlank() && it!="null" }
-                val start=o.optLong("startMs",-1L)
-                val end=o.optLong("endMs",-1L)
-                if(id.isBlank()||employerId==null||start<0L||end<=start)continue
-                val treatment=runCatching{
-                    AbsenceSalaryTreatmentV2.valueOf(o.optString("salaryTreatment",AbsenceSalaryTreatmentV2.TO_CONFIRM.name))
-                }.getOrDefault(AbsenceSalaryTreatmentV2.TO_CONFIRM)
-                val status=runCatching{
-                    DecisionStatusV2.valueOf(o.optString("status",DecisionStatusV2.CONFIRMED.name))
-                }.getOrDefault(DecisionStatusV2.TO_CONFIRM)
-                val subrogation=runCatching{
-                    AbsenceSubrogationV2.valueOf(o.optString("subrogation",AbsenceSubrogationV2.TO_CONFIRM.name))
-                }.getOrDefault(AbsenceSubrogationV2.TO_CONFIRM)
-                val provident=runCatching{
-                    AbsenceProvidentTreatmentV2.valueOf(o.optString("providentTreatment",AbsenceProvidentTreatmentV2.TO_CONFIRM.name))
-                }.getOrDefault(AbsenceProvidentTreatmentV2.TO_CONFIRM)
-                val providentAmount=nullableDouble(o,"employerProvidentOverlapNetAmount")?.takeIf{it>=0.0}
-                val relayTarget=nullableDouble(o,"providentRelayTargetGross60Amount")?.takeIf{it>=0.0}
-                val relaySs=nullableDouble(o,"providentRelaySocialSecurityGrossAmount")?.takeIf{it>=0.0}
-                val relayObserved=nullableDouble(o,"providentRelayObservedGrossAmount")?.takeIf{it>=0.0}
-                val relayComplete=relayTarget!=null&&relaySs!=null&&relayObserved!=null
-                add(AbsenceV2(
-                    id=id,
-                    employerId=employerId,
-                    type=o.optString("type","ABSENCE"),
-                    startMs=start,
-                    endMs=end,
-                    salaryTreatment=treatment,
-                    fullDay=o.optBoolean("fullDay",false),
-                    status=status,
-                    subrogation=subrogation,
-                    providentTreatment=provident,
-                    employerProvidentOverlapNetAmount=if(provident==AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED)providentAmount else null,
-                    providentRelayTargetGross60Amount=relayTarget.takeIf{relayComplete},
-                    providentRelaySocialSecurityGrossAmount=relaySs.takeIf{relayComplete},
-                    providentRelayObservedGrossAmount=relayObserved.takeIf{relayComplete}
-                ))
+    internal fun decodeAbsences(raw:String):AbsenceReadResult {
+        if(raw.isBlank())return corruptAbsenceResult()
+        return runCatching{
+            val a=JSONArray(raw)
+            var malformed=false
+            val parsed=buildList{
+                for(i in 0 until a.length()){
+                    val o=a.optJSONObject(i)
+                    if(o==null){
+                        malformed=true
+                        continue
+                    }
+                    val absence=parseStoredAbsence(o)
+                    if(absence==null){
+                        malformed=true
+                    }else{
+                        add(absence)
+                    }
+                }
             }
+            if(parsed.groupingBy{it.id}.eachCount().any{it.value>1})malformed=true
+            AbsenceReadResult(
+                absences=parsed,
+                reliable=!malformed,
+                warnings=if(malformed)listOf(ABSENCE_STORAGE_WARNING)else emptyList()
+            )
+        }.getOrElse{corruptAbsenceResult()}
+    }
+
+    private fun parseStoredAbsence(o:JSONObject):AbsenceV2?{
+        val id=requiredString(o,"id")?:return null
+        val employerId=requiredString(o,"employerId")?:return null
+        val type=requiredString(o,"type")?:return null
+        val start=requiredLong(o,"startMs")?.takeIf{it>=0L}?:return null
+        val end=requiredLong(o,"endMs")?.takeIf{it>start}?:return null
+        val treatment=requiredEnum<AbsenceSalaryTreatmentV2>(o,"salaryTreatment")?:return null
+        val fullDay=requiredBoolean(o,"fullDay")?:return null
+        val status=requiredEnum<DecisionStatusV2>(o,"status")?:return null
+        val subrogation=requiredEnum<AbsenceSubrogationV2>(o,"subrogation")?:return null
+        val provident=requiredEnum<AbsenceProvidentTreatmentV2>(o,"providentTreatment")?:return null
+        val providentAmount=optionalNonNegativeDouble(o,"employerProvidentOverlapNetAmount")
+        val relayTarget=optionalNonNegativeDouble(o,"providentRelayTargetGross60Amount")
+        val relaySs=optionalNonNegativeDouble(o,"providentRelaySocialSecurityGrossAmount")
+        val relayObserved=optionalNonNegativeDouble(o,"providentRelayObservedGrossAmount")
+        if(listOf(providentAmount,relayTarget,relaySs,relayObserved).any{!it.valid})return null
+
+        when(provident){
+            AbsenceProvidentTreatmentV2.TO_CONFIRM -> if(providentAmount.value!=null)return null
+            AbsenceProvidentTreatmentV2.NONE_CONFIRMED -> if(providentAmount.value!=null&&providentAmount.value!=0.0)return null
+            AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED -> if(providentAmount.value==null)return null
         }
-    }.getOrElse{emptyList()}
+        val relayValues=listOf(relayTarget.value,relaySs.value,relayObserved.value)
+        val relayCount=relayValues.count{it!=null}
+        if(relayCount!=0&&relayCount!=3)return null
+        val relayComplete=relayCount==3
+
+        return AbsenceV2(
+            id=id,
+            employerId=employerId,
+            type=type,
+            startMs=start,
+            endMs=end,
+            salaryTreatment=treatment,
+            fullDay=fullDay,
+            status=status,
+            subrogation=subrogation,
+            providentTreatment=provident,
+            employerProvidentOverlapNetAmount=if(provident==AbsenceProvidentTreatmentV2.NET_AMOUNT_CONFIRMED)providentAmount.value else null,
+            providentRelayTargetGross60Amount=relayTarget.value.takeIf{relayComplete},
+            providentRelaySocialSecurityGrossAmount=relaySs.value.takeIf{relayComplete},
+            providentRelayObservedGrossAmount=relayObserved.value.takeIf{relayComplete}
+        )
+    }
+
+    private fun corruptAbsenceResult()=AbsenceReadResult(emptyList(),false,listOf(ABSENCE_STORAGE_WARNING))
+
+    private fun requiredString(o:JSONObject,key:String):String?{
+        if(!o.has(key)||o.isNull(key))return null
+        return (o.opt(key) as? String)?.trim()?.takeIf{it.isNotBlank()&&it!="null"}
+    }
+
+    private fun requiredLong(o:JSONObject,key:String):Long?{
+        if(!o.has(key)||o.isNull(key))return null
+        val number=o.opt(key) as? Number?:return null
+        val value=number.toDouble()
+        if(!value.isFinite()||value%1.0!=0.0)return null
+        return number.toLong()
+    }
+
+    private fun requiredBoolean(o:JSONObject,key:String):Boolean?{
+        if(!o.has(key)||o.isNull(key))return null
+        return o.opt(key) as? Boolean
+    }
+
+    private inline fun <reified T:Enum<T>> requiredEnum(o:JSONObject,key:String):T?{
+        val value=requiredString(o,key)?:return null
+        return enumValues<T>().firstOrNull{it.name==value}
+    }
+
+    private fun optionalNonNegativeDouble(o:JSONObject,key:String):OptionalNumber{
+        if(!o.has(key)||o.isNull(key))return OptionalNumber(true,null)
+        val number=o.opt(key) as? Number?:return OptionalNumber(false,null)
+        val value=number.toDouble()
+        return if(value.isFinite()&&value>=0.0)OptionalNumber(true,value) else OptionalNumber(false,null)
+    }
 
     private fun nullableDouble(o:JSONObject,key:String):Double?=
         if(!o.has(key)||o.isNull(key))null else o.optDouble(key).takeUnless{it.isNaN()}
