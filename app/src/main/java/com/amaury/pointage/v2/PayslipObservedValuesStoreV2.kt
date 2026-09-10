@@ -14,6 +14,8 @@ import org.json.JSONObject
 object PayslipObservedValuesStoreV2 {
     private const val PREFS = "horatrack_v2_payslips"
     private const val KEY = "observed_values_v2"
+    private const val STORAGE_WARNING =
+        "Valeurs observées des bulletins : stockage local illisible ou incohérent ; la comparaison automatique est bloquée."
 
     private val allowedKeys = setOf(
         PayslipDocumentParserV2.KEY_GROSS,
@@ -35,45 +37,122 @@ object PayslipObservedValuesStoreV2 {
         PayslipDocumentParserV2.KEY_COMPLEMENTARY_RETIREMENT_EMPLOYEE
     )
 
-    fun put(context: Context, recordId: String, values: Map<String, Double>) {
-        require(recordId.isNotBlank()) { "Bulletin sans identifiant" }
-        val safe = values.filter { (key, value) ->
-            key in allowedKeys && value.isFinite() && value >= 0.0
-        }
+    data class ReadResult(
+        val valuesByRecord: Map<String, Map<String, Double>>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    internal fun readResult(context: Context): ReadResult {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val root = runCatching { JSONObject(prefs.getString(KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
-        if (safe.isEmpty()) {
-            root.remove(recordId)
-        } else {
-            val item = JSONObject()
-            safe.forEach { (key, value) -> item.put(key, value) }
-            root.put(recordId, item)
-        }
-        prefs.edit().putString(KEY, root.toString()).apply()
+        if (!prefs.contains(KEY)) return ReadResult(emptyMap(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull() ?: return corruptResult()
+        return decodeValues(raw)
+    }
+
+    internal fun decodeValues(raw: String): ReadResult {
+        if (raw.isBlank()) return corruptResult()
+        return runCatching {
+            val root = JSONObject(raw)
+            var malformed = false
+            val values = linkedMapOf<String, Map<String, Double>>()
+            val recordIds = root.keys()
+            while (recordIds.hasNext()) {
+                val recordId = recordIds.next().trim()
+                if (recordId.isBlank()) {
+                    malformed = true
+                    continue
+                }
+                val item = root.optJSONObject(recordId)
+                if (item == null) {
+                    malformed = true
+                    continue
+                }
+                val parsed = linkedMapOf<String, Double>()
+                val keys = item.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (key !in allowedKeys) {
+                        malformed = true
+                        continue
+                    }
+                    val value = (item.opt(key) as? Number)?.toDouble()
+                    if (value == null || !value.isFinite() || value < 0.0) {
+                        malformed = true
+                        continue
+                    }
+                    parsed[key] = value
+                }
+                if (parsed.isEmpty()) {
+                    malformed = true
+                    continue
+                }
+                values[recordId] = parsed
+            }
+            ReadResult(
+                valuesByRecord = values,
+                reliable = !malformed,
+                warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+            )
+        }.getOrElse { corruptResult() }
+    }
+
+    fun put(context: Context, recordId: String, values: Map<String, Double>): Boolean {
+        if (recordId.isBlank()) return false
+        if (values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }) return false
+
+        val stored = readResult(context)
+        if (!stored.reliable) return false
+        val updated = stored.valuesByRecord.toMutableMap()
+        if (values.isEmpty()) updated.remove(recordId) else updated[recordId] = values.toMap()
+        return save(context, updated)
     }
 
     /** Valeurs actuellement autorisées à entrer dans la comparaison automatique. */
-    fun get(context: Context, recordId: String): Map<String, Double> =
-        getAll(context, recordId).filterKeys { it in comparisonReadyKeys }
+    fun get(context: Context, recordId: String): Map<String, Double> {
+        val stored = readResult(context)
+        if (!stored.reliable) return emptyMap()
+        return comparisonValues(stored, recordId)
+    }
+
+    internal fun comparisonValues(stored: ReadResult, recordId: String): Map<String, Double> {
+        if (!stored.reliable || recordId.isBlank()) return emptyMap()
+        return stored.valuesByRecord[recordId].orEmpty().filterKeys { it in comparisonReadyKeys }
+    }
 
     /** Toutes les valeurs confirmées restent disponibles pour affichage/audit futur. */
     fun getAll(context: Context, recordId: String): Map<String, Double> {
-        if (recordId.isBlank()) return emptyMap()
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val root = runCatching { JSONObject(prefs.getString(KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
-        val item = root.optJSONObject(recordId) ?: return emptyMap()
-        return buildMap {
-            allowedKeys.forEach { key ->
-                if (item.has(key) && !item.isNull(key)) {
-                    item.optDouble(key, Double.NaN).takeIf { it.isFinite() && it >= 0.0 }?.let { put(key, it) }
-                }
-            }
-        }
+        val stored = readResult(context)
+        if (!stored.reliable || recordId.isBlank()) return emptyMap()
+        return stored.valuesByRecord[recordId].orEmpty()
     }
 
-    fun remove(context: Context, recordId: String) {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val root = runCatching { JSONObject(prefs.getString(KEY, "{}") ?: "{}") }.getOrElse { JSONObject() }
-        if (root.remove(recordId) != null) prefs.edit().putString(KEY, root.toString()).apply()
+    fun remove(context: Context, recordId: String): Boolean {
+        if (recordId.isBlank()) return false
+        val stored = readResult(context)
+        if (!stored.reliable) return false
+        if (recordId !in stored.valuesByRecord) return true
+        val updated = stored.valuesByRecord.toMutableMap().apply { remove(recordId) }
+        return save(context, updated)
     }
+
+    private fun save(context: Context, valuesByRecord: Map<String, Map<String, Double>>): Boolean {
+        if (valuesByRecord.any { (recordId, values) ->
+                recordId.isBlank() || values.isEmpty() ||
+                    values.any { (key, value) -> key !in allowedKeys || !value.isFinite() || value < 0.0 }
+            }) return false
+
+        val root = JSONObject()
+        valuesByRecord.toSortedMap().forEach { (recordId, values) ->
+            val item = JSONObject()
+            values.toSortedMap().forEach { (key, value) -> item.put(key, value) }
+            root.put(recordId, item)
+        }
+        return runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY, root.toString()).commit()
+        }.getOrDefault(false)
+    }
+
+    private fun corruptResult() = ReadResult(emptyMap(), false, listOf(STORAGE_WARNING))
 }
