@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
+import com.amaury.pointage.v2.model.AbsenceSourceStateV2
 import com.amaury.pointage.v2.model.AbsenceSubrogationV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
@@ -33,6 +34,9 @@ object AbsencePayrollImpactV2 {
     const val TYPE_PARENTAL = "MATERNITE_PATERNITE"
     const val TYPE_OTHER = "AUTRE"
 
+    private const val UNRELIABLE_SOURCE_WARNING =
+        "Absences : stockage local illisible ou incohérent ; aucune absence n'est supposée inexistante et le calcul de paie reste à confirmer."
+
     data class Snapshot(
         val unpaidFullCalendarDays: Int,
         val hasUnpaidAbsence: Boolean,
@@ -48,6 +52,17 @@ object AbsencePayrollImpactV2 {
         zoneId: ZoneId = ZoneId.systemDefault(),
         workSessions: List<WorkSessionV2> = emptyList()
     ): Snapshot {
+        val sourceState = absences as? AbsenceSourceStateV2
+        if (sourceState?.absenceSourceReliable == false) {
+            return Snapshot(
+                unpaidFullCalendarDays = 0,
+                hasUnpaidAbsence = false,
+                hasCompensatedAbsence = false,
+                requiresPayrollReview = true,
+                warnings = (sourceState.absenceSourceWarnings + UNRELIABLE_SOURCE_WARNING).distinct()
+            )
+        }
+
         val monthStart = referenceDate.withDayOfMonth(1)
         val monthEndExclusive = monthStart.plusMonths(1)
         val monthStartMs = monthStart.atStartOfDay(zoneId).toInstant().toEpochMilli()
