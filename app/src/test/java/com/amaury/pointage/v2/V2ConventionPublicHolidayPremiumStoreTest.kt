@@ -94,7 +94,7 @@ class V2ConventionPublicHolidayPremiumStoreTest {
         )
 
         assertFalse(result.reliable)
-        assertEquals(1, result.snapshots.size)
+        assertTrue(result.snapshots.isEmpty())
     }
 
     private fun snapshotJson(
