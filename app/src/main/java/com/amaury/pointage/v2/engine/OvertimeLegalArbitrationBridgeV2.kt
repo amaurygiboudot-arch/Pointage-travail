@@ -63,7 +63,10 @@ object OvertimeLegalArbitrationBridgeV2 {
         sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
     ): Snapshot {
         val agreement = CompanyAgreementPayrollBridgeV2.load(context, companyId, referenceDate, period)
-        val branch = V2ConventionRuleStore.history(context).applicable(idcc, referenceDate.toEpochDay())
+        val branchState = V2ConventionRuleStore.readConfirmed(context)
+        val branch = if (branchState.reliable) {
+            ConventionRuleHistoryV2(branchState.snapshots).applicable(idcc, referenceDate.toEpochDay())
+        } else null
         val atMs = referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
         val legalRecords = LegalPayrollSourceStoreV2.snapshot(context, atMs).records
 
@@ -77,7 +80,15 @@ object OvertimeLegalArbitrationBridgeV2 {
         )
         val effectiveKnowledge = storedKnowledge + sourceKnowledge
 
-        return assemble(referenceDate, agreement, branch, legalRecords, effectiveKnowledge)
+        return assemble(
+            referenceDate = referenceDate,
+            companyAgreement = agreement,
+            branchSnapshot = branch,
+            legalRecords = legalRecords,
+            sourceKnowledge = effectiveKnowledge,
+            branchReliable = branchState.reliable,
+            branchWarnings = branchState.warnings
+        )
     }
 
     internal fun assemble(
@@ -85,13 +96,20 @@ object OvertimeLegalArbitrationBridgeV2 {
         companyAgreement: CompanyAgreementPayrollBridgeV2.Snapshot?,
         branchSnapshot: ConventionRuleSnapshotV2?,
         legalRecords: List<LegalPayrollSourceStoreV2.Record>,
-        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap()
+        sourceKnowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> = emptyMap(),
+        branchReliable: Boolean = true,
+        branchWarnings: List<String> = emptyList()
     ): Snapshot {
         val warnings = mutableListOf<String>()
         val companyReliable = companyAgreement?.reliable != false
         if (!companyReliable) {
             warnings += companyAgreement?.warnings.orEmpty().ifEmpty {
                 listOf("ACCO : règles d'entreprise non fiables ; tout repli vers KALI/LEGI est bloqué.")
+            }
+        }
+        if (!branchReliable) {
+            warnings += branchWarnings.ifEmpty {
+                listOf("KALI : historique conventionnel non fiable ; tout repli vers LEGI est bloqué.")
             }
         }
 
@@ -137,7 +155,7 @@ object OvertimeLegalArbitrationBridgeV2 {
         }
 
         val branchSchedule = branchSnapshot
-            ?.takeIf { it.rules.overtimeTiers.isNotEmpty() }
+            ?.takeIf { branchReliable && it.rules.overtimeTiers.isNotEmpty() }
             ?.let { snapshot ->
                 val tiers = snapshot.rules.overtimeTiers
                 if (!coversWholeOvertimeRange(tiers)) {
@@ -177,10 +195,14 @@ object OvertimeLegalArbitrationBridgeV2 {
                 valueFingerprint = schedule.fingerprint
             )
         }
-        val effectiveKnowledge = if (companyReliable) {
-            sourceKnowledge
-        } else {
-            sourceKnowledge + (PayrollLegalArbitratorV2.Source.ACCO to PayrollLegalArbitratorV2.Knowledge.UNKNOWN)
+        var effectiveKnowledge = sourceKnowledge
+        if (!companyReliable) {
+            effectiveKnowledge = effectiveKnowledge +
+                (PayrollLegalArbitratorV2.Source.ACCO to PayrollLegalArbitratorV2.Knowledge.UNKNOWN)
+        }
+        if (!branchReliable) {
+            effectiveKnowledge = effectiveKnowledge +
+                (PayrollLegalArbitratorV2.Source.KALI to PayrollLegalArbitratorV2.Knowledge.UNKNOWN)
         }
         val resolution = PayrollLegalArbitratorV2.resolve(
             candidates = candidates,

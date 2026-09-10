@@ -18,19 +18,60 @@ object V2ConventionRuleStore {
     private const val KEY_CONFIRMED = "confirmed_snapshots"
     private const val KEY_OBSERVATIONS = "official_observations"
     private const val SOURCE_LEGIFRANCE = "https://www.legifrance.gouv.fr/liste/idcc"
+    private const val STORAGE_WARNING =
+        "KALI heures supplémentaires : historique local des règles conventionnelles incohérent ; aucune règle ni absence ne peut être déduite de ce stockage."
 
-    fun history(context: Context): ConventionRuleHistoryV2 =
-        ConventionRuleHistoryV2(loadConfirmed(context))
+    data class ReadResult(
+        val snapshots: List<ConventionRuleSnapshotV2>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
 
+    fun readConfirmed(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_CONFIRMED)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_CONFIRMED, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeConfirmed(raw)
+    }
+
+    fun history(context: Context): ConventionRuleHistoryV2 {
+        val stored = readConfirmed(context)
+        return if (stored.reliable) {
+            ConventionRuleHistoryV2(stored.snapshots)
+        } else {
+            ConventionRuleHistoryV2.empty()
+        }
+    }
+
+    /**
+     * Refuse toute écriture si l'historique existant est illisible/incohérent.
+     * L'exception est volontaire : les appels de l'audit KALI sont déjà entourés de runCatching,
+     * ce qui transforme l'échec en `saved=false` sans écraser l'historique antérieur.
+     */
     fun saveConfirmed(context: Context, snapshot: ConventionRuleSnapshotV2) {
-        val current = loadConfirmed(context).toMutableList()
+        val stored = readConfirmed(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        check(validSnapshotPayload(snapshot)) { "KALI heures supplémentaires : snapshot conventionnel invalide." }
+
+        val current = stored.snapshots.toMutableList()
         current.removeAll { normalize(it.idcc) == normalize(snapshot.idcc) && it.versionId == snapshot.versionId }
         current += snapshot
+        check(current.all(::validSnapshotPayload)) { "KALI heures supplémentaires : historique conventionnel invalide." }
+        check(runCatching { ConventionRuleHistoryV2(current) }.isSuccess) {
+            "KALI heures supplémentaires : historique conventionnel dupliqué ou chevauchant."
+        }
+
         val array = JSONArray()
         current.sortedWith(compareBy<ConventionRuleSnapshotV2> { normalize(it.idcc) }.thenBy { it.effectiveFromEpochDay })
             .forEach { array.put(encodeSnapshot(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_CONFIRMED, array.toString()).apply()
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_CONFIRMED, array.toString())
+                .commit()
+        }.getOrDefault(false)
+        check(saved) { "KALI heures supplémentaires : stockage local du snapshot impossible." }
     }
 
     /**
@@ -57,15 +98,28 @@ object V2ConventionRuleStore {
         prefs.edit().putString(KEY_OBSERVATIONS, existing.toString()).apply()
     }
 
-    private fun loadConfirmed(context: Context): List<ConventionRuleSnapshotV2> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_CONFIRMED, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decodeSnapshot(array.optJSONObject(index) ?: continue)?.let(::add)
+    internal fun decodeConfirmed(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val snapshots = mutableListOf<ConventionRuleSnapshotV2>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val snapshot = obj?.let(::decodeSnapshot)
+            if (snapshot == null || !validSnapshotPayload(snapshot)) {
+                malformed = true
+            } else {
+                snapshots += snapshot
             }
         }
+        if (!malformed) {
+            malformed = runCatching { ConventionRuleHistoryV2(snapshots) }.isFailure
+        }
+        return ReadResult(
+            snapshots = snapshots,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
     }
 
     private fun encodeSnapshot(snapshot: ConventionRuleSnapshotV2): JSONObject {
@@ -94,10 +148,14 @@ object V2ConventionRuleStore {
 
     private fun decodeSnapshot(obj: JSONObject): ConventionRuleSnapshotV2? = runCatching {
         val rules = obj.getJSONObject("rules")
-        val tiersJson = rules.optJSONArray("overtimeTiers") ?: JSONArray()
+        val tiersJson = when {
+            !rules.has("overtimeTiers") -> JSONArray()
+            rules.isNull("overtimeTiers") -> JSONArray()
+            else -> rules.optJSONArray("overtimeTiers") ?: error("overtimeTiers invalide")
+        }
         val tiers = buildList {
             for (index in 0 until tiersJson.length()) {
-                val tier = tiersJson.getJSONObject(index)
+                val tier = tiersJson.opt(index) as? JSONObject ?: error("palier invalide")
                 add(OvertimeTierV2(
                     fromMinutes = tier.getInt("fromMinutes"),
                     toMinutes = if (tier.isNull("toMinutes")) null else tier.getInt("toMinutes"),
@@ -122,6 +180,22 @@ object V2ConventionRuleStore {
             note = if (obj.isNull("note")) null else obj.optString("note").takeIf { it.isNotBlank() }
         )
     }.getOrNull()
+
+    private fun validSnapshotPayload(snapshot: ConventionRuleSnapshotV2): Boolean {
+        if (snapshot.checkedAtMs < 0L) return false
+        if (snapshot.rules.weeklyRegularMinutes?.let { it <= 0 } == true) return false
+        val multipliers = listOf(
+            snapshot.rules.nightMultiplier,
+            snapshot.rules.saturdayMultiplier,
+            snapshot.rules.sundayMultiplier
+        ).filterNotNull()
+        if (multipliers.any { !it.isFinite() || it < 1.0 }) return false
+        return snapshot.rules.overtimeTiers.all { tier ->
+            tier.fromMinutes >= 0 &&
+                (tier.toMinutes == null || tier.toMinutes > tier.fromMinutes) &&
+                tier.multiplier.isFinite() && tier.multiplier >= 1.0
+        }
+    }
 
     private fun normalize(value: String): String = value.trim().padStart(4, '0')
 }
