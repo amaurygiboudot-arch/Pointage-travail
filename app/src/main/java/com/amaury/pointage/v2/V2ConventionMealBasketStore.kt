@@ -50,7 +50,31 @@ object V2ConventionMealBasketStore {
         persist(context, current.takeLast(MAX_RULES))
     }
 
+    /**
+     * Reconstruction volontaire du cache après un audit KALI complet et certifiable.
+     *
+     * Contrairement à saveVerified(), cette opération n'essaie pas de relire un ancien cache
+     * potentiellement corrompu : le paquet officiel courant devient le nouveau cache local complet.
+     * Elle ne doit être appelée que lorsque l'audit appelant a prouvé sa couverture et son applicabilité.
+     */
+    internal fun replaceVerifiedPackage(
+        context: Context,
+        rules: List<ConventionMealBasketV2.Rule>
+    ): Boolean {
+        if (!acceptsVerifiedPackage(rules)) return false
+        return runCatching {
+            persist(context, rules)
+            true
+        }.getOrDefault(false)
+    }
+
     internal fun acceptsVerifiedRule(rule: ConventionMealBasketV2.Rule): Boolean = rule.structurallyValid()
+
+    internal fun acceptsVerifiedPackage(rules: List<ConventionMealBasketV2.Rule>): Boolean =
+        rules.isNotEmpty() &&
+            rules.size <= MAX_RULES &&
+            rules.all { it.structurallyValid() } &&
+            !hasDuplicateLegalIdentity(rules)
 
     internal fun sameLegalIdentity(left: ConventionMealBasketV2.Rule, right: ConventionMealBasketV2.Rule): Boolean =
         ConventionMinimumSalaryV2.normalizeIdcc(left.idcc) == ConventionMinimumSalaryV2.normalizeIdcc(right.idcc) &&
