@@ -11,18 +11,52 @@ import java.time.LocalDate
 object PayrollLegalSourceKnowledgeStoreV2 {
     private const val PREFS = "horatrack_v2_payroll_source_knowledge"
     private const val KEY_PROOFS = "proofs"
-    private const val MAX_PROOFS = 250
+    internal const val MAX_PROOFS = 250
+    private const val STORAGE_WARNING =
+        "Preuves de contrôle des sources juridiques : stockage local incohérent ; aucune absence de règle ne peut être déduite de cet historique."
+
+    data class ReadResult(
+        val proofs: List<PayrollSourceKnowledgeProofV2.Proof>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    data class KnowledgeResult(
+        val knowledge: Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun read(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_PROOFS)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_PROOFS, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeProofs(raw)
+    }
 
     fun recordAuditProof(context: Context, proof: PayrollSourceKnowledgeProofV2.Proof) {
-        val current = load(context).toMutableList()
+        val stored = read(context)
+        check(stored.reliable) { STORAGE_WARNING }
+
+        val current = stored.proofs.toMutableList()
         current.removeAll { sameIdentity(it, proof) }
         current += proof
-        val array = JSONArray()
-        current.takeLast(MAX_PROOFS).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_PROOFS, array.toString())
-            .apply()
+        check(acceptsPackage(current)) {
+            "Preuves de contrôle des sources juridiques : capacité atteinte ou historique ambigu ; aucune preuve existante n'est supprimée silencieusement."
+        }
+        persist(context, current)
+    }
+
+    fun knowledgeForOvertimeResult(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
+            proofs, companyId, idcc, referenceDate
+        )
     }
 
     fun knowledgeForOvertime(
@@ -31,9 +65,18 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         idcc: String,
         referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
-            load(context), companyId, idcc, referenceDate
+        knowledgeForOvertimeResult(context, companyId, idcc, referenceDate).knowledge
+
+    fun knowledgeForProvidentContributionResult(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
+            proofs, companyId, idcc, referenceDate
         )
+    }
 
     fun knowledgeForProvidentContribution(
         context: Context,
@@ -41,9 +84,23 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         idcc: String,
         referenceDate: LocalDate
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
-            load(context), companyId, idcc, referenceDate
+        knowledgeForProvidentContributionResult(context, companyId, idcc, referenceDate).knowledge
+
+    fun knowledgeForMealBasketSubjectResult(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate,
+        subjectKey: String
+    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
+            proofs = proofs,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate,
+            subjectKey = subjectKey
         )
+    }
 
     fun knowledgeForMealBasketSubject(
         context: Context,
@@ -52,25 +109,75 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         referenceDate: LocalDate,
         subjectKey: String
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
-        PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
-            proofs = load(context),
-            companyId = companyId,
-            idcc = idcc,
-            referenceDate = referenceDate,
-            subjectKey = subjectKey
-        )
+        knowledgeForMealBasketSubjectResult(context, companyId, idcc, referenceDate, subjectKey).knowledge
 
-    fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> = load(context)
+    fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> {
+        val stored = read(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.proofs
+    }
 
-    private fun load(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_PROOFS, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)?.let(::add)
+    internal fun acceptsPackage(proofs: List<PayrollSourceKnowledgeProofV2.Proof>): Boolean =
+        proofs.size <= MAX_PROOFS && !hasDuplicateIdentity(proofs)
+
+    internal fun decodeProofs(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val proofs = mutableListOf<PayrollSourceKnowledgeProofV2.Proof>()
+        var malformed = array.length() > MAX_PROOFS
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val proof = obj?.let(::decode)
+            if (proof == null) {
+                malformed = true
+            } else {
+                proofs += proof
             }
         }
+        if (hasDuplicateIdentity(proofs)) malformed = true
+        return ReadResult(
+            proofs = proofs,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
+    internal fun knowledgeFrom(
+        stored: ReadResult,
+        resolver: (List<PayrollSourceKnowledgeProofV2.Proof>) -> Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge>
+    ): KnowledgeResult {
+        if (!stored.reliable) {
+            return KnowledgeResult(
+                knowledge = emptyMap(),
+                reliable = false,
+                warnings = (listOf(STORAGE_WARNING) + stored.warnings).distinct()
+            )
+        }
+        return KnowledgeResult(
+            knowledge = resolver(stored.proofs),
+            reliable = true,
+            warnings = emptyList()
+        )
+    }
+
+    private fun knowledgeResult(
+        context: Context,
+        resolver: (List<PayrollSourceKnowledgeProofV2.Proof>) -> Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge>
+    ): KnowledgeResult = knowledgeFrom(read(context), resolver)
+
+    private fun persist(context: Context, proofs: List<PayrollSourceKnowledgeProofV2.Proof>) {
+        check(acceptsPackage(proofs)) {
+            "Preuves de contrôle des sources juridiques : historique invalide, ambigu ou trop volumineux."
+        }
+        val array = JSONArray()
+        proofs.forEach { array.put(encode(it)) }
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PROOFS, array.toString())
+                .commit()
+        }.getOrDefault(false)
+        check(saved) { "Preuves de contrôle des sources juridiques : sauvegarde locale impossible." }
     }
 
     private fun sameIdentity(
@@ -81,10 +188,17 @@ object PayrollLegalSourceKnowledgeStoreV2 {
             left.matter == right.matter &&
             left.companyId.orEmpty().trim() == right.companyId.orEmpty().trim() &&
             normalizeIdcc(left.idcc) == normalizeIdcc(right.idcc) &&
-            left.subjectKey.orEmpty().trim().uppercase() == right.subjectKey.orEmpty().trim().uppercase() &&
+            normalizeSubjectIdentity(left.subjectKey) == normalizeSubjectIdentity(right.subjectKey) &&
             left.referenceFrom == right.referenceFrom &&
             left.referenceTo == right.referenceTo &&
-            left.officialScopeId == right.officialScopeId
+            left.officialScopeId.trim() == right.officialScopeId.trim()
+
+    private fun hasDuplicateIdentity(proofs: List<PayrollSourceKnowledgeProofV2.Proof>): Boolean =
+        proofs.indices.any { leftIndex ->
+            ((leftIndex + 1) until proofs.size).any { rightIndex ->
+                sameIdentity(proofs[leftIndex], proofs[rightIndex])
+            }
+        }
 
     private fun encode(proof: PayrollSourceKnowledgeProofV2.Proof): JSONObject = JSONObject()
         .put("source", proof.source.name)
@@ -121,6 +235,8 @@ object PayrollLegalSourceKnowledgeStoreV2 {
 
     private fun nullableString(obj: JSONObject, key: String): String? =
         obj.optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+    private fun normalizeSubjectIdentity(value: String?): String = value.orEmpty().trim().uppercase()
 
     private fun normalizeIdcc(value: String?): String {
         val raw = value.orEmpty().trim()
