@@ -41,10 +41,11 @@ object V2ConventionSeniorityPremiumBridge {
 
         val builtIn = PlasturgieSeniorityPremiumV2.genericRules()
             .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
-        val dynamic = V2ConventionSeniorityPremiumStore.rules(context, normalizedIdcc)
-        val rules = builtIn + dynamic
-        val matchingRules = rules.filter {
-            it.structurallyValid() && it.activeOn(referenceDate) && classification.matches(it.classification)
+        val dynamicStored = V2ConventionSeniorityPremiumStore.readConfirmed(context)
+        val dynamic = if (dynamicStored.reliable) {
+            dynamicStored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
+        } else {
+            emptyList()
         }
         val storedCoverage = V2ConventionMatterCoverageStore.resolve(
             context = context,
@@ -53,6 +54,36 @@ object V2ConventionSeniorityPremiumBridge {
             date = referenceDate,
             classification = classification
         )
+
+        if (!dynamicStored.reliable) {
+            val warnings = (
+                dynamicStored.warnings +
+                    storedCoverage.warnings +
+                    "Prime d'ancienneté IDCC $normalizedIdcc : historique KALI local non fiable ; aucun montant, aucune absence de droit et aucun barème historique ne sont déduits automatiquement."
+                ).distinct()
+            return Snapshot(
+                result = ConventionSeniorityPremiumV2.Result(
+                    applicable = false,
+                    reliable = false,
+                    selectedRule = null,
+                    stepYears = null,
+                    rate = null,
+                    monthlyAmount = null,
+                    warnings = warnings
+                ),
+                coverage = ConventionMatterCoverageV2.Snapshot(
+                    state = ConventionMatterCoverageV2.State.INCOMPLETE,
+                    record = storedCoverage.record,
+                    reliable = false,
+                    warnings = warnings
+                )
+            )
+        }
+
+        val rules = builtIn + dynamic
+        val matchingRules = rules.filter {
+            it.structurallyValid() && it.activeOn(referenceDate) && classification.matches(it.classification)
+        }
         val coverage = when {
             matchingRules.isNotEmpty() -> ConventionMatterCoverageV2.Snapshot(
                 state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
