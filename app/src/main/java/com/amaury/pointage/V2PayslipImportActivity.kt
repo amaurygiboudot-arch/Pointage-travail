@@ -343,6 +343,14 @@ class V2PayslipImportActivity : Activity() {
                     true,
                     companyId
                 )
+                if (record == null) {
+                    Toast.makeText(
+                        this,
+                        "Import bloqué : le stockage local des bulletins est illisible ou n'a pas pu être enregistré. Les données existantes sont conservées.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return@setOnClickListener
+                }
                 PayslipObservedValuesStoreV2.put(this, record.id, confirmed)
                 Toast.makeText(this, "Bulletin importé • valeurs confirmées enregistrées", Toast.LENGTH_LONG).show()
                 dialog.setOnCancelListener(null)
