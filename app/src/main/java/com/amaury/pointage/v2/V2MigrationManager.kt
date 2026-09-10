@@ -18,21 +18,46 @@ object V2MigrationManager {
 
     private const val RUNTIME_REAL_ENTRY = "real_entry"
     private const val RUNTIME_COUNTED_ENTRY = "counted_entry"
+    private const val LEGACY_STORAGE_WARNING =
+        "Ancien historique de pointage illisible : migration V2 bloquée sans modifier les données existantes."
 
-    data class Result(val imported: Int, val skipped: Int, val legacyCount: Int, val v2Count: Int)
+    data class Result(
+        val imported: Int,
+        val skipped: Int,
+        val legacyCount: Int,
+        val v2Count: Int,
+        val reliable: Boolean = true,
+        val warnings: List<String> = emptyList()
+    )
 
     fun ensureMigrated(context: Context): Result {
         if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
-        val raw = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-            .getString(LEGACY_KEY, "[]").orEmpty()
-        return importLegacyArray(context, runCatching { JSONArray(raw) }.getOrElse { JSONArray() })
+        val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(context, JSONArray())
+        val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
+            ?: return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
+        if (raw.isBlank()) return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
+        val legacy = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return Result(0, 0, 0, 0, false, listOf(LEGACY_STORAGE_WARNING))
+        return importLegacyArray(context, legacy)
     }
 
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
         if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
         val app = context.applicationContext
         val runtime = app.getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
-        val history = runCatching { JSONArray(runtime.getString(HISTORY_KEY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val storedHistory = V2RuntimeHistoryGuardV2.read(app, allowLegacyMissingIds = true)
+        if (!storedHistory.reliable) {
+            return Result(
+                imported = 0,
+                skipped = legacy.length(),
+                legacyCount = legacy.length(),
+                v2Count = storedHistory.history.length(),
+                reliable = false,
+                warnings = storedHistory.warnings
+            )
+        }
+        val history = storedHistory.history
 
         // Les toutes premières versions V2 pouvaient contenir un historique sans identifiant de
         // session. Les faits SESSION ont besoin d'une identité durable : on répare donc ces rares
@@ -49,8 +74,16 @@ object V2MigrationManager {
         var imported = 0
         var skipped = 0
         for (i in 0 until legacy.length()) {
-            val old = legacy.optJSONObject(i) ?: continue
-            val realEntry = positive(old, "arrivalTime") ?: positive(old, "entry") ?: continue
+            val old = legacy.optJSONObject(i)
+            if (old == null) {
+                skipped++
+                continue
+            }
+            val realEntry = positive(old, "arrivalTime") ?: positive(old, "entry")
+            if (realEntry == null) {
+                skipped++
+                continue
+            }
             val countedEntry = positive(old, "countedEntryTime") ?: positive(old, "entry") ?: realEntry
             val realExit = positive(old, "exitTime") ?: positive(old, "exit")
             val countedExit = positive(old, "countedExitTime") ?: positive(old, "exit")
@@ -81,13 +114,23 @@ object V2MigrationManager {
             imported++
         }
 
-        runtime.edit().putString(HISTORY_KEY, history.toString()).apply()
+        val inspected = V2RuntimeHistoryGuardV2.inspect(history)
+        if (!inspected.reliable || !V2RuntimeHistoryGuardV2.save(app, history)) {
+            return Result(
+                imported = 0,
+                skipped = legacy.length(),
+                legacyCount = legacy.length(),
+                v2Count = storedHistory.history.length(),
+                reliable = false,
+                warnings = inspected.warnings.ifEmpty { listOf("Historique V2 : sauvegarde de migration impossible ; données précédentes conservées.") }
+            )
+        }
         app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE).edit()
             .putInt("version", VERSION)
             .putInt("legacy_count", legacy.length())
             .putInt("v2_count", history.length())
             .putLong("checked_at", System.currentTimeMillis())
-            .apply()
+            .commit()
         return Result(imported, skipped, legacy.length(), history.length())
     }
 
@@ -125,12 +168,13 @@ object V2MigrationManager {
             else -> null
         }
         val currentRepaired = WorkTimePolicyV2.repairKnownCountedEntry(currentReal, currentStored)
-        val editor = runtime.edit()
-        if (historyChanged) editor.putString(HISTORY_KEY, history.toString())
         if (currentRepaired != null && currentStored != null && currentRepaired != currentStored) {
-            editor.putLong(RUNTIME_COUNTED_ENTRY, currentRepaired)
+            runtime.edit().putLong(RUNTIME_COUNTED_ENTRY, currentRepaired).commit()
         }
-        editor.apply()
+        if (historyChanged) {
+            // La sauvegarde finale est effectuée une seule fois par importLegacyArray après validation
+            // de l'ensemble du paquet ; on évite donc ici toute écriture intermédiaire partielle.
+        }
     }
 
     private fun migratePauses(old: JSONObject, basePauseMinutes: Int): JSONArray {

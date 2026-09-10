@@ -7,9 +7,6 @@ import java.util.UUID
 
 /** Ajoute une session manuelle fermée directement dans l'historique V2. */
 object V2ManualSessionWriter {
-    private const val PREFS = "horatrack_v2_test_runtime"
-    private const val KEY_HISTORY = "history"
-
     /** Compatibilité temporaire avec les anciens écrans encore basés sur les slots 1/2. */
     fun add(
         context: Context,
@@ -48,21 +45,23 @@ object V2ManualSessionWriter {
     ): Boolean {
         if (!HoraTrackV2.ENABLED || realStartMs <= 0L || realEndMs <= realStartMs) return false
         V2RuntimeStore.bind(context)
-        V2MigrationManager.ensureMigrated(context)
+        val migration = V2MigrationManager.ensureMigrated(context)
+        if (!migration.reliable) return false
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
         val expectedEnd = V2ScheduleStore.expectedEnd(context, realStartMs, realEndMs)
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
         val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val history = runCatching { JSONArray(prefs.getString(KEY_HISTORY, "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return false
+        val history = stored.history
         val employerKey = employerId ?: "slot:${legacySlot ?: 1}"
         val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerKey"
         for (i in 0 until history.length()) {
-            val o = history.optJSONObject(i) ?: continue
+            val o = history.optJSONObject(i) ?: return false
             val existingEmployer = o.optString("employerId")
                 .takeIf { it.isNotBlank() && it != "null" }
-                ?: "slot:${o.optInt("companySlot", 1).coerceIn(1, 2)}"
+                ?: "slot:${o.optInt("companySlot", 1)}"
             val existing = "${o.optLong("realEntry", 0L)}:${o.optLong("realExit", 0L)}:${o.optLong("countedEntry", 0L)}:${o.optLong("countedExit", 0L)}:$existingEmployer"
             if (existing == signature) return false
         }
@@ -82,7 +81,6 @@ object V2ManualSessionWriter {
                 .put("placeLabel", placeLabel ?: JSONObject.NULL)
                 .put("place", placeLabel ?: JSONObject.NULL)
         )
-        prefs.edit().putString(KEY_HISTORY, history.toString()).apply()
-        return true
+        return V2RuntimeHistoryGuardV2.save(context, history)
     }
 }

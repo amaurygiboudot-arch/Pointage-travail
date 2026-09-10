@@ -1,7 +1,6 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
-import org.json.JSONArray
 
 /**
  * Conserve uniquement l'identifiant de zone et son libellé/adresse déjà configuré.
@@ -12,20 +11,19 @@ object V2SessionPlaceStore {
     private const val KEY_PLACE_ID = "place_id"
     private const val KEY_PLACE_LABEL = "place_label"
 
-    fun setCurrent(context: Context, placeId: String?, placeLabel: String?) {
+    fun setCurrent(context: Context, placeId: String?, placeLabel: String?): Boolean {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val editor = prefs.edit()
         placeId?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_ID, it) } ?: editor.remove(KEY_PLACE_ID)
         placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { editor.putString(KEY_PLACE_LABEL, it) } ?: editor.remove(KEY_PLACE_LABEL)
-        editor.apply()
+        return editor.commit()
     }
 
-    fun clearCurrent(context: Context) {
+    fun clearCurrent(context: Context): Boolean =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .remove(KEY_PLACE_ID)
             .remove(KEY_PLACE_LABEL)
-            .apply()
-    }
+            .commit()
 
     fun currentId(context: Context): String? = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_PLACE_ID, null)?.trim()?.takeIf { it.isNotBlank() }
@@ -33,16 +31,18 @@ object V2SessionPlaceStore {
     fun currentLabel(context: Context): String? = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         .getString(KEY_PLACE_LABEL, null)?.trim()?.takeIf { it.isNotBlank() }
 
-    fun enrichLatestHistory(context: Context) {
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    fun enrichLatestHistory(context: Context): Boolean {
         val placeId = currentId(context)
         val placeLabel = currentLabel(context)
-        if (placeId == null && placeLabel == null) return
-        val history = runCatching { JSONArray(prefs.getString("history", "[]") ?: "[]") }.getOrElse { JSONArray() }
-        if (history.length() == 0) return
-        val item = history.optJSONObject(history.length() - 1) ?: return
+        if (placeId == null && placeLabel == null) return true
+
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return false
+        val history = stored.history
+        if (history.length() == 0) return true
+        val item = history.optJSONObject(history.length() - 1) ?: return false
         placeId?.let { item.put("placeId", it) }
         placeLabel?.let { item.put("placeLabel", it) }
-        prefs.edit().putString("history", history.toString()).apply()
+        return V2RuntimeHistoryGuardV2.save(context, history)
     }
 }
