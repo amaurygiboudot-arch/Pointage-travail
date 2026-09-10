@@ -14,17 +14,42 @@ import java.util.Locale
 object V2ConventionProvidentBenefitStore {
     private const val PREFS = "horatrack_v2_convention_provident_benefit_rules"
     private const val KEY_VERIFIED = "verified_rules"
+    private const val STORAGE_WARNING =
+        "KALI garanties prévoyance : stockage local des règles vérifiées incohérent ; aucune garantie conventionnelle ne peut être déduite de ce stockage."
 
-    fun rules(context: Context): List<ConventionProvidentBenefitV2.Rule> = load(context)
+    data class ReadResult(
+        val rules: List<ConventionProvidentBenefitV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun readVerified(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_VERIFIED)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_VERIFIED, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
+
+    fun rules(context: Context): List<ConventionProvidentBenefitV2.Rule> {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules
+    }
 
     fun rules(context: Context, idcc: String): List<ConventionProvidentBenefitV2.Rule> {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
     internal fun acceptsVerifiedRule(rule: ConventionProvidentBenefitV2.Rule): Boolean =
         rule.structurallyValid() &&
             rule.conventionScopeKey.trim().uppercase(Locale.ROOT).matches(Regex("^KALITEXT\\d+$"))
+
+    internal fun acceptsVerifiedPackage(rules: List<ConventionProvidentBenefitV2.Rule>): Boolean =
+        rules.all(::acceptsVerifiedRule) && !hasDuplicateStoredIdentity(rules)
 
     /**
      * Identité juridique stable d'une règle KALI.
@@ -41,13 +66,15 @@ object V2ConventionProvidentBenefitStore {
 
     fun saveVerified(context: Context, rule: ConventionProvidentBenefitV2.Rule) {
         require(acceptsVerifiedRule(rule)) { "Règle de garanties prévoyance invalide ou sans périmètre KALI exact" }
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
         val normalizedRule = rule.copy(
             idcc = normalized,
             professionalStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT),
             conventionScopeKey = rule.conventionScopeKey.trim().uppercase(Locale.ROOT)
         )
-        val current = load(context).toMutableList()
+        val current = stored.rules.toMutableList()
         current.removeAll {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
                 (it.ruleId == normalizedRule.ruleId || sameLegalIdentity(it, normalizedRule))
@@ -57,8 +84,10 @@ object V2ConventionProvidentBenefitStore {
     }
 
     fun delete(context: Context, idcc: String, ruleId: String) {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        persist(context, load(context).filterNot {
+        persist(context, stored.rules.filterNot {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == ruleId
         })
     }
@@ -86,7 +115,32 @@ object V2ConventionProvidentBenefitStore {
         ).joinToString("#")
     }
 
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<ConventionProvidentBenefitV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decode)?.takeIf(::acceptsVerifiedRule)
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
+            }
+        }
+        if (hasDuplicateStoredIdentity(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
     private fun persist(context: Context, rules: List<ConventionProvidentBenefitV2.Rule>) {
+        check(acceptsVerifiedPackage(rules)) {
+            "KALI garanties prévoyance : historique local invalide ou ambigu."
+        }
         val array = JSONArray()
         rules.sortedWith(
             compareBy<ConventionProvidentBenefitV2.Rule> { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) }
@@ -95,20 +149,23 @@ object V2ConventionProvidentBenefitStore {
                 .thenBy { it.professionalStatus.orEmpty() }
                 .thenBy { it.ruleId }
         ).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_VERIFIED, array.toString()).apply()
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_VERIFIED, array.toString()).commit()
+        }.getOrDefault(false)
+        check(saved) { "KALI garanties prévoyance : stockage local des règles impossible." }
     }
 
-    private fun load(context: Context): List<ConventionProvidentBenefitV2.Rule> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_VERIFIED, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)?.takeIf(::acceptsVerifiedRule)?.let(::add)
+    private fun hasDuplicateStoredIdentity(rules: List<ConventionProvidentBenefitV2.Rule>): Boolean =
+        rules.indices.any { leftIndex ->
+            ((leftIndex + 1) until rules.size).any { rightIndex ->
+                val left = rules[leftIndex]
+                val right = rules[rightIndex]
+                val sameIdcc = ConventionMinimumSalaryV2.normalizeIdcc(left.idcc) ==
+                    ConventionMinimumSalaryV2.normalizeIdcc(right.idcc)
+                sameIdcc && (left.ruleId == right.ruleId || sameLegalIdentity(left, right))
             }
         }
-    }
 
     private fun encode(rule: ConventionProvidentBenefitV2.Rule): JSONObject {
         val ani = JSONArray()
