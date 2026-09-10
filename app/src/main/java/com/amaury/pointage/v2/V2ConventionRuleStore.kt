@@ -44,25 +44,34 @@ object V2ConventionRuleStore {
         }
     }
 
-    fun saveConfirmed(context: Context, snapshot: ConventionRuleSnapshotV2): Boolean {
+    /**
+     * Refuse toute écriture si l'historique existant est illisible/incohérent.
+     * L'exception est volontaire : les appels de l'audit KALI sont déjà entourés de runCatching,
+     * ce qui transforme l'échec en `saved=false` sans écraser l'historique antérieur.
+     */
+    fun saveConfirmed(context: Context, snapshot: ConventionRuleSnapshotV2) {
         val stored = readConfirmed(context)
-        if (!stored.reliable) return false
+        check(stored.reliable) { STORAGE_WARNING }
+        check(validSnapshotPayload(snapshot)) { "KALI heures supplémentaires : snapshot conventionnel invalide." }
 
         val current = stored.snapshots.toMutableList()
         current.removeAll { normalize(it.idcc) == normalize(snapshot.idcc) && it.versionId == snapshot.versionId }
         current += snapshot
-        val validated = runCatching { ConventionRuleHistoryV2(current) }.isSuccess
-        if (!validated) return false
+        check(current.all(::validSnapshotPayload)) { "KALI heures supplémentaires : historique conventionnel invalide." }
+        check(runCatching { ConventionRuleHistoryV2(current) }.isSuccess) {
+            "KALI heures supplémentaires : historique conventionnel dupliqué ou chevauchant."
+        }
 
         val array = JSONArray()
         current.sortedWith(compareBy<ConventionRuleSnapshotV2> { normalize(it.idcc) }.thenBy { it.effectiveFromEpochDay })
             .forEach { array.put(encodeSnapshot(it)) }
-        return runCatching {
+        val saved = runCatching {
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putString(KEY_CONFIRMED, array.toString())
                 .commit()
         }.getOrDefault(false)
+        check(saved) { "KALI heures supplémentaires : stockage local du snapshot impossible." }
     }
 
     /**
@@ -97,7 +106,11 @@ object V2ConventionRuleStore {
         for (index in 0 until array.length()) {
             val obj = array.opt(index) as? JSONObject
             val snapshot = obj?.let(::decodeSnapshot)
-            if (snapshot == null) malformed = true else snapshots += snapshot
+            if (snapshot == null || !validSnapshotPayload(snapshot)) {
+                malformed = true
+            } else {
+                snapshots += snapshot
+            }
         }
         if (!malformed) {
             malformed = runCatching { ConventionRuleHistoryV2(snapshots) }.isFailure
@@ -135,10 +148,14 @@ object V2ConventionRuleStore {
 
     private fun decodeSnapshot(obj: JSONObject): ConventionRuleSnapshotV2? = runCatching {
         val rules = obj.getJSONObject("rules")
-        val tiersJson = rules.optJSONArray("overtimeTiers") ?: JSONArray()
+        val tiersJson = when {
+            !rules.has("overtimeTiers") -> JSONArray()
+            rules.isNull("overtimeTiers") -> JSONArray()
+            else -> rules.optJSONArray("overtimeTiers") ?: error("overtimeTiers invalide")
+        }
         val tiers = buildList {
             for (index in 0 until tiersJson.length()) {
-                val tier = tiersJson.getJSONObject(index)
+                val tier = tiersJson.opt(index) as? JSONObject ?: error("palier invalide")
                 add(OvertimeTierV2(
                     fromMinutes = tier.getInt("fromMinutes"),
                     toMinutes = if (tier.isNull("toMinutes")) null else tier.getInt("toMinutes"),
@@ -163,6 +180,22 @@ object V2ConventionRuleStore {
             note = if (obj.isNull("note")) null else obj.optString("note").takeIf { it.isNotBlank() }
         )
     }.getOrNull()
+
+    private fun validSnapshotPayload(snapshot: ConventionRuleSnapshotV2): Boolean {
+        if (snapshot.checkedAtMs < 0L) return false
+        if (snapshot.rules.weeklyRegularMinutes?.let { it <= 0 } == true) return false
+        val multipliers = listOf(
+            snapshot.rules.nightMultiplier,
+            snapshot.rules.saturdayMultiplier,
+            snapshot.rules.sundayMultiplier
+        ).filterNotNull()
+        if (multipliers.any { !it.isFinite() || it < 1.0 }) return false
+        return snapshot.rules.overtimeTiers.all { tier ->
+            tier.fromMinutes >= 0 &&
+                (tier.toMinutes == null || tier.toMinutes > tier.fromMinutes) &&
+                tier.multiplier.isFinite() && tier.multiplier >= 1.0
+        }
+    }
 
     private fun normalize(value: String): String = value.trim().padStart(4, '0')
 }
