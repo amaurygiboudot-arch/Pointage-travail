@@ -11,11 +11,30 @@ import java.time.LocalDate
 object V2CompanyMealBasketStore {
     private const val PREFS = "horatrack_v2_company_meal_basket_rules"
     private const val MAX_RULES = 300
+    private const val STORAGE_WARNING =
+        "ACCO panier repas : stockage local des règles d'entreprise incohérent ; aucun droit repas d'entreprise ne peut être déduit de ce stockage."
+
+    data class ReadResult(
+        val rules: List<OfficialAccoMealBasketParserV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun read(context: Context, companyId: String): ReadResult {
+        if (companyId.isBlank()) return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(companyId)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(companyId, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeStored(raw)
+    }
 
     fun rules(context: Context, companyId: String, expectedSiret: String): List<OfficialAccoMealBasketParserV2.Rule> {
         val siret = expectedSiret.filter(Char::isDigit)
         if (companyId.isBlank() || siret.length != 14) return emptyList()
-        return load(context, companyId).filter { it.siret == siret && it.structurallyValid() }
+        val stored = read(context, companyId)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules.filter { it.siret == siret }
     }
 
     /**
@@ -29,23 +48,19 @@ object V2CompanyMealBasketStore {
         companyId: String,
         rules: List<OfficialAccoMealBasketParserV2.Rule>
     ): Boolean {
-        if (companyId.isBlank() || rules.isEmpty() || rules.any { !it.structurallyValid() }) return false
+        if (companyId.isBlank() || !acceptsVerifiedPackage(rules)) return false
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
 
-        val agreementIds = rules.map { it.agreementId }.toSet()
-        val sirets = rules.map { it.siret }.toSet()
-        val classifications = rules.map { it.classification.normalized() }.toSet()
-        val statuses = rules.map { it.professionalStatus }.toSet()
-        if (agreementIds.size != 1 || sirets.size != 1 || classifications.size != 1 || statuses.size != 1) return false
-
-        val current = load(context, companyId).toMutableList()
+        val current = stored.rules.toMutableList()
         val sample = rules.first()
-        current.removeAll { stored ->
-            stored.agreementId == sample.agreementId &&
-                stored.siret == sample.siret &&
-                stored.classification.normalized() == sample.classification.normalized() &&
-                stored.professionalStatus == sample.professionalStatus
+        current.removeAll { existing ->
+            existing.agreementId == sample.agreementId &&
+                existing.siret == sample.siret &&
+                existing.classification.normalized() == sample.classification.normalized() &&
+                existing.professionalStatus == sample.professionalStatus
         }
-        current += rules.distinctBy { it.fingerprint }
+        current += rules
         return commit(context, companyId, current)
     }
 
@@ -67,12 +82,14 @@ object V2CompanyMealBasketStore {
         if (companyId.isBlank() || !acco.matches(Regex("^ACCOTEXT\\d+$")) || siret.length != 14 ||
             classification.isEmpty() || status !in setOf("CADRE", "NON_CADRE")) return false
 
-        val current = load(context, companyId).toMutableList()
-        val changed = current.removeAll { stored ->
-            stored.agreementId == acco &&
-                stored.siret == siret &&
-                stored.classification.normalized() == classification.normalized() &&
-                stored.professionalStatus == status
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        val current = stored.rules.toMutableList()
+        val changed = current.removeAll { existing ->
+            existing.agreementId == acco &&
+                existing.siret == siret &&
+                existing.classification.normalized() == classification.normalized() &&
+                existing.professionalStatus == status
         }
         return if (!changed) true else commit(context, companyId, current)
     }
@@ -80,10 +97,25 @@ object V2CompanyMealBasketStore {
     /** Remplacement unitaire historique : ne supprime jamais les autres objets du même accord. */
     fun saveVerified(context: Context, companyId: String, rule: OfficialAccoMealBasketParserV2.Rule): Boolean {
         if (companyId.isBlank() || !rule.structurallyValid()) return false
-        val current = load(context, companyId).toMutableList()
+        val stored = read(context, companyId)
+        if (!stored.reliable) return false
+        val current = stored.rules.toMutableList()
         current.removeAll { sameLegalIdentity(it, rule) }
         current += rule
         return commit(context, companyId, current)
+    }
+
+    internal fun acceptsVerifiedPackage(rules: List<OfficialAccoMealBasketParserV2.Rule>): Boolean {
+        if (rules.isEmpty() || rules.size > MAX_RULES || rules.any { !it.structurallyValid() }) return false
+        val agreementIds = rules.map { it.agreementId }.toSet()
+        val sirets = rules.map { it.siret }.toSet()
+        val classifications = rules.map { it.classification.normalized() }.toSet()
+        val statuses = rules.map { it.professionalStatus }.toSet()
+        return agreementIds.size == 1 &&
+            sirets.size == 1 &&
+            classifications.size == 1 &&
+            statuses.size == 1 &&
+            !hasDuplicateLegalIdentity(rules)
     }
 
     internal fun sameLegalIdentity(
@@ -95,27 +127,51 @@ object V2CompanyMealBasketStore {
         left.professionalStatus == right.professionalStatus &&
         left.benefitId == right.benefitId
 
+    internal fun decodeStored(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<OfficialAccoMealBasketParserV2.Rule>()
+        var malformed = array.length() > MAX_RULES
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decode)
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
+            }
+        }
+        if (hasDuplicateLegalIdentity(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
     private fun commit(
         context: Context,
         companyId: String,
         rules: List<OfficialAccoMealBasketParserV2.Rule>
     ): Boolean {
+        if (companyId.isBlank() || rules.size > MAX_RULES || rules.any { !it.structurallyValid() } ||
+            hasDuplicateLegalIdentity(rules)) return false
         val array = JSONArray()
-        rules.takeLast(MAX_RULES).forEach { array.put(encode(it)) }
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(companyId, array.toString())
-            .commit()
+        rules.forEach { array.put(encode(it)) }
+        return runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(companyId, array.toString())
+                .commit()
+        }.getOrDefault(false)
     }
 
-    private fun load(context: Context, companyId: String): List<OfficialAccoMealBasketParserV2.Rule> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(companyId, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) decode(array.optJSONObject(index) ?: continue)?.let(::add)
+    private fun hasDuplicateLegalIdentity(rules: List<OfficialAccoMealBasketParserV2.Rule>): Boolean =
+        rules.indices.any { leftIndex ->
+            ((leftIndex + 1) until rules.size).any { rightIndex ->
+                sameLegalIdentity(rules[leftIndex], rules[rightIndex])
+            }
         }
-    }
 
     private fun encode(rule: OfficialAccoMealBasketParserV2.Rule): JSONObject = JSONObject()
         .put("agreementId", rule.agreementId)

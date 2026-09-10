@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -71,4 +72,124 @@ class V2CompanyMealBasketStoreTest {
             )
         )
     }
+
+    @Test
+    fun `paquet ACCO complet accepte plusieurs objets distincts`() {
+        assertTrue(
+            V2CompanyMealBasketStore.acceptsVerifiedPackage(
+                listOf(rule(benefitId = "MEAL_DAY_1"), rule(benefitId = "MEAL_NIGHT_1"))
+            )
+        )
+    }
+
+    @Test
+    fun `paquet ACCO refuse deux variantes de la meme identite juridique`() {
+        assertFalse(
+            V2CompanyMealBasketStore.acceptsVerifiedPackage(
+                listOf(rule(amount = 6.25), rule(amount = 6.50))
+            )
+        )
+    }
+
+    @Test
+    fun `stockage vide explicite est fiable`() {
+        val result = V2CompanyMealBasketStore.decodeStored("[]")
+
+        assertTrue(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `json illisible rend le stockage ACCO non fiable`() {
+        val result = V2CompanyMealBasketStore.decodeStored("not-json")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide rend tout le stockage non fiable sans perdre la preuve valide`() {
+        val result = V2CompanyMealBasketStore.decodeStored(
+            """[
+                ${ruleJson()},
+                {"agreementId":"ACCOTEXT000000000002","siret":"12345678901234"}
+            ]""".trimIndent()
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(1, result.rules.size)
+    }
+
+    @Test
+    fun `deux variantes de la meme identite juridique rendent le stockage non fiable`() {
+        val result = V2CompanyMealBasketStore.decodeStored(
+            """[
+                ${ruleJson(amount = 6.25)},
+                ${ruleJson(amount = 6.50)}
+            ]""".trimIndent()
+        )
+
+        assertFalse(result.reliable)
+        assertEquals(2, result.rules.size)
+    }
+
+    @Test
+    fun `deux objets repas distincts restent fiables`() {
+        val result = V2CompanyMealBasketStore.decodeStored(
+            """[
+                ${ruleJson(benefitId = "MEAL_DAY_1")},
+                ${ruleJson(benefitId = "MEAL_NIGHT_1")}
+            ]""".trimIndent()
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(2, result.rules.size)
+    }
+
+    @Test
+    fun `condition ACCO inconnue est rejetee`() {
+        val result = V2CompanyMealBasketStore.decodeStored(
+            "[${ruleJson(conditionType = "UNKNOWN")}]"
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    @Test
+    fun `preuve ACCO vide est rejetee`() {
+        val result = V2CompanyMealBasketStore.decodeStored(
+            "[${ruleJson(evidenceExcerpt = "")}]"
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+    }
+
+    private fun ruleJson(
+        agreementId: String = "ACCOTEXT000000000001",
+        siret: String = "12345678901234",
+        coefficient: Int = 700,
+        benefitId: String = "MEAL_DAY_1",
+        amount: Double = 6.25,
+        conditionType: String = "WORKED_DAY",
+        evidenceExcerpt: String = "Panier repas entreprise"
+    ): String = """{
+        "agreementId":"$agreementId",
+        "siret":"$siret",
+        "effectiveFrom":"2026-01-01",
+        "effectiveTo":null,
+        "classification":{"coefficient":$coefficient,"level":null,"echelon":null,"position":null,"group":null,"category":null,"employment":null},
+        "professionalStatus":"NON_CADRE",
+        "benefitId":"$benefitId",
+        "deliveryMode":"CASH_ALLOWANCE",
+        "amount":{"type":"FIXED","value":$amount},
+        "eligibility":[[{"type":"$conditionType"}]],
+        "blockers":[],
+        "countingUnit":"WORKED_DAY",
+        "maxAwardsPerCalendarDay":1,
+        "evidenceExcerpt":"$evidenceExcerpt"
+    }""".trimIndent()
 }
