@@ -105,9 +105,18 @@ object CompanyAgreementOfficialAuditV2 {
                         )
                     }
 
-                    val existing = CompanyAgreementStoreV2.list(app, companyId)
+                    val agreementState = CompanyAgreementStoreV2.read(app, companyId)
+                    val existing = if (agreementState.reliable) agreementState.agreements else emptyList()
                     val merged = mergePreservingExisting(existing, consult.verifiedAgreements)
-                    val agreementStoreSaved = merged == existing || CompanyAgreementStoreV2.save(app, companyId, merged)
+                    val unchanged = merged == existing
+                    val saveSucceeded = if (agreementState.reliable && !unchanged) {
+                        CompanyAgreementStoreV2.save(app, companyId, merged)
+                    } else false
+                    val agreementStoreSaved = agreementStoreReady(
+                        metadataReliable = agreementState.reliable,
+                        unchanged = unchanged,
+                        saveSucceeded = saveSucceeded
+                    )
                     val technicalCompleted = auditCompleted(
                         searchComplete = search.complete,
                         searchStored = searchStored,
@@ -148,8 +157,13 @@ object CompanyAgreementOfficialAuditV2 {
                     val warnings = buildList {
                         addAll(search.warnings)
                         addAll(consult.warnings)
+                        addAll(agreementState.warnings)
                         if (!searchStored) add("ACCO : résultat de recherche reçu mais stockage local impossible.")
-                        if (!agreementStoreSaved) add("ACCO : accords vérifiés reçus mais stockage local impossible.")
+                        if (!agreementState.reliable) {
+                            add("ACCO : métadonnées d'accords locales incohérentes ; l'audit reste incomplet et aucun état d'accord n'est déduit tant que le stockage n'est pas réparé.")
+                        } else if (!agreementStoreSaved) {
+                            add("ACCO : accords vérifiés reçus mais stockage local impossible.")
+                        }
                         if (consult.rejected > 0) {
                             add("ACCO : ${consult.rejected} accord(s) candidat(s) n'ont pas pu être reliés de façon certaine au SIRET après consultation ; audit repas global incomplet.")
                         }
@@ -414,6 +428,12 @@ object CompanyAgreementOfficialAuditV2 {
         val existingIds = existing.map { it.id }.toSet()
         return existing + verified.distinctBy { it.id }.filterNot { it.id in existingIds }
     }
+
+    internal fun agreementStoreReady(
+        metadataReliable: Boolean,
+        unchanged: Boolean,
+        saveSucceeded: Boolean
+    ): Boolean = metadataReliable && (unchanged || saveSucceeded)
 
     internal fun auditCompleted(
         searchComplete: Boolean,
