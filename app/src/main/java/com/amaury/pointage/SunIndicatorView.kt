@@ -15,6 +15,7 @@ import android.util.AttributeSet
 import android.view.View
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
+import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
@@ -27,10 +28,9 @@ import kotlin.math.sqrt
 /**
  * Couche astronomique de l'horloge.
  *
- * Depuis la migration V2, cette vue ne calcule plus la phase de Lune, les
- * éclipses, le GPS ni l'orientation Android. Elle rend uniquement l'état fourni
- * par CelestialTrackerV2. Sans position qualifiée, aucun faux Soleil/Lune n'est
- * inventé.
+ * La vue ne calcule ni GPS, ni capteurs, ni astronomie. Elle rend uniquement
+ * l'état V2 qualifié. La position Soleil/Lune utilise le repère 3D réel de
+ * l'écran : azimut, inclinaison, roulis, rotation d'écran et Nord vrai.
  */
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
@@ -53,6 +53,7 @@ class SunIndicatorView @JvmOverloads constructor(
     private var trackerSubscribed = false
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
+    private var deviceFrame: CelestialDeviceFrameV2? = null
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
 
@@ -113,6 +114,7 @@ class SunIndicatorView @JvmOverloads constructor(
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
                 celestialSnapshot = tracking.snapshot
+                deviceFrame = tracking.deviceFrame
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
                 tracking.snapshot?.let { setNightMode(it.night) }
@@ -122,6 +124,7 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
             celestialSnapshot = null
+            deviceFrame = null
         }
     }
 
@@ -129,6 +132,7 @@ class SunIndicatorView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (!visibleCelestial || width <= 0 || height <= 0) return
         val snapshot = celestialSnapshot ?: return
+        val frame = deviceFrame ?: return
 
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
@@ -138,11 +142,11 @@ class SunIndicatorView @JvmOverloads constructor(
         val inactiveRadius = activeRadius * 0.82f
         val sun = snapshot.sun
         val moon = snapshot.moon
-        val sunScreen = mapToWatchDome(sun, earthX, earthY, horizonRadius)
-        val moonScreen = mapToWatchDome(moon, earthX, earthY, horizonRadius)
+        val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
+        val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
 
-        // Le Soleil n'est dessiné que s'il est réellement au-dessus de l'horizon
-        // civil. Sa direction optique globale reste gérée par LightDirectionController.
+        // Le Soleil n'est dessiné que s'il est réellement visible dans
+        // l'hémisphère regardé par l'écran et au-dessus de l'horizon civil.
         if (sunScreen != null) {
             CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
             drawCelestialPng(
@@ -155,8 +159,6 @@ class SunIndicatorView @JvmOverloads constructor(
             )
         }
 
-        // Même règle pour la Lune : pas de sprite sous l'horizon. Si elle est
-        // visible, sa phase et son ombre restent calculées depuis le snapshot V2.
         if (moonScreen != null) {
             val moonRadius = (
                 if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
@@ -166,7 +168,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
                 from = moon,
                 to = sun,
-                deviceAzimuthDeg = deviceAzimuth
+                frame = frame
             )
             drawMoonSunlight(
                 canvas = canvas,
@@ -181,7 +183,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
                 moon = moon,
                 sun = sun,
-                deviceAzimuthDeg = deviceAzimuth
+                frame = frame
             )
             drawEarthShadowOnMoon(
                 canvas = canvas,
@@ -232,8 +234,7 @@ class SunIndicatorView @JvmOverloads constructor(
      *
      * La fraction éclairée vient du véritable angle de phase. La direction
      * d'éclairage vient de la tangente réelle Lune -> Soleil sur la sphère
-     * céleste, projetée dans la géométrie du cadran. L'ombre n'est donc plus
-     * orientée par une simple ligne décorative entre deux images.
+     * céleste, projetée dans le repère physique de l'écran.
      */
     private fun drawMoonSunlight(
         canvas: Canvas,
@@ -342,8 +343,8 @@ class SunIndicatorView @JvmOverloads constructor(
      * Ombre terrestre lors d'une éclipse lunaire.
      *
      * V2 fournit les rayons physiques de l'umbra et de la pénombre à la
-     * distance actuelle de la Lune. La direction vers l'axe anti-solaire est
-     * elle aussi calculée sur la sphère céleste avant projection écran.
+     * distance actuelle de la Lune. L'axe anti-solaire est projeté dans le
+     * même repère 3D que le disque lunaire.
      */
     private fun drawEarthShadowOnMoon(
         canvas: Canvas,
@@ -421,21 +422,14 @@ class SunIndicatorView @JvmOverloads constructor(
         earthUmbraPaint.shader = null
     }
 
-    /**
-     * Projection V2 du ciel visible sur le cadran :
-     * - azimut réel = angle autour de l'horloge ;
-     * - altitude réelle = distance au centre ;
-     * - horizon = bord externe ;
-     * - zénith = rayon interne compact pour préserver la Terre centrale ;
-     * - sous l'horizon civil = aucun rendu.
-     */
-    private fun mapToWatchDome(
+    private fun mapToDeviceSky(
         position: CelestialBodyV2,
+        frame: CelestialDeviceFrameV2,
         cx: Float,
         cy: Float,
         horizonRadius: Float
     ): Pair<Float, Float>? {
-        val projected = CelestialScreenGeometryV2.projectOnWatchDome(position, deviceAzimuth) ?: return null
+        val projected = CelestialScreenGeometryV2.projectInDeviceSky(position, frame) ?: return null
         val x = cx + projected.xRadiusFraction.toFloat() * horizonRadius
         val y = cy + projected.yRadiusFraction.toFloat() * horizonRadius
         return x to y
