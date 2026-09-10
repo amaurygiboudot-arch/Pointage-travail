@@ -20,6 +20,7 @@ import android.view.WindowManager
 import androidx.core.content.ContextCompat
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.CelestialTrackingPolicyV2
 import kotlin.math.abs
@@ -294,15 +295,17 @@ object CelestialTrackerV2 {
 
     private fun updateOrientation(rotationMatrix: FloatArray, orientation: FloatArray) {
         lastDisplayRotationMatrix = rotationMatrix.copyOf()
-        val magneticAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-        deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(
-            matrix = rotationMatrix,
-            declinationDeg = magneticDeclinationDeg,
-            stabilizedHeadingDeg = deviceAzimuthDeg
-        )
+
+        // Le cap ne vient volontairement plus de l'Euler azimuth orientation[0].
+        // Près d'une posture verticale, cet angle peut devenir numériquement
+        // instable. On construit d'abord le frame Nord vrai, puis on en déduit le
+        // prolongement horizontal du haut du cadran, déjà testé pour rester continu.
+        val rawTrueNorthFrame = buildTrueNorthFrame(rotationMatrix, magneticDeclinationDeg)
+        val rawTrueHeading = CelestialScreenGeometryV2.headingFromFrame(rawTrueNorthFrame).toFloat()
+        deviceAzimuthDeg = stabilizeAzimuth(rawTrueHeading)
+        deviceFrame = rawTrueNorthFrame.copy(stabilizedHeadingDeg = deviceAzimuthDeg.toDouble())
         emitOrientationIfNeeded()
     }
 
@@ -310,21 +313,18 @@ object CelestialTrackerV2 {
         val matrix = lastDisplayRotationMatrix ?: return
         val orientation = FloatArray(3)
         SensorManager.getOrientation(matrix, orientation)
-        val magneticAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-        deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(
-            matrix = matrix,
-            declinationDeg = magneticDeclinationDeg,
-            stabilizedHeadingDeg = deviceAzimuthDeg
-        )
+
+        val rawTrueNorthFrame = buildTrueNorthFrame(matrix, magneticDeclinationDeg)
+        val rawTrueHeading = CelestialScreenGeometryV2.headingFromFrame(rawTrueNorthFrame).toFloat()
+        deviceAzimuthDeg = stabilizeAzimuth(rawTrueHeading)
+        deviceFrame = rawTrueNorthFrame.copy(stabilizedHeadingDeg = deviceAzimuthDeg.toDouble())
     }
 
     private fun buildTrueNorthFrame(
         matrix: FloatArray,
-        declinationDeg: Float,
-        stabilizedHeadingDeg: Float
+        declinationDeg: Float
     ): CelestialDeviceFrameV2 {
         fun trueAxis(eastMag: Float, northMag: Float, up: Float): Triple<Double, Double, Double> {
             val angle = Math.toRadians(declinationDeg.toDouble())
@@ -350,8 +350,7 @@ object CelestialTrackerV2 {
             topUp = top.third,
             normalEast = normal.first,
             normalNorth = normal.second,
-            normalUp = normal.third,
-            stabilizedHeadingDeg = stabilizedHeadingDeg.toDouble()
+            normalUp = normal.third
         )
     }
 
