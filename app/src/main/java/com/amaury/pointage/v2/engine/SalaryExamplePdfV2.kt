@@ -74,15 +74,21 @@ object SalaryExamplePdfV2 {
         )
     }
 
+    internal fun normalizeBoccIdcc(value: String): String? {
+        val raw = value.trim()
+        if (raw.isBlank() || raw.any { !it.isDigit() }) return null
+        return raw.toIntOrNull()?.takeIf { it > 0 }?.toString()
+    }
+
     internal fun boccSourceStatus(
-        contextReady: Boolean,
+        configurationIssue: String?,
         reliable: Boolean,
         references: List<String>
     ): SourceStatus {
-        if (!contextReady) {
+        if (configurationIssue != null) {
             return SourceStatus(
-                summary = "IDCC / entreprise à confirmer",
-                references = "IDCC / entreprise à confirmer"
+                summary = configurationIssue,
+                references = configurationIssue
             )
         }
         if (!reliable) {
@@ -212,9 +218,20 @@ object SalaryExamplePdfV2 {
             .toInstant()
             .toEpochMilli()
         val legalSnapshot = LegalPayrollSourceStoreV2.snapshot(context, legalReferenceAtMs)
-        val boccContextReady = company != null && idcc.isNotBlank()
-        val boccSnapshot = if (boccContextReady) {
-            BoccPayrollSourceStoreV2.snapshotResult(context, company!!.id, legalReferenceAtMs, idcc)
+        val normalizedBoccIdcc = normalizeBoccIdcc(idcc)
+        val boccConfigurationIssue = when {
+            company == null -> "Entreprise à confirmer"
+            idcc.isBlank() -> "IDCC à confirmer"
+            normalizedBoccIdcc == null -> "IDCC invalide — à corriger"
+            else -> null
+        }
+        val boccSnapshot = if (boccConfigurationIssue == null) {
+            BoccPayrollSourceStoreV2.snapshotResult(
+                context,
+                company!!.id,
+                legalReferenceAtMs,
+                normalizedBoccIdcc!!
+            )
         } else null
 
         val pdf = PdfDocument()
@@ -359,7 +376,7 @@ object SalaryExamplePdfV2 {
                 .mapNotNull { it.bulletinNumber?.takeIf(String::isNotBlank) ?: it.fileName.takeIf(String::isNotBlank) }
                 .distinct()
             val boccStatus = boccSourceStatus(
-                contextReady = boccContextReady,
+                configurationIssue = boccConfigurationIssue,
                 reliable = boccSnapshot?.reliable ?: true,
                 references = boccRefs
             )
