@@ -22,7 +22,7 @@ import android.widget.TextView
 object ThemeFrameStyler {
     private val protectedIds = setOf("entryButton", "pauseButton", "exitButton", "settingsButton")
     private val tabIds = setOf("tabToday", "tabHistory", "tabAnalytics", "tabSalary", "tabSettings")
-    private val visualIds = setOf("clockDigital", "heroClockHands", "sunIndicator")
+    private val visualIds = setOf("clockDigital", "heroClockPermanent", "heroClockHands", "sunIndicator")
     private val referenceOrange = Color.parseColor("#F3A64A")
 
     fun apply(root: View) {

@@ -28,6 +28,17 @@ object CelestialLightingState {
     }
 
     /**
+     * Efface explicitement une direction devenue non fiable (GPS absent, trop
+     * ancien ou trop imprécis) afin de ne jamais conserver un ancien Soleil en
+     * le présentant comme la lumière réelle actuelle.
+     */
+    fun clearSunDirection() {
+        sunDirX = 0f
+        sunDirY = -1f
+        hasSunDirection = false
+    }
+
+    /**
      * Convertit l'état astronomique existant en source optique commune.
      * Soleil haut : blanc/neutre. Soleil bas : plus chaud. Lune : faible et froide.
      */

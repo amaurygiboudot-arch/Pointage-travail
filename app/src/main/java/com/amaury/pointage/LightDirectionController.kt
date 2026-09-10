@@ -1,24 +1,18 @@
 package com.amaury.pointage
 
-import android.Manifest
 import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
-import android.location.Location
-import android.location.LocationManager
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
-import androidx.core.content.ContextCompat
+import com.amaury.pointage.v2.CelestialTrackerV2
 import java.util.Calendar
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.sqrt
+import kotlin.math.cos
+import kotlin.math.sin
 
+/**
+ * Adaptateur d'éclairage de l'interface vers le suivi céleste V2.
+ *
+ * GPS et capteurs ne sont plus acquis ici : CelestialTrackerV2 est l'unique
+ * source Android partagée avec SunIndicatorView.
+ */
 object LightDirectionController {
     data class LightingState(
         val lightAngle: Float,
@@ -29,223 +23,109 @@ object LightDirectionController {
         val devicePitch: Float
     )
 
-    private data class Registration(
-        val manager: SensorManager,
-        val listener: SensorEventListener,
-        val ticker: Runnable
-    )
+    private data class Registration(val trackerKey: Any)
 
     private val registrations = mutableMapOf<Int, Registration>()
-    private val mainHandler = Handler(Looper.getMainLooper())
-
-    private const val MIN_RENDER_INTERVAL_MS = 90L
-    private const val MIN_ORIENTATION_DELTA = 0.8f
-    private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
-    private const val AZIMUTH_SMOOTHING = 0.35f
-
-    private fun releaseRegistration(registration: Registration) {
-        registration.manager.unregisterListener(registration.listener)
-        mainHandler.removeCallbacks(registration.ticker)
-    }
+    private const val FIXED_FALLBACK_LIGHT_ANGLE = -55f
 
     private fun detachOtherActivities(activeKey: Int) {
         val obsoleteKeys = registrations.keys.filter { it != activeKey }
-        obsoleteKeys.forEach { key -> registrations.remove(key)?.let(::releaseRegistration) }
+        obsoleteKeys.forEach { key ->
+            registrations.remove(key)?.let { CelestialTrackerV2.unsubscribe(it.trackerKey) }
+        }
     }
 
     fun attach(activity: Activity, onLightingChanged: (LightingState) -> Unit) {
-        val key = System.identityHashCode(activity)
-        detachOtherActivities(key)
-        if (registrations.containsKey(key)) return
+        val activityKey = System.identityHashCode(activity)
+        detachOtherActivities(activityKey)
+        if (registrations.containsKey(activityKey)) return
 
-        val sm = activity.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        val rotationSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
-        val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val trackerKey = Any()
+        registrations[activityKey] = Registration(trackerKey)
 
-        var target = -55f
-        var celestialAngle: Float? = null
-        var celestialAzimuth: Double? = null
-        var locationBased = false
-        var night = isNight(activity)
-        var intensity = if (night) .24f else .78f
-        var elevation = if (night) 25f else 45f
-        var azimuth = 0f
-        var filteredAzimuth = Float.NaN
-        var pitch = 0f
-        var roll = 0f
-        var lastEmitMs = 0L
-        var lastEmittedAngle = Float.NaN
-        var lastEmittedPitch = Float.NaN
-        var lastEmittedRoll = Float.NaN
-
-        fun stabilizeAzimuth(raw: Float): Float {
-            val normalizedRaw = normalize(raw)
-            if (filteredAzimuth.isNaN()) {
-                filteredAzimuth = normalizedRaw
-                return filteredAzimuth
+        CelestialTrackerV2.subscribe(activity, trackerKey) { tracking ->
+            if (activity.isFinishing || activity.isDestroyed) {
+                detach(activity)
+                return@subscribe
             }
-            val delta = shortestDelta(filteredAzimuth, normalizedRaw)
-            if (abs(delta) < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuth
-            filteredAzimuth = normalize(filteredAzimuth + delta * AZIMUTH_SMOOTHING)
-            return filteredAzimuth
-        }
 
-        fun state(angle: Float): LightingState {
-            val diamondPitch = pitch.coerceIn(-55f, 55f)
-            val diamondRoll = roll.coerceIn(-55f, 55f)
-            val diamondIntensity = intensity.coerceIn(.12f, 1f)
-            val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
+            val snapshot = tracking.snapshot
+            val night = snapshot?.night ?: fallbackNightByClock()
+            val active = snapshot?.let { if (it.night) it.moon else it.sun }
+            val celestialAngle = active?.let {
+                screenAngle(tracking.deviceAzimuthDeg, it.azimuthDeg)
+            }
+            val lightAngle = celestialAngle ?: FIXED_FALLBACK_LIGHT_ANGLE
+            val elevation = active?.altitudeDeg?.toFloat()?.coerceIn(-10f, 90f)
+                ?: if (night) 25f else 45f
+            val intensity = if (active == null) {
+                if (night) .24f else .72f
+            } else if (night) {
+                ((active.altitudeDeg + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
+            } else {
+                ((active.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
+            }
+
+            if (snapshot != null) {
+                val sunAngle = screenAngle(tracking.deviceAzimuthDeg, snapshot.sun.azimuthDeg)
+                val radians = Math.toRadians(sunAngle.toDouble())
+                CelestialLightingState.updateSunDirection(
+                    sin(radians).toFloat(),
+                    -cos(radians).toFloat()
+                )
+            } else {
+                CelestialLightingState.clearSunDirection()
+            }
 
             CelestialLightingState.updateOpticalLight(
-                intensity = diamondIntensity,
+                intensity = intensity,
                 elevationDegrees = elevation,
                 night = night
             )
 
+            val diamondPitch = tracking.devicePitchDeg.coerceIn(-55f, 55f)
+            val diamondRoll = tracking.deviceRollDeg.coerceIn(-55f, 55f)
+            val diamondElevation = elevation.coerceIn(if (night) 12f else 20f, 90f)
             RedDiamondFinalButton.updateGlobalNaturalLight(
-                angle,
+                lightAngle,
                 diamondPitch,
                 diamondRoll,
-                diamondIntensity,
+                intensity.coerceIn(.12f, 1f),
                 false,
                 diamondElevation
             )
-            return LightingState(angle, celestialAngle, elevation, night, azimuth, pitch)
+
+            onLightingChanged(
+                LightingState(
+                    lightAngle = lightAngle,
+                    celestialAngle = celestialAngle,
+                    celestialElevation = elevation,
+                    night = night,
+                    deviceAzimuth = tracking.deviceAzimuthDeg,
+                    devicePitch = tracking.devicePitchDeg
+                )
+            )
         }
-
-        fun updateTargetFromOrientation() {
-            if (locationBased && celestialAzimuth != null) {
-                val screen = screenAngle(azimuth, celestialAzimuth!!)
-                celestialAngle = screen
-                target = screen
-            } else {
-                celestialAngle = normalize(-azimuth)
-                target = celestialAngle!!
-            }
-        }
-
-        fun recomputeCelestial() {
-            val now = System.currentTimeMillis()
-            val loc = lastKnownLocation(activity)
-            if (loc != null) {
-                val sun = CelestialEphemeris.sun(loc.latitude, loc.longitude, now)
-                val moon = CelestialEphemeris.moon(loc.latitude, loc.longitude, now)
-                night = sun.altitude < -0.833
-                val active = if (night) moon else sun
-                locationBased = true
-                celestialAzimuth = active.azimuth
-                elevation = active.altitude.toFloat().coerceIn(-10f, 90f)
-                intensity = if (night) {
-                    ((active.altitude + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
-                } else {
-                    ((sun.altitude + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
-                }
-            } else {
-                locationBased = false
-                celestialAzimuth = null
-                night = fallbackNightByClock()
-                elevation = if (night) 25f else 45f
-                intensity = if (night) .24f else .72f
-            }
-            updateTargetFromOrientation()
-        }
-
-        fun emit(force: Boolean = false) {
-            updateTargetFromOrientation()
-            val now = SystemClock.uptimeMillis()
-            val angleDelta = if (lastEmittedAngle.isNaN()) 360f else abs(shortestDelta(lastEmittedAngle, target))
-            val pitchDelta = if (lastEmittedPitch.isNaN()) 180f else abs(lastEmittedPitch - pitch)
-            val rollDelta = if (lastEmittedRoll.isNaN()) 180f else abs(lastEmittedRoll - roll)
-
-            if (!force) {
-                if (now - lastEmitMs < MIN_RENDER_INTERVAL_MS) return
-                if (angleDelta < MIN_ORIENTATION_DELTA && pitchDelta < MIN_ORIENTATION_DELTA && rollDelta < MIN_ORIENTATION_DELTA) return
-            }
-
-            lastEmitMs = now
-            lastEmittedAngle = target
-            lastEmittedPitch = pitch
-            lastEmittedRoll = roll
-            onLightingChanged(state(target))
-        }
-
-        val listener = object : SensorEventListener {
-            private val rotation = FloatArray(9)
-            private val orientation = FloatArray(3)
-
-            override fun onSensorChanged(event: SensorEvent) {
-                when (event.sensor.type) {
-                    Sensor.TYPE_ROTATION_VECTOR -> {
-                        SensorManager.getRotationMatrixFromVector(rotation, event.values)
-                        SensorManager.getOrientation(rotation, orientation)
-                        val rawAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-                        azimuth = stabilizeAzimuth(rawAzimuth)
-                        pitch = Math.toDegrees(orientation[1].toDouble()).toFloat()
-                        roll = Math.toDegrees(orientation[2].toDouble()).toFloat()
-                    }
-                    Sensor.TYPE_ACCELEROMETER -> {
-                        val ax = event.values[0]
-                        val ay = event.values[1]
-                        val az = event.values[2]
-                        pitch = Math.toDegrees(atan2((-ay).toDouble(), sqrt((ax * ax + az * az).toDouble()))).toFloat()
-                        roll = Math.toDegrees(atan2(ax.toDouble(), az.toDouble())).toFloat()
-                    }
-                }
-                emit()
-            }
-
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-        }
-
-        lateinit var ticker: Runnable
-        ticker = object : Runnable {
-            override fun run() {
-                recomputeCelestial()
-                emit(force = true)
-                mainHandler.postDelayed(this, 30_000L)
-            }
-        }
-
-        if (rotationSensor != null) {
-            sm.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
-        } else if (accelSensor != null) {
-            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
-        }
-
-        recomputeCelestial()
-        emit(force = true)
-        mainHandler.postDelayed(ticker, 30_000L)
-        registrations[key] = Registration(sm, listener, ticker)
     }
 
     fun detach(activity: Activity) {
-        val r = registrations.remove(System.identityHashCode(activity)) ?: return
-        releaseRegistration(r)
+        val registration = registrations.remove(System.identityHashCode(activity)) ?: return
+        CelestialTrackerV2.unsubscribe(registration.trackerKey)
     }
 
-    fun isNight(context: Context): Boolean {
-        val l = lastKnownLocation(context)
-        return if (l != null) CelestialEphemeris.sun(l.latitude, l.longitude).altitude < -0.833 else fallbackNightByClock()
-    }
+    fun isNight(context: Context): Boolean =
+        CelestialTrackerV2.currentState(context).snapshot?.night ?: fallbackNightByClock()
 
     private fun fallbackNightByClock(): Boolean {
-        val h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        return h < 7 || h >= 20
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return hour < 7 || hour >= 20
     }
 
-    private fun lastKnownLocation(context: Context): Location? {
-        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (!fine && !coarse) return null
-        val m = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return runCatching {
-            m.getProviders(true).mapNotNull { p -> runCatching { m.getLastKnownLocation(p) }.getOrNull() }.maxByOrNull { it.time }
-        }.getOrNull()
-    }
-
-    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double) =
+    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double): Float =
         normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()))
 
-    private fun normalize(v: Float) = ((v % 360f) + 360f) % 360f
-    private fun shortestDelta(from: Float, to: Float) = ((to - from + 540f) % 360f) - 180f
+    private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
+
+    private fun shortestDelta(from: Float, to: Float): Float =
+        ((to - from + 540f) % 360f) - 180f
 }
