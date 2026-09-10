@@ -104,6 +104,23 @@ Ce comportement est correct pour un mode AR, mais incorrect pour l’horloge ima
 
 Le comportement « astre derrière le téléphone = disparition » est maintenant explicitement interdit par test.
 
+### ÉLEVÉ — bascule artificielle du cap entre téléphone à plat et vertical
+
+L’audit du correctif 360° a révélé un second risque : `headingFromFrame()` choisissait auparavant entre deux axes différents selon la posture du téléphone — le haut de l’écran à plat, puis la normale de l’écran à la verticale.
+
+Selon le sens dans lequel le téléphone est incliné, ces deux projections horizontales peuvent pointer en sens opposé. Une bascule brutale pouvait alors faire tourner artificiellement Soleil/Lune d’environ 180° au milieu du mouvement, alors que le cap réel n’avait pas changé.
+
+**Correction V2 :** le cap de la carte est désormais dérivé de la géométrie `Zénith × axe droit de l’écran`. Ce vecteur correspond au prolongement horizontal du haut du cadran et reste continu lorsqu’on incline le téléphone vers l’avant ou vers l’arrière.
+
+Conséquences :
+
+- le passage progressif de presque à plat à vertical ne change plus arbitrairement le référentiel ;
+- incliner le téléphone dans l’autre sens ne retourne plus le ciel de 180° ;
+- Soleil, Lune, terminateur et axe d’éclipse continuent d’utiliser le même cap ;
+- si l’axe droit devient presque vertical (cas géométriquement dégénéré), le moteur utilise seulement un axe horizontal de secours et ne masque jamais les astres pour cette raison.
+
+Des tests utilisent maintenant des repères 3D physiquement cohérents et verrouillent les deux sens d’inclinaison.
+
 ### ÉLEVÉ — altitude réelle dans la position graphique
 
 La projection canonique conserve le principe validé :
@@ -150,6 +167,7 @@ CelestialTrackerV2
                 +--> carte topocentrique 360° Terre au centre
                 +--> azimut -> angle
                 +--> altitude -> rayon
+                +--> cap continu via Zénith × axe droit écran
                 +--> terminateur Lune -> Soleil
                 +--> ombre Lune -> anti-Soleil
 ```
@@ -165,7 +183,8 @@ Les tests couvrent notamment :
 - horizon, altitude intermédiaire et zénith ;
 - rotation du ciel selon le cap ;
 - astre opposé au cap restant visible sur le cadran 360° ;
-- téléphone à plat et téléphone vertical pour la déduction du cap ;
+- téléphone à plat, incliné puis vertical ;
+- inclinaison dans les deux sens sans retournement artificiel de 180° ;
 - direction du terminateur ;
 - direction de l’axe anti-solaire.
 
@@ -173,12 +192,14 @@ Les tests couvrent notamment :
 
 Le moteur astronomique V2 est conservé. Le défaut de représentation découvert en test réel est corrigé dans le sens du concept d’origine : **Terre centrale, ciel apparent 360°, Soleil et Lune positionnés autour de l’observateur et non masqués par l’orientation avant/arrière de l’écran**.
 
+Le cap a également été rendu continu pendant les changements d’inclinaison usuels du téléphone afin d’éviter une bascule artificielle du ciel entre deux référentiels.
+
 La prochaine validation sur téléphone doit vérifier en priorité :
 
 1. qu’en tournant le téléphone sur 360°, Soleil et Lune font le tour du cadran sans disparaître tant qu’ils sont au-dessus de l’horizon ;
 2. que leur position angulaire correspond à la direction réelle ;
 3. que l’altitude reste cohérente dans le rayon ;
 4. que la phase lunaire conserve la bonne orientation ;
-5. que le mouvement reste stable lorsque le téléphone passe d’une posture plutôt à plat à plutôt verticale.
+5. que le mouvement reste stable lorsque le téléphone passe d’une posture plutôt à plat à plutôt verticale dans les deux sens.
 
 Après cette validation seulement, le nettoyage `heroClockHands` pourra être fait séparément.
