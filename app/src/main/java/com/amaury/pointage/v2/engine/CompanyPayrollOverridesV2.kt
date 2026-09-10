@@ -127,10 +127,10 @@ object CompanyPayrollOverridesV2 {
         val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null,
         /** Part employeur de protection sociale complémentaire incluse dans l'assiette CSG/CRDS du mois. */
         val employerProtectionCsgCrdsBaseAmount:Double? = null,
-        /** Fiabilité du stockage local des cotisations KALI. false interdit tout repli vers un ancien barème. */
+        /** Fiabilité globale des stockages collectifs KALI/ACCO ; false interdit tout repli ancien. */
         val verifiedProvidentStoreReliable:Boolean = true,
         val verifiedProvidentStoreWarnings:List<String> = emptyList(),
-        /** Fiabilité du stockage ACCO des cotisations d'entreprise. false bloque tout arbitrage/fallback collectif. */
+        /** Fiabilité spécifique du stockage ACCO des cotisations d'entreprise. */
         val verifiedCompanyProvidentStoreReliable:Boolean = true,
         val verifiedCompanyProvidentStoreWarnings:List<String> = emptyList()
     )
@@ -359,8 +359,8 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
             verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent,
             employerProtectionCsgCrdsBaseAmount=employerProtectionCsgCrdsBase,
-            verifiedProvidentStoreReliable=verifiedProvidentStored.reliable,
-            verifiedProvidentStoreWarnings=verifiedProvidentStored.warnings,
+            verifiedProvidentStoreReliable=verifiedProvidentStored.reliable && verifiedCompanyProvidentStored.reliable,
+            verifiedProvidentStoreWarnings=(verifiedProvidentStored.warnings + verifiedCompanyProvidentStored.warnings).distinct(),
             verifiedCompanyProvidentStoreReliable=verifiedCompanyProvidentStored.reliable,
             verifiedCompanyProvidentStoreWarnings=verifiedCompanyProvidentStored.warnings
         )
