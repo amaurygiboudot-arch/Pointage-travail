@@ -61,8 +61,8 @@ class CelestialScreenGeometryV2Test {
         assertNotNull(north)
         assertNotNull(east)
         assertEquals(0.0, north!!.xRadiusFraction, 1e-9)
-        assertEquals(-1.0, north.yRadiusFraction, 1e-9)
-        assertEquals(1.0, east!!.xRadiusFraction, 1e-9)
+        assertTrue(north.yRadiusFraction < -0.99)
+        assertTrue(east!!.xRadiusFraction > 0.99)
         assertEquals(0.0, east.yRadiusFraction, 1e-9)
     }
 
@@ -172,6 +172,16 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
+    fun `refraction remonte legerement astre au voisinage horizon`() {
+        val geometricHorizon = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, 0.0), 0f)!!
+        assertTrue(geometricHorizon.radialFraction < 1.0)
+
+        val justBelow = CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.5), 0f)
+        assertNotNull(justBelow)
+        assertTrue(justBelow!!.radialFraction < 1.0)
+    }
+
+    @Test
     fun `zenith garde rayon interne pour ne pas masquer terre`() {
         val zenith = CelestialScreenGeometryV2.projectEarthCenteredSky(body(123.0, 90.0), 0f)
         assertNotNull(zenith)
@@ -179,8 +189,9 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
-    fun `astre sous horizon civil nest pas dessine`() {
-        assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -1.0), 0f))
+    fun `astre sous seuil standard du disque nest pas dessine`() {
+        assertNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.84), 0f))
+        assertNotNull(CelestialScreenGeometryV2.projectEarthCenteredSky(body(90.0, -0.82), 0f))
     }
 
     @Test
