@@ -84,8 +84,9 @@ object CelestialTrackerV2 {
 
     fun subscribe(context: Context, key: Any, observer: (State) -> Unit) {
         ensureContext(context)
+        val wasEmpty = observers.isEmpty()
         observers[key] = observer
-        if (observers.size == 1) {
+        if (wasEmpty) {
             startSensors()
             refreshLocationAndAstronomy(notify = false)
             mainHandler.removeCallbacks(refreshTask)
