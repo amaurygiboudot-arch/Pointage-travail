@@ -139,6 +139,26 @@ class ProvidentContributionLegalArbitrationBridgeV2Test {
     }
 
     @Test
+    fun `stockage acco corrompu bloque meme une branche autrement selectionnable`() {
+        val result = ProvidentContributionLegalArbitrationBridgeV2.resolve(
+            profile = profile(),
+            referenceDate = date,
+            branch = branchSnapshot(),
+            companyRules = emptyList(),
+            sourceKnowledge = mapOf(
+                PayrollLegalArbitratorV2.Source.ACCO to PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
+            ),
+            companyStoreReliable = false,
+            companyStoreWarnings = listOf("cache ACCO corrompu")
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
+        assertNull(result.selectedBranchRule)
+        assertNull(result.selectedCompanyRule)
+        assertTrue(result.warnings.any { it.contains("stockage ACCO", ignoreCase = true) })
+    }
+
+    @Test
     fun `equivalence explicitement fausse conserve la branche`() {
         val result = ProvidentContributionLegalArbitrationBridgeV2.resolve(
             profile(),
