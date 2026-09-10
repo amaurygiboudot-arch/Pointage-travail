@@ -44,13 +44,21 @@ object MealBasketLegalProviderV2 {
             return blocked("SIRET, classification ou statut professionnel incomplet")
         }
 
-        val unresolvedAcco = V2CompanyMealBasketAuditStateStore.unresolvedFor(
+        val accoAuditState = V2CompanyMealBasketAuditStateStore.matchingResult(
             context = context,
             companyId = companyId,
             expectedSiret = normalizedSiret,
             classification = profile.classification,
             professionalStatus = status
         )
+        if (!accoAuditState.reliable) {
+            return blocked(
+                "état d'audit ACCO repas local incohérent ; aucun marqueur COMPLETE/UNRESOLVED n'est utilisé tant qu'un nouvel audit ACCO n'a pas reconstruit ce stockage"
+            )
+        }
+        val unresolvedAcco = accoAuditState.records.filter {
+            it.state == V2CompanyMealBasketAuditStateStore.State.UNRESOLVED
+        }
         if (unresolvedAcco.isNotEmpty()) {
             return blocked(
                 "audit ACCO repas incomplet pour ${unresolvedAcco.joinToString { it.agreementId }} ; une règle ancienne ne peut pas masquer l'incertitude"
@@ -83,13 +91,9 @@ object MealBasketLegalProviderV2 {
             }
         } else emptyList()
 
-        val completeAgreementIds = V2CompanyMealBasketAuditStateStore.completeAgreementIdsFor(
-            context = context,
-            companyId = companyId,
-            expectedSiret = normalizedSiret,
-            classification = profile.classification,
-            professionalStatus = status
-        )
+        val completeAgreementIds = accoAuditState.records
+            .filter { it.state == V2CompanyMealBasketAuditStateStore.State.COMPLETE }
+            .mapTo(linkedSetOf()) { it.agreementId }
         val unmarkedCompanyRules = globallyTrustedCompany.filter { it.agreementId !in completeAgreementIds }
         if (unmarkedCompanyRules.isNotEmpty()) {
             return blocked(
