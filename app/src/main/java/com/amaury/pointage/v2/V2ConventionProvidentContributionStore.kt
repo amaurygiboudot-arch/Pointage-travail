@@ -14,12 +14,34 @@ import java.util.Locale
 object V2ConventionProvidentContributionStore {
     private const val PREFS = "horatrack_v2_convention_provident_contribution_rules"
     private const val KEY_VERIFIED = "verified_rules"
+    private const val STORAGE_WARNING =
+        "KALI cotisations prévoyance : stockage local des règles vérifiées incohérent ; aucun barème ni aucune absence de cotisation ne peut être déduit de ce stockage."
 
-    fun rules(context: Context): List<ConventionProvidentContributionV2.Rule> = load(context)
+    data class ReadResult(
+        val rules: List<ConventionProvidentContributionV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun readVerified(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_VERIFIED)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_VERIFIED, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
+
+    fun rules(context: Context): List<ConventionProvidentContributionV2.Rule> {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules
+    }
 
     fun rules(context: Context, idcc: String): List<ConventionProvidentContributionV2.Rule> {
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        return load(context).filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized }
     }
 
     /** Une preuve KALI persistable doit avoir un KALITEXT parent exact et une règle calculable. */
@@ -27,19 +49,27 @@ object V2ConventionProvidentContributionStore {
         rule.structurallyValid() &&
             rule.conventionScopeKey?.trim()?.uppercase(Locale.ROOT)?.matches(Regex("^KALITEXT\\d+$")) == true
 
+    internal fun acceptsVerifiedPackage(rules: List<ConventionProvidentContributionV2.Rule>): Boolean =
+        rules.all(::acceptsVerifiedRule) && !hasDuplicateRuleId(rules)
+
     fun saveVerified(context: Context, rule: ConventionProvidentContributionV2.Rule) {
         require(acceptsVerifiedRule(rule)) {
             "Règle de cotisation prévoyance invalide ou sans périmètre KALI exact"
         }
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc)
         val normalizedStatus = rule.professionalStatus?.trim()?.uppercase(Locale.ROOT)
         val normalizedScope = rule.conventionScopeKey!!.trim().uppercase(Locale.ROOT)
-        val current = load(context).toMutableList()
+        val normalizedRuleId = rule.ruleId.trim().uppercase(Locale.ROOT)
+        val current = stored.rules.toMutableList()
         current.removeAll {
-            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == rule.ruleId
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
+                it.ruleId.trim().uppercase(Locale.ROOT) == normalizedRuleId
         }
         current += rule.copy(
             idcc = normalized,
+            ruleId = rule.ruleId.trim(),
             professionalStatus = normalizedStatus,
             conventionScopeKey = normalizedScope
         )
@@ -47,13 +77,42 @@ object V2ConventionProvidentContributionStore {
     }
 
     fun delete(context: Context, idcc: String, ruleId: String) {
+        val stored = readVerified(context)
+        check(stored.reliable) { STORAGE_WARNING }
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        persist(context, load(context).filterNot {
-            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized && it.ruleId == ruleId
+        val normalizedRuleId = ruleId.trim().uppercase(Locale.ROOT)
+        persist(context, stored.rules.filterNot {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalized &&
+                it.ruleId.trim().uppercase(Locale.ROOT) == normalizedRuleId
         })
     }
 
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<ConventionProvidentContributionV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decode)?.takeIf(::acceptsVerifiedRule)
+            if (rule == null) {
+                malformed = true
+            } else {
+                rules += rule
+            }
+        }
+        if (hasDuplicateRuleId(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
     private fun persist(context: Context, rules: List<ConventionProvidentContributionV2.Rule>) {
+        check(acceptsVerifiedPackage(rules)) {
+            "KALI cotisations prévoyance : historique local invalide ou ambigu."
+        }
         val array = JSONArray()
         rules.sortedWith(
             compareBy<ConventionProvidentContributionV2.Rule> { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) }
@@ -62,20 +121,21 @@ object V2ConventionProvidentContributionStore {
                 .thenBy { it.professionalStatus.orEmpty() }
                 .thenBy { it.ruleId }
         ).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_VERIFIED, array.toString()).apply()
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_VERIFIED, array.toString()).commit()
+        }.getOrDefault(false)
+        check(saved) { "KALI cotisations prévoyance : stockage local des règles impossible." }
     }
 
-    private fun load(context: Context): List<ConventionProvidentContributionV2.Rule> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_VERIFIED, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)
-                    ?.takeIf(::acceptsVerifiedRule)
-                    ?.let(::add)
-            }
+    private fun hasDuplicateRuleId(rules: List<ConventionProvidentContributionV2.Rule>): Boolean {
+        val seen = mutableSetOf<String>()
+        return rules.any { rule ->
+            val key = listOf(
+                ConventionMinimumSalaryV2.normalizeIdcc(rule.idcc),
+                rule.ruleId.trim().uppercase(Locale.ROOT)
+            ).joinToString("#")
+            !seen.add(key)
         }
     }
 

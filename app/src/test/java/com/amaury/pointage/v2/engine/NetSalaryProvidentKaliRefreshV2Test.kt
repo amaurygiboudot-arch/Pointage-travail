@@ -10,7 +10,10 @@ class NetSalaryProvidentKaliRefreshV2Test {
     private val date = LocalDate.of(2026, 1, 31)
     private val classification = ConventionClassificationV2(coefficient = 700)
 
-    private fun company(acquiredKali: Boolean): CompanyPayrollOverridesV2.Snapshot {
+    private fun company(
+        acquiredKali: Boolean,
+        storeReliable: Boolean = true
+    ): CompanyPayrollOverridesV2.Snapshot {
         val record = ConventionMatterCoverageV2.Record(
             idcc = "292",
             matter = ConventionMatterCoverageV2.Matter.PROVIDENT_CONTRIBUTION,
@@ -59,7 +62,9 @@ class NetSalaryProvidentKaliRefreshV2Test {
                 record = record,
                 reliable = false,
                 warnings = listOf("refresh KALI incomplet")
-            )
+            ),
+            verifiedProvidentStoreReliable = storeReliable,
+            verifiedProvidentStoreWarnings = if (storeReliable) emptyList() else listOf("stockage KALI corrompu")
         )
     }
 
@@ -79,6 +84,22 @@ class NetSalaryProvidentKaliRefreshV2Test {
         assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
         assertTrue(result.warnings.any {
             it.contains("chemin KALI déjà acquis", ignoreCase = true) &&
+                it.contains("aucun ancien barème", ignoreCase = true)
+        })
+    }
+
+    @Test
+    fun `store KALI corrompu bloque le fallback meme avant marqueur acquisition`() {
+        val result = NetSalaryEngineV2.calculate(
+            2500.0,
+            2026,
+            company(acquiredKali = false, storeReliable = false)
+        )
+
+        assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
+        assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
+        assertTrue(result.warnings.any {
+            it.contains("stockage KALI", ignoreCase = true) &&
                 it.contains("aucun ancien barème", ignoreCase = true)
         })
     }
