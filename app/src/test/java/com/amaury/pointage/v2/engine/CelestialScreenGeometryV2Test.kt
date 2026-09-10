@@ -50,13 +50,14 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
-    fun `direction anti solaire est opposee au soleil sur la sphere`() {
+    fun `axe ombre terrestre pointe vers anti soleil`() {
         val direction = CelestialScreenGeometryV2.directionTowardAntiSun(
-            moon = body(170.0, 5.0),
+            moon = body(170.0, 0.0),
             sun = body(0.0, 0.0),
             deviceAzimuthDeg = 0f
         )
         assertNotNull(direction)
-        assertTrue(direction!!.x > 0.0 || direction.y > 0.0 || direction.x < 0.0 || direction.y < 0.0)
+        assertTrue(direction!!.x < 0.0)
+        assertTrue(direction.y > 0.0)
     }
 }
