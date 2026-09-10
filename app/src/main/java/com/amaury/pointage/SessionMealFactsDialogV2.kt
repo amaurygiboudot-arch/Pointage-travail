@@ -12,7 +12,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.MealBasketFactJournalV2
 import com.amaury.pointage.v2.V2MealBasketFactStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
@@ -102,7 +102,16 @@ object SessionMealFactsDialogV2 {
             return
         }
 
-        val sessions = V2RuntimeStore.allSessions(context)
+        val runtime = V2RuntimeReader.allSessions(context)
+        if (!runtime.reliable) {
+            AlertDialog.Builder(context)
+                .setTitle("Faits repas par session")
+                .setMessage("Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(runtime.warnings)}")
+                .setPositiveButton("FERMER", null)
+                .show()
+            return
+        }
+        val sessions = runtime.sessions
             .filter { it.id.isNotBlank() && (it.realArrivalMs ?: 0L) > 0L }
             .sortedByDescending { it.realArrivalMs }
 
@@ -231,7 +240,7 @@ object SessionMealFactsDialogV2 {
                 val now = System.currentTimeMillis()
                 val replacements = questions.mapNotNull { question ->
                     when (val selected = spinners.getValue(question.key).selectedItemPosition) {
-                        0 -> null // aucun override SESSION : le moteur garde DAY/COMPANY/fallback explicite
+                        0 -> null
                         1 -> MealBasketFactJournalV2.Entry(
                             id = entryId(companyId, session.id, question.key),
                             companyId = companyId,
@@ -289,10 +298,6 @@ object SessionMealFactsDialogV2 {
         dialog.show()
     }
 
-    /**
-     * 0 = aucun fait SESSION ; 1 = TO_CONFIRM ; 2 = oui ; 3 = non.
-     * Les doublons/contradictions restent affichés À confirmer plutôt que d'être normalisés en silence.
-     */
     private fun selection(
         entries: List<MealBasketFactJournalV2.Entry>,
         key: MealBasketFactJournalV2.Key
