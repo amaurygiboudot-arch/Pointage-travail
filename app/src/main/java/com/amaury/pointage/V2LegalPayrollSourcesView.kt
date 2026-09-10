@@ -16,6 +16,40 @@ import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
 
+internal fun legalPayrollSourceStatusText(
+    referenceLabel: String,
+    snapshot: LegalPayrollSourceStoreV2.Snapshot
+): String = buildString {
+    append("Date de paie contrôlée : ").append(referenceLabel).append('\n')
+    when {
+        !snapshot.reliable -> {
+            append("⚠ Stockage LEGI local incohérent : aucun article enregistré n'est considéré fiable. ")
+            append("Relance la vérification officielle après contrôle du stockage.")
+            if (snapshot.warnings.isNotEmpty()) {
+                append('\n').append(snapshot.warnings.distinct().joinToString(" • "))
+            }
+        }
+        snapshot.records.isEmpty() -> append("Aucune source LEGI vérifiée pour cette date.")
+        else -> {
+            append(snapshot.coveredTopics.size).append(" / ")
+                .append(OfficialLegalCodeSourceV2.Topic.entries.size)
+                .append(" thèmes couverts\n")
+            snapshot.coveredTopics.sortedBy { it.ordinal }.forEach { topic ->
+                val articles = snapshot.records.filter { it.topic == topic }
+                append("• ").append(topic.label).append(" : ")
+                append(articles.joinToString(", ") { it.articleNumber ?: it.articleId })
+                append('\n')
+            }
+            if (snapshot.missingTopics.isNotEmpty()) {
+                append("À compléter : ")
+                append(snapshot.missingTopics.sortedBy { it.ordinal }.joinToString(", ") { it.label })
+            } else {
+                append("Les 7 thèmes Salaire V2 disposent d'au moins une référence LEGI vérifiée. Vérification humaine requise avant toute nouvelle règle chiffrée.")
+            }
+        }
+    }
+}
+
 /** Vue de contrôle des sources légales LEGI utilisées comme piste d'audit de la paie. */
 class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
     private val status = TextView(context)
@@ -51,28 +85,7 @@ class V2LegalPayrollSourcesView(context: Context) : LinearLayout(context) {
     fun refresh() {
         val reference = referenceDate()
         val snapshot = LegalPayrollSourceStoreV2.snapshot(context, reference.atMs)
-        status.text = buildString {
-            append("Date de paie contrôlée : ").append(reference.label).append('\n')
-            if (snapshot.records.isEmpty()) {
-                append("Aucune source LEGI vérifiée pour cette date.")
-            } else {
-                append(snapshot.coveredTopics.size).append(" / ")
-                    .append(OfficialLegalCodeSourceV2.Topic.entries.size)
-                    .append(" thèmes couverts\n")
-                snapshot.coveredTopics.sortedBy { it.ordinal }.forEach { topic ->
-                    val articles = snapshot.records.filter { it.topic == topic }
-                    append("• ").append(topic.label).append(" : ")
-                    append(articles.joinToString(", ") { it.articleNumber ?: it.articleId })
-                    append('\n')
-                }
-                if (snapshot.missingTopics.isNotEmpty()) {
-                    append("À compléter : ")
-                    append(snapshot.missingTopics.sortedBy { it.ordinal }.joinToString(", ") { it.label })
-                } else {
-                    append("Les 7 thèmes Salaire V2 disposent d'au moins une référence LEGI vérifiée. Vérification humaine requise avant toute nouvelle règle chiffrée.")
-                }
-            }
-        }
+        status.text = legalPayrollSourceStatusText(reference.label, snapshot)
     }
 
     private fun runAudit() {
