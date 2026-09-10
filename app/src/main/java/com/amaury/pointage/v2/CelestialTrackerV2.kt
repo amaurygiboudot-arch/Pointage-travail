@@ -34,6 +34,8 @@ import kotlin.math.sin
  *
  * Cette couche centralise :
  * - localisation réelle, avec mises à jour tant qu'un consommateur est actif ;
+ * - arbitrage entre les providers sans laisser une mesure non qualifiée écraser
+ *   une position encore valide ;
  * - orientation du téléphone ;
  * - rotation réelle de l'écran ;
  * - correction Nord magnétique -> Nord vrai ;
@@ -253,9 +255,13 @@ object CelestialTrackerV2 {
         locationManager = manager
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                latestLiveLocation = location
+                val now = System.currentTimeMillis()
+                latestLiveLocation = selectPreferredLocation(
+                    sequenceOf(latestLiveLocation, location).filterNotNull(),
+                    now
+                )
                 lastLocationRecheckElapsedMs = SystemClock.elapsedRealtime()
-                applyLocation(location, System.currentTimeMillis(), notify = true)
+                applyLocation(latestLiveLocation, now, notify = true)
             }
 
             override fun onProviderEnabled(provider: String) = Unit
@@ -266,11 +272,13 @@ object CelestialTrackerV2 {
         }
         locationListener = listener
 
-        runCatching {
-            manager.getProviders(true)
-                .filter { it != LocationManager.PASSIVE_PROVIDER }
-                .distinct()
-                .forEach { provider ->
+        // Un provider défaillant ne doit pas empêcher les autres de s'enregistrer.
+        runCatching { manager.getProviders(true) }
+            .getOrDefault(emptyList())
+            .filter { it != LocationManager.PASSIVE_PROVIDER }
+            .distinct()
+            .forEach { provider ->
+                runCatching {
                     manager.requestLocationUpdates(
                         provider,
                         LOCATION_MIN_TIME_MS,
@@ -279,7 +287,7 @@ object CelestialTrackerV2 {
                         Looper.getMainLooper()
                     )
                 }
-        }
+            }
     }
 
     private fun updateFallbackOrientation(
@@ -445,10 +453,11 @@ object CelestialTrackerV2 {
             return
         }
 
-        val lastKnown = bestLastKnownLocation(context)
-        val candidate = sequenceOf(latestLiveLocation, lastKnown)
-            .filterNotNull()
-            .maxByOrNull { locationSortKey(it) }
+        val lastKnown = bestLastKnownLocation(context, now)
+        val candidate = selectPreferredLocation(
+            sequenceOf(latestLiveLocation, lastKnown).filterNotNull(),
+            now
+        )
         applyLocation(candidate, now, notify)
     }
 
@@ -513,8 +522,32 @@ object CelestialTrackerV2 {
             ?.let { nowWallMs - it }
     }
 
-    private fun locationSortKey(location: Location): Long =
-        location.elapsedRealtimeNanos.takeIf { it > 0L } ?: location.time * 1_000_000L
+    /**
+     * Sélectionne la meilleure mesure sans confondre « plus récente » et
+     * « utilisable ». Une mesure hors tolérance ne peut donc plus faire disparaître
+     * le ciel si une autre position qualifiée est encore disponible.
+     */
+    private fun selectPreferredLocation(
+        locations: Sequence<Location>,
+        nowWallMs: Long
+    ): Location? {
+        var selected: Location? = null
+        locations.forEach { candidate ->
+            val current = selected
+            if (current == null) {
+                selected = candidate
+            } else {
+                val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+                    currentAgeMs = locationAgeMs(current, nowWallMs),
+                    currentAccuracyMeters = current.takeIf { it.hasAccuracy() }?.accuracy,
+                    candidateAgeMs = locationAgeMs(candidate, nowWallMs),
+                    candidateAccuracyMeters = candidate.takeIf { it.hasAccuracy() }?.accuracy
+                )
+                if (replace) selected = candidate
+            }
+        }
+        return selected
+    }
 
     private fun buildSnapshot(location: Location?, now: Long): CelestialSnapshotV2? {
         if (locationQuality != CelestialLocationQualityV2.VALID ||
@@ -538,13 +571,14 @@ object CelestialTrackerV2 {
         return fine || coarse
     }
 
-    private fun bestLastKnownLocation(context: Context): Location? {
+    private fun bestLastKnownLocation(context: Context, nowWallMs: Long): Location? {
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return runCatching {
-            manager.getProviders(true)
-                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-                .maxByOrNull { locationSortKey(it) }
-        }.getOrNull()
+        val locations = runCatching { manager.getProviders(true) }
+            .getOrDefault(emptyList())
+            .mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }
+        return selectPreferredLocation(locations.asSequence(), nowWallMs)
     }
 
     private fun currentStateInternal(): State {
