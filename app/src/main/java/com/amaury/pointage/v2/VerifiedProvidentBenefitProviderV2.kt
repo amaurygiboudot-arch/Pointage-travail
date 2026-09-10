@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
+import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -41,12 +42,26 @@ object VerifiedProvidentBenefitProviderV2 {
             classification = profile.classification,
             professionalStatus = profile.professionalStatus
         )
+        val stored = V2ConventionProvidentBenefitStore.readVerified(context)
+        if (!stored.reliable) {
+            return Snapshot(
+                guarantees = emptyList(),
+                reliable = false,
+                warnings = (stored.warnings +
+                    "Garanties de prévoyance vérifiées : cache KALI local incohérent ; aucun droit ni absence de droit n'est déduit tant que le stockage n'est pas réparé.")
+                    .distinct()
+            )
+        }
+        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
+        val rules = stored.rules.filter {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc
+        }
         return resolve(
             profile = profile,
             referenceDate = referenceDate,
             protectionCategory = category.category,
             seniorityMonths = seniority,
-            rules = V2ConventionProvidentBenefitStore.rules(context, profile.idcc),
+            rules = rules,
             coverage = coverage
         )
     }
