@@ -8,18 +8,56 @@ import kotlin.math.sqrt
 data class CelestialScreenDirectionV2(val x: Double, val y: Double)
 
 /**
- * Géométrie locale utilisée par le rendu céleste.
+ * Position d'un astre dans le dôme compact de l'horloge.
+ * x/y sont exprimés en fraction du rayon d'horizon :
+ * - horizon = rayon 1.0 ;
+ * - zénith = rayon interne 0.34 afin de préserver la Terre centrale ;
+ * - sous l'horizon réel = non rendu.
+ */
+data class CelestialWatchProjectionV2(
+    val xRadiusFraction: Double,
+    val yRadiusFraction: Double,
+    val radialFraction: Double
+)
+
+/**
+ * Géométrie locale du rendu céleste V2.
  *
- * Le cadran historique conserve pour l'instant la position des astres sur son
- * anneau d'azimut. En revanche, la direction locale de l'éclairage de la Lune
- * est calculée sur la vraie sphère céleste : composante azimutale tangente à
- * l'anneau et composante d'altitude dirigée vers/depuis le zénith.
+ * Le cadran est un compas céleste : l'azimut fixe la direction autour de la
+ * montre, tandis que l'altitude réelle rapproche l'astre du centre lorsqu'il
+ * monte dans le ciel. Le rayon est volontairement comprimé près du zénith pour
+ * conserver lisibles la Terre et les aiguilles, mais l'ordre angulaire réel est
+ * respecté. Aucun astre situé sous l'horizon civil n'est inventé à l'écran.
  *
- * Cela permet d'orienter le terminateur vers le vrai Soleil même lorsque la
- * différence Soleil/Lune est surtout verticale dans le ciel, cas que la simple
- * ligne entre deux points de l'anneau ne peut pas représenter correctement.
+ * La direction de l'éclairage de la Lune est calculée séparément sur la vraie
+ * sphère céleste : composante azimutale + composante d'altitude. Le terminateur
+ * reste ainsi orienté vers le vrai Soleil même lorsque la différence entre les
+ * deux astres est principalement verticale dans le ciel.
  */
 object CelestialScreenGeometryV2 {
+    const val CIVIL_HORIZON_DEG = -0.833
+    const val ZENITH_RADIUS_FRACTION = 0.34
+
+    fun projectOnWatchDome(
+        body: CelestialBodyV2,
+        deviceAzimuthDeg: Float
+    ): CelestialWatchProjectionV2? {
+        if (body.altitudeDeg < CIVIL_HORIZON_DEG) return null
+
+        // Entre l'horizon réfracté (-0,833°) et l'horizon géométrique (0°),
+        // l'astre reste posé sur le bord du dôme. De 0° à 90°, le rayon décroît
+        // continûment vers le zénith.
+        val altitude = body.altitudeDeg.coerceIn(0.0, 90.0)
+        val altitudeFraction = altitude / 90.0
+        val radialFraction = 1.0 - altitudeFraction * (1.0 - ZENITH_RADIUS_FRACTION)
+        val theta = Math.toRadians(shortestDelta(deviceAzimuthDeg.toDouble(), body.azimuthDeg))
+
+        return CelestialWatchProjectionV2(
+            xRadiusFraction = sin(theta) * radialFraction,
+            yRadiusFraction = -cos(theta) * radialFraction,
+            radialFraction = radialFraction
+        )
+    }
 
     fun directionToward(
         from: CelestialBodyV2,
