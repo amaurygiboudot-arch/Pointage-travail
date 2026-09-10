@@ -115,7 +115,7 @@ L’altitude réelle participe désormais à l’orientation locale du terminate
 
 Cela préserve le design validé pendant l’audit, mais ce n’est pas encore une carte complète du dôme céleste où horizon et zénith auraient des rayons différents.
 
-**Reste à décider après validation visuelle :** conserver l’anneau azimutal comme choix de design ou passer à une projection de dôme utilisant aussi l’altitude pour la position de l’astre.
+**Décision à valider visuellement :** conserver l’anneau azimutal comme choix de design ou passer à une projection de dôme utilisant aussi l’altitude pour la position de l’astre.
 
 ### MOYEN — deux vues d’horloge dans `activity_main.xml`
 
