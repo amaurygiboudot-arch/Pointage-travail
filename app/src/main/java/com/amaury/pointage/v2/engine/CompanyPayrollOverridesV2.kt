@@ -42,7 +42,8 @@ object CompanyPayrollOverridesV2 {
         val contractType:ContractTypeV2?,
         val contractualWeeklyMinutes:Int?,
         val forfaitAnnualDays:Double?,
-        val unpaidAbsenceDays:Int,
+        /** null = le nombre de jours réducteurs du plafond SS n'est pas certifiable. */
+        val unpaidAbsenceDays:Int?,
         val hasUnpaidAbsence:Boolean,
         val mutualEmployeeAmount:Double?,
         val providentEmployeeAmount:Double?,
