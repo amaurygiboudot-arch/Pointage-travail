@@ -106,7 +106,7 @@ Le tracker fournit maintenant azimut, pitch et roll depuis une source unique, ma
 
 Le Soleil et la Lune suivent donc la direction horizontale autour du cadran, mais pas encore une projection complète du dôme céleste.
 
-**Reste à faire :** ajouter une projection V2 utilisant altitude + matrice/orientation du téléphone sans casser la géométrie visuelle validée.
+**Reste à faire :** ajouter une projection V2 utilisant altitude + orientation complète du téléphone sans casser la géométrie visuelle validée.
 
 ### MOYEN — orientation exacte du terminateur à l’écran
 
