@@ -17,16 +17,44 @@ import java.util.Locale
  */
 object V2CompanyProvidentContributionStore {
     internal const val KEY = "company_provident_contribution_rules_v2"
+    private const val STORAGE_WARNING =
+        "ACCO cotisations prévoyance : stockage local des règles d'entreprise incohérent ; aucune règle ni absence d'accord ne peut être déduite de ce stockage."
+
+    data class ReadResult(
+        val rules: List<OfficialAccoProvidentContributionParserV2.Rule>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun readVerified(context: Context, companyId: String): ReadResult {
+        val profile = ConventionLegalProfileV2.load(context, companyId)
+            ?: return ReadResult(
+                emptyList(),
+                false,
+                listOf("ACCO cotisations prévoyance : profil juridique local introuvable ; SIRET exact requis.")
+            )
+        val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 }
+            ?: return ReadResult(
+                emptyList(),
+                false,
+                listOf("ACCO cotisations prévoyance : SIRET local exact requis avant lecture des règles d'entreprise.")
+            )
+        val stored = readStored(context, companyId)
+        if (!stored.reliable) return stored
+        return ReadResult(
+            rules = stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) },
+            reliable = true,
+            warnings = emptyList()
+        )
+    }
 
     fun rules(
         context: Context,
         companyId: String
     ): List<OfficialAccoProvidentContributionParserV2.Rule> {
-        val profile = ConventionLegalProfileV2.load(context, companyId) ?: return emptyList()
-        val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return emptyList()
-        return decodeRules(
-            SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]") ?: "[]"
-        ).filter { acceptsVerifiedRule(it, expectedSiret) }
+        val stored = readVerified(context, companyId)
+        check(stored.reliable) { stored.warnings.firstOrNull() ?: STORAGE_WARNING }
+        return stored.rules
     }
 
     fun saveVerified(
@@ -38,13 +66,13 @@ object V2CompanyProvidentContributionStore {
         val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return false
         if (!acceptsVerifiedRule(rule, expectedSiret)) return false
 
-        val current = rules(context, companyId).toMutableList()
+        val stored = readStored(context, companyId)
+        if (!stored.reliable) return false
+        val current = stored.rules.toMutableList()
         current.removeAll { sameLegalIdentity(it, rule) }
         current += normalized(rule)
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, encodeRules(current))
-            .commit()
+        if (!acceptsVerifiedPackage(current)) return false
+        return persist(context, companyId, current)
     }
 
     fun delete(
@@ -53,15 +81,14 @@ object V2CompanyProvidentContributionStore {
         agreementId: String,
         fingerprint: String
     ): Boolean {
-        val current = rules(context, companyId)
+        val stored = readStored(context, companyId)
+        if (!stored.reliable) return false
+        val current = stored.rules
         val updated = current.filterNot {
             it.agreementId.equals(agreementId.trim(), ignoreCase = true) && it.fingerprint == fingerprint
         }
         if (updated.size == current.size) return false
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, encodeRules(updated))
-            .commit()
+        return persist(context, companyId, updated)
     }
 
     internal fun acceptsVerifiedRule(
@@ -81,6 +108,14 @@ object V2CompanyProvidentContributionStore {
         if (rule.evidenceExcerpt.isBlank()) return false
         return true
     }
+
+    private fun acceptsStoredRule(rule: OfficialAccoProvidentContributionParserV2.Rule): Boolean {
+        val ownSiret = rule.siret.filter(Char::isDigit)
+        return ownSiret.length == 14 && acceptsVerifiedRule(rule, ownSiret)
+    }
+
+    internal fun acceptsVerifiedPackage(rules: List<OfficialAccoProvidentContributionParserV2.Rule>): Boolean =
+        rules.all(::acceptsStoredRule) && !hasDuplicateLegalIdentity(rules)
 
     /**
      * Identité stable de la preuve juridique. Les valeurs calculables et l'ancienneté ne font pas
@@ -126,12 +161,53 @@ object V2CompanyProvidentContributionStore {
         return array.toString()
     }
 
-    internal fun decodeRules(raw: String): List<OfficialAccoProvidentContributionParserV2.Rule> {
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decodeRule(array.optJSONObject(index) ?: continue)?.let(::add)
-            }
+    /** Compatibilité des tests/outils internes : la fiabilité doit être lue via [decodeVerified]. */
+    internal fun decodeRules(raw: String): List<OfficialAccoProvidentContributionParserV2.Rule> =
+        decodeVerified(raw).rules
+
+    internal fun decodeVerified(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val rules = mutableListOf<OfficialAccoProvidentContributionParserV2.Rule>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val rule = obj?.let(::decodeRule)?.takeIf(::acceptsStoredRule)
+            if (rule == null) malformed = true else rules += rule
+        }
+        if (hasDuplicateLegalIdentity(rules)) malformed = true
+        return ReadResult(
+            rules = rules,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
+    private fun readStored(context: Context, companyId: String): ReadResult {
+        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
+
+    private fun persist(
+        context: Context,
+        companyId: String,
+        rules: List<OfficialAccoProvidentContributionParserV2.Rule>
+    ): Boolean {
+        if (!acceptsVerifiedPackage(rules)) return false
+        return SalaryCompanyStore.prefs(context, companyId)
+            .edit()
+            .putString(KEY, encodeRules(rules))
+            .commit()
+    }
+
+    private fun hasDuplicateLegalIdentity(
+        rules: List<OfficialAccoProvidentContributionParserV2.Rule>
+    ): Boolean = rules.indices.any { leftIndex ->
+        ((leftIndex + 1) until rules.size).any { rightIndex ->
+            sameLegalIdentity(rules[leftIndex], rules[rightIndex])
         }
     }
 

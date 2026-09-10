@@ -127,9 +127,12 @@ object CompanyPayrollOverridesV2 {
         val verifiedCompanyProvidentGuaranteesEquivalent:Boolean? = null,
         /** Part employeur de protection sociale complémentaire incluse dans l'assiette CSG/CRDS du mois. */
         val employerProtectionCsgCrdsBaseAmount:Double? = null,
-        /** Fiabilité du stockage local des cotisations KALI. false interdit tout repli vers un ancien barème. */
+        /** Fiabilité globale des stockages collectifs KALI/ACCO ; false interdit tout repli ancien. */
         val verifiedProvidentStoreReliable:Boolean = true,
-        val verifiedProvidentStoreWarnings:List<String> = emptyList()
+        val verifiedProvidentStoreWarnings:List<String> = emptyList(),
+        /** Fiabilité spécifique du stockage ACCO des cotisations d'entreprise. */
+        val verifiedCompanyProvidentStoreReliable:Boolean = true,
+        val verifiedCompanyProvidentStoreWarnings:List<String> = emptyList()
     )
 
     fun load(
@@ -203,7 +206,10 @@ object CompanyPayrollOverridesV2 {
                 warnings=listOf("Prévoyance conventionnelle vérifiée : profil juridique incomplet")
             )
         }
-        val verifiedCompanyProvidentRules=V2CompanyProvidentContributionStore.rules(context,companyId)
+        val verifiedCompanyProvidentStored=V2CompanyProvidentContributionStore.readVerified(context,companyId)
+        val verifiedCompanyProvidentRules=if(verifiedCompanyProvidentStored.reliable){
+            verifiedCompanyProvidentStored.rules
+        }else emptyList()
         val verifiedProvidentSourceKnowledge=if(idcc!=null){
             PayrollLegalSourceKnowledgeStoreV2.knowledgeForProvidentContribution(
                 context=context,
@@ -212,7 +218,9 @@ object CompanyPayrollOverridesV2 {
                 referenceDate=referenceDate
             )
         }else emptyMap()
-        val verifiedCompanyProvidentGuaranteeEquivalence=if(verifiedCompanyProvidentRules.isNotEmpty()){
+        val verifiedCompanyProvidentGuaranteeEquivalence=if(
+            verifiedCompanyProvidentStored.reliable && verifiedCompanyProvidentRules.isNotEmpty()
+        ){
             CompanyProvidentGuaranteeEquivalenceV2.resolve(
                 context=context,
                 companyId=companyId,
@@ -277,6 +285,7 @@ object CompanyPayrollOverridesV2 {
             addAll(employeeDeductions.warnings)
             addAll(incomeTaxRate.warnings)
             addAll(verifiedProvidentStored.warnings)
+            addAll(verifiedCompanyProvidentStored.warnings)
             if(mutual==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE].warnings.isEmpty())add("Mutuelle salariale : à confirmer")
             if(provident==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].warnings.isEmpty())add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].warnings.isEmpty())add("Retenue transport : à confirmer")
@@ -350,8 +359,10 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentSourceKnowledge=verifiedProvidentSourceKnowledge,
             verifiedCompanyProvidentGuaranteesEquivalent=verifiedCompanyProvidentGuaranteeEquivalence?.equivalent,
             employerProtectionCsgCrdsBaseAmount=employerProtectionCsgCrdsBase,
-            verifiedProvidentStoreReliable=verifiedProvidentStored.reliable,
-            verifiedProvidentStoreWarnings=verifiedProvidentStored.warnings
+            verifiedProvidentStoreReliable=verifiedProvidentStored.reliable && verifiedCompanyProvidentStored.reliable,
+            verifiedProvidentStoreWarnings=(verifiedProvidentStored.warnings + verifiedCompanyProvidentStored.warnings).distinct(),
+            verifiedCompanyProvidentStoreReliable=verifiedCompanyProvidentStored.reliable,
+            verifiedCompanyProvidentStoreWarnings=verifiedCompanyProvidentStored.warnings
         )
     }
 
