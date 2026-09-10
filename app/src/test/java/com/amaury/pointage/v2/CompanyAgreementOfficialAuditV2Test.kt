@@ -68,6 +68,38 @@ class CompanyAgreementOfficialAuditV2Test {
     }
 
     @Test
+    fun `stockage ACCO non fiable bloque audit meme si aucune ecriture nest necessaire`() {
+        assertFalse(
+            CompanyAgreementOfficialAuditV2.agreementStoreReady(
+                metadataReliable = false,
+                unchanged = true,
+                saveSucceeded = false
+            )
+        )
+        assertTrue(
+            CompanyAgreementOfficialAuditV2.agreementStoreReady(
+                metadataReliable = true,
+                unchanged = true,
+                saveSucceeded = false
+            )
+        )
+        assertTrue(
+            CompanyAgreementOfficialAuditV2.agreementStoreReady(
+                metadataReliable = true,
+                unchanged = false,
+                saveSucceeded = true
+            )
+        )
+        assertFalse(
+            CompanyAgreementOfficialAuditV2.agreementStoreReady(
+                metadataReliable = true,
+                unchanged = false,
+                saveSucceeded = false
+            )
+        )
+    }
+
+    @Test
     fun `audit complet exige pagination stockage et aucune erreur transitoire`() {
         assertTrue(CompanyAgreementOfficialAuditV2.auditCompleted(true, true, 0, 0, true))
         assertFalse(CompanyAgreementOfficialAuditV2.auditCompleted(false, true, 0, 0, true))
