@@ -57,11 +57,13 @@ object MealBasketLegalProviderV2 {
             )
         }
 
-        val storedCompany = V2CompanyMealBasketStore.rules(
-            context = context,
-            companyId = companyId,
-            expectedSiret = normalizedSiret
-        )
+        val storedCompanyResult = V2CompanyMealBasketStore.read(context, companyId)
+        if (!storedCompanyResult.reliable) {
+            return blocked(
+                "cache ACCO panier local incohérent ; aucune règle d'entreprise ni arbitrage ACCO/KALI n'est calculé tant que le stockage n'a pas été reconstruit par un audit ACCO complet"
+            )
+        }
+        val storedCompany = storedCompanyResult.rules.filter { it.siret == normalizedSiret }
         val accoTrust = MealBasketAuditTrustStoreV2.acco(context, companyId, profile)
         if (storedCompany.isNotEmpty() && accoTrust?.state != MealBasketAuditTrustStoreV2.State.COMPLETE) {
             return blocked(
