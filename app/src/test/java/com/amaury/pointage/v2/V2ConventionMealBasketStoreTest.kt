@@ -39,6 +39,27 @@ class V2ConventionMealBasketStoreTest {
     }
 
     @Test
+    fun `paquet certifie accepte des identites juridiques distinctes`() {
+        assertTrue(
+            V2ConventionMealBasketStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(articleId = "KALIARTI000000000001"),
+                    rule(articleId = "KALIARTI000000000002")
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `paquet certifie refuse deux variantes de la meme identite juridique`() {
+        assertFalse(
+            V2ConventionMealBasketStore.acceptsVerifiedPackage(
+                listOf(rule(amount = 6.25), rule(amount = 6.50))
+            )
+        )
+    }
+
+    @Test
     fun `nouveau montant du meme acte et profil remplace la variante supersedee`() {
         val old = rule(amount = 6.25)
         val revised = rule(amount = 6.50)
