@@ -36,9 +36,23 @@ La constante `-0.833°` était aussi appelée à tort `CIVIL_HORIZON_DEG`. Cette
 - altitude apparente utilisée pour le rayon du cadran ;
 - tests ajoutés près de l’horizon, au zénith et autour du seuil de visibilité.
 
-**Limites assumées :** la réfraction réelle dépend de la pression, température, humidité et des couches d’air. HoraTrack ne connaît pas non plus l’horizon local masqué par bâtiments, arbres ou relief. Pour la Lune, le demi-diamètre varie légèrement avec la distance : le seuil fixe autour de -0,83° reste cohérent pour cette éphéméride légère mais n’est pas un calcul d’almanach professionnel.
+Pour la Lune, la position V2 est déjà topocentrique. Le seuil exact varie légèrement avec son demi-diamètre apparent, mais une valeur voisine de `-(34' + demi-diamètre lunaire)` reste proche de la constante pratique `-0,83°`. Le moteur conserve cette approximation commune Soleil/Lune tant que l’éphéméride reste volontairement légère.
+
+**Limites assumées :** la réfraction réelle dépend de la pression, température, humidité et des couches d’air. HoraTrack ne connaît pas non plus l’horizon local masqué par bâtiments, arbres ou relief. Le rendu ne doit donc jamais être présenté comme une prédiction professionnelle du premier/dernier rayon à la seconde près.
 
 Audit détaillé : `docs/audits/HoraTrack_Celestial_Horizon_Refraction_Audit.md`.
+
+### ÉLEVÉ — altitude dans la position graphique
+
+La projection canonique conserve le principe validé : horizon vers le bord externe, altitude croissante vers le centre, zénith comprimé à 34 % du rayon pour préserver Terre/aiguilles. La position radiale utilise désormais l’**altitude apparente corrigée de la réfraction** plutôt que l’altitude géométrique brute près de l’horizon.
+
+### MOYEN — deux vues d’horloge
+
+`activity_main.xml` contient encore `heroClockPermanent` et la vue fantôme `heroClockHands` 1×1. `heroClockPermanent` reste l’horloge canonique. Nettoyage différé jusqu’à validation visuelle finale.
+
+### FAIBLE / PARITÉ — widget Android
+
+Le widget Android dessine encore son propre cadran sans Soleil/Lune V2. Lot séparé après validation du rendu principal.
 
 ## Architecture V2
 
@@ -58,6 +72,20 @@ CelestialTrackerV2
                 +--> terminateur et ombres physiques
 ```
 
+## Tests de référence
+
+Les tests couvrent maintenant notamment : nouvelle Lune et pleine Lune de référence, éclipses lunaires, qualité GPS, ciel 360°, astre opposé au cap, posture à plat/inclinée/verticale, cap stabilisé prioritaire, proximité Soleil/Lune sans fausse éclipse, éclipses solaires géométriques, réfraction près de l’horizon, seuil standard du disque, altitude intermédiaire, zénith, terminateur et axe anti-solaire.
+
 ## État actuel
 
-Le lot céleste reste isolé dans la PR #155. La prochaine validation téléphone doit vérifier surtout le suivi 360°, la stabilité du cap, la direction réelle des astres et leur comportement près du lever/coucher. Le nettoyage `heroClockHands` et la parité widget restent volontairement séparés jusqu’à validation visuelle.
+Le moteur céleste V2 est maintenant organisé autour de quatre responsabilités séparées : éphéméride géométrique, acquisition GPS/capteurs, correction optique d’altitude pour le rendu et projection 360° Terre au centre.
+
+La prochaine validation téléphone doit vérifier surtout :
+
+1. que Soleil/Lune ne disparaissent plus pendant un tour 360° tant qu’ils sont dans la fenêtre de visibilité ;
+2. que la direction angulaire correspond au ciel réel ;
+3. que le cap reste stable sans retard excessif ;
+4. que près du lever/coucher l’astre ne semble plus artificiellement trop bas ;
+5. que la phase et les ombres restent orientées correctement.
+
+Après validation visuelle, le nettoyage `heroClockHands` pourra être traité séparément. Le widget céleste restera ensuite un lot de parité distinct.
