@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
 import com.amaury.pointage.v2.model.AbsenceSourceStateV2
 import com.amaury.pointage.v2.model.AbsenceSubrogationV2
@@ -36,6 +37,8 @@ object AbsencePayrollImpactV2 {
 
     private const val UNRELIABLE_SOURCE_WARNING =
         "Absences : stockage local illisible ou incohérent ; aucune absence n'est supposée inexistante et le calcul de paie reste à confirmer."
+    private const val UNRELIABLE_RUNTIME_WARNING =
+        "Pointages V2 : historique local illisible ou migration incomplète ; aucun jour travaillé n'est supposé absent et le calcul de paie reste à confirmer."
 
     data class Snapshot(
         val unpaidFullCalendarDays: Int,
@@ -60,6 +63,17 @@ object AbsencePayrollImpactV2 {
                 hasCompensatedAbsence = false,
                 requiresPayrollReview = true,
                 warnings = (sourceState.absenceSourceWarnings + UNRELIABLE_SOURCE_WARNING).distinct()
+            )
+        }
+
+        val runtimeState = V2RuntimeHistoryGuardV2.sourceState()
+        if (!runtimeState.reliable) {
+            return Snapshot(
+                unpaidFullCalendarDays = 0,
+                hasUnpaidAbsence = false,
+                hasCompensatedAbsence = false,
+                requiresPayrollReview = true,
+                warnings = (runtimeState.warnings + UNRELIABLE_RUNTIME_WARNING).distinct()
             )
         }
 
