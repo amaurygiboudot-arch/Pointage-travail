@@ -137,7 +137,7 @@ class V2ConventionSicknessMaintenanceStoreTest {
         referenceBasis: String = "NET",
         extensionStatus: String = "EXTENDED",
         source: String = "legifrance:KALI:KALIARTI000000000",
-        tiers: String = tierJson(0, bandRate, bandConsumptionScope)
+        tiers: String = "[${tierJson(0, bandRate, bandConsumptionScope)}]"
     ): String = """{
         "idcc":"$idcc",
         "ruleId":"$ruleId",
@@ -146,7 +146,7 @@ class V2ConventionSicknessMaintenanceStoreTest {
         "classification":{"coefficient":700},
         "professionalStatus":"NON_CADRE",
         "minimumSeniorityMonths":0,
-        "tiers":[$tiers],
+        "tiers":$tiers,
         "referenceBasis":"$referenceBasis",
         "waitingPolicy":"NONE",
         "waitingDays":$waitingDays,
