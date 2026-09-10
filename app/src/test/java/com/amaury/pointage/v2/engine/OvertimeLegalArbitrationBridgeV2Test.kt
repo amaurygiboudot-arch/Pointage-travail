@@ -137,4 +137,62 @@ class OvertimeLegalArbitrationBridgeV2Test {
         assertNull(result.selectedSchedule)
         assertTrue(result.warnings.any { it.contains("historique local incohérent") })
     }
+
+    @Test
+    fun `un stockage LEGI incoherent bloque un faux repli et exige une revue`() {
+        val result = OvertimeLegalArbitrationBridgeV2.assemble(
+            referenceDate = date,
+            companyAgreement = null,
+            branchSnapshot = null,
+            legalRecords = listOf(legalFallbackRecord()),
+            sourceKnowledge = absent(
+                PayrollLegalArbitratorV2.Source.ACCO,
+                PayrollLegalArbitratorV2.Source.KALI
+            ),
+            legalReliable = false,
+            legalWarnings = listOf("LEGI : stockage local incohérent")
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
+        assertNull(result.statutorySchedule)
+        assertNull(result.selectedSchedule)
+        assertTrue(result.warnings.any { it.contains("LEGI : stockage local incohérent") })
+        assertTrue(result.resolution.explanation.contains("impossible de conclure", ignoreCase = true))
+    }
+
+    @Test
+    fun `un stockage LEGI incoherent ne bloque pas une regle KALI superieure sure`() {
+        val result = OvertimeLegalArbitrationBridgeV2.assemble(
+            referenceDate = date,
+            companyAgreement = null,
+            branchSnapshot = branch(),
+            legalRecords = listOf(legalFallbackRecord()),
+            sourceKnowledge = absent(PayrollLegalArbitratorV2.Source.ACCO),
+            legalReliable = false,
+            legalWarnings = listOf("LEGI : stockage local incohérent")
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.RESOLVED, result.resolution.state)
+        assertEquals(PayrollLegalArbitratorV2.Source.KALI, result.resolution.selected?.source)
+        assertNull(result.statutorySchedule)
+        assertTrue(result.warnings.any { it.contains("LEGI : stockage local incohérent") })
+    }
+
+    @Test
+    fun `un journal de preuves incoherent est signale et ne debloque aucun repli`() {
+        val result = OvertimeLegalArbitrationBridgeV2.assemble(
+            referenceDate = date,
+            companyAgreement = null,
+            branchSnapshot = branch(),
+            legalRecords = listOf(legalFallbackRecord()),
+            sourceKnowledge = emptyMap(),
+            sourceKnowledgeWarnings = listOf(
+                "Preuves de contrôle des sources juridiques : stockage local incohérent"
+            )
+        )
+
+        assertEquals(PayrollLegalArbitratorV2.State.REVIEW_REQUIRED, result.resolution.state)
+        assertNull(result.selectedSchedule)
+        assertTrue(result.warnings.any { it.contains("Preuves de contrôle", ignoreCase = true) })
+    }
 }
