@@ -1,6 +1,8 @@
 package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CelestialTrackingPolicyV2Test {
@@ -59,6 +61,50 @@ class CelestialTrackingPolicyV2Test {
             accuracyMeters = null
         )
         assertEquals(CelestialLocationQualityV2.NO_PERMISSION, quality)
+    }
+
+    @Test
+    fun `mesure recente mais hors tolerance ne remplace pas une position valide`() {
+        val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+            currentAgeMs = 30_000L,
+            currentAccuracyMeters = 12f,
+            candidateAgeMs = 0L,
+            candidateAccuracyMeters = CelestialTrackingPolicyV2.MAX_LOCATION_ACCURACY_METERS + 500f
+        )
+        assertFalse(replace)
+    }
+
+    @Test
+    fun `position fraiche valide remplace une ancienne position devenue perimee`() {
+        val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+            currentAgeMs = CelestialTrackingPolicyV2.MAX_LOCATION_AGE_MS + 1L,
+            currentAccuracyMeters = 8f,
+            candidateAgeMs = 5_000L,
+            candidateAccuracyMeters = 900f
+        )
+        assertTrue(replace)
+    }
+
+    @Test
+    fun `entre deux positions valides la plus fraiche gagne`() {
+        val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+            currentAgeMs = 40_000L,
+            currentAccuracyMeters = 10f,
+            candidateAgeMs = 5_000L,
+            candidateAccuracyMeters = 1_500f
+        )
+        assertTrue(replace)
+    }
+
+    @Test
+    fun `a age egal la meilleure precision gagne`() {
+        val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+            currentAgeMs = 10_000L,
+            currentAccuracyMeters = 400f,
+            candidateAgeMs = 10_000L,
+            candidateAccuracyMeters = 25f
+        )
+        assertTrue(replace)
     }
 
     @Test
