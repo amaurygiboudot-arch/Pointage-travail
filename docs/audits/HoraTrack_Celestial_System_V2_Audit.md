@@ -81,6 +81,44 @@ La vue céleste et l’éclairage recalculaient chacun l’astronomie et ouvraie
 
 **Correction V2 :** le tracker utilise `GeomagneticField` avec la position de l’utilisateur pour appliquer la déclinaison magnétique avant le placement céleste.
 
+### ÉLEVÉ — azimut filtré calculé mais contourné par le rendu
+
+L’audit boussole a trouvé un défaut important : `CelestialTrackerV2` calculait déjà un `deviceAzimuthDeg` filtré, mais `SunIndicatorView` et `LightDirectionController` passaient par `projectInDeviceSky(frame)`. Cette fonction redérivait le cap directement depuis les axes bruts du `CelestialDeviceFrameV2`.
+
+Conséquence : le filtre d’azimut existait dans l’état du tracker mais **le placement réel Soleil/Lune pouvait ne pas l’utiliser**. Le ciel pouvait donc rester plus nerveux que prévu et réagir à des petites fluctuations magnétiques malgré la stabilisation calculée.
+
+**Correction V2 :**
+
+- `CelestialDeviceFrameV2` transporte maintenant `stabilizedHeadingDeg` ;
+- le tracker y injecte exactement le cap Nord vrai déjà filtré ;
+- `headingFromFrame()` utilise ce cap stabilisé en priorité ;
+- le calcul géométrique depuis les axes 3D bruts n’est plus qu’un secours pour les anciens appelants/tests ;
+- Soleil, Lune, terminateur, axe d’éclipse et éclairage partagent donc le **même cap stabilisé**.
+
+Un test verrouille explicitement qu’un cap stabilisé injecté dans le frame prime sur le cap brut déductible de ses axes.
+
+### ÉLEVÉ — filtre de cap trop lent pour un suivi visuel crédible
+
+Le filtre historique utilisait une zone morte de `2,5°` et un lissage fixe de `0,35`. Cela pouvait laisser un décalage visible lors d’une rotation volontaire du téléphone, particulièrement si l’utilisateur essayait d’aligner le cadran avec un astre réel.
+
+**Correction V2 :**
+
+- zone morte réduite à `0,40°` pour ne plus accepter plusieurs degrés d’erreur volontairement ;
+- lissage adaptatif : petits mouvements filtrés, rotations moyennes rattrapées plus vite, grandes rotations rattrapées très rapidement ;
+- le filtre est réinitialisé à la fin d’une session d’acquisition afin qu’une nouvelle ouverture ne reparte pas d’un ancien cap mémorisé.
+
+Le but n’est pas de masquer une boussole mal calibrée, mais d’éviter le compromis précédent « stable mais visiblement en retard ».
+
+### MOYEN — précision de boussole non observable
+
+Android peut fournir avec `TYPE_ROTATION_VECTOR` une estimation de précision du cap dans `values[4]`, en radians, lorsqu’elle est disponible. Cette donnée était totalement ignorée.
+
+**Correction V2 :** `CelestialTrackerV2.State` expose maintenant `headingAccuracyDeg`. La valeur est convertie en degrés et devient `null` lorsqu’Android ne fournit pas d’estimation exploitable.
+
+Cette précision n’est **pas** utilisée pour faire disparaître les astres : l’idée validée reste une carte céleste 360°. Elle sert de donnée de diagnostic pour distinguer une erreur astronomique d’une boussole perturbée ou mal calibrée.
+
+**Limite restante :** aucune formule logicielle ne peut corriger parfaitement une perturbation locale forte (aimant, coque magnétique, métal, haut-parleur, véhicule, structure acier). Une future couche UI pourra afficher un avertissement de calibration si `headingAccuracyDeg` est mauvais, sans inventer une autre position céleste.
+
 ### CRITIQUE — confusion carte céleste / viseur AR détectée pendant le test réel
 
 Le test vidéo sur téléphone a révélé un défaut conceptuel introduit lors du passage à la projection 3D : Soleil et Lune pouvaient **disparaître en tournant ou inclinant le téléphone** alors qu’ils restaient réellement au-dessus de l’horizon.
@@ -110,7 +148,7 @@ L’audit du correctif 360° a révélé un second risque : `headingFromFrame()`
 
 Selon le sens dans lequel le téléphone est incliné, ces deux projections horizontales peuvent pointer en sens opposé. Une bascule brutale pouvait alors faire tourner artificiellement Soleil/Lune d’environ 180° au milieu du mouvement, alors que le cap réel n’avait pas changé.
 
-**Correction V2 :** le cap de la carte est désormais dérivé de la géométrie `Zénith × axe droit de l’écran`. Ce vecteur correspond au prolongement horizontal du haut du cadran et reste continu lorsqu’on incline le téléphone vers l’avant ou vers l’arrière.
+**Correction V2 :** le cap géométrique de secours est désormais dérivé de la géométrie `Zénith × axe droit de l’écran`. Ce vecteur correspond au prolongement horizontal du haut du cadran et reste continu lorsqu’on incline le téléphone vers l’avant ou vers l’arrière.
 
 Conséquences :
 
@@ -152,7 +190,9 @@ CelestialTrackerV2
         |
         +--> localisation qualifiée fail-closed
         +--> Nord magnétique -> Nord vrai
-        +--> cap / pitch / roll
+        +--> cap adaptativement filtré
+        +--> précision de cap Android si disponible
+        +--> frame 3D portant le même cap stabilisé
         |
         +--> HoraTrackV2.celestial
         |       |
@@ -167,7 +207,7 @@ CelestialTrackerV2
                 +--> carte topocentrique 360° Terre au centre
                 +--> azimut -> angle
                 +--> altitude -> rayon
-                +--> cap continu via Zénith × axe droit écran
+                +--> cap stabilisé unique pour tous les rendus
                 +--> terminateur Lune -> Soleil
                 +--> ombre Lune -> anti-Soleil
 ```
@@ -185,6 +225,7 @@ Les tests couvrent notamment :
 - astre opposé au cap restant visible sur le cadran 360° ;
 - téléphone à plat, incliné puis vertical ;
 - inclinaison dans les deux sens sans retournement artificiel de 180° ;
+- priorité du cap stabilisé du tracker sur la géométrie brute du frame ;
 - direction du terminateur ;
 - direction de l’axe anti-solaire.
 
@@ -192,14 +233,17 @@ Les tests couvrent notamment :
 
 Le moteur astronomique V2 est conservé. Le défaut de représentation découvert en test réel est corrigé dans le sens du concept d’origine : **Terre centrale, ciel apparent 360°, Soleil et Lune positionnés autour de l’observateur et non masqués par l’orientation avant/arrière de l’écran**.
 
-Le cap a également été rendu continu pendant les changements d’inclinaison usuels du téléphone afin d’éviter une bascule artificielle du ciel entre deux référentiels.
+Le cap a également été rendu continu pendant les changements d’inclinaison usuels du téléphone afin d’éviter une bascule artificielle du ciel entre deux référentiels. L’audit boussole a maintenant supprimé un autre défaut : le rendu ne doit plus contourner le cap filtré calculé par le tracker.
 
 La prochaine validation sur téléphone doit vérifier en priorité :
 
 1. qu’en tournant le téléphone sur 360°, Soleil et Lune font le tour du cadran sans disparaître tant qu’ils sont au-dessus de l’horizon ;
 2. que leur position angulaire correspond à la direction réelle ;
-3. que l’altitude reste cohérente dans le rayon ;
-4. que la phase lunaire conserve la bonne orientation ;
-5. que le mouvement reste stable lorsque le téléphone passe d’une posture plutôt à plat à plutôt verticale dans les deux sens.
+3. que le mouvement est plus stable à l’arrêt sans prendre plusieurs degrés de retard pendant une rotation volontaire ;
+4. que l’altitude reste cohérente dans le rayon ;
+5. que la phase lunaire conserve la bonne orientation ;
+6. que le mouvement reste stable lorsque le téléphone passe d’une posture plutôt à plat à plutôt verticale dans les deux sens.
+
+Si un décalage angulaire constant subsiste sur téléphone, la prochaine donnée à examiner est `headingAccuracyDeg` avant de remettre en cause les éphémérides : un capteur magnétique perturbé peut décaler tout le ciel alors que les positions astronomiques sont correctes.
 
 Après cette validation seulement, le nettoyage `heroClockHands` pourra être fait séparément.
