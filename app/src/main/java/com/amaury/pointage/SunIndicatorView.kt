@@ -133,62 +133,66 @@ class SunIndicatorView @JvmOverloads constructor(
         val base = min(width, height).toFloat()
         val earthX = width * 0.50f
         val earthY = height * 0.55f
-        val orbitRadius = base * 0.43f
+        val horizonRadius = base * 0.43f
         val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.82f
         val sun = snapshot.sun
         val moon = snapshot.moon
-        val sunScreen = mapToWatchOrbit(sun, earthX, earthY, orbitRadius)
-        val moonScreen = mapToWatchOrbit(moon, earthX, earthY, orbitRadius)
+        val sunScreen = mapToWatchDome(sun, earthX, earthY, horizonRadius)
+        val moonScreen = mapToWatchDome(moon, earthX, earthY, horizonRadius)
 
-        CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
-        drawCelestialPng(
-            canvas,
-            sunBitmap,
-            sunScreen.first,
-            sunScreen.second,
-            (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
-            !nightMode
-        )
+        // Le Soleil n'est dessiné que s'il est réellement au-dessus de l'horizon
+        // civil. Sa direction optique globale reste gérée par LightDirectionController.
+        if (sunScreen != null) {
+            CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
+            drawCelestialPng(
+                canvas,
+                sunBitmap,
+                sunScreen.first,
+                sunScreen.second,
+                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
+                !nightMode
+            )
+        }
 
-        val moonRadius = (
-            if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
-            ) * moon.apparentScale.toFloat()
-        drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
+        // Même règle pour la Lune : pas de sprite sous l'horizon. Si elle est
+        // visible, sa phase et son ombre restent calculées depuis le snapshot V2.
+        if (moonScreen != null) {
+            val moonRadius = (
+                if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
+                ) * moon.apparentScale.toFloat()
+            drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
-        val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
-            from = moon,
-            to = sun,
-            deviceAzimuthDeg = deviceAzimuth
-        )
-        val fallbackLightX = sunScreen.first - moonScreen.first
-        val fallbackLightY = sunScreen.second - moonScreen.second
-        drawMoonSunlight(
-            canvas = canvas,
-            moonX = moonScreen.first,
-            moonY = moonScreen.second,
-            moonRadius = moonRadius,
-            lightDirX = lunarLightDirection?.x?.toFloat() ?: fallbackLightX,
-            lightDirY = lunarLightDirection?.y?.toFloat() ?: fallbackLightY,
-            illumination = snapshot.moonPhase.illuminatedFraction.toFloat()
-        )
+            val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
+                from = moon,
+                to = sun,
+                deviceAzimuthDeg = deviceAzimuth
+            )
+            drawMoonSunlight(
+                canvas = canvas,
+                moonX = moonScreen.first,
+                moonY = moonScreen.second,
+                moonRadius = moonRadius,
+                lightDirX = lunarLightDirection?.x?.toFloat() ?: 1f,
+                lightDirY = lunarLightDirection?.y?.toFloat() ?: 0f,
+                illumination = snapshot.moonPhase.illuminatedFraction.toFloat()
+            )
 
-        val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
-            moon = moon,
-            sun = sun,
-            deviceAzimuthDeg = deviceAzimuth
-        )
-        val antiSunX = 2f * earthX - sunScreen.first
-        val antiSunY = 2f * earthY - sunScreen.second
-        drawEarthShadowOnMoon(
-            canvas = canvas,
-            moonX = moonScreen.first,
-            moonY = moonScreen.second,
-            moonRadius = moonRadius,
-            shadowDirX = eclipseDirection?.x?.toFloat() ?: (antiSunX - moonScreen.first),
-            shadowDirY = eclipseDirection?.y?.toFloat() ?: (antiSunY - moonScreen.second),
-            eclipse = snapshot.lunarEclipse
-        )
+            val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
+                moon = moon,
+                sun = sun,
+                deviceAzimuthDeg = deviceAzimuth
+            )
+            drawEarthShadowOnMoon(
+                canvas = canvas,
+                moonX = moonScreen.first,
+                moonY = moonScreen.second,
+                moonRadius = moonRadius,
+                shadowDirX = eclipseDirection?.x?.toFloat() ?: 1f,
+                shadowDirY = eclipseDirection?.y?.toFloat() ?: 0f,
+                eclipse = snapshot.lunarEclipse
+            )
+        }
     }
 
     private fun drawCelestialPng(
@@ -418,24 +422,24 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     /**
-     * Position historique conservée pendant l'audit visuel : azimut réel autour
-     * du cadran. L'altitude est utilisée par la géométrie locale du terminateur,
-     * mais pas encore pour déplacer radialement l'astre.
+     * Projection V2 du ciel visible sur le cadran :
+     * - azimut réel = angle autour de l'horloge ;
+     * - altitude réelle = distance au centre ;
+     * - horizon = bord externe ;
+     * - zénith = rayon interne compact pour préserver la Terre centrale ;
+     * - sous l'horizon civil = aucun rendu.
      */
-    private fun mapToWatchOrbit(
+    private fun mapToWatchDome(
         position: CelestialBodyV2,
         cx: Float,
         cy: Float,
-        radius: Float
-    ): Pair<Float, Float> {
-        val angle = Math.toRadians(shortestDelta(deviceAzimuth, position.azimuthDeg.toFloat()).toDouble())
-        val x = cx + sin(angle).toFloat() * radius
-        val y = cy - kotlin.math.cos(angle).toFloat() * radius
+        horizonRadius: Float
+    ): Pair<Float, Float>? {
+        val projected = CelestialScreenGeometryV2.projectOnWatchDome(position, deviceAzimuth) ?: return null
+        val x = cx + projected.xRadiusFraction.toFloat() * horizonRadius
+        val y = cy + projected.yRadiusFraction.toFloat() * horizonRadius
         return x to y
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
-
-    private fun shortestDelta(from: Float, to: Float): Float =
-        ((to - from + 540f) % 360f) - 180f
 }
