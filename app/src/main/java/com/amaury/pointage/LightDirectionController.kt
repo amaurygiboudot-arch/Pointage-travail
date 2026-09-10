@@ -6,7 +6,8 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import java.util.Calendar
 import kotlin.math.atan2
-import kotlin.math.sqrt
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Adaptateur d'éclairage de l'interface vers le suivi céleste V2.
@@ -75,20 +76,22 @@ object LightDirectionController {
                 ((active.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
             }
 
-            val sunProjection = if (snapshot != null && frame != null) {
-                CelestialScreenGeometryV2.projectInDeviceSky(snapshot.sun, frame)
-            } else {
-                null
-            }
-            if (sunProjection != null) {
-                val x = sunProjection.xRadiusFraction.toFloat()
-                val y = sunProjection.yRadiusFraction.toFloat()
-                val length = sqrt(x * x + y * y)
-                if (length > 0.0001f) {
-                    CelestialLightingState.updateSunDirection(x, y)
-                } else {
-                    CelestialLightingState.clearSunDirection()
-                }
+            /*
+             * L'éclairage de la Terre centrale dépend du vrai Soleil même quand
+             * celui-ci est sous l'horizon local. La projection des sprites masque
+             * volontairement le Soleil sous l'horizon, mais cela ne signifie pas
+             * que sa direction physique cesse d'exister.
+             *
+             * On utilise uniquement l'azimut relatif au cap qualifié : la Terre ne
+             * doit pas retomber sur une fausse direction fixe pendant toute la nuit.
+             */
+            if (snapshot != null && frame != null) {
+                val heading = CelestialScreenGeometryV2.headingFromFrame(frame)
+                val theta = Math.toRadians(shortestDelta(heading, snapshot.sun.azimuthDeg))
+                CelestialLightingState.updateSunDirection(
+                    sin(theta).toFloat(),
+                    (-cos(theta)).toFloat()
+                )
             } else {
                 CelestialLightingState.clearSunDirection()
             }
@@ -141,6 +144,9 @@ object LightDirectionController {
         if (kotlin.math.abs(x) < 1e-9 && kotlin.math.abs(y) < 1e-9) return 0f
         return normalize(Math.toDegrees(atan2(x, -y)).toFloat())
     }
+
+    private fun shortestDelta(from: Double, to: Double): Double =
+        ((to - from + 540.0) % 360.0) - 180.0
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
 }
