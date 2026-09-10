@@ -37,7 +37,7 @@ import kotlin.math.sin
  * - correction Nord magnétique -> Nord vrai ;
  * - stabilisation du cap utilisé par tous les rendus célestes ;
  * - estimation de précision du cap quand TYPE_ROTATION_VECTOR la fournit ;
- * - snapshot astronomique V2.
+ * - snapshot astronomique V2 rafraîchi indépendamment du GPS.
  *
  * Le rendu n'a donc plus à deviner l'orientation ou la position de l'utilisateur.
  */
@@ -78,6 +78,8 @@ object CelestialTrackerV2 {
     private var locationAccuracyMeters: Float? = null
     private var locationProvider: String? = null
     private var latestLiveLocation: Location? = null
+    private var resolvedLocation: Location? = null
+    private var lastLocationRecheckElapsedMs = Long.MIN_VALUE
 
     private var deviceAzimuthDeg = 0f
     private var filteredAzimuthDeg = Float.NaN
@@ -96,7 +98,12 @@ object CelestialTrackerV2 {
     private var lastEmittedPitch = Float.NaN
     private var lastEmittedRoll = Float.NaN
 
-    private const val CELESTIAL_REFRESH_MS = 30_000L
+    /**
+     * Le ciel évolue continuellement avec le temps : on recalcule l'éphéméride
+     * chaque seconde, sans pour autant relire tous les providers GPS chaque seconde.
+     */
+    private const val ASTRONOMY_REFRESH_MS = 1_000L
+    private const val LOCATION_RECHECK_MS = 30_000L
     private const val LOCATION_MIN_TIME_MS = 30_000L
     private const val LOCATION_MIN_DISTANCE_M = 25f
     private const val MIN_RENDER_INTERVAL_MS = 90L
@@ -109,8 +116,17 @@ object CelestialTrackerV2 {
     private val refreshTask = object : Runnable {
         override fun run() {
             if (observers.isEmpty()) return
-            refreshLocationAndAstronomy(notify = true)
-            mainHandler.postDelayed(this, CELESTIAL_REFRESH_MS)
+
+            val elapsedNow = SystemClock.elapsedRealtime()
+            if (lastLocationRecheckElapsedMs == Long.MIN_VALUE ||
+                elapsedNow - lastLocationRecheckElapsedMs >= LOCATION_RECHECK_MS
+            ) {
+                refreshLocationAndAstronomy(notify = true)
+                lastLocationRecheckElapsedMs = elapsedNow
+            } else {
+                refreshAstronomyOnly(notify = true)
+            }
+            mainHandler.postDelayed(this, ASTRONOMY_REFRESH_MS)
         }
     }
 
@@ -122,8 +138,9 @@ object CelestialTrackerV2 {
             startSensors()
             startLocationUpdates()
             refreshLocationAndAstronomy(notify = false)
+            lastLocationRecheckElapsedMs = SystemClock.elapsedRealtime()
             mainHandler.removeCallbacks(refreshTask)
-            mainHandler.postDelayed(refreshTask, CELESTIAL_REFRESH_MS)
+            mainHandler.postDelayed(refreshTask, ASTRONOMY_REFRESH_MS)
         }
         observer(currentStateInternal())
     }
@@ -219,6 +236,7 @@ object CelestialTrackerV2 {
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 latestLiveLocation = location
+                lastLocationRecheckElapsedMs = SystemClock.elapsedRealtime()
                 applyLocation(location, System.currentTimeMillis(), notify = true)
             }
 
@@ -395,6 +413,10 @@ object CelestialTrackerV2 {
         notifyObservers()
     }
 
+    /**
+     * Relit périodiquement la meilleure position disponible puis recalcule le ciel.
+     * Le temps astronomique reste un instant Unix réel : il est indépendant du fuseau.
+     */
     private fun refreshLocationAndAstronomy(notify: Boolean) {
         val context = appContext ?: return
         val now = System.currentTimeMillis()
@@ -407,25 +429,21 @@ object CelestialTrackerV2 {
         val lastKnown = bestLastKnownLocation(context)
         val candidate = sequenceOf(latestLiveLocation, lastKnown)
             .filterNotNull()
-            .maxByOrNull { it.time }
+            .maxByOrNull { locationSortKey(it) }
         applyLocation(candidate, now, notify)
     }
 
-    private fun applyLocation(location: Location?, now: Long, notify: Boolean) {
-        val context = appContext ?: return
-        val hasPermission = hasLocationPermission(context)
-        val accuracy = location?.takeIf { it.hasAccuracy() }?.accuracy
+    /** Recalcule seulement l'éphéméride avec la position déjà qualifiée. */
+    private fun refreshAstronomyOnly(notify: Boolean) {
+        val now = System.currentTimeMillis()
+        updateLocationQuality(resolvedLocation, now)
+        snapshot = buildSnapshot(resolvedLocation, now)
+        if (notify) notifyObservers()
+    }
 
-        locationQuality = CelestialTrackingPolicyV2.classify(
-            hasPermission = hasPermission,
-            hasLocation = location != null,
-            nowMs = now,
-            locationTimeMs = location?.time,
-            accuracyMeters = accuracy
-        )
-        locationAgeMs = location?.time?.let { now - it }
-        locationAccuracyMeters = accuracy
-        locationProvider = location?.provider
+    private fun applyLocation(location: Location?, now: Long, notify: Boolean) {
+        resolvedLocation = location
+        updateLocationQuality(location, now)
 
         if (locationQuality == CelestialLocationQualityV2.VALID && location != null) {
             magneticDeclinationDeg = runCatching {
@@ -439,20 +457,60 @@ object CelestialTrackerV2 {
             rebuildTrueNorthFromLastMatrix()
         }
 
-        snapshot = if (locationQuality == CelestialLocationQualityV2.VALID && location != null && HoraTrackV2.ENABLED) {
-            runCatching {
-                HoraTrackV2.celestial.snapshot(
-                    latitudeDeg = location.latitude,
-                    longitudeDeg = location.longitude,
-                    timeMs = now,
-                    observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
-                )
-            }.getOrNull()
-        } else {
-            null
-        }
-
+        snapshot = buildSnapshot(location, now)
         if (notify) notifyObservers()
+    }
+
+    private fun updateLocationQuality(location: Location?, nowWallMs: Long) {
+        val context = appContext ?: return
+        val hasPermission = hasLocationPermission(context)
+        val accuracy = location?.takeIf { it.hasAccuracy() }?.accuracy
+        val ageMs = locationAgeMs(location, nowWallMs)
+
+        locationQuality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = hasPermission,
+            hasLocation = location != null,
+            locationAgeMs = ageMs,
+            accuracyMeters = accuracy
+        )
+        locationAgeMs = ageMs
+        locationAccuracyMeters = accuracy
+        locationProvider = location?.provider
+    }
+
+    /**
+     * Utilise l'horloge monotone Android pour mesurer l'âge GPS quand le provider
+     * l'a fourni. Le fallback wall-clock ne sert qu'aux très anciennes locations
+     * artificielles/appareils où elapsedRealtimeNanos n'est pas exploitable.
+     */
+    private fun locationAgeMs(location: Location?, nowWallMs: Long): Long? {
+        location ?: return null
+        val sampleElapsedNanos = location.elapsedRealtimeNanos
+        if (sampleElapsedNanos > 0L) {
+            return (SystemClock.elapsedRealtimeNanos() - sampleElapsedNanos) / 1_000_000L
+        }
+        return location.time
+            .takeIf { it > 0L }
+            ?.let { nowWallMs - it }
+    }
+
+    private fun locationSortKey(location: Location): Long =
+        location.elapsedRealtimeNanos.takeIf { it > 0L } ?: location.time * 1_000_000L
+
+    private fun buildSnapshot(location: Location?, now: Long): CelestialSnapshotV2? {
+        if (locationQuality != CelestialLocationQualityV2.VALID ||
+            location == null ||
+            !HoraTrackV2.ENABLED
+        ) return null
+
+        return runCatching {
+            HoraTrackV2.celestial.snapshot(
+                latitudeDeg = location.latitude,
+                longitudeDeg = location.longitude,
+                timeMs = now,
+                observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
+            )
+        }.getOrNull()
     }
 
     private fun hasLocationPermission(context: Context): Boolean {
@@ -466,7 +524,7 @@ object CelestialTrackerV2 {
         return runCatching {
             manager.getProviders(true)
                 .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-                .maxByOrNull { it.time }
+                .maxByOrNull { locationSortKey(it) }
         }.getOrNull()
     }
 
@@ -512,6 +570,9 @@ object CelestialTrackerV2 {
         }
         locationListener = null
         locationManager = null
+        latestLiveLocation = null
+        resolvedLocation = null
+        lastLocationRecheckElapsedMs = Long.MIN_VALUE
         mainHandler.removeCallbacks(refreshTask)
     }
 
