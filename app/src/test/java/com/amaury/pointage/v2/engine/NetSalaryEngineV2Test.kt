@@ -208,7 +208,8 @@ class NetSalaryEngineV2Test {
         assertEquals(0.60,verified.complementaryRetirement-blocked.complementaryRetirement,0.001)
         assertEquals(0.90,verified.complementaryRetirementEmployer-blocked.complementaryRetirementEmployer,0.001)
         assertTrue(blocked.warnings.any { it.contains("APEC non appliquée automatiquement") })
-        assertTrue(blocked.warnings.any { it.contains("1,50 % non calculé") })
+        assertTrue(blocked.warnings.none { it.contains("1,50 % non calculé") })
+        assertTrue(blocked.employerCostWarnings.any { it.contains("1,50 % non calculé") })
         assertEquals(blocked.conventionProvidentEmployee,verified.conventionProvidentEmployee,0.001)
         assertEquals(blocked.conventionProvidentEmployer,verified.conventionProvidentEmployer,0.001)
     }

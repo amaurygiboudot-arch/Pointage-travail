@@ -289,18 +289,18 @@ object NetSalaryEngineV2 {
             netTaxable * company.incomeTaxRate
         } else null
 
-        val hasMobilityWarning = company.warnings.any { it.startsWith("Versement mobilité employeur") }
+        val employerOnlyCompanyWarnings = company.warnings.filter {
+            it.startsWith("AT/MP employeur") || it.startsWith("Versement mobilité employeur")
+        }
         val warnings = buildList {
             addAll(ceiling.warnings)
             addAll(statutory.warnings)
             addAll(retirement.warnings)
-            addAll(statusContributions.warnings)
             addAll(activeProvidentWarnings)
-            addAll(atMp.warnings)
-            if (!hasMobilityWarning) addAll(mobility.warnings)
             addAll(company.warnings.filterNot {
                 it.startsWith("Prévoyance salariale entreprise") ||
-                    (it.startsWith("AT/MP employeur") && atMp.complete)
+                    it.startsWith("AT/MP employeur") ||
+                    it.startsWith("Versement mobilité employeur")
             })
             if (company.providentEmployeeAmount == null) {
                 add("Prévoyance salariale entreprise : montant réel à confirmer ; une règle collective calculable ne prouve pas à elle seule la retenue réellement pratiquée sur le bulletin.")
@@ -335,6 +335,10 @@ object NetSalaryEngineV2 {
         }
         val employerCostWarnings = buildList {
             add("Coût employeur total : d’éventuelles contributions patronales spécifiques restent à confirmer ; aucun total complet n'est affiché.")
+            addAll(statusContributions.warnings)
+            addAll(atMp.warnings)
+            addAll(mobility.warnings)
+            addAll(employerOnlyCompanyWarnings)
             if (!atMp.complete) add("Coût employeur : AT/MP à confirmer pour l'établissement.")
             if (!mobility.complete) add("Coût employeur : versement mobilité à confirmer pour l'établissement et la période.")
             addAll(company.employerUnemploymentAgsWarnings)
