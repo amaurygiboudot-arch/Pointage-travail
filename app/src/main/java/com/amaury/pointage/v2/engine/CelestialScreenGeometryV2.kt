@@ -43,6 +43,7 @@ data class CelestialWatchProjectionV2(
 object CelestialScreenGeometryV2 {
     const val CIVIL_HORIZON_DEG = -0.833
     const val ZENITH_RADIUS_FRACTION = 0.34
+    private const val HEADING_EPSILON = 1e-6
 
     /**
      * Projection canonique de l'horloge : ciel visible complet sur 360°.
@@ -138,12 +139,35 @@ object CelestialScreenGeometryV2 {
     )
 
     /**
-     * Déduit le cap horizontal du repère d'écran sans imposer une posture.
-     * Téléphone plutôt à plat : le haut de l'écran fournit le cap.
-     * Téléphone plutôt vertical : la normale de l'écran fournit la direction regardée.
-     * Les deux axes sont déjà exprimés en Nord vrai par CelestialTrackerV2.
+     * Déduit le cap horizontal de la carte 360° sans bascule de référentiel.
+     *
+     * Le premier lot choisissait brutalement entre le haut de l'écran lorsque
+     * le téléphone était plutôt à plat et la normale de l'écran lorsqu'il était
+     * plutôt vertical. Selon le sens d'inclinaison, ces deux projections peuvent
+     * être opposées et provoquer un saut artificiel de 180°.
+     *
+     * Le cap canonique est maintenant construit avec `Zénith × axe-droit-écran`.
+     * C'est exactement le prolongement horizontal du haut du cadran : il reste
+     * identique lorsqu'on incline le téléphone vers l'avant ou vers l'arrière,
+     * tant que son axe droit n'est pas vertical. Pitch et roll ne peuvent donc
+     * plus faire retourner le Soleil/Lune simplement à cause d'un changement de
+     * posture.
+     *
+     * Cas dégénéré : si l'axe droit devient presque vertical (rotation latérale
+     * proche de 90°), on retombe sur l'axe horizontal le mieux défini entre le
+     * haut et la normale. Ce cas n'est pas utilisé pour masquer un astre.
      */
     fun headingFromFrame(frame: CelestialDeviceFrameV2): Double {
+        val rightHorizontal = sqrt(
+            frame.rightEast * frame.rightEast + frame.rightNorth * frame.rightNorth
+        )
+        if (rightHorizontal > HEADING_EPSILON) {
+            // Up × Right = direction horizontale correspondant au haut du cadran.
+            val east = -frame.rightNorth / rightHorizontal
+            val north = frame.rightEast / rightHorizontal
+            return normalizeDegrees(Math.toDegrees(atan2(east, north)))
+        }
+
         val topHorizontal = sqrt(frame.topEast * frame.topEast + frame.topNorth * frame.topNorth)
         val normalHorizontal = sqrt(
             frame.normalEast * frame.normalEast + frame.normalNorth * frame.normalNorth
@@ -151,10 +175,10 @@ object CelestialScreenGeometryV2 {
 
         val east: Double
         val north: Double
-        if (topHorizontal >= normalHorizontal && topHorizontal > 1e-9) {
+        if (topHorizontal >= normalHorizontal && topHorizontal > HEADING_EPSILON) {
             east = frame.topEast / topHorizontal
             north = frame.topNorth / topHorizontal
-        } else if (normalHorizontal > 1e-9) {
+        } else if (normalHorizontal > HEADING_EPSILON) {
             east = frame.normalEast / normalHorizontal
             north = frame.normalNorth / normalHorizontal
         } else {
