@@ -19,6 +19,8 @@ import android.view.Surface
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
+import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
@@ -36,7 +38,7 @@ import kotlin.math.sin
  * - rotation réelle de l'écran ;
  * - correction Nord magnétique -> Nord vrai ;
  * - stabilisation du cap utilisé par tous les rendus célestes ;
- * - estimation de précision du cap quand TYPE_ROTATION_VECTOR la fournit ;
+ * - qualification explicite de la fiabilité et de la fraîcheur du cap ;
  * - snapshot astronomique V2 rafraîchi indépendamment du GPS.
  *
  * Le rendu n'a donc plus à deviner l'orientation ou la position de l'utilisateur.
@@ -55,12 +57,16 @@ object CelestialTrackerV2 {
         val magneticDeclinationDeg: Float,
         /** Incertitude de cap annoncée par TYPE_ROTATION_VECTOR, en degrés. */
         val headingAccuracyDeg: Float?,
+        /** Age monotone du dernier repère d'orientation effectivement produit. */
+        val headingAgeMs: Long?,
+        val headingQuality: CelestialHeadingQualityV2,
         val deviceFrame: CelestialDeviceFrameV2?
     ) {
         val hasRealSky: Boolean
             get() = snapshot != null &&
                 locationQuality == CelestialLocationQualityV2.VALID &&
-                deviceFrame != null
+                deviceFrame != null &&
+                CelestialHeadingPolicyV2.isUsable(headingQuality)
     }
 
     private val observers = LinkedHashMap<Any, (State) -> Unit>()
@@ -87,6 +93,8 @@ object CelestialTrackerV2 {
     private var deviceRollDeg = 0f
     private var magneticDeclinationDeg = 0f
     private var headingAccuracyDeg: Float? = null
+    private var headingSensorReportedUnreliable = false
+    private var lastOrientationElapsedMs = Long.MIN_VALUE
     private var deviceFrame: CelestialDeviceFrameV2? = null
     private var lastDisplayRotationMatrix: FloatArray? = null
 
@@ -182,6 +190,8 @@ object CelestialTrackerV2 {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ROTATION_VECTOR -> {
+                        headingSensorReportedUnreliable =
+                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
                         headingAccuracyDeg = event.values.getOrNull(4)
                             ?.takeIf { it.isFinite() && it >= 0f }
                             ?.let { Math.toDegrees(it.toDouble()).toFloat() }
@@ -199,6 +209,9 @@ object CelestialTrackerV2 {
                     }
 
                     Sensor.TYPE_MAGNETIC_FIELD -> {
+                        headingSensorReportedUnreliable =
+                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                        headingAccuracyDeg = null
                         magneticValues = event.values.copyOf()
                         updateFallbackOrientation(rawRotationMatrix, displayRotationMatrix, orientation)
                     }
@@ -206,12 +219,17 @@ object CelestialTrackerV2 {
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-                if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR &&
-                    accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR ||
+                    sensor?.type == Sensor.TYPE_MAGNETIC_FIELD
                 ) {
-                    // La valeur angulaire reste disponible, mais l'état expose une
-                    // précision inconnue afin de ne pas prétendre à une calibration.
-                    headingAccuracyDeg = null
+                    headingSensorReportedUnreliable =
+                        accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                    if (headingSensorReportedUnreliable) {
+                        // On conserve séparément le diagnostic d'Android : null peut
+                        // aussi vouloir dire « précision numérique non fournie ».
+                        headingAccuracyDeg = null
+                    }
+                    notifyObservers()
                 }
             }
         }
@@ -313,6 +331,7 @@ object CelestialTrackerV2 {
 
     private fun updateOrientation(rotationMatrix: FloatArray, orientation: FloatArray) {
         lastDisplayRotationMatrix = rotationMatrix.copyOf()
+        lastOrientationElapsedMs = SystemClock.elapsedRealtime()
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
 
@@ -528,19 +547,33 @@ object CelestialTrackerV2 {
         }.getOrNull()
     }
 
-    private fun currentStateInternal(): State = State(
-        snapshot = snapshot,
-        locationQuality = locationQuality,
-        locationAgeMs = locationAgeMs,
-        locationAccuracyMeters = locationAccuracyMeters,
-        locationProvider = locationProvider,
-        deviceAzimuthDeg = deviceAzimuthDeg,
-        devicePitchDeg = devicePitchDeg,
-        deviceRollDeg = deviceRollDeg,
-        magneticDeclinationDeg = magneticDeclinationDeg,
-        headingAccuracyDeg = headingAccuracyDeg,
-        deviceFrame = deviceFrame
-    )
+    private fun currentStateInternal(): State {
+        val headingAgeMs = lastOrientationElapsedMs
+            .takeIf { it != Long.MIN_VALUE }
+            ?.let { SystemClock.elapsedRealtime() - it }
+        val headingQuality = CelestialHeadingPolicyV2.classify(
+            hasOrientation = deviceFrame != null,
+            headingAgeMs = headingAgeMs,
+            sensorReportedUnreliable = headingSensorReportedUnreliable,
+            headingAccuracyDeg = headingAccuracyDeg
+        )
+
+        return State(
+            snapshot = snapshot,
+            locationQuality = locationQuality,
+            locationAgeMs = locationAgeMs,
+            locationAccuracyMeters = locationAccuracyMeters,
+            locationProvider = locationProvider,
+            deviceAzimuthDeg = deviceAzimuthDeg,
+            devicePitchDeg = devicePitchDeg,
+            deviceRollDeg = deviceRollDeg,
+            magneticDeclinationDeg = magneticDeclinationDeg,
+            headingAccuracyDeg = headingAccuracyDeg,
+            headingAgeMs = headingAgeMs,
+            headingQuality = headingQuality,
+            deviceFrame = deviceFrame
+        )
+    }
 
     private fun notifyObservers() {
         val state = currentStateInternal()
@@ -556,6 +589,8 @@ object CelestialTrackerV2 {
         lastDisplayRotationMatrix = null
         deviceFrame = null
         headingAccuracyDeg = null
+        headingSensorReportedUnreliable = false
+        lastOrientationElapsedMs = Long.MIN_VALUE
         filteredAzimuthDeg = Float.NaN
         deviceAzimuthDeg = 0f
         lastEmitUptimeMs = 0L
