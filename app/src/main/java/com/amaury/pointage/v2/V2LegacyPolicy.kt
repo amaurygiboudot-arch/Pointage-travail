@@ -7,7 +7,7 @@ package com.amaury.pointage.v2
  * rester visibles mais doivent lire les résultats V2.
  */
 object V2LegacyPolicy {
-    enum class Domain { POINTAGE, PAUSE, GPS, HISTORY, ANALYTICS, PAYROLL, PDF }
+    enum class Domain { POINTAGE, PAUSE, GPS, CELESTIAL, HISTORY, ANALYTICS, PAYROLL, PDF }
 
     fun legacyAllowed(domain: Domain): Boolean = !HoraTrackV2.ENABLED
 
