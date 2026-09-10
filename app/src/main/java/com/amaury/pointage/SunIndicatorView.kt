@@ -83,7 +83,12 @@ class SunIndicatorView @JvmOverloads constructor(
     fun setSunVisible(visible: Boolean) {
         val dynamicEnabled = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
             .getBoolean("solar_lighting_enabled", false)
-        visibleCelestial = visible || dynamicEnabled
+        val homeVisible = (parent as? View)?.let {
+            it.id == R.id.celestialHomePanel && it.visibility == VISIBLE
+        } == true
+        // L'écran Accueil est la destination dédiée au ciel : son rendu ne doit
+        // jamais dépendre du réglage optionnel d'éclairage dynamique de l'UI.
+        visibleCelestial = visible || dynamicEnabled || homeVisible
         visibility = if (visibleCelestial) VISIBLE else GONE
         updateTrackingSubscription()
         invalidate()
