@@ -170,7 +170,7 @@ object BoccPayrollSourceStoreV2 {
         val companyId = requiredString(obj, "companyId") ?: return null
         val referenceAtMs = requiredLong(obj, "referenceAtMs")?.takeIf { it > 0L } ?: return null
         val rawIdcc = requiredString(obj, "idcc") ?: return null
-        val idcc = normalizeIdcc(rawIdcc)?.takeIf { it == rawIdcc } ?: return null
+        val idcc = normalizeIdcc(rawIdcc) ?: return null
         val title = requiredString(obj, "title") ?: return null
         val fileName = requiredString(obj, "fileName") ?: return null
         val path = requiredString(obj, "pathToFile") ?: return null
