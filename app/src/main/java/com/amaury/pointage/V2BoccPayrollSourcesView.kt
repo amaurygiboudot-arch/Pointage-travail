@@ -55,28 +55,32 @@ class V2BoccPayrollSourcesView(
     fun refresh() {
         val reference = referenceDate()
         val idcc = company.idcc.filter(Char::isDigit)
-        val records = if (idcc.isBlank()) emptyList() else {
-            BoccPayrollSourceStoreV2.snapshot(context, company.id, reference.atMs, idcc)
+        val stored = if (idcc.isBlank()) null else {
+            BoccPayrollSourceStoreV2.snapshotResult(context, company.id, reference.atMs, idcc)
         }
+        val records = stored?.records.orEmpty()
         status.text = buildString {
             append("Entreprise : ").append(company.name.ifBlank { "Entreprise" }).append('\n')
             append("IDCC : ").append(idcc.ifBlank { "non renseigné" }).append('\n')
             append("Date de paie contrôlée : ").append(reference.label).append('\n')
             append("Fenêtre BOCC : 24 mois précédant cette date\n")
-            if (idcc.isBlank()) {
-                append("IDCC requis pour interroger les BOCC de la convention.")
-            } else if (records.isEmpty()) {
-                append("Aucune référence BOCC vérifiée pour cette entreprise et cette date.")
-            } else {
-                append(records.size).append(" référence(s) BOCC vérifiée(s)\n")
-                records.take(12).forEach { record ->
-                    append("• ").append(record.title)
-                    val details = listOfNotNull(record.bulletinNumber, formatPublicationDate(record.publicationDate))
-                    if (details.isNotEmpty()) append(" — ").append(details.joinToString(" · "))
-                    append('\n')
+            when {
+                idcc.isBlank() -> append("IDCC requis pour interroger les BOCC de la convention.")
+                stored?.reliable == false -> append(
+                    "⚠ Stockage BOCC local incohérent : aucune référence enregistrée n'est considérée fiable. Relance la vérification officielle après contrôle du stockage."
+                )
+                records.isEmpty() -> append("Aucune référence BOCC vérifiée pour cette entreprise et cette date.")
+                else -> {
+                    append(records.size).append(" référence(s) BOCC vérifiée(s)\n")
+                    records.take(12).forEach { record ->
+                        append("• ").append(record.title)
+                        val details = listOfNotNull(record.bulletinNumber, formatPublicationDate(record.publicationDate))
+                        if (details.isNotEmpty()) append(" — ").append(details.joinToString(" · "))
+                        append('\n')
+                    }
+                    if (records.size > 12) append("… +").append(records.size - 12).append(" autre(s) référence(s)\n")
+                    append("Ces références prouvent des publications BOCC pertinentes ; elles ne suffisent pas seules à créer une règle de paie.")
                 }
-                if (records.size > 12) append("… +").append(records.size - 12).append(" autre(s) référence(s)\n")
-                append("Ces références prouvent des publications BOCC pertinentes ; elles ne suffisent pas seules à créer une règle de paie.")
             }
         }
     }
