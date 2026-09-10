@@ -13,6 +13,7 @@ class V2ConventionProtectionCategoryStoreTest {
     private val scopeKey = "KALITEXT000000000001"
 
     private fun rule(
+        ruleId: String = "KALI-PROTECTION-CATEGORY-test",
         category: ProtectionCategoryV2.AniCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
         extensionStatus: ConventionMinimumSalaryV2.ExtensionStatus = ConventionMinimumSalaryV2.ExtensionStatus.EXTENDED,
         extensionDate: LocalDate? = LocalDate.of(2025, 1, 1),
@@ -28,7 +29,7 @@ class V2ConventionProtectionCategoryStoreTest {
         val approved = approvalStatus == ConventionProtectionCategoryV2.ApprovalStatus.APEC_APPROVED
         return ConventionProtectionCategoryV2.Rule(
             idcc = "292",
-            ruleId = "KALI-PROTECTION-CATEGORY-test",
+            ruleId = ruleId,
             effectiveFrom = LocalDate.of(2025, 1, 1),
             classification = classification,
             professionalStatus = if (category == ProtectionCategoryV2.AniCategory.ARTICLE_2_1) "CADRE" else "NON_CADRE",
@@ -167,6 +168,72 @@ class V2ConventionProtectionCategoryStoreTest {
                 rule(
                     classification = ConventionClassificationV2(),
                     approvalClassification = ConventionClassificationV2()
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `historique vide explicite est fiable`() {
+        val result = V2ConventionProtectionCategoryStore.decodeVerified("[]")
+
+        assertTrue(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `json illisible rend le stockage non fiable`() {
+        val result = V2ConventionProtectionCategoryStore.decodeVerified("not-json")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide rend le stockage non fiable`() {
+        val result = V2ConventionProtectionCategoryStore.decodeVerified("[{}]")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `paquet vide reste valide pour une suppression explicite`() {
+        assertTrue(V2ConventionProtectionCategoryStore.acceptsVerifiedPackage(emptyList()))
+    }
+
+    @Test
+    fun `deux ruleId identiques dans le meme IDCC rendent le paquet ambigu`() {
+        assertFalse(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(ruleId = "same-id"),
+                    rule(
+                        ruleId = "same-id",
+                        category = ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+                        approvalCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+                        approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `deux preuves distinctes avec des ruleId distincts restent acceptables`() {
+        assertTrue(
+            V2ConventionProtectionCategoryStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(ruleId = "category-a"),
+                    rule(
+                        ruleId = "category-b",
+                        category = ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+                        approvalCategory = ProtectionCategoryV2.AniCategory.ARTICLE_2_2,
+                        approvalStatus = ConventionProtectionCategoryV2.ApprovalStatus.APEC_REQUIRED_UNVERIFIED
+                    )
                 )
             )
         )
