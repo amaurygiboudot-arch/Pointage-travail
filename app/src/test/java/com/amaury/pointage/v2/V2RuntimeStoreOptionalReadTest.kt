@@ -8,7 +8,7 @@ import org.junit.Test
 class V2RuntimeStoreOptionalReadTest {
     @Test
     fun `champ temporel optionnel absent reste valide et inconnu`() {
-        val result = V2RuntimeStore.optionalStrictPositive(emptyMap(), "optional_time")
+        val result = V2RuntimeStore.optionalStrictPositive(emptyMap<String, Any?>(), "optional_time")
 
         assertTrue(result.valid)
         assertNull(result.value)
