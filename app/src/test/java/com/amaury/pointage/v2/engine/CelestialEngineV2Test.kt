@@ -58,6 +58,29 @@ class CelestialEngineV2Test {
         assertTrue(abs(snapshot.sun.altitudeDeg - snapshot.moon.altitudeDeg) < 4.0)
     }
 
+    @Test
+    fun `position solaire progresse continument avec le temps`() {
+        val startMs = Instant.parse("2026-09-10T08:00:00Z").toEpochMilli()
+        val first = engine.snapshot(
+            latitudeDeg = 46.67,
+            longitudeDeg = -1.43,
+            timeMs = startMs
+        )
+        val tenSecondsLater = engine.snapshot(
+            latitudeDeg = 46.67,
+            longitudeDeg = -1.43,
+            timeMs = startMs + 10_000L
+        )
+
+        val motionDeg = angularDelta(first.sun.azimuthDeg, tenSecondsLater.sun.azimuthDeg) +
+            abs(first.sun.altitudeDeg - tenSecondsLater.sun.altitudeDeg)
+
+        // Le moteur doit produire un déplacement réel mais continu sur 10 s :
+        // ni image figée, ni saut de plusieurs degrés.
+        assertTrue(motionDeg > 0.001)
+        assertTrue(motionDeg < 0.20)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `latitude impossible est refusee`() {
         engine.snapshot(91.0, 0.0, Instant.parse("2026-03-03T11:38:00Z").toEpochMilli())
