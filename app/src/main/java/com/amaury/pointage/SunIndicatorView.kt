@@ -15,6 +15,7 @@ import android.util.AttributeSet
 import android.view.View
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
+import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
 import com.amaury.pointage.v2.engine.LunarEclipseV2
@@ -155,24 +156,37 @@ class SunIndicatorView @JvmOverloads constructor(
             ) * moon.apparentScale.toFloat()
         drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
+        val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
+            from = moon,
+            to = sun,
+            deviceAzimuthDeg = deviceAzimuth
+        )
+        val fallbackLightX = sunScreen.first - moonScreen.first
+        val fallbackLightY = sunScreen.second - moonScreen.second
         drawMoonSunlight(
             canvas = canvas,
             moonX = moonScreen.first,
             moonY = moonScreen.second,
             moonRadius = moonRadius,
-            sunX = sunScreen.first,
-            sunY = sunScreen.second,
+            lightDirX = lunarLightDirection?.x?.toFloat() ?: fallbackLightX,
+            lightDirY = lunarLightDirection?.y?.toFloat() ?: fallbackLightY,
             illumination = snapshot.moonPhase.illuminatedFraction.toFloat()
         )
+
+        val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
+            moon = moon,
+            sun = sun,
+            deviceAzimuthDeg = deviceAzimuth
+        )
+        val antiSunX = 2f * earthX - sunScreen.first
+        val antiSunY = 2f * earthY - sunScreen.second
         drawEarthShadowOnMoon(
             canvas = canvas,
-            earthX = earthX,
-            earthY = earthY,
-            sunX = sunScreen.first,
-            sunY = sunScreen.second,
             moonX = moonScreen.first,
             moonY = moonScreen.second,
             moonRadius = moonRadius,
+            shadowDirX = eclipseDirection?.x?.toFloat() ?: (antiSunX - moonScreen.first),
+            shadowDirY = eclipseDirection?.y?.toFloat() ?: (antiSunY - moonScreen.second),
             eclipse = snapshot.lunarEclipse
         )
     }
@@ -210,23 +224,26 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     /**
-     * Phase lunaire rendue à partir de la fraction éclairée réelle calculée par V2.
-     * Le terminateur est encore orienté vers la position affichée du Soleil ; la
-     * projection finale du véritable angle de limbe V2 est le chantier suivant.
+     * Phase lunaire V2.
+     *
+     * La fraction éclairée vient du véritable angle de phase. La direction
+     * d'éclairage vient de la tangente réelle Lune -> Soleil sur la sphère
+     * céleste, projetée dans la géométrie du cadran. L'ombre n'est donc plus
+     * orientée par une simple ligne décorative entre deux images.
      */
     private fun drawMoonSunlight(
         canvas: Canvas,
         moonX: Float,
         moonY: Float,
         moonRadius: Float,
-        sunX: Float,
-        sunY: Float,
+        lightDirX: Float,
+        lightDirY: Float,
         illumination: Float
     ) {
-        var dx = sunX - moonX
-        var dy = sunY - moonY
+        var dx = lightDirX
+        var dy = lightDirY
         var length = sqrt(dx * dx + dy * dy)
-        if (length < 0.5f) {
+        if (length < 0.0001f) {
             dx = 1f
             dy = 0f
             length = 1f
@@ -320,27 +337,23 @@ class SunIndicatorView @JvmOverloads constructor(
     /**
      * Ombre terrestre lors d'une éclipse lunaire.
      *
-     * V2 fournit le rayon physique de l'ombre et de la pénombre à la distance
-     * actuelle de la Lune. On les convertit ici en rayons lunaires, au lieu
-     * d'utiliser l'ancien disque arbitraire d'environ un rayon lunaire.
+     * V2 fournit les rayons physiques de l'umbra et de la pénombre à la
+     * distance actuelle de la Lune. La direction vers l'axe anti-solaire est
+     * elle aussi calculée sur la sphère céleste avant projection écran.
      */
     private fun drawEarthShadowOnMoon(
         canvas: Canvas,
-        earthX: Float,
-        earthY: Float,
-        sunX: Float,
-        sunY: Float,
         moonX: Float,
         moonY: Float,
         moonRadius: Float,
+        shadowDirX: Float,
+        shadowDirY: Float,
         eclipse: LunarEclipseV2
     ) {
         if (eclipse.stage == LunarEclipseStageV2.NONE) return
 
-        val antiSunX = 2f * earthX - sunX
-        val antiSunY = 2f * earthY - sunY
-        var dx = antiSunX - moonX
-        var dy = antiSunY - moonY
+        var dx = shadowDirX
+        var dy = shadowDirY
         var length = sqrt(dx * dx + dy * dy)
         if (length < 0.001f) {
             val angle = Math.toRadians(eclipse.shadowPositionAngleDeg)
@@ -405,11 +418,9 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     /**
-     * L'horloge garde pour l'instant sa projection circulaire historique :
-     * l'azimut réel tourne autour du cadran en fonction du cap du téléphone.
-     * L'altitude réelle reste disponible dans CelestialBodyV2 pour la future
-     * projection de ciel V2, mais n'est pas encore utilisée pour déplacer le
-     * Soleil/Lune radialement afin de ne pas casser le design validé.
+     * Position historique conservée pendant l'audit visuel : azimut réel autour
+     * du cadran. L'altitude est utilisée par la géométrie locale du terminateur,
+     * mais pas encore pour déplacer radialement l'astre.
      */
     private fun mapToWatchOrbit(
         position: CelestialBodyV2,
