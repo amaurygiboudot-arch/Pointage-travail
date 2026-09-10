@@ -5,6 +5,8 @@ import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.PdfVisualStyle
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.io.OutputStream
 import java.text.SimpleDateFormat
@@ -18,6 +20,11 @@ object MonthlyPdfReportV2 {
     private const val M = 28f
 
     fun write(sessions: List<WorkSessionV2>, year: Int, month: Int, output: OutputStream) {
+        // Les appels de production passent la lecture V2 juste avant cette méthode. Une lecture
+        // fail-closed ne doit jamais devenir un rapport mensuel vide apparemment valide.
+        val source = V2RuntimeHistoryGuardV2.sourceState()
+        check(source.reliable) { V2RuntimeReader.warningText(source.warnings) }
+
         val selected = sessions.filter { s ->
             val at = s.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }.let {
