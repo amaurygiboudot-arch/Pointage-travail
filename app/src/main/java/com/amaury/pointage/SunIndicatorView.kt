@@ -120,10 +120,16 @@ class SunIndicatorView @JvmOverloads constructor(
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
-                celestialSnapshot = tracking.snapshot
-                deviceFrame = tracking.deviceFrame
+                val directionalSkyUsable = tracking.hasRealSky
+                celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
+                deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
+                if (!directionalSkyUsable) {
+                    CelestialLightingState.clearSunDirection()
+                }
+                // Le jour/nuit dépend de l'éphéméride et du GPS, pas de la qualité
+                // de la boussole : il reste donc mis à jour même si le cap est bloqué.
                 tracking.snapshot?.let { setNightMode(it.night) }
                 invalidate()
             }
