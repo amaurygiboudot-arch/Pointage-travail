@@ -34,6 +34,8 @@ import kotlin.math.sin
  * - orientation du téléphone ;
  * - rotation réelle de l'écran ;
  * - correction Nord magnétique -> Nord vrai ;
+ * - stabilisation du cap utilisé par tous les rendus célestes ;
+ * - estimation de précision du cap quand TYPE_ROTATION_VECTOR la fournit ;
  * - snapshot astronomique V2.
  *
  * Le rendu n'a donc plus à deviner l'orientation ou la position de l'utilisateur.
@@ -50,6 +52,8 @@ object CelestialTrackerV2 {
         val devicePitchDeg: Float,
         val deviceRollDeg: Float,
         val magneticDeclinationDeg: Float,
+        /** Incertitude de cap annoncée par TYPE_ROTATION_VECTOR, en degrés. */
+        val headingAccuracyDeg: Float?,
         val deviceFrame: CelestialDeviceFrameV2?
     ) {
         val hasRealSky: Boolean
@@ -79,6 +83,7 @@ object CelestialTrackerV2 {
     private var devicePitchDeg = 0f
     private var deviceRollDeg = 0f
     private var magneticDeclinationDeg = 0f
+    private var headingAccuracyDeg: Float? = null
     private var deviceFrame: CelestialDeviceFrameV2? = null
     private var lastDisplayRotationMatrix: FloatArray? = null
 
@@ -95,8 +100,10 @@ object CelestialTrackerV2 {
     private const val LOCATION_MIN_DISTANCE_M = 25f
     private const val MIN_RENDER_INTERVAL_MS = 90L
     private const val MIN_ORIENTATION_DELTA_DEG = 0.8f
-    private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
-    private const val AZIMUTH_SMOOTHING = 0.35f
+    private const val AZIMUTH_DEAD_ZONE_DEG = 0.40f
+    private const val AZIMUTH_SMOOTH_SMALL = 0.34f
+    private const val AZIMUTH_SMOOTH_MEDIUM = 0.55f
+    private const val AZIMUTH_SMOOTH_LARGE = 0.78f
 
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -157,6 +164,10 @@ object CelestialTrackerV2 {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ROTATION_VECTOR -> {
+                        headingAccuracyDeg = event.values.getOrNull(4)
+                            ?.takeIf { it.isFinite() && it >= 0f }
+                            ?.let { Math.toDegrees(it.toDouble()).toFloat() }
+
                         SensorManager.getRotationMatrixFromVector(rawRotationMatrix, event.values)
                         if (remapForDisplay(rawRotationMatrix, displayRotationMatrix)) {
                             SensorManager.getOrientation(displayRotationMatrix, orientation)
@@ -176,13 +187,23 @@ object CelestialTrackerV2 {
                 }
             }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR &&
+                    accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                ) {
+                    // La valeur angulaire reste disponible, mais l'état expose une
+                    // précision inconnue afin de ne pas prétendre à une calibration.
+                    headingAccuracyDeg = null
+                }
+            }
         }
         sensorListener = listener
 
         if (rotationSensor != null) {
             manager.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
         } else if (accelSensor != null && magneticSensor != null) {
+            // Secours pour les appareils sans capteur de rotation fusionné.
+            headingAccuracyDeg = null
             manager.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
             manager.registerListener(listener, magneticSensor, SensorManager.SENSOR_DELAY_UI)
         }
@@ -277,7 +298,11 @@ object CelestialTrackerV2 {
         deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(rotationMatrix, magneticDeclinationDeg)
+        deviceFrame = buildTrueNorthFrame(
+            matrix = rotationMatrix,
+            declinationDeg = magneticDeclinationDeg,
+            stabilizedHeadingDeg = deviceAzimuthDeg
+        )
         emitOrientationIfNeeded()
     }
 
@@ -289,10 +314,18 @@ object CelestialTrackerV2 {
         deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(matrix, magneticDeclinationDeg)
+        deviceFrame = buildTrueNorthFrame(
+            matrix = matrix,
+            declinationDeg = magneticDeclinationDeg,
+            stabilizedHeadingDeg = deviceAzimuthDeg
+        )
     }
 
-    private fun buildTrueNorthFrame(matrix: FloatArray, declinationDeg: Float): CelestialDeviceFrameV2 {
+    private fun buildTrueNorthFrame(
+        matrix: FloatArray,
+        declinationDeg: Float,
+        stabilizedHeadingDeg: Float
+    ): CelestialDeviceFrameV2 {
         fun trueAxis(eastMag: Float, northMag: Float, up: Float): Triple<Double, Double, Double> {
             val angle = Math.toRadians(declinationDeg.toDouble())
             val c = cos(angle)
@@ -317,7 +350,8 @@ object CelestialTrackerV2 {
             topUp = top.third,
             normalEast = normal.first,
             normalNorth = normal.second,
-            normalUp = normal.third
+            normalUp = normal.third,
+            stabilizedHeadingDeg = stabilizedHeadingDeg.toDouble()
         )
     }
 
@@ -327,9 +361,19 @@ object CelestialTrackerV2 {
             filteredAzimuthDeg = normalizedRaw
             return filteredAzimuthDeg
         }
+
         val delta = shortestDelta(filteredAzimuthDeg, normalizedRaw)
-        if (abs(delta) < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuthDeg
-        filteredAzimuthDeg = normalize(filteredAzimuthDeg + delta * AZIMUTH_SMOOTHING)
+        val magnitude = abs(delta)
+        if (magnitude < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuthDeg
+
+        // Petit mouvement : filtre le bruit magnétique. Grande rotation volontaire :
+        // rattrapage plus rapide pour que le ciel ne reste pas visiblement en retard.
+        val smoothing = when {
+            magnitude >= 35f -> AZIMUTH_SMOOTH_LARGE
+            magnitude >= 8f -> AZIMUTH_SMOOTH_MEDIUM
+            else -> AZIMUTH_SMOOTH_SMALL
+        }
+        filteredAzimuthDeg = normalize(filteredAzimuthDeg + delta * smoothing)
         return filteredAzimuthDeg
     }
 
@@ -437,6 +481,7 @@ object CelestialTrackerV2 {
         devicePitchDeg = devicePitchDeg,
         deviceRollDeg = deviceRollDeg,
         magneticDeclinationDeg = magneticDeclinationDeg,
+        headingAccuracyDeg = headingAccuracyDeg,
         deviceFrame = deviceFrame
     )
 
@@ -453,6 +498,13 @@ object CelestialTrackerV2 {
         magneticValues = null
         lastDisplayRotationMatrix = null
         deviceFrame = null
+        headingAccuracyDeg = null
+        filteredAzimuthDeg = Float.NaN
+        deviceAzimuthDeg = 0f
+        lastEmitUptimeMs = 0L
+        lastEmittedAzimuth = Float.NaN
+        lastEmittedPitch = Float.NaN
+        lastEmittedRoll = Float.NaN
 
         val manager = locationManager
         val listener = locationListener
