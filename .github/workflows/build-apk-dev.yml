@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - fix/v2-celestial-earth-centered-360
     paths:
       - ".github/dev-build-trigger.txt"
 
