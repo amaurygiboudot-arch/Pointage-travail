@@ -43,17 +43,15 @@ class HpAnalogClockView @JvmOverloads constructor(
     private val handBitmap: Bitmap by lazy { HpDesignAssets.hand }
     private val secondBitmap: Bitmap by lazy { HpDesignAssets.secondHand }
     private val sharpHandBitmap: Bitmap by lazy {
-        HighQualityBitmapScaler.scaleBy(handBitmap, RASTER_OVERSAMPLE_FACTOR)
+        HighQualityBitmapScalerV2.upscale(handBitmap, factor = 4)
     }
     private val sharpSecondBitmap: Bitmap by lazy {
-        HighQualityBitmapScaler.scaleBy(secondBitmap, RASTER_OVERSAMPLE_FACTOR)
+        HighQualityBitmapScalerV2.upscale(secondBitmap, factor = 4)
     }
-    private val sharpFallbackEarthBitmap: Bitmap by lazy {
-        HighQualityBitmapScaler.scaleBy(EarthDesignAsset.bitmap, RASTER_OVERSAMPLE_FACTOR)
-    }
-    private var sharpFaceBitmap: Bitmap? = null
-    private var sharpFaceSize = 0
     private val earthGlobeRenderer = EarthGlobeRendererV2()
+
+    private var cachedFaceBitmap: Bitmap? = null
+    private var cachedFaceDiameter = 0
 
     private val globeHandler = Handler(Looper.getMainLooper())
     private var celestialSnapshot: CelestialSnapshotV2? = null
@@ -82,6 +80,9 @@ class HpAnalogClockView @JvmOverloads constructor(
         globeHandler.removeCallbacks(globeRefreshTask)
         earthGlobeRenderer.clearCache()
         celestialSnapshot = null
+        cachedFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
+        cachedFaceBitmap = null
+        cachedFaceDiameter = 0
         super.onDetachedFromWindow()
     }
 
@@ -100,6 +101,8 @@ class HpAnalogClockView @JvmOverloads constructor(
         val minutes = now.get(Calendar.MINUTE) + seconds / 60f
         val hours = (now.get(Calendar.HOUR) % 12) + minutes / 60f
 
+        // Même géométrie et mêmes PNG : seule leur résolution de travail est augmentée
+        // avant rotation afin d'éviter les marches d'escalier sur grand écran.
         drawHandPng(canvas, sharpHandBitmap, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
         drawHandPng(canvas, sharpHandBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
         drawHandPng(canvas, sharpSecondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
@@ -119,13 +122,17 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-        val targetSize = max(1, (radius * 2f).roundToInt())
-        if (sharpFaceBitmap == null || sharpFaceSize != targetSize) {
-            sharpFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
-            sharpFaceBitmap = HighQualityBitmapScaler.scale(faceBitmap, targetSize, targetSize)
-            sharpFaceSize = targetSize
+        val targetDiameter = max(2, (radius * 2f).roundToInt())
+
+        if (cachedFaceBitmap == null || cachedFaceDiameter != targetDiameter) {
+            cachedFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
+            cachedFaceBitmap = HighQualityBitmapScalerV2.scale(
+                source = faceBitmap,
+                targetWidth = targetDiameter,
+                targetHeight = targetDiameter
+            )
+            cachedFaceDiameter = targetDiameter
         }
-        val bitmap = sharpFaceBitmap ?: faceBitmap
 
         val contrast = 1.20f
         val translate = (-128f * contrast + 128f) + 4f
@@ -140,7 +147,7 @@ class HpAnalogClockView @JvmOverloads constructor(
             )
         )
         facePaint.alpha = 255
-        canvas.drawBitmap(bitmap, null, rect, facePaint)
+        canvas.drawBitmap(cachedFaceBitmap ?: faceBitmap, null, rect, facePaint)
         facePaint.colorFilter = null
     }
 
@@ -166,7 +173,7 @@ class HpAnalogClockView @JvmOverloads constructor(
             snapshot = celestialSnapshot
         )
         if (!rendered) {
-            drawFallbackEarthPng(canvas, sharpFallbackEarthBitmap, cx, cy, radius)
+            drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
         }
     }
 
@@ -233,6 +240,5 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     companion object {
         private const val GLOBE_LOCATION_REFRESH_MS = 30_000L
-        private const val RASTER_OVERSAMPLE_FACTOR = 4
     }
 }
