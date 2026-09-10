@@ -44,6 +44,11 @@ object V2RuntimeStore {
         val value: Long?
     )
 
+    private data class WriteRead(
+        val reliable: Boolean,
+        val session: WorkSessionV2?
+    )
+
     fun bind(context: Context) {
         boundContext = context.applicationContext
         V2ProfileStore.bind(context)
@@ -52,17 +57,35 @@ object V2RuntimeStore {
     fun snapshotBound(nowMs: Long = System.currentTimeMillis()): Snapshot? = boundContext?.let { snapshot(it, nowMs) }
     fun allSessionsBound(nowMs: Long = System.currentTimeMillis()): List<WorkSessionV2> = boundContext?.let { allSessions(it, nowMs) }.orEmpty()
 
+    /**
+     * Prélecture commune à toute mutation du runtime.
+     * Une écriture est refusée si la migration, l'historique ou la session courante ne peuvent pas
+     * être relus sans perte. Cela évite qu'une nouvelle action utilisateur écrase une corruption.
+     */
+    private fun readForWrite(context: Context, nowMs: Long = System.currentTimeMillis()): WriteRead {
+        bind(context)
+        val migration = V2MigrationManager.ensureMigrated(context)
+        if (!migration.reliable) {
+            V2RuntimeHistoryGuardV2.publishSourceState(false, migration.warnings)
+            return WriteRead(false, null)
+        }
+        val stored = V2RuntimeHistoryGuardV2.read(context)
+        if (!stored.reliable) return WriteRead(false, null)
+        val current = snapshot(context, nowMs)
+        val source = V2RuntimeHistoryGuardV2.sourceState()
+        return WriteRead(source.reliable, if (source.reliable) current.session else null)
+    }
+
     fun entry(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null,
         companySlot: Int? = null
     ): Boolean {
-        bind(context)
-        V2MigrationManager.ensureMigrated(context)
+        if (nowMs <= 0L) return false
+        val current = readForWrite(context, nowMs)
+        if (!current.reliable || current.session?.status == SessionStatusV2.OPEN) return false
         val prefs = prefs(context)
-        val open = safeLong(prefs.all[KEY_REAL_ENTRY]) > 0L && safeLong(prefs.all[KEY_REAL_EXIT]) == 0L
-        if (open) return false
 
         // Les anciens appels peuvent encore imposer un slot 1/2. Le flux normal utilise désormais
         // l'identifiant stable de l'entreprise active, ce qui permet plus de deux entreprises.
@@ -96,11 +119,11 @@ object V2RuntimeStore {
     }
 
     fun setExpectedEnd(context: Context, expectedEndMs: Long?): Boolean {
-        bind(context)
+        val current = readForWrite(context)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        val closed = safeLong(prefs.all[KEY_REAL_EXIT]) > 0L
-        if (entry <= 0L || closed) return false
         val editor = prefs.edit()
         if (expectedEndMs == null) {
             editor.remove(KEY_EXPECTED_END).apply()
@@ -119,9 +142,12 @@ object V2RuntimeStore {
         source: EventSourceV2 = EventSourceV2.MANUAL,
         paid: Boolean = false
     ): Boolean {
-        bind(context)
+        val current = readForWrite(context, nowMs)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
+        if (nowMs < entry) return false
         val prefs = prefs(context)
-        if (safeLong(prefs.all[KEY_REAL_ENTRY]) <= 0L || safeLong(prefs.all[KEY_REAL_EXIT]) > 0L) return false
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
             return prefs.edit()
@@ -140,11 +166,12 @@ object V2RuntimeStore {
     }
 
     fun addManualPauses(context: Context, ranges: List<Pair<Long, Long>>): Int {
-        bind(context)
+        val current = readForWrite(context)
+        val session = current.session ?: return 0
+        if (!current.reliable) return 0
+        val entry = session.realArrivalMs ?: return 0
+        val realExit = session.realExitMs
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        if (entry <= 0L) return 0
-        val realExit = safeLong(prefs.all[KEY_REAL_EXIT]).takeIf { it > 0L }
         var raw = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseArrayOrNull(raw) == null) return 0
         var added = 0
@@ -203,11 +230,13 @@ object V2RuntimeStore {
         val p = prefs(context)
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
         if (!storedHistory.reliable) return false
+        val currentSnapshot = snapshot(context)
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
         val history = storedHistory.history
-        val currentEntry = safeLong(p.all[KEY_REAL_ENTRY])
-        val currentExit = safeLong(p.all[KEY_REAL_EXIT]).takeIf { it > 0L }
-        val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { it > currentEntry }
-        val currentId = p.getString(KEY_ID, null)
+        val currentEntry = currentSnapshot.session?.realArrivalMs ?: 0L
+        val currentExit = currentSnapshot.session?.realExitMs
+        val currentExpectedEnd = safeLong(p.all[KEY_EXPECTED_END]).takeIf { currentEntry > 0L && it > currentEntry }
+        val currentId = currentSnapshot.session?.id
 
         data class Target(val historyIndex: Int? = null, val current: Boolean = false)
 
@@ -227,8 +256,8 @@ object V2RuntimeStore {
         for ((start, end) in clean) {
             var found: Target? = null
             for (i in 0 until history.length()) {
-                val session = history.optJSONObject(i) ?: return false
-                if (historyContains(session, start, end)) {
+                val sessionItem = history.optJSONObject(i) ?: return false
+                if (historyContains(sessionItem, start, end)) {
                     found = Target(historyIndex = i)
                     break
                 }
@@ -254,9 +283,9 @@ object V2RuntimeStore {
         }
 
         for (i in 0 until history.length()) {
-            val session = history.optJSONObject(i) ?: return false
-            val pauses = session.optJSONArray(KEY_PAUSES) ?: return false
-            session.put(KEY_PAUSES, filtered(pauses) ?: return false)
+            val sessionItem = history.optJSONObject(i) ?: return false
+            val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
+            sessionItem.put(KEY_PAUSES, filtered(pauses) ?: return false)
         }
 
         val rawCurrentPauses = p.getString(KEY_PAUSES, "[]").orEmpty()
@@ -270,8 +299,8 @@ object V2RuntimeStore {
                 .put("paid", false)
             when {
                 target.historyIndex != null -> {
-                    val session = history.optJSONObject(target.historyIndex) ?: return false
-                    val pauses = session.optJSONArray(KEY_PAUSES) ?: return false
+                    val sessionItem = history.optJSONObject(target.historyIndex) ?: return false
+                    val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
                     pauses.put(pause)
                 }
                 target.current -> currentPauses.put(pause)
@@ -282,9 +311,9 @@ object V2RuntimeStore {
         // avec sa copie d'historique afin qu'une modification ne réapparaisse pas après redémarrage.
         if (!currentId.isNullOrBlank() && currentEntry > 0L) {
             for (i in 0 until history.length()) {
-                val session = history.optJSONObject(i) ?: return false
-                if (session.optString("id") == currentId) {
-                    currentPauses = session.optJSONArray(KEY_PAUSES) ?: return false
+                val sessionItem = history.optJSONObject(i) ?: return false
+                if (sessionItem.optString("id") == currentId) {
+                    currentPauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
                     break
                 }
             }
@@ -303,14 +332,12 @@ object V2RuntimeStore {
         nowMs: Long = System.currentTimeMillis(),
         expectedEndMs: Long? = null
     ): Boolean {
-        bind(context)
+        val current = readForWrite(context, nowMs)
+        val session = current.session ?: return false
+        if (!current.reliable || session.status != SessionStatusV2.OPEN) return false
+        val entry = session.realArrivalMs ?: return false
+        if (nowMs <= entry) return false
         val prefs = prefs(context)
-        val entry = safeLong(prefs.all[KEY_REAL_ENTRY])
-        if (entry <= 0L || safeLong(prefs.all[KEY_REAL_EXIT]) > 0L) return false
-
-        // Une sortie ne doit jamais fermer la session puis recréer un historique vide si le journal
-        // historique ou le tableau de pauses courant est devenu illisible.
-        if (!V2RuntimeHistoryGuardV2.read(context).reliable) return false
         val pauseStart = safeLong(prefs.all[KEY_PAUSE_START])
         var pauses = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseArrayOrNull(pauses) == null) return false
@@ -333,8 +360,9 @@ object V2RuntimeStore {
             .commit()
         if (!closed) return false
 
-        val session = snapshot(context, nowMs).session ?: return false
-        if (!persistClosed(context, session)) return false
+        val closedSession = snapshot(context, nowMs).session ?: return false
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
+        if (!persistClosed(context, closedSession)) return false
         WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
     }
