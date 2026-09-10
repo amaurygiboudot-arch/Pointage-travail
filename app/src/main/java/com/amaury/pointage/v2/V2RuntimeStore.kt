@@ -39,6 +39,11 @@ object V2RuntimeStore {
         val result: com.amaury.pointage.v2.engine.TimeResultV2?
     )
 
+    internal data class OptionalPositiveRead(
+        val valid: Boolean,
+        val value: Long?
+    )
+
     fun bind(context: Context) {
         boundContext = context.applicationContext
         V2ProfileStore.bind(context)
@@ -346,12 +351,24 @@ object V2RuntimeStore {
         val values = prefs.all
         if (!prefs.contains(KEY_REAL_ENTRY)) return Snapshot(null, null)
         val realEntry = strictPositive(values[KEY_REAL_ENTRY]) ?: return corruptCurrentSnapshot()
-        val realExit = optionalStrictPositive(values, KEY_REAL_EXIT) ?: return corruptCurrentSnapshot()
+
+        val realExitRead = optionalStrictPositive(values, KEY_REAL_EXIT)
+        if (!realExitRead.valid) return corruptCurrentSnapshot()
+        val realExit = realExitRead.value
         if (realExit != null && realExit <= realEntry) return corruptCurrentSnapshot()
-        val countedEntry = optionalStrictPositive(values, KEY_COUNTED_ENTRY) ?: return corruptCurrentSnapshot()
-        val countedExit = optionalStrictPositive(values, KEY_COUNTED_EXIT) ?: return corruptCurrentSnapshot()
+
+        val countedEntryRead = optionalStrictPositive(values, KEY_COUNTED_ENTRY)
+        if (!countedEntryRead.valid) return corruptCurrentSnapshot()
+        val countedEntry = countedEntryRead.value
+
+        val countedExitRead = optionalStrictPositive(values, KEY_COUNTED_EXIT)
+        if (!countedExitRead.valid) return corruptCurrentSnapshot()
+        val countedExit = countedExitRead.value
         if (countedEntry != null && countedExit != null && countedExit <= countedEntry) return corruptCurrentSnapshot()
-        val expectedEnd = optionalStrictPositive(values, KEY_EXPECTED_END) ?: return corruptCurrentSnapshot()
+
+        val expectedEndRead = optionalStrictPositive(values, KEY_EXPECTED_END)
+        if (!expectedEndRead.valid) return corruptCurrentSnapshot()
+        val expectedEnd = expectedEndRead.value
         if (expectedEnd != null && expectedEnd <= realEntry) return corruptCurrentSnapshot()
 
         val id = runCatching { prefs.getString(KEY_ID, null) }.getOrNull()?.trim()
@@ -363,7 +380,9 @@ object V2RuntimeStore {
         val pauseArray = pauseArrayOrNull(rawPauses) ?: return corruptCurrentSnapshot()
         val pauses = parsePauseArray(pauseArray)?.toMutableList() ?: return corruptCurrentSnapshot()
 
-        val pauseStart = optionalStrictPositive(values, KEY_PAUSE_START) ?: return corruptCurrentSnapshot()
+        val pauseStartRead = optionalStrictPositive(values, KEY_PAUSE_START)
+        if (!pauseStartRead.valid) return corruptCurrentSnapshot()
+        val pauseStart = pauseStartRead.value
         val storedPauseSource = runCatching { prefs.getString(KEY_PAUSE_SOURCE, null) }.getOrNull()
         if (pauseStart != null) {
             if (realExit != null || pauseStart < realEntry) return corruptCurrentSnapshot()
@@ -561,9 +580,10 @@ object V2RuntimeStore {
         return Snapshot(null, null)
     }
 
-    private fun optionalStrictPositive(values: Map<String, *>, key: String): Long? {
-        if (!values.containsKey(key)) return null
-        return strictPositive(values[key])
+    internal fun optionalStrictPositive(values: Map<String, *>, key: String): OptionalPositiveRead {
+        if (!values.containsKey(key)) return OptionalPositiveRead(valid = true, value = null)
+        val value = strictPositive(values[key])
+        return OptionalPositiveRead(valid = value != null, value = value)
     }
 
     private fun strictPositive(value: Any?): Long? = when (value) {
