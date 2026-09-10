@@ -91,8 +91,55 @@ class V2CompanyProvidentContributionStoreTest {
     }
 
     @Test
-    fun `json invalide ne fabrique aucune regle`() {
-        assertTrue(V2CompanyProvidentContributionStore.decodeRules("not-json").isEmpty())
+    fun `json invalide est explicitement non fiable`() {
+        val decoded = V2CompanyProvidentContributionStore.decodeVerified("not-json")
+
+        assertFalse(decoded.reliable)
+        assertTrue(decoded.rules.isEmpty())
+        assertTrue(decoded.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entree invalide au milieu du cache rend tout le stockage non fiable`() {
+        val valid = V2CompanyProvidentContributionStore.encodeRules(listOf(rule()))
+        val objectJson = valid.removePrefix("[").removeSuffix("]")
+        val decoded = V2CompanyProvidentContributionStore.decodeVerified("[$objectJson,{}]")
+
+        assertFalse(decoded.reliable)
+        assertEquals(1, decoded.rules.size)
+        assertTrue(decoded.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `historique vide explicite reste fiable`() {
+        val decoded = V2CompanyProvidentContributionStore.decodeVerified("[]")
+
+        assertTrue(decoded.reliable)
+        assertTrue(decoded.rules.isEmpty())
+    }
+
+    @Test
+    fun `deux variantes concurrentes de la meme identite juridique sont refusees`() {
+        assertFalse(
+            V2CompanyProvidentContributionStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(employeeRate = 0.003, employerRate = 0.007),
+                    rule(employeeRate = 0.004, employerRate = 0.006)
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `deux accotext juridiquement distincts restent acceptes dans le paquet`() {
+        assertTrue(
+            V2CompanyProvidentContributionStore.acceptsVerifiedPackage(
+                listOf(
+                    rule(agreementId = "ACCOTEXT000000000001"),
+                    rule(agreementId = "ACCOTEXT000000000002")
+                )
+            )
+        )
     }
 
     @Test
