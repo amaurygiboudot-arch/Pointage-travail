@@ -11,7 +11,9 @@ import org.json.JSONObject
 object LegalPayrollSourceStoreV2 {
     private const val PREFS = "horatrack_v2_legal_payroll_sources"
     private const val KEY = "verified_articles"
-    private const val MAX_RECORDS = 160
+    internal const val MAX_RECORDS = 160
+    private const val STORAGE_WARNING =
+        "Sources légales LEGI : stockage local incohérent ; aucun article n'est utilisé tant que l'audit officiel n'a pas reconstruit un historique fiable."
 
     data class Record(
         val topic: OfficialLegalCodeSourceV2.Topic,
@@ -25,19 +27,36 @@ object LegalPayrollSourceStoreV2 {
         val checkedAtMs: Long
     )
 
+    data class ReadResult(
+        val records: List<Record>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
     data class Snapshot(
         val referenceAtMs: Long,
         val records: List<Record>,
         val coveredTopics: Set<OfficialLegalCodeSourceV2.Topic>,
-        val missingTopics: Set<OfficialLegalCodeSourceV2.Topic>
+        val missingTopics: Set<OfficialLegalCodeSourceV2.Topic>,
+        val reliable: Boolean = true,
+        val warnings: List<String> = emptyList()
     ) {
-        val complete: Boolean get() = missingTopics.isEmpty()
+        val complete: Boolean get() = reliable && missingTopics.isEmpty()
     }
 
-    fun all(context: Context): List<Record> = decode(
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY, "[]").orEmpty()
-    )
+    fun read(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeRecords(raw)
+    }
+
+    fun all(context: Context): List<Record> {
+        val stored = read(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.records
+    }
 
     fun replaceTopicSnapshot(
         context: Context,
@@ -46,7 +65,10 @@ object LegalPayrollSourceStoreV2 {
         verified: List<OfficialLegalCodeVerifierV2.VerifiedArticle>
     ): Boolean {
         require(referenceAtMs > 0L) { "Date de référence LEGI invalide" }
-        val current = all(context).toMutableList()
+        val stored = read(context)
+        if (!stored.reliable) return false
+
+        val current = stored.records.toMutableList()
         current.removeAll { it.topic == topic && sameReferenceDay(it.referenceAtMs, referenceAtMs) }
         current += verified
             .filter { it.topic == topic && sameReferenceDay(it.referenceAtMs, referenceAtMs) }
@@ -63,17 +85,19 @@ object LegalPayrollSourceStoreV2 {
                     checkedAtMs = it.checkedAtMs
                 )
             }
-        val kept = current
-            .distinctBy { "${it.topic.name}:${it.articleId}:${referenceDay(it.referenceAtMs)}" }
-            .sortedByDescending { it.checkedAtMs }
-            .take(MAX_RECORDS)
-        return save(context, kept)
+
+        val candidate = current.sortedByDescending { it.checkedAtMs }
+        if (!acceptsPackage(candidate)) return false
+        return save(context, candidate)
     }
 
     /** Sources vérifiées spécifiquement pour la même date de paie demandée. */
-    fun applicableAt(context: Context, atMs: Long): List<Record> {
-        if (atMs <= 0L) return emptyList()
-        return all(context)
+    fun applicableAt(context: Context, atMs: Long): List<Record> =
+        applicableFrom(read(context), atMs)
+
+    internal fun applicableFrom(stored: ReadResult, atMs: Long): List<Record> {
+        if (!stored.reliable || atMs <= 0L) return emptyList()
+        return stored.records
             .filter { sameReferenceDay(it.referenceAtMs, atMs) }
             .filter { isApplicableStatus(it.status) }
             .filter { atMs >= it.effectiveFromMs && (it.effectiveToMs == null || atMs <= it.effectiveToMs) }
@@ -87,18 +111,48 @@ object LegalPayrollSourceStoreV2 {
             status.equals("VIGUEUR_DIFF", ignoreCase = true)
 
     fun snapshot(context: Context, atMs: Long): Snapshot {
-        val records = applicableAt(context, atMs)
+        val stored = read(context)
+        val records = applicableFrom(stored, atMs)
         val covered = records.map { it.topic }.toSet()
         val allTopics = OfficialLegalCodeSourceV2.Topic.entries.toSet()
         return Snapshot(
             referenceAtMs = atMs,
             records = records,
             coveredTopics = covered,
-            missingTopics = allTopics - covered
+            missingTopics = allTopics - covered,
+            reliable = stored.reliable,
+            warnings = stored.warnings
         )
     }
 
+    internal fun decodeRecords(raw: String): ReadResult {
+        if (raw.isBlank()) return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+
+        val records = mutableListOf<Record>()
+        var malformed = array.length() > MAX_RECORDS
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val record = obj?.let(::decodeRecord)
+            if (record == null) malformed = true else records += record
+        }
+        if (!acceptsPackage(records)) malformed = true
+
+        return ReadResult(
+            records = records,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
+    internal fun acceptsPackage(records: List<Record>): Boolean =
+        records.size <= MAX_RECORDS &&
+            records.all(::structurallyValid) &&
+            records.map(::identity).distinct().size == records.size
+
     private fun save(context: Context, records: List<Record>): Boolean {
+        if (!acceptsPackage(records)) return false
         val array = JSONArray()
         records.forEach { record ->
             array.put(JSONObject()
@@ -112,37 +166,54 @@ object LegalPayrollSourceStoreV2 {
                 .put("referenceAtMs", record.referenceAtMs)
                 .put("checkedAtMs", record.checkedAtMs))
         }
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY, array.toString()).commit()
+        return runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY, array.toString()).commit()
+        }.getOrDefault(false)
     }
 
-    private fun decode(raw: String): List<Record> = runCatching {
-        val array = JSONArray(raw.ifBlank { "[]" })
-        buildList {
-            for (index in 0 until array.length()) {
-                val obj = array.optJSONObject(index) ?: continue
-                val topic = runCatching {
-                    OfficialLegalCodeSourceV2.Topic.valueOf(obj.optString("topic"))
-                }.getOrNull() ?: continue
-                val articleId = obj.optString("articleId").trim()
-                val from = obj.optLong("effectiveFromMs", -1L)
-                val reference = obj.optLong("referenceAtMs", -1L)
-                val checked = obj.optLong("checkedAtMs", -1L)
-                if (!articleId.startsWith("LEGIARTI") || from <= 0L || reference <= 0L || checked <= 0L) continue
-                add(Record(
-                    topic = topic,
-                    articleId = articleId,
-                    articleNumber = obj.optString("articleNumber").takeIf { it.isNotBlank() && it != "null" },
-                    status = obj.optString("status", "VIGUEUR"),
-                    excerpt = obj.optString("excerpt").take(1_200),
-                    effectiveFromMs = from,
-                    effectiveToMs = if (obj.isNull("effectiveToMs")) null else obj.optLong("effectiveToMs").takeIf { it > 0L },
-                    referenceAtMs = reference,
-                    checkedAtMs = checked
-                ))
-            }
+    private fun decodeRecord(obj: JSONObject): Record? = runCatching {
+        val topic = OfficialLegalCodeSourceV2.Topic.valueOf(obj.getString("topic"))
+        val articleId = obj.getString("articleId").trim()
+        val status = obj.getString("status").trim()
+        val excerpt = obj.getString("excerpt").trim().take(1_200)
+        val from = obj.getLong("effectiveFromMs")
+        val reference = obj.getLong("referenceAtMs")
+        val checked = obj.getLong("checkedAtMs")
+        val to = when {
+            !obj.has("effectiveToMs") -> return null
+            obj.isNull("effectiveToMs") -> null
+            else -> obj.getLong("effectiveToMs")
         }
-    }.getOrElse { emptyList() }
+        Record(
+            topic = topic,
+            articleId = articleId,
+            articleNumber = if (!obj.has("articleNumber") || obj.isNull("articleNumber")) {
+                null
+            } else {
+                obj.getString("articleNumber").trim().takeIf { it.isNotBlank() }
+            },
+            status = status,
+            excerpt = excerpt,
+            effectiveFromMs = from,
+            effectiveToMs = to,
+            referenceAtMs = reference,
+            checkedAtMs = checked
+        ).takeIf(::structurallyValid)
+    }.getOrNull()
+
+    private fun structurallyValid(record: Record): Boolean =
+        record.articleId.startsWith("LEGIARTI") &&
+            record.articleId.length > "LEGIARTI".length &&
+            record.status.isNotBlank() &&
+            record.excerpt.isNotBlank() &&
+            record.effectiveFromMs > 0L &&
+            record.referenceAtMs > 0L &&
+            record.checkedAtMs > 0L &&
+            (record.effectiveToMs == null || record.effectiveToMs >= record.effectiveFromMs)
+
+    private fun identity(record: Record): String =
+        "${record.topic.name}:${record.articleId}:${referenceDay(record.referenceAtMs)}"
 
     private fun referenceDay(ms: Long): Long = ms / 86_400_000L
     private fun sameReferenceDay(a: Long, b: Long): Boolean = referenceDay(a) == referenceDay(b)
