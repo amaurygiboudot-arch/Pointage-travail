@@ -13,7 +13,8 @@ import kotlin.math.sqrt
  *
  * GPS et capteurs ne sont plus acquis ici : CelestialTrackerV2 est l'unique
  * source Android partagée avec SunIndicatorView. La direction lumineuse écran
- * utilise la même projection 3D que l'horloge céleste.
+ * utilise la même carte 360° Terre au centre que l'horloge céleste et n'est
+ * appliquée que lorsque le cap est qualifié comme exploitable.
  */
 object LightDirectionController {
     data class LightingState(
@@ -54,8 +55,9 @@ object LightDirectionController {
             val snapshot = tracking.snapshot
             val night = snapshot?.night ?: fallbackNightByClock()
             val active = snapshot?.let { if (it.night) it.moon else it.sun }
-            val activeProjection = if (active != null && tracking.deviceFrame != null) {
-                CelestialScreenGeometryV2.projectInDeviceSky(active, tracking.deviceFrame)
+            val frame = tracking.deviceFrame.takeIf { tracking.hasRealSky }
+            val activeProjection = if (active != null && frame != null) {
+                CelestialScreenGeometryV2.projectInDeviceSky(active, frame)
             } else {
                 null
             }
@@ -73,8 +75,8 @@ object LightDirectionController {
                 ((active.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
             }
 
-            val sunProjection = if (snapshot != null && tracking.deviceFrame != null) {
-                CelestialScreenGeometryV2.projectInDeviceSky(snapshot.sun, tracking.deviceFrame)
+            val sunProjection = if (snapshot != null && frame != null) {
+                CelestialScreenGeometryV2.projectInDeviceSky(snapshot.sun, frame)
             } else {
                 null
             }
