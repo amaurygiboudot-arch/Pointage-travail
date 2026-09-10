@@ -85,6 +85,19 @@ class CelestialScreenGeometryV2Test {
     }
 
     @Test
+    fun `cap stabilise du tracker prime sur azimut brut du frame`() {
+        val rawNorthButFilteredEast = flatFacingNorth.copy(stabilizedHeadingDeg = 90.0)
+
+        assertEquals(90.0, CelestialScreenGeometryV2.headingFromFrame(rawNorthButFilteredEast), 1e-9)
+        val north = CelestialScreenGeometryV2.projectInDeviceSky(
+            body = body(0.0, 0.0),
+            frame = rawNorthButFilteredEast
+        )
+        assertNotNull(north)
+        assertTrue(north!!.xRadiusFraction < -0.99)
+    }
+
+    @Test
     fun `cap est stable de plat a vertical vers nord`() {
         val c = kotlin.math.sqrt(0.5)
         val halfTilt = CelestialDeviceFrameV2(
