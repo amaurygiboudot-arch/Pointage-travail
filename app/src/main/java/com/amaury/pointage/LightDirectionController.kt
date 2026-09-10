@@ -3,15 +3,17 @@ package com.amaury.pointage
 import android.app.Activity
 import android.content.Context
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import java.util.Calendar
-import kotlin.math.cos
-import kotlin.math.sin
+import kotlin.math.atan2
+import kotlin.math.sqrt
 
 /**
  * Adaptateur d'éclairage de l'interface vers le suivi céleste V2.
  *
  * GPS et capteurs ne sont plus acquis ici : CelestialTrackerV2 est l'unique
- * source Android partagée avec SunIndicatorView.
+ * source Android partagée avec SunIndicatorView. La direction lumineuse écran
+ * utilise la même projection 3D que l'horloge céleste.
  */
 object LightDirectionController {
     data class LightingState(
@@ -52,8 +54,13 @@ object LightDirectionController {
             val snapshot = tracking.snapshot
             val night = snapshot?.night ?: fallbackNightByClock()
             val active = snapshot?.let { if (it.night) it.moon else it.sun }
-            val celestialAngle = active?.let {
-                screenAngle(tracking.deviceAzimuthDeg, it.azimuthDeg)
+            val activeProjection = if (active != null && tracking.deviceFrame != null) {
+                CelestialScreenGeometryV2.projectInDeviceSky(active, tracking.deviceFrame)
+            } else {
+                null
+            }
+            val celestialAngle = activeProjection?.let {
+                screenAngle(it.xRadiusFraction, it.yRadiusFraction)
             }
             val lightAngle = celestialAngle ?: FIXED_FALLBACK_LIGHT_ANGLE
             val elevation = active?.altitudeDeg?.toFloat()?.coerceIn(-10f, 90f)
@@ -66,13 +73,20 @@ object LightDirectionController {
                 ((active.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
             }
 
-            if (snapshot != null) {
-                val sunAngle = screenAngle(tracking.deviceAzimuthDeg, snapshot.sun.azimuthDeg)
-                val radians = Math.toRadians(sunAngle.toDouble())
-                CelestialLightingState.updateSunDirection(
-                    sin(radians).toFloat(),
-                    -cos(radians).toFloat()
-                )
+            val sunProjection = if (snapshot != null && tracking.deviceFrame != null) {
+                CelestialScreenGeometryV2.projectInDeviceSky(snapshot.sun, tracking.deviceFrame)
+            } else {
+                null
+            }
+            if (sunProjection != null) {
+                val x = sunProjection.xRadiusFraction.toFloat()
+                val y = sunProjection.yRadiusFraction.toFloat()
+                val length = sqrt(x * x + y * y)
+                if (length > 0.0001f) {
+                    CelestialLightingState.updateSunDirection(x, y)
+                } else {
+                    CelestialLightingState.clearSunDirection()
+                }
             } else {
                 CelestialLightingState.clearSunDirection()
             }
@@ -121,11 +135,10 @@ object LightDirectionController {
         return hour < 7 || hour >= 20
     }
 
-    private fun screenAngle(deviceAzimuth: Float, celestialAzimuth: Double): Float =
-        normalize(shortestDelta(deviceAzimuth, celestialAzimuth.toFloat()))
+    private fun screenAngle(x: Double, y: Double): Float {
+        if (kotlin.math.abs(x) < 1e-9 && kotlin.math.abs(y) < 1e-9) return 0f
+        return normalize(Math.toDegrees(atan2(x, -y)).toFloat())
+    }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
-
-    private fun shortestDelta(from: Float, to: Float): Float =
-        ((to - from + 540f) % 360f) - 180f
 }
