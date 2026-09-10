@@ -6,7 +6,7 @@ import android.util.AttributeSet
 import android.view.View
 import android.widget.TextView
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AnalyticsEngineV2
 import com.amaury.pointage.v2.engine.GpsWorkStateCoordinatorV2
 import java.util.Calendar
@@ -69,7 +69,14 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val (monthStart, monthEnd) = selectedReportMonthBounds(now)
         val startOfToday = startOfDay(now)
 
-        val periodSessions = V2RuntimeStore.allSessions(context, now).filter { session ->
+        val runtime = V2RuntimeReader.allSessions(context, now)
+        if (!runtime.reliable) {
+            return buildString {
+                append("⚠️ ANALYSE INDISPONIBLE\n")
+                append(V2RuntimeReader.warningText(runtime.warnings))
+            }
+        }
+        val periodSessions = runtime.sessions.filter { session ->
             val arrival = session.realArrivalMs ?: return@filter false
             arrival >= monthStart && arrival < monthEnd
         }
