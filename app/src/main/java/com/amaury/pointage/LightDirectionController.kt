@@ -63,7 +63,7 @@ object LightDirectionController {
             } else if (night) {
                 ((active.altitudeDeg + 10.0) / 45.0).toFloat().coerceIn(.18f, .42f)
             } else {
-                ((snapshot.sun.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
+                ((active.altitudeDeg + 6.0) / 58.0).toFloat().coerceIn(.38f, 1f)
             }
 
             if (snapshot != null) {
