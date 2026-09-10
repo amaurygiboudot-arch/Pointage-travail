@@ -2,6 +2,7 @@ package com.amaury.pointage.v2
 
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
+import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionProtectionCategoryV2
 import com.amaury.pointage.v2.engine.ProtectionCategoryV2
 import java.time.LocalDate
@@ -34,10 +35,28 @@ object VerifiedProtectionCategoryProviderV2 {
             classification = profile.classification,
             professionalStatus = profile.professionalStatus
         )
+        val stored = V2ConventionProtectionCategoryStore.readVerified(context)
+        if (!stored.reliable) {
+            return Snapshot(
+                category = ProtectionCategoryV2.Result(
+                    aniCategory = ProtectionCategoryV2.AniCategory.TO_CONFIRM,
+                    confirmed = false,
+                    warnings = stored.warnings
+                ),
+                reliable = false,
+                warnings = (stored.warnings +
+                    "Catégorie ANI vérifiée : cache KALI/APEC local incohérent ; aucun classement n'est déduit tant que le stockage n'est pas réparé.")
+                    .distinct()
+            )
+        }
+        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
+        val rules = stored.rules.filter {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc
+        }
         return resolve(
             profile = profile,
             referenceDate = referenceDate,
-            rules = V2ConventionProtectionCategoryStore.rules(context, profile.idcc),
+            rules = rules,
             coverage = coverage
         )
     }
