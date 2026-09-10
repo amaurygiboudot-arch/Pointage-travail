@@ -42,11 +42,11 @@ object V2ConventionSicknessMaintenanceBridge {
         val builtIn = PlasturgieSicknessRulesV2.rules().filter {
             ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc
         }
-        val dynamic = V2ConventionSicknessMaintenanceStore.rules(context, normalizedIdcc)
-        val rules = builtIn + dynamic
-        val matching = rules.filter {
-            it.structurallyValid() && it.activeOn(referenceDate) &&
-                classification.matches(it.classification) && it.statusMatches(professionalStatus)
+        val dynamicStored = V2ConventionSicknessMaintenanceStore.readConfirmed(context)
+        val dynamic = if (dynamicStored.reliable) {
+            dynamicStored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
+        } else {
+            emptyList()
         }
         val storedCoverage = V2ConventionMatterCoverageStore.resolve(
             context = context,
@@ -56,6 +56,44 @@ object V2ConventionSicknessMaintenanceBridge {
             classification = classification,
             professionalStatus = professionalStatus
         )
+
+        if (!dynamicStored.reliable) {
+            val warnings = (
+                dynamicStored.warnings +
+                    storedCoverage.warnings +
+                    "Maintien maladie IDCC $normalizedIdcc : historique KALI local non fiable ; aucun barème, y compris historique, ni aucune absence de droit ne sont déduits automatiquement."
+                ).distinct()
+            return Snapshot(
+                result = ConventionSicknessMaintenanceV2.Result(
+                    applicable = false,
+                    eligibilityConfirmed = false,
+                    reliable = false,
+                    selectedRule = null,
+                    referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.UNKNOWN,
+                    employerWaitingDays = null,
+                    firstRecordedStopOfYear = null,
+                    annualLimitDays = null,
+                    alreadyConsumedIndemnifiedDays = null,
+                    currentIndemnifiableDays = null,
+                    bands = emptyList(),
+                    socialSecurityCoverageRequired = false,
+                    exactEmployerAmountAvailable = false,
+                    warnings = warnings
+                ),
+                coverage = ConventionMatterCoverageV2.Snapshot(
+                    state = ConventionMatterCoverageV2.State.INCOMPLETE,
+                    record = storedCoverage.record,
+                    reliable = false,
+                    warnings = warnings
+                )
+            )
+        }
+
+        val rules = builtIn + dynamic
+        val matching = rules.filter {
+            it.structurallyValid() && it.activeOn(referenceDate) &&
+                classification.matches(it.classification) && it.statusMatches(professionalStatus)
+        }
         val coverage = if (matching.isNotEmpty()) {
             ConventionMatterCoverageV2.Snapshot(
                 state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
