@@ -7,7 +7,62 @@ class CelestialTrackingPolicyV2Test {
     private val now = 1_800_000_000_000L
 
     @Test
-    fun `position recente et precise est valide`() {
+    fun `age monotone recent et precis est valide`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = true,
+            hasLocation = true,
+            locationAgeMs = 60_000L,
+            accuracyMeters = 25f
+        )
+        assertEquals(CelestialLocationQualityV2.VALID, quality)
+    }
+
+    @Test
+    fun `age monotone trop ancien est refuse`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = true,
+            hasLocation = true,
+            locationAgeMs = CelestialTrackingPolicyV2.MAX_LOCATION_AGE_MS + 1L,
+            accuracyMeters = 20f
+        )
+        assertEquals(CelestialLocationQualityV2.STALE, quality)
+    }
+
+    @Test
+    fun `age monotone anormalement futur est refuse`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = true,
+            hasLocation = true,
+            locationAgeMs = -CelestialTrackingPolicyV2.MAX_FUTURE_SKEW_MS - 1L,
+            accuracyMeters = 20f
+        )
+        assertEquals(CelestialLocationQualityV2.STALE, quality)
+    }
+
+    @Test
+    fun `precision inconnue est refusee avec age monotone`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = true,
+            hasLocation = true,
+            locationAgeMs = 0L,
+            accuracyMeters = null
+        )
+        assertEquals(CelestialLocationQualityV2.INACCURATE, quality)
+    }
+
+    @Test
+    fun `absence de permission reste explicite`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = false,
+            hasLocation = false,
+            locationAgeMs = null,
+            accuracyMeters = null
+        )
+        assertEquals(CelestialLocationQualityV2.NO_PERMISSION, quality)
+    }
+
+    @Test
+    fun `ancienne api murale reste compatible`() {
         val quality = CelestialTrackingPolicyV2.classify(
             hasPermission = true,
             hasLocation = true,
@@ -19,7 +74,7 @@ class CelestialTrackingPolicyV2Test {
     }
 
     @Test
-    fun `position trop ancienne est refusee`() {
+    fun `ancienne api refuse toujours une position trop ancienne`() {
         val quality = CelestialTrackingPolicyV2.classify(
             hasPermission = true,
             hasLocation = true,
@@ -28,41 +83,5 @@ class CelestialTrackingPolicyV2Test {
             accuracyMeters = 20f
         )
         assertEquals(CelestialLocationQualityV2.STALE, quality)
-    }
-
-    @Test
-    fun `position trop imprecise est refusee`() {
-        val quality = CelestialTrackingPolicyV2.classify(
-            hasPermission = true,
-            hasLocation = true,
-            nowMs = now,
-            locationTimeMs = now,
-            accuracyMeters = CelestialTrackingPolicyV2.MAX_LOCATION_ACCURACY_METERS + 1f
-        )
-        assertEquals(CelestialLocationQualityV2.INACCURATE, quality)
-    }
-
-    @Test
-    fun `precision inconnue est refusee`() {
-        val quality = CelestialTrackingPolicyV2.classify(
-            hasPermission = true,
-            hasLocation = true,
-            nowMs = now,
-            locationTimeMs = now,
-            accuracyMeters = null
-        )
-        assertEquals(CelestialLocationQualityV2.INACCURATE, quality)
-    }
-
-    @Test
-    fun `absence de permission est explicite`() {
-        val quality = CelestialTrackingPolicyV2.classify(
-            hasPermission = false,
-            hasLocation = false,
-            nowMs = now,
-            locationTimeMs = null,
-            accuracyMeters = null
-        )
-        assertEquals(CelestialLocationQualityV2.NO_PERMISSION, quality)
     }
 }
