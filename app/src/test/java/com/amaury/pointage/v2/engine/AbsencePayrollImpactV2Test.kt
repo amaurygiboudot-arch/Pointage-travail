@@ -6,6 +6,7 @@ import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -135,6 +136,7 @@ class AbsencePayrollImpactV2Test {
             setOf("company-a"),
             zone
         )
+        assertEquals(0, result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
         assertFalse(result.requiresPayrollReview)
         assertTrue(result.warnings.isEmpty())
@@ -223,7 +225,7 @@ class AbsencePayrollImpactV2Test {
             setOf("company-a"),
             zone
         )
-        assertEquals(0, result.unpaidFullCalendarDays)
+        assertNull(result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
         assertTrue(result.requiresPayrollReview)
         assertTrue(result.warnings.any { it.contains("traitement incohérent") })
@@ -244,7 +246,7 @@ class AbsencePayrollImpactV2Test {
             setOf("company-a"),
             zone
         )
-        assertEquals(0, result.unpaidFullCalendarDays)
+        assertNull(result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
         assertTrue(result.requiresPayrollReview)
         assertTrue(result.warnings.any { it.contains("Arrêt maladie") })
@@ -334,7 +336,7 @@ class AbsencePayrollImpactV2Test {
             setOf("company-a"),
             zone
         )
-        assertEquals(0, result.unpaidFullCalendarDays)
+        assertNull(result.unpaidFullCalendarDays)
         assertFalse(result.hasUnpaidAbsence)
         assertTrue(result.requiresPayrollReview)
         assertTrue(result.warnings.any { it.contains("à confirmer") })
