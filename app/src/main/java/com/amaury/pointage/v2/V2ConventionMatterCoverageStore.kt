@@ -12,14 +12,38 @@ import java.time.LocalDate
 object V2ConventionMatterCoverageStore {
     private const val PREFS = "horatrack_v2_convention_matter_coverage"
     private const val KEY_RECORDS = "records"
+    private const val STORAGE_WARNING =
+        "Couverture conventionnelle : stockage local des audits officiels incohérent ; aucun droit ni aucune absence de droit ne peut être déduit de cet historique."
 
-    fun records(context: Context): List<ConventionMatterCoverageV2.Record> = load(context)
+    data class ReadResult(
+        val records: List<ConventionMatterCoverageV2.Record>,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
+    fun read(context: Context): ReadResult {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_RECORDS)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY_RECORDS, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeRecords(raw)
+    }
+
+    fun records(context: Context): List<ConventionMatterCoverageV2.Record> {
+        val stored = read(context)
+        check(stored.reliable) { STORAGE_WARNING }
+        return stored.records
+    }
 
     fun save(context: Context, record: ConventionMatterCoverageV2.Record) {
         require(record.structurallyValid()) { "État de couverture conventionnelle invalide" }
+        val stored = read(context)
+        check(stored.reliable) { STORAGE_WARNING }
+
         val normalized = ConventionMinimumSalaryV2.normalizeIdcc(record.idcc)
-        val current = load(context).toMutableList()
-        val previousSameIdentity = current.filter { sameIdentity(it, record, normalized) }
+        val normalizedRecord = record.copy(idcc = normalized)
+        val current = stored.records.toMutableList()
+        val previousSameIdentity = current.filter { sameIdentity(it, normalizedRecord) }
         val inheritedAuthorities = previousSameIdentity.flatMapTo(linkedSetOf()) { previous ->
             buildSet {
                 addAll(previous.acquiredAuthorities)
@@ -35,11 +59,8 @@ object V2ConventionMatterCoverageStore {
                 addAll(record.authorities)
             }
         }
-        current.removeAll { sameIdentity(it, record, normalized) }
-        current += record.copy(
-            idcc = normalized,
-            acquiredAuthorities = acquiredAuthorities
-        )
+        current.removeAll { sameIdentity(it, normalizedRecord) }
+        current += normalizedRecord.copy(acquiredAuthorities = acquiredAuthorities)
         persist(context, current)
     }
 
@@ -50,22 +71,87 @@ object V2ConventionMatterCoverageStore {
         date: LocalDate,
         classification: ConventionClassificationV2 = ConventionClassificationV2(),
         professionalStatus: String? = null
-    ): ConventionMatterCoverageV2.Snapshot = ConventionMatterCoverageV2.resolve(
-        load(context), idcc, matter, date, classification, professionalStatus
+    ): ConventionMatterCoverageV2.Snapshot = resolveStored(
+        stored = read(context),
+        idcc = idcc,
+        matter = matter,
+        date = date,
+        classification = classification,
+        professionalStatus = professionalStatus
     )
 
+    internal fun resolveStored(
+        stored: ReadResult,
+        idcc: String,
+        matter: ConventionMatterCoverageV2.Matter,
+        date: LocalDate,
+        classification: ConventionClassificationV2 = ConventionClassificationV2(),
+        professionalStatus: String? = null
+    ): ConventionMatterCoverageV2.Snapshot {
+        if (!stored.reliable) {
+            return ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.INCOMPLETE,
+                record = null,
+                reliable = false,
+                warnings = (listOf(STORAGE_WARNING) + stored.warnings).distinct()
+            )
+        }
+        return ConventionMatterCoverageV2.resolve(
+            stored.records,
+            idcc,
+            matter,
+            date,
+            classification,
+            professionalStatus
+        )
+    }
+
+    internal fun acceptsPackage(records: List<ConventionMatterCoverageV2.Record>): Boolean =
+        records.all { it.structurallyValid() } && !hasDuplicateIdentity(records)
+
+    internal fun decodeRecords(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        val records = mutableListOf<ConventionMatterCoverageV2.Record>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val record = obj?.let(::decode)?.takeIf { it.structurallyValid() }
+            if (record == null) {
+                malformed = true
+            } else {
+                records += record
+            }
+        }
+        if (hasDuplicateIdentity(records)) malformed = true
+        return ReadResult(
+            records = records,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
+    }
+
     private fun sameIdentity(
-        existing: ConventionMatterCoverageV2.Record,
-        incoming: ConventionMatterCoverageV2.Record,
-        normalizedIncomingIdcc: String
-    ): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(existing.idcc) == normalizedIncomingIdcc &&
-        existing.matter == incoming.matter &&
-        existing.effectiveFrom == incoming.effectiveFrom &&
-        existing.effectiveTo == incoming.effectiveTo &&
-        existing.classification.normalized() == incoming.classification.normalized() &&
-        existing.professionalStatus?.trim()?.uppercase() == incoming.professionalStatus?.trim()?.uppercase()
+        left: ConventionMatterCoverageV2.Record,
+        right: ConventionMatterCoverageV2.Record
+    ): Boolean = ConventionMinimumSalaryV2.normalizeIdcc(left.idcc) == ConventionMinimumSalaryV2.normalizeIdcc(right.idcc) &&
+        left.matter == right.matter &&
+        left.effectiveFrom == right.effectiveFrom &&
+        left.effectiveTo == right.effectiveTo &&
+        left.classification.normalized() == right.classification.normalized() &&
+        left.professionalStatus?.trim()?.uppercase() == right.professionalStatus?.trim()?.uppercase()
+
+    private fun hasDuplicateIdentity(records: List<ConventionMatterCoverageV2.Record>): Boolean =
+        records.indices.any { leftIndex ->
+            ((leftIndex + 1) until records.size).any { rightIndex ->
+                sameIdentity(records[leftIndex], records[rightIndex])
+            }
+        }
 
     private fun persist(context: Context, records: List<ConventionMatterCoverageV2.Record>) {
+        check(acceptsPackage(records)) {
+            "Couverture conventionnelle : historique local invalide ou ambigu."
+        }
         val array = JSONArray()
         records.sortedWith(
             compareBy<ConventionMatterCoverageV2.Record> { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) }
@@ -74,19 +160,11 @@ object V2ConventionMatterCoverageStore {
                 .thenBy { it.classification.label() }
                 .thenBy { it.professionalStatus.orEmpty() }
         ).forEach { array.put(encode(it)) }
-        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putString(KEY_RECORDS, array.toString()).apply()
-    }
-
-    private fun load(context: Context): List<ConventionMatterCoverageV2.Record> {
-        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_RECORDS, null) ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                decode(array.optJSONObject(index) ?: continue)?.takeIf { it.structurallyValid() }?.let(::add)
-            }
-        }
+        val saved = runCatching {
+            context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString(KEY_RECORDS, array.toString()).commit()
+        }.getOrDefault(false)
+        check(saved) { "Couverture conventionnelle : sauvegarde locale impossible." }
     }
 
     private fun encode(record: ConventionMatterCoverageV2.Record): JSONObject = JSONObject()
@@ -121,24 +199,32 @@ object V2ConventionMatterCoverageStore {
             matter = ConventionMatterCoverageV2.Matter.valueOf(obj.getString("matter")),
             effectiveFrom = LocalDate.parse(obj.getString("effectiveFrom")),
             effectiveTo = obj.optString("effectiveTo").takeIf { it.isNotBlank() && it != "null" }?.let(LocalDate::parse),
-            classification = decodeClassification(obj.optJSONObject("classification") ?: JSONObject()),
+            classification = if (!obj.has("classification") || obj.isNull("classification")) {
+                ConventionClassificationV2()
+            } else {
+                decodeClassification(obj.getJSONObject("classification"))
+            },
             professionalStatus = obj.optString("professionalStatus").takeIf { it.isNotBlank() && it != "null" },
             state = ConventionMatterCoverageV2.State.valueOf(obj.getString("state")),
             source = obj.getString("source"),
             checkedAtMs = obj.getLong("checkedAtMs"),
-            authorities = decodeAuthorities(obj.optJSONArray("authorities")),
-            acquiredAuthorities = decodeAuthorities(obj.optJSONArray("acquiredAuthorities"))
+            authorities = decodeAuthorities(obj, "authorities"),
+            acquiredAuthorities = decodeAuthorities(obj, "acquiredAuthorities")
         )
     }.getOrNull()
 
-    private fun decodeAuthorities(array: JSONArray?): Set<ConventionMatterCoverageV2.Authority> {
-        if (array == null) return emptySet()
-        val result = linkedSetOf<ConventionMatterCoverageV2.Authority>()
-        for (index in 0 until array.length()) {
-            val value = array.optString(index).takeIf { it.isNotBlank() } ?: continue
-            runCatching { ConventionMatterCoverageV2.Authority.valueOf(value) }.getOrNull()?.let(result::add)
+    /** Les tableaux absents restent compatibles avec l'historique ; un tableau présent mais invalide bloque le record. */
+    private fun decodeAuthorities(
+        obj: JSONObject,
+        key: String
+    ): Set<ConventionMatterCoverageV2.Authority> {
+        if (!obj.has(key) || obj.isNull(key)) return emptySet()
+        val array = obj.getJSONArray(key)
+        return buildSet {
+            for (index in 0 until array.length()) {
+                add(ConventionMatterCoverageV2.Authority.valueOf(array.getString(index)))
+            }
         }
-        return result
     }
 
     private fun decodeClassification(obj: JSONObject): ConventionClassificationV2 = ConventionClassificationV2(
