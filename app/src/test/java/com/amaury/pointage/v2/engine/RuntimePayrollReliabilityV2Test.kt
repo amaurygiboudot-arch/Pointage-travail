@@ -2,7 +2,9 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -28,6 +30,7 @@ class RuntimePayrollReliabilityV2Test {
         )
 
         assertTrue(result.requiresPayrollReview)
+        assertNull(result.unpaidFullCalendarDays)
         assertTrue(result.warnings.any { it.contains("runtime corrompu") })
         assertTrue(result.warnings.any { it.contains("Pointages V2") })
     }
@@ -44,6 +47,7 @@ class RuntimePayrollReliabilityV2Test {
         )
 
         assertFalse(result.requiresPayrollReview)
+        assertEquals(0, result.unpaidFullCalendarDays)
         assertTrue(result.warnings.isEmpty())
     }
 }

@@ -32,8 +32,11 @@ object SocialSecurityCeilingV2 {
         val entryDate: LocalDate? = null,
         /** Null signifie contrat considéré en cours à la fin du mois. */
         val exitDate: LocalDate? = null,
-        /** À alimenter lorsque le moteur Absences V2 sera branché. */
-        val unpaidAbsenceDays: Int = 0,
+        /**
+         * Nombre certifié de journées calendaires complètes d'absence non rémunérée.
+         * null signifie que la source ne permet pas de connaître ce nombre sans l'inventer.
+         */
+        val unpaidAbsenceDays: Int? = 0,
         val forfaitAnnualDays: Double? = null
     )
 
@@ -75,7 +78,19 @@ object SocialSecurityCeilingV2 {
         } else {
             ChronoUnit.DAYS.between(employmentStart, employmentEnd.plusDays(1)).toInt()
         }
-        val absenceDays = input.unpaidAbsenceDays.coerceIn(0, employedDays)
+        val absenceDays = when (val raw = input.unpaidAbsenceDays) {
+            null -> {
+                complete = false
+                warnings += "Plafond SS : jours d'absence non rémunérée non fiabilisés ; aucune réduction d'absence n'est appliquée automatiquement."
+                0
+            }
+            !in 0..employedDays -> {
+                complete = false
+                warnings += "Plafond SS : nombre de jours d'absence non rémunérée incohérent ($raw pour $employedDays jour(s) d'emploi) ; aucune réduction d'absence n'est appliquée automatiquement."
+                0
+            }
+            else -> raw
+        }
         val ceilingDays = (employedDays - absenceDays).coerceAtLeast(0)
         val presenceRatio = ceilingDays.toDouble() / monthStart.lengthOfMonth().toDouble()
 

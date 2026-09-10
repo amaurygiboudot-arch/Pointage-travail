@@ -9,6 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -109,7 +110,7 @@ class V2RightsAbsenceStoreReliabilityTest {
             zoneId=zone
         )
         assertTrue(impact.requiresPayrollReview)
-        assertEquals(0,impact.unpaidFullCalendarDays)
+        assertNull(impact.unpaidFullCalendarDays)
         assertTrue(impact.warnings.any{it.contains("stockage",ignoreCase=true)})
     }
 
