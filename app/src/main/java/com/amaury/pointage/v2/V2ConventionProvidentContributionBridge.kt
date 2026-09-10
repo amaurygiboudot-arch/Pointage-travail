@@ -12,6 +12,7 @@ import java.time.temporal.ChronoUnit
  *
  * Aucune règle historique codée en dur n'est utilisée ici. Le résultat n'est fiable que si :
  * - le profil juridique local est complet ;
+ * - le stockage KALI local est lisible et cohérent ;
  * - la catégorie ANI est confirmée ;
  * - la matière PROVIDENT_CONTRIBUTION est CONFIRMED_RULES ou CONFIRMED_NO_RULE ;
  * - le record de couverture prouve explicitement l'autorité KALI ;
@@ -46,16 +47,23 @@ object V2ConventionProvidentContributionBridge {
         )
         val category = VerifiedProtectionCategoryProviderV2.resolve(context, companyId, referenceDate).category
         val seniorityMonths = seniorityMonths(profile, referenceDate)
+        val stored = V2ConventionProvidentContributionStore.readVerified(context)
+        val normalizedIdcc = com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
+        val rules = stored.rules.filter {
+            com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc
+        }
 
         return resolve(
             profile = profile,
             referenceDate = referenceDate,
             protectionCategory = category,
-            rules = V2ConventionProvidentContributionStore.rules(context, profile.idcc),
+            rules = rules,
             coverage = coverage,
             gross = gross,
             applicableMonthlyCeiling = applicableMonthlyCeiling,
-            seniorityMonths = seniorityMonths
+            seniorityMonths = seniorityMonths,
+            storeReliable = stored.reliable,
+            storeWarnings = stored.warnings
         )
     }
 
@@ -67,7 +75,9 @@ object V2ConventionProvidentContributionBridge {
         coverage: ConventionMatterCoverageV2.Snapshot,
         gross: Double,
         applicableMonthlyCeiling: Double?,
-        seniorityMonths: Int?
+        seniorityMonths: Int?,
+        storeReliable: Boolean = true,
+        storeWarnings: List<String> = emptyList()
     ): Snapshot {
         if (profile.idcc.isBlank()) {
             return Snapshot(blocked("Prévoyance conventionnelle : IDCC manquant."), coverage)
@@ -77,6 +87,15 @@ object V2ConventionProvidentContributionBridge {
         }
         if (profile.professionalStatus == null) {
             return Snapshot(blocked("Prévoyance conventionnelle IDCC ${profile.idcc} : statut cadre/non-cadre exact manquant."), coverage)
+        }
+        if (!storeReliable) {
+            return Snapshot(
+                blocked(
+                    "Prévoyance conventionnelle IDCC ${profile.idcc} : stockage KALI local incohérent ; aucun barème ni aucune absence de cotisation n'est utilisé.",
+                    storeWarnings
+                ),
+                coverage
+            )
         }
         if (!protectionCategory.confirmed) {
             return Snapshot(
