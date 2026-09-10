@@ -123,6 +123,28 @@ class V2ConventionProvidentContributionBridgeTest {
     }
 
     @Test
+    fun `stockage KALI corrompu bloque meme une ancienne absence confirmee`() {
+        val result = V2ConventionProvidentContributionBridge.resolve(
+            profile = profile,
+            referenceDate = date,
+            protectionCategory = category,
+            rules = emptyList(),
+            coverage = coverage(ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE),
+            gross = 2500.0,
+            applicableMonthlyCeiling = null,
+            seniorityMonths = 72,
+            storeReliable = false,
+            storeWarnings = listOf("stockage corrompu")
+        ).result
+
+        assertFalse(result.reliable)
+        assertFalse(result.eligibilityConfirmed)
+        assertNull(result.employeeAmount)
+        assertNull(result.employerAmount)
+        assertTrue(result.warnings.any { it.contains("stockage KALI", ignoreCase = true) })
+    }
+
+    @Test
     fun `absence confirmée sans autorité KALI reste bloquée`() {
         val result = V2ConventionProvidentContributionBridge.resolve(
             profile = profile,
