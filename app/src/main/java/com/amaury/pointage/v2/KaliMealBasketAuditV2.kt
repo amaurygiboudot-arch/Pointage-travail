@@ -78,15 +78,20 @@ object KaliMealBasketAuditV2 {
             val evidence = task.result
             val diagnostic = OfficialKaliMealBasketParserV2.parse(profile, evidence)
             val lineageComplete = articleLineageComplete(evidence)
+            val packageAcceptable = V2ConventionMealBasketStore.acceptsVerifiedPackage(diagnostic.rules)
             val storedBeforeAudit = V2ConventionMealBasketStore.readVerified(context)
             var saved = 0
             val saveWarnings = mutableListOf<String>()
 
             if (storedBeforeAudit.reliable) {
-                diagnostic.rules.forEach { rule ->
-                    runCatching { V2ConventionMealBasketStore.saveVerified(context, rule) }
-                        .onSuccess { saved++ }
-                        .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
+                if (diagnostic.rules.isNotEmpty() && !packageAcceptable) {
+                    saveWarnings += "KALI repas : paquet structuré incohérent ou dupliqué ; aucune règle de ce paquet n'est enregistrée."
+                } else {
+                    diagnostic.rules.forEach { rule ->
+                        runCatching { V2ConventionMealBasketStore.saveVerified(context, rule) }
+                            .onSuccess { saved++ }
+                            .onFailure { error -> saveWarnings += "KALI repas : ${rule.ruleId} non enregistré : ${error.message ?: "stockage impossible"}." }
+                    }
                 }
             } else {
                 val repairEligible = evaluateCompletion(
@@ -95,7 +100,7 @@ object KaliMealBasketAuditV2 {
                     savedRules = diagnostic.rules.size,
                     referenceDate = referenceDate,
                     articleLineageComplete = lineageComplete
-                ).completed && V2ConventionMealBasketStore.acceptsVerifiedPackage(diagnostic.rules)
+                ).completed && packageAcceptable
 
                 if (repairEligible) {
                     val rebuilt = V2ConventionMealBasketStore.replaceVerifiedPackage(context, diagnostic.rules)
