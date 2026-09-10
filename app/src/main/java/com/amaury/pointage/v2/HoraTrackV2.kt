@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.v2.engine.CelestialEngineV2
+import com.amaury.pointage.v2.engine.DefaultCelestialEngineV2
 import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
 import com.amaury.pointage.v2.engine.GpsEngineV2
 import com.amaury.pointage.v2.engine.TimeEngineV2
@@ -13,6 +15,7 @@ object HoraTrackV2 {
     enum class Layer {
         TIME,
         GPS,
+        CELESTIAL,
         COMPANY_CONTRACT,
         LEGAL_AI,
         PAYROLL,
@@ -28,6 +31,7 @@ object HoraTrackV2 {
 
     val time: TimeEngineV2 = DefaultTimeEngineV2
     val gps: GpsEngineV2 = GpsEngineV2()
+    val celestial: CelestialEngineV2 = DefaultCelestialEngineV2
 
     fun activeLayers(): Set<Layer> {
         return if (ENABLED) Layer.entries.toSet() else emptySet()
