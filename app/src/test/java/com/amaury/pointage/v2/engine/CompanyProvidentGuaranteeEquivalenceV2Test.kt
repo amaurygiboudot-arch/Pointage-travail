@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.ConventionLegalProfileV2
 import com.amaury.pointage.v2.VerifiedProvidentBenefitProviderV2
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -167,5 +168,23 @@ class CompanyProvidentGuaranteeEquivalenceV2Test {
 
         assertNull(result.equivalent)
         assertTrue(!result.reliable)
+    }
+
+    @Test
+    fun `stockage ACCO corrompu interdit toute equivalence automatique`() {
+        val result = CompanyProvidentGuaranteeEquivalenceV2.resolve(
+            profile = profile(),
+            referenceDate = date,
+            seniorityMonths = 80,
+            branch = branch(),
+            companyRules = listOf(companyDeath()),
+            contributionAgreementIds = setOf("ACCOTEXT000000000001"),
+            companyStoreReliable = false,
+            companyStoreWarnings = listOf("stockage ACCO corrompu")
+        )
+
+        assertNull(result.equivalent)
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("stockage", ignoreCase = true) })
     }
 }
