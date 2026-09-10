@@ -50,6 +50,15 @@ object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
  data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null)
 
+ internal fun legalPayrollSourceWarnings(snapshot:LegalPayrollSourceStoreV2.Snapshot):List<String> = when {
+  !snapshot.reliable -> snapshot.warnings.distinct().ifEmpty {
+   listOf("Sources légales LEGI : stockage local incohérent ; aucune référence fiable n'est utilisée pour la date de paie.")
+  }
+  snapshot.records.isEmpty() -> listOf("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
+  !snapshot.complete -> listOf("Sources légales LEGI : contrôle partiel ${snapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
+  else -> emptyList()
+ }
+
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   require(HoraTrackV2.ENABLED)
   val prefs=SalaryCompanyStore.prefs(context,company.id)
@@ -130,10 +139,7 @@ object V2SalaryAdapter {
   )
   val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
   val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
-  val legalWarnings=buildList{
-   if(legalSnapshot.records.isEmpty())add("Sources légales LEGI : Code du travail non vérifié pour la date de paie.")
-   else if(!legalSnapshot.complete)add("Sources légales LEGI : contrôle partiel ${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes pour la date de paie.")
-  }
+  val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
   return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct())
  }
 
