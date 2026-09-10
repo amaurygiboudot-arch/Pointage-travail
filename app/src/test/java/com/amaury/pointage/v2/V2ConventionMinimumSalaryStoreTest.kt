@@ -94,12 +94,23 @@ class V2ConventionMinimumSalaryStoreTest {
         assertTrue(result.rules.isEmpty())
     }
 
+    @Test
+    fun `blank official source is rejected`() {
+        val result = V2ConventionMinimumSalaryStore.decodeConfirmed(
+            "[${ruleJson("R1", "0292", 2000.0, source = "")}]"
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+    }
+
     private fun ruleJson(
         ruleId: String,
         idcc: String,
         amount: Double,
         periodicity: String = "MONTHLY",
-        extensionStatus: String = "EXTENDED"
+        extensionStatus: String = "EXTENDED",
+        source: String = "legifrance:KALI:KALIARTI000000000"
     ): String = """{
         "idcc":"$idcc",
         "ruleId":"$ruleId",
@@ -107,7 +118,7 @@ class V2ConventionMinimumSalaryStoreTest {
         "effectiveTo":null,
         "amount":$amount,
         "periodicity":"$periodicity",
-        "source":"legifrance:KALI:KALIARTI000000000",
+        "source":"$source",
         "extensionStatus":"$extensionStatus",
         "extensionEffectiveFrom":"2026-01-01",
         "classification":{"coefficient":700}
