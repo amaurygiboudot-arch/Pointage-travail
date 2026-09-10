@@ -64,6 +64,16 @@ object CelestialScreenGeometryV2 {
     private const val HEADING_EPSILON = 1e-6
 
     /**
+     * Quand le haut physique de l'écran conserve au moins 20 % de projection
+     * horizontale, c'est lui qui définit directement la direction 12 h.
+     *
+     * Sous ce seuil le haut est presque vertical : son azimut devient mal
+     * conditionné. On bascule alors sur Up × Right, qui donne le prolongement
+     * horizontal continu du haut du cadran sans singularité de pitch.
+     */
+    private const val TOP_HEADING_MIN_HORIZONTAL = 0.20
+
+    /**
      * Projection canonique de l'horloge : ciel visible complet sur 360°.
      * - direction du cap = 12 h ;
      * - horizon = bord externe ;
@@ -163,44 +173,61 @@ object CelestialScreenGeometryV2 {
     /**
      * Retourne d'abord le cap filtré fourni par CelestialTrackerV2.
      *
-     * Le calcul géométrique depuis les axes du frame n'est plus qu'un secours pour
-     * les tests ou anciens appelants qui construisent un frame sans cap stabilisé.
-     * Cela évite qu'un rendu repasse silencieusement sur l'azimut brut alors que le
-     * tracker possède déjà une version filtrée et corrigée vers le Nord vrai.
+     * Sans cap injecté, la direction 12 h suit en priorité la projection
+     * horizontale du haut physique de l'écran, conformément à la sémantique de
+     * boussole Android. Quand ce haut devient presque vertical, son azimut est
+     * indéterminé : Up × Right fournit alors un secours continu.
+     *
+     * L'ancien ordre faisait l'inverse et choisissait presque toujours l'axe
+     * droit. Une forte rotation de roulis pouvait alors inverser ce vecteur et
+     * retourner artificiellement le ciel de 180° alors que le haut du téléphone
+     * gardait la même direction horizontale.
      */
     fun headingFromFrame(frame: CelestialDeviceFrameV2): Double {
         frame.stabilizedHeadingDeg
             ?.takeIf { it.isFinite() }
             ?.let { return normalizeDegrees(it) }
 
+        val topHorizontal = sqrt(frame.topEast * frame.topEast + frame.topNorth * frame.topNorth)
+        if (topHorizontal >= TOP_HEADING_MIN_HORIZONTAL) {
+            return normalizeDegrees(
+                Math.toDegrees(
+                    atan2(
+                        frame.topEast / topHorizontal,
+                        frame.topNorth / topHorizontal
+                    )
+                )
+            )
+        }
+
         val rightHorizontal = sqrt(
             frame.rightEast * frame.rightEast + frame.rightNorth * frame.rightNorth
         )
         if (rightHorizontal > HEADING_EPSILON) {
-            // Up × Right = direction horizontale correspondant au haut du cadran.
+            // Up × Right = prolongement horizontal correspondant au haut du cadran.
             val east = -frame.rightNorth / rightHorizontal
             val north = frame.rightEast / rightHorizontal
             return normalizeDegrees(Math.toDegrees(atan2(east, north)))
         }
 
-        val topHorizontal = sqrt(frame.topEast * frame.topEast + frame.topNorth * frame.topNorth)
+        // Un frame orthonormal valide ne devrait pratiquement jamais arriver ici :
+        // si le haut est vertical, l'axe droit doit rester horizontal. Ce dernier
+        // secours évite toutefois de produire NaN pour un frame incomplet/ancien.
         val normalHorizontal = sqrt(
             frame.normalEast * frame.normalEast + frame.normalNorth * frame.normalNorth
         )
-
-        val east: Double
-        val north: Double
-        if (topHorizontal >= normalHorizontal && topHorizontal > HEADING_EPSILON) {
-            east = frame.topEast / topHorizontal
-            north = frame.topNorth / topHorizontal
-        } else if (normalHorizontal > HEADING_EPSILON) {
-            east = frame.normalEast / normalHorizontal
-            north = frame.normalNorth / normalHorizontal
-        } else {
-            return 0.0
+        if (normalHorizontal > HEADING_EPSILON) {
+            return normalizeDegrees(
+                Math.toDegrees(
+                    atan2(
+                        frame.normalEast / normalHorizontal,
+                        frame.normalNorth / normalHorizontal
+                    )
+                )
+            )
         }
 
-        return normalizeDegrees(Math.toDegrees(atan2(east, north)))
+        return 0.0
     }
 
     private fun directionTowardEarthCentered(
