@@ -32,6 +32,11 @@ object SalaryExamplePdfV2 {
         val employerCost: List<String>
     )
 
+    internal data class SourceStatus(
+        val summary: String,
+        val references: String
+    )
+
     internal fun warningSections(
         salaryWarnings: List<String>,
         payrollWarnings: List<String>,
@@ -40,6 +45,67 @@ object SalaryExamplePdfV2 {
         salaryAndNet = (salaryWarnings + payrollWarnings).distinct(),
         employerCost = employerCostWarnings.distinct()
     )
+
+    internal fun legalSourceStatus(
+        reliable: Boolean,
+        coveredTopics: Int,
+        totalTopics: Int,
+        references: List<String>
+    ): SourceStatus {
+        if (!reliable) {
+            return SourceStatus(
+                summary = "Stockage local incohérent — aucune référence fiable utilisée",
+                references = "Indisponibles : stockage LEGI non fiable"
+            )
+        }
+        if (references.isEmpty()) {
+            return SourceStatus(
+                summary = "Non vérifié pour cette date",
+                references = "Non vérifié pour la date de paie"
+            )
+        }
+        return SourceStatus(
+            summary = "$coveredTopics/$totalTopics thèmes vérifiés",
+            references = if (references.size <= 6) {
+                references.joinToString(", ")
+            } else {
+                references.take(6).joinToString(", ") + " +${references.size - 6}"
+            }
+        )
+    }
+
+    internal fun boccSourceStatus(
+        contextReady: Boolean,
+        reliable: Boolean,
+        references: List<String>
+    ): SourceStatus {
+        if (!contextReady) {
+            return SourceStatus(
+                summary = "IDCC / entreprise à confirmer",
+                references = "IDCC / entreprise à confirmer"
+            )
+        }
+        if (!reliable) {
+            return SourceStatus(
+                summary = "Stockage local incohérent — aucune référence fiable utilisée",
+                references = "Indisponibles : stockage BOCC non fiable"
+            )
+        }
+        if (references.isEmpty()) {
+            return SourceStatus(
+                summary = "Non vérifiées pour cette entreprise et cette date",
+                references = "Non vérifié pour cette entreprise et cette date"
+            )
+        }
+        return SourceStatus(
+            summary = "${references.size} référence(s) PDF officielle(s) vérifiée(s)",
+            references = if (references.size <= 4) {
+                references.joinToString(", ")
+            } else {
+                references.take(4).joinToString(", ") + " +${references.size - 4}"
+            }
+        )
+    }
 
     /**
      * Point d'entrée historique conservé pendant la migration.
@@ -146,9 +212,10 @@ object SalaryExamplePdfV2 {
             .toInstant()
             .toEpochMilli()
         val legalSnapshot = LegalPayrollSourceStoreV2.snapshot(context, legalReferenceAtMs)
-        val boccSnapshot = if (company != null && idcc.isNotBlank()) {
-            BoccPayrollSourceStoreV2.snapshot(context, company.id, legalReferenceAtMs, idcc)
-        } else emptyList()
+        val boccContextReady = company != null && idcc.isNotBlank()
+        val boccSnapshot = if (boccContextReady) {
+            BoccPayrollSourceStoreV2.snapshotResult(context, company!!.id, legalReferenceAtMs, idcc)
+        } else null
 
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -278,39 +345,32 @@ object SalaryExamplePdfV2 {
                 payrollWarnings = payroll?.warnings.orEmpty(),
                 employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
             )
-            val legalRefs = legalSnapshot.records.mapNotNull { it.articleNumber }.distinct()
-            val legalRefText = when {
-                legalRefs.isEmpty() -> "Non vérifié pour la date de paie"
-                legalRefs.size <= 6 -> legalRefs.joinToString(", ")
-                else -> legalRefs.take(6).joinToString(", ") + " +${legalRefs.size - 6}"
-            }
-            val boccRefs = boccSnapshot.mapNotNull { it.bulletinNumber ?: it.fileName }.distinct()
-            val boccRefText = when {
-                company == null || idcc.isBlank() -> "IDCC / entreprise à confirmer"
-                boccRefs.isEmpty() -> "Non vérifié pour cette entreprise et cette date"
-                boccRefs.size <= 4 -> boccRefs.joinToString(", ")
-                else -> boccRefs.take(4).joinToString(", ") + " +${boccRefs.size - 4}"
-            }
+            val legalRefs = legalSnapshot.records
+                .map { it.articleNumber?.takeIf(String::isNotBlank) ?: it.articleId }
+                .filter(String::isNotBlank)
+                .distinct()
+            val legalStatus = legalSourceStatus(
+                reliable = legalSnapshot.reliable,
+                coveredTopics = legalSnapshot.coveredTopics.size,
+                totalTopics = OfficialLegalCodeSourceV2.Topic.entries.size,
+                references = legalRefs
+            )
+            val boccRefs = boccSnapshot?.records.orEmpty()
+                .mapNotNull { it.bulletinNumber?.takeIf(String::isNotBlank) ?: it.fileName.takeIf(String::isNotBlank) }
+                .distinct()
+            val boccStatus = boccSourceStatus(
+                contextReady = boccContextReady,
+                reliable = boccSnapshot?.reliable ?: true,
+                references = boccRefs
+            )
             section("SOURCES & CONTRÔLES", buildList {
                 add("Source des heures" to "Moteur HoraTrack V2")
                 add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
                 add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
-                add(
-                    "Code du travail — LEGI" to if (legalSnapshot.records.isEmpty()) {
-                        "Non vérifié pour cette date"
-                    } else {
-                        "${legalSnapshot.coveredTopics.size}/${OfficialLegalCodeSourceV2.Topic.entries.size} thèmes vérifiés"
-                    }
-                )
-                add("Références LEGI" to legalRefText)
-                add(
-                    "Publications conventionnelles — BOCC" to if (boccSnapshot.isEmpty()) {
-                        "Non vérifiées pour cette entreprise et cette date"
-                    } else {
-                        "${boccSnapshot.size} référence(s) PDF officielle(s) vérifiée(s)"
-                    }
-                )
-                add("Références BOCC" to boccRefText)
+                add("Code du travail — LEGI" to legalStatus.summary)
+                add("Références LEGI" to legalStatus.references)
+                add("Publications conventionnelles — BOCC" to boccStatus.summary)
+                add("Références BOCC" to boccStatus.references)
                 add(
                     "Contrôles salaire / net" to
                         if (warningSections.salaryAndNet.isEmpty()) "Aucun avertissement moteur"
