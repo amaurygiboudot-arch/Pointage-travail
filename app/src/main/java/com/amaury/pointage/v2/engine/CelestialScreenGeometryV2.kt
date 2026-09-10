@@ -10,7 +10,10 @@ data class CelestialScreenDirectionV2(val x: Double, val y: Double)
 
 /**
  * Repère physique de l'écran exprimé dans le monde local Est / Nord vrai / Zénith.
- * Il reste utile pour déduire un cap fiable quelle que soit l'inclinaison du téléphone.
+ *
+ * `stabilizedHeadingDeg` permet au tracker Android d'injecter le cap déjà filtré.
+ * Les consommateurs historiques qui passent encore par le frame utilisent ainsi
+ * exactement le même cap que la carte 360°, au lieu de recalculer un azimut brut.
  */
 data class CelestialDeviceFrameV2(
     val rightEast: Double,
@@ -21,7 +24,8 @@ data class CelestialDeviceFrameV2(
     val topUp: Double,
     val normalEast: Double,
     val normalNorth: Double,
-    val normalUp: Double
+    val normalUp: Double,
+    val stabilizedHeadingDeg: Double? = null
 )
 
 /** Position d'un astre dans le dôme compact de l'horloge. */
@@ -75,7 +79,8 @@ object CelestialScreenGeometryV2 {
      *
      * Le nom historique est conservé pour ne pas casser les appelants, mais la
      * sémantique est maintenant celle de l'horloge 360° : le repère 3D sert à
-     * déduire le cap vrai, pas à découper le ciel en hémisphère avant/arrière.
+     * transporter le cap vrai stabilisé, pas à découper le ciel en hémisphère
+     * avant/arrière.
      */
     fun projectInDeviceSky(
         body: CelestialBodyV2,
@@ -139,25 +144,18 @@ object CelestialScreenGeometryV2 {
     )
 
     /**
-     * Déduit le cap horizontal de la carte 360° sans bascule de référentiel.
+     * Retourne d'abord le cap filtré fourni par CelestialTrackerV2.
      *
-     * Le premier lot choisissait brutalement entre le haut de l'écran lorsque
-     * le téléphone était plutôt à plat et la normale de l'écran lorsqu'il était
-     * plutôt vertical. Selon le sens d'inclinaison, ces deux projections peuvent
-     * être opposées et provoquer un saut artificiel de 180°.
-     *
-     * Le cap canonique est maintenant construit avec `Zénith × axe-droit-écran`.
-     * C'est exactement le prolongement horizontal du haut du cadran : il reste
-     * identique lorsqu'on incline le téléphone vers l'avant ou vers l'arrière,
-     * tant que son axe droit n'est pas vertical. Pitch et roll ne peuvent donc
-     * plus faire retourner le Soleil/Lune simplement à cause d'un changement de
-     * posture.
-     *
-     * Cas dégénéré : si l'axe droit devient presque vertical (rotation latérale
-     * proche de 90°), on retombe sur l'axe horizontal le mieux défini entre le
-     * haut et la normale. Ce cas n'est pas utilisé pour masquer un astre.
+     * Le calcul géométrique depuis les axes du frame n'est plus qu'un secours pour
+     * les tests ou anciens appelants qui construisent un frame sans cap stabilisé.
+     * Cela évite qu'un rendu repasse silencieusement sur l'azimut brut alors que le
+     * tracker possède déjà une version filtrée et corrigée vers le Nord vrai.
      */
     fun headingFromFrame(frame: CelestialDeviceFrameV2): Double {
+        frame.stabilizedHeadingDeg
+            ?.takeIf { it.isFinite() }
+            ?.let { return normalizeDegrees(it) }
+
         val rightHorizontal = sqrt(
             frame.rightEast * frame.rightEast + frame.rightNorth * frame.rightNorth
         )
