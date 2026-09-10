@@ -104,7 +104,15 @@ object MealBasketLegalProviderV2 {
             classification = profile.classification,
             professionalStatus = profile.professionalStatus
         )
-        val storedBranch = V2ConventionMealBasketStore.rules(context, normalizedProfile)
+        val storedBranchResult = V2ConventionMealBasketStore.readVerified(context)
+        if (!storedBranchResult.reliable) {
+            return blocked(
+                "cache KALI panier local incohérent ; aucun arbitrage repas ACCO/KALI n'est calculé tant qu'un nouvel audit KALI n'a pas reconstruit un stockage fiable"
+            )
+        }
+        val storedBranch = storedBranchResult.rules.filter {
+            ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedProfile
+        }
         val branchTrusted = coverage.reliable &&
             coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_RULES &&
             coverage.record?.authorities?.contains(ConventionMatterCoverageV2.Authority.KALI) == true
