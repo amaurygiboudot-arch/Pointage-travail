@@ -81,6 +81,58 @@ class CelestialEngineV2Test {
         assertTrue(motionDeg < 0.20)
     }
 
+    @Test
+    fun `ephemeride reste proche de la reference haute precision en Vendee`() {
+        val result = engine.snapshot(
+            latitudeDeg = 46.67,
+            longitudeDeg = -1.43,
+            observerAltitudeMeters = 50.0,
+            timeMs = Instant.parse("2026-09-10T12:00:00Z").toEpochMilli()
+        )
+
+        assertPositionClose(result.sun, expectedAzimuth = 178.9901, expectedAltitude = 48.1438, toleranceDeg = 0.03)
+        assertPositionClose(result.moon, expectedAzimuth = 191.3692, expectedAltitude = 49.3633, toleranceDeg = 0.08)
+    }
+
+    @Test
+    fun `ephemeride reste proche de la reference haute precision dans hemisphere sud`() {
+        val result = engine.snapshot(
+            latitudeDeg = -33.8688,
+            longitudeDeg = 151.2093,
+            observerAltitudeMeters = 30.0,
+            timeMs = Instant.parse("2026-06-21T12:00:00Z").toEpochMilli()
+        )
+
+        assertPositionClose(result.sun, expectedAzimuth = 255.5052, expectedAltitude = -62.4221, toleranceDeg = 0.03)
+        assertPositionClose(result.moon, expectedAzimuth = 283.9110, expectedAltitude = 18.7330, toleranceDeg = 0.08)
+    }
+
+    @Test
+    fun `ephemeride reste proche de la reference haute precision pres de equateur`() {
+        val result = engine.snapshot(
+            latitudeDeg = -0.1807,
+            longitudeDeg = -78.4678,
+            observerAltitudeMeters = 2850.0,
+            timeMs = Instant.parse("2026-03-03T11:35:00Z").toEpochMilli()
+        )
+
+        assertPositionClose(result.sun, expectedAzimuth = 96.7163, expectedAltitude = 2.3135, toleranceDeg = 0.03)
+        assertPositionClose(result.moon, expectedAzimuth = 276.3942, expectedAltitude = -3.4309, toleranceDeg = 0.08)
+    }
+
+    @Test
+    fun `ephemeride reste proche de la reference haute precision aux hautes latitudes`() {
+        val result = engine.snapshot(
+            latitudeDeg = 69.6492,
+            longitudeDeg = 18.9553,
+            observerAltitudeMeters = 10.0,
+            timeMs = Instant.parse("2026-12-21T12:00:00Z").toEpochMilli()
+        )
+
+        assertPositionClose(result.sun, expectedAzimuth = 197.8270, expectedAltitude = -4.1328, toleranceDeg = 0.03)
+        assertPositionClose(result.moon, expectedAzimuth = 53.6912, expectedAltitude = 11.2834, toleranceDeg = 0.08)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `latitude impossible est refusee`() {
         engine.snapshot(91.0, 0.0, Instant.parse("2026-03-03T11:38:00Z").toEpochMilli())
@@ -91,6 +143,22 @@ class CelestialEngineV2Test {
         longitudeDeg = -1.43,
         timeMs = Instant.parse(instant).toEpochMilli()
     )
+
+    private fun assertPositionClose(
+        actual: CelestialBodyV2,
+        expectedAzimuth: Double,
+        expectedAltitude: Double,
+        toleranceDeg: Double
+    ) {
+        assertTrue(
+            "azimut attendu=$expectedAzimuth obtenu=${actual.azimuthDeg}",
+            angularDelta(actual.azimuthDeg, expectedAzimuth) <= toleranceDeg
+        )
+        assertTrue(
+            "altitude attendue=$expectedAltitude obtenue=${actual.altitudeDeg}",
+            abs(actual.altitudeDeg - expectedAltitude) <= toleranceDeg
+        )
+    }
 
     private fun angularDelta(a: Double, b: Double): Double =
         abs(((a - b + 540.0) % 360.0) - 180.0)
