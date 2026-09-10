@@ -40,12 +40,26 @@ data class CelestialWatchProjectionV2(
  *
  * Référentiel canonique HoraTrack : carte topocentrique 360° centrée sur la Terre.
  * La Terre représente l'observateur. L'azimut place Soleil/Lune autour du cadran,
- * l'altitude règle leur distance au centre et le cap réel du téléphone fait tourner
- * la carte. Un astre ne disparaît donc jamais parce qu'il est « derrière l'écran » :
- * cette notion appartient à un viseur AR, pas à une carte du ciel 360°.
+ * l'altitude apparente règle leur distance au centre et le cap réel du téléphone
+ * fait tourner la carte. Un astre ne disparaît donc jamais parce qu'il est
+ * « derrière l'écran » : cette notion appartient à un viseur AR, pas à une carte
+ * du ciel 360°.
  */
 object CelestialScreenGeometryV2 {
-    const val CIVIL_HORIZON_DEG = -0.833
+    /**
+     * Seuil pratique de visibilité d'un disque Soleil/Lune : centre géométrique
+     * à 50 minutes d'arc sous l'horizon, valeur standard combinant environ 34'
+     * de réfraction à l'horizon et 16' de demi-diamètre apparent.
+     *
+     * Ce n'est pas un « horizon civil » : le crépuscule civil est une notion
+     * différente. Le seuil lunaire exact varie légèrement avec son diamètre.
+     */
+    const val STANDARD_DISK_HORIZON_DEG = -50.0 / 60.0
+
+    /** Ancien nom conservé temporairement pour compatibilité des appelants/tests. */
+    @Deprecated("Use STANDARD_DISK_HORIZON_DEG")
+    const val CIVIL_HORIZON_DEG = STANDARD_DISK_HORIZON_DEG
+
     const val ZENITH_RADIUS_FRACTION = 0.34
     private const val HEADING_EPSILON = 1e-6
 
@@ -53,17 +67,20 @@ object CelestialScreenGeometryV2 {
      * Projection canonique de l'horloge : ciel visible complet sur 360°.
      * - direction du cap = 12 h ;
      * - horizon = bord externe ;
+     * - altitude graphique = altitude apparente corrigée de la réfraction ;
      * - zénith = rayon interne compact afin de préserver la Terre centrale ;
-     * - sous l'horizon civil = non rendu.
+     * - sous le seuil standard du disque au lever/coucher = non rendu.
      */
     fun projectEarthCenteredSky(
         body: CelestialBodyV2,
         deviceAzimuthDeg: Float
     ): CelestialWatchProjectionV2? {
-        if (body.altitudeDeg < CIVIL_HORIZON_DEG) return null
+        if (body.altitudeDeg < STANDARD_DISK_HORIZON_DEG) return null
 
-        val altitude = body.altitudeDeg.coerceIn(0.0, 90.0)
-        val altitudeFraction = altitude / 90.0
+        val apparentAltitude = AtmosphericRefractionV2
+            .apparentAltitudeDeg(body.altitudeDeg)
+            .coerceIn(0.0, 90.0)
+        val altitudeFraction = apparentAltitude / 90.0
         val radialFraction = 1.0 - altitudeFraction * (1.0 - ZENITH_RADIUS_FRACTION)
         val theta = Math.toRadians(shortestDelta(deviceAzimuthDeg.toDouble(), body.azimuthDeg))
 
