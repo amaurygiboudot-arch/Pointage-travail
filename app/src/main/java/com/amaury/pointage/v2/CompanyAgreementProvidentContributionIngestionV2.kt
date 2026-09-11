@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 
 /**
  * Raccord prudent entre une consultation ACCO déjà vérifiée par SIRET et le store local de
@@ -53,7 +54,11 @@ object CompanyAgreementProvidentContributionIngestionV2 {
                 warnings = structured.warnings
             )
         }
-        val saved = V2CompanyProvidentContributionStore.saveVerified(context, companyId, rule)
+        val expectedSiret = profile.siret.filter(Char::isDigit)
+        val saved = SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+            if (company.siret.filter(Char::isDigit) != expectedSiret) return@withConfirmedCompany false
+            V2CompanyProvidentContributionStore.saveVerified(context, companyId, rule)
+        } == true
         return Result(
             detected = true,
             structured = true,
@@ -62,7 +67,7 @@ object CompanyAgreementProvidentContributionIngestionV2 {
             warnings = buildList {
                 addAll(structured.warnings)
                 if (!saved) {
-                    add("ACCO prévoyance : règle structurée mais stockage local impossible ; elle ne sera pas utilisée.")
+                    add("ACCO prévoyance : règle structurée mais stockage local impossible ou entreprise modifiée/supprimée ; elle ne sera pas utilisée.")
                 }
             }.distinct()
         )
