@@ -50,6 +50,17 @@ class RgduStoreIntegrityV2Test {
     }
 
     @Test
+    fun `manual RGDU unavailable company is fail closed`() {
+        val result = CompanyEmployerReductionStoreV2.unavailableReadResult("company-a")
+
+        assertFalse(result.reliable)
+        assertTrue(result.records.isEmpty())
+        assertTrue(result.warnings.any {
+            it.contains("absente", ignoreCase = true) && it.contains("orpheline", ignoreCase = true)
+        })
+    }
+
+    @Test
     fun `manual RGDU is blocked when company store is unreliable`() {
         val company = SalaryCompanyStore.Company(
             id = "company-a",
