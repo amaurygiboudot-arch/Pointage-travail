@@ -59,6 +59,57 @@ class CompanyAgreementRuleStoreFailClosedV2Test {
     }
 
     @Test
+    fun `copie locale valide repare un stockage principal corrompu`() {
+        val backup = CompanyAgreementRuleStoreV2.encode(
+            listOf(candidate(verified = true, effectiveFrom = "01/01/2026", scope = "Tous les salariés"))
+        )
+
+        val resolution = CompanyAgreementRuleStoreV2.resolveStoredRecords(
+            primaryRaw = "{broken",
+            backupRaw = backup
+        )
+
+        assertEquals(CompanyAgreementRuleStoreV2.StorageSource.LAST_KNOWN_GOOD, resolution.source)
+        assertTrue(resolution.result.reliable)
+        assertTrue(resolution.result.repairedFromBackup)
+        assertEquals(1, resolution.result.records.size)
+        assertTrue(resolution.result.warnings.any { it.contains("restauré") })
+    }
+
+    @Test
+    fun `stockage principal valide reste prioritaire sur une ancienne copie`() {
+        val primary = CompanyAgreementRuleStoreV2.encode(
+            listOf(candidate(verified = false, effectiveFrom = null, scope = null))
+        )
+        val backup = CompanyAgreementRuleStoreV2.encode(
+            listOf(candidate(verified = true, effectiveFrom = "01/01/2026", scope = "Tous les salariés"))
+        )
+
+        val resolution = CompanyAgreementRuleStoreV2.resolveStoredRecords(primary, backup)
+
+        assertEquals(CompanyAgreementRuleStoreV2.StorageSource.PRIMARY, resolution.source)
+        assertTrue(resolution.result.reliable)
+        assertFalse(resolution.result.repairedFromBackup)
+        assertFalse(resolution.result.records.single().verified)
+    }
+
+    @Test
+    fun `stockage et copie corrompus restent bloques sans auto nettoyage`() {
+        val resolution = CompanyAgreementRuleStoreV2.resolveStoredRecords(
+            primaryRaw = """[
+                {"agreementId":"ACCO-1","category":"OVERTIME","excerpt":"Majoration 25 %","confidence":0.9,"verified":false,"effectiveFrom":"","effectiveTo":"","scope":"","calculationValueVerified":false},
+                "entree-cassee"
+            ]""".trimIndent(),
+            backupRaw = "{backup-broken"
+        )
+
+        assertEquals(CompanyAgreementRuleStoreV2.StorageSource.NONE, resolution.source)
+        assertFalse(resolution.result.reliable)
+        assertFalse(resolution.result.repairedFromBackup)
+        assertEquals(1, resolution.result.records.size)
+    }
+
+    @Test
     fun `regle verifiee sans periode exploitable bloque le repli`() {
         val stored = CompanyAgreementRuleStoreV2.ReadResult(
             records = listOf(candidate(verified = true, effectiveFrom = null, scope = "Tous les salariés")),
