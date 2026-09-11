@@ -12,6 +12,35 @@ class CompanyEmployeeDeductionStoreFailClosedV2Test {
     private val period = YearMonth.of(2026, 9)
 
     @Test
+    fun `entreprise absente rend les retenues non fiables`() {
+        val unavailable = CompanyEmployeeDeductionStoreV2.companyUnavailableResult()
+
+        assertFalse(unavailable.reliable)
+        assertTrue(unavailable.records.isEmpty())
+        assertTrue(unavailable.warnings.isNotEmpty())
+    }
+
+    @Test
+    fun `entreprise absente interdit aussi le fallback legacy des retenues`() {
+        val blocked = CompanyEmployeeDeductionStoreV2.resolve(
+            CompanyEmployeeDeductionStoreV2.companyUnavailableResult(),
+            period
+        )
+        val legacy = CompanyEmployeeDeductionResolverV2.withLegacyFallback(
+            blocked,
+            mapOf(CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE to 42.0)
+        )
+
+        CompanyEmployeeDeductionResolverV2.Kind.entries.forEach { kind ->
+            val value = legacy[kind]
+            assertNull(value.amount)
+            assertTrue(value.hasDatedRecords)
+            assertFalse(value.reliable)
+            assertFalse(value.legacyUsed)
+        }
+    }
+
+    @Test
     fun `json partiellement invalide bloque le store au lieu de supprimer silencieusement la ligne`() {
         val decoded = CompanyEmployeeDeductionStoreV2.decode(
             """[
