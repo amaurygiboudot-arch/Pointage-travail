@@ -74,11 +74,30 @@ class V2SalaryCompanyLookupView(
     }
 
     private fun saveCompany(company: SalaryCompanyStore.Company) {
-        val saved = SalaryCompanyStore.createOrUpdate(context, company)
-        val stored = SalaryCompanyStore.readConfirmed(context)
-        val reread = stored.companies.takeIf { stored.reliable }?.firstOrNull {
-            it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
+        val before = SalaryCompanyStore.readConfirmed(context)
+        val resolution = SalaryCompanyIdentityResolverV2.resolve(before, company)
+        val target = resolution.company
+        if (target == null) {
+            status.text = when (resolution.failure) {
+                SalaryCompanyIdentityResolverV2.Failure.UNRELIABLE_STORE ->
+                    "ERREUR : le stockage des entreprises doit être vérifié avant l'enregistrement."
+                SalaryCompanyIdentityResolverV2.Failure.AMBIGUOUS_SIRET ->
+                    "ERREUR : ce SIRET correspond à plusieurs identités locales. Vérifie MES ENTREPRISES avant de continuer."
+                else -> "ERREUR : l'identité de l'entreprise est invalide."
+            }
+            status.setTypeface(status.typeface, Typeface.BOLD)
+            searchButton.text = "RÉESSAYER"
+            Toast.makeText(context, "Échec de l'enregistrement", Toast.LENGTH_LONG).show()
+            return
         }
+
+        val saved = if (resolution.existing) {
+            SalaryCompanyStore.upsert(context, target)
+        } else {
+            SalaryCompanyStore.createOrUpdate(context, target)
+        }
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        val reread = stored.companies.takeIf { stored.reliable }?.firstOrNull { it.id == target.id }
         if (!saved || reread == null) {
             status.text = if (stored.reliable) {
                 "ERREUR : l'entreprise n'a pas été enregistrée."
