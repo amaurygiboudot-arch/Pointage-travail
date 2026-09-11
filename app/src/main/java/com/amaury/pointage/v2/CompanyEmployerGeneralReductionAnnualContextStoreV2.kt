@@ -20,17 +20,22 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         val warnings: List<String>
     )
 
-    fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = listOf("RGDU annuelle : entreprise non identifiée ; contexte annuel inaccessible.")
-            )
+    internal fun companyUnavailableResult(companyId: String): ReadResult {
+        val id = companyId.trim()
+        val warning = if (id.isBlank()) {
+            "RGDU annuelle : entreprise non identifiée ; contexte annuel inaccessible."
+        } else {
+            "RGDU annuelle : entreprise $id absente ou stockage entreprises non fiable ; aucun contexte annuel orphelin n'est utilisé."
         }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        return ReadResult(emptyList(), false, listOf(warning))
+    }
+
+    fun read(context: Context, companyId: String): ReadResult {
+        val id = companyId.trim()
+        if (id.isBlank()) return companyUnavailableResult(id)
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            readConfirmed(context, company.id)
+        } ?: companyUnavailableResult(id)
     }
 
     fun list(context: Context, companyId: String): List<EmployerGeneralReductionAnnualContextV2.Record> =
@@ -41,21 +46,27 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         companyId: String,
         record: EmployerGeneralReductionAnnualContextV2.Record
     ): Boolean {
-        if (companyId.isBlank()) return false
-        val stored = read(context, companyId)
-        // Ne jamais écraser implicitement un stockage partiellement illisible avec son seul
-        // sous-ensemble décodable : l'incohérence doit rester visible jusqu'à correction explicite.
-        if (!stored.reliable) return false
-        val items = stored.records.filterNot { it.year == record.year }.toMutableList()
-        items += record
-        return write(context, companyId, items)
+        val id = companyId.trim()
+        if (id.isBlank()) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            val stored = readConfirmed(context, company.id)
+            // Ne jamais écraser implicitement un stockage partiellement illisible avec son seul
+            // sous-ensemble décodable : l'incohérence doit rester visible jusqu'à correction explicite.
+            if (!stored.reliable) return@withConfirmedCompany false
+            val items = stored.records.filterNot { it.year == record.year }.toMutableList()
+            items += record
+            writeConfirmed(context, company.id, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
-        if (companyId.isBlank()) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        return write(context, companyId, stored.records.filterNot { it.id == id })
+        val companyIdNormalized = companyId.trim()
+        if (companyIdNormalized.isBlank()) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, companyIdNormalized) { company ->
+            val stored = readConfirmed(context, company.id)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmed(context, company.id, stored.records.filterNot { it.id == id })
+        } == true
     }
 
     fun resolve(
@@ -63,7 +74,17 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         companyId: String,
         year: Int
     ): EmployerGeneralReductionAnnualContextV2.Snapshot {
-        val stored = read(context, companyId)
+        val id = companyId.trim()
+        if (id.isBlank()) return resolve(companyUnavailableResult(id), year)
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            resolve(readConfirmed(context, company.id), year)
+        } ?: resolve(companyUnavailableResult(id), year)
+    }
+
+    internal fun resolve(
+        stored: ReadResult,
+        year: Int
+    ): EmployerGeneralReductionAnnualContextV2.Snapshot {
         if (!stored.reliable) {
             return EmployerGeneralReductionAnnualContextV2.Snapshot(
                 fullCalendarYearPresent = null,
@@ -94,7 +115,13 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
     }
 
-    private fun write(
+    private fun readConfirmed(context: Context, companyId: String): ReadResult {
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
+    }
+
+    private fun writeConfirmed(
         context: Context,
         companyId: String,
         items: List<EmployerGeneralReductionAnnualContextV2.Record>
