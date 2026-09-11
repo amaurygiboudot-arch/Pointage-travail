@@ -124,7 +124,19 @@ object SessionMealFactsDialogV2 {
             return
         }
 
-        val companies = SalaryCompanyStore.list(context).associateBy { it.id }
+        val companyState = SalaryCompanyStore.readConfirmed(context)
+        if (!companyState.reliable) {
+            AlertDialog.Builder(context)
+                .setTitle("Faits repas par session")
+                .setMessage(
+                    "Le stockage des entreprises doit être vérifié. HoraTrack refuse d’ouvrir cet éditeur " +
+                        "pour éviter d’associer des faits repas à la mauvaise entreprise."
+                )
+                .setPositiveButton("FERMER", null)
+                .show()
+            return
+        }
+        val companies = companyState.companies.associateBy { it.id }
         val labels = sessions.map { session ->
             val companyId = SalaryCompanyStore.canonicalCompanyIdForEmployerId(context, session.employerId)
             sessionLabel(session, companyId?.let { companies[it]?.name })
