@@ -21,7 +21,12 @@ class AnnualSalaryPdfButton @JvmOverloads constructor(context:Context,attrs:Attr
 
     private fun chooseCompanyAndOpen(){
         val a=context as? MainActivity?:return
-        val companies=SalaryCompanyStore.list(a)
+        val stored=SalaryCompanyStore.readConfirmed(a)
+        if(!stored.reliable){
+            Toast.makeText(a,"Entreprises Salaire indisponibles : vérifie le stockage avant de générer l'estimation annuelle",Toast.LENGTH_LONG).show()
+            return
+        }
+        val companies=stored.companies
         when{
             companies.isEmpty()->Toast.makeText(a,"Ajoute d'abord une entreprise dans Salaire",Toast.LENGTH_LONG).show()
             companies.size==1->open(a,companies.single())
