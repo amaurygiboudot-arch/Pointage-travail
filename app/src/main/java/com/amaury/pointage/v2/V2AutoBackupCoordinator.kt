@@ -34,7 +34,7 @@ object V2AutoBackupCoordinator {
         "welcome_preview"
     )
 
-    private val handler = Handler(Looper.getMainLooper())
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val listeners = mutableListOf<Pair<SharedPreferences, SharedPreferences.OnSharedPreferenceChangeListener>>()
     private val registeredNames = linkedSetOf<String>()
     private var appContext: Context? = null
@@ -63,11 +63,24 @@ object V2AutoBackupCoordinator {
 
     @Synchronized
     private fun registerDynamicSalaryFiles(app: Context) {
-        val expectedFromCompanies = SalaryCompanyStore.list(app).map { company ->
-            SALARY_COMPANY_PREFIX + company.id.replace(Regex("[^A-Za-z0-9_-]"), "_")
-        }
+        val stored = SalaryCompanyStore.readConfirmed(app)
         val existingOnDisk = sharedPreferenceFileNames(app).filter { it.startsWith(SALARY_COMPANY_PREFIX) }
-        (expectedFromCompanies + existingOnDisk).distinct().forEach { register(app, it) }
+        dynamicSalaryFileNames(stored, existingOnDisk).forEach { register(app, it) }
+    }
+
+    internal fun dynamicSalaryFileNames(
+        stored: SalaryCompanyStore.ReadResult,
+        existingOnDisk: List<String>
+    ): List<String> {
+        val expectedFromCompanies = if (stored.reliable) {
+            stored.companies.map { company ->
+                SALARY_COMPANY_PREFIX + company.id.replace(Regex("[^A-Za-z0-9_-]"), "_")
+            }
+        } else {
+            emptyList()
+        }
+        return (expectedFromCompanies + existingOnDisk.filter { it.startsWith(SALARY_COMPANY_PREFIX) })
+            .distinct()
     }
 
     private fun sharedPreferenceFileNames(context: Context): List<String> {
