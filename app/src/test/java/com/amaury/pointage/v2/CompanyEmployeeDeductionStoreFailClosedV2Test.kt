@@ -77,7 +77,7 @@ class CompanyEmployeeDeductionStoreFailClosedV2Test {
     }
 
     @Test
-    fun `store vide sain conserve le comportement de migration legacy`() {
+    fun `store vide sain detecte legacy sans le reutiliser dans Salaire V2`() {
         val resolved = CompanyEmployeeDeductionStoreV2.resolve(
             CompanyEmployeeDeductionStoreV2.ReadResult(emptyList(), true, emptyList()),
             period
@@ -88,9 +88,11 @@ class CompanyEmployeeDeductionStoreFailClosedV2Test {
         )
 
         val mutual = legacy[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE]
-        assertEquals(42.0, mutual.amount!!, 0.001)
-        assertTrue(mutual.legacyUsed)
+        assertNull(mutual.amount)
+        assertNull(mutual.source)
+        assertFalse(mutual.legacyUsed)
         assertFalse(mutual.reliable)
+        assertTrue(mutual.warnings.any { it.contains("non utilisée", ignoreCase = true) })
     }
 
     @Test
