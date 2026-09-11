@@ -87,4 +87,58 @@ class CompanyAgreementStoreFailClosedV2Test {
         assertFalse(decoded.reliable)
         assertTrue(decoded.agreements.isEmpty())
     }
+
+    @Test
+    fun `copie locale valide repare des metadonnees ACCO corrompues`() {
+        val backup = CompanyAgreementStoreV2.encode(listOf(agreement("ACCOTEXT000001", CompanyAgreementStoreV2.Status.VERIFIED)))
+
+        val resolution = CompanyAgreementStoreV2.resolveStoredAgreements(
+            primaryRaw = "{broken",
+            backupRaw = backup
+        )
+
+        assertEquals(CompanyAgreementStoreV2.StorageSource.LAST_KNOWN_GOOD, resolution.source)
+        assertTrue(resolution.result.reliable)
+        assertTrue(resolution.result.repairedFromBackup)
+        assertEquals("ACCOTEXT000001", resolution.result.agreements.single().id)
+        assertTrue(resolution.result.warnings.any { it.contains("restauré") })
+    }
+
+    @Test
+    fun `metadonnees principales valides restent prioritaires sur une ancienne copie`() {
+        val primary = CompanyAgreementStoreV2.encode(listOf(agreement("ACCOTEXT000001", CompanyAgreementStoreV2.Status.UNKNOWN)))
+        val backup = CompanyAgreementStoreV2.encode(listOf(agreement("ACCOTEXT000001", CompanyAgreementStoreV2.Status.VERIFIED)))
+
+        val resolution = CompanyAgreementStoreV2.resolveStoredAgreements(primary, backup)
+
+        assertEquals(CompanyAgreementStoreV2.StorageSource.PRIMARY, resolution.source)
+        assertTrue(resolution.result.reliable)
+        assertFalse(resolution.result.repairedFromBackup)
+        assertEquals(CompanyAgreementStoreV2.Status.UNKNOWN, resolution.result.agreements.single().status)
+    }
+
+    @Test
+    fun `principal et copie corrompus restent bloques sans auto nettoyage`() {
+        val resolution = CompanyAgreementStoreV2.resolveStoredAgreements(
+            primaryRaw = """[
+                {"id":"ACCOTEXT000001","title":"Accord temps de travail","sourceLabel":"Légifrance","status":"UNKNOWN"},
+                "entree-cassee"
+            ]""".trimIndent(),
+            backupRaw = "{backup-broken"
+        )
+
+        assertEquals(CompanyAgreementStoreV2.StorageSource.NONE, resolution.source)
+        assertFalse(resolution.result.reliable)
+        assertFalse(resolution.result.repairedFromBackup)
+        assertEquals(1, resolution.result.agreements.size)
+    }
+
+    private fun agreement(id: String, status: CompanyAgreementStoreV2.Status) = CompanyAgreementStoreV2.Agreement(
+        id = id,
+        title = "Accord temps de travail",
+        effectiveFrom = "2026-01-01",
+        effectiveTo = null,
+        sourceLabel = "Légifrance",
+        status = status
+    )
 }
