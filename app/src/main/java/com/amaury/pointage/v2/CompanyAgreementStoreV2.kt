@@ -49,18 +49,28 @@ object CompanyAgreementStoreV2 {
 
     /**
      * Lit les métadonnées ACCO sans confondre corruption et absence d'accord.
+     * L'entreprise est confirmée sous le même verrou que sa suppression avant toute lecture ou
+     * auto-réparation : une ancienne vue ne peut donc pas recréer de préférences après suppression.
      * Une dernière copie saine est conservée et peut restaurer automatiquement le stockage principal.
      * Une ancienne trace corrompue n'est supprimée qu'après confirmation du principal et du secours sains.
      */
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                agreements = emptyList(),
-                reliable = false,
-                warnings = listOf("Accords ACCO : entreprise non identifiée.")
-            )
-        }
+        if (companyId.isBlank()) return unavailableCompanyReadResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readConfirmedCompany(context, companyId)
+        } ?: unavailableCompanyReadResult()
+    }
 
+    internal fun unavailableCompanyReadResult(): ReadResult = ReadResult(
+        agreements = emptyList(),
+        reliable = false,
+        warnings = listOf(
+            STORAGE_WARNING,
+            "Accords ACCO : entreprise absente ou stockage des entreprises non fiable."
+        )
+    )
+
+    private fun readConfirmedCompany(context: Context, companyId: String): ReadResult {
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         if (!prefs.contains(KEY)) {
             val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()

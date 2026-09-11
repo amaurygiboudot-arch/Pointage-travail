@@ -44,19 +44,29 @@ object CompanyAgreementRuleStoreV2 {
 
     /**
      * Lit les règles ACCO sans jamais transformer une corruption en liste vide fiable.
+     * L'entreprise est confirmée sous le même verrou que sa suppression avant toute lecture ou
+     * auto-réparation : une ancienne vue ne peut donc pas recréer de préférences après suppression.
      * Une dernière copie saine est maintenue automatiquement et restaurée si le stockage principal
      * devient illisible. Une ancienne trace corrompue n'est supprimée qu'après confirmation du
      * principal et du secours sains.
      */
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = listOf("Règles ACCO : entreprise non identifiée.")
-            )
-        }
+        if (companyId.isBlank()) return unavailableCompanyReadResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readConfirmedCompany(context, companyId)
+        } ?: unavailableCompanyReadResult()
+    }
 
+    internal fun unavailableCompanyReadResult(): ReadResult = ReadResult(
+        records = emptyList(),
+        reliable = false,
+        warnings = listOf(
+            STORAGE_WARNING,
+            "Règles ACCO : entreprise absente ou stockage des entreprises non fiable."
+        )
+    )
+
+    private fun readConfirmedCompany(context: Context, companyId: String): ReadResult {
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         if (!prefs.contains(KEY)) {
             val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
