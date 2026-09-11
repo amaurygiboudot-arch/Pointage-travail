@@ -19,17 +19,17 @@ object CompanyIncomeTaxRateStoreV2 {
         val warnings: List<String>
     )
 
+    internal fun companyUnavailableResult(): ReadResult = ReadResult(
+        records = emptyList(),
+        reliable = false,
+        warnings = listOf("PAS : entreprise absente ou stockage des entreprises non fiable ; taux personnel inaccessible.")
+    )
+
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                emptyList(),
-                false,
-                listOf("PAS : entreprise non identifiée ; taux personnel inaccessible.")
-            )
-        }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        if (companyId.isBlank()) return companyUnavailableResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readConfirmed(context, companyId)
+        } ?: companyUnavailableResult()
     }
 
     fun list(context: Context, companyId: String): List<CompanyIncomeTaxRateResolverV2.Record> =
@@ -37,23 +37,31 @@ object CompanyIncomeTaxRateStoreV2 {
 
     fun save(context: Context, companyId: String, record: CompanyIncomeTaxRateResolverV2.Record): Boolean {
         if (companyId.isBlank() || !valid(record)) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        val items = stored.records.toMutableList()
-        val index = items.indexOfFirst { it.id == record.id }
-        if (index >= 0) items[index] = record else items += record
-        return write(context, companyId, items)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            val items = stored.records.toMutableList()
+            val index = items.indexOfFirst { it.id == record.id }
+            if (index >= 0) items[index] = record else items += record
+            writeConfirmed(context, companyId, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
         if (companyId.isBlank() || id.isBlank()) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        return write(context, companyId, stored.records.filterNot { it.id == id })
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmed(context, companyId, stored.records.filterNot { it.id == id })
+        } == true
     }
 
-    fun resolve(context: Context, companyId: String, period: YearMonth): CompanyIncomeTaxRateResolverV2.Snapshot =
-        resolve(read(context, companyId), period)
+    fun resolve(context: Context, companyId: String, period: YearMonth): CompanyIncomeTaxRateResolverV2.Snapshot {
+        if (companyId.isBlank()) return resolve(companyUnavailableResult(), period)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            resolve(readConfirmed(context, companyId), period)
+        } ?: resolve(companyUnavailableResult(), period)
+    }
 
     /**
      * hasDatedRecords=true est volontaire en cas de corruption : le fallback legacy ne doit
@@ -89,7 +97,17 @@ object CompanyIncomeTaxRateStoreV2 {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
     }
 
-    private fun write(context: Context, companyId: String, items: List<CompanyIncomeTaxRateResolverV2.Record>): Boolean {
+    private fun readConfirmed(context: Context, companyId: String): ReadResult {
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
+    }
+
+    private fun writeConfirmed(
+        context: Context,
+        companyId: String,
+        items: List<CompanyIncomeTaxRateResolverV2.Record>
+    ): Boolean {
         if (items.any { !valid(it) } || items.groupingBy { it.id }.eachCount().any { it.value > 1 }) return false
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
