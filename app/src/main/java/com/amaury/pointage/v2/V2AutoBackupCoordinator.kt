@@ -34,7 +34,7 @@ object V2AutoBackupCoordinator {
         "welcome_preview"
     )
 
-    private val handler = Handler(Looper.getMainLooper())
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val listeners = mutableListOf<Pair<SharedPreferences, SharedPreferences.OnSharedPreferenceChangeListener>>()
     private val registeredNames = linkedSetOf<String>()
     private var appContext: Context? = null
