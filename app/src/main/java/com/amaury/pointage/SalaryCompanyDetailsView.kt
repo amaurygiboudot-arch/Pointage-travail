@@ -600,8 +600,28 @@ class SalaryContractDetailsView(context: Context, private val company: SalaryCom
         val coefficient = field("Coefficient convention collective", prefs.getString("convention_coefficient", "").orEmpty(), InputType.TYPE_CLASS_NUMBER)
         addView(type, row()); listOf(weekly, annualHours, annualDays, rate, monthly).forEach { addView(it, row()) }; addView(status, row()); addView(coefficient, row())
         addView(button("ENREGISTRER") {
-            prefs.edit().putString("contract_type", type.selectedItem.toString()).putString("contract_weekly_hours", weekly.text.toString().trim()).putString("annual_hours_package", annualHours.text.toString().trim()).putString("annual_days_package", annualDays.text.toString().trim()).putString("hourly_rate", rate.text.toString().trim()).putString("monthly_contract_salary", monthly.text.toString().trim()).putString("professional_status", status.selectedItem.toString()).putString("convention_coefficient", coefficient.text.toString().trim()).commit()
-            Toast.makeText(context, "Contrat enregistré", Toast.LENGTH_SHORT).show(); showSummary()
+            val saved = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
+                SalaryCompanyStore.prefs(context, confirmed.id).edit()
+                    .putString("contract_type", type.selectedItem.toString())
+                    .putString("contract_weekly_hours", weekly.text.toString().trim())
+                    .putString("annual_hours_package", annualHours.text.toString().trim())
+                    .putString("annual_days_package", annualDays.text.toString().trim())
+                    .putString("hourly_rate", rate.text.toString().trim())
+                    .putString("monthly_contract_salary", monthly.text.toString().trim())
+                    .putString("professional_status", status.selectedItem.toString())
+                    .putString("convention_coefficient", coefficient.text.toString().trim())
+                    .commit()
+            } == true
+            if (!saved) {
+                Toast.makeText(
+                    context,
+                    "Impossible d’enregistrer le contrat : l’entreprise n’existe plus ou le stockage doit être vérifié.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@button
+            }
+            Toast.makeText(context, "Contrat enregistré", Toast.LENGTH_SHORT).show()
+            showSummary()
         })
         addView(button("ANNULER") { showSummary() })
     }
