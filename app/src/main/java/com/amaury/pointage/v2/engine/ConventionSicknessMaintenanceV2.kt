@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.AbsenceSourceStateV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import java.time.Instant
@@ -192,6 +193,18 @@ object ConventionSicknessMaintenanceV2 {
         val totalBandDays = tier.bands.sumOf { it.calendarDays }
         val annualLimit = tier.annualLimitDays ?: totalBandDays
         val perStopLimit = tier.perStopLimitDays ?: totalBandDays
+        val sourceState = allAbsences as? AbsenceSourceStateV2
+        if (sourceState?.absenceSourceReliable == false) {
+            return unavailable("Maintien maladie : historique des absences local non fiable ; les jours déjà consommés et le reliquat ne peuvent pas être certifiés.")
+                .copy(
+                    applicable = true,
+                    selectedRule = selected,
+                    referenceBasis = selected.referenceBasis,
+                    warnings = (sourceState.absenceSourceWarnings +
+                        "Maintien maladie : historique des absences local non fiable ; les jours déjà consommés et le reliquat ne peuvent pas être certifiés.")
+                        .distinct()
+                )
+        }
         val year = start.year
         val recordedStops = allAbsences
             .asSequence()
