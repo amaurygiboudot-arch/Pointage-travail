@@ -1,10 +1,12 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.SalaryCompanyStore
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.YearMonth
@@ -148,5 +150,47 @@ class V2PayslipStoreTest {
         assertTrue(stored.reliable)
         assertEquals(1, grossByMonth?.size)
         assertEquals(2_100.0, grossByMonth?.get(YearMonth.of(2026, 1)) ?: -1.0, 0.001)
+    }
+
+    @Test
+    fun `un store entreprises non fiable ne fournit jamais une entreprise aux bulletins`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = "292"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = false,
+            warnings = listOf("store entreprises corrompu")
+        )
+
+        assertNull(V2PayslipStore.confirmedCompany(stored, company.id))
+    }
+
+    @Test
+    fun `une entreprise absente du store confirme ne reactive pas ses anciennes preferences`() {
+        val stored = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
+
+        assertNull(V2PayslipStore.confirmedCompany(stored, "company-a"))
+    }
+
+    @Test
+    fun `une entreprise confirmee reste utilisable par les bulletins`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234",
+            idcc = "292"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = true,
+            repairedFromBackup = true,
+            warnings = listOf("restaure depuis copie saine")
+        )
+
+        assertSame(company, V2PayslipStore.confirmedCompany(stored, " company-a "))
     }
 }
