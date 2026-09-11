@@ -100,4 +100,23 @@ class V2ConventionRuleStoreFailClosedV2Test {
 
         assertFalse(result.reliable)
     }
+
+    @Test
+    fun `historique de compatibilite accepte une absence fiable`() {
+        val stored = V2ConventionRuleStore.decodeConfirmed("[]")
+        val history = V2ConventionRuleStore.historyFrom(stored)
+
+        assertTrue(history.allVersions("0292").isEmpty())
+    }
+
+    @Test
+    fun `historique de compatibilite refuse un stockage corrompu meme si une entree reste lisible`() {
+        val stored = V2ConventionRuleStore.decodeConfirmed("[${snapshot("v1", 1000)},42]")
+
+        assertFalse(stored.reliable)
+        assertEquals(1, stored.snapshots.size)
+        val failure = runCatching { V2ConventionRuleStore.historyFrom(stored) }.exceptionOrNull()
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("aucune règle ni absence"))
+    }
 }
