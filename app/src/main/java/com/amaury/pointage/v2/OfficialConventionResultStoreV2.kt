@@ -19,43 +19,46 @@ object OfficialConventionResultStoreV2 {
         convention: OfficialConventionContainerParserV2.VerifiedConvention
     ): Boolean {
         val baseIds = JSONArray().apply { convention.baseTextIds.forEach { put(it) } }
-        return SalaryCompanyStore.prefs(context, companyId).edit()
-            .putBoolean(KEY_VERIFIED, true)
-            .putString(KEY_IDCC, convention.idcc)
-            .putString(KEY_CONTAINER_ID, convention.containerId)
-            .putString(KEY_TITLE, convention.title)
-            .putString(KEY_BASE_TEXT_IDS, baseIds.toString())
-            .putLong(KEY_CHECKED_AT, convention.checkedAtMs)
-            .commit()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            SalaryCompanyStore.prefs(context, companyId).edit()
+                .putBoolean(KEY_VERIFIED, true)
+                .putString(KEY_IDCC, convention.idcc)
+                .putString(KEY_CONTAINER_ID, convention.containerId)
+                .putString(KEY_TITLE, convention.title)
+                .putString(KEY_BASE_TEXT_IDS, baseIds.toString())
+                .putLong(KEY_CHECKED_AT, convention.checkedAtMs)
+                .commit()
+        } == true
     }
 
     fun load(
         context: Context,
         companyId: String
-    ): OfficialConventionContainerParserV2.VerifiedConvention? {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.getBoolean(KEY_VERIFIED, false)) return null
-        val idcc = prefs.getString(KEY_IDCC, null).orEmpty()
-        val containerId = prefs.getString(KEY_CONTAINER_ID, null).orEmpty()
-        val title = prefs.getString(KEY_TITLE, null).orEmpty()
-        val checkedAtMs = prefs.getLong(KEY_CHECKED_AT, 0L)
-        val baseTextIds = runCatching {
-            val array = JSONArray(prefs.getString(KEY_BASE_TEXT_IDS, "[]"))
-            buildList {
-                for (index in 0 until array.length()) {
-                    array.optString(index).takeIf { it.startsWith("KALITEXT") }?.let(::add)
+    ): OfficialConventionContainerParserV2.VerifiedConvention? =
+        SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            if (!prefs.getBoolean(KEY_VERIFIED, false)) return@withConfirmedCompany null
+            val idcc = prefs.getString(KEY_IDCC, null).orEmpty()
+            val containerId = prefs.getString(KEY_CONTAINER_ID, null).orEmpty()
+            val title = prefs.getString(KEY_TITLE, null).orEmpty()
+            val checkedAtMs = prefs.getLong(KEY_CHECKED_AT, 0L)
+            val baseTextIds = runCatching {
+                val array = JSONArray(prefs.getString(KEY_BASE_TEXT_IDS, "[]"))
+                buildList {
+                    for (index in 0 until array.length()) {
+                        array.optString(index).takeIf { it.startsWith("KALITEXT") }?.let(::add)
+                    }
                 }
-            }
-        }.getOrDefault(emptyList())
-        if (OfficialConventionCatalogParserV2.normalizeIdcc(idcc) == null ||
-            !containerId.startsWith("KALICONT") || title.isBlank() || checkedAtMs <= 0L
-        ) return null
-        return OfficialConventionContainerParserV2.VerifiedConvention(
-            idcc = idcc,
-            containerId = containerId,
-            title = title,
-            baseTextIds = baseTextIds,
-            checkedAtMs = checkedAtMs
-        )
-    }
+            }.getOrDefault(emptyList())
+            if (OfficialConventionCatalogParserV2.normalizeIdcc(idcc) == null ||
+                !containerId.startsWith("KALICONT") || title.isBlank() || checkedAtMs <= 0L
+            ) return@withConfirmedCompany null
+            OfficialConventionContainerParserV2.VerifiedConvention(
+                idcc = idcc,
+                containerId = containerId,
+                title = title,
+                baseTextIds = baseTextIds,
+                checkedAtMs = checkedAtMs
+            )
+        }
 }
