@@ -138,14 +138,16 @@ object SalaryCompanyStore {
         allowInsert: Boolean
     ): List<Company>? {
         if (!stored.reliable || company.id.isBlank()) return null
-        val all = stored.companies.toMutableList()
-        val index = if (allowInsert) {
-            all.indexOfFirst {
-                it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
-            }
-        } else {
-            all.indexOfFirst { it.id == company.id }
+        val normalizedSiret = company.siret.filter(Char::isDigit)
+        if (company.siret.isNotBlank() && normalizedSiret.length != 14) return null
+        if (normalizedSiret.length == 14 && stored.companies.any {
+                it.id != company.id && it.siret.filter(Char::isDigit) == normalizedSiret
+            }) {
+            return null
         }
+
+        val all = stored.companies.toMutableList()
+        val index = all.indexOfFirst { it.id == company.id }
         if (index >= 0) {
             all[index] = company
         } else if (allowInsert) {
