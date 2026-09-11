@@ -44,7 +44,16 @@ object V2ManualEntryInstaller {
     private fun showDialog(activity: Activity) {
         val selectedDate = Calendar.getInstance(Locale.FRANCE)
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-        val companyList = SalaryCompanyStore.list(activity)
+        val storedCompanies = SalaryCompanyStore.readConfirmed(activity)
+        if (!storedCompanies.reliable) {
+            Toast.makeText(
+                activity,
+                "Saisie manuelle bloquée : le stockage des entreprises doit être vérifié avant d'associer une plage de travail.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val companyList = storedCompanies.companies
         val activeCompanyId = V2ProfileStore.activeCompanyId(activity)
 
         val body = LinearLayout(activity).apply {
@@ -128,7 +137,7 @@ object V2ManualEntryInstaller {
                         place.text.toString().trim()
                     )
                 } else {
-                    // Compatibilité : sans entreprise configurée, le comportement historique reste possible.
+                    // Compatibilité : sans entreprise configurée dans un store fiable, le comportement historique reste possible.
                     V2ManualSessionWriter.add(activity, startMs, endMs, 1, place.text.toString().trim())
                 }
                 Toast.makeText(activity, if (ok) "Heures ajoutées dans HoraTrack V2" else "Cette plage existe déjà ou est invalide", Toast.LENGTH_LONG).show()
