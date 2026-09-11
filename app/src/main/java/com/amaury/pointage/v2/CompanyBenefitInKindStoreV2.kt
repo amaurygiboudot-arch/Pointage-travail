@@ -40,32 +40,36 @@ object CompanyBenefitInKindStoreV2 {
         val warnings: List<String>
     )
 
+    internal fun companyUnavailableReadResult(): ReadResult = ReadResult(
+        records = emptyList(),
+        reliable = false,
+        warnings = listOf("Avantages en nature : entreprise absente ou stockage des entreprises non fiable.")
+    )
+
+    internal fun companyUnavailableConfirmationResult(): ConfirmationReadResult = ConfirmationReadResult(
+        confirmations = emptyList(),
+        reliable = false,
+        warnings = listOf("Avantages en nature : entreprise absente ou stockage des entreprises non fiable.")
+    )
+
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = listOf("Avantages en nature : entreprise non identifiée.")
-            )
-        }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeRecords(raw)
+        if (companyId.isBlank()) return companyUnavailableReadResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readRecordsConfirmed(context, companyId)
+        } ?: companyUnavailableReadResult()
     }
 
     fun list(context: Context, companyId: String): List<CompanyBenefitInKindResolverV2.Record> =
         read(context, companyId).records
 
     fun monthCoverage(context: Context, companyId: String, period: YearMonth): MonthCoverageSnapshot {
-        if (companyId.isBlank()) {
-            return MonthCoverageSnapshot(
-                confirmed = false,
-                source = null,
-                storageReliable = false,
-                warnings = listOf("Avantages en nature : entreprise non identifiée.")
-            )
-        }
-        val stored = readConfirmations(context, companyId)
+        if (companyId.isBlank()) return unavailableCoverage()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            monthCoverage(readConfirmationsConfirmed(context, companyId), period)
+        } ?: unavailableCoverage()
+    }
+
+    private fun monthCoverage(stored: ConfirmationReadResult, period: YearMonth): MonthCoverageSnapshot {
         if (!stored.reliable) {
             return MonthCoverageSnapshot(false, null, false, stored.warnings)
         }
@@ -76,7 +80,7 @@ object CompanyBenefitInKindStoreV2 {
                 source = null,
                 storageReliable = true,
                 warnings = listOf(
-                    "Avantages en nature ${period}: exhaustivité du mois à confirmer ; aucun zéro implicite n'est retenu."
+                    "Avantages en nature $period : exhaustivité du mois à confirmer ; aucun zéro implicite n'est retenu."
                 )
             )
             1 -> MonthCoverageSnapshot(
@@ -96,25 +100,29 @@ object CompanyBenefitInKindStoreV2 {
 
     fun save(context: Context, companyId: String, record: CompanyBenefitInKindResolverV2.Record): Boolean {
         if (companyId.isBlank() || !validRecord(record)) return false
-        val stored = read(context, companyId)
-        val confirmations = readConfirmations(context, companyId)
-        if (!stored.reliable || !confirmations.reliable) return false
-        val items = stored.records.toMutableList()
-        val index = items.indexOfFirst { it.id == record.id }
-        if (index >= 0) items[index] = record else items += record
-        return writeRecordsAndInvalidateConfirmations(context, companyId, items)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readRecordsConfirmed(context, companyId)
+            val confirmations = readConfirmationsConfirmed(context, companyId)
+            if (!stored.reliable || !confirmations.reliable) return@withConfirmedCompany false
+            val items = stored.records.toMutableList()
+            val index = items.indexOfFirst { it.id == record.id }
+            if (index >= 0) items[index] = record else items += record
+            writeRecordsAndInvalidateConfirmationsConfirmed(context, companyId, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
         if (companyId.isBlank() || id.isBlank()) return false
-        val stored = read(context, companyId)
-        val confirmations = readConfirmations(context, companyId)
-        if (!stored.reliable || !confirmations.reliable) return false
-        return writeRecordsAndInvalidateConfirmations(
-            context,
-            companyId,
-            stored.records.filterNot { it.id == id }
-        )
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readRecordsConfirmed(context, companyId)
+            val confirmations = readConfirmationsConfirmed(context, companyId)
+            if (!stored.reliable || !confirmations.reliable) return@withConfirmedCompany false
+            writeRecordsAndInvalidateConfirmationsConfirmed(
+                context,
+                companyId,
+                stored.records.filterNot { it.id == id }
+            )
+        } == true
     }
 
     /**
@@ -128,39 +136,50 @@ object CompanyBenefitInKindStoreV2 {
         source: String
     ): Boolean {
         if (companyId.isBlank() || source.isBlank()) return false
-        val stored = read(context, companyId)
-        val confirmations = readConfirmations(context, companyId)
-        if (!stored.reliable || !confirmations.reliable) return false
-        val base = CompanyBenefitInKindResolverV2.resolve(stored.records, period)
-        if (!base.reliable) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readRecordsConfirmed(context, companyId)
+            val confirmations = readConfirmationsConfirmed(context, companyId)
+            if (!stored.reliable || !confirmations.reliable) return@withConfirmedCompany false
+            val base = CompanyBenefitInKindResolverV2.resolve(stored.records, period)
+            if (!base.reliable) return@withConfirmedCompany false
 
-        val updated = confirmations.confirmations
-            .filterNot { it.period == period }
-            .toMutableList()
-            .apply { add(MonthConfirmation(period, source.trim())) }
-        return writeConfirmations(context, companyId, updated)
+            val updated = confirmations.confirmations
+                .filterNot { it.period == period }
+                .toMutableList()
+                .apply { add(MonthConfirmation(period, source.trim())) }
+            writeConfirmationsConfirmed(context, companyId, updated)
+        } == true
     }
 
     fun clearMonthConfirmation(context: Context, companyId: String, period: YearMonth): Boolean {
         if (companyId.isBlank()) return false
-        val stored = readConfirmations(context, companyId)
-        if (!stored.reliable) return false
-        return writeConfirmations(
-            context,
-            companyId,
-            stored.confirmations.filterNot { it.period == period }
-        )
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmationsConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmationsConfirmed(
+                context,
+                companyId,
+                stored.confirmations.filterNot { it.period == period }
+            )
+        } == true
     }
 
     fun resolve(
         context: Context,
         companyId: String,
         period: YearMonth
-    ): CompanyBenefitInKindResolverV2.Snapshot = resolve(
-        records = read(context, companyId),
-        confirmations = readConfirmations(context, companyId),
-        period = period
-    )
+    ): CompanyBenefitInKindResolverV2.Snapshot {
+        if (companyId.isBlank()) {
+            return resolve(companyUnavailableReadResult(), companyUnavailableConfirmationResult(), period)
+        }
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            resolve(
+                records = readRecordsConfirmed(context, companyId),
+                confirmations = readConfirmationsConfirmed(context, companyId),
+                period = period
+            )
+        } ?: resolve(companyUnavailableReadResult(), companyUnavailableConfirmationResult(), period)
+    }
 
     internal fun resolve(
         records: ReadResult,
@@ -248,20 +267,19 @@ object CompanyBenefitInKindStoreV2 {
         ConfirmationReadResult(emptyList(), false, listOf(COVERAGE_STORAGE_WARNING))
     }
 
-    private fun readConfirmations(context: Context, companyId: String): ConfirmationReadResult {
-        if (companyId.isBlank()) {
-            return ConfirmationReadResult(
-                emptyList(),
-                false,
-                listOf("Avantages en nature : entreprise non identifiée.")
-            )
-        }
+    private fun readRecordsConfirmed(context: Context, companyId: String): ReadResult {
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeRecords(raw)
+    }
+
+    private fun readConfirmationsConfirmed(context: Context, companyId: String): ConfirmationReadResult {
         val raw = SalaryCompanyStore.prefs(context, companyId).getString(COVERAGE_KEY, "[]")
             ?: return ConfirmationReadResult(emptyList(), false, listOf(COVERAGE_STORAGE_WARNING))
         return decodeConfirmations(raw)
     }
 
-    private fun writeRecordsAndInvalidateConfirmations(
+    private fun writeRecordsAndInvalidateConfirmationsConfirmed(
         context: Context,
         companyId: String,
         items: List<CompanyBenefitInKindResolverV2.Record>
@@ -277,7 +295,7 @@ object CompanyBenefitInKindStoreV2 {
             .commit()
     }
 
-    private fun writeConfirmations(
+    private fun writeConfirmationsConfirmed(
         context: Context,
         companyId: String,
         confirmations: List<MonthConfirmation>
@@ -295,6 +313,13 @@ object CompanyBenefitInKindStoreV2 {
             .putString(COVERAGE_KEY, array.toString())
             .commit()
     }
+
+    private fun unavailableCoverage() = MonthCoverageSnapshot(
+        confirmed = false,
+        source = null,
+        storageReliable = false,
+        warnings = companyUnavailableConfirmationResult().warnings
+    )
 
     private fun toJson(record: CompanyBenefitInKindResolverV2.Record) = JSONObject()
         .put("id", record.id)
