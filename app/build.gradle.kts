@@ -73,6 +73,7 @@ dependencies {
     implementation("com.google.firebase:firebase-functions")
     implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
+    debugImplementation("com.google.firebase:firebase-appcheck-debug")
     implementation("com.google.android.gms:play-services-auth:21.6.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
