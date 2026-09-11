@@ -92,29 +92,29 @@ object HistoryTextFormatterV2 {
                 if (options.showEntry) {
                     append("🟢 ")
                         .append(session.realArrivalMs?.let { fullDateFormat.format(Date(it)) } ?: "—")
-                        .append("  ENTRÉE RÉELLE\\n")
+                        .append("  ENTRÉE RÉELLE\n")
                     append("⏱ ")
                         .append(countedEntry?.let { fullDateFormat.format(Date(it)) } ?: "À CONFIRMER")
                         .append("  ENTRÉE COMPTÉE")
                     if (countedEntryWasRepaired) append(" (corrigée)")
-                    append('\\n')
+                    append('\n')
                 }
 
                 session.employerId
                     ?.let(options.employerNames::get)
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-                    ?.let { append("🏢 ").append(it).append('\\n') }
+                    ?.let { append("🏢 ").append(it).append('\n') }
 
                 session.placeLabel
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
-                    ?.let { append("📍 ").append(it).append('\\n') }
+                    ?.let { append("📍 ").append(it).append('\n') }
 
                 countedEntry?.let {
                     append("🧭 Créneau retenu : ")
                         .append(shiftLabel(WorkTimePolicyV2.shiftKind(it)))
-                        .append('\\n')
+                        .append('\n')
                 }
 
                 if (options.showPause) {
@@ -127,7 +127,7 @@ object HistoryTextFormatterV2 {
                             .append(pauseStatus(pause))
                             .append(", ")
                             .append(sourceLabel(pause))
-                            .append("]\\n")
+                            .append("]\n")
                     }
                 }
 
@@ -135,41 +135,41 @@ object HistoryTextFormatterV2 {
                     if (session.realExitMs != null) {
                         append("🔴 ")
                             .append(fullDateFormat.format(Date(session.realExitMs)))
-                            .append("  SORTIE RÉELLE\\n")
+                            .append("  SORTIE RÉELLE\n")
                         append("⏱ ")
                             .append(session.countedExitMs?.let { fullDateFormat.format(Date(it)) } ?: "À CONFIRMER")
-                            .append("  SORTIE COMPTÉE\\n")
+                            .append("  SORTIE COMPTÉE\n")
                     } else {
-                        append("🟢 EN COURS\\n")
+                        append("🟢 EN COURS\n")
                     }
                 }
 
                 val result = engine.calculate(session, nowMs)
                 val uncertaintyWarnings = result.warnings.filter(::isUncertaintyWarning)
                 if (uncertaintyWarnings.isEmpty()) {
-                    append("Présence réelle : ").append(formatDuration(result.presenceMs)).append('\\n')
-                    append("Temps retenu : ").append(formatDuration(result.countedSpanMs)).append('\\n')
-                    append("Pause non payée : ").append(formatDuration(result.unpaidPauseMs)).append('\\n')
-                    append("Pause payée : ").append(formatDuration(result.paidPauseMs)).append('\\n')
-                    append("Temps payé : ").append(formatDuration(result.paidWorkMs)).append('\\n')
+                    append("Présence réelle : ").append(formatDuration(result.presenceMs)).append('\n')
+                    append("Temps retenu : ").append(formatDuration(result.countedSpanMs)).append('\n')
+                    append("Pause non payée : ").append(formatDuration(result.unpaidPauseMs)).append('\n')
+                    append("Pause payée : ").append(formatDuration(result.paidPauseMs)).append('\n')
+                    append("Temps payé : ").append(formatDuration(result.paidWorkMs)).append('\n')
                 } else {
                     append("Présence réelle : ")
                         .append(if (result.presenceMs > 0L) formatDuration(result.presenceMs) else "À CONFIRMER")
-                        .append('\\n')
+                        .append('\n')
                     append("Temps retenu : ")
                         .append(if (result.countedSpanMs > 0L) formatDuration(result.countedSpanMs) else "À CONFIRMER")
-                        .append('\\n')
-                    append("Temps payé : À CONFIRMER\\n")
+                        .append('\n')
+                    append("Temps payé : À CONFIRMER\n")
                     append("⚠ À confirmer : ")
                         .append(uncertaintyWarnings.joinToString(" ; "))
-                        .append('\\n')
+                        .append('\n')
                 }
 
                 val informationalWarnings = result.warnings.filterNot(::isUncertaintyWarning)
                 if (informationalWarnings.isNotEmpty()) {
-                    append("ℹ ").append(informationalWarnings.joinToString(" ; ")).append('\\n')
+                    append("ℹ ").append(informationalWarnings.joinToString(" ; ")).append('\n')
                 }
-                append('\\n')
+                append('\n')
             }
         }.ifBlank { options.emptyMessage }
     }
