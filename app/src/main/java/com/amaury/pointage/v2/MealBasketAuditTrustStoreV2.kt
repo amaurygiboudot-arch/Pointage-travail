@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.ConventionMealBasketV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import org.json.JSONArray
@@ -39,12 +40,17 @@ object MealBasketAuditTrustStoreV2 {
         val key = accoKey(companyId, profile) ?: return false
         val normalizedIds = verifiedAgreementIds.mapTo(linkedSetOf()) { it.trim().uppercase() }
             .filterTo(linkedSetOf()) { it.matches(Regex("^ACCOTEXT\\d+$")) }
-        return persist(context, key, Record(
+        val record = Record(
             state = state,
             fingerprints = fingerprints.filterTo(linkedSetOf()) { it.isNotBlank() },
             sourceIds = normalizedIds,
             checkedAtMs = System.currentTimeMillis().coerceAtLeast(1L)
-        ))
+        )
+        val expectedSiret = profile.siret.filter(Char::isDigit)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+            if (company.siret.filter(Char::isDigit) != expectedSiret) return@withConfirmedCompany false
+            persist(context, key, record)
+        } == true
     }
 
     fun acco(
