@@ -55,17 +55,28 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
         companyId: String,
         year: Int
     ): Result {
-        if (companyId.isBlank()) {
+        val id = companyId.trim()
+        if (id.isBlank()) {
             return blocked("RGDU annuelle : entreprise non identifiée.")
         }
         if (year != 2026) {
             return blocked("RGDU annuelle : passerelle Salaire V2 non intégrée pour $year.")
         }
 
-        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
-        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
-            ?: return blocked(companyStoreBlockers(storedCompanies, companyId))
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            resolveConfirmedCompany(context, company, year)
+        } ?: blocked(
+            companyStoreBlockers(SalaryCompanyStore.readConfirmed(context), id).ifEmpty {
+                listOf("RGDU annuelle : entreprise $id indisponible pendant la reconstruction ; calcul bloqué.")
+            }
+        )
+    }
 
+    private fun resolveConfirmedCompany(
+        context: Context,
+        company: SalaryCompanyStore.Company,
+        year: Int
+    ): Result {
         val annualContext = CompanyEmployerGeneralReductionAnnualContextStoreV2.resolve(
             context = context,
             companyId = company.id,
