@@ -45,7 +45,8 @@ object CompanyAgreementRuleStoreV2 {
     /**
      * Lit les règles ACCO sans jamais transformer une corruption en liste vide fiable.
      * Une dernière copie saine est maintenue automatiquement et restaurée si le stockage principal
-     * devient illisible. La valeur corrompue est conservée séparément avant restauration.
+     * devient illisible. Une ancienne trace corrompue n'est supprimée qu'après confirmation du
+     * principal et du secours sains.
      */
     fun read(context: Context, companyId: String): ReadResult {
         if (companyId.isBlank()) {
@@ -65,6 +66,7 @@ object CompanyAgreementRuleStoreV2 {
                     prefs.edit().putString(KEY, backupRaw).commit()
                 }.getOrDefault(false)
                 return if (restored) {
+                    discardCorruptBackup(prefs)
                     backup.copy(
                         warnings = listOf(REPAIRED_WARNING),
                         repairedFromBackup = true
@@ -90,22 +92,23 @@ object CompanyAgreementRuleStoreV2 {
 
         return when (resolution.source) {
             StorageSource.PRIMARY -> {
-                if (primaryRaw != null && backupRaw != primaryRaw) {
-                    runCatching {
+                val backupHealthy = when {
+                    primaryRaw == null -> false
+                    backupRaw == primaryRaw -> true
+                    else -> runCatching {
                         prefs.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
-                    }
+                    }.getOrDefault(false)
                 }
+                if (backupHealthy) discardCorruptBackup(prefs)
                 resolution.result
             }
             StorageSource.LAST_KNOWN_GOOD -> {
                 val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
-                val corruptRaw = primaryValue?.toString()
-                val editor = prefs.edit().putString(KEY, repairedRaw)
-                if (!corruptRaw.isNullOrBlank()) {
-                    editor.putString(KEY_CORRUPT_BACKUP, corruptRaw)
-                }
-                val restored = runCatching { editor.commit() }.getOrDefault(false)
+                val restored = runCatching {
+                    prefs.edit().putString(KEY, repairedRaw).commit()
+                }.getOrDefault(false)
                 if (restored) {
+                    discardCorruptBackup(prefs)
                     resolution.result
                 } else {
                     ReadResult(
@@ -292,10 +295,18 @@ object CompanyAgreementRuleStoreV2 {
         if (companyId.isBlank()) return false
         return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
             val entries = snapshotEntries(values) ?: return@withConfirmedCompany false
-            val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            val editor = prefs.edit()
             entries.forEach { (key, value) -> editor.putString(key, value) }
-            editor.commit()
+            val persisted = editor.commit()
+            if (persisted) discardCorruptBackup(prefs)
+            persisted
         } == true
+    }
+
+    private fun discardCorruptBackup(prefs: android.content.SharedPreferences) {
+        if (!prefs.contains(KEY_CORRUPT_BACKUP)) return
+        runCatching { prefs.edit().remove(KEY_CORRUPT_BACKUP).commit() }
     }
 
     internal fun encode(values: List<StoredCandidate>): String {
