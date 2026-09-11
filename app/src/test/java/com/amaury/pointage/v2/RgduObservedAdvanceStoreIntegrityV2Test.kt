@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.v2.engine.EmployerGeneralReductionObservedAdvanceV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,6 +8,30 @@ import org.junit.Test
 import java.time.YearMonth
 
 class RgduObservedAdvanceStoreIntegrityV2Test {
+    @Test
+    fun `observed RGDU unavailable company is fail closed`() {
+        val result = CompanyEmployerGeneralReductionObservedAdvanceStoreV2.companyUnavailableResult("company-a")
+
+        assertFalse(result.reliable)
+        assertTrue(result.records.isEmpty())
+        assertTrue(result.warnings.any {
+            it.contains("absente", ignoreCase = true) && it.contains("orpheline", ignoreCase = true)
+        })
+    }
+
+    @Test
+    fun `observed RGDU unavailable company makes annual snapshot invalid`() {
+        val result = CompanyEmployerGeneralReductionObservedAdvanceStoreV2.resolveYear(
+            CompanyEmployerGeneralReductionObservedAdvanceStoreV2.companyUnavailableResult("company-a"),
+            2026
+        )
+
+        assertEquals(EmployerGeneralReductionObservedAdvanceV2.YearState.INVALID, result.state)
+        assertTrue(result.monthlyAdvances.isEmpty())
+        assertTrue(result.sources.isEmpty())
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
     @Test
     fun `decoder preserves explicit zero amount`() {
         val result = CompanyEmployerGeneralReductionObservedAdvanceStoreV2.decode(
