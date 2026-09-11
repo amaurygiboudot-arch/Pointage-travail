@@ -24,6 +24,14 @@ struct ContentView: View {
         } message: {
             Text(authManager.errorMessage ?? "")
         }
+        .alert("Problème de sauvegarde locale", isPresented: Binding(
+            get: { store.persistenceWarning != nil },
+            set: { if !$0 { store.clearPersistenceWarning() } }
+        )) {
+            Button("OK", role: .cancel) { store.clearPersistenceWarning() }
+        } message: {
+            Text(store.persistenceWarning ?? "")
+        }
     }
 
     private var todayView: some View {
