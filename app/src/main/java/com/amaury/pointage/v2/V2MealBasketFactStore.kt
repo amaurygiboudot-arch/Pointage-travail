@@ -63,6 +63,7 @@ object V2MealBasketFactStore {
      *
      * Cette API est utilisée par les formulaires qui décrivent une même période : soit tout le lot
      * est validé et écrit, soit le journal reste strictement inchangé.
+     * Les faits de portée COMPANY restent en plus liés à une entreprise confirmée pendant l'écriture.
      */
     fun replaceAtomically(
         context: Context,
@@ -73,10 +74,53 @@ object V2MealBasketFactStore {
         if (replacements.any { !it.structurallyValid() }) return false
         if (replacements.map { it.id }.toSet().size != replacements.size) return false
 
-        val loaded = load(context)
+        val initial = load(context)
         // Ne jamais réécrire une version partiellement décodée : cela pourrait effacer un fait
         // bloquant que cette version de l'app n'a pas réussi à relire.
+        if (initial.malformedCount > 0) return false
+        val companyIds = companyIdsForMutation(initial.entries, removeEntryIds, replacements)
+        if (companyIds.size > 1) return false
+        val companyId = companyIds.singleOrNull()
+
+        return if (companyId == null) {
+            commitMutation(context, removeEntryIds, replacements, expectedCompanyId = null)
+        } else {
+            SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+                commitMutation(context, removeEntryIds, replacements, expectedCompanyId = companyId)
+            } == true
+        }
+    }
+
+    internal fun companyIdsForMutation(
+        existing: List<MealBasketFactJournalV2.Entry>,
+        removeEntryIds: Set<String>,
+        replacements: List<MealBasketFactJournalV2.Entry>
+    ): Set<String> {
+        val touchedIds = removeEntryIds + replacements.map { it.id }
+        return buildSet {
+            existing.asSequence()
+                .filter { it.id in touchedIds && it.scope == MealBasketFactJournalV2.Scope.COMPANY }
+                .mapTo(this) { it.companyId }
+            replacements.asSequence()
+                .filter { it.scope == MealBasketFactJournalV2.Scope.COMPANY }
+                .mapTo(this) { it.companyId }
+        }
+    }
+
+    private fun commitMutation(
+        context: Context,
+        removeEntryIds: Set<String>,
+        replacements: List<MealBasketFactJournalV2.Entry>,
+        expectedCompanyId: String?
+    ): Boolean {
+        val loaded = load(context)
         if (loaded.malformedCount > 0) return false
+        val companyIds = companyIdsForMutation(loaded.entries, removeEntryIds, replacements)
+        if (expectedCompanyId == null) {
+            if (companyIds.isNotEmpty()) return false
+        } else if (companyIds != setOf(expectedCompanyId)) {
+            return false
+        }
 
         val idsToReplace = removeEntryIds + replacements.map { it.id }
         val next = loaded.entries.filterNot { it.id in idsToReplace } + replacements
