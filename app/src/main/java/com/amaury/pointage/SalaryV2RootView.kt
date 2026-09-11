@@ -49,7 +49,9 @@ class SalaryV2RootView @JvmOverloads constructor(
     fun consumeAuthorizedAccess() {
         val id = PendingSalaryCompanyAccess.authorizedCompanyId ?: return
         PendingSalaryCompanyAccess.authorizedCompanyId = null
-        SalaryCompanyStore.list(context).firstOrNull { it.id == id }?.let(::openCompanySpace)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return
+        stored.companies.firstOrNull { it.id == id }?.let(::openCompanySpace)
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
@@ -62,7 +64,9 @@ class SalaryV2RootView @JvmOverloads constructor(
 
     private fun buildUi() {
         addView(
-            actionButton("+ AJOUTER UNE ENTREPRISE") { showEnterpriseLookup() },
+            actionButton("+ AJOUTER UNE ENTREPRISE") { showEnterpriseLookup() }.apply {
+                tag = "salary_add_company_button"
+            },
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         )
         addView(TextView(context).apply {
@@ -81,13 +85,35 @@ class SalaryV2RootView @JvmOverloads constructor(
 
     private fun refreshCompanies(force: Boolean = false) {
         val list = findViewWithTag<LinearLayout>("salary_companies_list") ?: return
-        val companies = SalaryCompanyStore.list(context)
-        val signature = companies.joinToString("|") { "${it.id}:${it.name}:${it.siret}:${it.address}:${it.idcc}" }
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        findViewWithTag<Button>("salary_add_company_button")?.isEnabled = stored.reliable
+        val statusText = salaryCompanyStorageStatusText(stored)
+        val companies = stored.companies
+        val signature = buildString {
+            append(if (stored.reliable) "reliable" else "unreliable")
+            append(':').append(stored.repairedFromBackup)
+            append(':').append(statusText.orEmpty())
+            append(':').append(companies.joinToString("|") { "${it.id}:${it.name}:${it.siret}:${it.address}:${it.idcc}" })
+        }
         if (!force && signature == lastCompanySignature && list.childCount > 0) return
         lastCompanySignature = signature
 
         list.removeAllViews()
         list.visibility = VISIBLE
+        if (statusText != null) {
+            list.addView(TextView(context).apply {
+                text = statusText
+                textSize = 14f
+                setPadding(dp(12), dp(14), dp(12), dp(14))
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        if (!stored.reliable) {
+            list.requestLayout()
+            requestLayout()
+            invalidate()
+            return
+        }
+
         if (companies.isEmpty()) {
             list.addView(TextView(context).apply {
                 text = "Aucune entreprise ajoutée"
@@ -129,6 +155,8 @@ class SalaryV2RootView @JvmOverloads constructor(
     }
 
     private fun showEnterpriseLookup() {
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return
         var dialog: AlertDialog? = null
         val lookup = V2SalaryCompanyLookupView(context) {
             lastCompanySignature = null
