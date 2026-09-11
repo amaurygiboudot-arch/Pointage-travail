@@ -77,21 +77,21 @@ object CompanyPayrollOverridesV2 {
         /** Tranche d'effectif social confirmée pour FNAL/formation. */
         val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
         val employerWorkforceSource:String?=null,
-        /** Avertissements patronaux d'effectif, séparés du net salarié. */
+        /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
         val employerWorkforceWarnings:List<String> = emptyList(),
         /** Taux maladie employeur confirmé pour la période. */
         val employerHealthRate:Double?=null,
         /** Taux allocations familiales employeur confirmé pour la période. */
         val employerFamilyRate:Double?=null,
         val employerHealthFamilySource:String?=null,
-        /** Avertissements patronaux maladie/AF, séparés du net salarié. */
+        /** Avertissements patronaux maladie/AF, séparés de la fiabilité du net salarié. */
         val employerHealthFamilyWarnings:List<String> = emptyList(),
         /** Taux de part principale de taxe d'apprentissage confirmé pour la période. */
         val employerApprenticeshipPrincipalRate:Double?=null,
         /** Taux de provision mensuelle du solde de taxe d'apprentissage. */
         val employerApprenticeshipBalanceRate:Double?=null,
         val employerApprenticeshipSource:String?=null,
-        /** Avertissements patronaux taxe d'apprentissage, séparés du net salarié. */
+        /** Avertissements patronaux taxe d'apprentissage, séparés de la fiabilité du net salarié. */
         val employerApprenticeshipWarnings:List<String> = emptyList(),
         /** Montant total mensuel confirmé des réductions/exonérations patronales. */
         val employerReductionAmount:Double?=null,
@@ -142,13 +142,38 @@ object CompanyPayrollOverridesV2 {
         referenceDate:LocalDate=selectedPayrollReferenceDate(context),
         ignoreAbsencesForTheoreticalBase:Boolean=false
     ):Snapshot {
-        val storedCompanies=SalaryCompanyStore.readConfirmed(context)
-        val company=confirmedCompany(storedCompanies,companyId)
-            ?:return unresolvedCompanySnapshot(
-                companyId=companyId,
+        val id=companyId.trim()
+        if(id.isBlank()){
+            val stored=SalaryCompanyStore.readConfirmed(context)
+            return unresolvedCompanySnapshot(
+                companyId=id,
                 referenceDate=referenceDate,
-                warnings=companyStoreBlockers(storedCompanies,companyId)
+                warnings=companyStoreBlockers(stored,id)
             )
+        }
+        return SalaryCompanyStore.withConfirmedCompany(context,id){ company ->
+            loadConfirmedCompany(
+                context=context,
+                company=company,
+                referenceDate=referenceDate,
+                ignoreAbsencesForTheoreticalBase=ignoreAbsencesForTheoreticalBase
+            )
+        } ?: unresolvedCompanySnapshot(
+            companyId=id,
+            referenceDate=referenceDate,
+            warnings=companyStoreBlockers(SalaryCompanyStore.readConfirmed(context),id).ifEmpty {
+                listOf("Paramètres de paie : entreprise $id indisponible pendant le chargement ; aucune préférence locale n'est utilisée.")
+            }
+        )
+    }
+
+    private fun loadConfirmedCompany(
+        context:Context,
+        company:SalaryCompanyStore.Company,
+        referenceDate:LocalDate,
+        ignoreAbsencesForTheoreticalBase:Boolean
+    ):Snapshot {
+        val companyId=company.id
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=p.getString(key,"").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>=0.0}
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
