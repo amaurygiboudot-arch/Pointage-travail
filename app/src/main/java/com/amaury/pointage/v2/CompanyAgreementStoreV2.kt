@@ -11,7 +11,7 @@ object CompanyAgreementStoreV2 {
         "Accords ACCO : stockage local des métadonnées incohérent ; aucun état d'accord ne peut être déduit."
     private const val REPAIRED_WARNING =
         "Accords ACCO : stockage principal restauré depuis la dernière copie locale valide."
-    private const val KEY_LAST_KNOWN_GOOD = "company_agreements_v2_last_known_good"
+    internal const val KEY_LAST_KNOWN_GOOD = "company_agreements_v2_last_known_good"
     private const val KEY_CORRUPT_BACKUP = "company_agreements_v2_corrupt_backup"
 
     enum class Status { UNKNOWN, TO_PROVIDE, IMPORTED, VERIFIED }
@@ -132,15 +132,11 @@ object CompanyAgreementStoreV2 {
     fun save(context: Context, companyId: String, agreements: List<Agreement>): Boolean {
         if (companyId.isBlank()) return false
         val current = read(context, companyId)
-        if (!current.reliable || !validAgreementSet(agreements)) return false
-        val raw = encode(agreements)
-        val verification = decodeRecords(raw)
-        if (!verification.reliable || verification.agreements.size != agreements.size) return false
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, raw)
-            .putString(KEY_LAST_KNOWN_GOOD, raw)
-            .commit()
+        if (!current.reliable) return false
+        val entries = snapshotEntries(agreements) ?: return false
+        val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+        entries.forEach { (key, value) -> editor.putString(key, value) }
+        return editor.commit()
     }
 
     internal fun decodeRecords(raw: String): ReadResult = runCatching {
@@ -177,6 +173,17 @@ object CompanyAgreementStoreV2 {
             )
         }
         return StorageResolution(primary, StorageSource.NONE)
+    }
+
+    internal fun snapshotEntries(agreements: List<Agreement>): Map<String, String>? {
+        if (!validAgreementSet(agreements)) return null
+        val raw = encode(agreements)
+        val verification = decodeRecords(raw)
+        if (!verification.reliable || verification.agreements.size != agreements.size) return null
+        return linkedMapOf(
+            KEY to raw,
+            KEY_LAST_KNOWN_GOOD to raw
+        )
     }
 
     internal fun encode(agreements: List<Agreement>): String {
