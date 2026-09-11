@@ -51,10 +51,36 @@ final class WorkStore: ObservableObject {
 
     func workedDuration(for session: WorkSession, until endDate: Date = Date()) -> TimeInterval {
         let end = session.exit ?? endDate
-        let pause = session.pauses.reduce(0.0) { total, period in
-            total + ((period.end ?? endDate).timeIntervalSince(period.start))
+        guard end > session.entry else { return 0 }
+
+        let intervals = session.pauses.compactMap { period -> (Date, Date)? in
+            let rawEnd = period.end ?? endDate
+            guard rawEnd > period.start else { return nil }
+            let start = max(period.start, session.entry)
+            let clippedEnd = min(rawEnd, end)
+            guard clippedEnd > start else { return nil }
+            return (start, clippedEnd)
+        }.sorted { $0.0 < $1.0 }
+
+        var mergedPause: TimeInterval = 0
+        if let first = intervals.first {
+            var currentStart = first.0
+            var currentEnd = first.1
+
+            for interval in intervals.dropFirst() {
+                if interval.0 <= currentEnd {
+                    currentEnd = max(currentEnd, interval.1)
+                } else {
+                    mergedPause += currentEnd.timeIntervalSince(currentStart)
+                    currentStart = interval.0
+                    currentEnd = interval.1
+                }
+            }
+            mergedPause += currentEnd.timeIntervalSince(currentStart)
         }
-        return max(0, end.timeIntervalSince(session.entry) - pause)
+
+        let rawDuration = end.timeIntervalSince(session.entry)
+        return max(0, rawDuration - min(mergedPause, rawDuration))
     }
 
     private func save() {
