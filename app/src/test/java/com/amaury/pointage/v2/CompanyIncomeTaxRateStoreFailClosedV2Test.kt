@@ -45,17 +45,19 @@ class CompanyIncomeTaxRateStoreFailClosedV2Test {
     }
 
     @Test
-    fun `store PAS vide sain conserve la migration legacy non fiable`() {
+    fun `store PAS vide sain detecte legacy sans le reutiliser dans Salaire V2`() {
         val clean = CompanyIncomeTaxRateStoreV2.resolve(
             CompanyIncomeTaxRateStoreV2.ReadResult(emptyList(), true, emptyList()),
             period
         )
         val legacy = CompanyIncomeTaxRateResolverV2.withLegacyFallback(clean, 3.2)
 
-        assertEquals(0.032, legacy.rate!!, 0.000001)
-        assertEquals(3.2, legacy.ratePercent!!, 0.000001)
-        assertTrue(legacy.legacyUsed)
+        assertNull(legacy.rate)
+        assertNull(legacy.ratePercent)
+        assertNull(legacy.source)
+        assertFalse(legacy.legacyUsed)
         assertFalse(legacy.reliable)
+        assertTrue(legacy.warnings.any { it.contains("non utilisé", ignoreCase = true) })
     }
 
     @Test
