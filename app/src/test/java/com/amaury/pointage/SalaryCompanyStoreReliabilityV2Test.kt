@@ -124,4 +124,76 @@ class SalaryCompanyStoreReliabilityV2Test {
 
         assertEquals(emptyList<SalaryCompanyStore.Company>(), SalaryCompanyStore.companiesForAliasResolution(stored))
     }
+
+    @Test
+    fun `confirmed company requires a reliable exact stable id`() {
+        val company = SalaryCompanyStore.Company("company_a", "A", "12345678901234")
+        val unreliable = SalaryCompanyStore.ReadResult(listOf(company), reliable = false)
+        val reliable = SalaryCompanyStore.ReadResult(listOf(company), reliable = true)
+
+        assertNull(SalaryCompanyStore.confirmedCompany(unreliable, "company_a"))
+        assertNull(SalaryCompanyStore.confirmedCompany(reliable, "company_b"))
+        assertEquals(company, SalaryCompanyStore.confirmedCompany(reliable, " company_a "))
+    }
+
+    @Test
+    fun `existing update cannot resurrect a deleted company`() {
+        val deleted = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
+        val staleUpdate = SalaryCompanyStore.Company(
+            id = "company_a",
+            name = "Ancienne entreprise",
+            siret = "12345678901234",
+            idcc = "0045"
+        )
+
+        assertNull(SalaryCompanyStore.companiesAfterMutation(deleted, staleUpdate, allowInsert = false))
+    }
+
+    @Test
+    fun `existing update cannot hijack another company through the same siret`() {
+        val existing = SalaryCompanyStore.Company(
+            id = "company_current",
+            name = "Entreprise actuelle",
+            siret = "12345678901234"
+        )
+        val staleUpdate = SalaryCompanyStore.Company(
+            id = "company_deleted",
+            name = "Entreprise supprimée",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(listOf(existing), reliable = true)
+
+        assertNull(SalaryCompanyStore.companiesAfterMutation(stored, staleUpdate, allowInsert = false))
+    }
+
+    @Test
+    fun `existing update replaces only its exact stable id`() {
+        val before = SalaryCompanyStore.Company("company_a", "Avant", "12345678901234")
+        val updated = before.copy(name = "Après", idcc = "0045")
+        val stored = SalaryCompanyStore.ReadResult(listOf(before), reliable = true)
+
+        val companies = SalaryCompanyStore.companiesAfterMutation(stored, updated, allowInsert = false)
+
+        assertEquals(listOf(updated), companies)
+    }
+
+    @Test
+    fun `explicit add flow may insert a new company`() {
+        val company = SalaryCompanyStore.Company("company_a", "A", "12345678901234")
+        val stored = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
+
+        assertEquals(
+            listOf(company),
+            SalaryCompanyStore.companiesAfterMutation(stored, company, allowInsert = true)
+        )
+    }
+
+    @Test
+    fun `company mutation remains blocked when store is unreliable`() {
+        val company = SalaryCompanyStore.Company("company_a", "A", "12345678901234")
+        val stored = SalaryCompanyStore.ReadResult(listOf(company), reliable = false)
+
+        assertNull(SalaryCompanyStore.companiesAfterMutation(stored, company, allowInsert = false))
+        assertNull(SalaryCompanyStore.companiesAfterMutation(stored, company, allowInsert = true))
+    }
 }

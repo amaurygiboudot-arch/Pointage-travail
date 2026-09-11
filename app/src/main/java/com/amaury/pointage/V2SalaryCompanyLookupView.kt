@@ -74,7 +74,7 @@ class V2SalaryCompanyLookupView(
     }
 
     private fun saveCompany(company: SalaryCompanyStore.Company) {
-        val saved = SalaryCompanyStore.upsert(context, company)
+        val saved = SalaryCompanyStore.createOrUpdate(context, company)
         val stored = SalaryCompanyStore.readConfirmed(context)
         val reread = stored.companies.takeIf { stored.reliable }?.firstOrNull {
             it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
