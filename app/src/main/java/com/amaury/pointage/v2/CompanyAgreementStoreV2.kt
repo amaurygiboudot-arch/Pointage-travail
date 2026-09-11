@@ -131,12 +131,14 @@ object CompanyAgreementStoreV2 {
 
     fun save(context: Context, companyId: String, agreements: List<Agreement>): Boolean {
         if (companyId.isBlank()) return false
-        val current = read(context, companyId)
-        if (!current.reliable) return false
-        val entries = snapshotEntries(agreements) ?: return false
-        val editor = SalaryCompanyStore.prefs(context, companyId).edit()
-        entries.forEach { (key, value) -> editor.putString(key, value) }
-        return editor.commit()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val current = read(context, companyId)
+            if (!current.reliable) return@withConfirmedCompany false
+            val entries = snapshotEntries(agreements) ?: return@withConfirmedCompany false
+            val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+            entries.forEach { (key, value) -> editor.putString(key, value) }
+            editor.commit()
+        } == true
     }
 
     internal fun decodeRecords(raw: String): ReadResult = runCatching {

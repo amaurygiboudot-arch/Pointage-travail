@@ -9,15 +9,20 @@ object OfficialAgreementResultStoreV2 {
     private const val KEY = "company_agreement_official_search_v2"
 
     fun save(context: Context, companyId: String, siret: String, data: Any?): Boolean {
+        val normalizedSiret = siret.filter(Char::isDigit)
+        if (normalizedSiret.length != 14) return false
         val payload = JSONObject().apply {
-            put("siret", siret)
+            put("siret", normalizedSiret)
             put("receivedAt", System.currentTimeMillis())
             put("verified", false)
             put("response", JSONObject.wrap(data))
         }
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, payload.toString())
-            .commit()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+            if (company.siret.filter(Char::isDigit) != normalizedSiret) return@withConfirmedCompany false
+            SalaryCompanyStore.prefs(context, companyId)
+                .edit()
+                .putString(KEY, payload.toString())
+                .commit()
+        } == true
     }
 }

@@ -290,10 +290,12 @@ object CompanyAgreementRuleStoreV2 {
 
     private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
         if (companyId.isBlank()) return false
-        val entries = snapshotEntries(values) ?: return false
-        val editor = SalaryCompanyStore.prefs(context, companyId).edit()
-        entries.forEach { (key, value) -> editor.putString(key, value) }
-        return editor.commit()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val entries = snapshotEntries(values) ?: return@withConfirmedCompany false
+            val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+            entries.forEach { (key, value) -> editor.putString(key, value) }
+            editor.commit()
+        } == true
     }
 
     internal fun encode(values: List<StoredCandidate>): String {
