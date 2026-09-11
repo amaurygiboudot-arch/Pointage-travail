@@ -9,10 +9,7 @@ import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
 import com.amaury.pointage.v2.engine.PlasturgieSicknessRulesV2
 import com.amaury.pointage.v2.model.AbsenceV2
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /** Entreprise -> règle de maintien maladie conventionnelle générique. */
 object V2ConventionSicknessMaintenanceBridge {
@@ -23,20 +20,19 @@ object V2ConventionSicknessMaintenanceBridge {
 
     fun load(context: Context, companyId: String, absence: AbsenceV2): Snapshot? {
         if (absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
-        val company = SalaryCompanyStore.list(context).firstOrNull { it.id == companyId }
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        val idcc = company?.idcc?.ifBlank { prefs.getString("company_idcc", "").orEmpty() }
-            ?: prefs.getString("company_idcc", "").orEmpty()
-        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        val classification = ConventionClassificationStoreV2.load(context, companyId)
-        val professionalStatus = prefs.getString("professional_status", "").orEmpty().trim().uppercase(Locale.ROOT).takeIf {
-            it == "CADRE" || it == "NON_CADRE"
+        val profile = ConventionLegalProfileV2.load(context, companyId)
+            ?: return unresolvedProfileSnapshot(
+                "Maintien maladie : entreprise ou profil juridique local non fiable ; aucun barème ni aucune absence de droit ne sont déduits automatiquement."
+            )
+        val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(profile.idcc)
+        if (normalizedIdcc.isBlank()) {
+            return unresolvedProfileSnapshot(
+                "Maintien maladie : IDCC local non confirmé ; aucun barème ni aucune absence de droit ne sont déduits automatiquement."
+            )
         }
-        val entryDate = runCatching {
-            prefs.getString("entry_date", "").orEmpty().trim().takeIf { it.isNotBlank() }?.let {
-                LocalDate.parse(it, DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE))
-            }
-        }.getOrNull()
+        val classification = profile.classification
+        val professionalStatus = profile.professionalStatus
+        val entryDate = profile.entryDate
         val referenceDate = Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate()
 
         val builtIn = PlasturgieSicknessRulesV2.rules().filter {
@@ -124,6 +120,34 @@ object V2ConventionSicknessMaintenanceBridge {
                 warnings = (calculated.warnings + coverage.warnings).distinct()
             ),
             coverage = coverage
+        )
+    }
+
+    internal fun unresolvedProfileSnapshot(warning: String): Snapshot {
+        val warnings = listOf(warning)
+        return Snapshot(
+            result = ConventionSicknessMaintenanceV2.Result(
+                applicable = false,
+                eligibilityConfirmed = false,
+                reliable = false,
+                selectedRule = null,
+                referenceBasis = ConventionSicknessMaintenanceV2.ReferenceBasis.UNKNOWN,
+                employerWaitingDays = null,
+                firstRecordedStopOfYear = null,
+                annualLimitDays = null,
+                alreadyConsumedIndemnifiedDays = null,
+                currentIndemnifiableDays = null,
+                bands = emptyList(),
+                socialSecurityCoverageRequired = false,
+                exactEmployerAmountAvailable = false,
+                warnings = warnings
+            ),
+            coverage = ConventionMatterCoverageV2.Snapshot(
+                state = ConventionMatterCoverageV2.State.INCOMPLETE,
+                record = null,
+                reliable = false,
+                warnings = warnings
+            )
         )
     }
 
