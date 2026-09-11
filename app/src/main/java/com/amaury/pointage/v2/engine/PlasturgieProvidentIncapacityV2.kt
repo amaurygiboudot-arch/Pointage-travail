@@ -23,7 +23,12 @@ object PlasturgieProvidentIncapacityV2 {
         val earliestContinuousStopDay: Int?,
         val relayReached: Boolean?,
         val exactBenefitAmountAvailable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /**
+         * false signifie que les données amont ne permettent pas de distinguer avec certitude
+         * « hors garantie » d'un cas simplement impossible à vérifier.
+         */
+        val reliable: Boolean = true
     )
 
     fun assess(
@@ -33,7 +38,11 @@ object PlasturgieProvidentIncapacityV2 {
         maintenance: ConventionSicknessMaintenanceV2.Result?,
         absenceCalendarDays: Int
     ): Result {
-        val normalized = idcc.orEmpty().filter(Char::isDigit).trimStart('0')
+        val digits = idcc.orEmpty().filter(Char::isDigit)
+        if (digits.isBlank()) {
+            return unresolved("Prévoyance Plasturgie : IDCC manquant, l'applicabilité de la garantie de branche reste à confirmer.")
+        }
+        val normalized = digits.trimStart('0')
         if (normalized != IDCC) {
             return Result(false, false, false, PlasturgieProtectionCategoryV2.Category.NOT_APPLICABLE, null, false, null, null, false, emptyList())
         }
@@ -48,7 +57,8 @@ object PlasturgieProvidentIncapacityV2 {
                 earliestContinuousStopDay = null,
                 relayReached = null,
                 exactBenefitAmountAvailable = false,
-                warnings = listOf("Prévoyance Plasturgie : ancienneté manquante, éligibilité impossible à confirmer.")
+                warnings = listOf("Prévoyance Plasturgie : ancienneté manquante ou incohérente, éligibilité impossible à confirmer."),
+                reliable = false
             )
         }
         if (seniorityMonths < MIN_SENIORITY_MONTHS) {
@@ -78,7 +88,8 @@ object PlasturgieProvidentIncapacityV2 {
                 exactBenefitAmountAvailable = false,
                 warnings = protectionCategory.warnings.ifEmpty {
                     listOf("Prévoyance Plasturgie : catégorie ANI 2.1/2.2 impossible à confirmer.")
-                }
+                },
+                reliable = false
             )
         }
         if (protectionCategory.category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 ||
@@ -110,6 +121,7 @@ object PlasturgieProvidentIncapacityV2 {
             } else null
         }
         val reached = relayDay?.let { absenceCalendarDays >= it }
+        val timingReliable = seniorityMonths < 12 || relayDay != null
 
         return Result(
             applicableConvention = true,
@@ -135,9 +147,24 @@ object PlasturgieProvidentIncapacityV2 {
                     add("Coefficient 800 à 820 : extension au régime cadres possible ; un régime d'entreprise plus favorable peut remplacer le minimum de branche à contrôler.")
                 }
                 add("Montant exact de prévoyance non calculé sans décompte assureur ou données exprimées sur une même base de prestation.")
-            }
+            },
+            reliable = timingReliable
         )
     }
+
+    internal fun unresolved(message: String): Result = Result(
+        applicableConvention = false,
+        potentiallyCovered = false,
+        eligibilityConfirmed = false,
+        protectionCategory = PlasturgieProtectionCategoryV2.Category.TO_CONFIRM,
+        minimumGrossRate = null,
+        relayAfterEmployerMaintenance = false,
+        earliestContinuousStopDay = null,
+        relayReached = null,
+        exactBenefitAmountAvailable = false,
+        warnings = listOf(message),
+        reliable = false
+    )
 
     /** Compatibilité temporaire avec les tests/appels historiques utilisant l'ancien résultat maladie Plasturgie. */
     fun assessLegacy(
