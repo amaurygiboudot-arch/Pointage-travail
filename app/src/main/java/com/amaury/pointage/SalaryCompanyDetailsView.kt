@@ -370,11 +370,22 @@ class SalaryCompanyDetailsView(
                 Toast.makeText(context, "Renseigne d’abord un SIRET valide à 14 chiffres.", Toast.LENGTH_LONG).show()
                 return@button
             }
-            SalaryCompanyStore.prefs(context, company.id).edit()
-                .putBoolean("company_agreement_search_requested", true)
-                .putString("company_agreement_search_siret", siret)
-                .putLong("company_agreement_search_requested_at", System.currentTimeMillis())
-                .commit()
+            val searchStarted = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
+                if (confirmed.siret.filter(Char::isDigit) != siret) return@withConfirmedCompany false
+                SalaryCompanyStore.prefs(context, confirmed.id).edit()
+                    .putBoolean("company_agreement_search_requested", true)
+                    .putString("company_agreement_search_siret", siret)
+                    .putLong("company_agreement_search_requested_at", System.currentTimeMillis())
+                    .commit()
+            } == true
+            if (!searchStarted) {
+                Toast.makeText(
+                    context,
+                    "Recherche bloquée : l’entreprise n’existe plus, son SIRET a changé ou le stockage doit être vérifié.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@button
+            }
 
             val body = mapOf(
                 "fond" to "ACCO",
@@ -410,11 +421,31 @@ class SalaryCompanyDetailsView(
 
             Toast.makeText(context, "Recherche officielle en cours…", Toast.LENGTH_SHORT).show()
             LegifranceFunctionClientV2.request("/search", body)
-                .addOnSuccessListener { result ->
-                    OfficialAgreementResultStoreV2.save(context, company.id, siret, result.data)
+                .addOnSuccessListener searchSuccess@{ result ->
+                    val officialStored = OfficialAgreementResultStoreV2.save(context, company.id, siret, result.data)
+                    if (!officialStored) {
+                        Toast.makeText(
+                            context,
+                            "Résultat officiel reçu, mais l’entreprise n’existe plus ou le stockage n’a pas pu être confirmé.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@searchSuccess
+                    }
                     val candidates = OfficialAgreementSearchParserV2.parseCandidates(result.data)
                     OfficialAgreementCandidateVerifierV2.verify(candidates, siret)
-                        .addOnSuccessListener { verification ->
+                        .addOnSuccessListener verificationSuccess@{ verification ->
+                            val companyStillConfirmed = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
+                                confirmed.siret.filter(Char::isDigit) == siret
+                            } == true
+                            if (!companyStillConfirmed) {
+                                Toast.makeText(
+                                    context,
+                                    "Vérification terminée, mais l’entreprise n’existe plus ou son SIRET a changé : résultat non enregistré.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                return@verificationSuccess
+                            }
+
                             val found = verification.verified
                             val persisted = if (found.isEmpty()) {
                                 true
@@ -429,24 +460,37 @@ class SalaryCompanyDetailsView(
                                 }
                             }
 
-                            if (found.isNotEmpty() && !persisted) {
+                            if (!persisted) {
                                 Toast.makeText(
                                     context,
                                     companyAgreementSearchOutcomeText(found.size, verification.rejectedCount, persisted = false),
                                     Toast.LENGTH_LONG
                                 ).show()
                                 showAgreements()
-                            } else {
-                                SalaryCompanyStore.prefs(context, company.id).edit()
+                                return@verificationSuccess
+                            }
+
+                            val completionSaved = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
+                                if (confirmed.siret.filter(Char::isDigit) != siret) return@withConfirmedCompany false
+                                SalaryCompanyStore.prefs(context, confirmed.id).edit()
                                     .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
                                     .commit()
+                            } == true
+                            if (!completionSaved) {
                                 Toast.makeText(
                                     context,
-                                    companyAgreementSearchOutcomeText(found.size, verification.rejectedCount, persisted = true),
+                                    "Recherche terminée, mais sa confirmation locale a été bloquée car l’entreprise n’est plus disponible.",
                                     Toast.LENGTH_LONG
                                 ).show()
-                                showAgreements()
+                                return@verificationSuccess
                             }
+
+                            Toast.makeText(
+                                context,
+                                companyAgreementSearchOutcomeText(found.size, verification.rejectedCount, persisted = true),
+                                Toast.LENGTH_LONG
+                            ).show()
+                            showAgreements()
                         }
                         .addOnFailureListener { error ->
                             Toast.makeText(context, "Vérification des accords impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
@@ -494,13 +538,24 @@ class SalaryCompanyDetailsView(
                 ).show()
                 return@button
             }
-            SalaryCompanyStore.prefs(context, company.id).edit()
-                .putBoolean("company_agreement_import_requested", true)
-                .putLong("company_agreement_import_requested_at", System.currentTimeMillis())
-                .commit()
+            val importCompany = SalaryCompanyStore.withConfirmedCompany(context, company.id) { confirmed ->
+                val requested = SalaryCompanyStore.prefs(context, confirmed.id).edit()
+                    .putBoolean("company_agreement_import_requested", true)
+                    .putLong("company_agreement_import_requested_at", System.currentTimeMillis())
+                    .commit()
+                confirmed.takeIf { requested }
+            }
+            if (importCompany == null) {
+                Toast.makeText(
+                    context,
+                    "Import bloqué : l’entreprise n’existe plus ou le stockage doit être vérifié.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@button
+            }
             val intent = Intent(context, CompanyAgreementImportActivity::class.java)
-                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_ID, company.id)
-                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_NAME, company.name)
+                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_ID, importCompany.id)
+                .putExtra(CompanyAgreementImportActivity.EXTRA_COMPANY_NAME, importCompany.name)
             if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         })
