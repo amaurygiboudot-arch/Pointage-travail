@@ -20,6 +20,7 @@ import com.amaury.pointage.v2.CompanyAgreementDocumentStoreV2
 import com.amaury.pointage.v2.CompanyAgreementImportCommitV2
 import com.amaury.pointage.v2.CompanyAgreementImportPolicyV2
 import com.amaury.pointage.v2.CompanyAgreementRuleExtractorV2
+import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import com.amaury.pointage.v2.CompanyAgreementStoreV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -46,7 +47,19 @@ class CompanyAgreementImportActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(progressView())
-        if (companyId.isBlank() || SalaryCompanyStore.list(this).none { it.id == companyId }) {
+
+        val companies = SalaryCompanyStore.readConfirmed(this)
+        if (!companies.reliable) {
+            abortForStorage(
+                salaryCompanyStorageStatusText(companies)
+                    ?: "Stockage des entreprises incohérent : import bloqué tant que les données ne sont pas récupérées."
+            )
+            return
+        }
+        salaryCompanyStorageStatusText(companies)?.let {
+            Toast.makeText(this, it, Toast.LENGTH_LONG).show()
+        }
+        if (companyId.isBlank() || companies.companies.none { it.id == companyId }) {
             Toast.makeText(this, "Entreprise introuvable : import annulé.", Toast.LENGTH_LONG).show()
             finish()
             return
@@ -191,16 +204,38 @@ class CompanyAgreementImportActivity : Activity() {
         extractedText: String,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
     ) {
+        val agreementState = CompanyAgreementStoreV2.read(this, companyId)
+        if (!agreementState.reliable) {
+            abortForStorage(
+                companyAgreementMetadataStorageStatusText(agreementState)
+                    ?: "Stockage des accords ACCO incohérent : import bloqué."
+            )
+            return
+        }
+        val ruleState = CompanyAgreementRuleStoreV2.read(this, companyId)
+        if (!ruleState.reliable) {
+            abortForStorage(
+                companyAgreementRuleStorageStatusText(ruleState)
+                    ?: "Stockage des règles ACCO incohérent : import bloqué."
+            )
+            return
+        }
+
         val agreementId = CompanyAgreementImportPolicyV2.stableAgreementId(result.sha256)
-        val previous = CompanyAgreementStoreV2.list(this, companyId).firstOrNull { it.id == agreementId }
+        val previous = agreementState.agreements.firstOrNull { it.id == agreementId }
         val title = field("Titre de l’accord", previous?.title ?: CompanyAgreementImportPolicyV2.titleFrom(result.displayName))
         val effectiveFrom = field("Début d’application — JJ/MM/AAAA (facultatif)", previous?.effectiveFrom.orEmpty())
         val effectiveTo = field("Fin d’application — JJ/MM/AAAA (facultatif)", previous?.effectiveTo.orEmpty())
+        val storageNotices = listOfNotNull(
+            companyAgreementMetadataStorageStatusText(agreementState),
+            companyAgreementRuleStorageStatusText(ruleState)
+        )
         val details = buildString {
             append("Document : ${result.displayName}\n")
             result.pageCount?.let { append("Pages analysées : $it\n") }
             append("Règles candidates détectées : ${candidates.size}\n\n")
             append("Aucune règle ne sera appliquée automatiquement. Chaque règle, valeur et période devra être validée dans HoraTrack.")
+            if (storageNotices.isNotEmpty()) append("\n\n").append(storageNotices.joinToString("\n"))
             if (candidates.isEmpty()) append("\n\nAucun passage exploitable n’a été détecté : conserve l’accord puis vérifie-le manuellement.")
             if (result.truncated) append("\n\nAttention : le texte analysé a atteint la limite de sécurité ; vérifie le document original.")
         }
@@ -327,6 +362,17 @@ class CompanyAgreementImportActivity : Activity() {
         val parsed = runCatching { LocalDate.parse(value, DATE_FORMAT) }.getOrNull()
         if (parsed == null) field.error = "Date attendue : JJ/MM/AAAA"
         return parsed
+    }
+
+    private fun abortForStorage(message: String) {
+        if (isFinishing || isDestroyed) return
+        status.text = message
+        AlertDialog.Builder(this)
+            .setTitle("Import bloqué")
+            .setMessage(message)
+            .setPositiveButton("FERMER") { _, _ -> finish() }
+            .setOnCancelListener { finish() }
+            .show()
     }
 
     private fun showFailure(message: String) {
