@@ -11,6 +11,12 @@ import java.util.Locale
 object SalaryCompanyStore {
     private const val PREFS = "salary_companies_v2"
     private const val KEY = "companies"
+    private const val KEY_LAST_KNOWN_GOOD = "companies_last_known_good"
+    private const val KEY_CORRUPT_BACKUP = "companies_corrupt_backup"
+    private const val STORAGE_WARNING =
+        "Entreprises Salaire V2 : stockage local incohérent ; aucune entreprise ni absence d'entreprise ne peut être déduite de ce stockage."
+    private const val REPAIRED_WARNING =
+        "Entreprises Salaire V2 : stockage principal restauré depuis la dernière copie locale valide."
 
     data class Company(
         val id: String,
@@ -21,24 +27,109 @@ object SalaryCompanyStore {
         val idcc: String = ""
     )
 
+    data class ReadResult(
+        val companies: List<Company>,
+        val reliable: Boolean,
+        val repairedFromBackup: Boolean = false,
+        val warnings: List<String> = emptyList()
+    )
+
+    internal enum class StorageSource { PRIMARY, LAST_KNOWN_GOOD, NONE }
+
+    internal data class StorageResolution(
+        val result: ReadResult,
+        val source: StorageSource
+    )
+
+    /**
+     * Lit le store V2 sans jamais confondre corruption et liste vide.
+     *
+     * Une copie de secours est conservée à chaque écriture valide. Si le store principal devient
+     * illisible ou disparaît et que cette copie est encore valide, elle est restaurée automatiquement.
+     * La valeur corrompue est conservée séparément avant restauration afin de ne pas détruire une
+     * éventuelle piste de récupération manuelle.
+     */
+    fun readConfirmed(context: Context): ReadResult {
+        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        if (!store.contains(KEY)) {
+            val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+            val backup = backupRaw?.let(::decodeCompanies)
+            if (backup?.reliable == true) {
+                val restored = runCatching {
+                    store.edit().putString(KEY, backupRaw).commit()
+                }.getOrDefault(false)
+                return if (restored) {
+                    backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING))
+                } else {
+                    ReadResult(
+                        companies = backup.companies,
+                        reliable = false,
+                        warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
+                    )
+                }
+            }
+            migrateLegacy(context)
+        }
+
+        if (!store.contains(KEY)) return ReadResult(emptyList(), true)
+
+        val primaryValue = runCatching { store.all[KEY] }.getOrNull()
+        val primaryRaw = primaryValue as? String
+        val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+        val resolution = resolveStoredCompanies(primaryRaw, backupRaw)
+
+        return when (resolution.source) {
+            StorageSource.PRIMARY -> {
+                // Actualise la dernière copie saine pour que toute corruption future soit réparable.
+                if (primaryRaw != null && backupRaw != primaryRaw) {
+                    runCatching {
+                        store.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+                    }
+                }
+                resolution.result
+            }
+            StorageSource.LAST_KNOWN_GOOD -> {
+                val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
+                val corruptRaw = primaryValue?.toString()
+                val editor = store.edit().putString(KEY, repairedRaw)
+                if (!corruptRaw.isNullOrBlank()) editor.putString(KEY_CORRUPT_BACKUP, corruptRaw)
+                val restored = runCatching { editor.commit() }.getOrDefault(false)
+                if (restored) resolution.result
+                else ReadResult(
+                    companies = resolution.result.companies,
+                    reliable = false,
+                    warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
+                )
+            }
+            StorageSource.NONE -> resolution.result
+        }
+    }
+
     fun list(context: Context): List<Company> {
-        migrateLegacy(context)
-        return read(context)
+        val stored = readConfirmed(context)
+        check(stored.reliable) { stored.warnings.firstOrNull() ?: STORAGE_WARNING }
+        return stored.companies
     }
 
     /** Retourne true uniquement si l'entreprise est relue après écriture. */
     fun upsert(context: Context, company: Company): Boolean {
-        migrateLegacy(context)
-        val all = read(context).toMutableList()
+        val stored = readConfirmed(context)
+        if (!stored.reliable || company.id.isBlank()) return false
+        val all = stored.companies.toMutableList()
         val index = all.indexOfFirst { it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret) }
         if (index >= 0) all[index] = company else all += company
         if (!save(context, all)) return false
-        return read(context).any { it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret) }
+        val reloaded = readConfirmed(context)
+        return reloaded.reliable && reloaded.companies.any {
+            it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
+        }
     }
 
     fun remove(context: Context, id: String): Boolean {
-        migrateLegacy(context)
-        return save(context, read(context).filterNot { it.id == id })
+        val stored = readConfirmed(context)
+        if (!stored.reliable) return false
+        return save(context, stored.companies.filterNot { it.id == id })
     }
 
     fun prefs(context: Context, companyId: String) = context.getSharedPreferences(
@@ -96,21 +187,88 @@ object SalaryCompanyStore {
             .singleOrNull()
     }
 
-    private fun read(context: Context): List<Company> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]") ?: "[]"
-        return runCatching {
-            val array = JSONArray(raw)
-            (0 until array.length()).map { i ->
-                val o = array.getJSONObject(i)
-                Company(o.optString("id"),o.optString("name"),o.optString("siret"),o.optString("address"),o.optString("conventionName"),o.optString("idcc"))
-            }.filter { it.id.isNotBlank() }
-        }.getOrDefault(emptyList())
+    internal fun decodeCompanies(raw: String): ReadResult {
+        val array = runCatching { JSONArray(raw) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, warnings = listOf(STORAGE_WARNING))
+        val companies = mutableListOf<Company>()
+        var malformed = false
+        for (index in 0 until array.length()) {
+            val obj = array.opt(index) as? JSONObject
+            val company = obj?.let(::decodeCompany)
+            if (company == null) malformed = true else companies += company
+        }
+        if (companies.map { it.id }.distinct().size != companies.size) malformed = true
+        return ReadResult(
+            companies = companies,
+            reliable = !malformed,
+            warnings = if (malformed) listOf(STORAGE_WARNING) else emptyList()
+        )
     }
 
+    internal fun resolveStoredCompanies(primaryRaw: String?, backupRaw: String?): StorageResolution {
+        val primary = primaryRaw?.let(::decodeCompanies)
+            ?: ReadResult(emptyList(), false, warnings = listOf(STORAGE_WARNING))
+        if (primary.reliable) return StorageResolution(primary, StorageSource.PRIMARY)
+
+        val backup = backupRaw?.let(::decodeCompanies)
+        if (backup?.reliable == true) {
+            return StorageResolution(
+                backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING)),
+                StorageSource.LAST_KNOWN_GOOD
+            )
+        }
+        return StorageResolution(primary, StorageSource.NONE)
+    }
+
+    private fun decodeCompany(obj: JSONObject): Company? = runCatching {
+        fun requiredString(key: String): String {
+            val value = obj.opt(key)
+            check(value is String) { "$key invalide" }
+            return value
+        }
+        fun optionalString(key: String): String {
+            if (!obj.has(key) || obj.isNull(key)) return ""
+            val value = obj.opt(key)
+            check(value is String) { "$key invalide" }
+            return value
+        }
+
+        val id = requiredString("id").trim()
+        check(id.isNotBlank()) { "id vide" }
+        Company(
+            id = id,
+            name = optionalString("name"),
+            siret = optionalString("siret"),
+            address = optionalString("address"),
+            conventionName = optionalString("conventionName"),
+            idcc = optionalString("idcc")
+        )
+    }.getOrNull()
+
     private fun save(context: Context, companies: List<Company>): Boolean {
+        if (companies.any { it.id.isBlank() } || companies.map { it.id }.distinct().size != companies.size) return false
+        val raw = encodeCompanies(companies)
+        val verification = decodeCompanies(raw)
+        if (!verification.reliable || verification.companies.size != companies.size) return false
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY, raw)
+            .putString(KEY_LAST_KNOWN_GOOD, raw)
+            .commit()
+    }
+
+    private fun encodeCompanies(companies: List<Company>): String {
         val array = JSONArray()
-        companies.forEach { c -> array.put(JSONObject().apply { put("id",c.id);put("name",c.name);put("siret",c.siret);put("address",c.address);put("conventionName",c.conventionName);put("idcc",c.idcc) }) }
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, array.toString()).commit()
+        companies.forEach { c ->
+            array.put(JSONObject().apply {
+                put("id", c.id)
+                put("name", c.name)
+                put("siret", c.siret)
+                put("address", c.address)
+                put("conventionName", c.conventionName)
+                put("idcc", c.idcc)
+            })
+        }
+        return array.toString()
     }
 
     private fun migrateLegacy(context: Context) {
@@ -120,7 +278,13 @@ object SalaryCompanyStore {
         val migrated = mutableListOf<Company>()
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
-        fun value(key: String): String = when (val v = old.all[key]) { null -> ""; is String -> v; is Number -> v.toString(); else -> v.toString() }.trim()
+        fun value(key: String): String = when (val v = old.all[key]) {
+            null -> ""
+            is String -> v
+            is Number -> v.toString()
+            else -> v.toString()
+        }.trim()
+
         fun migrateSlot(slot: Int) {
             val p = if (slot == 1) "company_" else "company2_"
             val name = value("${p}name")
@@ -130,7 +294,7 @@ object SalaryCompanyStore {
             val idcc = value("${p}idcc").ifBlank { if (slot == 1) value("convention_idcc") else "" }
             val conventionName = value("${p}convention_name")
             val address = value("${p}address")
-            migrated += Company(id,name,siret,address,conventionName,idcc)
+            migrated += Company(id, name, siret, address, conventionName, idcc)
 
             val contractType = if (slot == 1) value("contract_type") else value("company2_contract_type")
             val rate = if (slot == 1) value("hourly_rate") else value("company2_hourly_rate")
@@ -138,10 +302,14 @@ object SalaryCompanyStore {
             val coefficient = if (slot == 1) value("convention_coefficient") else value("company2_convention_coefficient")
             val meal = if (slot == 1) value("meal_amount") else value("company2_meal_amount").ifBlank { value("meal_amount") }
             val hireMsKey = if (slot == 1) "employment_start_date" else "company2_employment_start_date"
-            val hireMs = when (val raw = old.all[hireMsKey]) { is Number -> raw.toLong(); is String -> raw.toLongOrNull() ?: 0L; else -> 0L }
+            val hireMs = when (val raw = old.all[hireMsKey]) {
+                is Number -> raw.toLong()
+                is String -> raw.toLongOrNull() ?: 0L
+                else -> 0L
+            }
             val entryDate = if (hireMs > 0L) dateFormat.format(Date(hireMs)) else value(if (slot == 1) "entry_date" else "company2_entry_date")
 
-            val editor = prefs(context, id).edit()
+            prefs(context, id).edit()
                 .putString("contract_type", contractType)
                 .putString("hourly_rate", rate)
                 .putString("contract_weekly_hours", weekly)
@@ -149,7 +317,7 @@ object SalaryCompanyStore {
                 .putString("convention_coefficient", coefficient)
                 .putString("entry_date", entryDate)
                 .putString("company_idcc", idcc)
-            editor.commit()
+                .commit()
         }
 
         migrateSlot(1)
