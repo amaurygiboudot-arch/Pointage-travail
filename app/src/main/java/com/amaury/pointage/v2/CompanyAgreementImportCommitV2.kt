@@ -12,12 +12,12 @@ object CompanyAgreementImportCommitV2 {
         companyId: String,
         agreement: CompanyAgreementStoreV2.Agreement,
         candidates: List<CompanyAgreementRuleExtractorV2.Candidate>
-    ): Result {
+    ): Result = SalaryCompanyStore.withConfirmedCompany(context, companyId) {
         val storedAgreements = CompanyAgreementStoreV2.read(context, companyId)
         val storedCandidates = CompanyAgreementRuleStoreV2.read(context, companyId)
         val previous = storedAgreements.agreements.firstOrNull { it.id == agreement.id }
         if (!storedAgreements.reliable || !storedCandidates.reliable) {
-            return Result(
+            return@withConfirmedCompany Result(
                 saved = false,
                 duplicate = previous != null,
                 candidateCount = candidates.size
@@ -43,7 +43,7 @@ object CompanyAgreementImportCommitV2 {
             candidates
         )
         val snapshotEntries = buildSnapshotEntries(mergedAgreements, mergedCandidates)
-            ?: return Result(
+            ?: return@withConfirmedCompany Result(
                 saved = false,
                 duplicate = previous != null,
                 candidateCount = candidates.size
@@ -56,8 +56,8 @@ object CompanyAgreementImportCommitV2 {
             .putLong("company_agreement_import_completed_at", System.currentTimeMillis())
             .putLong("company_agreement_import_revision", prefs.getLong("company_agreement_import_revision", 0L) + 1L)
             .commit()
-        return Result(saved = saved, duplicate = previous != null, candidateCount = candidates.size)
-    }
+        Result(saved = saved, duplicate = previous != null, candidateCount = candidates.size)
+    } ?: Result(saved = false, duplicate = false, candidateCount = candidates.size)
 
     internal fun buildSnapshotEntries(
         agreements: List<CompanyAgreementStoreV2.Agreement>,
