@@ -10,6 +10,15 @@ class CompanyAgreementRuleStoreFailClosedV2Test {
     private val date = LocalDate.of(2026, 9, 30)
 
     @Test
+    fun `entreprise indisponible bloque toute lecture des regles ACCO`() {
+        val result = CompanyAgreementRuleStoreV2.unavailableCompanyReadResult()
+
+        assertFalse(result.reliable)
+        assertTrue(result.records.isEmpty())
+        assertTrue(result.warnings.any { it.contains("entreprise", ignoreCase = true) })
+    }
+
+    @Test
     fun `liste vide explicite reste un stockage lisible`() {
         val decoded = CompanyAgreementRuleStoreV2.decodeRecords("[]")
 
