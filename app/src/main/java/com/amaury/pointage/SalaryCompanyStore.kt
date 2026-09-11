@@ -112,24 +112,84 @@ object SalaryCompanyStore {
         return stored.companies
     }
 
-    /** Retourne true uniquement si l'entreprise est relue après écriture. */
-    fun upsert(context: Context, company: Company): Boolean {
-        val stored = readConfirmed(context)
-        if (!stored.reliable || company.id.isBlank()) return false
-        val all = stored.companies.toMutableList()
-        val index = all.indexOfFirst { it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret) }
-        if (index >= 0) all[index] = company else all += company
-        if (!save(context, all)) return false
-        val reloaded = readConfirmed(context)
-        return reloaded.reliable && reloaded.companies.any {
-            it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
-        }
+    internal fun confirmedCompany(stored: ReadResult, companyId: String): Company? {
+        val id = companyId.trim()
+        if (!stored.reliable || id.isBlank()) return null
+        return stored.companies.firstOrNull { it.id == id }
     }
 
+    /**
+     * Exécute une opération liée à une entreprise sous le même verrou que les mutations du store.
+     * Une suppression ne peut donc pas se glisser entre la confirmation de l'entreprise et l'écriture.
+     */
+    @Synchronized
+    fun <T> withConfirmedCompany(
+        context: Context,
+        companyId: String,
+        block: (Company) -> T
+    ): T? {
+        val company = confirmedCompany(readConfirmed(context), companyId) ?: return null
+        return block(company)
+    }
+
+    internal fun companiesAfterMutation(
+        stored: ReadResult,
+        company: Company,
+        allowInsert: Boolean
+    ): List<Company>? {
+        if (!stored.reliable || company.id.isBlank()) return null
+        val all = stored.companies.toMutableList()
+        val index = if (allowInsert) {
+            all.indexOfFirst {
+                it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
+            }
+        } else {
+            all.indexOfFirst { it.id == company.id }
+        }
+        if (index >= 0) {
+            all[index] = company
+        } else if (allowInsert) {
+            all += company
+        } else {
+            return null
+        }
+        return all
+    }
+
+    /**
+     * Met à jour uniquement une entreprise qui existe encore sous son identifiant stable.
+     * Cette méthode refuse volontairement toute insertion afin qu'un callback réseau ancien ne puisse
+     * pas recréer une entreprise supprimée entre le départ et la réponse de la requête.
+     */
+    @Synchronized
+    fun upsert(context: Context, company: Company): Boolean =
+        persistCompanyMutation(context, company, allowInsert = false)
+
+    /** Insertion explicite réservée au flux AJOUTER UNE ENTREPRISE. */
+    @Synchronized
+    fun createOrUpdate(context: Context, company: Company): Boolean =
+        persistCompanyMutation(context, company, allowInsert = true)
+
+    private fun persistCompanyMutation(
+        context: Context,
+        company: Company,
+        allowInsert: Boolean
+    ): Boolean {
+        val all = companiesAfterMutation(readConfirmed(context), company, allowInsert) ?: return false
+        if (!save(context, all)) return false
+        return confirmedCompany(readConfirmed(context), company.id) != null
+    }
+
+    @Synchronized
     fun remove(context: Context, id: String): Boolean {
+        val companyId = id.trim()
+        if (companyId.isBlank()) return false
         val stored = readConfirmed(context)
         if (!stored.reliable) return false
-        return save(context, stored.companies.filterNot { it.id == id })
+        if (stored.companies.none { it.id == companyId }) return true
+        if (!save(context, stored.companies.filterNot { it.id == companyId })) return false
+        val reloaded = readConfirmed(context)
+        return reloaded.reliable && reloaded.companies.none { it.id == companyId }
     }
 
     fun prefs(context: Context, companyId: String) = context.getSharedPreferences(
