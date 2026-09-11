@@ -142,11 +142,17 @@ object CompanyPayrollOverridesV2 {
         referenceDate:LocalDate=selectedPayrollReferenceDate(context),
         ignoreAbsencesForTheoreticalBase:Boolean=false
     ):Snapshot {
+        val storedCompanies=SalaryCompanyStore.readConfirmed(context)
+        val company=confirmedCompany(storedCompanies,companyId)
+            ?:return unresolvedCompanySnapshot(
+                companyId=companyId,
+                referenceDate=referenceDate,
+                warnings=companyStoreBlockers(storedCompanies,companyId)
+            )
         val p=SalaryCompanyStore.prefs(context,companyId)
         fun number(key:String)=p.getString(key,"").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>=0.0}
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
-        val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
-        val idcc=normalizeIdcc(company?.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
+        val idcc=normalizeIdcc(company.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
         val entryDate=runCatching {
             p.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let {
                 LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
@@ -364,6 +370,67 @@ object CompanyPayrollOverridesV2 {
             verifiedProvidentStoreWarnings=(verifiedProvidentStored.warnings + verifiedCompanyProvidentStored.warnings).distinct(),
             verifiedCompanyProvidentStoreReliable=verifiedCompanyProvidentStored.reliable,
             verifiedCompanyProvidentStoreWarnings=verifiedCompanyProvidentStored.warnings
+        )
+    }
+
+    internal fun confirmedCompany(
+        stored:SalaryCompanyStore.ReadResult,
+        companyId:String
+    ):SalaryCompanyStore.Company? = stored.companies
+        .firstOrNull { it.id==companyId }
+        ?.takeIf { stored.reliable }
+
+    internal fun companyStoreBlockers(
+        stored:SalaryCompanyStore.ReadResult,
+        companyId:String
+    ):List<String> = when {
+        !stored.reliable -> stored.warnings.distinct().ifEmpty {
+            listOf("Entreprises Salaire V2 : stockage non fiable ; paramètres de paie entreprise bloqués.")
+        }
+        companyId.isBlank() -> listOf("Paramètres de paie : entreprise non identifiée ; aucune préférence locale n'est utilisée.")
+        stored.companies.none { it.id==companyId } -> listOf(
+            "Paramètres de paie : entreprise $companyId absente du store confirmé ; aucune préférence locale orpheline n'est utilisée."
+        )
+        else -> emptyList()
+    }
+
+    internal fun unresolvedCompanySnapshot(
+        companyId:String,
+        referenceDate:LocalDate,
+        warnings:List<String>
+    ):Snapshot {
+        val safeWarnings=warnings.distinct().ifEmpty {
+            listOf("Paramètres de paie entreprise : profil local à confirmer.")
+        }
+        return Snapshot(
+            companyId=companyId,
+            idcc=null,
+            referenceDate=referenceDate,
+            entryDate=null,
+            seniorityMonths=null,
+            contractType=null,
+            contractualWeeklyMinutes=null,
+            forfaitAnnualDays=null,
+            unpaidAbsenceDays=null,
+            hasUnpaidAbsence=false,
+            mutualEmployeeAmount=null,
+            providentEmployeeAmount=null,
+            transportEmployeeAmount=null,
+            employerProtectionTaxableAmount=null,
+            employeeProvidentNonDeductibleAmount=null,
+            incomeTaxRate=null,
+            professionalStatus=null,
+            protectionCategory=PlasturgieProtectionCategoryV2.Result(
+                category=PlasturgieProtectionCategoryV2.Category.TO_CONFIRM,
+                confirmed=false,
+                coefficient=null,
+                warnings=safeWarnings
+            ),
+            warnings=safeWarnings,
+            verifiedProvidentStoreReliable=false,
+            verifiedProvidentStoreWarnings=safeWarnings,
+            verifiedCompanyProvidentStoreReliable=false,
+            verifiedCompanyProvidentStoreWarnings=safeWarnings
         )
     }
 
