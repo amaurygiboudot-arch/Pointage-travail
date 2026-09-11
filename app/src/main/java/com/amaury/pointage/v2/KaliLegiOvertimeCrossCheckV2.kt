@@ -35,14 +35,37 @@ object KaliLegiOvertimeCrossCheckV2 {
             .atStartOfDay(ZoneId.systemDefault())
             .toInstant()
             .toEpochMilli()
-        val records = runCatching { LegalPayrollSourceStoreV2.snapshot(context, atMs).records }
+        val snapshot = runCatching { LegalPayrollSourceStoreV2.snapshot(context, atMs) }
             .getOrElse {
                 return Result(
                     statutoryAvailable = false,
                     warnings = listOf("KALI/LEGI : sources LEGI locales indisponibles pour le recoupement.")
                 )
             }
-        val statutory = StatutoryOvertimeRulesV2.fallbackRule(records, referenceDate)
+        return analyzeSnapshot(snapshot, referenceDate, diagnostics)
+    }
+
+    internal fun analyzeSnapshot(
+        snapshot: LegalPayrollSourceStoreV2.Snapshot,
+        referenceDate: LocalDate,
+        diagnostics: List<OfficialKaliOvertimeRuleParserV2.ArticleDiagnostic>
+    ): Result {
+        val explicitRates = diagnostics.filter {
+            it.kind == OfficialKaliOvertimeRuleParserV2.DiagnosticKind.EXPLICIT_RATES_WITHOUT_35H
+        }
+        if (explicitRates.isEmpty()) return Result(statutoryAvailable = false)
+
+        if (!snapshot.reliable) {
+            return Result(
+                statutoryAvailable = false,
+                warnings = (
+                    snapshot.warnings +
+                        "KALI/LEGI : stockage LEGI local non fiable ; aucun barème supplétif ni absence de barème n'est déduit de ce stockage pour le recoupement."
+                    ).distinct()
+            )
+        }
+
+        val statutory = StatutoryOvertimeRulesV2.fallbackRule(snapshot.records, referenceDate)
             ?: return Result(
                 statutoryAvailable = false,
                 warnings = listOf(
