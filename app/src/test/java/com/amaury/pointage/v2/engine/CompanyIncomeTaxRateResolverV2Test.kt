@@ -95,14 +95,16 @@ class CompanyIncomeTaxRateResolverV2Test {
     }
 
     @Test
-    fun `ancien taux reste estimation tant qu aucun taux date existe`() {
+    fun `ancien taux sans periode ne participe plus au calcul V2`() {
         val empty = CompanyIncomeTaxRateResolverV2.resolve(emptyList(), YearMonth.of(2026, 9))
         val result = CompanyIncomeTaxRateResolverV2.withLegacyFallback(empty, legacyRatePercent = 3.2)
 
-        assertEquals(0.032, result.rate!!, 0.000001)
-        assertTrue(result.legacyUsed)
+        assertNull(result.rate)
+        assertNull(result.ratePercent)
+        assertNull(result.source)
+        assertFalse(result.legacyUsed)
         assertFalse(result.reliable)
-        assertTrue(result.warnings.any { it.contains("sans période") })
+        assertTrue(result.warnings.any { it.contains("non utilisé", ignoreCase = true) })
     }
 
     @Test

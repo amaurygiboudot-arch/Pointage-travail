@@ -86,8 +86,11 @@ object CompanyIncomeTaxRateResolverV2 {
     }
 
     /**
-     * Compatibilité progressive avec le taux historique sans période.
-     * Il reste utilisable comme estimation uniquement tant qu'aucun taux daté n'existe.
+     * Compatibilité de migration avec le taux historique sans période.
+     *
+     * La valeur historique reste détectée afin d'expliquer à l'utilisateur ce qui doit être
+     * confirmé, mais elle ne fournit plus jamais de taux au runtime Salaire V2. Seul un taux
+     * daté et sourcé peut alimenter le calcul après impôt.
      */
     fun withLegacyFallback(snapshot: Snapshot, legacyRatePercent: Double?): Snapshot {
         if (snapshot.hasDatedRecords) return snapshot
@@ -99,18 +102,18 @@ object CompanyIncomeTaxRateResolverV2 {
                 source = null,
                 hasDatedRecords = false,
                 reliable = false,
-                legacyUsed = true,
-                warnings = listOf("PAS : ancien taux sans période invalide.")
+                legacyUsed = false,
+                warnings = listOf("PAS : ancien taux sans période invalide ; confirmer un taux daté et sourcé.")
             )
         }
         return Snapshot(
-            rate = legacy / 100.0,
-            ratePercent = legacy,
-            source = "Ancienne fiche Salaire sans période",
+            rate = null,
+            ratePercent = null,
+            source = null,
             hasDatedRecords = false,
             reliable = false,
-            legacyUsed = true,
-            warnings = listOf("PAS : ancien taux sans période utilisé ; période et source à confirmer.")
+            legacyUsed = false,
+            warnings = listOf("PAS : ancien taux sans période détecté mais non utilisé par Salaire V2 ; confirmer sa période et sa source.")
         )
     }
 

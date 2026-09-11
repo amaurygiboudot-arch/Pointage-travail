@@ -166,7 +166,7 @@ class CompanyEmployeeDeductionResolverV2Test {
     }
 
     @Test
-    fun `ancien montant reste estimation tant quaucune regle datee nexiste`() {
+    fun `ancien montant non date ne participe plus au calcul V2`() {
         val empty = CompanyEmployeeDeductionResolverV2.resolve(
             emptyList(),
             YearMonth.of(2026, 9)
@@ -176,9 +176,10 @@ class CompanyEmployeeDeductionResolverV2Test {
             mapOf(kind to 28.40)
         )[kind]
 
-        assertEquals(28.40, effective.amount!!, 0.001)
+        assertNull(effective.amount)
+        assertNull(effective.source)
         assertFalse(effective.reliable)
-        assertTrue(effective.legacyUsed)
-        assertTrue(effective.warnings.any { it.contains("non datée") })
+        assertFalse(effective.legacyUsed)
+        assertTrue(effective.warnings.any { it.contains("non utilisée", ignoreCase = true) })
     }
 }
