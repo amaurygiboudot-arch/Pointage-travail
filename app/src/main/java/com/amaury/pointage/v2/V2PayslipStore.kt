@@ -149,6 +149,15 @@ object V2PayslipStore {
   return grossByMonth
  }
 
+ internal fun confirmedCompany(
+  stored:SalaryCompanyStore.ReadResult,
+  companyId:String
+ ):SalaryCompanyStore.Company?{
+  val id=companyId.trim()
+  if(!stored.reliable || id.isBlank())return null
+  return stored.companies.firstOrNull{it.id==id}
+ }
+
  /**
   * Résout le maintien maladie conventionnel à partir de l'IDCC, du statut,
   * de la classification et de la période. Aucune convention n'est supposée.
@@ -217,7 +226,7 @@ object V2PayslipStore {
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
   val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)?:return null
   val allowance=sicknessAllowanceForAbsence(context,companyId,absence)
-  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}?:return null
+  val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
   val prefs=SalaryCompanyStore.prefs(context,companyId)
   val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim()
   val convention=ConventionCatalog.findByIdcc(context,idcc)
@@ -310,7 +319,7 @@ object V2PayslipStore {
   if(stored.isEmpty())return null
 
   if(record.companyId.isNotBlank()){
-   val company=SalaryCompanyStore.list(context).firstOrNull{it.id==record.companyId}?:return null
+   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),record.companyId)?:return null
    val prefs=SalaryCompanyStore.prefs(context,company.id)
    val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
    val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
