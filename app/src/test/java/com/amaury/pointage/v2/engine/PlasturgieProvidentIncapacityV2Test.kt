@@ -29,6 +29,7 @@ class PlasturgieProvidentIncapacityV2Test {
         assertTrue(result.applicableConvention)
         assertFalse(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
+        assertTrue(result.reliable)
         assertNull(result.minimumGrossRate)
     }
 
@@ -37,6 +38,7 @@ class PlasturgieProvidentIncapacityV2Test {
         val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",8,category(700),null,91)
         assertTrue(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
+        assertTrue(result.reliable)
         assertEquals(0.60,result.minimumGrossRate!!,0.001)
         assertEquals(91,result.earliestContinuousStopDay)
         assertEquals(true,result.relayReached)
@@ -48,6 +50,7 @@ class PlasturgieProvidentIncapacityV2Test {
             "292",48,category(700),maintenance(limit=105,consumed=30,waiting=3),79
         )
         assertTrue(result.potentiallyCovered)
+        assertTrue(result.reliable)
         assertEquals(79,result.earliestContinuousStopDay)
         assertEquals(true,result.relayReached)
     }
@@ -57,6 +60,7 @@ class PlasturgieProvidentIncapacityV2Test {
         val result = PlasturgieProvidentIncapacityV2.assessLegacy(
             "292",48,category(700),maintenance(limit=105,consumed=0,waiting=0),30
         )
+        assertTrue(result.reliable)
         assertEquals(106,result.earliestContinuousStopDay)
         assertEquals(false,result.relayReached)
     }
@@ -66,6 +70,7 @@ class PlasturgieProvidentIncapacityV2Test {
         val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",48,category(830),maintenance(),200)
         assertFalse(result.potentiallyCovered)
         assertTrue(result.eligibilityConfirmed)
+        assertTrue(result.reliable)
         assertNull(result.minimumGrossRate)
     }
 
@@ -73,6 +78,7 @@ class PlasturgieProvidentIncapacityV2Test {
     fun `coefficient 800 reste hors ANI mais signale extension cadre possible`() {
         val result = PlasturgieProvidentIncapacityV2.assessLegacy("292",48,category(800),maintenance(),200)
         assertTrue(result.potentiallyCovered)
+        assertTrue(result.reliable)
         assertTrue(result.warnings.any { it.contains("extension") })
     }
 
@@ -82,5 +88,33 @@ class PlasturgieProvidentIncapacityV2Test {
         val result = PlasturgieProvidentIncapacityV2.assessLegacy("1486",48,other,null,200)
         assertFalse(result.applicableConvention)
         assertFalse(result.potentiallyCovered)
+        assertTrue(result.reliable)
+    }
+
+    @Test
+    fun `idcc manquant ne devient pas une exclusion fiable`() {
+        val result = PlasturgieProvidentIncapacityV2.assess(null,48,category(700),null,200)
+        assertFalse(result.applicableConvention)
+        assertFalse(result.reliable)
+        assertFalse(result.eligibilityConfirmed)
+        assertTrue(result.warnings.any { it.contains("IDCC") })
+    }
+
+    @Test
+    fun `anciennete manquante rend le relais non fiable`() {
+        val result = PlasturgieProvidentIncapacityV2.assess("292",null,category(700),null,200)
+        assertFalse(result.reliable)
+        assertFalse(result.eligibilityConfirmed)
+        assertNull(result.relayReached)
+    }
+
+    @Test
+    fun `apres un an un maintien non resolu bloque la date du relais`() {
+        val result = PlasturgieProvidentIncapacityV2.assess("292",48,category(700),null,200)
+        assertTrue(result.potentiallyCovered)
+        assertTrue(result.eligibilityConfirmed)
+        assertFalse(result.reliable)
+        assertNull(result.earliestContinuousStopDay)
+        assertNull(result.relayReached)
     }
 }

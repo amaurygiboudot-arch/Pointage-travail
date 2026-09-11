@@ -24,6 +24,12 @@ object PlasturgieProvidentRelayControlV2 {
         socialSecurityGrossAmount: Double?,
         observedProvidentGrossAmount: Double?
     ): Result {
+        if (!relay.reliable) {
+            return unavailable(
+                relay.warnings.firstOrNull()
+                    ?: "Contrôle prévoyance : relais de branche non fiable ; aucun minimum n'est certifié."
+            )
+        }
         if (!relay.applicableConvention || !relay.eligibilityConfirmed || !relay.potentiallyCovered) {
             return unavailable("Contrôle prévoyance : garantie de branche non applicable ou éligibilité non confirmée.")
         }

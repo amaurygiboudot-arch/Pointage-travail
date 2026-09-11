@@ -7,7 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlasturgieProvidentRelayControlV2Test {
-    private fun relay(reached:Boolean=true) = PlasturgieProvidentIncapacityV2.Result(
+    private fun relay(reached:Boolean=true,reliable:Boolean=true) = PlasturgieProvidentIncapacityV2.Result(
         applicableConvention=true,
         potentiallyCovered=true,
         eligibilityConfirmed=true,
@@ -17,7 +17,8 @@ class PlasturgieProvidentRelayControlV2Test {
         earliestContinuousStopDay=91,
         relayReached=reached,
         exactBenefitAmountAvailable=false,
-        warnings=emptyList()
+        warnings=if(reliable) emptyList() else listOf("Relais non fiable"),
+        reliable=reliable
     )
 
     @Test
@@ -48,6 +49,14 @@ class PlasturgieProvidentRelayControlV2Test {
         val result=PlasturgieProvidentRelayControlV2.calculate(relay(false),1200.0,700.0,500.0)
         assertFalse(result.complete)
         assertNull(result.expectedMinimumProvidentGross)
+    }
+
+    @Test
+    fun `refuse un relais non fiable meme si les montants sont presents`() {
+        val result=PlasturgieProvidentRelayControlV2.calculate(relay(reliable=false),1200.0,700.0,500.0)
+        assertFalse(result.complete)
+        assertNull(result.expectedMinimumProvidentGross)
+        assertTrue(result.warnings.any{it.contains("non fiable",ignoreCase=true)})
     }
 
     @Test
