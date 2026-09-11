@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.SalaryCompanyStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,6 +47,50 @@ class RgduStoreIntegrityV2Test {
         )
 
         assertFalse(result.reliable)
+    }
+
+    @Test
+    fun `manual RGDU is blocked when company store is unreliable`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = false,
+            warnings = listOf("store entreprises corrompu")
+        )
+
+        val blockers = CompanyEmployerReductionStoreV2.companyStoreBlockers(stored, company.id)
+
+        assertTrue(blockers.any { it.contains("corrompu", ignoreCase = true) })
+    }
+
+    @Test
+    fun `manual RGDU never falls back to orphan company preferences`() {
+        val stored = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
+
+        val blockers = CompanyEmployerReductionStoreV2.companyStoreBlockers(stored, "company-a")
+
+        assertTrue(blockers.any { it.contains("orpheline", ignoreCase = true) })
+    }
+
+    @Test
+    fun `restored confirmed company keeps RGDU available`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = true,
+            repairedFromBackup = true,
+            warnings = listOf("restauré depuis la copie saine")
+        )
+
+        assertTrue(CompanyEmployerReductionStoreV2.companyStoreBlockers(stored, " company-a ").isEmpty())
     }
 
     @Test
