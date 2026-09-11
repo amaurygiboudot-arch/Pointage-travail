@@ -203,10 +203,16 @@ class SalaryCompanyDetailsView(
         agreementRevision = SalaryCompanyStore.prefs(context, company.id).getLong("company_agreement_import_revision", 0L)
         removeAllViews()
         addView(text("ACCORDS D’ENTREPRISE\n\nHoraTrack recherche d’abord les accords accessibles dans les sources officielles. Un accord trouvé ou importé n’est jamais appliqué au calcul tant que ses règles et sa période d’application ne sont pas validées."))
-        val agreements = CompanyAgreementStoreV2.list(context, company.id)
-        if (agreements.isEmpty()) {
+
+        val agreementState = CompanyAgreementStoreV2.read(context, company.id)
+        val ruleState = CompanyAgreementRuleStoreV2.read(context, company.id)
+        companyAgreementMetadataStorageStatusText(agreementState)?.let { addView(text(it)) }
+        companyAgreementRuleStorageStatusText(ruleState)?.let { addView(text(it)) }
+
+        val agreements = if (agreementState.reliable) agreementState.agreements else emptyList()
+        if (agreementState.reliable && agreements.isEmpty()) {
             addView(text("État : accord interne non identifié / à confirmer.\n\nCela ne signifie pas qu’aucun accord existe."))
-        } else {
+        } else if (agreementState.reliable) {
             agreements.forEach { agreement ->
                 val status = when (agreement.status) {
                     CompanyAgreementStoreV2.Status.UNKNOWN -> "À confirmer"
@@ -222,8 +228,12 @@ class SalaryCompanyDetailsView(
                 if (agreement.documentPath.isNotBlank()) {
                     addView(button("OUVRIR LE DOCUMENT ORIGINAL") { openAgreementDocument(agreement) })
                 }
-                val candidates = CompanyAgreementRuleStoreV2.list(context, company.id).filter { it.agreementId == agreement.id }
-                if (agreement.id.startsWith("LOCAL-ACCO-") && candidates.isEmpty()) {
+                val candidates = if (ruleState.reliable) {
+                    ruleState.records.filter { it.agreementId == agreement.id }
+                } else {
+                    emptyList()
+                }
+                if (ruleState.reliable && agreement.id.startsWith("LOCAL-ACCO-") && candidates.isEmpty()) {
                     addView(text("Aucune règle candidate n’a été détectée. Le document reste conservé : vérifie son contenu avant toute saisie manuelle."))
                 }
                 candidates.forEach { candidate ->
@@ -300,7 +310,7 @@ class SalaryCompanyDetailsView(
                         if (saved) showAgreements()
                     })
                 }
-                if (agreement.id.startsWith("ACCOTEXT")) {
+                if (agreement.id.startsWith("ACCOTEXT") && ruleState.reliable) {
                     addView(button("ANALYSER CET ACCORD") {
                         Toast.makeText(context, "Récupération de l’accord officiel…", Toast.LENGTH_SHORT).show()
                         LegifranceFunctionClientV2.request("/consult/acco", mapOf("id" to agreement.id))
@@ -327,6 +337,16 @@ class SalaryCompanyDetailsView(
             }
         }
         addView(button("RECHERCHER DANS LES SOURCES OFFICIELLES") {
+            val currentAgreementState = CompanyAgreementStoreV2.read(context, company.id)
+            if (!currentAgreementState.reliable) {
+                Toast.makeText(
+                    context,
+                    companyAgreementMetadataStorageStatusText(currentAgreementState)
+                        ?: "Stockage ACCO incohérent : recherche bloquée tant que les données ne sont pas récupérées.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@button
+            }
             val siret = company.siret.filter(Char::isDigit)
             if (siret.length != 14) {
                 Toast.makeText(context, "Renseigne d’abord un SIRET valide à 14 chiffres.", Toast.LENGTH_LONG).show()
@@ -378,21 +398,37 @@ class SalaryCompanyDetailsView(
                     OfficialAgreementCandidateVerifierV2.verify(candidates, siret)
                         .addOnSuccessListener { verification ->
                             val found = verification.verified
-                            if (found.isNotEmpty()) {
-                                val existing = CompanyAgreementStoreV2.list(context, company.id).associateBy { it.id }
-                                val merged = existing.values + found.filterNot { existing.containsKey(it.id) }
-                                CompanyAgreementStoreV2.save(context, company.id, merged)
+                            val persisted = if (found.isEmpty()) {
+                                true
+                            } else {
+                                val existingState = CompanyAgreementStoreV2.read(context, company.id)
+                                if (!existingState.reliable) {
+                                    false
+                                } else {
+                                    val existing = existingState.agreements.associateBy { it.id }
+                                    val merged = existing.values + found.filterNot { existing.containsKey(it.id) }
+                                    CompanyAgreementStoreV2.save(context, company.id, merged)
+                                }
                             }
-                            SalaryCompanyStore.prefs(context, company.id).edit()
-                                .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
-                                .commit()
-                            Toast.makeText(
-                                context,
-                                if (found.isEmpty()) "Recherche terminée — aucun accord vérifié pour ce SIRET."
-                                else "${found.size} accord(s) Légifrance vérifié(s) pour ce SIRET${if (verification.rejectedCount > 0) " — ${verification.rejectedCount} candidat(s) écarté(s)" else ""}.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            showAgreements()
+
+                            if (found.isNotEmpty() && !persisted) {
+                                Toast.makeText(
+                                    context,
+                                    companyAgreementSearchOutcomeText(found.size, verification.rejectedCount, persisted = false),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                showAgreements()
+                            } else {
+                                SalaryCompanyStore.prefs(context, company.id).edit()
+                                    .putLong("company_agreement_search_completed_at", System.currentTimeMillis())
+                                    .commit()
+                                Toast.makeText(
+                                    context,
+                                    companyAgreementSearchOutcomeText(found.size, verification.rejectedCount, persisted = true),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                showAgreements()
+                            }
                         }
                         .addOnFailureListener { error ->
                             Toast.makeText(context, "Vérification des accords impossible : ${error.message ?: "erreur inconnue"}", Toast.LENGTH_LONG).show()
@@ -426,6 +462,20 @@ class SalaryCompanyDetailsView(
             }
         })
         addView(button("JE POSSÈDE UN ACCORD À IMPORTER") {
+            val currentAgreementState = CompanyAgreementStoreV2.read(context, company.id)
+            val currentRuleState = CompanyAgreementRuleStoreV2.read(context, company.id)
+            if (!currentAgreementState.reliable || !currentRuleState.reliable) {
+                val message = listOfNotNull(
+                    companyAgreementMetadataStorageStatusText(currentAgreementState),
+                    companyAgreementRuleStorageStatusText(currentRuleState)
+                ).joinToString("\n")
+                Toast.makeText(
+                    context,
+                    message.ifBlank { "Stockage ACCO incohérent : import bloqué tant que les données ne sont pas récupérées." },
+                    Toast.LENGTH_LONG
+                ).show()
+                return@button
+            }
             SalaryCompanyStore.prefs(context, company.id).edit()
                 .putBoolean("company_agreement_import_requested", true)
                 .putLong("company_agreement_import_requested_at", System.currentTimeMillis())
