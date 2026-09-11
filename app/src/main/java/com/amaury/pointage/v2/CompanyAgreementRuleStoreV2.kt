@@ -11,7 +11,7 @@ object CompanyAgreementRuleStoreV2 {
         "Règles ACCO : stockage local incohérent ; les règles d'entreprise ne peuvent pas être utilisées pour la paie."
     private const val REPAIRED_WARNING =
         "Règles ACCO : stockage principal restauré depuis la dernière copie locale valide."
-    private const val KEY_LAST_KNOWN_GOOD = "company_agreement_rule_candidates_v2_last_known_good"
+    internal const val KEY_LAST_KNOWN_GOOD = "company_agreement_rule_candidates_v2_last_known_good"
     private const val KEY_CORRUPT_BACKUP = "company_agreement_rule_candidates_v2_corrupt_backup"
 
     data class StoredCandidate(
@@ -274,19 +274,26 @@ object CompanyAgreementRuleStoreV2 {
         return StorageResolution(primary, StorageSource.NONE)
     }
 
-    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
-        if (companyId.isBlank() || values.any { !validStorageCandidate(it) }) return false
+    internal fun snapshotEntries(values: List<StoredCandidate>): Map<String, String>? {
+        if (values.any { !validStorageCandidate(it) }) return null
         if (values.groupingBy { Triple(it.agreementId, it.category, it.excerpt) }.eachCount().any { it.value > 1 }) {
-            return false
+            return null
         }
         val raw = encode(values)
         val verification = decodeRecords(raw)
-        if (!verification.reliable || verification.records.size != values.size) return false
-        return SalaryCompanyStore.prefs(context, companyId)
-            .edit()
-            .putString(KEY, raw)
-            .putString(KEY_LAST_KNOWN_GOOD, raw)
-            .commit()
+        if (!verification.reliable || verification.records.size != values.size) return null
+        return linkedMapOf(
+            KEY to raw,
+            KEY_LAST_KNOWN_GOOD to raw
+        )
+    }
+
+    private fun save(context: Context, companyId: String, values: List<StoredCandidate>): Boolean {
+        if (companyId.isBlank()) return false
+        val entries = snapshotEntries(values) ?: return false
+        val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+        entries.forEach { (key, value) -> editor.putString(key, value) }
+        return editor.commit()
     }
 
     internal fun encode(values: List<StoredCandidate>): String {

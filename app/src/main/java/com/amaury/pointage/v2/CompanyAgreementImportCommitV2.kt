@@ -42,13 +42,33 @@ object CompanyAgreementImportCommitV2 {
             agreement.id,
             candidates
         )
+        val snapshotEntries = buildSnapshotEntries(mergedAgreements, mergedCandidates)
+            ?: return Result(
+                saved = false,
+                duplicate = previous != null,
+                candidateCount = candidates.size
+            )
+
         val prefs = SalaryCompanyStore.prefs(context, companyId)
-        val saved = prefs.edit()
-            .putString(CompanyAgreementStoreV2.KEY, CompanyAgreementStoreV2.encode(mergedAgreements))
-            .putString(CompanyAgreementRuleStoreV2.KEY, CompanyAgreementRuleStoreV2.encode(mergedCandidates))
+        val editor = prefs.edit()
+        snapshotEntries.forEach { (key, value) -> editor.putString(key, value) }
+        val saved = editor
             .putLong("company_agreement_import_completed_at", System.currentTimeMillis())
             .putLong("company_agreement_import_revision", prefs.getLong("company_agreement_import_revision", 0L) + 1L)
             .commit()
         return Result(saved = saved, duplicate = previous != null, candidateCount = candidates.size)
+    }
+
+    internal fun buildSnapshotEntries(
+        agreements: List<CompanyAgreementStoreV2.Agreement>,
+        candidates: List<CompanyAgreementRuleStoreV2.StoredCandidate>
+    ): Map<String, String>? {
+        val agreementEntries = CompanyAgreementStoreV2.snapshotEntries(agreements) ?: return null
+        val candidateEntries = CompanyAgreementRuleStoreV2.snapshotEntries(candidates) ?: return null
+        if (agreementEntries.keys.any(candidateEntries::containsKey)) return null
+        return linkedMapOf<String, String>().apply {
+            putAll(agreementEntries)
+            putAll(candidateEntries)
+        }
     }
 }
