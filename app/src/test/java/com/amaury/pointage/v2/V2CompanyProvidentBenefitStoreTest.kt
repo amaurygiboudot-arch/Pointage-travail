@@ -40,6 +40,17 @@ class V2CompanyProvidentBenefitStoreTest {
     )
 
     @Test
+    fun `entreprise indisponible rend les garanties ACCO non fiables`() {
+        val result = V2CompanyProvidentBenefitStore.companyUnavailableResult("company-a")
+
+        assertFalse(result.reliable)
+        assertTrue(result.rules.isEmpty())
+        assertTrue(result.warnings.any {
+            it.contains("absente", ignoreCase = true) && it.contains("orpheline", ignoreCase = true)
+        })
+    }
+
+    @Test
     fun `regle exacte et SIRET exact sont acceptes`() {
         assertTrue(V2CompanyProvidentBenefitStore.acceptsVerifiedRule(rule(), "12345678901234"))
     }

@@ -22,6 +22,16 @@ object V2CompanyProvidentBenefitStore {
         val warnings: List<String>
     )
 
+    internal fun companyUnavailableResult(companyId: String): ReadResult {
+        val id = companyId.trim()
+        val warning = if (id.isBlank()) {
+            "ACCO garanties prévoyance : entreprise non identifiée ; preuves d'entreprise inaccessibles."
+        } else {
+            "ACCO garanties prévoyance : entreprise $id absente ou stockage entreprises non fiable ; aucune preuve locale orpheline n'est utilisée."
+        }
+        return ReadResult(emptyList(), false, listOf(warning))
+    }
+
     /**
      * Lit toutes les preuves historiques de l'entreprise locale, sans filtrer le SIRET courant.
      * Un ancien SIRET structurellement valide reste de l'historique ; il n'est simplement plus
@@ -29,36 +39,46 @@ object V2CompanyProvidentBenefitStore {
      * non fiable afin qu'une corruption ne ressemble jamais à une absence de garanties ACCO.
      */
     fun readVerified(context: Context, companyId: String): ReadResult {
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeVerified(raw)
+        val id = companyId.trim()
+        if (id.isBlank()) return companyUnavailableResult(id)
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            readConfirmed(context, company.id)
+        } ?: companyUnavailableResult(id)
     }
 
     fun rules(context: Context, companyId: String): List<CompanyProvidentBenefitV2.Rule> {
-        val profile = ConventionLegalProfileV2.load(context, companyId) ?: return emptyList()
-        val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return emptyList()
-        val stored = readVerified(context, companyId)
-        check(stored.reliable) { STORAGE_WARNING }
-        return stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) }
+        val id = companyId.trim()
+        if (id.isBlank()) return emptyList()
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            val profile = ConventionLegalProfileV2.load(context, company.id) ?: return@withConfirmedCompany emptyList()
+            val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 }
+                ?: return@withConfirmedCompany emptyList()
+            val stored = readConfirmed(context, company.id)
+            check(stored.reliable) { STORAGE_WARNING }
+            stored.rules.filter { acceptsVerifiedRule(it, expectedSiret) }
+        } ?: emptyList()
     }
 
     fun saveVerified(context: Context, companyId: String, rule: CompanyProvidentBenefitV2.Rule): Boolean {
-        val profile = ConventionLegalProfileV2.load(context, companyId) ?: return false
-        val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 } ?: return false
-        if (!acceptsVerifiedRule(rule, expectedSiret)) return false
+        val id = companyId.trim()
+        if (id.isBlank()) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            val profile = ConventionLegalProfileV2.load(context, company.id) ?: return@withConfirmedCompany false
+            val expectedSiret = profile.siret.filter(Char::isDigit).takeIf { it.length == 14 }
+                ?: return@withConfirmedCompany false
+            if (!acceptsVerifiedRule(rule, expectedSiret)) return@withConfirmedCompany false
 
-        val stored = readVerified(context, companyId)
-        if (!stored.reliable) return false
-        val current = stored.rules.toMutableList()
-        current.removeAll { sameLegalIdentity(it, rule) }
-        current += normalized(rule)
-        if (!acceptsVerifiedPackage(current)) return false
+            val stored = readConfirmed(context, company.id)
+            if (!stored.reliable) return@withConfirmedCompany false
+            val current = stored.rules.toMutableList()
+            current.removeAll { sameLegalIdentity(it, rule) }
+            current += normalized(rule)
+            if (!acceptsVerifiedPackage(current)) return@withConfirmedCompany false
 
-        return SalaryCompanyStore.prefs(context, companyId).edit()
-            .putString(KEY, encodeRules(current))
-            .commit()
+            SalaryCompanyStore.prefs(context, company.id).edit()
+                .putString(KEY, encodeRules(current))
+                .commit()
+        } == true
     }
 
     internal fun acceptsVerifiedRule(rule: CompanyProvidentBenefitV2.Rule, expectedSiret: String): Boolean =
@@ -116,6 +136,14 @@ object V2CompanyProvidentBenefitStore {
 
     /** Compatibilité des tests/outils de sérialisation : la fiabilité doit être lue via decodeVerified. */
     internal fun decodeRules(raw: String): List<CompanyProvidentBenefitV2.Rule> = decodeVerified(raw).rules
+
+    private fun readConfirmed(context: Context, companyId: String): ReadResult {
+        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeVerified(raw)
+    }
 
     private fun hasDuplicateStoredIdentity(rules: List<CompanyProvidentBenefitV2.Rule>): Boolean =
         rules.indices.any { leftIndex ->
