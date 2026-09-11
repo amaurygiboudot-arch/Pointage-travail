@@ -160,8 +160,9 @@ object V2SalaryAdapter {
   val runtimeSessions=V2RuntimeStore.allSessions(context)
   val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
   val companyId=p.contract?.employerId
+  val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
   val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
-  val holidayScope=companyId?.let{id->SalaryCompanyStore.list(context).firstOrNull{it.id==id}?.let{FrenchPublicHolidayCalendarV2.scopeForAddress(it.address)}}
+  val holidayScope=holidayContext.scope
   val contractType=p.contract?.type
   val conventionHistory=salaryConventionHistoryStateV2(
    provided=ruleHistory,
@@ -171,8 +172,8 @@ object V2SalaryAdapter {
   val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
   return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
    result.copy(
-    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross),
-    warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)
+    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
+    warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings).distinct()
    )
   }
  }
