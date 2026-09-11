@@ -53,6 +53,7 @@ object SalaryCompanyStore {
         val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
         if (!store.contains(KEY)) {
+            val backupPresent = store.contains(KEY_LAST_KNOWN_GOOD)
             val backupRaw = runCatching { store.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
             val backup = backupRaw?.let(::decodeCompanies)
             if (backup?.reliable == true) {
@@ -69,6 +70,7 @@ object SalaryCompanyStore {
                     )
                 }
             }
+            missingPrimaryBackupFailure(backupPresent, backup)?.let { return it }
             migrateLegacy(context)
         }
 
@@ -295,6 +297,21 @@ object SalaryCompanyStore {
             )
         }
         return StorageResolution(primary, StorageSource.NONE)
+    }
+
+    internal fun missingPrimaryBackupFailure(
+        backupPresent: Boolean,
+        backup: ReadResult?
+    ): ReadResult? {
+        if (!backupPresent || backup?.reliable == true) return null
+        return ReadResult(
+            companies = backup?.companies.orEmpty(),
+            reliable = false,
+            warnings = listOf(
+                STORAGE_WARNING,
+                "La copie locale de secours existe mais elle est illisible ; aucune absence d'entreprise ne peut être confirmée."
+            )
+        )
     }
 
     private fun decodeCompany(obj: JSONObject): Company? = runCatching {
