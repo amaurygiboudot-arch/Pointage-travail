@@ -57,12 +57,10 @@ object SalaryCompanyStore {
             val backup = backupRaw?.let(::decodeCompanies)
             if (backup?.reliable == true) {
                 val restored = runCatching {
-                    store.edit()
-                        .putString(KEY, backupRaw)
-                        .remove(KEY_CORRUPT_BACKUP)
-                        .commit()
+                    store.edit().putString(KEY, backupRaw).commit()
                 }.getOrDefault(false)
                 return if (restored) {
+                    discardCorruptBackup(store)
                     backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING))
                 } else {
                     ReadResult(
@@ -85,32 +83,27 @@ object SalaryCompanyStore {
 
         return when (resolution.source) {
             StorageSource.PRIMARY -> {
-                // Une copie principale saine permet de reconstruire la sauvegarde avant de jeter
-                // une ancienne trace corrompue. Si cette écriture échoue, la trace est conservée.
-                if (primaryRaw != null && backupRaw != primaryRaw) {
-                    runCatching {
-                        store.edit()
-                            .putString(KEY_LAST_KNOWN_GOOD, primaryRaw)
-                            .remove(KEY_CORRUPT_BACKUP)
-                            .commit()
-                    }
-                } else if (primaryRaw != null && backupRaw == primaryRaw && store.contains(KEY_CORRUPT_BACKUP)) {
-                    runCatching {
-                        store.edit().remove(KEY_CORRUPT_BACKUP).commit()
-                    }
+                // La trace corrompue n'est jetée que si une sauvegarde saine existe déjà ou si sa
+                // reconstruction depuis le principal sain vient d'être confirmée par commit().
+                val backupHealthy = when {
+                    primaryRaw == null -> false
+                    backupRaw == primaryRaw -> true
+                    else -> runCatching {
+                        store.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+                    }.getOrDefault(false)
                 }
+                if (backupHealthy) discardCorruptBackup(store)
                 resolution.result
             }
             StorageSource.LAST_KNOWN_GOOD -> {
                 val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
                 val restored = runCatching {
-                    store.edit()
-                        .putString(KEY, repairedRaw)
-                        .remove(KEY_CORRUPT_BACKUP)
-                        .commit()
+                    store.edit().putString(KEY, repairedRaw).commit()
                 }.getOrDefault(false)
-                if (restored) resolution.result
-                else ReadResult(
+                if (restored) {
+                    discardCorruptBackup(store)
+                    resolution.result
+                } else ReadResult(
                     companies = resolution.result.companies,
                     reliable = false,
                     warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
@@ -356,11 +349,18 @@ object SalaryCompanyStore {
         val raw = encodeCompanies(companies)
         val verification = decodeCompanies(raw)
         if (!verification.reliable || verification.companies.size != companies.size) return false
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val persisted = store.edit()
             .putString(KEY, raw)
             .putString(KEY_LAST_KNOWN_GOOD, raw)
-            .remove(KEY_CORRUPT_BACKUP)
             .commit()
+        if (persisted) discardCorruptBackup(store)
+        return persisted
+    }
+
+    private fun discardCorruptBackup(store: android.content.SharedPreferences) {
+        if (!store.contains(KEY_CORRUPT_BACKUP)) return
+        runCatching { store.edit().remove(KEY_CORRUPT_BACKUP).commit() }
     }
 
     private fun encodeCompanies(companies: List<Company>): String {
