@@ -19,19 +19,17 @@ object CompanyMobilityContributionStoreV2 {
         val warnings: List<String>
     )
 
+    internal fun companyUnavailableResult(): ReadResult = ReadResult(
+        emptyList(),
+        false,
+        listOf("Versement mobilité employeur : entreprise absente ou stockage des entreprises non fiable.")
+    )
+
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                emptyList(),
-                false,
-                listOf("Versement mobilité employeur : entreprise non identifiée.")
-            )
-        }
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
-        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
-        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeRecords(raw)
+        if (companyId.isBlank()) return companyUnavailableResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readConfirmed(context, companyId)
+        } ?: companyUnavailableResult()
     }
 
     fun list(context: Context, companyId: String): List<EmployerMobilityContributionV2.Record> =
@@ -39,19 +37,23 @@ object CompanyMobilityContributionStoreV2 {
 
     fun save(context: Context, companyId: String, record: EmployerMobilityContributionV2.Record): Boolean {
         if (companyId.isBlank()) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        val items = stored.records.toMutableList()
-        val index = items.indexOfFirst { it.id == record.id }
-        if (index >= 0) items[index] = record else items += record
-        return write(context, companyId, items)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            val items = stored.records.toMutableList()
+            val index = items.indexOfFirst { it.id == record.id }
+            if (index >= 0) items[index] = record else items += record
+            writeConfirmed(context, companyId, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
         if (companyId.isBlank() || id.isBlank()) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        return write(context, companyId, stored.records.filterNot { it.id == id })
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmed(context, companyId, stored.records.filterNot { it.id == id })
+        } == true
     }
 
     fun resolve(context: Context, companyId: String, period: YearMonth): EmployerMobilityContributionV2.Snapshot =
@@ -88,7 +90,15 @@ object CompanyMobilityContributionStoreV2 {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
     }
 
-    private fun write(context: Context, companyId: String, items: List<EmployerMobilityContributionV2.Record>): Boolean {
+    private fun readConfirmed(context: Context, companyId: String): ReadResult {
+        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        if (!prefs.contains(KEY)) return ReadResult(emptyList(), true, emptyList())
+        val raw = runCatching { prefs.getString(KEY, null) }.getOrNull()
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decodeRecords(raw)
+    }
+
+    private fun writeConfirmed(context: Context, companyId: String, items: List<EmployerMobilityContributionV2.Record>): Boolean {
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId).edit().putString(KEY, array.toString()).commit()
