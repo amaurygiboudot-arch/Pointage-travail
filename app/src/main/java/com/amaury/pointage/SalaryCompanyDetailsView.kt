@@ -541,9 +541,7 @@ class SalaryCompanyDetailsView(
     private fun rereadConfirmed(updated: SalaryCompanyStore.Company): SalaryCompanyStore.Company? {
         val stored = SalaryCompanyStore.readConfirmed(context)
         if (!stored.reliable) return null
-        return stored.companies.firstOrNull {
-            it.id == updated.id || (updated.siret.isNotBlank() && it.siret == updated.siret)
-        }
+        return SalaryCompanyStore.confirmedCompany(stored, updated.id)
     }
 
     private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
