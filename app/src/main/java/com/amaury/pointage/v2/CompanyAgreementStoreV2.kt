@@ -50,7 +50,7 @@ object CompanyAgreementStoreV2 {
     /**
      * Lit les métadonnées ACCO sans confondre corruption et absence d'accord.
      * Une dernière copie saine est conservée et peut restaurer automatiquement le stockage principal.
-     * La valeur corrompue est sauvegardée séparément avant toute restauration.
+     * Une ancienne trace corrompue n'est supprimée qu'après confirmation du principal et du secours sains.
      */
     fun read(context: Context, companyId: String): ReadResult {
         if (companyId.isBlank()) {
@@ -70,6 +70,7 @@ object CompanyAgreementStoreV2 {
                     prefs.edit().putString(KEY, backupRaw).commit()
                 }.getOrDefault(false)
                 return if (restored) {
+                    discardCorruptBackup(prefs)
                     backup.copy(
                         warnings = listOf(REPAIRED_WARNING),
                         repairedFromBackup = true
@@ -95,22 +96,23 @@ object CompanyAgreementStoreV2 {
 
         return when (resolution.source) {
             StorageSource.PRIMARY -> {
-                if (primaryRaw != null && backupRaw != primaryRaw) {
-                    runCatching {
+                val backupHealthy = when {
+                    primaryRaw == null -> false
+                    backupRaw == primaryRaw -> true
+                    else -> runCatching {
                         prefs.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
-                    }
+                    }.getOrDefault(false)
                 }
+                if (backupHealthy) discardCorruptBackup(prefs)
                 resolution.result
             }
             StorageSource.LAST_KNOWN_GOOD -> {
                 val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
-                val corruptRaw = primaryValue?.toString()
-                val editor = prefs.edit().putString(KEY, repairedRaw)
-                if (!corruptRaw.isNullOrBlank()) {
-                    editor.putString(KEY_CORRUPT_BACKUP, corruptRaw)
-                }
-                val restored = runCatching { editor.commit() }.getOrDefault(false)
+                val restored = runCatching {
+                    prefs.edit().putString(KEY, repairedRaw).commit()
+                }.getOrDefault(false)
                 if (restored) {
+                    discardCorruptBackup(prefs)
                     resolution.result
                 } else {
                     ReadResult(
@@ -135,10 +137,18 @@ object CompanyAgreementStoreV2 {
             val current = read(context, companyId)
             if (!current.reliable) return@withConfirmedCompany false
             val entries = snapshotEntries(agreements) ?: return@withConfirmedCompany false
-            val editor = SalaryCompanyStore.prefs(context, companyId).edit()
+            val prefs = SalaryCompanyStore.prefs(context, companyId)
+            val editor = prefs.edit()
             entries.forEach { (key, value) -> editor.putString(key, value) }
-            editor.commit()
+            val persisted = editor.commit()
+            if (persisted) discardCorruptBackup(prefs)
+            persisted
         } == true
+    }
+
+    private fun discardCorruptBackup(prefs: android.content.SharedPreferences) {
+        if (!prefs.contains(KEY_CORRUPT_BACKUP)) return
+        runCatching { prefs.edit().remove(KEY_CORRUPT_BACKUP).commit() }
     }
 
     internal fun decodeRecords(raw: String): ReadResult = runCatching {
