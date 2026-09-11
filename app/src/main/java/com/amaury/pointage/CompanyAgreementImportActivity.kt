@@ -377,9 +377,11 @@ class CompanyAgreementImportActivity : Activity() {
 
     private fun showFailure(message: String) {
         if (isFinishing || isDestroyed) return
-        SalaryCompanyStore.prefs(this, companyId).edit()
-            .putLong("company_agreement_import_failed_at", System.currentTimeMillis())
-            .commit()
+        SalaryCompanyStore.withConfirmedCompany(this, companyId) { confirmed ->
+            SalaryCompanyStore.prefs(this, confirmed.id).edit()
+                .putLong("company_agreement_import_failed_at", System.currentTimeMillis())
+                .commit()
+        }
         status.text = message
         AlertDialog.Builder(this)
             .setTitle("Import impossible")
