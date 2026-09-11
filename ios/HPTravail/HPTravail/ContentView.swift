@@ -136,12 +136,11 @@ struct ContentView: View {
 
                 Section("Localisation") {
                     Text(locationLabel)
-                    Button("Autoriser la localisation") {
+                    Button("Obtenir ma position") {
                         locationManager.requestWhenInUseIfNeeded()
                     }
-                    Button("Autoriser en arrière-plan") {
-                        locationManager.requestAlways()
-                    }
+                    Text("La localisation iPhone est utilisée ponctuellement pendant l'utilisation. HoraTrack ne demande pas d'accès permanent en arrière-plan.")
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("À propos") {
@@ -186,7 +185,7 @@ struct ContentView: View {
 
     private var locationLabel: String {
         switch locationManager.authorizationStatus {
-        case .authorizedAlways: return "Localisation : toujours autorisée"
+        case .authorizedAlways: return "Localisation : autorisée (HoraTrack l'utilise seulement au premier plan)"
         case .authorizedWhenInUse: return "Localisation : autorisée pendant l'utilisation"
         case .denied: return "Localisation : refusée"
         case .restricted: return "Localisation : restreinte"
