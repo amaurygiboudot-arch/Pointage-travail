@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 
 /** Raccord prudent entre `/consult/acco` vérifié par SIRET et le store local des paniers repas. */
 object CompanyAgreementMealBasketIngestionV2 {
@@ -96,6 +97,22 @@ object CompanyAgreementMealBasketIngestionV2 {
             ?: return blockedResult("profil juridique local introuvable")
 
         val structured = structure(profile, agreementId, verifiedContent)
+        val expectedSiret = profile.siret.filter(Char::isDigit)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+            if (company.siret.filter(Char::isDigit) != expectedSiret) {
+                return@withConfirmedCompany blockedResult("entreprise modifiée pendant la consultation officielle")
+            }
+            persistStructured(context, companyId, agreementId, profile, structured)
+        } ?: blockedResult("entreprise supprimée pendant la consultation officielle")
+    }
+
+    private fun persistStructured(
+        context: Context,
+        companyId: String,
+        agreementId: String,
+        profile: ConventionLegalProfileV2,
+        structured: StructuredPackage
+    ): Result {
         if (!structured.detected) {
             val rulesCleared = V2CompanyMealBasketStore.removeAgreementPackage(
                 context = context,
