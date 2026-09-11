@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
 import com.amaury.pointage.v2.engine.CompanyBenefitInKindResolverV2
 import com.amaury.pointage.v2.engine.EmployerGeneralReductionAnnualContextV2
@@ -254,5 +255,54 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
         assertFalse(result.fullMonthPresent!!)
         assertNull(result.automaticRgduAdvanceAmount)
         assertTrue(result.warnings.any { it.contains("mois incomplet", ignoreCase = true) })
+    }
+
+    @Test
+    fun `annual RGDU blocks an unreliable company store before reading annual context`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = false,
+            warnings = listOf("store entreprises corrompu")
+        )
+
+        val blockers = CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.companyStoreBlockers(stored, company.id)
+
+        assertTrue(blockers.any { it.contains("corrompu", ignoreCase = true) })
+    }
+
+    @Test
+    fun `annual RGDU never reads orphan company preferences`() {
+        val stored = SalaryCompanyStore.ReadResult(emptyList(), reliable = true)
+
+        val blockers = CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.companyStoreBlockers(stored, "company-a")
+
+        assertTrue(blockers.any { it.contains("orpheline", ignoreCase = true) })
+    }
+
+    @Test
+    fun `annual RGDU accepts a company restored from last known good`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company-a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = true,
+            repairedFromBackup = true,
+            warnings = listOf("restauré depuis la copie saine")
+        )
+
+        assertTrue(
+            CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.companyStoreBlockers(
+                stored,
+                " company-a "
+            ).isEmpty()
+        )
     }
 }
