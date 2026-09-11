@@ -45,28 +45,30 @@ data class ConventionLegalProfileV2(
         }
 
         fun load(context: Context, companyId: String): ConventionLegalProfileV2? {
-            val companies = SalaryCompanyStore.readConfirmed(context)
-            val company = confirmedCompany(companies, companyId) ?: return null
-            val prefs = SalaryCompanyStore.prefs(context, company.id)
-            fun text(key: String): String? = prefs.getString(key, "").orEmpty().trim().takeIf { it.isNotBlank() }
-            fun number(key: String): Double? = text(key)?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
-            fun date(key: String): LocalDate? = text(key)?.let { raw -> runCatching { LocalDate.parse(raw, DATE_FORMAT) }.getOrNull() }
+            val id = companyId.trim()
+            if (id.isBlank()) return null
+            return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+                val prefs = SalaryCompanyStore.prefs(context, company.id)
+                fun text(key: String): String? = prefs.getString(key, "").orEmpty().trim().takeIf { it.isNotBlank() }
+                fun number(key: String): Double? = text(key)?.replace(',', '.')?.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 }
+                fun date(key: String): LocalDate? = text(key)?.let { raw -> runCatching { LocalDate.parse(raw, DATE_FORMAT) }.getOrNull() }
 
-            val rawIdcc = company.idcc.ifBlank { text("company_idcc").orEmpty() }
-            val status = text("professional_status")?.uppercase(Locale.ROOT)?.takeIf { it == "CADRE" || it == "NON_CADRE" }
-            return ConventionLegalProfileV2(
-                companyId = company.id,
-                idcc = ConventionMinimumSalaryV2.normalizeIdcc(rawIdcc),
-                siret = company.siret.filter(Char::isDigit).takeIf { it.length == 14 }.orEmpty(),
-                professionalStatus = status,
-                classification = ConventionClassificationStoreV2.load(context, company.id),
-                contractType = text("contract_type")?.uppercase(Locale.ROOT),
-                entryDate = date("entry_date"),
-                conventionSeniorityDate = date("convention_seniority_date"),
-                weeklyHours = number("contract_weekly_hours"),
-                forfaitAnnualHours = number("forfait_annual_hours"),
-                forfaitAnnualDays = number("forfait_annual_days")
-            )
+                val rawIdcc = company.idcc.ifBlank { text("company_idcc").orEmpty() }
+                val status = text("professional_status")?.uppercase(Locale.ROOT)?.takeIf { it == "CADRE" || it == "NON_CADRE" }
+                ConventionLegalProfileV2(
+                    companyId = company.id,
+                    idcc = ConventionMinimumSalaryV2.normalizeIdcc(rawIdcc),
+                    siret = company.siret.filter(Char::isDigit).takeIf { it.length == 14 }.orEmpty(),
+                    professionalStatus = status,
+                    classification = ConventionClassificationStoreV2.load(context, company.id),
+                    contractType = text("contract_type")?.uppercase(Locale.ROOT),
+                    entryDate = date("entry_date"),
+                    conventionSeniorityDate = date("convention_seniority_date"),
+                    weeklyHours = number("contract_weekly_hours"),
+                    forfaitAnnualHours = number("forfait_annual_hours"),
+                    forfaitAnnualDays = number("forfait_annual_days")
+                )
+            }
         }
     }
 }
