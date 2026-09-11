@@ -46,8 +46,7 @@ object SalaryCompanyStore {
      *
      * Une copie de secours est conservée à chaque écriture valide. Si le store principal devient
      * illisible ou disparaît et que cette copie est encore valide, elle est restaurée automatiquement.
-     * La valeur corrompue est conservée séparément avant restauration afin de ne pas détruire une
-     * éventuelle piste de récupération manuelle.
+     * Une ancienne valeur corrompue n'est supprimée qu'après confirmation d'une autre copie saine.
      */
     fun readConfirmed(context: Context): ReadResult {
         val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -61,6 +60,7 @@ object SalaryCompanyStore {
                     store.edit().putString(KEY, backupRaw).commit()
                 }.getOrDefault(false)
                 return if (restored) {
+                    discardCorruptBackup(store)
                     backup.copy(repairedFromBackup = true, warnings = listOf(REPAIRED_WARNING))
                 } else {
                     ReadResult(
@@ -83,22 +83,27 @@ object SalaryCompanyStore {
 
         return when (resolution.source) {
             StorageSource.PRIMARY -> {
-                // Actualise la dernière copie saine pour que toute corruption future soit réparable.
-                if (primaryRaw != null && backupRaw != primaryRaw) {
-                    runCatching {
+                // La trace corrompue n'est jetée que si une sauvegarde saine existe déjà ou si sa
+                // reconstruction depuis le principal sain vient d'être confirmée par commit().
+                val backupHealthy = when {
+                    primaryRaw == null -> false
+                    backupRaw == primaryRaw -> true
+                    else -> runCatching {
                         store.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
-                    }
+                    }.getOrDefault(false)
                 }
+                if (backupHealthy) discardCorruptBackup(store)
                 resolution.result
             }
             StorageSource.LAST_KNOWN_GOOD -> {
                 val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
-                val corruptRaw = primaryValue?.toString()
-                val editor = store.edit().putString(KEY, repairedRaw)
-                if (!corruptRaw.isNullOrBlank()) editor.putString(KEY_CORRUPT_BACKUP, corruptRaw)
-                val restored = runCatching { editor.commit() }.getOrDefault(false)
-                if (restored) resolution.result
-                else ReadResult(
+                val restored = runCatching {
+                    store.edit().putString(KEY, repairedRaw).commit()
+                }.getOrDefault(false)
+                if (restored) {
+                    discardCorruptBackup(store)
+                    resolution.result
+                } else ReadResult(
                     companies = resolution.result.companies,
                     reliable = false,
                     warnings = listOf(STORAGE_WARNING, "La copie valide a été trouvée mais sa restauration a échoué.")
@@ -344,10 +349,18 @@ object SalaryCompanyStore {
         val raw = encodeCompanies(companies)
         val verification = decodeCompanies(raw)
         if (!verification.reliable || verification.companies.size != companies.size) return false
-        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val persisted = store.edit()
             .putString(KEY, raw)
             .putString(KEY_LAST_KNOWN_GOOD, raw)
             .commit()
+        if (persisted) discardCorruptBackup(store)
+        return persisted
+    }
+
+    private fun discardCorruptBackup(store: android.content.SharedPreferences) {
+        if (!store.contains(KEY_CORRUPT_BACKUP)) return
+        runCatching { store.edit().remove(KEY_CORRUPT_BACKUP).commit() }
     }
 
     private fun encodeCompanies(companies: List<Company>): String {
