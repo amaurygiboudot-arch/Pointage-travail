@@ -10,6 +10,32 @@ import org.junit.Test
 
 class RgduAnnualContextStoreIntegrityV2Test {
     @Test
+    fun `annual context unavailable company is fail closed`() {
+        val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.companyUnavailableResult("company-a")
+
+        assertFalse(result.reliable)
+        assertTrue(result.records.isEmpty())
+        assertTrue(result.warnings.any {
+            it.contains("absente", ignoreCase = true) && it.contains("orphelin", ignoreCase = true)
+        })
+    }
+
+    @Test
+    fun `annual context unavailable company blocks resolution`() {
+        val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.resolve(
+            CompanyEmployerGeneralReductionAnnualContextStoreV2.companyUnavailableResult("company-a"),
+            2026
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.fullCalendarYearPresent)
+        assertNull(result.standardCommonLawCaseConfirmed)
+        assertNull(result.homogeneousAnnualParametersConfirmed)
+        assertNull(result.source)
+        assertTrue(result.warnings.isNotEmpty())
+    }
+
+    @Test
     fun `annual context decoder preserves explicit false facts`() {
         val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.decode(
             """[{"id":"a1","year":2026,"fullCalendarYearPresent":false,"standardCommonLawCaseConfirmed":false,"homogeneousAnnualParametersConfirmed":false,"source":"DSN 2026"}]"""
