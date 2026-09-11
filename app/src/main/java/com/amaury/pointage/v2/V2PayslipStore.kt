@@ -164,27 +164,23 @@ object V2PayslipStore {
   */
  fun sicknessProvidentRelayForAbsence(context:Context,companyId:String,absence:AbsenceV2):PlasturgieProvidentIncapacityV2.Result?{
   if(absence.type != AbsencePayrollImpactV2.TYPE_SICKNESS) return null
-  val company=SalaryCompanyStore.list(context).firstOrNull{it.id==companyId}
-  val prefs=SalaryCompanyStore.prefs(context,companyId)
-  val idcc=company?.idcc?.ifBlank{prefs.getString("company_idcc","").orEmpty()}
-      ?:prefs.getString("company_idcc","").orEmpty()
   val zone=ZoneId.systemDefault()
   val start=Instant.ofEpochMilli(absence.startMs).atZone(zone).toLocalDate()
   val endExclusive=Instant.ofEpochMilli(absence.endMs).atZone(zone).toLocalDate()
-  val entryDate=runCatching{
-   prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{
-    LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))
-   }
-  }.getOrNull()
-  val seniorityMonths=entryDate?.let{entry->
-   if(entry.isAfter(start))0 else ChronoUnit.MONTHS.between(entry,start).toInt().coerceAtLeast(0)
-  }
-  val coefficient=prefs.getString("convention_coefficient","").orEmpty().trim().toIntOrNull()
-  val protectionCategory=PlasturgieProtectionCategoryV2.classify(idcc,start,coefficient)
+  val profile=ConventionLegalProfileV2.load(context,companyId)
+      ?:return PlasturgieProvidentIncapacityV2.unresolved(
+       "Prévoyance Plasturgie : profil juridique entreprise introuvable ou non fiable ; aucune applicabilité n'est déduite d'anciennes préférences locales."
+      )
+  val seniorityMonths=profile.entryDate
+   ?.takeIf{!it.isAfter(start)}
+   ?.let{entry->ChronoUnit.MONTHS.between(entry,start).toInt().coerceAtLeast(0)}
+  val protectionCategory=PlasturgieProtectionCategoryV2.classify(
+   profile.idcc,start,profile.classification.coefficient
+  )
   val maintenance=sicknessMaintenanceForAbsence(context,companyId,absence)
   val absenceDays=ChronoUnit.DAYS.between(start,endExclusive).toInt().coerceAtLeast(0)
   return PlasturgieProvidentIncapacityV2.assess(
-   idcc=idcc,
+   idcc=profile.idcc,
    seniorityMonths=seniorityMonths,
    protectionCategory=protectionCategory,
    maintenance=maintenance,
