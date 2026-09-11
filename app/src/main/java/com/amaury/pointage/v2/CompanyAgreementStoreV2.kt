@@ -9,6 +9,10 @@ import org.json.JSONObject
 object CompanyAgreementStoreV2 {
     private const val STORAGE_WARNING =
         "Accords ACCO : stockage local des métadonnées incohérent ; aucun état d'accord ne peut être déduit."
+    private const val REPAIRED_WARNING =
+        "Accords ACCO : stockage principal restauré depuis la dernière copie locale valide."
+    private const val KEY_LAST_KNOWN_GOOD = "company_agreements_v2_last_known_good"
+    private const val KEY_CORRUPT_BACKUP = "company_agreements_v2_corrupt_backup"
 
     enum class Status { UNKNOWN, TO_PROVIDE, IMPORTED, VERIFIED }
 
@@ -30,11 +34,24 @@ object CompanyAgreementStoreV2 {
     data class ReadResult(
         val agreements: List<Agreement>,
         val reliable: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        val repairedFromBackup: Boolean = false
+    )
+
+    internal enum class StorageSource { PRIMARY, LAST_KNOWN_GOOD, NONE }
+
+    internal data class StorageResolution(
+        val result: ReadResult,
+        val source: StorageSource
     )
 
     internal const val KEY = "company_agreements_v2"
 
+    /**
+     * Lit les métadonnées ACCO sans confondre corruption et absence d'accord.
+     * Une dernière copie saine est conservée et peut restaurer automatiquement le stockage principal.
+     * La valeur corrompue est sauvegardée séparément avant toute restauration.
+     */
     fun read(context: Context, companyId: String): ReadResult {
         if (companyId.isBlank()) {
             return ReadResult(
@@ -43,10 +60,71 @@ object CompanyAgreementStoreV2 {
                 warnings = listOf("Accords ACCO : entreprise non identifiée.")
             )
         }
-        val raw = runCatching {
-            SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-        }.getOrNull() ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decodeRecords(raw)
+
+        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        if (!prefs.contains(KEY)) {
+            val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+            val backup = backupRaw?.let(::decodeRecords)
+            if (backup?.reliable == true) {
+                val restored = runCatching {
+                    prefs.edit().putString(KEY, backupRaw).commit()
+                }.getOrDefault(false)
+                return if (restored) {
+                    backup.copy(
+                        warnings = listOf(REPAIRED_WARNING),
+                        repairedFromBackup = true
+                    )
+                } else {
+                    ReadResult(
+                        agreements = backup.agreements,
+                        reliable = false,
+                        warnings = listOf(
+                            STORAGE_WARNING,
+                            "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
+                        )
+                    )
+                }
+            }
+            return ReadResult(emptyList(), true, emptyList())
+        }
+
+        val primaryValue = runCatching { prefs.all[KEY] }.getOrNull()
+        val primaryRaw = primaryValue as? String
+        val backupRaw = runCatching { prefs.getString(KEY_LAST_KNOWN_GOOD, null) }.getOrNull()
+        val resolution = resolveStoredAgreements(primaryRaw, backupRaw)
+
+        return when (resolution.source) {
+            StorageSource.PRIMARY -> {
+                if (primaryRaw != null && backupRaw != primaryRaw) {
+                    runCatching {
+                        prefs.edit().putString(KEY_LAST_KNOWN_GOOD, primaryRaw).commit()
+                    }
+                }
+                resolution.result
+            }
+            StorageSource.LAST_KNOWN_GOOD -> {
+                val repairedRaw = backupRaw ?: return resolution.result.copy(reliable = false)
+                val corruptRaw = primaryValue?.toString()
+                val editor = prefs.edit().putString(KEY, repairedRaw)
+                if (!corruptRaw.isNullOrBlank()) {
+                    editor.putString(KEY_CORRUPT_BACKUP, corruptRaw)
+                }
+                val restored = runCatching { editor.commit() }.getOrDefault(false)
+                if (restored) {
+                    resolution.result
+                } else {
+                    ReadResult(
+                        agreements = resolution.result.agreements,
+                        reliable = false,
+                        warnings = listOf(
+                            STORAGE_WARNING,
+                            "La dernière copie ACCO valide a été trouvée mais sa restauration a échoué."
+                        )
+                    )
+                }
+            }
+            StorageSource.NONE -> resolution.result
+        }
     }
 
     fun list(context: Context, companyId: String): List<Agreement> = read(context, companyId).agreements
@@ -55,9 +133,13 @@ object CompanyAgreementStoreV2 {
         if (companyId.isBlank()) return false
         val current = read(context, companyId)
         if (!current.reliable || !validAgreementSet(agreements)) return false
+        val raw = encode(agreements)
+        val verification = decodeRecords(raw)
+        if (!verification.reliable || verification.agreements.size != agreements.size) return false
         return SalaryCompanyStore.prefs(context, companyId)
             .edit()
-            .putString(KEY, encode(agreements))
+            .putString(KEY, raw)
+            .putString(KEY_LAST_KNOWN_GOOD, raw)
             .commit()
     }
 
@@ -77,6 +159,24 @@ object CompanyAgreementStoreV2 {
         )
     }.getOrElse {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+    }
+
+    internal fun resolveStoredAgreements(primaryRaw: String?, backupRaw: String?): StorageResolution {
+        val primary = primaryRaw?.let(::decodeRecords)
+            ?: ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        if (primary.reliable) return StorageResolution(primary, StorageSource.PRIMARY)
+
+        val backup = backupRaw?.let(::decodeRecords)
+        if (backup?.reliable == true) {
+            return StorageResolution(
+                result = backup.copy(
+                    warnings = listOf(REPAIRED_WARNING),
+                    repairedFromBackup = true
+                ),
+                source = StorageSource.LAST_KNOWN_GOOD
+            )
+        }
+        return StorageResolution(primary, StorageSource.NONE)
     }
 
     internal fun encode(agreements: List<Agreement>): String {
