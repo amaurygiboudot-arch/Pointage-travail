@@ -184,8 +184,25 @@ class CompanyPauseSettingsV2View(
     }
 
     private fun showDialog() {
-        val company = SalaryCompanyStore.list(context).firstOrNull { it.id == companyId }
-        val companyName = company?.name?.ifBlank { "Entreprise" } ?: "Entreprise"
+        val companyState = SalaryCompanyStore.readConfirmed(context)
+        if (!companyState.reliable) {
+            Toast.makeText(
+                context,
+                "Stockage des entreprises à vérifier : réglage des pauses bloqué.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val company = companyState.companies.firstOrNull { it.id == companyId }
+        if (company == null) {
+            Toast.makeText(
+                context,
+                "Entreprise introuvable : réglage des pauses bloqué.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val companyName = company.name.ifBlank { "Entreprise" }
         PauseAlarmSoundCatalog.stopPreview()
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
