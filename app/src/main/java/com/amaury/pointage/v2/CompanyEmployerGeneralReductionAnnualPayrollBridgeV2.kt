@@ -62,9 +62,13 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             return blocked("RGDU annuelle : passerelle Salaire V2 non intégrée pour $year.")
         }
 
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
+            ?: return blocked(companyStoreBlockers(storedCompanies, companyId))
+
         val annualContext = CompanyEmployerGeneralReductionAnnualContextStoreV2.resolve(
             context = context,
-            companyId = companyId,
+            companyId = company.id,
             year = year
         )
         val annualContextBlockers = annualContextBlockers(annualContext)
@@ -72,9 +76,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             return blocked(annualContextBlockers)
         }
 
-        val company = SalaryCompanyStore.list(context).firstOrNull { it.id == companyId }
-            ?: return blocked("RGDU annuelle : entreprise V2 introuvable.")
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        val prefs = SalaryCompanyStore.prefs(context, company.id)
         val idcc = company.idcc.ifBlank { prefs.getString("company_idcc", "").orEmpty() }
         val convention = idcc.takeIf { it.isNotBlank() }
             ?.let { ConventionCatalog.findByIdcc(context, it) }
@@ -99,9 +101,9 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
                 )
             }
 
-            val benefits = CompanyBenefitInKindStoreV2.resolve(context, companyId, period)
-            val workforce = CompanyWorkforceContributionStoreV2.resolve(context, companyId, period)
-            val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, companyId, period)
+            val benefits = CompanyBenefitInKindStoreV2.resolve(context, company.id, period)
+            val workforce = CompanyWorkforceContributionStoreV2.resolve(context, company.id, period)
+            val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, company.id, period)
 
             monthlyFacts += buildMonth(
                 period = period,
@@ -137,7 +139,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
 
         val observed = CompanyEmployerGeneralReductionObservedAdvanceStoreV2.resolveYear(
             context = context,
-            companyId = companyId,
+            companyId = company.id,
             year = year
         )
         val selection = selectAdvances(
@@ -170,6 +172,20 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             warnings = regularization.warnings,
             notes = selection.notes
         )
+    }
+
+    internal fun companyStoreBlockers(
+        stored: SalaryCompanyStore.ReadResult,
+        companyId: String
+    ): List<String> = when {
+        !stored.reliable -> stored.warnings.distinct().ifEmpty {
+            listOf("RGDU annuelle : stockage entreprises non fiable ; reconstruction bloquée.")
+        }
+        companyId.isBlank() -> listOf("RGDU annuelle : entreprise non identifiée.")
+        stored.companies.none { it.id == companyId.trim() } -> listOf(
+            "RGDU annuelle : entreprise ${companyId.trim()} absente du store confirmé ; aucune préférence locale orpheline n'est utilisée."
+        )
+        else -> emptyList()
     }
 
     internal fun selectAdvances(
