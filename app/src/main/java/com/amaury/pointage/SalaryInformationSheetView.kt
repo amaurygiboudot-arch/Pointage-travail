@@ -40,7 +40,30 @@ class SalaryInformationSheetView @JvmOverloads constructor(context: Context, att
     init { tag=TAG; orientation=VERTICAL; setPadding(dp(14),dp(14),dp(14),dp(14)); applyPanelBackground(this); buildUi(); refresh() }
     fun bindCompany(companyId:String):SalaryInformationSheetView { selectedCompanyId=companyId; refresh(); return this }
     override fun onAttachedToWindow(){super.onAttachedToWindow();keepAwakeTemporarily()}; override fun onDetachedFromWindow(){removeCallbacks(stopAwake);clearKeepAwake();super.onDetachedFromWindow()}
-    fun refresh(){val id=selectedCompanyId;company=if(id.isNullOrBlank())null else SalaryCompanyStore.list(context).firstOrNull{it.id==id};val c=company;companyLabel.text=when{ id.isNullOrBlank()->"Aucune entreprise sélectionnée";c==null->"Entreprise introuvable";c.siret.isBlank()->c.name.ifBlank{"Entreprise"};else->"${c.name.ifBlank{"Entreprise"}}\nSIRET : ${c.siret}"};if(c!=null)loadCompany(c)else clearFields();setFormEnabled(c!=null);applyThemeRecursively(this)}
+    fun refresh(){
+        val id=selectedCompanyId
+        val stored=if(id.isNullOrBlank())null else SalaryCompanyStore.readConfirmed(context)
+        val storeReliable=stored?.reliable!=false
+        company=if(id.isNullOrBlank()||stored==null||!stored.reliable)null else stored.companies.firstOrNull{it.id==id}
+        val c=company
+        companyLabel.text=when{
+            id.isNullOrBlank()->"Aucune entreprise sélectionnée"
+            !storeReliable->"Stockage entreprises à vérifier"
+            c==null->"Entreprise introuvable"
+            c.siret.isBlank()->c.name.ifBlank{"Entreprise"}
+            else->"${c.name.ifBlank{"Entreprise"}}\nSIRET : ${c.siret}"
+        }
+        if(c!=null)loadCompany(c)else{
+            clearFields()
+            status.text=when{
+                id.isNullOrBlank()->"⚠️ Ouvre d’abord une entreprise depuis MES ENTREPRISES."
+                !storeReliable->"⚠️ Stockage des entreprises incohérent : fiche désactivée jusqu’à récupération des données."
+                else->"⚠️ Entreprise introuvable. Reviens dans MES ENTREPRISES avant de modifier la fiche."
+            }
+        }
+        setFormEnabled(c!=null&&storeReliable)
+        applyThemeRecursively(this)
+    }
     private fun buildUi(){
         addView(TextView(context).apply{text="📋 FICHE DE RENSEIGNEMENTS";textSize=17f;setTypeface(typeface,Typeface.BOLD);gravity=Gravity.CENTER});addView(TextView(context).apply{text="Cette fiche appartient uniquement à l’entreprise ouverte.";textSize=13f;setTextColor(hintColor);setPadding(0,dp(7),0,dp(12))})
         addLabel("ENTREPRISE");companyLabel.apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);background=controlBackground();setPadding(dp(12),dp(8),dp(12),dp(8))};addView(companyLabel,rowParams())
