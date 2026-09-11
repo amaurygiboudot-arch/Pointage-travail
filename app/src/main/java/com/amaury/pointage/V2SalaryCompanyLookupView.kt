@@ -75,11 +75,16 @@ class V2SalaryCompanyLookupView(
 
     private fun saveCompany(company: SalaryCompanyStore.Company) {
         val saved = SalaryCompanyStore.upsert(context, company)
-        val reread = SalaryCompanyStore.list(context).firstOrNull {
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        val reread = stored.companies.takeIf { stored.reliable }?.firstOrNull {
             it.id == company.id || (company.siret.isNotBlank() && it.siret == company.siret)
         }
         if (!saved || reread == null) {
-            status.text = "ERREUR : l'entreprise n'a pas été enregistrée."
+            status.text = if (stored.reliable) {
+                "ERREUR : l'entreprise n'a pas été enregistrée."
+            } else {
+                "ERREUR : le stockage des entreprises doit être vérifié avant de confirmer l'enregistrement."
+            }
             status.setTypeface(status.typeface, Typeface.BOLD)
             searchButton.text = "RÉESSAYER"
             Toast.makeText(context, "Échec de l'enregistrement", Toast.LENGTH_LONG).show()
