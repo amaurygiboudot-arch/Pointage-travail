@@ -19,17 +19,17 @@ object CompanyEmployeeDeductionStoreV2 {
         val warnings: List<String>
     )
 
+    internal fun companyUnavailableResult(): ReadResult = ReadResult(
+        records = emptyList(),
+        reliable = false,
+        warnings = listOf("Retenues salarié / fiscales : entreprise absente ou stockage des entreprises non fiable.")
+    )
+
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = listOf("Retenues salarié / fiscales : entreprise non identifiée.")
-            )
-        }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        if (companyId.isBlank()) return companyUnavailableResult()
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            readConfirmed(context, companyId)
+        } ?: companyUnavailableResult()
     }
 
     fun list(context: Context, companyId: String): List<CompanyEmployeeDeductionResolverV2.Record> =
@@ -41,29 +41,37 @@ object CompanyEmployeeDeductionStoreV2 {
         record: CompanyEmployeeDeductionResolverV2.Record
     ): Boolean {
         if (companyId.isBlank() || !valid(record)) return false
-        val stored = read(context, companyId)
-        // Ne jamais réécrire silencieusement uniquement le sous-ensemble décodable d'un stockage
-        // partiellement corrompu : il faut d'abord rendre l'incohérence visible à l'utilisateur.
-        if (!stored.reliable) return false
-        val items = stored.records.toMutableList()
-        val index = items.indexOfFirst { it.id == record.id }
-        if (index >= 0) items[index] = record else items += record
-        return write(context, companyId, items)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            // Ne jamais réécrire silencieusement uniquement le sous-ensemble décodable d'un stockage
+            // partiellement corrompu : il faut d'abord rendre l'incohérence visible à l'utilisateur.
+            if (!stored.reliable) return@withConfirmedCompany false
+            val items = stored.records.toMutableList()
+            val index = items.indexOfFirst { it.id == record.id }
+            if (index >= 0) items[index] = record else items += record
+            writeConfirmed(context, companyId, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
         if (companyId.isBlank() || id.isBlank()) return false
-        val stored = read(context, companyId)
-        if (!stored.reliable) return false
-        return write(context, companyId, stored.records.filterNot { it.id == id })
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            val stored = readConfirmed(context, companyId)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmed(context, companyId, stored.records.filterNot { it.id == id })
+        } == true
     }
 
     fun resolve(
         context: Context,
         companyId: String,
         period: YearMonth
-    ): CompanyEmployeeDeductionResolverV2.Snapshot =
-        resolve(read(context, companyId), period)
+    ): CompanyEmployeeDeductionResolverV2.Snapshot {
+        if (companyId.isBlank()) return resolve(companyUnavailableResult(), period)
+        return SalaryCompanyStore.withConfirmedCompany(context, companyId) {
+            resolve(readConfirmed(context, companyId), period)
+        } ?: resolve(companyUnavailableResult(), period)
+    }
 
     /**
      * En cas de stockage incohérent, chaque type est marqué comme ayant une donnée datée bloquante.
@@ -110,7 +118,13 @@ object CompanyEmployeeDeductionStoreV2 {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
     }
 
-    private fun write(
+    private fun readConfirmed(context: Context, companyId: String): ReadResult {
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
+    }
+
+    private fun writeConfirmed(
         context: Context,
         companyId: String,
         items: List<CompanyEmployeeDeductionResolverV2.Record>
