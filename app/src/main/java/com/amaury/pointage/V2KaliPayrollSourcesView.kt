@@ -15,12 +15,31 @@ import com.amaury.pointage.v2.V2ConventionNightRuleStore
 import com.amaury.pointage.v2.V2ConventionPublicHolidayPremiumStore
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ConventionWeekdayPremiumStore
+import com.amaury.pointage.v2.engine.ConventionNightRuleHistoryV2
+import com.amaury.pointage.v2.engine.ConventionPublicHolidayPremiumHistoryV2
+import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
+import com.amaury.pointage.v2.engine.ConventionWeekdayPremiumHistoryV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.WeekdayPremiumKindV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
+
+internal fun kaliStorageReliabilityText(
+    family: String,
+    reliable: Boolean,
+    warnings: List<String>
+): String? {
+    if (reliable) return null
+    return buildString {
+        append("⚠ Stockage KALI ").append(family)
+            .append(" incohérent : aucune règle enregistrée n'est considérée fiable.")
+        if (warnings.isNotEmpty()) {
+            append('\n').append(warnings.distinct().joinToString(" • "))
+        }
+    }
+}
 
 /** Vue KALI : audits prudents des règles conventionnelles sans déduire une règle d'un simple résultat de recherche. */
 class V2KaliPayrollSourcesView(
@@ -100,27 +119,35 @@ class V2KaliPayrollSourcesView(
         val referenceDate = referenceDate()
         val epochDay = referenceDate.toEpochDay()
         val idcc = company.idcc.filter(Char::isDigit)
-        val snapshot = if (idcc.isBlank()) null else runCatching {
-            V2ConventionRuleStore.history(context).applicable(idcc, epochDay)
-        }.getOrNull()
-        val nightSnapshot = if (idcc.isBlank()) null else runCatching {
-            V2ConventionNightRuleStore.history(context).applicable(idcc, epochDay)
-        }.getOrNull()
-        val weekdayHistory = if (idcc.isBlank()) null else runCatching {
-            V2ConventionWeekdayPremiumStore.history(context)
-        }.getOrNull()
+        val overtimeState = if (idcc.isBlank()) null else V2ConventionRuleStore.readConfirmed(context)
+        val snapshot = overtimeState?.takeIf { it.reliable }?.let {
+            ConventionRuleHistoryV2(it.snapshots).applicable(idcc, epochDay)
+        }
+        val nightState = if (idcc.isBlank()) null else V2ConventionNightRuleStore.readConfirmed(context)
+        val nightSnapshot = nightState?.takeIf { it.reliable }?.let {
+            ConventionNightRuleHistoryV2(it.snapshots).applicable(idcc, epochDay)
+        }
+        val weekdayState = if (idcc.isBlank()) null else V2ConventionWeekdayPremiumStore.readConfirmed(context)
+        val weekdayHistory = weekdayState?.takeIf { it.reliable }?.let {
+            ConventionWeekdayPremiumHistoryV2(it.snapshots)
+        }
         val saturdaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SATURDAY, epochDay)
         val sundaySnapshot = weekdayHistory?.applicable(idcc, WeekdayPremiumKindV2.SUNDAY, epochDay)
-        val publicHolidaySnapshot = if (idcc.isBlank()) null else runCatching {
-            V2ConventionPublicHolidayPremiumStore.history(context).applicable(idcc, epochDay)
-        }.getOrNull()
+        val publicHolidayState = if (idcc.isBlank()) null else V2ConventionPublicHolidayPremiumStore.readConfirmed(context)
+        val publicHolidaySnapshot = publicHolidayState?.takeIf { it.reliable }?.let {
+            ConventionPublicHolidayPremiumHistoryV2(it.snapshots).applicable(idcc, epochDay)
+        }
 
         status.text = buildString {
             append("Entreprise : ").append(company.name.ifBlank { "Entreprise" }).append('\n')
             append("IDCC : ").append(idcc.ifBlank { "non renseigné" }).append('\n')
             append("Date de paie contrôlée : ").append(referenceDate.format(dateFormat)).append('\n')
+            val overtimeStorageWarning = overtimeState?.let {
+                kaliStorageReliabilityText("heures supplémentaires", it.reliable, it.warnings)
+            }
             when {
                 idcc.isBlank() -> append("IDCC requis pour interroger KALI.")
+                overtimeStorageWarning != null -> append(overtimeStorageWarning)
                 snapshot == null -> {
                     append("Aucun barème d’heures supplémentaires KALI confirmé n’est enregistré pour cette date.\n")
                     append("Cela ne signifie pas qu’aucune règle conventionnelle n’existe.")
@@ -146,7 +173,12 @@ class V2KaliPayrollSourcesView(
 
             if (idcc.isNotBlank()) {
                 append("\n\nRÈGLE NUIT KALI\n")
-                if (nightSnapshot == null) {
+                val nightStorageWarning = nightState?.let {
+                    kaliStorageReliabilityText("nuit", it.reliable, it.warnings)
+                }
+                if (nightStorageWarning != null) {
+                    append(nightStorageWarning)
+                } else if (nightSnapshot == null) {
                     append("Aucune règle de nuit KALI confirmée pour cette date.")
                 } else {
                     append("Plage : ").append(formatMinute(nightSnapshot.rule.startMinute))
@@ -160,34 +192,47 @@ class V2KaliPayrollSourcesView(
                     }
                 }
 
-                append("\n\nRÈGLE SAMEDI KALI\n")
-                if (saturdaySnapshot == null) {
-                    append("Aucune majoration simple du samedi KALI confirmée pour cette date.")
-                } else {
-                    append("Majoration : +").append(formatPercent(saturdaySnapshot.rule.percentage)).append(" %\n")
-                    append("Source : ").append(saturdaySnapshot.sourceId).append('\n')
-                    append("Applicable depuis : ")
-                        .append(LocalDate.ofEpochDay(saturdaySnapshot.effectiveFromEpochDay).format(dateFormat))
-                    saturdaySnapshot.effectiveToEpochDay?.let {
-                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
-                    }
+                val weekdayStorageWarning = weekdayState?.let {
+                    kaliStorageReliabilityText("samedi/dimanche", it.reliable, it.warnings)
                 }
-
-                append("\n\nRÈGLE DIMANCHE KALI\n")
-                if (sundaySnapshot == null) {
-                    append("Aucune majoration simple du dimanche KALI confirmée pour cette date.")
+                if (weekdayStorageWarning != null) {
+                    append("\n\nRÈGLES SAMEDI / DIMANCHE KALI\n")
+                    append(weekdayStorageWarning)
                 } else {
-                    append("Majoration : +").append(formatPercent(sundaySnapshot.rule.percentage)).append(" %\n")
-                    append("Source : ").append(sundaySnapshot.sourceId).append('\n')
-                    append("Applicable depuis : ")
-                        .append(LocalDate.ofEpochDay(sundaySnapshot.effectiveFromEpochDay).format(dateFormat))
-                    sundaySnapshot.effectiveToEpochDay?.let {
-                        append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                    append("\n\nRÈGLE SAMEDI KALI\n")
+                    if (saturdaySnapshot == null) {
+                        append("Aucune majoration simple du samedi KALI confirmée pour cette date.")
+                    } else {
+                        append("Majoration : +").append(formatPercent(saturdaySnapshot.rule.percentage)).append(" %\n")
+                        append("Source : ").append(saturdaySnapshot.sourceId).append('\n')
+                        append("Applicable depuis : ")
+                            .append(LocalDate.ofEpochDay(saturdaySnapshot.effectiveFromEpochDay).format(dateFormat))
+                        saturdaySnapshot.effectiveToEpochDay?.let {
+                            append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                        }
+                    }
+
+                    append("\n\nRÈGLE DIMANCHE KALI\n")
+                    if (sundaySnapshot == null) {
+                        append("Aucune majoration simple du dimanche KALI confirmée pour cette date.")
+                    } else {
+                        append("Majoration : +").append(formatPercent(sundaySnapshot.rule.percentage)).append(" %\n")
+                        append("Source : ").append(sundaySnapshot.sourceId).append('\n')
+                        append("Applicable depuis : ")
+                            .append(LocalDate.ofEpochDay(sundaySnapshot.effectiveFromEpochDay).format(dateFormat))
+                        sundaySnapshot.effectiveToEpochDay?.let {
+                            append(" jusqu’au ").append(LocalDate.ofEpochDay(it).format(dateFormat))
+                        }
                     }
                 }
 
                 append("\n\nRÈGLE JOURS FÉRIÉS KALI\n")
-                if (publicHolidaySnapshot == null) {
+                val publicHolidayStorageWarning = publicHolidayState?.let {
+                    kaliStorageReliabilityText("jours fériés", it.reliable, it.warnings)
+                }
+                if (publicHolidayStorageWarning != null) {
+                    append(publicHolidayStorageWarning)
+                } else if (publicHolidaySnapshot == null) {
                     append("Aucune majoration uniforme des jours fériés KALI confirmée pour cette date.")
                 } else {
                     append("Majoration générique : +")
