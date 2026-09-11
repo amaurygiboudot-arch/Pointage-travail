@@ -141,7 +141,19 @@ object DayMealFactsDialogV2 {
             return
         }
 
-        val companies = SalaryCompanyStore.list(context).associateBy { it.id }
+        val companyState = SalaryCompanyStore.readConfirmed(context)
+        if (!companyState.reliable) {
+            AlertDialog.Builder(context)
+                .setTitle("Faits repas par journée")
+                .setMessage(
+                    "Le stockage des entreprises doit être vérifié. HoraTrack refuse d’ouvrir cet éditeur " +
+                        "pour éviter d’associer des faits repas à la mauvaise entreprise."
+                )
+                .setPositiveButton("FERMER", null)
+                .show()
+            return
+        }
+        val companies = companyState.companies.associateBy { it.id }
         val labels = targets.map { target ->
             targetLabel(target, companies[target.companyId]?.name)
         }.toTypedArray()
