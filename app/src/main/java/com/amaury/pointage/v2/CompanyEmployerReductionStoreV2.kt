@@ -26,37 +26,37 @@ object CompanyEmployerReductionStoreV2 {
     )
 
     fun read(context: Context, companyId: String): ReadResult {
-        if (companyId.isBlank()) {
-            return ReadResult(
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
+            ?: return ReadResult(
                 records = emptyList(),
                 reliable = false,
-                warnings = listOf("Réductions/exonérations patronales : entreprise non identifiée ; lecture bloquée.")
+                warnings = companyStoreBlockers(storedCompanies, companyId)
             )
-        }
-        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
-            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
-        return decode(raw)
+        return readConfirmedCompany(context, company.id)
     }
 
     fun list(context: Context, companyId: String): List<EmployerReductionAdjustmentV2.Record> =
         read(context, companyId).records
 
     fun save(context: Context, companyId: String, record: EmployerReductionAdjustmentV2.Record): Boolean {
-        if (companyId.isBlank()) return false
-        val stored = read(context, companyId)
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId) ?: return false
+        val stored = readConfirmedCompany(context, company.id)
         // Ne jamais « réparer » implicitement un stockage partiellement illisible en réécrivant
         // uniquement le sous-ensemble décodable : cela effacerait une incohérence à auditer.
         if (!stored.reliable) return false
         val items = stored.records.filterNot { it.month == record.month }.toMutableList()
         items += record
-        return write(context, companyId, items)
+        return write(context, company.id, items)
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
-        if (companyId.isBlank()) return false
-        val stored = read(context, companyId)
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId) ?: return false
+        val stored = readConfirmedCompany(context, company.id)
         if (!stored.reliable) return false
-        return write(context, companyId, stored.records.filterNot { it.id == id })
+        return write(context, company.id, stored.records.filterNot { it.id == id })
     }
 
     /**
@@ -69,7 +69,13 @@ object CompanyEmployerReductionStoreV2 {
         companyId: String,
         month: YearMonth
     ): EmployerReductionAdjustmentV2.Snapshot {
-        val stored = read(context, companyId)
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
+            ?: return blockedAutomatic(
+                companyStoreBlockers(storedCompanies, companyId),
+                "RGDU : entreprise V2 non confirmée ; calcul automatique et ajustement manuel bloqués."
+            )
+        val stored = readConfirmedCompany(context, company.id)
         if (!stored.reliable) {
             return EmployerReductionAdjustmentV2.Snapshot(
                 amount = null,
@@ -88,9 +94,7 @@ object CompanyEmployerReductionStoreV2 {
         if (malformedManual || activeManual.size > 1) return manual
         if (activeManual.size == 1 && manual.reliable && manual.amount != null) return manual
 
-        val company = SalaryCompanyStore.list(context).firstOrNull { it.id == companyId }
-            ?: return blockedAutomatic(manual.warnings, "RGDU : entreprise V2 introuvable ; calcul automatique bloqué.")
-        val prefs = SalaryCompanyStore.prefs(context, companyId)
+        val prefs = SalaryCompanyStore.prefs(context, company.id)
         val idcc = company.idcc.ifBlank { prefs.getString("company_idcc", "").orEmpty() }
         val convention = idcc.takeIf { it.isNotBlank() }
             ?.let { ConventionCatalog.findByIdcc(context, it) }
@@ -109,9 +113,9 @@ object CompanyEmployerReductionStoreV2 {
             return blockedAutomatic(manual.warnings, "RGDU : résultat Salaire V2 indisponible pour ce mois.")
         }
 
-        val benefits = CompanyBenefitInKindStoreV2.resolve(context, companyId, month)
-        val workforce = CompanyWorkforceContributionStoreV2.resolve(context, companyId, month)
-        val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, companyId, month)
+        val benefits = CompanyBenefitInKindStoreV2.resolve(context, company.id, month)
+        val workforce = CompanyWorkforceContributionStoreV2.resolve(context, company.id, month)
+        val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, company.id, month)
         val contractType = parseContractType(prefs.getString("contract_type", ""))
         val contractualWeeklyMinutes = prefs.getString("contract_weekly_hours", "")
             .orEmpty()
@@ -128,7 +132,7 @@ object CompanyEmployerReductionStoreV2 {
         )
         val resolution = EmployerGeneralReductionPayrollBridgeV2.resolve(
             context = context,
-            companyId = companyId,
+            companyId = company.id,
             period = month,
             reductionRemunerationMonthly = payrollInput.reductionRemunerationMonthly,
             workforceBand = workforce.band,
@@ -167,6 +171,20 @@ object CompanyEmployerReductionStoreV2 {
         )
     }
 
+    internal fun companyStoreBlockers(
+        stored: SalaryCompanyStore.ReadResult,
+        companyId: String
+    ): List<String> = when {
+        !stored.reliable -> stored.warnings.distinct().ifEmpty {
+            listOf("RGDU : stockage entreprises non fiable ; réductions patronales bloquées.")
+        }
+        companyId.isBlank() -> listOf("Réductions/exonérations patronales : entreprise non identifiée ; lecture bloquée.")
+        stored.companies.none { it.id == companyId.trim() } -> listOf(
+            "RGDU : entreprise ${companyId.trim()} absente du store confirmé ; aucune préférence locale orpheline n'est utilisée."
+        )
+        else -> emptyList()
+    }
+
     internal fun decode(raw: String): ReadResult = runCatching {
         val array = JSONArray(raw)
         val records = mutableListOf<EmployerReductionAdjustmentV2.Record>()
@@ -182,6 +200,12 @@ object CompanyEmployerReductionStoreV2 {
         )
     }.getOrElse {
         ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+    }
+
+    private fun readConfirmedCompany(context: Context, companyId: String): ReadResult {
+        val raw = SalaryCompanyStore.prefs(context, companyId).getString(KEY, "[]")
+            ?: return ReadResult(emptyList(), false, listOf(STORAGE_WARNING))
+        return decode(raw)
     }
 
     private fun write(context: Context, companyId: String, items: List<EmployerReductionAdjustmentV2.Record>): Boolean {
