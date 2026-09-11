@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.ConventionProvidentBenefitV2
 
 /** Raccord prudent entre une consultation ACCO vérifiée par SIRET et le store local des garanties. */
@@ -40,10 +41,12 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
             agreementId = agreementId,
             officialText = verifiedContent.text
         )
-        var saved = 0
-        diagnostic.rules.forEach { rule ->
-            if (V2CompanyProvidentBenefitStore.saveVerified(context, companyId, rule)) saved++
-        }
+        val saved = SalaryCompanyStore.withConfirmedCompany(context, companyId) { company ->
+            if (company.siret.filter(Char::isDigit) != expectedSiret) return@withConfirmedCompany 0
+            diagnostic.rules.count { rule ->
+                V2CompanyProvidentBenefitStore.saveVerified(context, companyId, rule)
+            }
+        } ?: 0
         val complete = diagnostic.rules.isNotEmpty() &&
             diagnostic.unresolvedOccurrenceFamilies.isEmpty() &&
             diagnostic.rules.all { it.packageComplete }
@@ -59,7 +62,7 @@ object CompanyAgreementProvidentBenefitIngestionV2 {
             warnings = buildList {
                 addAll(diagnostic.reasons)
                 if (saved < diagnostic.rules.size) {
-                    add("ACCO garanties : ${diagnostic.rules.size - saved} règle(s) structurée(s) n'ont pas pu être stockées localement.")
+                    add("ACCO garanties : ${diagnostic.rules.size - saved} règle(s) structurée(s) n'ont pas pu être stockées localement ou l'entreprise a été modifiée/supprimée.")
                 }
                 if (!complete) {
                     add("ACCO garanties : le paquet ne peut pas servir de preuve d'équivalence L2253-1 tant qu'il reste incomplet.")
