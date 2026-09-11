@@ -98,7 +98,7 @@ class CompanyEmployeeDeductionStoreFailClosedV2Test {
         val decoded = CompanyEmployeeDeductionStoreV2.decode(
             """[
                 {"id":"same","kind":"MUTUAL_EMPLOYEE","amount":42.0,"effectiveFrom":"2026-01","effectiveTo":null,"source":"Bulletin"},
-                {"id":"same","kind":"TRANSPORT_EMPLOYEE","amount":8.0,"effectiveFrom":"2026-06","effectiveTo":null,"source":"Bulletin"}
+                {"id":"same","kind":"TRANSPORT_EMPLOYEE","amount":8.0,"effectiveFrom":"2026-01","effectiveTo":null,"source":"Bulletin"}
             ]""".trimIndent()
         )
 
