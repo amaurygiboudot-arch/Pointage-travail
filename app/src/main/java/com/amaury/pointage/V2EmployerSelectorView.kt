@@ -57,7 +57,18 @@ class V2EmployerSelectorView @JvmOverloads constructor(
     }
 
     fun refresh() {
-        val companies = SalaryCompanyStore.list(context)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) {
+            visibility = View.VISIBLE
+            label.text = "Entreprise du pointage — données incohérentes"
+            button.text = "Stockage entreprises à récupérer"
+            button.isEnabled = false
+            return
+        }
+
+        label.text = "Entreprise du pointage"
+        button.isEnabled = true
+        val companies = stored.companies
         when {
             companies.isEmpty() -> {
                 visibility = View.GONE
@@ -79,7 +90,9 @@ class V2EmployerSelectorView @JvmOverloads constructor(
     }
 
     private fun chooseCompany() {
-        val companies = SalaryCompanyStore.list(context)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return
+        val companies = stored.companies
         if (companies.size <= 1) return
         val activeId = V2ProfileStore.activeCompanyId(context)
         val selected = companies.indexOfFirst { it.id == activeId }.coerceAtLeast(0)
