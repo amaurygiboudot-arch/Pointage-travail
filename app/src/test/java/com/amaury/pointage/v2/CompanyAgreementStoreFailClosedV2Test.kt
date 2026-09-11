@@ -7,6 +7,15 @@ import org.junit.Test
 
 class CompanyAgreementStoreFailClosedV2Test {
     @Test
+    fun `entreprise indisponible bloque toute lecture ACCO`() {
+        val result = CompanyAgreementStoreV2.unavailableCompanyReadResult()
+
+        assertFalse(result.reliable)
+        assertTrue(result.agreements.isEmpty())
+        assertTrue(result.warnings.any { it.contains("entreprise", ignoreCase = true) })
+    }
+
+    @Test
     fun `liste vide explicite reste fiable`() {
         val decoded = CompanyAgreementStoreV2.decodeRecords("[]")
 
