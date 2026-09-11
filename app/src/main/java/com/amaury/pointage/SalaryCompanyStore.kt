@@ -136,12 +136,26 @@ object SalaryCompanyStore {
         "salary_company_${companyId.replace(Regex("[^A-Za-z0-9_-]"), "_")}", Context.MODE_PRIVATE
     )
 
+    /** Une liste partiellement récupérée n'est jamais utilisable pour résoudre des alias employeur. */
+    internal fun companiesForAliasResolution(stored: ReadResult): List<Company>? =
+        stored.companies.takeIf { stored.reliable }
+
     /**
      * Identifiants employeur acceptés pour relire les anciennes sessions sans dépendre
      * de la position actuelle de l'entreprise dans MES ENTREPRISES.
+     *
+     * Si le store entreprises n'est pas fiable, seul l'identifiant explicite demandé est conservé :
+     * aucun alias historique n'est déduit d'un paquet partiellement récupéré.
      */
     fun acceptedEmployerIds(context: Context, companyId: String): Set<String> {
-        val company = list(context).firstOrNull { it.id == companyId } ?: return setOf(companyId)
+        val requestedId = companyId.trim()
+        if (requestedId.isBlank()) return emptySet()
+        val companies = companiesForAliasResolution(readConfirmed(context)) ?: return setOf(requestedId)
+        val company = companies.firstOrNull { it.id == requestedId } ?: return setOf(requestedId)
+        return acceptedEmployerIdsForCompany(context, company)
+    }
+
+    private fun acceptedEmployerIdsForCompany(context: Context, company: Company): Set<String> {
         val ids = linkedSetOf(company.id)
         val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
 
@@ -174,14 +188,15 @@ object SalaryCompanyStore {
      *
      * Une correspondance ambiguë reste volontairement inconnue : HoraTrack ne doit jamais rattacher
      * silencieusement une ancienne session ou un fait salarial à la mauvaise entreprise.
+     * Un store entreprises non fiable ne permet aucune résolution canonique.
      */
     fun canonicalCompanyIdForEmployerId(context: Context, employerId: String?): String? {
         val raw = employerId?.trim().orEmpty()
         if (raw.isBlank()) return null
-        val companies = list(context)
+        val companies = companiesForAliasResolution(readConfirmed(context)) ?: return null
         companies.firstOrNull { it.id == raw }?.let { return it.id }
         return companies
-            .filter { raw in acceptedEmployerIds(context, it.id) }
+            .filter { raw in acceptedEmployerIdsForCompany(context, it) }
             .map { it.id }
             .distinct()
             .singleOrNull()
