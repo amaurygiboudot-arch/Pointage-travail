@@ -106,9 +106,11 @@ object CompanyEmployeeDeductionResolverV2 {
     }
 
     /**
-     * Compatibilité progressive avec les anciennes valeurs sans période.
-     * Elles restent utilisables comme estimation tant qu'aucun enregistrement daté du
-     * type n'existe, mais ne deviennent jamais une référence exacte.
+     * Compatibilité de migration avec les anciennes valeurs sans période.
+     *
+     * Une valeur historique reste détectée pour expliquer ce qui doit être confirmé, mais elle
+     * ne fournit plus jamais de montant au runtime Salaire V2. Seul un enregistrement daté et
+     * sourcé peut participer au calcul.
      */
     fun withLegacyFallback(
         snapshot: Snapshot,
@@ -130,16 +132,16 @@ object CompanyEmployeeDeductionResolverV2 {
                     source = null,
                     hasDatedRecords = false,
                     reliable = false,
-                    legacyUsed = true,
-                    warnings = listOf("${kind.label} : ancienne valeur non datée invalide.")
+                    legacyUsed = false,
+                    warnings = listOf("${kind.label} : ancienne valeur non datée invalide ; confirmer une valeur datée et sourcée.")
                 )
                 else -> Value(
-                    amount = legacy,
-                    source = "Ancienne fiche Salaire sans période",
+                    amount = null,
+                    source = null,
                     hasDatedRecords = false,
                     reliable = false,
-                    legacyUsed = true,
-                    warnings = listOf("${kind.label} : ancienne valeur non datée utilisée ; période à confirmer.")
+                    legacyUsed = false,
+                    warnings = listOf("${kind.label} : ancienne valeur non datée détectée mais non utilisée par Salaire V2 ; confirmer sa période et sa source.")
                 )
             }
         }
