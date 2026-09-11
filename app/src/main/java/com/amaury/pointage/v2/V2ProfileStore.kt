@@ -16,6 +16,7 @@ object V2ProfileStore {
     private const val INTEGRATION_PREFS = "horatrack_v2_integration"
     private const val KEY_ACTIVE_COMPANY_SLOT = "active_company_slot"
     private const val KEY_ACTIVE_COMPANY_ID = "active_company_id"
+    private const val COMPANY_STORAGE_MISSING = "stockage entreprises V2 incohérent"
 
     @Volatile private var boundContext: Context? = null
 
@@ -31,12 +32,16 @@ object V2ProfileStore {
 
     /**
      * Source active : SalaryCompanyStore + prefs propres à l'entreprise.
-     * L'ancien salary_settings n'est lu qu'en secours si aucune entreprise V2 n'existe encore.
+     * L'ancien salary_settings n'est lu qu'en secours si le store V2 est fiable et ne contient
+     * réellement aucune entreprise. Une corruption du store V2 ne doit jamais réactiver un ancien
+     * employeur ou contrat comme s'il s'agissait d'une absence de données modernes.
      */
     fun load(context: Context, companySlot: Int = 1): Profile {
         bind(context)
         val slot = companySlot.coerceIn(1, 2)
-        val company = SalaryCompanyStore.list(context).getOrNull(slot - 1)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return corruptedCompanyStoreProfile(slot)
+        val company = stored.companies.getOrNull(slot - 1)
         if (company != null) return loadV2Company(context, company, slot)
         return loadLegacyFallback(context, slot)
     }
@@ -44,10 +49,11 @@ object V2ProfileStore {
     /** Charge directement une entreprise V2 par son identifiant stable, sans limite à deux sociétés. */
     fun loadCompany(context: Context, companyId: String): Profile? {
         bind(context)
-        val companies = SalaryCompanyStore.list(context)
-        val index = companies.indexOfFirst { it.id == companyId }
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return null
+        val index = stored.companies.indexOfFirst { it.id == companyId }
         if (index < 0) return null
-        return loadV2Company(context, companies[index], index + 1)
+        return loadV2Company(context, stored.companies[index], index + 1)
     }
 
     /**
@@ -56,7 +62,9 @@ object V2ProfileStore {
      */
     fun activeCompanyId(context: Context): String? {
         bind(context)
-        val companies = SalaryCompanyStore.list(context)
+        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
+        if (!storedCompanies.reliable) return null
+        val companies = storedCompanies.companies
         if (companies.isEmpty()) return null
         val prefs = integrationPrefs(context)
         val stored = prefs.getString(KEY_ACTIVE_COMPANY_ID, null)
@@ -71,7 +79,9 @@ object V2ProfileStore {
     /** Sélectionne une entreprise V2 par ID et garde le slot 1/2 synchronisé quand c'est possible. */
     fun setActiveCompanyId(context: Context, companyId: String): Boolean {
         bind(context)
-        val companies = SalaryCompanyStore.list(context)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return false
+        val companies = stored.companies
         val index = companies.indexOfFirst { it.id == companyId }
         if (index < 0) return false
         val editor = integrationPrefs(context).edit().putString(KEY_ACTIVE_COMPANY_ID, companyId)
@@ -100,14 +110,24 @@ object V2ProfileStore {
         bind(context)
         val normalized = slot.coerceIn(1, 2)
         val editor = integrationPrefs(context).edit().putInt(KEY_ACTIVE_COMPANY_SLOT, normalized)
-        SalaryCompanyStore.list(context).getOrNull(normalized - 1)?.id?.let {
-            editor.putString(KEY_ACTIVE_COMPANY_ID, it)
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (stored.reliable) {
+            stored.companies.getOrNull(normalized - 1)?.id?.let {
+                editor.putString(KEY_ACTIVE_COMPANY_ID, it)
+            }
         }
         editor.apply()
     }
 
     private fun integrationPrefs(context: Context) =
         context.applicationContext.getSharedPreferences(INTEGRATION_PREFS, Context.MODE_PRIVATE)
+
+    private fun corruptedCompanyStoreProfile(slot: Int): Profile = Profile(
+        employer = null,
+        contract = null,
+        companySlot = slot,
+        missing = listOf(COMPANY_STORAGE_MISSING)
+    )
 
     private fun loadV2Company(context: Context, company: SalaryCompanyStore.Company, slot: Int): Profile {
         val prefs = SalaryCompanyStore.prefs(context, company.id)
@@ -167,14 +187,20 @@ object V2ProfileStore {
     private fun loadLegacyFallback(context: Context, companySlot: Int): Profile {
         val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
         fun text(key: String): String = when (val value = prefs.all[key]) {
-            null -> ""; is String -> value; is Number -> value.toString(); is Boolean -> value.toString(); else -> value.toString()
+            null -> ""
+            is String -> value
+            is Number -> value.toString()
+            is Boolean -> value.toString()
+            else -> value.toString()
         }.trim()
         val prefix = if (companySlot == 2) "company2_" else "company_"
         val name = text(prefix + "name")
         val siret = text(prefix + "siret").filter(Char::isDigit)
         val idcc = text(prefix + "idcc").ifBlank { if (companySlot == 1) text("convention_idcc") else "" }
         val employerId = "company_$companySlot"
-        val employer = if (name.isNotBlank() || siret.isNotBlank()) EmployerV2(employerId,name.ifBlank{"Entreprise $companySlot"},siret.takeIf{it.length==14},idcc.takeIf{it.isNotBlank()}) else null
+        val employer = if (name.isNotBlank() || siret.isNotBlank()) {
+            EmployerV2(employerId, name.ifBlank { "Entreprise $companySlot" }, siret.takeIf { it.length == 14 }, idcc.takeIf { it.isNotBlank() })
+        } else null
         val contractTypeRaw = if (companySlot == 1) text("contract_type") else text("company2_contract_type")
         val weeklyRaw = if (companySlot == 1) text("contract_weekly_hours") else text("company2_contract_weekly_hours")
         val rateRaw = if (companySlot == 1) text("hourly_rate") else text("company2_hourly_rate")
@@ -188,7 +214,9 @@ object V2ProfileStore {
         if (type == null) missing += "type de contrat"
         if (weeklyMinutes == null && type != ContractTypeV2.FORFAIT) missing += "durée hebdomadaire"
         if (rate == null) missing += "taux horaire"
-        val contract = if (employer != null && type != null && (weeklyMinutes != null || type == ContractTypeV2.FORFAIT) && rate != null) ContractV2("contract_$companySlot",employerId,type,weeklyMinutes,rate,hireEpochDay) else null
+        val contract = if (employer != null && type != null && (weeklyMinutes != null || type == ContractTypeV2.FORFAIT) && rate != null) {
+            ContractV2("contract_$companySlot", employerId, type, weeklyMinutes, rate, hireEpochDay)
+        } else null
         return Profile(employer, contract, companySlot, missing)
     }
 
@@ -201,9 +229,21 @@ object V2ProfileStore {
         "OTHER" -> ContractTypeV2.OTHER
         else -> null
     }
-    private fun safeLong(value: Any?): Long? = when (value) { is Number -> value.toLong(); is String -> value.toLongOrNull(); else -> null }
+
+    private fun safeLong(value: Any?): Long? = when (value) {
+        is Number -> value.toLong()
+        is String -> value.toLongOrNull()
+        else -> null
+    }
+
     private fun localEpochDay(ms: Long): Long {
-        val calendar = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ms; set(Calendar.HOUR_OF_DAY,0);set(Calendar.MINUTE,0);set(Calendar.SECOND,0);set(Calendar.MILLISECOND,0) }
+        val calendar = Calendar.getInstance(Locale.FRANCE).apply {
+            timeInMillis = ms
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
         val timezoneOffset = calendar.timeZone.getOffset(calendar.timeInMillis).toLong()
         return Math.floorDiv(calendar.timeInMillis + timezoneOffset, 86_400_000L)
     }
