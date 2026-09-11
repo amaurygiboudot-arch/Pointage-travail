@@ -13,9 +13,7 @@ import android.widget.TextView
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
 
 /** Filtres légers de l'historique complet : date/entreprise + type d'événement affiché. */
 class HistorySearchFilterView @JvmOverloads constructor(
@@ -52,10 +50,6 @@ class HistorySearchFilterView @JvmOverloads constructor(
         background = context.getDrawable(R.drawable.hp_panel)
         setOnClickListener { SessionMealFactsDialogV2.show(context) }
     }
-    private val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
-    private val fullDateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.FRANCE)
-    private val timeFormat = SimpleDateFormat("HH:mm", Locale.FRANCE)
-
     private var titleView: TextView? = null
     private var historyView: TextView? = null
 
@@ -114,7 +108,7 @@ class HistorySearchFilterView @JvmOverloads constructor(
         if (!isHistoryVisible()) return
         val target = historyView ?: return
         val now = System.currentTimeMillis()
-        val query = search.text?.toString().orEmpty().trim().lowercase(Locale.FRANCE)
+        val query = search.text?.toString().orEmpty()
         val employerNames = buildMap {
             for (slot in 1..2) {
                 V2ProfileStore.load(context, slot).employer?.let { put(it.id, it.name) }
@@ -127,41 +121,24 @@ class HistorySearchFilterView @JvmOverloads constructor(
             return
         }
 
-        val sessions = runtime.sessions
-            .filter { session ->
-                if (query.isBlank()) return@filter true
-                val arrival = session.realArrivalMs ?: return@filter false
-                val date = dateFormat.format(Date(arrival)).lowercase(Locale.FRANCE)
-                val employer = session.employerId?.let(employerNames::get).orEmpty().lowercase(Locale.FRANCE)
-                val place = session.placeLabel.orEmpty().lowercase(Locale.FRANCE)
-                date.contains(query) || employer.contains(query) || place.contains(query)
-            }
-            .sortedByDescending { it.realArrivalMs ?: 0L }
-
-        target.text = buildString {
-            sessions.forEach { session ->
-                if (entryBox.isChecked) {
-                    append("🟢 ").append(fullDateFormat.format(Date(session.realArrivalMs ?: 0L))).append("  ENTRÉE RÉELLE\n")
-                    append("⏱ ").append(session.countedEntryMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  ENTRÉE COMPTÉE\n")
-                }
-                session.placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { append("📍 ").append(it).append('\n') }
-                if (pauseBox.isChecked) {
-                    session.pauses.forEachIndexed { index, pause ->
-                        append("⏸ Pause ").append(index + 1).append(" : ")
-                            .append(timeFormat.format(Date(pause.startMs))).append(" → ")
-                            .append(pause.endMs?.let { timeFormat.format(Date(it)) } ?: "EN COURS").append('\n')
-                    }
-                }
-                if (exitBox.isChecked) {
-                    if (session.realExitMs != null) {
-                        append("🔴 ").append(fullDateFormat.format(Date(session.realExitMs))).append("  SORTIE RÉELLE\n")
-                        append("⏱ ").append(session.countedExitMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  SORTIE COMPTÉE\n")
-                    } else append("🟢 EN COURS\n")
-                }
-                val result = HoraTrackV2.time.calculate(session, now)
-                append("Temps payé : ").append(formatDuration(result.paidWorkMs)).append("\n\n")
-            }
-        }.ifBlank { "Aucun historique correspondant." }
+        val sessions = HistoryTextFormatterV2.selectSessions(
+            sessions = runtime.sessions,
+            nowMs = now,
+            query = query,
+            employerNames = employerNames
+        )
+        target.text = HistoryTextFormatterV2.format(
+            sessions = sessions,
+            engine = HoraTrackV2.time,
+            nowMs = now,
+            options = HistoryTextFormatterV2.Options(
+                showEntry = entryBox.isChecked,
+                showPause = pauseBox.isChecked,
+                showExit = exitBox.isChecked,
+                employerNames = employerNames,
+                emptyMessage = "Aucun historique correspondant."
+            )
+        )
     }
 
     private fun syncVisibility() {
@@ -183,11 +160,6 @@ class HistorySearchFilterView @JvmOverloads constructor(
         override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
         override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = onChanged()
         override fun afterTextChanged(s: Editable?) = Unit
-    }
-
-    private fun formatDuration(ms: Long): String {
-        val totalMinutes = ms.coerceAtLeast(0L) / 60_000L
-        return String.format(Locale.FRANCE, "%02dh %02dm", totalMinutes / 60L, totalMinutes % 60L)
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
