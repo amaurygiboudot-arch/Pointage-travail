@@ -1,6 +1,5 @@
 package com.amaury.pointage.v2.engine
 
-import android.content.Context
 import com.amaury.pointage.v2.ApplicableCompanyAgreementRulesV2
 import com.amaury.pointage.v2.CompanyAgreementRuleStoreV2
 import java.time.LocalDate
@@ -18,12 +17,18 @@ object CompanyAgreementPayrollSegmentsV2 {
     private val iso = DateTimeFormatter.ISO_LOCAL_DATE
     private val french = DateTimeFormatter.ofPattern("dd/MM/uuuu")
 
-    fun load(
-        context: Context,
-        companyId: String,
+    internal fun load(
+        storedRules: CompanyAgreementRuleStoreV2.ReadResult,
         period: PayrollPeriodV2.Period
     ): List<Segment> {
-        val rulePeriods = CompanyAgreementRuleStoreV2.list(context, companyId)
+        if (!storedRules.reliable) return emptyList()
+
+        // La validation d'applicabilité signale aussi toute règle vérifiée incomplète ou mal datée.
+        // Elle est faite sur ce même snapshot afin qu'aucune relecture du stockage ne puisse changer
+        // l'état juridique au milieu d'un calcul de période.
+        if (!ApplicableCompanyAgreementRulesV2.resolve(storedRules, period.start).reliable) return emptyList()
+
+        val rulePeriods = storedRules.records
             .filter { it.verified && !it.scope.isNullOrBlank() }
             .mapNotNull { rule ->
                 val from = parseDate(rule.effectiveFrom) ?: return@mapNotNull null
@@ -36,11 +41,10 @@ object CompanyAgreementPayrollSegmentsV2 {
             Segment(
                 start = segment.start,
                 endInclusive = segment.endInclusive,
-                applicableRules = ApplicableCompanyAgreementRulesV2.list(
-                    context,
-                    companyId,
+                applicableRules = ApplicableCompanyAgreementRulesV2.resolve(
+                    storedRules,
                     segment.start
-                )
+                ).rules
             )
         }
     }

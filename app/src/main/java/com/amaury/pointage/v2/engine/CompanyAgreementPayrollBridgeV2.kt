@@ -38,8 +38,18 @@ object CompanyAgreementPayrollBridgeV2 {
         companyId: String,
         referenceDate: LocalDate,
         period: PayrollPeriodV2.Period? = null
+    ): Snapshot = load(
+        storedRules = CompanyAgreementRuleStoreV2.read(context, companyId),
+        referenceDate = referenceDate,
+        period = period
+    )
+
+    internal fun load(
+        storedRules: CompanyAgreementRuleStoreV2.ReadResult,
+        referenceDate: LocalDate,
+        period: PayrollPeriodV2.Period? = null
     ): Snapshot {
-        val applicability = ApplicableCompanyAgreementRulesV2.resolve(context, companyId, referenceDate)
+        val applicability = ApplicableCompanyAgreementRulesV2.resolve(storedRules, referenceDate)
         val applicable = applicability.rules
         val calculationReady = if (applicability.reliable) {
             applicable
@@ -58,7 +68,7 @@ object CompanyAgreementPayrollBridgeV2 {
         val conflictCheck = CompanyAgreementOvertimeConflictV2.check(overtime)
         val periodSegments = if (applicability.reliable) {
             period?.let {
-                CompanyAgreementPayrollSegmentsV2.load(context, companyId, it)
+                CompanyAgreementPayrollSegmentsV2.load(storedRules, it)
             }.orEmpty()
         } else {
             emptyList()
