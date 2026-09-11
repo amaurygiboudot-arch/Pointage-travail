@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -79,5 +80,48 @@ class SalaryCompanyStoreReliabilityV2Test {
         assertEquals(SalaryCompanyStore.StorageSource.NONE, resolution.source)
         assertFalse(resolution.result.reliable)
         assertTrue(resolution.result.companies.isEmpty())
+    }
+
+    @Test
+    fun `partially recovered companies cannot be used to resolve employer aliases`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company_a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = false,
+            warnings = listOf("stockage incohérent")
+        )
+
+        assertNull(SalaryCompanyStore.companiesForAliasResolution(stored))
+    }
+
+    @Test
+    fun `repaired reliable companies remain usable for employer alias resolution`() {
+        val company = SalaryCompanyStore.Company(
+            id = "company_a",
+            name = "Entreprise A",
+            siret = "12345678901234"
+        )
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = listOf(company),
+            reliable = true,
+            repairedFromBackup = true,
+            warnings = listOf("restauré")
+        )
+
+        assertEquals(listOf(company), SalaryCompanyStore.companiesForAliasResolution(stored))
+    }
+
+    @Test
+    fun `reliable explicit absence stays usable for alias resolution`() {
+        val stored = SalaryCompanyStore.ReadResult(
+            companies = emptyList(),
+            reliable = true
+        )
+
+        assertEquals(emptyList<SalaryCompanyStore.Company>(), SalaryCompanyStore.companiesForAliasResolution(stored))
     }
 }
