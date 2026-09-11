@@ -17,6 +17,8 @@ object SalaryCompanyStore {
         "Entreprises Salaire V2 : stockage local incohérent ; aucune entreprise ni absence d'entreprise ne peut être déduite de ce stockage."
     private const val REPAIRED_WARNING =
         "Entreprises Salaire V2 : stockage principal restauré depuis la dernière copie locale valide."
+    private const val LEGACY_MIGRATION_WARNING =
+        "Entreprises Salaire V2 : la migration des anciennes données a échoué ; aucune absence d'entreprise ne peut être confirmée."
 
     data class Company(
         val id: String,
@@ -39,6 +41,24 @@ object SalaryCompanyStore {
     internal data class StorageResolution(
         val result: ReadResult,
         val source: StorageSource
+    )
+
+    internal enum class LegacyMigrationStatus { NO_DATA, SAVED, FAILED }
+
+    internal data class LegacyMigrationEntry(
+        val company: Company,
+        val sourceSiret: String,
+        val contractType: String,
+        val hourlyRate: String,
+        val weeklyHours: String,
+        val mealAmount: String,
+        val coefficient: String,
+        val entryDate: String
+    )
+
+    internal data class LegacyMigrationResult(
+        val status: LegacyMigrationStatus,
+        val companies: List<Company> = emptyList()
     )
 
     /**
@@ -71,7 +91,8 @@ object SalaryCompanyStore {
                 }
             }
             missingPrimaryBackupFailure(backupPresent, backup)?.let { return it }
-            migrateLegacy(context)
+            val migration = migrateLegacy(context)
+            legacyMigrationReadFailure(migration)?.let { return it }
         }
 
         if (!store.contains(KEY)) return ReadResult(emptyList(), true)
@@ -319,6 +340,37 @@ object SalaryCompanyStore {
         )
     }
 
+    internal fun validateLegacyMigrationEntries(entries: List<LegacyMigrationEntry>): Boolean {
+        if (entries.map { it.company.id }.any { it.isBlank() }) return false
+        if (entries.map { it.company.id }.distinct().size != entries.size) return false
+
+        val sirets = mutableListOf<String>()
+        for (entry in entries) {
+            val rawSiret = entry.sourceSiret.trim()
+            if (rawSiret.isBlank()) {
+                if (entry.company.siret.isNotBlank()) return false
+                continue
+            }
+
+            if (rawSiret.any { !it.isDigit() && !it.isWhitespace() }) return false
+            val normalized = rawSiret.filter(Char::isDigit)
+            if (normalized.length != 14) return false
+            if (entry.company.siret != normalized) return false
+            if (entry.company.id != "siret_$normalized") return false
+            sirets += normalized
+        }
+        return sirets.distinct().size == sirets.size
+    }
+
+    internal fun legacyMigrationReadFailure(result: LegacyMigrationResult): ReadResult? {
+        if (result.status != LegacyMigrationStatus.FAILED) return null
+        return ReadResult(
+            companies = result.companies,
+            reliable = false,
+            warnings = listOf(STORAGE_WARNING, LEGACY_MIGRATION_WARNING)
+        )
+    }
+
     private fun decodeCompany(obj: JSONObject): Company? = runCatching {
         fun requiredString(key: String): String {
             val value = obj.opt(key)
@@ -378,11 +430,10 @@ object SalaryCompanyStore {
         return array.toString()
     }
 
-    private fun migrateLegacy(context: Context) {
+    private fun migrateLegacy(context: Context): LegacyMigrationResult {
         val store = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (store.contains(KEY)) return
+        if (store.contains(KEY)) return LegacyMigrationResult(LegacyMigrationStatus.NO_DATA)
         val old = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        val migrated = mutableListOf<Company>()
         val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.FRANCE)
 
         fun value(key: String): String = when (val v = old.all[key]) {
@@ -392,16 +443,16 @@ object SalaryCompanyStore {
             else -> v.toString()
         }.trim()
 
-        fun migrateSlot(slot: Int) {
+        fun buildSlot(slot: Int): LegacyMigrationEntry? {
             val p = if (slot == 1) "company_" else "company2_"
             val name = value("${p}name")
-            val siret = value("${p}siret").filter(Char::isDigit)
-            if (name.isBlank() && siret.isBlank()) return
-            val id = if (siret.isNotBlank()) "siret_$siret" else "legacy_$slot"
+            val sourceSiret = value("${p}siret")
+            if (name.isBlank() && sourceSiret.isBlank()) return null
+            val siret = sourceSiret.filter(Char::isDigit)
+            val id = if (sourceSiret.isNotBlank()) "siret_$siret" else "legacy_$slot"
             val idcc = value("${p}idcc").ifBlank { if (slot == 1) value("convention_idcc") else "" }
             val conventionName = value("${p}convention_name")
             val address = value("${p}address")
-            migrated += Company(id, name, siret, address, conventionName, idcc)
 
             val contractType = if (slot == 1) value("contract_type") else value("company2_contract_type")
             val rate = if (slot == 1) value("hourly_rate") else value("company2_hourly_rate")
@@ -416,19 +467,43 @@ object SalaryCompanyStore {
             }
             val entryDate = if (hireMs > 0L) dateFormat.format(Date(hireMs)) else value(if (slot == 1) "entry_date" else "company2_entry_date")
 
-            prefs(context, id).edit()
-                .putString("contract_type", contractType)
-                .putString("hourly_rate", rate)
-                .putString("contract_weekly_hours", weekly)
-                .putString("meal_amount", meal)
-                .putString("convention_coefficient", coefficient)
-                .putString("entry_date", entryDate)
-                .putString("company_idcc", idcc)
-                .commit()
+            return LegacyMigrationEntry(
+                company = Company(id, name, siret, address, conventionName, idcc),
+                sourceSiret = sourceSiret,
+                contractType = contractType,
+                hourlyRate = rate,
+                weeklyHours = weekly,
+                mealAmount = meal,
+                coefficient = coefficient,
+                entryDate = entryDate
+            )
         }
 
-        migrateSlot(1)
-        migrateSlot(2)
-        save(context, migrated)
+        val entries = listOfNotNull(buildSlot(1), buildSlot(2))
+        if (entries.isEmpty()) return LegacyMigrationResult(LegacyMigrationStatus.NO_DATA)
+        val companies = entries.map { it.company }
+        if (!validateLegacyMigrationEntries(entries)) {
+            return LegacyMigrationResult(LegacyMigrationStatus.FAILED, companies)
+        }
+
+        for (entry in entries) {
+            val written = runCatching {
+                prefs(context, entry.company.id).edit()
+                    .putString("contract_type", entry.contractType)
+                    .putString("hourly_rate", entry.hourlyRate)
+                    .putString("contract_weekly_hours", entry.weeklyHours)
+                    .putString("meal_amount", entry.mealAmount)
+                    .putString("convention_coefficient", entry.coefficient)
+                    .putString("entry_date", entry.entryDate)
+                    .putString("company_idcc", entry.company.idcc)
+                    .commit()
+            }.getOrDefault(false)
+            if (!written) return LegacyMigrationResult(LegacyMigrationStatus.FAILED, companies)
+        }
+
+        if (!save(context, companies) || !store.contains(KEY)) {
+            return LegacyMigrationResult(LegacyMigrationStatus.FAILED, companies)
+        }
+        return LegacyMigrationResult(LegacyMigrationStatus.SAVED, companies)
     }
 }
