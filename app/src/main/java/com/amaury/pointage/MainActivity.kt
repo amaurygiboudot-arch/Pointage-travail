@@ -22,8 +22,10 @@ import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
@@ -561,27 +563,29 @@ class MainActivity : Activity() {
         if (!read.reliable) {
             return "Historique HoraTrack indisponible.\n${V2RuntimeReader.warningText(read.warnings)}"
         }
-        val today = Calendar.getInstance(Locale.FRANCE)
-        val sessions = read.sessions.filter { session ->
-            if (!todayOnly) true else session.realArrivalMs?.let { at ->
-                val c = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }
-                c.get(Calendar.YEAR) == today.get(Calendar.YEAR) && c.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)
-            } ?: false
-        }.sortedByDescending { it.realArrivalMs ?: 0L }
-        return buildString {
-            sessions.forEach { s ->
-                append("🟢 ").append(fullDateFormat.format(Date(s.realArrivalMs ?: 0L))).append("  ENTRÉE RÉELLE\n")
-                append("⏱ ").append(s.countedEntryMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  ENTRÉE COMPTÉE\n")
-                s.placeLabel?.trim()?.takeIf { it.isNotBlank() }?.let { append("📍 ").append(it).append('\n') }
-                s.pauses.forEachIndexed { index, p -> append("⏸ Pause ").append(index + 1).append(" : ").append(dateFormat.format(Date(p.startMs))).append(" → ").append(p.endMs?.let { dateFormat.format(Date(it)) } ?: "EN COURS").append('\n') }
-                if (s.realExitMs != null) {
-                    append("🔴 ").append(fullDateFormat.format(Date(s.realExitMs))).append("  SORTIE RÉELLE\n")
-                    append("⏱ ").append(s.countedExitMs?.let { fullDateFormat.format(Date(it)) } ?: "—").append("  SORTIE COMPTÉE\n")
-                } else append("🟢 EN COURS\n")
-                val r = HoraTrackV2.time.calculate(s, now)
-                append("Temps payé : ").append(formatDuration(r.paidWorkMs)).append("\n\n")
-            }
-        }.ifBlank { if (todayOnly) "Aucun pointage aujourd'hui." else "Aucun historique." }
+
+        val employerNames = buildV2EmployerNames()
+        val sessions = HistoryTextFormatterV2.selectSessions(
+            sessions = read.sessions,
+            nowMs = now,
+            todayOnly = todayOnly,
+            employerNames = employerNames
+        )
+        return HistoryTextFormatterV2.format(
+            sessions = sessions,
+            engine = HoraTrackV2.time,
+            nowMs = now,
+            options = HistoryTextFormatterV2.Options(
+                employerNames = employerNames,
+                emptyMessage = if (todayOnly) "Aucun pointage aujourd'hui." else "Aucun historique."
+            )
+        )
+    }
+
+    private fun buildV2EmployerNames(): Map<String, String> = buildMap {
+        for (slot in 1..2) {
+            V2ProfileStore.load(this@MainActivity, slot).employer?.let { put(it.id, it.name) }
+        }
     }
 
     private fun buildV2AnalyticsText(): String {
