@@ -25,38 +25,49 @@ object CompanyEmployerReductionStoreV2 {
         val warnings: List<String>
     )
 
+    internal fun unavailableReadResult(companyId: String): ReadResult {
+        val id = companyId.trim()
+        val warning = if (id.isBlank()) {
+            "Réductions/exonérations patronales : entreprise non identifiée ; lecture bloquée."
+        } else {
+            "RGDU : entreprise $id absente ou stockage entreprises non fiable ; aucune préférence locale orpheline n'est utilisée."
+        }
+        return ReadResult(emptyList(), false, listOf(warning))
+    }
+
     fun read(context: Context, companyId: String): ReadResult {
-        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
-        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
-            ?: return ReadResult(
-                records = emptyList(),
-                reliable = false,
-                warnings = companyStoreBlockers(storedCompanies, companyId)
-            )
-        return readConfirmedCompany(context, company.id)
+        val id = companyId.trim()
+        if (id.isBlank()) return unavailableReadResult(id)
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            readConfirmedCompany(context, company.id)
+        } ?: unavailableReadResult(id)
     }
 
     fun list(context: Context, companyId: String): List<EmployerReductionAdjustmentV2.Record> =
         read(context, companyId).records
 
     fun save(context: Context, companyId: String, record: EmployerReductionAdjustmentV2.Record): Boolean {
-        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
-        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId) ?: return false
-        val stored = readConfirmedCompany(context, company.id)
-        // Ne jamais « réparer » implicitement un stockage partiellement illisible en réécrivant
-        // uniquement le sous-ensemble décodable : cela effacerait une incohérence à auditer.
-        if (!stored.reliable) return false
-        val items = stored.records.filterNot { it.month == record.month }.toMutableList()
-        items += record
-        return write(context, company.id, items)
+        val id = companyId.trim()
+        if (id.isBlank()) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            val stored = readConfirmedCompany(context, company.id)
+            // Ne jamais « réparer » implicitement un stockage partiellement illisible en réécrivant
+            // uniquement le sous-ensemble décodable : cela effacerait une incohérence à auditer.
+            if (!stored.reliable) return@withConfirmedCompany false
+            val items = stored.records.filterNot { it.month == record.month }.toMutableList()
+            items += record
+            writeConfirmedCompany(context, company.id, items)
+        } == true
     }
 
     fun remove(context: Context, companyId: String, id: String): Boolean {
-        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
-        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId) ?: return false
-        val stored = readConfirmedCompany(context, company.id)
-        if (!stored.reliable) return false
-        return write(context, company.id, stored.records.filterNot { it.id == id })
+        val companyIdNormalized = companyId.trim()
+        if (companyIdNormalized.isBlank()) return false
+        return SalaryCompanyStore.withConfirmedCompany(context, companyIdNormalized) { company ->
+            val stored = readConfirmedCompany(context, company.id)
+            if (!stored.reliable) return@withConfirmedCompany false
+            writeConfirmedCompany(context, company.id, stored.records.filterNot { it.id == id })
+        } == true
     }
 
     /**
@@ -69,12 +80,26 @@ object CompanyEmployerReductionStoreV2 {
         companyId: String,
         month: YearMonth
     ): EmployerReductionAdjustmentV2.Snapshot {
-        val storedCompanies = SalaryCompanyStore.readConfirmed(context)
-        val company = ConventionLegalProfileV2.confirmedCompany(storedCompanies, companyId)
-            ?: return blockedAutomatic(
-                companyStoreBlockers(storedCompanies, companyId),
+        val id = companyId.trim()
+        if (id.isBlank()) {
+            return blockedAutomatic(
+                unavailableReadResult(id).warnings,
                 "RGDU : entreprise V2 non confirmée ; calcul automatique et ajustement manuel bloqués."
             )
+        }
+        return SalaryCompanyStore.withConfirmedCompany(context, id) { company ->
+            resolveConfirmedCompany(context, company, month)
+        } ?: blockedAutomatic(
+            unavailableReadResult(id).warnings,
+            "RGDU : entreprise V2 non confirmée ; calcul automatique et ajustement manuel bloqués."
+        )
+    }
+
+    private fun resolveConfirmedCompany(
+        context: Context,
+        company: SalaryCompanyStore.Company,
+        month: YearMonth
+    ): EmployerReductionAdjustmentV2.Snapshot {
         val stored = readConfirmedCompany(context, company.id)
         if (!stored.reliable) {
             return EmployerReductionAdjustmentV2.Snapshot(
@@ -208,7 +233,11 @@ object CompanyEmployerReductionStoreV2 {
         return decode(raw)
     }
 
-    private fun write(context: Context, companyId: String, items: List<EmployerReductionAdjustmentV2.Record>): Boolean {
+    private fun writeConfirmedCompany(
+        context: Context,
+        companyId: String,
+        items: List<EmployerReductionAdjustmentV2.Record>
+    ): Boolean {
         val array = JSONArray()
         items.forEach { array.put(toJson(it)) }
         return SalaryCompanyStore.prefs(context, companyId)
