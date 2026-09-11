@@ -35,13 +35,17 @@ object V2ConventionRuleStore {
         return decodeConfirmed(raw)
     }
 
-    fun history(context: Context): ConventionRuleHistoryV2 {
-        val stored = readConfirmed(context)
-        return if (stored.reliable) {
-            ConventionRuleHistoryV2(stored.snapshots)
-        } else {
-            ConventionRuleHistoryV2.empty()
-        }
+    fun history(context: Context): ConventionRuleHistoryV2 = historyFrom(readConfirmed(context))
+
+    /**
+     * Le chemin de compatibilité `history()` doit rester fail-closed lui aussi : un stockage
+     * incohérent n'est jamais transformé en historique vide, car vide signifierait alors
+     * implicitement « aucune règle connue ». Les consommateurs historiques sont déjà protégés
+     * par `runCatching` et peuvent donc traiter cet échec comme un état À confirmer.
+     */
+    internal fun historyFrom(stored: ReadResult): ConventionRuleHistoryV2 {
+        check(stored.reliable) { stored.warnings.firstOrNull() ?: STORAGE_WARNING }
+        return ConventionRuleHistoryV2(stored.snapshots)
     }
 
     /**
