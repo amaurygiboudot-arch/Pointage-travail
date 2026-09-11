@@ -95,11 +95,16 @@ object V2SalaryAdapter {
   val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val collectivePremiumArbitration=CollectivePremiumLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
   val holidayScope=FrenchPublicHolidayCalendarV2.scopeForAddress(company.address)
+  val conventionHistory=salaryConventionHistoryStateV2(
+   provided=ruleHistory,
+   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+  )
+  val calculationConvention=conventionHistory.conventionForCalculation(convention,type)
   val baseCalculated=applyMayFirstLegalAdjustment(
    context=context,
    base=calculateCore(
-    contract,missing,runtimeSessions,year,month,rate?:0.0,convention,
-    ruleHistory?:V2ConventionRuleStore.history(context),acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope
+    contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
+    conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope
    ),
    contract=contract,
    sessions=runtimeSessions,
@@ -109,7 +114,12 @@ object V2SalaryAdapter {
    acceptedEmployerIds=acceptedIds,
    premiumSnapshot=collectivePremiumArbitration,
    referenceDate=period.referenceDate
-  )
+  ).let{result->
+   result.copy(
+    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,type,result.overtimeGross),
+    warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,type)
+   )
+  }
   val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
   val seniorityBase=baseCalculated.regularGross.takeIf{rawType in setOf("FULL_TIME","PART_TIME")&&baseCalculated.monthlyGrossReliable}
   val seniority=V2ConventionSeniorityPremiumBridge.load(
@@ -152,8 +162,19 @@ object V2SalaryAdapter {
   val companyId=p.contract?.employerId
   val collectivePremiumArbitration=companyId?.let{CollectivePremiumLegalArbitrationBridgeV2.load(context,it,convention.idcc,referenceDate)}
   val holidayScope=companyId?.let{id->SalaryCompanyStore.list(context).firstOrNull{it.id==id}?.let{FrenchPublicHolidayCalendarV2.scopeForAddress(it.address)}}
-  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,convention,ruleHistory?:V2ConventionRuleStore.history(context),ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
-  return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate)
+  val contractType=p.contract?.type
+  val conventionHistory=salaryConventionHistoryStateV2(
+   provided=ruleHistory,
+   stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
+  )
+  val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
+  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
+  return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
+   result.copy(
+    monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross),
+    warnings=salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)
+   )
+  }
  }
  fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty(),null,null,null,null,null)}
 
