@@ -39,8 +39,22 @@ object CompanyPauseAlarmManager {
         if (HoraTrackV2.ENABLED) scheduleAllV2(context) else scheduleAllLegacy(context)
     }
 
+    internal fun confirmedCompanies(stored: SalaryCompanyStore.ReadResult): List<SalaryCompanyStore.Company> =
+        if (stored.reliable) stored.companies else emptyList()
+
+    private fun confirmedCompanies(context: Context): List<SalaryCompanyStore.Company> =
+        confirmedCompanies(SalaryCompanyStore.readConfirmed(context))
+
+    internal fun isConfirmedCompany(stored: SalaryCompanyStore.ReadResult, companyId: String): Boolean {
+        val id = companyId.trim()
+        return id.isNotBlank() && confirmedCompanies(stored).any { it.id == id }
+    }
+
+    internal fun isConfirmedCompany(context: Context, companyId: String): Boolean =
+        isConfirmedCompany(SalaryCompanyStore.readConfirmed(context), companyId)
+
     private fun scheduleAllV2(context: Context) {
-        SalaryCompanyStore.list(context).forEach { company ->
+        confirmedCompanies(context).forEach { company ->
             for (pauseIndex in 1..2) {
                 val pause = CompanyPauseSettingsV2.pause(context, company.id, pauseIndex) ?: continue
                 scheduleOneV2(context, company.id, pauseIndex, EVENT_START, pause.startMinute)
@@ -64,7 +78,7 @@ object CompanyPauseAlarmManager {
             alarm.cancel(pendingLegacy(context, company, pauseIndex, EVENT_START))
             alarm.cancel(pendingLegacy(context, company, pauseIndex, EVENT_END))
         }
-        SalaryCompanyStore.list(context).forEach { company ->
+        confirmedCompanies(context).forEach { company ->
             for (pauseIndex in 1..2) {
                 alarm.cancel(pendingV2(context, company.id, pauseIndex, EVENT_START))
                 alarm.cancel(pendingV2(context, company.id, pauseIndex, EVENT_END))
@@ -150,7 +164,7 @@ object CompanyPauseAlarmManager {
     internal fun activeCompanySlot(context: Context): Int? {
         if (HoraTrackV2.ENABLED) {
             val id = activeCompanyId(context) ?: return null
-            val index = SalaryCompanyStore.list(context).indexOfFirst { it.id == id }
+            val index = confirmedCompanies(context).indexOfFirst { it.id == id }
             return (index + 1).takeIf { it in 1..2 }
         }
         return null
@@ -193,7 +207,7 @@ object CompanyPauseAlarmManager {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
-        val company = SalaryCompanyStore.list(context).firstOrNull { it.id == companyId }
+        val company = confirmedCompanies(context).firstOrNull { it.id == companyId }
         val companyName = company?.name?.ifBlank { "Entreprise" } ?: "Entreprise"
         val pause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex)
         val duration = pause?.durationMinutes ?: 0
@@ -240,6 +254,7 @@ object CompanyPauseAlarmManager {
     }
 
     internal fun rescheduleV2Event(context: Context, companyId: String, pauseIndex: Int, event: String) {
+        if (!isConfirmedCompany(context, companyId)) return
         val pause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex) ?: return
         val minute = if (event == EVENT_END) pause.endMinute else pause.startMinute
         scheduleOneV2(context, companyId, pauseIndex, event, minute)
@@ -268,6 +283,7 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
         val pauseIndex = CompanyPauseAlarmManager.pauseIndex(intent)
         val event = CompanyPauseAlarmManager.event(intent)
         if (pauseIndex !in 1..2 || (!CompanyPauseAlarmManager.isStart(event) && !CompanyPauseAlarmManager.isEnd(event))) return
+        if (!CompanyPauseAlarmManager.isConfirmedCompany(context, companyId)) return
 
         if (CompanyPauseAlarmManager.activeCompanyId(context) == companyId) {
             when {
