@@ -132,7 +132,16 @@ class SalaryCompanyDetailsView(
                     throw IllegalStateException("enregistrement impossible")
                 }
                 post {
-                    company = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id } ?: updated
+                    val reread = rereadConfirmed(updated)
+                    if (reread == null) {
+                        Toast.makeText(
+                            context,
+                            "IDCC trouvé, mais le stockage des entreprises doit être vérifié avant de confirmer la mise à jour.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        return@post
+                    }
+                    company = reread
                     onChanged(company)
                     Toast.makeText(context, "IDCC $idcc trouvé automatiquement. Tu peux maintenant le vérifier dans KALI.", Toast.LENGTH_LONG).show()
                     showConvention()
@@ -178,7 +187,16 @@ class SalaryCompanyDetailsView(
                     Toast.makeText(context, "KALI a répondu, mais HoraTrack n’a pas pu conserver toute la vérification.", Toast.LENGTH_LONG).show()
                     return@addOnSuccessListener
                 }
-                company = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id } ?: updated
+                val reread = rereadConfirmed(updated)
+                if (reread == null) {
+                    Toast.makeText(
+                        context,
+                        "KALI a répondu, mais la mise à jour de l’entreprise n’a pas pu être relue de façon fiable. Vérifie le stockage avant de continuer.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return@addOnSuccessListener
+                }
+                company = reread
                 onChanged(company)
                 Toast.makeText(context, "Convention KALI vérifiée. Aucune règle n’a été appliquée automatiquement.", Toast.LENGTH_LONG).show()
                 showConvention()
@@ -503,9 +521,13 @@ class SalaryCompanyDetailsView(
             if (digits.isNotBlank() && digits.length != 14) { siret.error = "Le SIRET doit contenir 14 chiffres"; return@button }
             val updated = company.copy(name = name.text.toString().trim(), siret = digits, address = address.text.toString().trim(), conventionName = convention.text.toString().trim(), idcc = idcc.text.toString().trim())
             val saved = SalaryCompanyStore.upsert(context, updated)
-            val reread = SalaryCompanyStore.list(context).firstOrNull { it.id == updated.id || (updated.siret.isNotBlank() && it.siret == updated.siret) }
+            val reread = if (saved) rereadConfirmed(updated) else null
             if (!saved || reread == null) {
-                Toast.makeText(context, "Échec de l’enregistrement des informations", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    context,
+                    if (saved) "Impossible de confirmer l’enregistrement : stockage des entreprises à vérifier." else "Échec de l’enregistrement des informations",
+                    Toast.LENGTH_LONG
+                ).show()
                 return@button
             }
             company = reread
@@ -514,6 +536,14 @@ class SalaryCompanyDetailsView(
             showSummary()
         })
         addView(button("ANNULER") { showSummary() })
+    }
+
+    private fun rereadConfirmed(updated: SalaryCompanyStore.Company): SalaryCompanyStore.Company? {
+        val stored = SalaryCompanyStore.readConfirmed(context)
+        if (!stored.reliable) return null
+        return stored.companies.firstOrNull {
+            it.id == updated.id || (updated.siret.isNotBlank() && it.siret == updated.siret)
+        }
     }
 
     private fun text(value: String) = TextView(context).apply { text = value; textSize = 15f; setPadding(dp(4), dp(8), dp(4), dp(12)) }
