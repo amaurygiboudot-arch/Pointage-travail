@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2
 
 import android.content.Context
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import com.amaury.pointage.v2.engine.PayrollSourceKnowledgeProofV2
 import org.json.JSONArray
@@ -53,7 +54,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         companyId: String,
         idcc: String,
         referenceDate: LocalDate
-    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+    ): KnowledgeResult = knowledgeResult(context, companyId) { proofs ->
         PayrollSourceKnowledgeProofV2.knowledgeMapForOvertime(
             proofs, companyId, idcc, referenceDate
         )
@@ -72,7 +73,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         companyId: String,
         idcc: String,
         referenceDate: LocalDate
-    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+    ): KnowledgeResult = knowledgeResult(context, companyId) { proofs ->
         PayrollSourceKnowledgeProofV2.knowledgeMapForProvidentContribution(
             proofs, companyId, idcc, referenceDate
         )
@@ -92,7 +93,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         idcc: String,
         referenceDate: LocalDate,
         subjectKey: String
-    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+    ): KnowledgeResult = knowledgeResult(context, companyId) { proofs ->
         PayrollSourceKnowledgeProofV2.knowledgeMapForMealBasketSubject(
             proofs = proofs,
             companyId = companyId,
@@ -116,7 +117,7 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         companyId: String,
         idcc: String,
         referenceDate: LocalDate
-    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+    ): KnowledgeResult = knowledgeResult(context, companyId) { proofs ->
         PayrollSourceKnowledgeProofV2.knowledgeMapForSeniorityPremium(
             proofs = proofs,
             companyId = companyId,
@@ -182,10 +183,33 @@ object PayrollLegalSourceKnowledgeStoreV2 {
         )
     }
 
+    /**
+     * Une preuve ACCO est liée au SIRET officiel contrôlé, pas seulement au companyId local.
+     * Les anciennes preuves dont l'empreinte ne correspond pas au SIRET courant sont conservées
+     * dans le journal mais ne peuvent plus déverrouiller un repli KALI.
+     */
+    internal fun scopeAccoProofs(
+        proofs: List<PayrollSourceKnowledgeProofV2.Proof>,
+        currentSiret: String?
+    ): List<PayrollSourceKnowledgeProofV2.Proof> {
+        val expectedScope = PayrollSourceKnowledgeProofV2.accoOfficialScopeId(currentSiret)
+        return proofs.filter { proof ->
+            proof.source != PayrollLegalArbitratorV2.Source.ACCO ||
+                (expectedScope != null && proof.officialScopeId.trim() == expectedScope)
+        }
+    }
+
     private fun knowledgeResult(
         context: Context,
+        companyId: String,
         resolver: (List<PayrollSourceKnowledgeProofV2.Proof>) -> Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge>
-    ): KnowledgeResult = knowledgeFrom(read(context), resolver)
+    ): KnowledgeResult {
+        val stored = read(context)
+        if (!stored.reliable) return knowledgeFrom(stored, resolver)
+        val currentSiret = SalaryCompanyStore.withConfirmedCompany(context, companyId) { it.siret }
+        val scoped = stored.copy(proofs = scopeAccoProofs(stored.proofs, currentSiret))
+        return knowledgeFrom(scoped, resolver)
+    }
 
     private fun persist(context: Context, proofs: List<PayrollSourceKnowledgeProofV2.Proof>) {
         check(acceptsPackage(proofs)) {
