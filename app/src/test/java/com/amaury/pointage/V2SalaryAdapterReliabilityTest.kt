@@ -65,4 +65,19 @@ class V2SalaryAdapterReliabilityTest {
             )
         )
     }
+
+
+    @Test
+    fun `un runtime non fiable rend le brut non fiable`() {
+        assertFalse(
+            V2SalaryAdapter.monthlyGrossReliability(
+                baseReliable = true,
+                provisionalOvertimeRateUsed = false,
+                arbitrationRequired = false,
+                arbitrationResolved = false,
+                runtimeReliable = false
+            )
+        )
+    }
+}
 }
