@@ -14,7 +14,8 @@ object PayrollSourceKnowledgeProofV2 {
     enum class Matter {
         OVERTIME_RATE,
         PROVIDENT_CONTRIBUTION,
-        MEAL_BASKET
+        MEAL_BASKET,
+        SENIORITY_PREMIUM
     }
 
     enum class Outcome {
@@ -118,6 +119,20 @@ object PayrollSourceKnowledgeProofV2 {
             idcc = idcc,
             referenceDate = referenceDate,
             subjectKey = subjectKey
+        )
+
+    fun knowledgeMapForSeniorityPremium(
+        proofs: List<Proof>,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeMapForMatter(
+            proofs = proofs,
+            matter = Matter.SENIORITY_PREMIUM,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
         )
 
     private fun knowledgeMapForMatter(
