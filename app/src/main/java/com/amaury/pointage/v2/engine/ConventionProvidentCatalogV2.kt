@@ -1,8 +1,12 @@
 package com.amaury.pointage.v2.engine
 
-import kotlin.math.min
-
-/** Couche 3/6 — prévoyance conventionnelle datée. Les inconnues restent non calculées. */
+/**
+ * Compatibilité historique de la prévoyance conventionnelle.
+ *
+ * Ce catalogue ne doit plus produire de cotisation : le calcul fiable passe désormais par les
+ * règles KALI vérifiées puis l'arbitrage ACCO/KALI. Les anciens paramètres restent acceptés afin
+ * de ne pas casser brutalement les appels historiques pendant leur migration.
+ */
 object ConventionProvidentCatalogV2 {
     data class Line(
         val id: String,
@@ -22,12 +26,12 @@ object ConventionProvidentCatalogV2 {
         val warnings: List<String>
     )
 
-    private const val SOURCE_PLASTURGIE = "Légifrance — IDCC 292, accord du 29/10/2014 modifié par avenant du 19/12/2024, étendu"
-
     /**
-     * Régime conventionnel Plasturgie pour les salariés ne relevant pas des articles 2.1/2.2 de l'ANI cadres.
-     * Bénéficiaires à partir de 3 mois d'ancienneté.
-     * Cotisation minimale : 0,80 % du salaire de référence, dont 0,40 % salarié et 0,40 % employeur.
+     * Ancien régime statique Plasturgie conservé uniquement comme garde de migration.
+     *
+     * Dès qu'un profil aurait auparavant déclenché le barème codé en dur, le moteur refuse
+     * désormais de calculer et exige les preuves KALI/ACCO actuelles. Un montant réel renseigné
+     * par l'entreprise reste géré séparément par NetSalaryEngineV2 et conserve sa priorité.
      */
     fun estimate(
         gross: Double,
@@ -40,42 +44,54 @@ object ConventionProvidentCatalogV2 {
         val g = gross.coerceAtLeast(0.0)
         val convention = idcc?.trim()
 
-        if (convention != "292") return Estimate(emptyList(), 0.0, 0.0, emptyList())
-        val full = SocialSecurityCeilingV2.fullMonthly(year)
-            ?: return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year."))
+        if (convention != "292") return emptyEstimate()
+        SocialSecurityCeilingV2.fullMonthly(year)
+            ?: return Estimate(
+                emptyList(),
+                0.0,
+                0.0,
+                listOf("Prévoyance Plasturgie : règle non validée dans HoraTrack pour $year.")
+            )
         if (!protectionCategory.confirmed || protectionCategory.category == PlasturgieProtectionCategoryV2.Category.TO_CONFIRM) {
-            return Estimate(emptyList(), 0.0, 0.0, protectionCategory.warnings.ifEmpty {
-                listOf("Prévoyance Plasturgie : catégorie ANI 2.1/2.2 à confirmer avant calcul.")
-            })
+            return Estimate(
+                emptyList(),
+                0.0,
+                0.0,
+                protectionCategory.warnings.ifEmpty {
+                    listOf("Prévoyance Plasturgie : catégorie ANI 2.1/2.2 à confirmer avant calcul.")
+                }
+            )
         }
         if (protectionCategory.category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_1 ||
             protectionCategory.category == PlasturgieProtectionCategoryV2.Category.ARTICLE_2_2) {
-            return Estimate(emptyList(), 0.0, 0.0, emptyList())
+            return emptyEstimate()
         }
         if (seniorityMonths == null) {
-            return Estimate(emptyList(), 0.0, 0.0, listOf("Prévoyance Plasturgie hors ANI 2.1/2.2 : ancienneté à confirmer avant calcul."))
+            return Estimate(
+                emptyList(),
+                0.0,
+                0.0,
+                listOf("Prévoyance Plasturgie hors ANI 2.1/2.2 : ancienneté à confirmer avant calcul.")
+            )
         }
-        if (seniorityMonths < 3 || g <= 0.0) return Estimate(emptyList(), 0.0, 0.0, protectionCategory.warnings)
-
-        val max4 = ceiling?.fourTimesApplicable ?: full * 4.0
-        val base = min(g, max4)
-        val employeeRate = 0.004
-        val employerRate = 0.004
-        val line = Line(
-            id = "plasturgie_292_non_cadre_provident",
-            label = "Prévoyance Plasturgie hors ANI 2.1/2.2",
-            baseAmount = base,
-            employeeRate = employeeRate,
-            employerRate = employerRate,
-            employeeAmount = base * employeeRate,
-            employerAmount = base * employerRate,
-            source = SOURCE_PLASTURGIE
+        if (seniorityMonths < 3 || g <= 0.0) return Estimate(
+            emptyList(),
+            0.0,
+            0.0,
+            protectionCategory.warnings + ceiling?.warnings.orEmpty()
         )
+
         return Estimate(
-            lines = listOf(line),
-            employeeDeductions = line.employeeAmount,
-            employerContributions = line.employerAmount,
-            warnings = (ceiling?.warnings.orEmpty() + protectionCategory.warnings).distinct()
+            lines = emptyList(),
+            employeeDeductions = 0.0,
+            employerContributions = 0.0,
+            warnings = (
+                ceiling?.warnings.orEmpty() +
+                    protectionCategory.warnings +
+                    "Prévoyance conventionnelle : ancien barème Plasturgie désactivé ; aucune cotisation n'est calculée sans source KALI/ACCO vérifiée et aucun ancien barème n'est réutilisé."
+                ).distinct()
         )
     }
+
+    private fun emptyEstimate() = Estimate(emptyList(), 0.0, 0.0, emptyList())
 }
