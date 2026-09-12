@@ -276,7 +276,7 @@ object LuxuryUiInstaller {
         val fontScale = prefs.getFloat(PREF_FONT_SCALE, 1.0f).coerceIn(0.85f, 1.30f)
         if (view is TextView && view !is TextClock) {
             val baseSp = when (view.id) {
-                R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings -> 12f
+                R.id.tabHome, R.id.tabToday, R.id.tabHistory, R.id.tabAnalytics, R.id.tabSalary, R.id.tabSettings -> 10.5f
                 R.id.statusCard, R.id.contentTitle -> 16f
                 R.id.historyText -> 14f
                 else -> if (view is Button) 14f else {
@@ -364,6 +364,7 @@ object LuxuryUiInstaller {
         val activeColor = if (dark) theme.darkText else theme.lightText
         val inactiveColor = if (dark) theme.darkHint else theme.lightHint
 
+        val home = activity.findViewById<TextView>(R.id.tabHome)
         val today = activity.findViewById<TextView>(R.id.tabToday)
         val history = activity.findViewById<TextView>(R.id.tabHistory)
         val analytics = activity.findViewById<TextView>(R.id.tabAnalytics)
@@ -375,12 +376,19 @@ object LuxuryUiInstaller {
             backgroundTintList = null
         }
 
+        val homeVisible = activity.findViewById<View>(R.id.celestialHomePanel)?.visibility == View.VISIBLE
         val settingsVisible = activity.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
         val analyticsVisible = activity.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE
         val todayVisible = activity.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE
 
-        val active = when { settingsVisible -> settings; analyticsVisible -> analytics; todayVisible -> today; else -> history }
-        listOf(today, history, analytics, salary, settings).forEach { tab -> tab?.setTextColor(if (tab === active) activeColor else inactiveColor) }
+        val active = when {
+            homeVisible -> home
+            settingsVisible -> settings
+            analyticsVisible -> analytics
+            todayVisible -> today
+            else -> history
+        }
+        listOf(home, today, history, analytics, salary, settings).forEach { tab -> tab?.setTextColor(if (tab === active) activeColor else inactiveColor) }
     }
 
     private fun dp(activity: MainActivity, value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
