@@ -69,11 +69,29 @@ class NetSalaryProvidentKaliRefreshV2Test {
     }
 
     @Test
-    fun `avant toute acquisition KALI le fallback Plasturgie reste disponible pendant la migration`() {
+    fun `avant toute acquisition KALI aucun ancien bareme Plasturgie nest reutilise`() {
         val result = NetSalaryEngineV2.calculate(2500.0, 2026, company(acquiredKali = false))
 
-        assertEquals(10.0, result.conventionProvidentEmployee, 0.001)
-        assertEquals(10.0, result.conventionProvidentEmployer, 0.001)
+        assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
+        assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
+        assertTrue(result.warnings.any {
+            it.contains("source KALI/ACCO vérifiée", ignoreCase = true) &&
+                it.contains("aucun ancien barème", ignoreCase = true)
+        })
+    }
+
+    @Test
+    fun `retenue reelle entreprise reste prioritaire sans acquisition KALI`() {
+        val result = NetSalaryEngineV2.calculate(
+            2500.0,
+            2026,
+            company(acquiredKali = false).copy(providentEmployeeAmount = 25.0)
+        )
+
+        assertEquals(0.0, result.conventionProvidentEmployee, 0.001)
+        assertEquals(0.0, result.conventionProvidentEmployer, 0.001)
+        assertEquals(25.0, result.companyEmployeeDeductions, 0.001)
+        assertTrue(result.warnings.any { it.contains("ancien barème Plasturgie désactivé", ignoreCase = true) })
     }
 
     @Test

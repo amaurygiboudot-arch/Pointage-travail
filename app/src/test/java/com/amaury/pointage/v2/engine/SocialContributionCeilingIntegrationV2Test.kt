@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.model.ContractTypeV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
@@ -123,7 +124,7 @@ class SocialContributionCeilingIntegrationV2Test {
     }
 
     @Test
-    fun `prevoyance plasturgie utilise quatre fois le plafond proratisé hors ANI`() {
+    fun `prevoyance plasturgie legacy ne calcule plus de plafond hors source verifiee`() {
         val ceiling = partTime28hCeiling()
         val category = PlasturgieProtectionCategoryV2.classify("292", LocalDate.of(2026, 3, 31), 700)
         val estimate = ConventionProvidentCatalogV2.estimate(
@@ -134,10 +135,14 @@ class SocialContributionCeilingIntegrationV2Test {
             seniorityMonths = 12,
             ceiling = ceiling
         )
-        val line = estimate.lines.firstOrNull { it.id == "plasturgie_292_non_cadre_provident" }
 
-        assertNotNull(line)
-        assertEquals(12816.0, line!!.baseAmount, 0.001)
+        assertNull(estimate.lines.firstOrNull { it.id == "plasturgie_292_non_cadre_provident" })
+        assertEquals(0.0, estimate.employeeDeductions, 0.001)
+        assertEquals(0.0, estimate.employerContributions, 0.001)
+        assertTrue(estimate.warnings.any {
+            it.contains("ancien barème Plasturgie désactivé", ignoreCase = true) &&
+                it.contains("KALI/ACCO", ignoreCase = true)
+        })
     }
 
     @Test

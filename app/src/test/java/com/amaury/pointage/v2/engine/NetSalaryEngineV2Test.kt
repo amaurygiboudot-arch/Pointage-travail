@@ -215,7 +215,7 @@ class NetSalaryEngineV2Test {
     }
 
     @Test
-    fun verifiedAniMigrationDoesNotChangeLegacyConventionProvidentCalculation() {
+    fun absenceOfVerifiedSourceNeverUsesLegacyConventionProvidentCalculation() {
         val legacyOutsideAni=PlasturgieProtectionCategoryV2.classify(
             "292",
             LocalDate.of(2026,1,31),
@@ -232,7 +232,7 @@ class NetSalaryEngineV2Test {
                 confirmed=false
             )
         )
-        val verifiedCompany=unverifiedCompany.copy(
+        val verifiedAniOnlyCompany=unverifiedCompany.copy(
             verifiedProtectionCategory=ProtectionCategoryV2.Result(
                 aniCategory=ProtectionCategoryV2.AniCategory.ARTICLE_2_1,
                 confirmed=true,
@@ -241,12 +241,14 @@ class NetSalaryEngineV2Test {
         )
 
         val unverified=NetSalaryEngineV2.calculate(2500.0,2026,unverifiedCompany)
-        val verified=NetSalaryEngineV2.calculate(2500.0,2026,verifiedCompany)
+        val verifiedAniOnly=NetSalaryEngineV2.calculate(2500.0,2026,verifiedAniOnlyCompany)
 
-        assertEquals(10.0,unverified.conventionProvidentEmployee,0.001)
-        assertEquals(10.0,unverified.conventionProvidentEmployer,0.001)
-        assertEquals(unverified.conventionProvidentEmployee,verified.conventionProvidentEmployee,0.001)
-        assertEquals(unverified.conventionProvidentEmployer,verified.conventionProvidentEmployer,0.001)
+        assertEquals(0.0,unverified.conventionProvidentEmployee,0.001)
+        assertEquals(0.0,unverified.conventionProvidentEmployer,0.001)
+        assertEquals(0.0,verifiedAniOnly.conventionProvidentEmployee,0.001)
+        assertEquals(0.0,verifiedAniOnly.conventionProvidentEmployer,0.001)
+        assertTrue(unverified.warnings.any { it.contains("ancien barème Plasturgie désactivé",ignoreCase=true) })
+        assertTrue(verifiedAniOnly.warnings.any { it.contains("ancien barème Plasturgie désactivé",ignoreCase=true) })
     }
 
     @Test
