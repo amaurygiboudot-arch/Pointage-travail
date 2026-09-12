@@ -125,7 +125,12 @@ object KaliSeniorityPremiumAuditV2 {
                 professionalStatus = profile.professionalStatus,
                 state = state,
                 source = source,
-                checkedAtMs = System.currentTimeMillis()
+                checkedAtMs = System.currentTimeMillis(),
+                authorities = if (state == ConventionMatterCoverageV2.State.CONFIRMED_RULES) {
+                    setOf(ConventionMatterCoverageV2.Authority.KALI)
+                } else {
+                    emptySet()
+                }
             )
         )
     }
