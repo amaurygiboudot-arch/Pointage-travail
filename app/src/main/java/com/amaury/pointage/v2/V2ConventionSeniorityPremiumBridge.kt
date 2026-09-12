@@ -6,6 +6,7 @@ import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionSeniorityPremiumV2
+import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -55,12 +56,22 @@ object V2ConventionSeniorityPremiumBridge {
             classification = classification,
             professionalStatus = legalProfile?.professionalStatus
         )
+        val senioritySourceKnowledge = PayrollLegalSourceKnowledgeStoreV2.knowledgeForSeniorityPremiumResult(
+            context = context,
+            companyId = companyId,
+            idcc = normalizedIdcc,
+            referenceDate = referenceDate
+        )
         val runtimeSource = selectOfficialRuntimeSource(
             stored = dynamicStored,
             coverage = storedCoverage,
             idcc = normalizedIdcc,
             classification = classification,
-            referenceDate = referenceDate
+            referenceDate = referenceDate,
+            accoKnowledge = senioritySourceKnowledge.knowledge[PayrollLegalArbitratorV2.Source.ACCO]
+                ?: PayrollLegalArbitratorV2.Knowledge.UNKNOWN,
+            sourceKnowledgeReliable = senioritySourceKnowledge.reliable,
+            sourceKnowledgeWarnings = senioritySourceKnowledge.warnings
         )
 
         if (!runtimeSource.reliable) {
@@ -68,7 +79,7 @@ object V2ConventionSeniorityPremiumBridge {
                 runtimeSource.warnings +
                     dynamicStored.warnings +
                     storedCoverage.warnings +
-                    "Prime d'ancienneté IDCC $normalizedIdcc : aucune règle monétaire n'est appliquée sans preuve KALI officielle confirmée pour ce profil et cette période."
+                    "Prime d'ancienneté IDCC $normalizedIdcc : aucune règle monétaire n'est appliquée tant que KALI et la priorité ACCO ne sont pas suffisamment prouvés pour ce profil et cette période."
                 ).distinct()
             return Snapshot(
                 result = ConventionSeniorityPremiumV2.Result(
@@ -128,9 +139,32 @@ object V2ConventionSeniorityPremiumBridge {
         coverage: ConventionMatterCoverageV2.Snapshot,
         idcc: String,
         classification: ConventionClassificationV2,
-        referenceDate: LocalDate
+        referenceDate: LocalDate,
+        accoKnowledge: PayrollLegalArbitratorV2.Knowledge,
+        sourceKnowledgeReliable: Boolean = true,
+        sourceKnowledgeWarnings: List<String> = emptyList()
     ): RuntimeSourceSelection {
         val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
+        if (!sourceKnowledgeReliable) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = sourceKnowledgeWarnings.ifEmpty {
+                    listOf("Prime d'ancienneté : historique des preuves ACCO non fiable ; arbitrage entreprise/branche impossible.")
+                }
+            )
+        }
+        if (accoKnowledge != PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = listOf(
+                    "Prime d'ancienneté IDCC $normalizedIdcc : l'absence d'une règle d'entreprise concurrente n'est pas prouvée par ACCO ; le barème KALI reste à confirmer."
+                )
+            )
+        }
         if (!stored.reliable) {
             return RuntimeSourceSelection(
                 rules = emptyList(),
