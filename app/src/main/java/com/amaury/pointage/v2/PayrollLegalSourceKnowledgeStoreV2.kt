@@ -111,6 +111,28 @@ object PayrollLegalSourceKnowledgeStoreV2 {
     ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
         knowledgeForMealBasketSubjectResult(context, companyId, idcc, referenceDate, subjectKey).knowledge
 
+    fun knowledgeForSeniorityPremiumResult(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): KnowledgeResult = knowledgeResult(context) { proofs ->
+        PayrollSourceKnowledgeProofV2.knowledgeMapForSeniorityPremium(
+            proofs = proofs,
+            companyId = companyId,
+            idcc = idcc,
+            referenceDate = referenceDate
+        )
+    }
+
+    fun knowledgeForSeniorityPremium(
+        context: Context,
+        companyId: String,
+        idcc: String,
+        referenceDate: LocalDate
+    ): Map<PayrollLegalArbitratorV2.Source, PayrollLegalArbitratorV2.Knowledge> =
+        knowledgeForSeniorityPremiumResult(context, companyId, idcc, referenceDate).knowledge
+
     fun auditTrail(context: Context): List<PayrollSourceKnowledgeProofV2.Proof> {
         val stored = read(context)
         check(stored.reliable) { STORAGE_WARNING }
