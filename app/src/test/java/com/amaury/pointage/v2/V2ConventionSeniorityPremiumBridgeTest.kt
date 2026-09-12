@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionSeniorityPremiumV2
+import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,7 +31,8 @@ class V2ConventionSeniorityPremiumBridgeTest {
             ),
             idcc = "0292",
             classification = classification,
-            referenceDate = referenceDate
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
         )
 
         assertFalse(selection.reliable)
@@ -39,7 +41,7 @@ class V2ConventionSeniorityPremiumBridgeTest {
     }
 
     @Test
-    fun `stored monetary rule is accepted only with confirmed KALI coverage`() {
+    fun `stored monetary rule requires both confirmed KALI and confirmed ACCO absence`() {
         val rule = seniorityRule()
         val stored = V2ConventionSeniorityPremiumStore.ReadResult(
             rules = listOf(rule),
@@ -51,25 +53,39 @@ class V2ConventionSeniorityPremiumBridgeTest {
             authorities = emptySet()
         )
 
-        val blocked = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
+        val blockedByKali = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
             stored = stored,
             coverage = unprovenCoverage,
             idcc = "292",
             classification = classification,
-            referenceDate = referenceDate
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
         )
-        assertFalse(blocked.reliable)
-        assertTrue(blocked.rules.isEmpty())
+        assertFalse(blockedByKali.reliable)
+        assertTrue(blockedByKali.rules.isEmpty())
+
+        val confirmedKaliCoverage = coverage(
+            state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
+            authorities = setOf(ConventionMatterCoverageV2.Authority.KALI)
+        )
+        val blockedByAcco = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
+            stored = stored,
+            coverage = confirmedKaliCoverage,
+            idcc = "292",
+            classification = classification,
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.UNKNOWN
+        )
+        assertFalse(blockedByAcco.reliable)
+        assertTrue(blockedByAcco.rules.isEmpty())
 
         val confirmed = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
             stored = stored,
-            coverage = coverage(
-                state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
-                authorities = setOf(ConventionMatterCoverageV2.Authority.KALI)
-            ),
+            coverage = confirmedKaliCoverage,
             idcc = "292",
             classification = classification,
-            referenceDate = referenceDate
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
         )
         assertTrue(confirmed.reliable)
         assertFalse(confirmed.confirmedNoRule)
@@ -77,26 +93,64 @@ class V2ConventionSeniorityPremiumBridgeTest {
     }
 
     @Test
-    fun `zero seniority right requires officially confirmed KALI no-rule coverage`() {
+    fun `zero seniority right also requires confirmed ACCO absence`() {
         val stored = V2ConventionSeniorityPremiumStore.ReadResult(
             rules = emptyList(),
             reliable = true,
             warnings = emptyList()
         )
-        val selection = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
+        val confirmedNoRuleCoverage = coverage(
+            state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+            authorities = setOf(ConventionMatterCoverageV2.Authority.KALI)
+        )
+
+        val blocked = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
             stored = stored,
+            coverage = confirmedNoRuleCoverage,
+            idcc = "292",
+            classification = ConventionClassificationV2(coefficient = 900),
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.UNKNOWN
+        )
+        assertFalse(blocked.reliable)
+        assertFalse(blocked.confirmedNoRule)
+
+        val confirmed = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
+            stored = stored,
+            coverage = confirmedNoRuleCoverage,
+            idcc = "292",
+            classification = ConventionClassificationV2(coefficient = 900),
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE
+        )
+        assertTrue(confirmed.reliable)
+        assertTrue(confirmed.confirmedNoRule)
+        assertTrue(confirmed.rules.isEmpty())
+    }
+
+    @Test
+    fun `corrupt source knowledge blocks seniority even when ACCO value says absent`() {
+        val selection = V2ConventionSeniorityPremiumBridge.selectOfficialRuntimeSource(
+            stored = V2ConventionSeniorityPremiumStore.ReadResult(
+                rules = listOf(seniorityRule()),
+                reliable = true,
+                warnings = emptyList()
+            ),
             coverage = coverage(
-                state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
+                state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
                 authorities = setOf(ConventionMatterCoverageV2.Authority.KALI)
             ),
             idcc = "292",
-            classification = ConventionClassificationV2(coefficient = 900),
-            referenceDate = referenceDate
+            classification = classification,
+            referenceDate = referenceDate,
+            accoKnowledge = PayrollLegalArbitratorV2.Knowledge.CONFIRMED_ABSENCE,
+            sourceKnowledgeReliable = false,
+            sourceKnowledgeWarnings = listOf("stockage source incohérent")
         )
 
-        assertTrue(selection.reliable)
-        assertTrue(selection.confirmedNoRule)
+        assertFalse(selection.reliable)
         assertTrue(selection.rules.isEmpty())
+        assertTrue(selection.warnings.any { it.contains("stockage source incohérent") })
     }
 
     private fun seniorityRule() = ConventionSeniorityPremiumV2.Rule(
