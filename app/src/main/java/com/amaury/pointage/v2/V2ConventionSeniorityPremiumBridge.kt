@@ -33,7 +33,8 @@ object V2ConventionSeniorityPremiumBridge {
         conventionalMinimumMonthlyGross: Double?
     ): Snapshot {
         val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        val classification = ConventionClassificationStoreV2.load(context, companyId)
+        val legalProfile = ConventionLegalProfileV2.load(context, companyId)
+        val classification = legalProfile?.classification ?: ConventionClassificationStoreV2.load(context, companyId)
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         val seniorityDate = runCatching {
             prefs.getString("convention_seniority_date", "").orEmpty().trim()
@@ -51,7 +52,8 @@ object V2ConventionSeniorityPremiumBridge {
             idcc = normalizedIdcc,
             matter = ConventionMatterCoverageV2.Matter.SENIORITY_PREMIUM,
             date = referenceDate,
-            classification = classification
+            classification = classification,
+            professionalStatus = legalProfile?.professionalStatus
         )
         val runtimeSource = selectOfficialRuntimeSource(
             stored = dynamicStored,
