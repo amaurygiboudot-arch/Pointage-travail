@@ -6,7 +6,6 @@ import com.amaury.pointage.v2.engine.ConventionClassificationV2
 import com.amaury.pointage.v2.engine.ConventionMatterCoverageV2
 import com.amaury.pointage.v2.engine.ConventionMinimumSalaryV2
 import com.amaury.pointage.v2.engine.ConventionSeniorityPremiumV2
-import com.amaury.pointage.v2.engine.PlasturgieSeniorityPremiumV2
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -18,6 +17,13 @@ object V2ConventionSeniorityPremiumBridge {
         val coverage: ConventionMatterCoverageV2.Snapshot
     )
 
+    internal data class RuntimeSourceSelection(
+        val rules: List<ConventionSeniorityPremiumV2.Rule>,
+        val confirmedNoRule: Boolean,
+        val reliable: Boolean,
+        val warnings: List<String>
+    )
+
     fun load(
         context: Context,
         companyId: String,
@@ -27,7 +33,8 @@ object V2ConventionSeniorityPremiumBridge {
         conventionalMinimumMonthlyGross: Double?
     ): Snapshot {
         val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        val classification = ConventionClassificationStoreV2.load(context, companyId)
+        val legalProfile = ConventionLegalProfileV2.load(context, companyId)
+        val classification = legalProfile?.classification ?: ConventionClassificationStoreV2.load(context, companyId)
         val prefs = SalaryCompanyStore.prefs(context, companyId)
         val seniorityDate = runCatching {
             prefs.getString("convention_seniority_date", "").orEmpty().trim()
@@ -39,27 +46,29 @@ object V2ConventionSeniorityPremiumBridge {
             .toDoubleOrNull()
             ?.takeIf { it.isFinite() && it >= 0.0 }
 
-        val builtIn = PlasturgieSeniorityPremiumV2.genericRules()
-            .filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
         val dynamicStored = V2ConventionSeniorityPremiumStore.readConfirmed(context)
-        val dynamic = if (dynamicStored.reliable) {
-            dynamicStored.rules.filter { ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc }
-        } else {
-            emptyList()
-        }
         val storedCoverage = V2ConventionMatterCoverageStore.resolve(
             context = context,
             idcc = normalizedIdcc,
             matter = ConventionMatterCoverageV2.Matter.SENIORITY_PREMIUM,
             date = referenceDate,
-            classification = classification
+            classification = classification,
+            professionalStatus = legalProfile?.professionalStatus
+        )
+        val runtimeSource = selectOfficialRuntimeSource(
+            stored = dynamicStored,
+            coverage = storedCoverage,
+            idcc = normalizedIdcc,
+            classification = classification,
+            referenceDate = referenceDate
         )
 
-        if (!dynamicStored.reliable) {
+        if (!runtimeSource.reliable) {
             val warnings = (
-                dynamicStored.warnings +
+                runtimeSource.warnings +
+                    dynamicStored.warnings +
                     storedCoverage.warnings +
-                    "Prime d'ancienneté IDCC $normalizedIdcc : historique KALI local non fiable ; aucun montant, aucune absence de droit et aucun barème historique ne sont déduits automatiquement."
+                    "Prime d'ancienneté IDCC $normalizedIdcc : aucune règle monétaire n'est appliquée sans preuve KALI officielle confirmée pour ce profil et cette période."
                 ).distinct()
             return Snapshot(
                 result = ConventionSeniorityPremiumV2.Result(
@@ -71,36 +80,14 @@ object V2ConventionSeniorityPremiumBridge {
                     monthlyAmount = null,
                     warnings = warnings
                 ),
-                coverage = ConventionMatterCoverageV2.Snapshot(
-                    state = ConventionMatterCoverageV2.State.INCOMPLETE,
-                    record = storedCoverage.record,
+                coverage = storedCoverage.copy(
                     reliable = false,
                     warnings = warnings
                 )
             )
         }
 
-        val rules = builtIn + dynamic
-        val matchingRules = rules.filter {
-            it.structurallyValid() && it.activeOn(referenceDate) && classification.matches(it.classification)
-        }
-        val coverage = when {
-            matchingRules.isNotEmpty() -> ConventionMatterCoverageV2.Snapshot(
-                state = ConventionMatterCoverageV2.State.CONFIRMED_RULES,
-                record = storedCoverage.record,
-                reliable = true,
-                warnings = emptyList()
-            )
-            builtInConfirmedNoRule(normalizedIdcc, classification) -> ConventionMatterCoverageV2.Snapshot(
-                state = ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE,
-                record = storedCoverage.record,
-                reliable = true,
-                warnings = emptyList()
-            )
-            else -> storedCoverage
-        }
-
-        if (matchingRules.isEmpty() && coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE) {
+        if (runtimeSource.confirmedNoRule) {
             return Snapshot(
                 result = ConventionSeniorityPremiumV2.Result(
                     applicable = false,
@@ -109,14 +96,14 @@ object V2ConventionSeniorityPremiumBridge {
                     stepYears = null,
                     rate = null,
                     monthlyAmount = 0.0,
-                    warnings = emptyList()
+                    warnings = runtimeSource.warnings
                 ),
-                coverage = coverage
+                coverage = storedCoverage
             )
         }
 
         val calculated = ConventionSeniorityPremiumV2.calculate(
-            rules = rules,
+            rules = runtimeSource.rules,
             idcc = normalizedIdcc,
             classification = classification,
             referenceDate = referenceDate,
@@ -126,22 +113,89 @@ object V2ConventionSeniorityPremiumBridge {
             confirmedMonthlySupplement = supplement,
             companyApplicabilityConfirmed = false
         )
-        val warnings = (calculated.warnings + coverage.warnings).distinct()
+        val warnings = (calculated.warnings + runtimeSource.warnings + storedCoverage.warnings).distinct()
         return Snapshot(
             result = calculated.copy(
-                reliable = calculated.reliable && coverage.reliable,
+                reliable = calculated.reliable && storedCoverage.reliable,
                 warnings = warnings
             ),
-            coverage = coverage
+            coverage = storedCoverage
         )
     }
 
-    internal fun builtInConfirmedNoRule(
+    internal fun selectOfficialRuntimeSource(
+        stored: V2ConventionSeniorityPremiumStore.ReadResult,
+        coverage: ConventionMatterCoverageV2.Snapshot,
         idcc: String,
-        classification: ConventionClassificationV2
-    ): Boolean {
+        classification: ConventionClassificationV2,
+        referenceDate: LocalDate
+    ): RuntimeSourceSelection {
         val normalizedIdcc = ConventionMinimumSalaryV2.normalizeIdcc(idcc)
-        val coefficient = classification.coefficient
-        return normalizedIdcc == PlasturgieSeniorityPremiumV2.IDCC && coefficient != null && coefficient in 900..940
+        if (!stored.reliable) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = stored.warnings
+            )
+        }
+
+        val record = coverage.record
+        val kaliConfirmed = coverage.reliable &&
+            record != null &&
+            ConventionMatterCoverageV2.Authority.KALI in record.authorities
+        if (!kaliConfirmed) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = listOf(
+                    "Prime d'ancienneté IDCC $normalizedIdcc : couverture KALI officielle absente ou non confirmée pour ce profil et cette période."
+                )
+            )
+        }
+
+        if (coverage.state == ConventionMatterCoverageV2.State.CONFIRMED_NO_RULE) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = true,
+                reliable = true,
+                warnings = emptyList()
+            )
+        }
+        if (coverage.state != ConventionMatterCoverageV2.State.CONFIRMED_RULES) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = listOf(
+                    "Prime d'ancienneté IDCC $normalizedIdcc : l'audit KALI n'a pas confirmé de règle exploitable."
+                )
+            )
+        }
+
+        val matchingRules = stored.rules.filter {
+            it.structurallyValid() &&
+                ConventionMinimumSalaryV2.normalizeIdcc(it.idcc) == normalizedIdcc &&
+                it.activeOn(referenceDate) &&
+                classification.matches(it.classification)
+        }
+        if (matchingRules.isEmpty()) {
+            return RuntimeSourceSelection(
+                rules = emptyList(),
+                confirmedNoRule = false,
+                reliable = false,
+                warnings = listOf(
+                    "Prime d'ancienneté IDCC $normalizedIdcc : la couverture KALI annonce des règles confirmées mais aucune règle officielle stockée ne correspond au profil et à la période."
+                )
+            )
+        }
+
+        return RuntimeSourceSelection(
+            rules = matchingRules,
+            confirmedNoRule = false,
+            reliable = true,
+            warnings = emptyList()
+        )
     }
 }
