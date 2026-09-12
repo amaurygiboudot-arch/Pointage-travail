@@ -4,6 +4,7 @@ import com.amaury.pointage.v2.engine.PayrollLegalArbitratorV2
 import com.amaury.pointage.v2.engine.PayrollSourceKnowledgeProofV2
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,9 +16,10 @@ class PayrollLegalSourceKnowledgeStoreV2Test {
     private fun proof(
         scope: String = "official-scope",
         outcome: PayrollSourceKnowledgeProofV2.Outcome = PayrollSourceKnowledgeProofV2.Outcome.NO_APPLICABLE_RULE,
-        checkedAtMs: Long = 1L
+        checkedAtMs: Long = 1L,
+        source: PayrollLegalArbitratorV2.Source = PayrollLegalArbitratorV2.Source.ACCO
     ) = PayrollSourceKnowledgeProofV2.Proof(
-        source = PayrollLegalArbitratorV2.Source.ACCO,
+        source = source,
         matter = PayrollSourceKnowledgeProofV2.Matter.PROVIDENT_CONTRIBUTION,
         companyId = "company",
         idcc = "0292",
@@ -118,5 +120,52 @@ class PayrollLegalSourceKnowledgeStoreV2Test {
         assertFalse(result.reliable)
         assertTrue(result.knowledge.isEmpty())
         assertTrue(result.warnings.any { it.contains("stockage", ignoreCase = true) })
+    }
+
+    @Test
+    fun `preuve ACCO reste liee au SIRET officiel exact`() {
+        val firstSiret = "123 456 789 00012"
+        val secondSiret = "98765432100019"
+        val scope = requireNotNull(PayrollSourceKnowledgeProofV2.accoOfficialScopeId(firstSiret))
+        val accoProof = proof(scope = scope)
+
+        val sameCompanyScope = PayrollLegalSourceKnowledgeStoreV2.scopeAccoProofs(
+            proofs = listOf(accoProof),
+            currentSiret = firstSiret
+        )
+        val changedEstablishment = PayrollLegalSourceKnowledgeStoreV2.scopeAccoProofs(
+            proofs = listOf(accoProof),
+            currentSiret = secondSiret
+        )
+
+        assertEquals(listOf(accoProof), sameCompanyScope)
+        assertTrue(changedEstablishment.isEmpty())
+    }
+
+    @Test
+    fun `ancienne empreinte ACCO non canonique est conservee mais ne deverrouille plus le calcul`() {
+        val legacyProof = proof(scope = "official-query-fingerprint")
+
+        val scoped = PayrollLegalSourceKnowledgeStoreV2.scopeAccoProofs(
+            proofs = listOf(legacyProof),
+            currentSiret = "12345678900012"
+        )
+
+        assertTrue(scoped.isEmpty())
+    }
+
+    @Test
+    fun `filtrage du SIRET ACCO ne supprime pas les preuves KALI`() {
+        val kaliProof = proof(
+            scope = "KALI:IDCC:0292",
+            source = PayrollLegalArbitratorV2.Source.KALI
+        )
+
+        val scoped = PayrollLegalSourceKnowledgeStoreV2.scopeAccoProofs(
+            proofs = listOf(kaliProof),
+            currentSiret = null
+        )
+
+        assertEquals(listOf(kaliProof), scoped)
     }
 }

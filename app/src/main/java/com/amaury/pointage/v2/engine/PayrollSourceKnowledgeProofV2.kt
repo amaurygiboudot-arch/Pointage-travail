@@ -52,6 +52,17 @@ object PayrollSourceKnowledgeProofV2 {
         }
     }
 
+    /**
+     * Empreinte canonique d'un contrôle ACCO lié à un établissement exact.
+     *
+     * Le companyId est une identité locale stable et ne suffit pas à prouver que la recherche
+     * officielle portait encore sur le même établissement après un changement de SIRET.
+     */
+    fun accoOfficialScopeId(siret: String?): String? {
+        val normalized = siret.orEmpty().filter(Char::isDigit)
+        return normalized.takeIf { it.length == 14 }?.let { "ACCO:SIRET:$it" }
+    }
+
     fun knowledgeFor(
         proofs: List<Proof>,
         source: PayrollLegalArbitratorV2.Source,
