@@ -13,6 +13,8 @@ import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CollectivePremiumLegalArbitrationBridgeV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
@@ -177,9 +179,39 @@ object V2SalaryAdapter {
    )
   }
  }
- fun calculateBound(year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2));return calculateCore(p?.contract,p?.missing.orEmpty(),V2RuntimeStore.allSessionsBound(),year,month,hourlyRate,convention,ruleHistory,p?.contract?.let{setOf(it.employerId)}.orEmpty(),null,null,null,null,null)}
+ fun calculateBound(
+  year:Int,
+  month:Int,
+  hourlyRate:Double,
+  convention:ConventionCatalog.Convention,
+  companySlot:Int=1,
+  ruleHistory:ConventionRuleHistoryV2?=null
+ ):Result {
+  val p=V2ProfileStore.loadBound(companySlot.coerceIn(1,2))
+  val runtimeSessions=V2RuntimeStore.allSessionsBound()
+  val runtimeSource=V2RuntimeHistoryGuardV2.sourceState()
+  val calculated=calculateCore(
+   p?.contract,
+   p?.missing.orEmpty(),
+   runtimeSessions,
+   year,
+   month,
+   hourlyRate,
+   convention,
+   ruleHistory,
+   p?.contract?.let{setOf(it.employerId)}.orEmpty(),
+   null,
+   null,
+   null,
+   null,
+   null,
+   runtimeReliable=runtimeSource.reliable
+  )
+  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
+  return calculated.copy(warnings=(calculated.warnings+runtimeWarnings).distinct())
+ }
 
- private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null,overtimeArbitrationSnapshot:OvertimeLegalArbitrationBridgeV2.Snapshot?=null,collectivePremiumSnapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?=null,publicHolidayScope:FrenchPublicHolidayCalendarV2.Scope?=null):Result {
+ private fun calculateCore(contract:ContractV2?,missing:List<String>,sessions:List<WorkSessionV2>,year:Int,month:Int,fallbackRate:Double,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?,acceptedEmployerIds:Set<String>,companyAgreementSnapshot:CompanyAgreementPayrollBridgeV2.Snapshot?=null,absenceImpact:AbsencePayrollImpactV2.Snapshot?=null,overtimeArbitrationSnapshot:OvertimeLegalArbitrationBridgeV2.Snapshot?=null,collectivePremiumSnapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?=null,publicHolidayScope:FrenchPublicHolidayCalendarV2.Scope?=null,runtimeReliable:Boolean=true):Result {
   if(contract==null)return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val ids=acceptedEmployerIds.ifEmpty{setOf(contract.employerId)}
   val monthStart=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0)}.timeInMillis
@@ -198,7 +230,7 @@ object V2SalaryAdapter {
    if(premium.sunday.resolution.considered.isNotEmpty())warnings+=premium.sunday.warnings
    if(premium.publicHoliday.resolution.considered.isNotEmpty())warnings+=premium.publicHoliday.warnings
   }
-  val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true
+  val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true&&runtimeReliable
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0,var holiday:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true
@@ -301,7 +333,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -398,7 +430,7 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false):Boolean = baseReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()
