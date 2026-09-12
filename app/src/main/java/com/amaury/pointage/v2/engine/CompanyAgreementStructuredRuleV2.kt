@@ -33,6 +33,7 @@ object CompanyAgreementStructuredRuleV2 {
             CompanyAgreementRuleExtractorV2.Category.BONUS,
             CompanyAgreementRuleExtractorV2.Category.SALARY -> euro(source.excerpt)
             CompanyAgreementRuleExtractorV2.Category.WORKING_TIME -> hours(source.excerpt)
+            CompanyAgreementRuleExtractorV2.Category.SENIORITY,
             CompanyAgreementRuleExtractorV2.Category.MEAL,
             CompanyAgreementRuleExtractorV2.Category.PAID_LEAVE,
             CompanyAgreementRuleExtractorV2.Category.RTT,
