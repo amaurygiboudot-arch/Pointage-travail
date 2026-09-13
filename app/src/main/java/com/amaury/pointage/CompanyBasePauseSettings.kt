@@ -13,7 +13,6 @@ import android.os.Build
 import android.provider.Settings
 import android.text.InputType
 import android.view.View
-import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
@@ -204,13 +203,4 @@ class CompanyBasePauseView(context: Context) : LinearLayout(context) {
 
     private fun parse(value: String): Int? { val m = Regex("^\\s*(\\d{1,2})[:hH](\\d{2})\\s*$").matchEntire(value) ?: return null; val h = m.groupValues[1].toIntOrNull() ?: return null; val min = m.groupValues[2].toIntOrNull() ?: return null; if (h !in 0..23 || min !in 0..59) return null; return h * 60 + min }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-}
-
-object CompanyBasePauseInstaller {
-    fun install(panel: SalaryPanelView) {
-        if (panel.findViewWithTag<View>("company_base_pause_view") != null) { panel.findViewWithTag<CompanyBasePauseView>("company_base_pause_view")?.refresh(); return }
-        var enterpriseIndex = -1; for (i in 0 until panel.childCount) if (panel.getChildAt(i) is EnterpriseLookupView) { enterpriseIndex = i; break }
-        val view = CompanyBasePauseView(panel.context); val index = if (enterpriseIndex >= 0) enterpriseIndex + 1 else minOf(4, panel.childCount)
-        panel.addView(view, index, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    }
 }
