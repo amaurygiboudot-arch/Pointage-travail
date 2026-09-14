@@ -438,8 +438,6 @@ class CompanyPauseSettingsV2View(
                         activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
                             data = Uri.parse("package:${context.packageName}")
                         })
-                    }.onFailure {
-                        Toast.makeText(context, "Ouvre les réglages système > Alarmes et rappels pour autoriser HoraTrack.", Toast.LENGTH_LONG).show()
                     }
                 }, 700L)
             }
