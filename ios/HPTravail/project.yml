@@ -44,3 +44,27 @@ targets:
         PRODUCT_NAME: HP Travail
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
+
+  HPTravailTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - HPTravailTests
+    dependencies:
+      - target: HPTravail
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  HPTravail:
+    build:
+      targets:
+        HPTravail: all
+        HPTravailTests: [test]
+    test:
+      config: Debug
+      targets:
+        - HPTravailTests
