@@ -52,13 +52,11 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - HPTravailTests
-    dependencies:
-      - target: HPTravail
+      - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
         GENERATE_INFOPLIST_FILE: YES
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HP Travail.app/HP Travail"
 
 schemes:
   HPTravail:

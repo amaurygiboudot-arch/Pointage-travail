@@ -1,5 +1,4 @@
 import XCTest
-@testable import HPTravail
 
 final class SalaryV2ReferenceContractTests: XCTestCase {
     private let month = YearMonthV2(year: 2026, month: 9)!
