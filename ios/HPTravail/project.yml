@@ -42,6 +42,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail
         PRODUCT_NAME: HP Travail
+        PRODUCT_MODULE_NAME: HPTravail
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
 
