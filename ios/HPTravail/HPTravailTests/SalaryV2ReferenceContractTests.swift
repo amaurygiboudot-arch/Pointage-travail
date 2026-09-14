@@ -1,4 +1,7 @@
 import XCTest
+#if SWIFT_PACKAGE
+@testable import SalaryV2Contract
+#endif
 
 final class SalaryV2ReferenceContractTests: XCTestCase {
     private let month = YearMonthV2(year: 2026, month: 9)!
