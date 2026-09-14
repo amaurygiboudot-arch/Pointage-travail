@@ -170,13 +170,20 @@ object CompanyPauseAlarmManager {
         return null
     }
 
-    internal fun markAutomaticPause(context: Context, companyId: String, pauseIndex: Int, active: Boolean) {
-        context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
+    internal fun markAutomaticPause(
+        context: Context,
+        companyId: String,
+        pauseIndex: Int,
+        active: Boolean,
+        paid: Boolean = false
+    ) {
+        val editor = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("active", active)
             .putString("companyId", companyId)
             .remove("company")
             .putInt("pause", pauseIndex)
-            .apply()
+        if (active) editor.putBoolean("paid", paid) else editor.remove("paid")
+        editor.apply()
     }
 
     internal fun markAutomaticPause(context: Context, company: Int, pauseIndex: Int, active: Boolean) {
@@ -184,6 +191,7 @@ object CompanyPauseAlarmManager {
             .putBoolean("active", active)
             .putInt("company", company)
             .remove("companyId")
+            .remove("paid")
             .putInt("pause", pauseIndex)
             .apply()
     }
@@ -193,6 +201,12 @@ object CompanyPauseAlarmManager {
         return prefs.getBoolean("active", false) &&
             prefs.getString("companyId", null) == companyId &&
             prefs.getInt("pause", 0) == pauseIndex
+    }
+
+    internal fun automaticPausePaid(context: Context, companyId: String, pauseIndex: Int): Boolean? {
+        if (!isAutomaticPause(context, companyId, pauseIndex)) return null
+        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        return if (prefs.contains("paid")) prefs.getBoolean("paid", false) else null
     }
 
     internal fun isAutomaticPause(context: Context, company: Int, pauseIndex: Int): Boolean {
@@ -284,15 +298,24 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
         val event = CompanyPauseAlarmManager.event(intent)
         if (pauseIndex !in 1..2 || (!CompanyPauseAlarmManager.isStart(event) && !CompanyPauseAlarmManager.isEnd(event))) return
         if (!CompanyPauseAlarmManager.isConfirmedCompany(context, companyId)) return
+        val configuredPause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex) ?: return
 
         if (CompanyPauseAlarmManager.activeCompanyId(context) == companyId) {
             when {
                 CompanyPauseAlarmManager.isStart(event) -> {
                     val snap = V2RuntimeStore.snapshot(context).session
                     val started = if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) {
-                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = configuredPause.paid)
                     } else false
-                    if (started) CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, true)
+                    if (started) {
+                        CompanyPauseAlarmManager.markAutomaticPause(
+                            context,
+                            companyId,
+                            pauseIndex,
+                            active = true,
+                            paid = configuredPause.paid
+                        )
+                    }
 
                     if (CompanyPauseSettingsV2.alarmEnabled(context, companyId, pauseIndex)) {
                         CompanyPauseAlarmManager.showNotification(context, companyId, pauseIndex)
@@ -311,7 +334,9 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
                             it.endMs == null && it.source == EventSourceV2.SYSTEM
                         }
                         if (automaticPauseOpen) {
-                            V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = false)
+                            val paid = CompanyPauseAlarmManager.automaticPausePaid(context, companyId, pauseIndex)
+                                ?: configuredPause.paid
+                            V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = paid)
                         }
                         CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
                     }
