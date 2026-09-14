@@ -20,6 +20,8 @@ import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
 import com.amaury.pointage.v2.engine.LunarEclipseV2
+import com.amaury.pointage.v2.engine.SolarEclipseGeometryV2
+import com.amaury.pointage.v2.engine.SolarEclipseV2
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -28,9 +30,10 @@ import kotlin.math.sqrt
 /**
  * Couche astronomique de l'horloge.
  *
- * La vue ne calcule ni GPS, ni capteurs, ni astronomie. Elle rend uniquement
- * l'état V2 qualifié. La position Soleil/Lune utilise le repère 3D réel de
- * l'écran : azimut, inclinaison, roulis, rotation d'écran et Nord vrai.
+ * La vue ne calcule ni GPS, ni capteurs, ni éphémérides. Elle rend uniquement
+ * l'état V2 qualifié dans la carte topocentrique 360° centrée sur la Terre.
+ * Les tailles des PNG restent des symboles de lecture et ne doivent jamais être
+ * utilisées comme géométrie physique d'une éclipse.
  */
 class SunIndicatorView @JvmOverloads constructor(
     context: Context,
@@ -46,6 +49,10 @@ class SunIndicatorView @JvmOverloads constructor(
     }
     private val earthPenumbraPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val earthUmbraPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val solarOccultationPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(248, 2, 3, 5)
+        style = Paint.Style.FILL
+    }
     private val sunBitmap: Bitmap by lazy { HpDesignAssets.sun }
     private val moonBitmap: Bitmap by lazy { HpDesignAssets.moon }
 
@@ -76,7 +83,12 @@ class SunIndicatorView @JvmOverloads constructor(
     fun setSunVisible(visible: Boolean) {
         val dynamicEnabled = context.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE)
             .getBoolean("solar_lighting_enabled", false)
-        visibleCelestial = visible || dynamicEnabled
+        val homeVisible = (parent as? View)?.let {
+            it.id == R.id.celestialHomePanel && it.visibility == VISIBLE
+        } == true
+        // L'écran Accueil est la destination dédiée au ciel : son rendu ne doit
+        // jamais dépendre du réglage optionnel d'éclairage dynamique de l'UI.
+        visibleCelestial = visible || dynamicEnabled || homeVisible
         visibility = if (visibleCelestial) VISIBLE else GONE
         updateTrackingSubscription()
         invalidate()
@@ -113,10 +125,16 @@ class SunIndicatorView @JvmOverloads constructor(
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
-                celestialSnapshot = tracking.snapshot
-                deviceFrame = tracking.deviceFrame
+                val directionalSkyUsable = tracking.hasRealSky
+                celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
+                deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
+                if (!directionalSkyUsable) {
+                    CelestialLightingState.clearSunDirection()
+                }
+                // Le jour/nuit dépend de l'éphéméride et du GPS, pas de la qualité
+                // de la boussole : il reste donc mis à jour même si le cap est bloqué.
                 tracking.snapshot?.let { setNightMode(it.night) }
                 invalidate()
             }
@@ -144,25 +162,48 @@ class SunIndicatorView @JvmOverloads constructor(
         val moon = snapshot.moon
         val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
         val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
+        val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat()
+        val moonRadius = (
+            if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
+            ) * moon.apparentScale.toFloat()
+        val solarEclipse = SolarEclipseGeometryV2.evaluate(sun, moon)
 
-        // Le Soleil n'est dessiné que s'il est réellement visible dans
-        // l'hémisphère regardé par l'écran et au-dessus de l'horizon civil.
         if (sunScreen != null) {
             CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
+        }
+
+        if (solarEclipse.isEclipse && sunScreen != null && moonScreen != null) {
+            // Une vraie éclipse est dessinée avec les rayons angulaires physiques.
+            // Le gros PNG de la Lune n'est pas utilisé comme masque solaire.
             drawCelestialPng(
                 canvas,
                 sunBitmap,
                 sunScreen.first,
                 sunScreen.second,
-                (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat(),
+                sunRadius,
                 !nightMode
             )
+            val moonDirectionFromSun = CelestialScreenGeometryV2.directionToward(
+                from = sun,
+                to = moon,
+                frame = frame
+            )
+            drawPhysicalSolarOccultation(
+                canvas = canvas,
+                sunX = sunScreen.first,
+                sunY = sunScreen.second,
+                renderedSunRadius = sunRadius,
+                moonDirX = moonDirectionFromSun?.x?.toFloat() ?: 1f,
+                moonDirY = moonDirectionFromSun?.y?.toFloat() ?: 0f,
+                eclipse = solarEclipse
+            )
+            return
         }
 
+        // Hors éclipse physique, la Lune est dessinée avant le Soleil. Ainsi les
+        // symboles surdimensionnés peuvent se toucher sans créer une fausse
+        // occultation noire du disque solaire.
         if (moonScreen != null) {
-            val moonRadius = (
-                if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
-                ) * moon.apparentScale.toFloat()
             drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
             val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
@@ -195,6 +236,53 @@ class SunIndicatorView @JvmOverloads constructor(
                 eclipse = snapshot.lunarEclipse
             )
         }
+
+        if (sunScreen != null) {
+            drawCelestialPng(
+                canvas,
+                sunBitmap,
+                sunScreen.first,
+                sunScreen.second,
+                sunRadius,
+                !nightMode
+            )
+        }
+    }
+
+    private fun drawPhysicalSolarOccultation(
+        canvas: Canvas,
+        sunX: Float,
+        sunY: Float,
+        renderedSunRadius: Float,
+        moonDirX: Float,
+        moonDirY: Float,
+        eclipse: SolarEclipseV2
+    ) {
+        if (!eclipse.isEclipse || renderedSunRadius <= 0f) return
+
+        var dx = moonDirX
+        var dy = moonDirY
+        var directionLength = sqrt(dx * dx + dy * dy)
+        if (directionLength < 0.0001f) {
+            dx = 1f
+            dy = 0f
+            directionLength = 1f
+        }
+        val ux = dx / directionLength
+        val uy = dy / directionLength
+
+        val sunAngularRadius = eclipse.sunAngularRadiusDeg.toFloat()
+        if (sunAngularRadius <= 0f) return
+        val angularToPixel = renderedSunRadius / sunAngularRadius
+        val centreOffset = eclipse.angularSeparationDeg.toFloat() * angularToPixel
+        val physicalMoonRadius = eclipse.moonAngularRadiusDeg.toFloat() * angularToPixel
+
+        canvas.drawCircle(
+            sunX + ux * centreOffset,
+            sunY + uy * centreOffset,
+            physicalMoonRadius,
+            solarOccultationPaint
+        )
     }
 
     private fun drawCelestialPng(
@@ -234,7 +322,7 @@ class SunIndicatorView @JvmOverloads constructor(
      *
      * La fraction éclairée vient du véritable angle de phase. La direction
      * d'éclairage vient de la tangente réelle Lune -> Soleil sur la sphère
-     * céleste, projetée dans le repère physique de l'écran.
+     * céleste, projetée dans le référentiel du cadran 360°.
      */
     private fun drawMoonSunlight(
         canvas: Canvas,
@@ -344,7 +432,7 @@ class SunIndicatorView @JvmOverloads constructor(
      *
      * V2 fournit les rayons physiques de l'umbra et de la pénombre à la
      * distance actuelle de la Lune. L'axe anti-solaire est projeté dans le
-     * même repère 3D que le disque lunaire.
+     * même référentiel 360° que le disque lunaire.
      */
     private fun drawEarthShadowOnMoon(
         canvas: Canvas,
