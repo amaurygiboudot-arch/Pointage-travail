@@ -53,6 +53,7 @@ targets:
     sources:
       - HPTravailTests
       - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
+      - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
