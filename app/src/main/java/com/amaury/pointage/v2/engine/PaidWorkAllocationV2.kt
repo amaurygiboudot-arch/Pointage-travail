@@ -1,6 +1,5 @@
 package com.amaury.pointage.v2.engine
 
-import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.util.Calendar
 import java.util.Locale
@@ -8,60 +7,74 @@ import java.util.Locale
 /**
  * Répartition calendaire du temps payé d'une session fermée.
  *
- * Les postes d'équipe conservent jusqu'à 30 minutes de pause comme temps payé.
- * Aucune pause n'est créée automatiquement : l'allocation s'applique uniquement
- * aux pauses réellement enregistrées. Une ancienne déduction fixe importée reste
- * une déduction fixe et n'est jamais reclassée arbitrairement.
+ * Aucune règle de métier, d'équipe ou d'horaire n'est inventée ici. Une pause enregistrée
+ * comme non payée est déduite ; une pause explicitement payée reste du temps payé ; une pause
+ * inconnue rend le résultat non fiable. Une ancienne déduction fixe importée reste une
+ * déduction fixe et n'est jamais reclassée arbitrairement.
  */
 object PaidWorkAllocationV2 {
+    data class PaidOverlapResult(
+        val paidMs: Long,
+        val reliable: Boolean
+    )
+
     data class WeekSlice(
         val weekYear: Int,
         val weekOfYear: Int,
         val startMs: Long,
         val endMs: Long,
-        val paidMs: Long
+        val paidMs: Long,
+        val reliable: Boolean = true
     )
 
-    fun paidOverlap(session: WorkSessionV2, rangeStartMs: Long, rangeEndMs: Long): Long {
-        val sessionStart = effectiveSessionStart(session) ?: return 0L
-        val sessionEnd = session.countedExitMs ?: return 0L
-        if (sessionEnd <= sessionStart || rangeEndMs <= rangeStartMs) return 0L
+    fun paidOverlap(session: WorkSessionV2, rangeStartMs: Long, rangeEndMs: Long): Long =
+        paidOverlapResult(session, rangeStartMs, rangeEndMs).paidMs
+
+    fun paidOverlapResult(
+        session: WorkSessionV2,
+        rangeStartMs: Long,
+        rangeEndMs: Long
+    ): PaidOverlapResult {
+        val sessionStart = effectiveSessionStart(session) ?: return PaidOverlapResult(0L, false)
+        val sessionEnd = session.countedExitMs ?: return PaidOverlapResult(0L, false)
+        if (sessionEnd <= sessionStart || rangeEndMs <= rangeStartMs) return PaidOverlapResult(0L, false)
 
         val start = maxOf(sessionStart, rangeStartMs)
         val end = minOf(sessionEnd, rangeEndMs)
-        if (end <= start) return 0L
+        if (end <= start) return PaidOverlapResult(0L, true)
 
-        val rawUnpaid = mergeIntervals(
-            session.pauses
-                .filter { it.status == DecisionStatusV2.CONFIRMED && it.paid == false }
-                .mapNotNull { pause ->
-                    val pauseEnd = pause.endMs ?: return@mapNotNull null
-                    val pStart = maxOf(sessionStart, pause.startMs)
-                    val pEnd = minOf(sessionEnd, pauseEnd)
-                    if (pEnd > pStart) pStart to pEnd else null
-                }
+        val fullPauseResolution = PaidPauseResolutionV2.resolve(
+            pauses = session.pauses,
+            rangeStartMs = sessionStart,
+            rangeEndMs = sessionEnd,
+            openPauseEndMs = sessionEnd
         )
-        val unpaid = if (WorkTimePolicyV2.isTeamShift(sessionStart)) {
-            removePaidAllowance(rawUnpaid, WorkTimePolicyV2.TEAM_PAID_PAUSE_ALLOWANCE_MS)
-        } else rawUnpaid
+        val rangePauseResolution = PaidPauseResolutionV2.resolve(
+            pauses = session.pauses,
+            rangeStartMs = start,
+            rangeEndMs = end,
+            openPauseEndMs = end
+        )
+        val unpaid = fullPauseResolution.unpaidIntervals
 
         val fullSpan = sessionEnd - sessionStart
-        val explicitUnpaidFull = overlapDuration(unpaid, sessionStart, sessionEnd)
+        val explicitUnpaidFull = PaidPauseResolutionV2.overlapDuration(unpaid, sessionStart, sessionEnd)
         val explicitPaidFull = (fullSpan - explicitUnpaidFull).coerceAtLeast(0L)
-        if (explicitPaidFull == 0L) return 0L
+        if (explicitPaidFull == 0L) return PaidOverlapResult(0L, rangePauseResolution.reliable)
 
         val rangeSpan = end - start
-        val explicitUnpaidRange = overlapDuration(unpaid, start, end)
+        val explicitUnpaidRange = PaidPauseResolutionV2.overlapDuration(unpaid, start, end)
         val explicitPaidRange = (rangeSpan - explicitUnpaidRange).coerceAtLeast(0L)
-        if (explicitPaidRange == 0L) return 0L
+        if (explicitPaidRange == 0L) return PaidOverlapResult(0L, rangePauseResolution.reliable)
 
         val fixed = session.legacyFixedUnpaidPauseMs.coerceIn(0L, explicitPaidFull)
-        if (fixed == 0L) return explicitPaidRange
+        if (fixed == 0L) return PaidOverlapResult(explicitPaidRange, rangePauseResolution.reliable)
 
         val targetFull = explicitPaidFull - fixed
-        return ((explicitPaidRange.toDouble() * targetFull.toDouble()) / explicitPaidFull.toDouble())
+        val paid = ((explicitPaidRange.toDouble() * targetFull.toDouble()) / explicitPaidFull.toDouble())
             .toLong()
             .coerceIn(0L, explicitPaidRange)
+        return PaidOverlapResult(paid, rangePauseResolution.reliable)
     }
 
     fun splitByIsoWeek(
@@ -82,38 +95,30 @@ object PaidWorkAllocationV2 {
             val week = current.get(Calendar.WEEK_OF_YEAR)
             val nextMonday = nextIsoWeekStart(cursor)
             val end = minOf(limit, nextMonday)
-            val paid = paidOverlap(session, cursor, end)
-            if (paid > 0L) out += WeekSlice(weekYear, week, cursor, end, paid)
+            val result = paidOverlapResult(session, cursor, end)
+            if (result.paidMs > 0L || !result.reliable) {
+                out += WeekSlice(
+                    weekYear = weekYear,
+                    weekOfYear = week,
+                    startMs = cursor,
+                    endMs = end,
+                    paidMs = result.paidMs,
+                    reliable = result.reliable
+                )
+            }
             cursor = end
         }
         return out
     }
 
+    fun isReliableForRange(
+        session: WorkSessionV2,
+        rangeStartMs: Long,
+        rangeEndMs: Long
+    ): Boolean = paidOverlapResult(session, rangeStartMs, rangeEndMs).reliable
+
     private fun effectiveSessionStart(session: WorkSessionV2): Long? =
         WorkTimePolicyV2.repairKnownCountedEntry(session.realArrivalMs, session.countedEntryMs)
-
-    /** Retire chronologiquement la franchise de pause payée des intervalles non payés. */
-    private fun removePaidAllowance(
-        intervals: List<Pair<Long, Long>>,
-        allowanceMs: Long
-    ): List<Pair<Long, Long>> {
-        var remaining = allowanceMs.coerceAtLeast(0L)
-        if (remaining == 0L) return intervals
-        return buildList {
-            intervals.forEach { (start, end) ->
-                val duration = (end - start).coerceAtLeast(0L)
-                when {
-                    duration == 0L -> Unit
-                    remaining == 0L -> add(start to end)
-                    remaining >= duration -> remaining -= duration
-                    else -> {
-                        add((start + remaining) to end)
-                        remaining = 0L
-                    }
-                }
-            }
-        }
-    }
 
     private fun nextIsoWeekStart(atMs: Long): Long {
         val c = calendar(atMs)
@@ -132,28 +137,4 @@ object PaidWorkAllocationV2 {
         minimalDaysInFirstWeek = 4
         timeInMillis = ms
     }
-
-    private fun mergeIntervals(input: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
-        val sorted = input.filter { it.second > it.first }.sortedBy { it.first }
-        if (sorted.isEmpty()) return emptyList()
-        val out = mutableListOf<Pair<Long, Long>>()
-        var start = sorted.first().first
-        var end = sorted.first().second
-        for (i in 1 until sorted.size) {
-            val (nextStart, nextEnd) = sorted[i]
-            if (nextStart <= end) end = maxOf(end, nextEnd)
-            else {
-                out += start to end
-                start = nextStart
-                end = nextEnd
-            }
-        }
-        out += start to end
-        return out
-    }
-
-    private fun overlapDuration(intervals: List<Pair<Long, Long>>, start: Long, end: Long): Long =
-        intervals.sumOf { interval ->
-            (minOf(end, interval.second) - maxOf(start, interval.first)).coerceAtLeast(0L)
-        }
 }
