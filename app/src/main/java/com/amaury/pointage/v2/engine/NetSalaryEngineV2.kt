@@ -44,7 +44,9 @@ object NetSalaryEngineV2 {
         /** Réductions/exonérations patronales mensuelles confirmées par une source vérifiable. */
         val confirmedEmployerReductions: Double? = null,
         /** Sous-total connu après réductions confirmées ; null si l'ajustement ne peut pas être fiabilisé. */
-        val knownEmployerContributionsAfterReductions: Double? = null
+        val knownEmployerContributionsAfterReductions: Double? = null,
+        /** Brut social utilisable après confirmation des avantages en nature du mois. */
+        val grossReliable: Boolean = false
     )
 
     fun calculate(
@@ -58,6 +60,10 @@ object NetSalaryEngineV2 {
             .takeIf { it.isFinite() && it >= 0.0 }
             ?: 0.0
         val contributionGross = cashGross + benefitsInKind
+        val grossReliable = company.benefitsInKindReliable &&
+            gross.isFinite() && gross >= 0.0 &&
+            company.benefitsInKindGross.isFinite() && company.benefitsInKindGross >= 0.0 &&
+            contributionGross.isFinite()
         val ceiling = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
                 year = year,
@@ -293,6 +299,9 @@ object NetSalaryEngineV2 {
             it.startsWith("AT/MP employeur") || it.startsWith("Versement mobilité employeur")
         }
         val warnings = buildList {
+            if (!grossReliable) {
+                add("Brut social : salaire ou avantages en nature du mois non confirmables ; seuls les éléments connus sont calculés, aucun total fiable n'est disponible.")
+            }
             addAll(ceiling.warnings)
             addAll(statutory.warnings)
             addAll(retirement.warnings)
@@ -361,6 +370,7 @@ object NetSalaryEngineV2 {
 
         return Result(
             gross = contributionGross,
+            grossReliable = grossReliable,
             socialSecurityCeiling = ceiling.applicableMonthly.takeIf { year == 2026 },
             socialSecurityCeilingComplete = ceiling.complete,
             statutory = statutory.employeeDeductions,

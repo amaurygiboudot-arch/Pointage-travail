@@ -328,7 +328,6 @@ object V2PayslipStore {
    if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null
 
    val expectedValues=linkedMapOf<String,Double>()
-   expectedValues[PayslipDocumentParserV2.KEY_GROSS]=expected.monthlyEstimatedGross
    expectedValues[PayslipDocumentParserV2.KEY_OVERTIME_GROSS]=expected.overtimeGross
    expectedValues[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]=expected.premiumsGross
    expected.mealBasketTotal?.let{expectedValues[PayslipDocumentParserV2.KEY_MEAL_BASKETS]=it}
@@ -339,7 +338,9 @@ object V2PayslipStore {
     NetSalaryEngineV2.calculate(expected.monthlyEstimatedGross,record.year,overrides,expected.complementaryMinutes)
    }.getOrNull()
    net?.let{calculated->
-    expectedValues[PayslipDocumentParserV2.KEY_GROSS]=calculated.gross
+    NetSalaryReferencePolicyV2.socialGross(calculated)?.let{
+     expectedValues[PayslipDocumentParserV2.KEY_GROSS]=it
+    }
     NetSalaryReferencePolicyV2.beforeIncomeTax(calculated)?.let{
      expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=it
     }

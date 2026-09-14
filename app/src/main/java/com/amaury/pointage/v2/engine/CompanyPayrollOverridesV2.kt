@@ -133,7 +133,9 @@ object CompanyPayrollOverridesV2 {
         val verifiedProvidentStoreWarnings:List<String> = emptyList(),
         /** Fiabilité spécifique du stockage ACCO des cotisations d'entreprise. */
         val verifiedCompanyProvidentStoreReliable:Boolean = true,
-        val verifiedCompanyProvidentStoreWarnings:List<String> = emptyList()
+        val verifiedCompanyProvidentStoreWarnings:List<String> = emptyList(),
+        /** Liste d'avantages en nature fiable et confirmée exhaustive pour ce mois précis. */
+        val benefitsInKindReliable:Boolean = false
     )
 
     fun load(
@@ -360,6 +362,7 @@ object CompanyPayrollOverridesV2 {
             alsaceMoselleLocalRegime=alsaceMoselleLocalRegime,
             atMpEmployerRate=atMpEmployerRate,
             benefitsInKindGross=benefitsInKind.totalGross,
+            benefitsInKindReliable=benefitsInKind.reliable,
             employerMobilityRate=mobility.rate,
             employerMobilitySource=mobility.source,
             employerUnemploymentRate=unemploymentAgs.unemploymentRate,
