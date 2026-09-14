@@ -52,9 +52,12 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
 
         let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, reference: reference)
 
-        XCTAssertEqual(snapshot.socialGross, 2_500, accuracy: 0.001)
-        XCTAssertEqual(snapshot.netBeforeIncomeTax, 2_000, accuracy: 0.001)
-        XCTAssertEqual(snapshot.netTaxable, 2_050, accuracy: 0.001)
+        XCTAssertNotNil(snapshot.socialGross)
+        XCTAssertNotNil(snapshot.netBeforeIncomeTax)
+        XCTAssertNotNil(snapshot.netTaxable)
+        XCTAssertEqual(snapshot.socialGross ?? -1, 2_500, accuracy: 0.001)
+        XCTAssertEqual(snapshot.netBeforeIncomeTax ?? -1, 2_000, accuracy: 0.001)
+        XCTAssertEqual(snapshot.netTaxable ?? -1, 2_050, accuracy: 0.001)
         XCTAssertTrue(snapshot.warnings.isEmpty)
     }
 
@@ -75,7 +78,8 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
 
         let snapshot = SalaryWorkspaceResolverV2.resolve(period: month, reference: reference)
 
-        XCTAssertEqual(snapshot.socialGross, 2_500, accuracy: 0.001)
+        XCTAssertNotNil(snapshot.socialGross)
+        XCTAssertEqual(snapshot.socialGross ?? -1, 2_500, accuracy: 0.001)
         XCTAssertNil(snapshot.netBeforeIncomeTax)
         XCTAssertNil(snapshot.netTaxable)
         XCTAssertTrue(snapshot.warnings.contains("Cotisation salariale à confirmer"))
