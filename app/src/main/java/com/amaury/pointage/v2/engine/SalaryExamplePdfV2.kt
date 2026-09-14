@@ -304,14 +304,13 @@ object SalaryExamplePdfV2 {
             val estimateLines = buildList {
                 add(
                     "Brut social estimé HoraTrack hors paniers" to
-                        (payroll?.gross?.let { String.format(Locale.FRANCE, "%.2f €", it) }
-                            ?: salary?.takeIf { it.monthlyGrossReliable }?.monthlyEstimatedGross?.let { String.format(Locale.FRANCE, "%.2f €", it) }
+                        (payroll?.let(NetSalaryReferencePolicyV2::socialGross)?.let { String.format(Locale.FRANCE, "%.2f €", it) }
                             ?: "À confirmer")
                 )
                 if ((payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
                     add("Dont avantages en nature" to String.format(Locale.FRANCE, "%.2f €", payroll!!.benefitsInKindDeduction))
                 }
-                add("Majoration heures supplémentaires" to (salary?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
+                add("Majoration heures supplémentaires" to (salary?.takeIf { it.monthlyGrossReliable }?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
                 salary?.mealBasketTotal?.let { total ->
                     val count = salary.mealBasketCount
                     val amount = salary.mealBasketAmount
@@ -324,7 +323,7 @@ object SalaryExamplePdfV2 {
                     val reliableNet = NetSalaryReferencePolicyV2.beforeIncomeTax(it)
                     if (reliableNet != null) {
                         add("Net estimé avant impôt" to String.format(Locale.FRANCE, "%.2f €", reliableNet))
-                        it.netTaxable?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
+                        NetSalaryReferencePolicyV2.taxable(it)?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
                     } else {
                         add("Net estimé avant impôt" to "À confirmer")
                         add("Sous-total net sur retenues connues" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))

@@ -42,5 +42,33 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail
         PRODUCT_NAME: HP Travail
+        PRODUCT_MODULE_NAME: HPTravail
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
+
+  HPTravailTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - HPTravailTests
+      - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
+      - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift
+      - path: HPTravail/SalaryV2/SalaryCompanyStoreV2.swift
+      - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
+      - path: HPTravail/SalaryV2/PayrollEngineV2.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  HPTravail:
+    build:
+      targets:
+        HPTravail: all
+        HPTravailTests: [test]
+    test:
+      config: Debug
+      targets:
+        - HPTravailTests

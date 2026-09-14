@@ -12,6 +12,8 @@ struct ContentView: View {
                 .tabItem { Label("Aujourd'hui", systemImage: "clock") }
             historyView
                 .tabItem { Label("Historique", systemImage: "list.bullet.rectangle") }
+            SalaryV2View()
+                .tabItem { Label("Salaire", systemImage: "eurosign.circle") }
             settingsView
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }

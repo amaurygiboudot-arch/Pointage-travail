@@ -6,6 +6,10 @@ on:
     paths:
       - 'ios/**'
       - '.github/workflows/build-ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/build-ios.yml'
   workflow_dispatch:
 
 jobs:
@@ -37,3 +41,7 @@ jobs:
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Run SalaryV2 Swift contract tests
+        working-directory: ios/HPTravail
+        run: swift test

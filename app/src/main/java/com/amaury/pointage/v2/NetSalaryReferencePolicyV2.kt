@@ -10,8 +10,12 @@ import com.amaury.pointage.v2.engine.NetSalaryEngineV2
  * dérivé ne doit les utiliser que lorsque la référence nette principale est elle-même admissible.
  */
 object NetSalaryReferencePolicyV2 {
+    /** Le salaire en espèces ne remplace jamais un brut social dont les avantages sont inconnus. */
+    fun socialGross(result: NetSalaryEngineV2.Result): Double? =
+        result.gross.takeIf { result.grossReliable && it.isFinite() && it >= 0.0 }
+
     fun beforeIncomeTax(result: NetSalaryEngineV2.Result): Double? =
-        beforeIncomeTax(result.netBeforeIncomeTax, result.complete)
+        beforeIncomeTax(result.netBeforeIncomeTax, result.complete && socialGross(result) != null)
 
     fun taxable(result: NetSalaryEngineV2.Result): Double? =
         taxable(result.netTaxable, beforeIncomeTax(result) != null)
