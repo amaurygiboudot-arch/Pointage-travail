@@ -298,11 +298,11 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
         val event = CompanyPauseAlarmManager.event(intent)
         if (pauseIndex !in 1..2 || (!CompanyPauseAlarmManager.isStart(event) && !CompanyPauseAlarmManager.isEnd(event))) return
         if (!CompanyPauseAlarmManager.isConfirmedCompany(context, companyId)) return
-        val configuredPause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex) ?: return
 
         if (CompanyPauseAlarmManager.activeCompanyId(context) == companyId) {
             when {
                 CompanyPauseAlarmManager.isStart(event) -> {
+                    val configuredPause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex) ?: return
                     val snap = V2RuntimeStore.snapshot(context).session
                     val started = if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) {
                         V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = configuredPause.paid)
@@ -334,8 +334,7 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
                             it.endMs == null && it.source == EventSourceV2.SYSTEM
                         }
                         if (automaticPauseOpen) {
-                            val paid = CompanyPauseAlarmManager.automaticPausePaid(context, companyId, pauseIndex)
-                                ?: configuredPause.paid
+                            val paid = CompanyPauseAlarmManager.automaticPausePaid(context, companyId, pauseIndex) ?: false
                             V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = paid)
                         }
                         CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
