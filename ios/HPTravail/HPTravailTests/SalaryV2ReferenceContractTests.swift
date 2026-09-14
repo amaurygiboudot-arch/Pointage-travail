@@ -78,7 +78,7 @@ final class SalaryV2ReferenceContractTests: XCTestCase {
 
         XCTAssertTrue(benefits.reliable)
         XCTAssertTrue(salary.grossReliable)
-        XCTAssertEqual(SalaryReferenceContractV2.socialGross(salary), 2_500, accuracy: 0.001)
+        XCTAssertEqual(SalaryReferenceContractV2.socialGross(salary) ?? -1, 2_500, accuracy: 0.001)
     }
 
     func testConfirmedBenefitsAreIncludedOnceAndDeductedAsBenefitValue() {
@@ -98,7 +98,7 @@ final class SalaryV2ReferenceContractTests: XCTestCase {
         )
         let salary = result(benefits: benefits)
 
-        XCTAssertEqual(SalaryReferenceContractV2.socialGross(salary), 2_700, accuracy: 0.001)
+        XCTAssertEqual(SalaryReferenceContractV2.socialGross(salary) ?? -1, 2_700, accuracy: 0.001)
         XCTAssertEqual(salary.benefitsInKindDeduction, 200, accuracy: 0.001)
     }
 
