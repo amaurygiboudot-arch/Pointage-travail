@@ -36,15 +36,19 @@ jobs:
           python scripts/verify_update_architecture.py
 
       - name: Tests unitaires Android
-        run: gradle :app:testDebugUnitTest --build-cache --parallel --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --build-cache --parallel --stacktrace 2>&1 | tee pr254-gradle.log
 
-      - name: Exporter les rapports de tests
+      - name: Exporter le diagnostic Gradle et les rapports de tests
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr-254-test-results
+          name: pr-254-diagnostic
           path: |
+            pr254-gradle.log
             app/build/test-results/testDebugUnitTest/**/*.xml
             app/build/reports/tests/testDebugUnitTest/**
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 1
