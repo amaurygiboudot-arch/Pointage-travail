@@ -208,7 +208,7 @@ enum CompanyBenefitInKindContractV2 {
                 records.append(record)
             }
 
-            let duplicateIds = Dictionary(grouping: records, by: \ .id).values.contains { $0.count > 1 }
+            let duplicateIds = Dictionary(grouping: records, by: \.id).values.contains { $0.count > 1 }
             if duplicateIds { malformed = true }
             return ReadResult(
                 records: records,
@@ -246,7 +246,7 @@ enum CompanyBenefitInKindContractV2 {
                 confirmations.append(MonthConfirmation(period: period, source: source))
             }
 
-            let duplicatePeriods = Dictionary(grouping: confirmations, by: \ .period).values.contains { $0.count > 1 }
+            let duplicatePeriods = Dictionary(grouping: confirmations, by: \.period).values.contains { $0.count > 1 }
             if duplicatePeriods { malformed = true }
             return ConfirmationReadResult(
                 confirmations: confirmations,
@@ -295,8 +295,6 @@ enum CompanyBenefitInKindContractV2 {
         return record
     }
 
-    /// Double optionnel : nil = champ absent/null valide ; Optional.some(nil) est représenté par nil retourné
-    /// via Result afin de distinguer un mois invalide d'un champ absent.
     private static func optionalMonth(_ raw: Any?) -> YearMonthV2?? {
         guard let raw else { return .some(nil) }
         if raw is NSNull { return .some(nil) }
