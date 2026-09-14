@@ -4,6 +4,7 @@ import GoogleSignIn
 @main
 struct HPTravailApp: App {
     @StateObject private var store = WorkStore()
+    @StateObject private var salaryStore = SalaryV2Store()
     @StateObject private var locationManager = LocationManager()
     @StateObject private var authManager = AuthManager()
 
@@ -11,6 +12,7 @@ struct HPTravailApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(store)
+                .environmentObject(salaryStore)
                 .environmentObject(locationManager)
                 .environmentObject(authManager)
                 .onAppear {
