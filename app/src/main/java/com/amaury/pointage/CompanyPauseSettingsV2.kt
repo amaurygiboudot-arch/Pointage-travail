@@ -26,8 +26,9 @@ import java.util.Locale
 /** Réglages de pauses propres à une entreprise V2, identifiée par son ID stable. */
 object CompanyPauseSettingsV2 {
     private const val MIGRATION_KEY = "base_pauses_v2_migrated"
+    private const val PAID_STATUS_MIGRATION_KEY = "base_pauses_v2_paid_status_migrated"
 
-    data class PauseSlot(val startMinute: Int, val endMinute: Int) {
+    data class PauseSlot(val startMinute: Int, val endMinute: Int, val paid: Boolean = false) {
         val durationMinutes: Int
             get() {
                 if (startMinute !in 0..1439 || endMinute !in 0..1439 || startMinute == endMinute) return 0
@@ -40,6 +41,7 @@ object CompanyPauseSettingsV2 {
     private fun suffix(pauseIndex: Int) = if (pauseIndex == 2) "2" else ""
     private fun startKey(pauseIndex: Int) = "base_pause${suffix(pauseIndex)}_start"
     private fun endKey(pauseIndex: Int) = "base_pause${suffix(pauseIndex)}_end"
+    private fun paidKey(pauseIndex: Int) = "base_pause${suffix(pauseIndex)}_paid"
     private fun alarmKey(pauseIndex: Int, field: String) = "base_pause${suffix(pauseIndex)}_alarm_$field"
 
     fun startMinute(context: Context, companyId: String, pauseIndex: Int = 1): Int {
@@ -52,12 +54,25 @@ object CompanyPauseSettingsV2 {
         return prefs(context, companyId).getInt(endKey(pauseIndex), -1)
     }
 
+    fun paid(context: Context, companyId: String, pauseIndex: Int = 1): Boolean {
+        ensureMigrated(context, companyId)
+        return prefs(context, companyId).getBoolean(paidKey(pauseIndex), false)
+    }
+
     fun pause(context: Context, companyId: String, pauseIndex: Int): PauseSlot? =
-        PauseSlot(startMinute(context, companyId, pauseIndex), endMinute(context, companyId, pauseIndex))
-            .takeIf { it.durationMinutes > 0 }
+        PauseSlot(
+            startMinute(context, companyId, pauseIndex),
+            endMinute(context, companyId, pauseIndex),
+            paid(context, companyId, pauseIndex)
+        ).takeIf { it.durationMinutes > 0 }
 
     fun baseMinutes(context: Context, companyId: String): Int =
         (1..2).sumOf { pause(context, companyId, it)?.durationMinutes ?: 0 }.coerceIn(0, 480)
+
+    fun unpaidMinutes(context: Context, companyId: String): Int =
+        (1..2).sumOf { index ->
+            pause(context, companyId, index)?.takeIf { !it.paid }?.durationMinutes ?: 0
+        }.coerceIn(0, 480)
 
     fun alarmEnabled(context: Context, companyId: String, pauseIndex: Int): Boolean {
         ensureMigrated(context, companyId)
@@ -72,24 +87,41 @@ object CompanyPauseSettingsV2 {
     fun saveAlarm(context: Context, companyId: String, pauseIndex: Int, enabled: Boolean, sound: String) {
         prefs(context, companyId).edit()
             .putBoolean(MIGRATION_KEY, true)
+            .putBoolean(PAID_STATUS_MIGRATION_KEY, true)
             .putBoolean(alarmKey(pauseIndex, "enabled"), enabled)
             .putString(alarmKey(pauseIndex, "sound"), sound)
             .apply()
     }
 
+    /** Compatibilité : avant ce correctif toute pause configurée était explicitement déduite. */
     fun savePause(context: Context, companyId: String, pauseIndex: Int, startMinute: Int, endMinute: Int) {
+        savePause(context, companyId, pauseIndex, startMinute, endMinute, paid = false)
+    }
+
+    fun savePause(
+        context: Context,
+        companyId: String,
+        pauseIndex: Int,
+        startMinute: Int,
+        endMinute: Int,
+        paid: Boolean
+    ) {
         prefs(context, companyId).edit()
             .putBoolean(MIGRATION_KEY, true)
+            .putBoolean(PAID_STATUS_MIGRATION_KEY, true)
             .putInt(startKey(pauseIndex), startMinute.coerceIn(0, 1439))
             .putInt(endKey(pauseIndex), endMinute.coerceIn(0, 1439))
+            .putBoolean(paidKey(pauseIndex), paid)
             .apply()
     }
 
     fun clearPause(context: Context, companyId: String, pauseIndex: Int) {
         prefs(context, companyId).edit()
             .putBoolean(MIGRATION_KEY, true)
+            .putBoolean(PAID_STATUS_MIGRATION_KEY, true)
             .remove(startKey(pauseIndex))
             .remove(endKey(pauseIndex))
+            .remove(paidKey(pauseIndex))
             .remove(alarmKey(pauseIndex, "enabled"))
             .remove(alarmKey(pauseIndex, "sound"))
             .apply()
@@ -106,37 +138,54 @@ object CompanyPauseSettingsV2 {
         if (pauses.isEmpty()) return "Aucune pause de base"
         val lines = pauses.joinToString("\n") { (index, p) ->
             val alarm = if (alarmEnabled(context, companyId, index)) " • 🔔 alarme" else ""
-            "Pause $index : ${format(p.startMinute)} – ${format(p.endMinute)} • ${p.durationMinutes} min$alarm"
+            val payStatus = if (p.paid) " • rémunérée" else " • non rémunérée"
+            "Pause $index : ${format(p.startMinute)} – ${format(p.endMinute)} • ${p.durationMinutes} min$payStatus$alarm"
         }
-        return "$lines\nTotal automatiquement déduit : ${baseMinutes(context, companyId)} min"
+        return "$lines\nTotal automatiquement déduit : ${unpaidMinutes(context, companyId)} min"
     }
 
     /**
      * Migration non destructive : les anciennes pauses des slots 1/2 sont copiées une fois dans
      * l'entreprise V2 correspondante. Les anciennes clés restent intactes jusqu'à la purge V1.
+     *
+     * Les pauses déjà configurées avant l'ajout du statut payé sont migrées vers paid=false :
+     * l'interface qui les a créées indiquait explicitement « Total automatiquement déduit ».
      */
     private fun ensureMigrated(context: Context, companyId: String) {
         val target = prefs(context, companyId)
-        if (target.getBoolean(MIGRATION_KEY, false)) return
-        val aliases = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
-        val legacySlot = when {
-            "company_1" in aliases -> 1
-            "company_2" in aliases -> 2
-            else -> null
-        }
-        val editor = target.edit()
-        if (legacySlot != null) {
-            for (index in 1..2) {
-                val pause = CompanyBasePauseSettings.pause(context, legacySlot, index)
-                if (pause != null && !target.contains(startKey(index)) && !target.contains(endKey(index))) {
-                    editor.putInt(startKey(index), pause.startMinute)
-                    editor.putInt(endKey(index), pause.endMinute)
-                    editor.putBoolean(alarmKey(index, "enabled"), CompanyBasePauseSettings.alarmEnabled(context, legacySlot, index))
-                    editor.putString(alarmKey(index, "sound"), CompanyBasePauseSettings.alarmSound(context, legacySlot, index))
+        if (!target.getBoolean(MIGRATION_KEY, false)) {
+            val aliases = SalaryCompanyStore.acceptedEmployerIds(context, companyId)
+            val legacySlot = when {
+                "company_1" in aliases -> 1
+                "company_2" in aliases -> 2
+                else -> null
+            }
+            val editor = target.edit()
+            if (legacySlot != null) {
+                for (index in 1..2) {
+                    val pause = CompanyBasePauseSettings.pause(context, legacySlot, index)
+                    if (pause != null && !target.contains(startKey(index)) && !target.contains(endKey(index))) {
+                        editor.putInt(startKey(index), pause.startMinute)
+                        editor.putInt(endKey(index), pause.endMinute)
+                        editor.putBoolean(paidKey(index), false)
+                        editor.putBoolean(alarmKey(index, "enabled"), CompanyBasePauseSettings.alarmEnabled(context, legacySlot, index))
+                        editor.putString(alarmKey(index, "sound"), CompanyBasePauseSettings.alarmSound(context, legacySlot, index))
+                    }
                 }
             }
+            editor.putBoolean(MIGRATION_KEY, true).commit()
         }
-        editor.putBoolean(MIGRATION_KEY, true).commit()
+
+        if (!target.getBoolean(PAID_STATUS_MIGRATION_KEY, false)) {
+            val editor = target.edit()
+            for (index in 1..2) {
+                val hasConfiguredPause = target.contains(startKey(index)) && target.contains(endKey(index))
+                if (hasConfiguredPause && !target.contains(paidKey(index))) {
+                    editor.putBoolean(paidKey(index), false)
+                }
+            }
+            editor.putBoolean(PAID_STATUS_MIGRATION_KEY, true).commit()
+        }
     }
 
     private fun format(minutes: Int): String =
@@ -152,6 +201,7 @@ class CompanyPauseSettingsV2View(
     private data class PauseFields(
         val start: EditText,
         val end: EditText,
+        val paid: CheckBox,
         val alarm: CheckBox,
         val sound: Button,
         var soundValue: String
@@ -228,6 +278,7 @@ class CompanyPauseSettingsV2View(
                 setTypeface(typeface, Typeface.BOLD)
                 setPadding(0, dp(if (index == 1) 10 else 16), 0, 0)
             })
+            val savedPause = CompanyPauseSettingsV2.pause(context, companyId, index)
             val start = timeInput(
                 "Début — ex. ${if (index == 1) "10:00" else "12:00"}",
                 CompanyPauseSettingsV2.startMinute(context, companyId, index)
@@ -236,6 +287,10 @@ class CompanyPauseSettingsV2View(
                 "Fin — ex. ${if (index == 1) "10:15" else "12:30"}",
                 CompanyPauseSettingsV2.endMinute(context, companyId, index)
             )
+            val paid = CheckBox(context).apply {
+                text = "Pause rémunérée — ne pas déduire du temps payé"
+                isChecked = savedPause?.paid == true
+            }
             val alarm = CheckBox(context).apply {
                 text = "🔔 Sonner + notifier au début"
                 isChecked = CompanyPauseSettingsV2.alarmEnabled(context, companyId, index)
@@ -247,10 +302,11 @@ class CompanyPauseSettingsV2View(
                 isAllCaps = false
                 setBackgroundResource(R.drawable.hp_panel)
             }
-            val fields = PauseFields(start, end, alarm, sound, selected.id)
+            val fields = PauseFields(start, end, paid, alarm, sound, selected.id)
             sound.setOnClickListener { showSoundPicker(fields) }
             box.addView(start)
             box.addView(end)
+            box.addView(paid)
             box.addView(alarm)
             box.addView(sound, LayoutParams(LayoutParams.MATCH_PARENT, dp(52)))
             return fields
@@ -279,7 +335,7 @@ class CompanyPauseSettingsV2View(
                         bothBlank -> CompanyPauseSettingsV2.clearPause(context, companyId, index)
                         start == null || end == null || start == end -> invalid = true
                         else -> {
-                            CompanyPauseSettingsV2.savePause(context, companyId, index, start, end)
+                            CompanyPauseSettingsV2.savePause(context, companyId, index, start, end, fields.paid.isChecked)
                             CompanyPauseSettingsV2.saveAlarm(context, companyId, index, fields.alarm.isChecked, fields.soundValue)
                         }
                     }
@@ -292,7 +348,7 @@ class CompanyPauseSettingsV2View(
                     if (p1.alarm.isChecked || p2.alarm.isChecked) requestAlarmPermissionsIfNeeded()
                     refresh()
                     dialog.dismiss()
-                    Toast.makeText(context, "Pauses, alarmes et sons enregistrés", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Pauses, statut payé/non payé, alarmes et sons enregistrés", Toast.LENGTH_SHORT).show()
                 }
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -382,6 +438,8 @@ class CompanyPauseSettingsV2View(
                         activity.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
                             data = Uri.parse("package:${context.packageName}")
                         })
+                    }.onFailure {
+                        Toast.makeText(context, "Ouvre les réglages système > Alarmes et rappels pour autoriser HoraTrack.", Toast.LENGTH_LONG).show()
                     }
                 }, 700L)
             }
