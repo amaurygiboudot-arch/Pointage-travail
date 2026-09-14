@@ -129,29 +129,32 @@ final class SalaryV2ReferenceContractTests: XCTestCase {
         XCTAssertNil(SalaryReferenceContractV2.beforeIncomeTax(salary))
     }
 
-    func testInvalidGrossValuesNeverBecomeConfirmedGross() {
-        let reliableBenefits = CompanyBenefitInKindContractV2.Snapshot(
-            applied: [],
-            totalGross: 0,
-            reliable: true,
-            warnings: []
-        )
-
+    func testInvalidBenefitValuesNeverBecomeConfirmedGross() {
         for invalid in [Double.nan, Double.infinity, -1.0] {
-            let salary = result(benefits: reliableBenefits, cashGross: invalid)
+            let benefits = CompanyBenefitInKindContractV2.Snapshot(
+                applied: [],
+                totalGross: invalid,
+                reliable: true,
+                warnings: []
+            )
+            let salary = result(benefits: benefits)
+
             XCTAssertFalse(salary.grossReliable)
             XCTAssertFalse(salary.complete)
             XCTAssertNil(SalaryReferenceContractV2.socialGross(salary))
         }
     }
 
-    func testNetReferenceCannotBypassBlockedSocialGross() {
-        let benefits = CompanyBenefitInKindContractV2.resolve(
-            records: emptyRecords(),
-            confirmations: confirmations([]),
-            period: month
+    func testNetReferenceCannotBypassBlockedSocialGrossEvenIfMarkedComplete() {
+        let salary = SalaryReferenceContractV2(
+            gross: 2_500,
+            grossReliable: false,
+            netBeforeIncomeTax: 2_000,
+            netTaxable: 2_050,
+            complete: true,
+            warnings: [],
+            benefitsInKindDeduction: 0
         )
-        let salary = result(benefits: benefits)
 
         XCTAssertNil(SalaryReferenceContractV2.beforeIncomeTax(salary))
         XCTAssertNil(SalaryReferenceContractV2.taxable(salary))
