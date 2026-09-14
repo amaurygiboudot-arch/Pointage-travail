@@ -58,6 +58,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
         GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HP Travail.app/HP Travail"
 
 schemes:
   HPTravail:
