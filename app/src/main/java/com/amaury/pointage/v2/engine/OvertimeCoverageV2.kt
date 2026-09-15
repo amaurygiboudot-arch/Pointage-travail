@@ -5,7 +5,7 @@ package com.amaury.pointage.v2.engine
  *
  * Cette couche ne choisit aucun taux et ne connaît ni métier, ni convention, ni entreprise.
  * Elle répond uniquement à la question factuelle : les paliers fournis couvrent-ils sans trou
- * toute la tranche (seuil régulier, temps payé] ?
+ * et sans chevauchement toute la tranche (seuil régulier, temps payé] ?
  */
 object OvertimeCoverageV2 {
     fun isFullyCovered(
@@ -18,15 +18,21 @@ object OvertimeCoverageV2 {
         if (paid <= regularLimitMinutes) return true
 
         var cursor = regularLimitMinutes
-        tiers.sortedBy { it.fromMinutes }.forEach { tier ->
-            val tierStart = maxOf(regularLimitMinutes, tier.fromMinutes)
-            val tierEnd = minOf(paid, tier.toMinutes ?: Int.MAX_VALUE)
-            if (tierEnd <= cursor || tierEnd <= tierStart) return@forEach
-            if (tierStart > cursor) return false
-            cursor = maxOf(cursor, tierEnd)
+        for (tier in tiers.sortedBy { it.fromMinutes }) {
+            if (tier.fromMinutes < regularLimitMinutes) return false
+            val rawEnd = tier.toMinutes ?: Int.MAX_VALUE
+            if (rawEnd <= tier.fromMinutes) return false
+
+            val tierStart = tier.fromMinutes
+            val tierEnd = minOf(paid, rawEnd)
+            if (tierEnd <= regularLimitMinutes) continue
+            if (tierStart >= paid) break
+
+            if (tierStart != cursor) return false
+            cursor = tierEnd
             if (cursor >= paid) return true
         }
-        return cursor >= paid
+        return false
     }
 
     fun areWeeksFullyCovered(
