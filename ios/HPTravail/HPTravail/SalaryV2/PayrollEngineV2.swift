@@ -229,6 +229,12 @@ enum PayrollEngineV2 {
             )
         }
 
+        let overtimeCoverageReliable = OvertimeCoverageV2.areWeeksFullyCovered(
+            regularLimitMinutes: regularLimit,
+            paidWeeks: weeks.map(\.paidMinutes),
+            tiers: rules.overtimeTiers
+        )
+
         var regularMinutes = 0
         var overtimeGross = 0.0
         var extras = 0.0
@@ -263,6 +269,9 @@ enum PayrollEngineV2 {
         if rules.overtimeTiers.isEmpty {
             traces.append("Aucune majoration d'heures supplémentaires appliquée : règle non fournie")
         }
+        if !overtimeCoverageReliable {
+            traces.append("Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour les minutes non couvertes et le brut reste à confirmer.")
+        }
         if !baskets.isEmpty {
             traces.append("Paniers suivis séparément du brut estimé")
         }
@@ -277,7 +286,7 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
-            grossReliable: true,
+            grossReliable: overtimeCoverageReliable,
             traces: traces
         )
     }
