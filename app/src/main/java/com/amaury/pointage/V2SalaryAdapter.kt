@@ -24,6 +24,7 @@ import com.amaury.pointage.v2.engine.FullTimeStructuralOvertimeV2
 import com.amaury.pointage.v2.engine.MayFirstPayrollAdjustmentV2
 import com.amaury.pointage.v2.engine.MonthlySalaryProrationV2
 import com.amaury.pointage.v2.engine.NightPremiumPolicyV2
+import com.amaury.pointage.v2.engine.OvertimeCoverageV2
 import com.amaury.pointage.v2.engine.OvertimeLegalArbitrationBridgeV2
 import com.amaury.pointage.v2.engine.OvertimeTierV2
 import com.amaury.pointage.v2.engine.PaidWorkAllocationV2
@@ -300,8 +301,18 @@ object V2SalaryAdapter {
   val date=LocalDate.of(year,month+1,1);val snap=ruleHistory?.applicable(convention.idcc,date.toEpochDay());val hr=snap?.rules
   val isPartTime=contract.type==ContractTypeV2.PART_TIME
   val isFullTime=contract.type==ContractTypeV2.FULL_TIME
+  val isGenericHourly=contract.type==ContractTypeV2.OTHER
   val tiers=if(isPartTime) emptyList() else when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()}
-  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."}
+  if(!isPartTime){
+   if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période"
+   else if(!historical&&!convention.rulesIntegrated){
+    warnings+=if(isFullTime){
+     "Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."
+    }else{
+     "Barème conventionnel d'heures supplémentaires non intégré : aucune majoration n'est inventée pour les minutes non couvertes ; le brut restera à confirmer si un dépassement existe."
+    }
+   }
+  }
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=(hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)})).copy(
@@ -314,6 +325,8 @@ object V2SalaryAdapter {
   }
   val effectiveRules=if(!arbitratedOvertime.isNullOrEmpty())baseRules.copy(overtimeTiers=arbitratedOvertime)else baseRules
   val payrollRules=if(isPartTime||isFullTime)effectiveRules.copy(overtimeTiers=emptyList()) else effectiveRules
+  val genericOvertimeCoverageReliable=!isGenericHourly||OvertimeCoverageV2.areWeeksFullyCovered(regularLimit,weeks.values.map{it.paid},payrollRules.overtimeTiers)
+  if(!genericOvertimeCoverageReliable)warnings+="Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour ces minutes et le brut reste à confirmer."
   val worked=PayrollEngineV2.calculate(contract.copy(grossHourlyRate=rate),weeks.values.map{PayrollWeekV2(it.paid,it.night,it.sat,it.sun,it.holiday)},payrollRules)
 
   val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
@@ -336,7 +349,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -433,7 +446,7 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false,genericOvertimeCoverageReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&genericOvertimeCoverageReliable&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()
