@@ -301,7 +301,13 @@ object V2SalaryAdapter {
   val isPartTime=contract.type==ContractTypeV2.PART_TIME
   val isFullTime=contract.type==ContractTypeV2.FULL_TIME
   val tiers=if(isPartTime) emptyList() else when{historical&&hr!=null->hr.overtimeTiers.map{ConventionCatalog.OvertimeTier(it.fromMinutes/60.0,it.toMinutes?.div(60.0),it.multiplier)};historical->emptyList();convention.rulesIntegrated->convention.overtimeTiers;else->emptyList()}
-  if(!isPartTime){if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période" else if(!historical&&!convention.rulesIntegrated)warnings+="Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."}
+  if(!isPartTime){
+   if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période"
+   else if(!historical&&!convention.rulesIntegrated)warnings+=if(isFullTime)
+    "Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."
+   else
+    "Barème de majoration non intégré pour ce type de contrat : HoraTrack n'invente aucun taux. Les minutes au-delà de la durée de référence doivent être couvertes par une règle explicite pour rendre le brut fiable."
+  }
   val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   val baseRules=(hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)})).copy(
@@ -319,8 +325,14 @@ object V2SalaryAdapter {
   val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
+  val complementaryRateReliable=!isPartTime||complementaryMinutes<=0
   warnings+=complementary.flatMap{it.warnings}.distinct()
-  if(isPartTime)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
+  if(isPartTime&&complementaryMinutes>0)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée ; le brut reste à confirmer."
+
+  val genericOvertimeCoverageReliable=(isPartTime||isFullTime)||weeks.values.all{week->
+   overtimeTiersCoverPaidExcess(regularLimit,week.paid,payrollRules.overtimeTiers)
+  }
+  if(!genericOvertimeCoverageReliable)warnings+="Type de contrat générique : des minutes payées dépassent la durée hebdomadaire de référence sans être intégralement couvertes par un barème explicite. Aucun taux n'est inventé ; le brut est incomplet et reste à confirmer."
 
   val fullTime=if(isFullTime){
    val contractual=contract.contractualWeeklyMinutes?:regularLimit
@@ -335,7 +347,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,additionalVariableRatesReliable=complementaryRateReliable&&genericOvertimeCoverageReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -432,7 +444,21 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,additionalVariableRatesReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&additionalVariableRatesReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+
+ internal fun overtimeTiersCoverPaidExcess(regularLimit:Int,paidMinutes:Int,tiers:List<OvertimeTierV2>):Boolean {
+  if(paidMinutes<=regularLimit)return true
+  var cursor=regularLimit
+  tiers.sortedBy{it.fromMinutes}.forEach{tier->
+   val start=maxOf(regularLimit,tier.fromMinutes)
+   val end=minOf(paidMinutes,tier.toMinutes?:Int.MAX_VALUE)
+   if(end<=regularLimit||start>=paidMinutes)return@forEach
+   if(start!=cursor)return false
+   if(end<=cursor)return false
+   cursor=end
+  }
+  return cursor>=paidMinutes
+ }
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()
