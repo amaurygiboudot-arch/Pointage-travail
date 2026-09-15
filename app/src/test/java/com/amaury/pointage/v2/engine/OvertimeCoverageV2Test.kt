@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -40,56 +41,54 @@ class OvertimeCoverageV2Test {
     }
 
     @Test
-    fun gapBetweenTiersLeavesGrossUnresolved() {
-        assertFalse(
-            OvertimeCoverageV2.isFullyCovered(
-                limit,
-                45 * 60,
-                listOf(
-                    OvertimeTierV2(limit, 40 * 60, 1.25),
-                    OvertimeTierV2(41 * 60, null, 1.50)
-                )
-            )
+    fun gapBetweenTiersLeavesGrossUnresolvedButKeepsKnownTiersSafeForPartialCalculation() {
+        val tiers = listOf(
+            OvertimeTierV2(limit, 40 * 60, 1.25),
+            OvertimeTierV2(41 * 60, null, 1.50)
         )
+
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 45 * 60, tiers))
+        assertTrue(OvertimeCoverageV2.isStructurallyValid(limit, tiers))
+        assertEquals(2, OvertimeCoverageV2.calculationSafeTiers(limit, tiers).size)
     }
 
     @Test
-    fun overlappingTiersAreAmbiguousAndNotReliable() {
-        assertFalse(
-            OvertimeCoverageV2.isFullyCovered(
-                limit,
-                45 * 60,
-                listOf(
-                    OvertimeTierV2(limit, 43 * 60, 1.25),
-                    OvertimeTierV2(42 * 60, null, 1.50)
-                )
-            )
+    fun overlappingTiersAreAmbiguousAndNeutralizedForCalculation() {
+        val tiers = listOf(
+            OvertimeTierV2(limit, 43 * 60, 1.25),
+            OvertimeTierV2(42 * 60, null, 1.50)
         )
+
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 45 * 60, tiers))
+        assertFalse(OvertimeCoverageV2.isStructurallyValid(limit, tiers))
+        assertTrue(OvertimeCoverageV2.calculationSafeTiers(limit, tiers).isEmpty())
     }
 
     @Test
     fun openEndedTierCannotHideLaterOverlap() {
-        assertFalse(
-            OvertimeCoverageV2.isFullyCovered(
-                limit,
-                45 * 60,
-                listOf(
-                    OvertimeTierV2(limit, null, 1.25),
-                    OvertimeTierV2(43 * 60, null, 1.50)
-                )
-            )
+        val tiers = listOf(
+            OvertimeTierV2(limit, null, 1.25),
+            OvertimeTierV2(43 * 60, null, 1.50)
         )
+
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 45 * 60, tiers))
+        assertTrue(OvertimeCoverageV2.calculationSafeTiers(limit, tiers).isEmpty())
     }
 
     @Test
-    fun tierStartingBelowRegularLimitIsRejected() {
-        assertFalse(
-            OvertimeCoverageV2.isFullyCovered(
-                limit,
-                40 * 60,
-                listOf(OvertimeTierV2(34 * 60, null, 1.25))
-            )
-        )
+    fun tierStartingBelowRegularLimitIsRejectedAndNeutralized() {
+        val tiers = listOf(OvertimeTierV2(34 * 60, null, 1.25))
+
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 40 * 60, tiers))
+        assertTrue(OvertimeCoverageV2.calculationSafeTiers(limit, tiers).isEmpty())
+    }
+
+    @Test
+    fun invalidMultiplierIsNeutralized() {
+        val tiers = listOf(OvertimeTierV2(limit, null, 0.75))
+
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 40 * 60, tiers))
+        assertTrue(OvertimeCoverageV2.calculationSafeTiers(limit, tiers).isEmpty())
     }
 
     @Test
