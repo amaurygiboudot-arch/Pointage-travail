@@ -30,9 +30,8 @@ object OvertimeCoverageV2 {
 
             if (tierStart != cursor) return false
             cursor = tierEnd
-            if (cursor >= paid) return true
         }
-        return false
+        return cursor >= paid
     }
 
     fun areWeeksFullyCovered(
