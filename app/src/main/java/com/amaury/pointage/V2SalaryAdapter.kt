@@ -319,8 +319,9 @@ object V2SalaryAdapter {
   val complementary=if(isPartTime)weeks.values.map{PartTimeComplementaryHoursV2.calculateWeek(regularLimit,it.paid,rate)}else emptyList()
   val complementaryMinutes=complementary.sumOf{it.complementaryMinutes}
   val complementaryGross=complementary.sumOf{it.grossToAdd}
+  val provisionalComplementaryRateUsed=isPartTime&&complementaryMinutes>0
   warnings+=complementary.flatMap{it.warnings}.distinct()
-  if(isPartTime)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
+  if(provisionalComplementaryRateUsed)warnings+="Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée."
 
   val fullTime=if(isFullTime){
    val contractual=contract.contractualWeeklyMinutes?:regularLimit
@@ -335,7 +336,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -432,7 +433,7 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()
