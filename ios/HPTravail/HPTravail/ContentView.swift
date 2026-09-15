@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var authManager: AuthManager
     @AppStorage("hp_theme") private var theme = "signature"
+    @State private var showPausePaymentChoice = false
 
     var body: some View {
         TabView {
@@ -18,6 +19,21 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .confirmationDialog(
+            "Cette pause est-elle rémunérée ?",
+            isPresented: $showPausePaymentChoice,
+            titleVisibility: .visible
+        ) {
+            Button("Pause rémunérée") {
+                store.togglePause(paid: true)
+            }
+            Button("Pause non rémunérée") {
+                store.togglePause(paid: false)
+            }
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text("HoraTrack ne déduit jamais une pause sans connaître explicitement son statut payé/non payé.")
+        }
         .alert("Compte Google / Apple", isPresented: Binding(
             get: { authManager.errorMessage != nil },
             set: { if !$0 { authManager.errorMessage = nil } }
@@ -42,7 +58,11 @@ struct ContentView: View {
                             store.clockIn()
                         }
                         actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.isWorking) {
-                            store.togglePause()
+                            if store.isPaused {
+                                store.togglePause()
+                            } else {
+                                showPausePaymentChoice = true
+                            }
                         }
                         actionButton(title: "SORTIE", symbol: "arrow.left.circle.fill", color: .red, disabled: !store.isWorking) {
                             store.clockOut()
@@ -51,8 +71,8 @@ struct ContentView: View {
 
                     statusCard
                     if let current = store.currentSession {
-                        TimelineView(.periodic(from: .now, by: 1)) { _ in
-                            Text("Temps travaillé : \(format(store.workedDuration(for: current)))")
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(paidTimeLabel(for: current, until: context.date))
                                 .font(.title3.bold())
                         }
                     }
@@ -71,7 +91,7 @@ struct ContentView: View {
                         .font(.headline)
                     if let exit = session.exit {
                         Text("Sortie : \(exit.formatted(date: .omitted, time: .shortened))")
-                        Text("Travail : \(format(store.workedDuration(for: session)))")
+                        Text(paidTimeLabel(for: session, until: exit))
                     } else {
                         Text("En cours")
                             .foregroundStyle(.green)
@@ -194,6 +214,12 @@ struct ContentView: View {
         case .restricted: return "Localisation : restreinte"
         default: return "Localisation : non demandée"
         }
+    }
+
+    private func paidTimeLabel(for session: WorkSession, until endDate: Date) -> String {
+        let assessment = store.paidTimeAssessment(for: session, until: endDate)
+        guard assessment.reliable else { return "Temps payé : À confirmer" }
+        return "Temps payé : \(format(assessment.paidDuration))"
     }
 
     private func format(_ duration: TimeInterval) -> String {
