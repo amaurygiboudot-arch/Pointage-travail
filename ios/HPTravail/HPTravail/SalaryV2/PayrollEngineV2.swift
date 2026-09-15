@@ -229,6 +229,20 @@ enum PayrollEngineV2 {
             )
         }
 
+        if contract.type == .fullTime {
+            return try calculateFullTime(
+                contract: contract,
+                weeks: weeks,
+                rules: rules,
+                rate: rate,
+                regularLimit: regularLimit,
+                regularReferenceReliable: rules.weeklyRegularMinutes != nil,
+                premiums: premiums,
+                baskets: baskets,
+                deductions: deductions
+            )
+        }
+
         let overtimeCoverageReliable = OvertimeCoverageV2.areWeeksFullyCovered(
             regularLimitMinutes: regularLimit,
             paidWeeks: weeks.map(\.paidMinutes),
@@ -288,6 +302,64 @@ enum PayrollEngineV2 {
             complementaryMinutes: 0,
             grossReliable: overtimeCoverageReliable,
             traces: traces
+        )
+    }
+
+    private static func calculateFullTime(
+        contract: ContractV2,
+        weeks: [PayrollWeekV2],
+        rules: PayrollRulesV2,
+        rate: Double,
+        regularLimit: Int,
+        regularReferenceReliable: Bool,
+        premiums: [PremiumV2],
+        baskets: [BasketV2],
+        deductions: [DeductionV2]
+    ) throws -> PayrollResultV2 {
+        let contractualWeeklyMinutes = contract.contractualWeeklyMinutes ?? regularLimit
+        guard contractualWeeklyMinutes > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
+
+        let fullTime = FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes: contractualWeeklyMinutes,
+            regularWeeklyLimit: regularLimit,
+            paidWeeks: weeks.map(\.paidMinutes),
+            grossHourlyRate: rate,
+            overtimeTiers: rules.overtimeTiers
+        )
+
+        var extras = 0.0
+        for week in weeks {
+            extras += try premiumExtras(for: week, rate: rate, rules: rules)
+        }
+
+        let regularGross = fullTime.monthlyRegularMinutes / 60.0 * rate
+        let overtimeGross = fullTime.structuralOvertimeGross + fullTime.variableOvertimeGross
+        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
+        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
+        let gross = fullTime.monthlyBaseGross + fullTime.variableOvertimeGross + extras + fixed
+        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        var traces = fullTime.warnings
+
+        traces.append("Salaire de base mensualisé temps plein : durée régulière + éventuelles heures structurelles majorées ; les pointages ajoutent seulement les dépassements du contrat.")
+        if !regularReferenceReliable {
+            traces.append("Temps plein : seuil hebdomadaire régulier non confirmé par une règle amont ; la durée contractuelle est utilisée comme seuil technique et le brut reste à confirmer.")
+        }
+        if !baskets.isEmpty {
+            traces.append("Paniers suivis séparément du brut estimé")
+        }
+
+        return PayrollResultV2(
+            regularGross: regularGross,
+            overtimeGross: overtimeGross,
+            premiumsGross: extras,
+            fixedPremiumsGross: fixed,
+            baskets: basketTotal,
+            grossEstimate: gross,
+            deductions: deductionsTotal,
+            netBeforeUnknownContributions: max(0, gross - deductionsTotal),
+            complementaryMinutes: 0,
+            grossReliable: regularReferenceReliable && !fullTime.provisionalRateUsed,
+            traces: unique(traces)
         )
     }
 
