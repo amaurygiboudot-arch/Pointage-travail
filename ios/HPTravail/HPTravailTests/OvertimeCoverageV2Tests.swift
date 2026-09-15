@@ -73,6 +73,19 @@ final class OvertimeCoverageV2Tests: XCTestCase {
         )
     }
 
+    func testOpenEndedTierCannotHideLaterOverlap() {
+        XCTAssertFalse(
+            OvertimeCoverageV2.isFullyCovered(
+                regularLimitMinutes: limit,
+                paidMinutes: 45 * 60,
+                tiers: [
+                    OvertimeTierV2(fromMinutes: limit, toMinutes: nil, multiplier: 1.25),
+                    OvertimeTierV2(fromMinutes: 43 * 60, toMinutes: nil, multiplier: 1.50)
+                ]
+            )
+        )
+    }
+
     func testAdjacentTiersCoverWithoutGapOrOverlap() {
         XCTAssertTrue(
             OvertimeCoverageV2.isFullyCovered(
