@@ -162,6 +162,8 @@ struct PayrollResultV2: Equatable {
     let grossEstimate: Double
     let deductions: Double
     let netBeforeUnknownContributions: Double
+    let complementaryMinutes: Int
+    let grossReliable: Bool
     let traces: [String]
 }
 
@@ -185,7 +187,9 @@ enum PayrollEngineErrorV2: Error, Equatable {
 /// Miroir Swift du moteur brut PayrollEngineV2 Android.
 ///
 /// Le moteur ne déduit aucune règle juridique : il ne consomme que des durées,
-/// paliers et multiplicateurs déjà confirmés par les couches amont.
+/// paliers et multiplicateurs déjà confirmés par les couches amont. Pour le temps partiel,
+/// tant qu'aucune stipulation conventionnelle structurée plus précise n'est fournie,
+/// le barème supplétif des heures complémentaires reste estimatif et rend le brut non fiable.
 enum PayrollEngineV2 {
     static func calculate(
         contract: ContractV2,
@@ -212,6 +216,19 @@ enum PayrollEngineV2 {
         }
         guard regularLimit > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
 
+        if contract.type == .partTime {
+            return try calculatePartTime(
+                contract: contract,
+                weeks: weeks,
+                rules: rules,
+                rate: rate,
+                regularLimit: regularLimit,
+                premiums: premiums,
+                baskets: baskets,
+                deductions: deductions
+            )
+        }
+
         var regularMinutes = 0
         var overtimeGross = 0.0
         var extras = 0.0
@@ -233,30 +250,7 @@ enum PayrollEngineV2 {
                 }
             }
 
-            if let multiplier = rules.nightMultiplier {
-                try validateMultiplier(multiplier)
-                if week.nightMinutes > 0 {
-                    extras += Double(week.nightMinutes) / 60.0 * rate * (multiplier - 1.0)
-                }
-            }
-            if let multiplier = rules.saturdayMultiplier {
-                try validateMultiplier(multiplier)
-                if week.saturdayMinutes > 0 {
-                    extras += Double(week.saturdayMinutes) / 60.0 * rate * (multiplier - 1.0)
-                }
-            }
-            if let multiplier = rules.sundayMultiplier {
-                try validateMultiplier(multiplier)
-                if week.sundayMinutes > 0 {
-                    extras += Double(week.sundayMinutes) / 60.0 * rate * (multiplier - 1.0)
-                }
-            }
-            if let multiplier = rules.publicHolidayMultiplier {
-                try validateMultiplier(multiplier)
-                if week.publicHolidayMinutes > 0 {
-                    extras += Double(week.publicHolidayMinutes) / 60.0 * rate * (multiplier - 1.0)
-                }
-            }
+            extras += try premiumExtras(for: week, rate: rate, rules: rules)
         }
 
         let regularGross = Double(regularMinutes) / 60.0 * rate
@@ -282,7 +276,72 @@ enum PayrollEngineV2 {
             grossEstimate: gross,
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
+            complementaryMinutes: 0,
+            grossReliable: true,
             traces: traces
+        )
+    }
+
+    private static func calculatePartTime(
+        contract: ContractV2,
+        weeks: [PayrollWeekV2],
+        rules: PayrollRulesV2,
+        rate: Double,
+        regularLimit: Int,
+        premiums: [PremiumV2],
+        baskets: [BasketV2],
+        deductions: [DeductionV2]
+    ) throws -> PayrollResultV2 {
+        guard let contractualWeeklyMinutes = contract.contractualWeeklyMinutes,
+              contractualWeeklyMinutes > 0 else {
+            throw PayrollEngineErrorV2.missingWeeklyDuration
+        }
+
+        var complementaryMinutes = 0
+        var complementaryGross = 0.0
+        var extras = 0.0
+        var traces: [String] = []
+
+        for week in weeks {
+            let complementary = try PartTimeComplementaryHoursV2.calculateWeek(
+                contractualMinutes: contractualWeeklyMinutes,
+                paidMinutes: week.paidMinutes,
+                grossHourlyRate: rate
+            )
+            complementaryMinutes += complementary.complementaryMinutes
+            complementaryGross += complementary.grossToAdd
+            traces.append(contentsOf: complementary.warnings)
+            extras += try premiumExtras(for: week, rate: rate, rules: rules)
+        }
+
+        let monthlyBaseMinutes = Double(contractualWeeklyMinutes) * 52.0 / 12.0
+        let regularGross = monthlyBaseMinutes / 60.0 * rate
+        let fixed = premiums.reduce(0.0) { $0 + $1.amount }
+        let basketTotal = baskets.reduce(0.0) { $0 + $1.amount }
+        let gross = regularGross + complementaryGross + extras + fixed
+        let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
+        let provisionalComplementaryRateUsed = complementaryMinutes > 0
+
+        traces.append("Salaire de base mensualisé temps partiel : durée contractuelle × 52/12 × taux horaire.")
+        if provisionalComplementaryRateUsed {
+            traces.append("Temps partiel : barème supplétif des heures complémentaires appliqué (+10 % puis +25 %) ; brut à confirmer tant qu'aucune stipulation conventionnelle structurée plus précise n'est intégrée.")
+        }
+        if !baskets.isEmpty {
+            traces.append("Paniers suivis séparément du brut estimé")
+        }
+
+        return PayrollResultV2(
+            regularGross: regularGross,
+            overtimeGross: complementaryGross,
+            premiumsGross: extras,
+            fixedPremiumsGross: fixed,
+            baskets: basketTotal,
+            grossEstimate: gross,
+            deductions: deductionsTotal,
+            netBeforeUnknownContributions: max(0, gross - deductionsTotal),
+            complementaryMinutes: complementaryMinutes,
+            grossReliable: !provisionalComplementaryRateUsed,
+            traces: unique(traces)
         )
     }
 
@@ -349,13 +408,53 @@ enum PayrollEngineV2 {
             grossEstimate: gross,
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
+            complementaryMinutes: 0,
+            grossReliable: true,
             traces: traces
         )
+    }
+
+    private static func premiumExtras(
+        for week: PayrollWeekV2,
+        rate: Double,
+        rules: PayrollRulesV2
+    ) throws -> Double {
+        var extras = 0.0
+        if let multiplier = rules.nightMultiplier {
+            try validateMultiplier(multiplier)
+            if week.nightMinutes > 0 {
+                extras += Double(week.nightMinutes) / 60.0 * rate * (multiplier - 1.0)
+            }
+        }
+        if let multiplier = rules.saturdayMultiplier {
+            try validateMultiplier(multiplier)
+            if week.saturdayMinutes > 0 {
+                extras += Double(week.saturdayMinutes) / 60.0 * rate * (multiplier - 1.0)
+            }
+        }
+        if let multiplier = rules.sundayMultiplier {
+            try validateMultiplier(multiplier)
+            if week.sundayMinutes > 0 {
+                extras += Double(week.sundayMinutes) / 60.0 * rate * (multiplier - 1.0)
+            }
+        }
+        if let multiplier = rules.publicHolidayMultiplier {
+            try validateMultiplier(multiplier)
+            if week.publicHolidayMinutes > 0 {
+                extras += Double(week.publicHolidayMinutes) / 60.0 * rate * (multiplier - 1.0)
+            }
+        }
+        return extras
     }
 
     private static func validateMultiplier(_ multiplier: Double) throws {
         guard multiplier >= 1, multiplier.isFinite else {
             throw PayrollEngineErrorV2.invalidMultiplier
         }
+    }
+
+    private static func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 }
