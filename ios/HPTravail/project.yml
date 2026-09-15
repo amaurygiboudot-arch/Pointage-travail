@@ -57,6 +57,9 @@ targets:
       - path: HPTravail/SalaryV2/SalaryCompanyStoreV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
+      - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
+      - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
+      - path: HPTravail/SalaryV2/SalaryReferencePayrollBridgeV2.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
