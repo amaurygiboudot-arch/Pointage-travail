@@ -68,6 +68,20 @@ class OvertimeCoverageV2Test {
     }
 
     @Test
+    fun openEndedTierCannotHideLaterOverlap() {
+        assertFalse(
+            OvertimeCoverageV2.isFullyCovered(
+                limit,
+                45 * 60,
+                listOf(
+                    OvertimeTierV2(limit, null, 1.25),
+                    OvertimeTierV2(43 * 60, null, 1.50)
+                )
+            )
+        )
+    }
+
+    @Test
     fun tierStartingBelowRegularLimitIsRejected() {
         assertFalse(
             OvertimeCoverageV2.isFullyCovered(
