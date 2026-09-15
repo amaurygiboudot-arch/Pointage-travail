@@ -11,6 +11,14 @@ struct PausePeriod: Codable, Identifiable {
     let id: UUID
     var start: Date
     var end: Date?
+    var paid: Bool?
+
+    init(id: UUID, start: Date, end: Date?, paid: Bool? = nil) {
+        self.id = id
+        self.start = start
+        self.end = end
+        self.paid = paid
+    }
 }
 
 @MainActor
@@ -30,12 +38,14 @@ final class WorkStore: ObservableObject {
         save()
     }
 
-    func togglePause() {
+    func togglePause(paid: Bool? = nil) {
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
         } else {
-            sessions[index].pauses.append(PausePeriod(id: UUID(), start: Date(), end: nil))
+            sessions[index].pauses.append(
+                PausePeriod(id: UUID(), start: Date(), end: nil, paid: paid)
+            )
         }
         save()
     }
@@ -49,12 +59,15 @@ final class WorkStore: ObservableObject {
         save()
     }
 
-    func workedDuration(for session: WorkSession, until endDate: Date = Date()) -> TimeInterval {
-        let end = session.exit ?? endDate
-        let pause = session.pauses.reduce(0.0) { total, period in
-            total + ((period.end ?? endDate).timeIntervalSince(period.start))
-        }
-        return max(0, end.timeIntervalSince(session.entry) - pause)
+    func paidTimeAssessment(for session: WorkSession, until endDate: Date = Date()) -> PaidTimeAssessmentV2 {
+        PaidTimePolicyV2.assess(
+            sessionStart: session.entry,
+            sessionEnd: session.exit,
+            pauses: session.pauses.map {
+                PaidPauseFactV2(start: $0.start, end: $0.end, paid: $0.paid)
+            },
+            until: endDate
+        )
     }
 
     private func save() {

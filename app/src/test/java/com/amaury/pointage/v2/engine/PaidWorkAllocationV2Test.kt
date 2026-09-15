@@ -6,6 +6,8 @@ import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
 import java.util.Locale
@@ -33,11 +35,12 @@ class PaidWorkAllocationV2Test {
             assertEquals(2,slices.size)
             assertEquals(2L*60L*60L*1000L,slices[0].paidMs)
             assertEquals(6L*60L*60L*1000L,slices[1].paidMs)
+            assertTrue(slices.all { it.reliable })
         } finally { TimeZone.setDefault(previous) }
     }
 
     @Test
-    fun nightShiftKeepsFirstThirtyMinutesOfRecordedPausePaid() {
+    fun nightShiftDeductsRecordedUnpaidPauseInFull() {
         val previous=TimeZone.getDefault()
         try {
             TimeZone.setDefault(TimeZone.getTimeZone("Europe/Paris"))
@@ -51,7 +54,27 @@ class PaidWorkAllocationV2Test {
             val slices=PaidWorkAllocationV2.splitByIsoWeek(session(start,end,listOf(pause)),start,end)
 
             assertEquals(2L*60L*60L*1000L,slices[0].paidMs)
-            assertEquals(5L*60L*60L*1000L+30L*60L*1000L,slices[1].paidMs)
+            assertEquals(5L*60L*60L*1000L,slices[1].paidMs)
+            assertTrue(slices.all { it.reliable })
+        } finally { TimeZone.setDefault(previous) }
+    }
+
+    @Test
+    fun explicitPaidPauseRemainsPaidRegardlessOfStartTime() {
+        val previous=TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Europe/Paris"))
+            val start=ms(2026,Calendar.SEPTEMBER,6,22)
+            val end=ms(2026,Calendar.SEPTEMBER,7,6)
+            val pause=PauseV2(
+                startMs=ms(2026,Calendar.SEPTEMBER,7,2),
+                endMs=ms(2026,Calendar.SEPTEMBER,7,3),
+                paid=true, source=EventSourceV2.MANUAL, status=DecisionStatusV2.CONFIRMED
+            )
+            val result=PaidWorkAllocationV2.paidOverlapResult(session(start,end,listOf(pause)),start,end)
+
+            assertEquals(8L*60L*60L*1000L,result.paidMs)
+            assertTrue(result.reliable)
         } finally { TimeZone.setDefault(previous) }
     }
 
@@ -70,6 +93,22 @@ class PaidWorkAllocationV2Test {
 
             assertEquals(7L*60L*60L*1000L,PaidWorkAllocationV2.paidOverlap(session(start,end,listOf(pause)),start,end))
         } finally { TimeZone.setDefault(previous) }
+    }
+
+    @Test
+    fun unresolvedPauseMarksAllocationUnreliableWithoutInventingClassification() {
+        val start=ms(2026,Calendar.SEPTEMBER,8,8)
+        val end=ms(2026,Calendar.SEPTEMBER,8,16)
+        val pause=PauseV2(
+            startMs=ms(2026,Calendar.SEPTEMBER,8,12),
+            endMs=ms(2026,Calendar.SEPTEMBER,8,13),
+            paid=null, source=EventSourceV2.MANUAL, status=DecisionStatusV2.TO_CONFIRM
+        )
+
+        val result=PaidWorkAllocationV2.paidOverlapResult(session(start,end,listOf(pause)),start,end)
+
+        assertEquals(8L*60L*60L*1000L,result.paidMs)
+        assertFalse(result.reliable)
     }
 
     @Test

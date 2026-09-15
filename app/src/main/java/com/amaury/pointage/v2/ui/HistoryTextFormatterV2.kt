@@ -111,12 +111,6 @@ object HistoryTextFormatterV2 {
                     ?.takeIf { it.isNotBlank() }
                     ?.let { append("📍 ").append(it).append('\n') }
 
-                countedEntry?.let {
-                    append("🧭 Créneau retenu : ")
-                        .append(shiftLabel(WorkTimePolicyV2.shiftKind(it)))
-                        .append('\n')
-                }
-
                 if (options.showPause) {
                     session.pauses.forEachIndexed { index, pause ->
                         append("⏸ Pause ").append(index + 1).append(" : ")
@@ -193,14 +187,6 @@ object HistoryTextFormatterV2 {
             "IMPORT" -> "IMPORTÉE"
             "SYSTEM" -> "SYSTÈME"
             else -> pause.source.name
-        }
-
-    private fun shiftLabel(kind: WorkTimePolicyV2.ShiftKind): String =
-        when (kind) {
-            WorkTimePolicyV2.ShiftKind.MORNING -> "MATIN"
-            WorkTimePolicyV2.ShiftKind.DAY -> "JOURNÉE"
-            WorkTimePolicyV2.ShiftKind.AFTERNOON -> "APRÈS-MIDI"
-            WorkTimePolicyV2.ShiftKind.NIGHT -> "NUIT"
         }
 
     private fun formatDuration(ms: Long): String {

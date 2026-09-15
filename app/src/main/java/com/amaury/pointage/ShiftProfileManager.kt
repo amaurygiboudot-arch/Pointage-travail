@@ -2,7 +2,6 @@ package com.amaury.pointage
 
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.engine.WorkTimePolicyV2
 import java.util.Calendar
 import java.util.Locale
 
@@ -25,19 +24,13 @@ object ShiftProfileManager {
     }
 
     /**
-     * Détection automatique indicative par heure d'embauche comptée.
-     * En V2, WorkTimePolicyV2 reste la source unique de classification des postes.
-     * V1 conserve son ancienne détection tant qu'elle reste présente dans le dépôt.
+     * Détection historique indicative pour l'interface des profils d'équipe.
+     *
+     * Cette classification n'est pas une règle universelle de temps de travail et ne doit jamais
+     * décider qu'une pause est payée/non payée, qu'un panier est dû ou qu'une majoration s'applique.
+     * Les moteurs Temps/Paie V2 utilisent uniquement leurs faits et règles explicites.
      */
     fun detect(entryMs: Long): ShiftType {
-        if (HoraTrackV2.ENABLED) {
-            return when (WorkTimePolicyV2.shiftKind(entryMs)) {
-                WorkTimePolicyV2.ShiftKind.MORNING -> ShiftType.MORNING
-                WorkTimePolicyV2.ShiftKind.DAY -> ShiftType.DAY
-                WorkTimePolicyV2.ShiftKind.AFTERNOON -> ShiftType.AFTERNOON
-                WorkTimePolicyV2.ShiftKind.NIGHT -> ShiftType.NIGHT
-            }
-        }
         val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = entryMs }
         return when (cal.get(Calendar.HOUR_OF_DAY)) {
             6 -> ShiftType.MORNING

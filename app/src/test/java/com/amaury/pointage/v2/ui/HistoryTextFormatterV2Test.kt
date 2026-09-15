@@ -43,10 +43,10 @@ class HistoryTextFormatterV2Test {
         assertTrue(text.contains("06:00  ENTRÉE COMPTÉE (corrigée)"))
         assertFalse(text.contains("06:15  ENTRÉE COMPTÉE"))
         assertTrue(text.contains("🏢 Oceplast"))
-        assertTrue(text.contains("Créneau retenu : MATIN"))
+        assertFalse(text.contains("Créneau retenu"))
         assertTrue(text.contains("Pause 1 : 10:00 → 10:30 [NON PAYÉE, MANUELLE]"))
         assertTrue(text.contains("Temps retenu : 07h 37m"))
-        assertTrue(text.contains("Temps payé : 07h 37m"))
+        assertTrue(text.contains("Temps payé : 07h 07m"))
     }
 
     @Test

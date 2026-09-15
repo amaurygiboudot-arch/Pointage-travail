@@ -218,6 +218,8 @@ object V2SalaryAdapter {
   val monthEnd=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0);add(Calendar.MONTH,1)}.timeInMillis
   val selected=sessions.filter{s->val start=s.countedEntryMs?:return@filter false;val end=s.countedExitMs?:return@filter false;s.employerId in ids&&s.realExitMs!=null&&end>start&&start<monthEnd&&end>monthStart}
   val warnings=mutableListOf<String>()
+  val paidTimeReliable=selected.all{s->PaidWorkAllocationV2.isReliableForRange(s,monthStart,monthEnd)}
+  if(!paidTimeReliable)warnings+="Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
   val entryDate=contract.hireDateEpochDay?.let(LocalDate::ofEpochDay)
   val grossAssessment=MonthlySalaryProrationV2.assess(entryDate,referenceDate)
@@ -230,7 +232,7 @@ object V2SalaryAdapter {
    if(premium.sunday.resolution.considered.isNotEmpty())warnings+=premium.sunday.warnings
    if(premium.publicHoliday.resolution.considered.isNotEmpty())warnings+=premium.publicHoliday.warnings
   }
-  val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true&&runtimeReliable
+  val baseMonthlyGrossReliable=grossAssessment.exactMonthlyGrossAvailable&&absenceImpact?.requiresPayrollReview!=true&&runtimeReliable&&paidTimeReliable
   data class W(var paid:Int=0,var night:Int=0,var sat:Int=0,var sun:Int=0,var holiday:Int=0)
   val weeks=linkedMapOf<Pair<Int,Int>,W>()
   val historical=ruleHistory?.allVersions(convention.idcc)?.isNotEmpty()==true

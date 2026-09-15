@@ -1,7 +1,5 @@
 package com.amaury.pointage.v2.engine
 
-import com.amaury.pointage.v2.model.DecisionStatusV2
-import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
 /** Moteur Temps HoraTrack V2 : source unique des calculs de présence et de temps payé. */
@@ -17,7 +15,9 @@ data class TimeResultV2(
     val paidWorkMs: Long,
     val unpaidPauseMs: Long,
     val paidPauseMs: Long,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    /** Faux dès qu'une information nécessaire au temps payé reste inconnue ou à confirmer. */
+    val reliable: Boolean = true
 )
 
 object DefaultTimeEngineV2 : TimeEngineV2 {
@@ -45,35 +45,40 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         }
 
         if (countedStart == null || countedEnd == null || countedEnd <= countedStart) {
-            return TimeResultV2(presenceMs, 0L, 0L, 0L, 0L, warnings.distinct())
+            return TimeResultV2(
+                presenceMs = presenceMs,
+                countedSpanMs = 0L,
+                paidWorkMs = 0L,
+                unpaidPauseMs = 0L,
+                paidPauseMs = 0L,
+                warnings = warnings.distinct(),
+                reliable = false
+            )
         }
 
-        val confirmed = session.pauses.filter { it.status == DecisionStatusV2.CONFIRMED }
-        val unresolved = session.pauses.count { it.status == DecisionStatusV2.TO_CONFIRM || it.paid == null }
-        if (unresolved > 0) warnings += "$unresolved pause(s) à confirmer"
-
-        val unpaidIntervals = mergeIntervals(
-            confirmed.filter { it.paid == false }.mapNotNull { clippedPause(it, countedStart, countedEnd, nowMs) }
+        val pauseResolution = PaidPauseResolutionV2.resolve(
+            pauses = session.pauses,
+            rangeStartMs = countedStart,
+            rangeEndMs = countedEnd,
+            openPauseEndMs = nowMs
         )
-        val paidIntervals = mergeIntervals(
-            confirmed.filter { it.paid == true }.mapNotNull { clippedPause(it, countedStart, countedEnd, nowMs) }
-        )
+        if (pauseResolution.unresolvedCount > 0) {
+            warnings += "${pauseResolution.unresolvedCount} pause(s) à confirmer : temps payé non fiable"
+        }
 
-        val explicitUnpaidMs = duration(unpaidIntervals)
-        val teamPaidAllowanceMs = if (WorkTimePolicyV2.isTeamShift(countedStart)) {
-            explicitUnpaidMs.coerceAtMost(WorkTimePolicyV2.TEAM_PAID_PAUSE_ALLOWANCE_MS)
-        } else 0L
-        val effectiveExplicitUnpaidMs = (explicitUnpaidMs - teamPaidAllowanceMs).coerceAtLeast(0L)
-        if (teamPaidAllowanceMs > 0L) warnings += "Pause d'équipe : ${teamPaidAllowanceMs / 60_000L} min comptées comme temps payé"
-
+        val explicitUnpaidMs = PaidPauseResolutionV2.duration(pauseResolution.unpaidIntervals)
         val importedFixedMs = session.legacyFixedUnpaidPauseMs.coerceAtLeast(0L)
         if (importedFixedMs > 0L) warnings += "Déduction fixe historique importée"
-        val unpaidPauseMs = (effectiveExplicitUnpaidMs + importedFixedMs).coerceAtMost(countedSpanMs)
+        val unpaidPauseMs = (explicitUnpaidMs + importedFixedMs).coerceAtMost(countedSpanMs)
 
-        val explicitPaidMs = (duration(paidIntervals) - overlapDuration(paidIntervals, unpaidIntervals))
-            .coerceAtLeast(0L)
-        val paidPauseMs = (explicitPaidMs + teamPaidAllowanceMs)
-            .coerceAtMost(countedSpanMs - unpaidPauseMs)
+        val explicitPaidMs = (
+            PaidPauseResolutionV2.duration(pauseResolution.paidIntervals) -
+                PaidPauseResolutionV2.overlapDuration(
+                    pauseResolution.paidIntervals,
+                    pauseResolution.unpaidIntervals
+                )
+            ).coerceAtLeast(0L)
+        val paidPauseMs = explicitPaidMs.coerceAtMost(countedSpanMs - unpaidPauseMs)
 
         return TimeResultV2(
             presenceMs = presenceMs,
@@ -81,55 +86,13 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
             paidWorkMs = (countedSpanMs - unpaidPauseMs).coerceAtLeast(0L),
             unpaidPauseMs = unpaidPauseMs,
             paidPauseMs = paidPauseMs,
-            warnings = warnings.distinct()
+            warnings = warnings.distinct(),
+            reliable = pauseResolution.reliable
         )
     }
 
     private fun validDuration(start: Long?, end: Long?): Long {
         if (start == null || end == null || start <= 0L || end <= start) return 0L
         return end - start
-    }
-
-    private fun clippedPause(pause: PauseV2, rangeStart: Long, rangeEnd: Long, nowMs: Long): Pair<Long, Long>? {
-        val pauseEnd = pause.endMs ?: nowMs
-        val start = maxOf(pause.startMs, rangeStart)
-        val end = minOf(pauseEnd, rangeEnd)
-        return if (pause.startMs > 0L && end > start) start to end else null
-    }
-
-    private fun mergeIntervals(input: List<Pair<Long, Long>>): List<Pair<Long, Long>> {
-        if (input.isEmpty()) return emptyList()
-        val sorted = input.filter { it.second > it.first }.sortedBy { it.first }
-        if (sorted.isEmpty()) return emptyList()
-        val out = mutableListOf<Pair<Long, Long>>()
-        var start = sorted.first().first
-        var end = sorted.first().second
-        for (i in 1 until sorted.size) {
-            val (nextStart, nextEnd) = sorted[i]
-            if (nextStart <= end) end = maxOf(end, nextEnd)
-            else {
-                out += start to end
-                start = nextStart
-                end = nextEnd
-            }
-        }
-        out += start to end
-        return out
-    }
-
-    private fun duration(intervals: List<Pair<Long, Long>>): Long =
-        intervals.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
-
-    private fun overlapDuration(a: List<Pair<Long, Long>>, b: List<Pair<Long, Long>>): Long {
-        var total = 0L
-        var i = 0
-        var j = 0
-        while (i < a.size && j < b.size) {
-            val start = maxOf(a[i].first, b[j].first)
-            val end = minOf(a[i].second, b[j].second)
-            if (end > start) total += end - start
-            if (a[i].second <= b[j].second) i++ else j++
-        }
-        return total
     }
 }

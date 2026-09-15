@@ -6,6 +6,7 @@ import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -29,21 +30,7 @@ class TimeEngineV2Test {
     fun `ancienne entree quinze cinq connue est reparee sans toucher une autre valeur`() {
         assertEquals(at(6, 0), WorkTimePolicyV2.repairKnownCountedEntry(at(6, 8), at(6, 15)))
         assertEquals(at(6, 7), WorkTimePolicyV2.repairKnownCountedEntry(at(6, 8), at(6, 7)))
-    }
-
-    @Test
-    fun `poste matin commence aussi a cinq heures`() {
-        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 0)))
-        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(5, 30)))
-        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(at(6, 30)))
-        assertEquals(WorkTimePolicyV2.ShiftKind.DAY, WorkTimePolicyV2.shiftKind(at(7, 0)))
-    }
-
-    @Test
-    fun `ancienne entree cinq heures quinze est reparee et reste un poste matin`() {
-        val repaired = WorkTimePolicyV2.repairKnownCountedEntry(at(5, 8), at(5, 15))
-        assertEquals(at(5, 0), repaired)
-        assertEquals(WorkTimePolicyV2.ShiftKind.MORNING, WorkTimePolicyV2.shiftKind(repaired!!))
+        assertEquals(at(5, 0), WorkTimePolicyV2.repairKnownCountedEntry(at(5, 8), at(5, 15)))
     }
 
     @Test
@@ -84,10 +71,11 @@ class TimeEngineV2Test {
         assertEquals(30 * minute, result.unpaidPauseMs)
         assertEquals(15 * minute, result.paidPauseMs)
         assertEquals(7 * 60 * minute + 30 * minute, result.paidWorkMs)
+        assertTrue(result.reliable)
     }
 
     @Test
-    fun `pause de trente minutes du poste matin reste temps paye`() {
+    fun `pause non payee est deduite meme si entree a six heures`() {
         val session = closedSession(
             baseMs = morningBase,
             pauses = listOf(
@@ -97,14 +85,32 @@ class TimeEngineV2Test {
 
         val result = DefaultTimeEngineV2.calculate(session)
 
-        assertEquals(0L, result.unpaidPauseMs)
-        assertEquals(30 * minute, result.paidPauseMs)
-        assertEquals(8 * 60 * minute, result.paidWorkMs)
-        assertTrue(result.warnings.any { it.contains("Pause d'équipe") })
+        assertEquals(30 * minute, result.unpaidPauseMs)
+        assertEquals(0L, result.paidPauseMs)
+        assertEquals(7 * 60 * minute + 30 * minute, result.paidWorkMs)
+        assertTrue(result.reliable)
+        assertFalse(result.warnings.any { it.contains("Pause d'équipe") })
     }
 
     @Test
-    fun `journee signalee six huit treize trente sept compte sept heures trente sept`() {
+    fun `pause explicitement payee reste payee meme si entree a six heures`() {
+        val session = closedSession(
+            baseMs = morningBase,
+            pauses = listOf(
+                PauseV2(morningBase + 4 * 60 * minute, morningBase + 270 * minute, true, EventSourceV2.MANUAL)
+            )
+        )
+
+        val result = DefaultTimeEngineV2.calculate(session)
+
+        assertEquals(0L, result.unpaidPauseMs)
+        assertEquals(30 * minute, result.paidPauseMs)
+        assertEquals(8 * 60 * minute, result.paidWorkMs)
+        assertTrue(result.reliable)
+    }
+
+    @Test
+    fun `journee signalee six huit treize trente sept deduit la pause explicite`() {
         val session = WorkSessionV2(
             id = "reported-day",
             employerId = "employer",
@@ -121,13 +127,13 @@ class TimeEngineV2Test {
         val result = DefaultTimeEngineV2.calculate(session)
 
         assertEquals(7 * 60 * minute + 37 * minute, result.countedSpanMs)
-        assertEquals(0L, result.unpaidPauseMs)
-        assertEquals(30 * minute, result.paidPauseMs)
-        assertEquals(7 * 60 * minute + 37 * minute, result.paidWorkMs)
+        assertEquals(30 * minute, result.unpaidPauseMs)
+        assertEquals(0L, result.paidPauseMs)
+        assertEquals(7 * 60 * minute + 7 * minute, result.paidWorkMs)
     }
 
     @Test
-    fun `pause equipe de quarante cinq minutes ne deduit que quinze minutes`() {
+    fun `pause non payee de quarante cinq minutes est deduite en entier`() {
         val session = closedSession(
             baseMs = morningBase,
             pauses = listOf(
@@ -137,20 +143,20 @@ class TimeEngineV2Test {
 
         val result = DefaultTimeEngineV2.calculate(session)
 
-        assertEquals(15 * minute, result.unpaidPauseMs)
-        assertEquals(30 * minute, result.paidPauseMs)
-        assertEquals(8 * 60 * minute - 15 * minute, result.paidWorkMs)
+        assertEquals(45 * minute, result.unpaidPauseMs)
+        assertEquals(0L, result.paidPauseMs)
+        assertEquals(8 * 60 * minute - 45 * minute, result.paidWorkMs)
     }
 
     @Test
-    fun `pause a confirmer nest pas deduite et produit un avertissement`() {
+    fun `pause a confirmer ne devient ni payee ni non payee et rend le resultat non fiable`() {
         val session = closedSession(
             baseMs = dayBase,
             pauses = listOf(
                 PauseV2(
                     startMs = dayBase + 2 * 60 * minute,
                     endMs = dayBase + 150 * minute,
-                    paid = false,
+                    paid = null,
                     source = EventSourceV2.MANUAL,
                     status = DecisionStatusV2.TO_CONFIRM
                 )
@@ -160,12 +166,14 @@ class TimeEngineV2Test {
         val result = DefaultTimeEngineV2.calculate(session)
 
         assertEquals(0L, result.unpaidPauseMs)
+        assertEquals(0L, result.paidPauseMs)
         assertEquals(8 * 60 * minute, result.paidWorkMs)
-        assertTrue(result.warnings.any { it.contains("pause(s) à confirmer") })
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.any { it.contains("temps payé non fiable") })
     }
 
     @Test
-    fun `pauses non payees de jour qui se chevauchent ne sont deduites quune fois`() {
+    fun `pauses non payees qui se chevauchent ne sont deduites quune fois`() {
         val session = closedSession(
             baseMs = dayBase,
             pauses = listOf(
@@ -178,6 +186,27 @@ class TimeEngineV2Test {
 
         assertEquals(45 * minute, result.unpaidPauseMs)
         assertEquals(8 * 60 * minute - 45 * minute, result.paidWorkMs)
+    }
+
+    @Test
+    fun `temps et allocation paie partagent la meme interpretation des pauses`() {
+        val session = closedSession(
+            baseMs = morningBase,
+            pauses = listOf(
+                PauseV2(morningBase + 120 * minute, morningBase + 150 * minute, false, EventSourceV2.MANUAL),
+                PauseV2(morningBase + 180 * minute, morningBase + 195 * minute, true, EventSourceV2.MANUAL)
+            )
+        )
+
+        val time = DefaultTimeEngineV2.calculate(session)
+        val payroll = PaidWorkAllocationV2.paidOverlapResult(
+            session,
+            session.countedEntryMs!!,
+            session.countedExitMs!!
+        )
+
+        assertEquals(time.paidWorkMs, payroll.paidMs)
+        assertEquals(time.reliable, payroll.reliable)
     }
 
     @Test
