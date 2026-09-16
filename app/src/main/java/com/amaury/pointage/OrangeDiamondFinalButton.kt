@@ -1,9 +1,12 @@
 package com.amaury.pointage
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.util.AttributeSet
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 
 class OrangeDiamondFinalButton @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = android.R.attr.buttonStyle
@@ -12,6 +15,13 @@ class OrangeDiamondFinalButton @JvmOverloads constructor(
     init {
         contentDescription = "Pause"
         setOnClickListener {
+            if (HoraTrackV2.ENABLED) {
+                context.startActivity(Intent(context, PauseActionActivity::class.java).apply {
+                    if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                })
+                return@setOnClickListener
+            }
+
             if (!PointageStore.hasOpen(context)) {
                 Toast.makeText(context, "Commence d'abord une entrée", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
