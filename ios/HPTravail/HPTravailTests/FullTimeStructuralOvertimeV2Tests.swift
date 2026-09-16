@@ -119,6 +119,20 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertTrue(result.grossReliable)
     }
 
+    func testPayrollEngineTierStartCanProvideFullTimeRegularReference() throws {
+        let result = try PayrollEngineV2.calculate(
+            contract: fullTimeContract(),
+            weeks: [],
+            rules: PayrollRulesV2(overtimeTiers: legalTiers)
+        )
+
+        XCTAssertEqual(result.regularGross, 1516.6667, accuracy: 0.01)
+        XCTAssertEqual(result.overtimeGross, 216.6667, accuracy: 0.01)
+        XCTAssertEqual(result.grossEstimate, 1733.3334, accuracy: 0.01)
+        XCTAssertTrue(result.grossReliable)
+        XCTAssertFalse(result.traces.contains { $0.contains("seuil hebdomadaire régulier non confirmé") })
+    }
+
     func testPayrollEngineMissingFullTimeTierKeepsEstimateButFailsClosed() throws {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
