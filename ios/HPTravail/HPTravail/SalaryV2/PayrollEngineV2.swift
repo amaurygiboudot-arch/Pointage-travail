@@ -211,9 +211,19 @@ enum PayrollEngineV2 {
         guard let rate = contract.grossHourlyRate else { throw PayrollEngineErrorV2.missingHourlyRate }
         guard rate > 0, rate.isFinite else { throw PayrollEngineErrorV2.invalidHourlyRate }
 
-        let fullTimeTierRegularLimit: Int? = contract.type == .fullTime
+        let fullTimeTierCandidate: Int? = contract.type == .fullTime
             ? rules.overtimeTiers.map(\.fromMinutes).filter { $0 > 0 }.min()
             : nil
+        let fullTimeTierRegularLimit: Int?
+        if let candidate = fullTimeTierCandidate,
+           OvertimeCoverageV2.isStructurallyValid(
+               regularLimitMinutes: candidate,
+               tiers: rules.overtimeTiers
+           ) {
+            fullTimeTierRegularLimit = candidate
+        } else {
+            fullTimeTierRegularLimit = nil
+        }
         let confirmedRegularLimit = rules.weeklyRegularMinutes ?? fullTimeTierRegularLimit
         guard let regularLimit = confirmedRegularLimit ?? contract.contractualWeeklyMinutes else {
             throw PayrollEngineErrorV2.missingWeeklyDuration
