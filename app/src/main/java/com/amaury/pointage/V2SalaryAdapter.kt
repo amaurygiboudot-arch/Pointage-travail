@@ -55,10 +55,10 @@ object V2SalaryAdapter {
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
  internal fun resolveFullTimeRegularReference(confirmedWeeklyRegularMinutes:Int?,overtimeTiers:List<ConventionCatalog.OvertimeTier>,contractualWeeklyMinutes:Int?):FullTimeRegularReference {
-  val confirmed=confirmedWeeklyRegularMinutes?.takeIf{it>0}
-  if(confirmed!=null)return FullTimeRegularReference(confirmed,true)
-  val tierStart=overtimeTiers.firstOrNull()?.fromHour?.times(60.0)?.roundToInt()?.takeIf{it>0}
-  if(tierStart!=null)return FullTimeRegularReference(tierStart,true)
+  if(confirmedWeeklyRegularMinutes!=null)return FullTimeRegularReference(confirmedWeeklyRegularMinutes,true)
+  val engineTiers=overtimeTiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)}
+  val tierStart=engineTiers.map{it.fromMinutes}.filter{it>0}.minOrNull()
+  if(tierStart!=null&&OvertimeCoverageV2.isStructurallyValid(tierStart,engineTiers))return FullTimeRegularReference(tierStart,true)
   return FullTimeRegularReference(contractualWeeklyMinutes?.takeIf{it>0},false)
  }
 
