@@ -64,7 +64,41 @@ class FullTimeStructuralOvertimeV2Test {
         )
 
         assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertTrue(result.provisionalRateUsed)
         assertTrue(result.warnings.any { it.contains("plancher de +10 %") })
         assertTrue(result.warnings.any { it.contains("n'est pas le barème supplétif de +25 % puis +50 %") })
+    }
+
+    @Test
+    fun invalidMultiplierIsNeutralizedBeforeStructuralCalculation() {
+        val result=FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes=39*60,
+            regularWeeklyLimit=35*60,
+            paidWeeks=emptyList(),
+            grossHourlyRate=10.0,
+            overtimeTiers=listOf(OvertimeTierV2(35*60,null,0.5))
+        )
+
+        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertTrue(result.provisionalRateUsed)
+        assertTrue(result.warnings.any { it.contains("ambigus ou invalides") })
+    }
+
+    @Test
+    fun overlappingTiersAreNeutralizedBeforeStructuralCalculation() {
+        val result=FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes=39*60,
+            regularWeeklyLimit=35*60,
+            paidWeeks=emptyList(),
+            grossHourlyRate=10.0,
+            overtimeTiers=listOf(
+                OvertimeTierV2(35*60,43*60,1.25),
+                OvertimeTierV2(40*60,null,1.50)
+            )
+        )
+
+        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertTrue(result.provisionalRateUsed)
+        assertTrue(result.warnings.any { it.contains("ambigus ou invalides") })
     }
 }

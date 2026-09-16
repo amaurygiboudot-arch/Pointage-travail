@@ -75,6 +75,37 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("n'est pas le barème supplétif de +25 % puis +50 %") })
     }
 
+    func testInvalidMultiplierIsNeutralizedBeforeStructuralCalculation() {
+        let result = FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes: 39 * 60,
+            regularWeeklyLimit: 35 * 60,
+            paidWeeks: [],
+            grossHourlyRate: 10,
+            overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)]
+        )
+
+        XCTAssertEqual(result.structuralOvertimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertTrue(result.provisionalRateUsed)
+        XCTAssertTrue(result.warnings.contains { $0.contains("ambigus ou invalides") })
+    }
+
+    func testOverlappingTiersAreNeutralizedBeforeStructuralCalculation() {
+        let result = FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes: 39 * 60,
+            regularWeeklyLimit: 35 * 60,
+            paidWeeks: [],
+            grossHourlyRate: 10,
+            overtimeTiers: [
+                OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: 43 * 60, multiplier: 1.25),
+                OvertimeTierV2(fromMinutes: 40 * 60, toMinutes: nil, multiplier: 1.50)
+            ]
+        )
+
+        XCTAssertEqual(result.structuralOvertimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertTrue(result.provisionalRateUsed)
+        XCTAssertTrue(result.warnings.contains { $0.contains("ambigus ou invalides") })
+    }
+
     func testPayrollEngine39hUsesStructuralBaseAndOnlyAddsHoursAboveContract() throws {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
@@ -98,6 +129,21 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertEqual(result.overtimeGross, 190.6667, accuracy: 0.01)
         XCTAssertFalse(result.grossReliable)
         XCTAssertTrue(result.traces.contains { $0.contains("plancher de +10 %") })
+    }
+
+    func testPayrollEngineInvalidFullTimeTierKeepsProvisionalEstimateButFailsClosed() throws {
+        let result = try PayrollEngineV2.calculate(
+            contract: fullTimeContract(),
+            weeks: [],
+            rules: PayrollRulesV2(
+                weeklyRegularMinutes: 35 * 60,
+                overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)]
+            )
+        )
+
+        XCTAssertEqual(result.overtimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertFalse(result.grossReliable)
+        XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
     }
 
     func testPayrollEngineWithoutConfirmedRegularReferenceFailsClosed() throws {

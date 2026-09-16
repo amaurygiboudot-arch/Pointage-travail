@@ -48,13 +48,22 @@ enum FullTimeStructuralOvertimeV2 {
         precondition(grossHourlyRate > 0 && grossHourlyRate.isFinite)
         precondition(minimumFallbackMultiplier >= 1.10 && minimumFallbackMultiplier.isFinite)
 
+        let tiersStructurallyValid = OvertimeCoverageV2.isStructurallyValid(
+            regularLimitMinutes: regularWeeklyLimit,
+            tiers: overtimeTiers
+        )
+        let safeOvertimeTiers = OvertimeCoverageV2.calculationSafeTiers(
+            regularLimitMinutes: regularWeeklyLimit,
+            tiers: overtimeTiers
+        )
+
         let factor = 52.0 / 12.0
         let regularContractMinutes = min(contractualWeeklyMinutes, regularWeeklyLimit)
         let structuralWeekly = ratedBetween(
             upper: contractualWeeklyMinutes,
             lower: regularWeeklyLimit,
             rate: grossHourlyRate,
-            tiers: overtimeTiers,
+            tiers: safeOvertimeTiers,
             fallbackMultiplier: minimumFallbackMultiplier
         )
         let monthlyRegularMinutes = Double(regularContractMinutes) * factor
@@ -67,13 +76,16 @@ enum FullTimeStructuralOvertimeV2 {
                 upper: max(0, paid),
                 lower: max(contractualWeeklyMinutes, regularWeeklyLimit),
                 rate: grossHourlyRate,
-                tiers: overtimeTiers,
+                tiers: safeOvertimeTiers,
                 fallbackMultiplier: minimumFallbackMultiplier
             )
         }
         let variableGross = variableParts.reduce(0.0) { $0 + $1.gross }
         let allRated = [structuralWeekly] + variableParts
-        let warnings = unique(allRated.flatMap(\.warnings))
+        var warnings = unique(allRated.flatMap(\.warnings))
+        if !tiersStructurallyValid && !overtimeTiers.isEmpty {
+            warnings.append("Paliers d'heures supplémentaires ambigus ou invalides : ils sont neutralisés et toute tranche concernée reste provisoire à confirmer.")
+        }
 
         return Result(
             monthlyBaseGross: monthlyBaseGross,
@@ -84,7 +96,7 @@ enum FullTimeStructuralOvertimeV2 {
             structuralTiers: aggregate([structuralWeekly], monthly: true, factor: factor),
             variableTiers: aggregate(variableParts, monthly: false, factor: factor),
             provisionalRateUsed: allRated.contains { $0.provisionalRateUsed },
-            warnings: warnings
+            warnings: unique(warnings)
         )
     }
 

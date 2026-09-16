@@ -248,6 +248,11 @@ enum PayrollEngineV2 {
             paidWeeks: weeks.map(\.paidMinutes),
             tiers: rules.overtimeTiers
         )
+        let safeOvertimeTiers = OvertimeCoverageV2.calculationSafeTiers(
+            regularLimitMinutes: regularLimit,
+            tiers: rules.overtimeTiers
+        )
+        let overtimeTiersRejected = !rules.overtimeTiers.isEmpty && safeOvertimeTiers.isEmpty
 
         var regularMinutes = 0
         var overtimeGross = 0.0
@@ -258,11 +263,7 @@ enum PayrollEngineV2 {
             let paid = max(0, week.paidMinutes)
             regularMinutes += min(paid, regularLimit)
 
-            for tier in rules.overtimeTiers {
-                guard tier.fromMinutes >= regularLimit else { throw PayrollEngineErrorV2.invalidOvertimeTier }
-                guard tier.multiplier >= 1, tier.multiplier.isFinite else {
-                    throw PayrollEngineErrorV2.invalidMultiplier
-                }
+            for tier in safeOvertimeTiers {
                 let end = tier.toMinutes ?? Int.max
                 let minutes = max(0, min(paid, end) - max(regularLimit, tier.fromMinutes))
                 if minutes > 0 {
@@ -280,7 +281,9 @@ enum PayrollEngineV2 {
         let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
 
         traces.append("Temps payé V2 + durée contractuelle/règles confirmées")
-        if rules.overtimeTiers.isEmpty {
+        if overtimeTiersRejected {
+            traces.append("Paliers d'heures supplémentaires ambigus ou invalides : aucune majoration issue de ces paliers n'est appliquée.")
+        } else if rules.overtimeTiers.isEmpty {
             traces.append("Aucune majoration d'heures supplémentaires appliquée : règle non fournie")
         }
         if !overtimeCoverageReliable {

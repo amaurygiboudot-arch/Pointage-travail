@@ -28,13 +28,18 @@ object FullTimeStructuralOvertimeV2 {
         require(grossHourlyRate>0.0)
         require(minimumFallbackMultiplier>=1.10)
 
+        // Réutilise la même barrière canonique que PayrollEngineV2 : un jeu de paliers ambigu
+        // ou invalide ne doit jamais alimenter directement un montant, quelle que soit la plateforme.
+        val tiersStructurallyValid=OvertimeCoverageV2.isStructurallyValid(regularWeeklyLimit,overtimeTiers)
+        val safeOvertimeTiers=OvertimeCoverageV2.calculationSafeTiers(regularWeeklyLimit,overtimeTiers)
+
         val factor=52.0/12.0
         val regularContractMinutes=minOf(contractualWeeklyMinutes,regularWeeklyLimit)
         val structuralWeekly=ratedBetween(
             upper=contractualWeeklyMinutes,
             lower=regularWeeklyLimit,
             rate=grossHourlyRate,
-            tiers=overtimeTiers,
+            tiers=safeOvertimeTiers,
             fallbackMultiplier=minimumFallbackMultiplier
         )
         val monthlyRegularMinutes=regularContractMinutes*factor
@@ -47,13 +52,18 @@ object FullTimeStructuralOvertimeV2 {
                 upper=paid.coerceAtLeast(0),
                 lower=maxOf(contractualWeeklyMinutes,regularWeeklyLimit),
                 rate=grossHourlyRate,
-                tiers=overtimeTiers,
+                tiers=safeOvertimeTiers,
                 fallbackMultiplier=minimumFallbackMultiplier
             )
         }
         val variableGross=variableParts.sumOf{it.gross}
         val allRated=listOf(structuralWeekly)+variableParts
-        val warnings=allRated.flatMap{it.warnings}.distinct()
+        val warnings=buildList {
+            addAll(allRated.flatMap{it.warnings})
+            if(!tiersStructurallyValid&&overtimeTiers.isNotEmpty()) {
+                add("Paliers d'heures supplémentaires ambigus ou invalides : ils sont neutralisés et toute tranche concernée reste provisoire à confirmer.")
+            }
+        }.distinct()
 
         fun aggregate(parts:List<Rated>,monthly:Boolean):List<TierAmount> = parts
             .flatMap{it.tiers}

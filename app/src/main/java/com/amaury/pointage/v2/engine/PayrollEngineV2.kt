@@ -40,7 +40,11 @@ data class PayrollResultV2(
 /**
  * Calcul déterministe : aucune durée ou majoration n'est supposée.
  * Le seuil hebdomadaire vient d'abord d'une règle confirmée, sinon du contrat.
- * Les majorations restent à zéro tant qu'aucun palier n'a été fourni.
+ * Les majorations restent à zéro tant qu'aucun palier exploitable n'a été fourni.
+ *
+ * Un jeu de paliers ambigu (chevauchement, borne ou multiplicateur invalide) est neutralisé au lieu
+ * d'être double-compté ou de faire tomber le calcul. La couche de fiabilité amont reste responsable
+ * de signaler que le brut doit être confirmé.
  *
  * Les minutes de jour férié et leur multiplicateur sont distincts du dimanche. Le moteur ne décide
  * pas lui-même des règles de cumul : seuls les multiplicateurs déjà arbitrés doivent lui être fournis.
@@ -66,6 +70,9 @@ object PayrollEngineV2 {
             ?: error("Durée hebdomadaire contractuelle/règle obligatoire")
         require(regularLimit > 0) { "Durée hebdomadaire invalide" }
 
+        val safeOvertimeTiers = OvertimeCoverageV2.calculationSafeTiers(regularLimit, rules.overtimeTiers)
+        val overtimeTiersRejected = rules.overtimeTiers.isNotEmpty() && safeOvertimeTiers.isEmpty()
+
         var regularMinutes = 0
         var overtimeGross = 0.0
         var extras = 0.0
@@ -76,9 +83,7 @@ object PayrollEngineV2 {
             val regular = minOf(paid, regularLimit)
             regularMinutes += regular
 
-            rules.overtimeTiers.forEach { tier ->
-                require(tier.fromMinutes >= regularLimit) { "Palier d'heures supplémentaires incohérent" }
-                require(tier.multiplier >= 1.0) { "Multiplicateur d'heures supplémentaires invalide" }
+            safeOvertimeTiers.forEach { tier ->
                 val end = tier.toMinutes ?: Int.MAX_VALUE
                 val minutes = (minOf(paid, end) - maxOf(regularLimit, tier.fromMinutes)).coerceAtLeast(0)
                 if (minutes > 0) overtimeGross += minutes / 60.0 * rate * tier.multiplier
@@ -111,7 +116,10 @@ object PayrollEngineV2 {
         val deductionsTotal = deductions.sumOf { it.amount }.coerceAtLeast(0.0)
 
         trace += "Temps payé V2 + durée contractuelle/règles confirmées"
-        if (rules.overtimeTiers.isEmpty()) trace += "Aucune majoration d'heures supplémentaires appliquée : règle non fournie"
+        when {
+            overtimeTiersRejected -> trace += "Paliers d'heures supplémentaires ambigus ou invalides : aucune majoration issue de ces paliers n'est appliquée."
+            rules.overtimeTiers.isEmpty() -> trace += "Aucune majoration d'heures supplémentaires appliquée : règle non fournie"
+        }
         if (baskets.isNotEmpty()) trace += "Paniers suivis séparément du brut estimé"
 
         return PayrollResultV2(
