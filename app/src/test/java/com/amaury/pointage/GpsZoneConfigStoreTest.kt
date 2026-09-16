@@ -66,7 +66,7 @@ class GpsZoneConfigStoreTest {
         assertEquals("workplace_1", zone.id)
         assertEquals(46.7, zone.latitude, 0.0)
         assertEquals(-1.4, zone.longitude, 0.0)
-        assertEquals(175f, zone.radius)
+        assertEquals(175f, zone.radius, 0f)
         assertEquals("12 rue des Lilas", zone.address)
         assertEquals(2, zone.companySlot)
         assertEquals("POSTE", zone.pointTypeToken)
@@ -80,7 +80,7 @@ class GpsZoneConfigStoreTest {
         )
 
         assertTrue(result is GpsZonesReadResult.Valid)
-        assertEquals(150f, (result as GpsZonesReadResult.Valid).zones.single().radius)
+        assertEquals(150f, (result as GpsZonesReadResult.Valid).zones.single().radius, 0f)
     }
 
     @Test
