@@ -8,7 +8,7 @@ final class PayrollEngineV2Tests: XCTestCase {
         ContractV2(
             id: "contract-a",
             employerId: "company-a",
-            type: .fullTime,
+            type: .other,
             contractualWeeklyMinutes: 35 * 60,
             grossHourlyRate: rate,
             hireDateEpochDay: nil
