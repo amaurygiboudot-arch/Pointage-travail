@@ -91,6 +91,14 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun pendingPauseActivity(context: Context, widgetId: Int): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                widgetId * 10 + 2,
+                Intent(context, PauseActionActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
         private fun applyDynamicState(context: Context, views: RemoteViews) {
             val dark = AppThemeCatalog.useDarkPalette(context)
             val (adaptiveText, _) = adaptiveWidgetTextColors(context, dark)
@@ -195,7 +203,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_location, openSettings)
             views.setOnClickPendingIntent(R.id.widget_status_area, openApp)
             views.setOnClickPendingIntent(R.id.widget_entry_inner, pendingBroadcast(context, widgetId, ACTION_ENTRY, 1))
-            views.setOnClickPendingIntent(R.id.widget_pause_inner, pendingBroadcast(context, widgetId, ACTION_PAUSE, 2))
+            views.setOnClickPendingIntent(
+                R.id.widget_pause_inner,
+                if (HoraTrackV2.ENABLED) pendingPauseActivity(context, widgetId)
+                else pendingBroadcast(context, widgetId, ACTION_PAUSE, 2)
+            )
             views.setOnClickPendingIntent(R.id.widget_exit_inner, pendingBroadcast(context, widgetId, ACTION_EXIT, 3))
 
             val theme = AppThemeCatalog.current(context)
@@ -287,8 +299,24 @@ class PointageWidgetProvider : AppWidgetProvider() {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     } else {
                         val wasPaused = session.pauses.any { it.endMs == null }
-                        if (V2RuntimeStore.togglePause(context)) {
-                            Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                        if (wasPaused) {
+                            val changed = V2RuntimeStore.togglePause(context)
+                            Toast.makeText(
+                                context,
+                                if (changed) "Travail repris" else "Pause non modifiée : statut à vérifier",
+                                if (changed) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            val launched = runCatching {
+                                context.startActivity(
+                                    Intent(context, PauseActionActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                true
+                            }.getOrDefault(false)
+                            if (!launched) {
+                                Toast.makeText(context, "Ouvre HoraTrack pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 } else {
