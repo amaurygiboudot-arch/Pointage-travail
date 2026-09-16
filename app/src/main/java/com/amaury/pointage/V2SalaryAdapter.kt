@@ -52,6 +52,15 @@ import kotlin.math.roundToInt
 object V2SalaryAdapter {
  data class TierDuration(val label:String,val durationMs:Long,val multiplier:Double)
  data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null)
+ data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
+
+ internal fun resolveFullTimeRegularReference(confirmedWeeklyRegularMinutes:Int?,overtimeTiers:List<ConventionCatalog.OvertimeTier>,contractualWeeklyMinutes:Int?):FullTimeRegularReference {
+  if(confirmedWeeklyRegularMinutes!=null)return FullTimeRegularReference(confirmedWeeklyRegularMinutes,true)
+  val engineTiers=overtimeTiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)}
+  val tierStart=engineTiers.map{it.fromMinutes}.filter{it>0}.minOrNull()
+  if(tierStart!=null&&OvertimeCoverageV2.isStructurallyValid(tierStart,engineTiers))return FullTimeRegularReference(tierStart,true)
+  return FullTimeRegularReference(contractualWeeklyMinutes?.takeIf{it>0},false)
+ }
 
  internal fun legalPayrollSourceWarnings(snapshot:LegalPayrollSourceStoreV2.Snapshot):List<String> = when {
   !snapshot.reliable -> snapshot.warnings.distinct().ifEmpty {
@@ -313,8 +322,10 @@ object V2SalaryAdapter {
     }
    }
   }
-  val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->hr?.weeklyRegularMinutes?:35*60;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
+  val fullTimeRegularReference=if(isFullTime)resolveFullTimeRegularReference(hr?.weeklyRegularMinutes,tiers,contract.contractualWeeklyMinutes)else null
+  val regularLimit=when{isPartTime->contract.contractualWeeklyMinutes;isFullTime->fullTimeRegularReference?.minutes;else->hr?.weeklyRegularMinutes?:contract.contractualWeeklyMinutes?:tiers.firstOrNull()?.fromHour?.times(60)?.roundToInt()}
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
+  if(isFullTime&&fullTimeRegularReference?.reliable==false)warnings+="Temps plein : seuil hebdomadaire régulier non confirmé par une règle amont ; la durée contractuelle est utilisée comme seuil technique et le brut reste à confirmer."
   val baseRules=(hr?.copy(weeklyRegularMinutes=regularLimit)?:PayrollRulesV2(weeklyRegularMinutes=regularLimit,overtimeTiers=tiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)})).copy(
    nightMultiplier=nightRule?.multiplier,saturdayMultiplier=saturdayRule?.multiplier,sundayMultiplier=sundayRule?.multiplier,publicHolidayMultiplier=publicHolidayRule?.multiplier
   )
@@ -349,7 +360,7 @@ object V2SalaryAdapter {
   val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
-  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
+  val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
 
   val monthlyMinutes=contract.contractualWeeklyMinutes?.let{it*52.0/12.0}
   val partTimeBase=if(isPartTime)monthlyMinutes?.div(60.0)?.times(rate)else null
@@ -446,7 +457,7 @@ object V2SalaryAdapter {
   )
  }
 
- internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false,genericOvertimeCoverageReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&genericOvertimeCoverageReliable&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
+ internal fun monthlyGrossReliability(baseReliable:Boolean,provisionalOvertimeRateUsed:Boolean,arbitrationRequired:Boolean,arbitrationResolved:Boolean,cumulReviewRequired:Boolean=false,runtimeReliable:Boolean=true,provisionalComplementaryRateUsed:Boolean=false,genericOvertimeCoverageReliable:Boolean=true,fullTimeRegularReferenceReliable:Boolean=true):Boolean = baseReliable&&runtimeReliable&&!provisionalOvertimeRateUsed&&!provisionalComplementaryRateUsed&&genericOvertimeCoverageReliable&&fullTimeRegularReferenceReliable&&(!arbitrationRequired||arbitrationResolved)&&!cumulReviewRequired
 
  private fun premiumSourceTraces(snapshot:CollectivePremiumLegalArbitrationBridgeV2.Snapshot?,forfait:Boolean):List<String>{
   if(snapshot==null)return emptyList()
