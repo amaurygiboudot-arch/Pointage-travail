@@ -19,7 +19,10 @@ import android.view.Surface
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
+import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.CelestialTrackingPolicyV2
 import kotlin.math.abs
@@ -31,10 +34,14 @@ import kotlin.math.sin
  *
  * Cette couche centralise :
  * - localisation réelle, avec mises à jour tant qu'un consommateur est actif ;
+ * - arbitrage entre les providers sans laisser une mesure non qualifiée écraser
+ *   une position encore valide ;
  * - orientation du téléphone ;
  * - rotation réelle de l'écran ;
  * - correction Nord magnétique -> Nord vrai ;
- * - snapshot astronomique V2.
+ * - stabilisation du cap utilisé par tous les rendus célestes ;
+ * - qualification explicite de la fiabilité et de la fraîcheur du cap ;
+ * - snapshot astronomique V2 rafraîchi indépendamment du GPS.
  *
  * Le rendu n'a donc plus à deviner l'orientation ou la position de l'utilisateur.
  */
@@ -50,12 +57,18 @@ object CelestialTrackerV2 {
         val devicePitchDeg: Float,
         val deviceRollDeg: Float,
         val magneticDeclinationDeg: Float,
+        /** Incertitude de cap annoncée par TYPE_ROTATION_VECTOR, en degrés. */
+        val headingAccuracyDeg: Float?,
+        /** Age monotone du dernier repère d'orientation effectivement produit. */
+        val headingAgeMs: Long?,
+        val headingQuality: CelestialHeadingQualityV2,
         val deviceFrame: CelestialDeviceFrameV2?
     ) {
         val hasRealSky: Boolean
             get() = snapshot != null &&
                 locationQuality == CelestialLocationQualityV2.VALID &&
-                deviceFrame != null
+                deviceFrame != null &&
+                CelestialHeadingPolicyV2.isUsable(headingQuality)
     }
 
     private val observers = LinkedHashMap<Any, (State) -> Unit>()
@@ -73,12 +86,17 @@ object CelestialTrackerV2 {
     private var locationAccuracyMeters: Float? = null
     private var locationProvider: String? = null
     private var latestLiveLocation: Location? = null
+    private var resolvedLocation: Location? = null
+    private var lastLocationRecheckElapsedMs = Long.MIN_VALUE
 
     private var deviceAzimuthDeg = 0f
     private var filteredAzimuthDeg = Float.NaN
     private var devicePitchDeg = 0f
     private var deviceRollDeg = 0f
     private var magneticDeclinationDeg = 0f
+    private var headingAccuracyDeg: Float? = null
+    private var headingSensorReportedUnreliable = false
+    private var lastOrientationElapsedMs = Long.MIN_VALUE
     private var deviceFrame: CelestialDeviceFrameV2? = null
     private var lastDisplayRotationMatrix: FloatArray? = null
 
@@ -90,19 +108,35 @@ object CelestialTrackerV2 {
     private var lastEmittedPitch = Float.NaN
     private var lastEmittedRoll = Float.NaN
 
-    private const val CELESTIAL_REFRESH_MS = 30_000L
+    /**
+     * Le ciel évolue continuellement avec le temps : on recalcule l'éphéméride
+     * chaque seconde, sans pour autant relire tous les providers GPS chaque seconde.
+     */
+    private const val ASTRONOMY_REFRESH_MS = 1_000L
+    private const val LOCATION_RECHECK_MS = 30_000L
     private const val LOCATION_MIN_TIME_MS = 30_000L
     private const val LOCATION_MIN_DISTANCE_M = 25f
     private const val MIN_RENDER_INTERVAL_MS = 90L
     private const val MIN_ORIENTATION_DELTA_DEG = 0.8f
-    private const val AZIMUTH_DEAD_ZONE_DEG = 2.5f
-    private const val AZIMUTH_SMOOTHING = 0.35f
+    private const val AZIMUTH_DEAD_ZONE_DEG = 0.40f
+    private const val AZIMUTH_SMOOTH_SMALL = 0.34f
+    private const val AZIMUTH_SMOOTH_MEDIUM = 0.55f
+    private const val AZIMUTH_SMOOTH_LARGE = 0.78f
 
     private val refreshTask = object : Runnable {
         override fun run() {
             if (observers.isEmpty()) return
-            refreshLocationAndAstronomy(notify = true)
-            mainHandler.postDelayed(this, CELESTIAL_REFRESH_MS)
+
+            val elapsedNow = SystemClock.elapsedRealtime()
+            if (lastLocationRecheckElapsedMs == Long.MIN_VALUE ||
+                elapsedNow - lastLocationRecheckElapsedMs >= LOCATION_RECHECK_MS
+            ) {
+                refreshLocationAndAstronomy(notify = true)
+                lastLocationRecheckElapsedMs = elapsedNow
+            } else {
+                refreshAstronomyOnly(notify = true)
+            }
+            mainHandler.postDelayed(this, ASTRONOMY_REFRESH_MS)
         }
     }
 
@@ -114,8 +148,9 @@ object CelestialTrackerV2 {
             startSensors()
             startLocationUpdates()
             refreshLocationAndAstronomy(notify = false)
+            lastLocationRecheckElapsedMs = SystemClock.elapsedRealtime()
             mainHandler.removeCallbacks(refreshTask)
-            mainHandler.postDelayed(refreshTask, CELESTIAL_REFRESH_MS)
+            mainHandler.postDelayed(refreshTask, ASTRONOMY_REFRESH_MS)
         }
         observer(currentStateInternal())
     }
@@ -157,6 +192,12 @@ object CelestialTrackerV2 {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ROTATION_VECTOR -> {
+                        headingSensorReportedUnreliable =
+                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                        headingAccuracyDeg = event.values.getOrNull(4)
+                            ?.takeIf { it.isFinite() && it >= 0f }
+                            ?.let { Math.toDegrees(it.toDouble()).toFloat() }
+
                         SensorManager.getRotationMatrixFromVector(rawRotationMatrix, event.values)
                         if (remapForDisplay(rawRotationMatrix, displayRotationMatrix)) {
                             SensorManager.getOrientation(displayRotationMatrix, orientation)
@@ -170,19 +211,37 @@ object CelestialTrackerV2 {
                     }
 
                     Sensor.TYPE_MAGNETIC_FIELD -> {
+                        headingSensorReportedUnreliable =
+                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                        headingAccuracyDeg = null
                         magneticValues = event.values.copyOf()
                         updateFallbackOrientation(rawRotationMatrix, displayRotationMatrix, orientation)
                     }
                 }
             }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR ||
+                    sensor?.type == Sensor.TYPE_MAGNETIC_FIELD
+                ) {
+                    headingSensorReportedUnreliable =
+                        accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                    if (headingSensorReportedUnreliable) {
+                        // On conserve séparément le diagnostic d'Android : null peut
+                        // aussi vouloir dire « précision numérique non fournie ».
+                        headingAccuracyDeg = null
+                    }
+                    notifyObservers()
+                }
+            }
         }
         sensorListener = listener
 
         if (rotationSensor != null) {
             manager.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
         } else if (accelSensor != null && magneticSensor != null) {
+            // Secours pour les appareils sans capteur de rotation fusionné.
+            headingAccuracyDeg = null
             manager.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
             manager.registerListener(listener, magneticSensor, SensorManager.SENSOR_DELAY_UI)
         }
@@ -196,8 +255,13 @@ object CelestialTrackerV2 {
         locationManager = manager
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                latestLiveLocation = location
-                applyLocation(location, System.currentTimeMillis(), notify = true)
+                val now = System.currentTimeMillis()
+                latestLiveLocation = selectPreferredLocation(
+                    sequenceOf(latestLiveLocation, location).filterNotNull(),
+                    now
+                )
+                lastLocationRecheckElapsedMs = SystemClock.elapsedRealtime()
+                applyLocation(latestLiveLocation, now, notify = true)
             }
 
             override fun onProviderEnabled(provider: String) = Unit
@@ -208,11 +272,13 @@ object CelestialTrackerV2 {
         }
         locationListener = listener
 
-        runCatching {
-            manager.getProviders(true)
-                .filter { it != LocationManager.PASSIVE_PROVIDER }
-                .distinct()
-                .forEach { provider ->
+        // Un provider défaillant ne doit pas empêcher les autres de s'enregistrer.
+        runCatching { manager.getProviders(true) }
+            .getOrDefault(emptyList())
+            .filter { it != LocationManager.PASSIVE_PROVIDER }
+            .distinct()
+            .forEach { provider ->
+                runCatching {
                     manager.requestLocationUpdates(
                         provider,
                         LOCATION_MIN_TIME_MS,
@@ -221,7 +287,7 @@ object CelestialTrackerV2 {
                         Looper.getMainLooper()
                     )
                 }
-        }
+            }
     }
 
     private fun updateFallbackOrientation(
@@ -273,11 +339,18 @@ object CelestialTrackerV2 {
 
     private fun updateOrientation(rotationMatrix: FloatArray, orientation: FloatArray) {
         lastDisplayRotationMatrix = rotationMatrix.copyOf()
-        val magneticAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-        deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
+        lastOrientationElapsedMs = SystemClock.elapsedRealtime()
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(rotationMatrix, magneticDeclinationDeg)
+
+        // Le cap ne vient volontairement plus de l'Euler azimuth orientation[0].
+        // Près d'une posture verticale, cet angle peut devenir numériquement
+        // instable. On construit d'abord le frame Nord vrai, puis on en déduit le
+        // prolongement horizontal du haut du cadran, déjà testé pour rester continu.
+        val rawTrueNorthFrame = buildTrueNorthFrame(rotationMatrix, magneticDeclinationDeg)
+        val rawTrueHeading = CelestialScreenGeometryV2.headingFromFrame(rawTrueNorthFrame).toFloat()
+        deviceAzimuthDeg = stabilizeAzimuth(rawTrueHeading)
+        deviceFrame = rawTrueNorthFrame.copy(stabilizedHeadingDeg = deviceAzimuthDeg.toDouble())
         emitOrientationIfNeeded()
     }
 
@@ -285,14 +358,19 @@ object CelestialTrackerV2 {
         val matrix = lastDisplayRotationMatrix ?: return
         val orientation = FloatArray(3)
         SensorManager.getOrientation(matrix, orientation)
-        val magneticAzimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-        deviceAzimuthDeg = stabilizeAzimuth(magneticAzimuth + magneticDeclinationDeg)
         devicePitchDeg = Math.toDegrees(orientation[1].toDouble()).toFloat().coerceIn(-90f, 90f)
         deviceRollDeg = Math.toDegrees(orientation[2].toDouble()).toFloat().coerceIn(-90f, 90f)
-        deviceFrame = buildTrueNorthFrame(matrix, magneticDeclinationDeg)
+
+        val rawTrueNorthFrame = buildTrueNorthFrame(matrix, magneticDeclinationDeg)
+        val rawTrueHeading = CelestialScreenGeometryV2.headingFromFrame(rawTrueNorthFrame).toFloat()
+        deviceAzimuthDeg = stabilizeAzimuth(rawTrueHeading)
+        deviceFrame = rawTrueNorthFrame.copy(stabilizedHeadingDeg = deviceAzimuthDeg.toDouble())
     }
 
-    private fun buildTrueNorthFrame(matrix: FloatArray, declinationDeg: Float): CelestialDeviceFrameV2 {
+    private fun buildTrueNorthFrame(
+        matrix: FloatArray,
+        declinationDeg: Float
+    ): CelestialDeviceFrameV2 {
         fun trueAxis(eastMag: Float, northMag: Float, up: Float): Triple<Double, Double, Double> {
             val angle = Math.toRadians(declinationDeg.toDouble())
             val c = cos(angle)
@@ -327,9 +405,19 @@ object CelestialTrackerV2 {
             filteredAzimuthDeg = normalizedRaw
             return filteredAzimuthDeg
         }
+
         val delta = shortestDelta(filteredAzimuthDeg, normalizedRaw)
-        if (abs(delta) < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuthDeg
-        filteredAzimuthDeg = normalize(filteredAzimuthDeg + delta * AZIMUTH_SMOOTHING)
+        val magnitude = abs(delta)
+        if (magnitude < AZIMUTH_DEAD_ZONE_DEG) return filteredAzimuthDeg
+
+        // Petit mouvement : filtre le bruit magnétique. Grande rotation volontaire :
+        // rattrapage plus rapide pour que le ciel ne reste pas visiblement en retard.
+        val smoothing = when {
+            magnitude >= 35f -> AZIMUTH_SMOOTH_LARGE
+            magnitude >= 8f -> AZIMUTH_SMOOTH_MEDIUM
+            else -> AZIMUTH_SMOOTH_SMALL
+        }
+        filteredAzimuthDeg = normalize(filteredAzimuthDeg + delta * smoothing)
         return filteredAzimuthDeg
     }
 
@@ -352,6 +440,10 @@ object CelestialTrackerV2 {
         notifyObservers()
     }
 
+    /**
+     * Relit périodiquement la meilleure position disponible puis recalcule le ciel.
+     * Le temps astronomique reste un instant Unix réel : il est indépendant du fuseau.
+     */
     private fun refreshLocationAndAstronomy(notify: Boolean) {
         val context = appContext ?: return
         val now = System.currentTimeMillis()
@@ -361,28 +453,25 @@ object CelestialTrackerV2 {
             return
         }
 
-        val lastKnown = bestLastKnownLocation(context)
-        val candidate = sequenceOf(latestLiveLocation, lastKnown)
-            .filterNotNull()
-            .maxByOrNull { it.time }
+        val lastKnown = bestLastKnownLocation(context, now)
+        val candidate = selectPreferredLocation(
+            sequenceOf(latestLiveLocation, lastKnown).filterNotNull(),
+            now
+        )
         applyLocation(candidate, now, notify)
     }
 
-    private fun applyLocation(location: Location?, now: Long, notify: Boolean) {
-        val context = appContext ?: return
-        val hasPermission = hasLocationPermission(context)
-        val accuracy = location?.takeIf { it.hasAccuracy() }?.accuracy
+    /** Recalcule seulement l'éphéméride avec la position déjà qualifiée. */
+    private fun refreshAstronomyOnly(notify: Boolean) {
+        val now = System.currentTimeMillis()
+        updateLocationQuality(resolvedLocation, now)
+        snapshot = buildSnapshot(resolvedLocation, now)
+        if (notify) notifyObservers()
+    }
 
-        locationQuality = CelestialTrackingPolicyV2.classify(
-            hasPermission = hasPermission,
-            hasLocation = location != null,
-            nowMs = now,
-            locationTimeMs = location?.time,
-            accuracyMeters = accuracy
-        )
-        locationAgeMs = location?.time?.let { now - it }
-        locationAccuracyMeters = accuracy
-        locationProvider = location?.provider
+    private fun applyLocation(location: Location?, now: Long, notify: Boolean) {
+        resolvedLocation = location
+        updateLocationQuality(location, now)
 
         if (locationQuality == CelestialLocationQualityV2.VALID && location != null) {
             magneticDeclinationDeg = runCatching {
@@ -396,20 +485,84 @@ object CelestialTrackerV2 {
             rebuildTrueNorthFromLastMatrix()
         }
 
-        snapshot = if (locationQuality == CelestialLocationQualityV2.VALID && location != null && HoraTrackV2.ENABLED) {
-            runCatching {
-                HoraTrackV2.celestial.snapshot(
-                    latitudeDeg = location.latitude,
-                    longitudeDeg = location.longitude,
-                    timeMs = now,
-                    observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
-                )
-            }.getOrNull()
-        } else {
-            null
-        }
-
+        snapshot = buildSnapshot(location, now)
         if (notify) notifyObservers()
+    }
+
+    private fun updateLocationQuality(location: Location?, nowWallMs: Long) {
+        val context = appContext ?: return
+        val hasPermission = hasLocationPermission(context)
+        val accuracy = location?.takeIf { it.hasAccuracy() }?.accuracy
+        val ageMs = locationAgeMs(location, nowWallMs)
+
+        locationQuality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = hasPermission,
+            hasLocation = location != null,
+            locationAgeMs = ageMs,
+            accuracyMeters = accuracy
+        )
+        locationAgeMs = ageMs
+        locationAccuracyMeters = accuracy
+        locationProvider = location?.provider
+    }
+
+    /**
+     * Utilise l'horloge monotone Android pour mesurer l'âge GPS quand le provider
+     * l'a fourni. Le fallback wall-clock ne sert qu'aux très anciennes locations
+     * artificielles/appareils où elapsedRealtimeNanos n'est pas exploitable.
+     */
+    private fun locationAgeMs(location: Location?, nowWallMs: Long): Long? {
+        location ?: return null
+        val sampleElapsedNanos = location.elapsedRealtimeNanos
+        if (sampleElapsedNanos > 0L) {
+            return (SystemClock.elapsedRealtimeNanos() - sampleElapsedNanos) / 1_000_000L
+        }
+        return location.time
+            .takeIf { it > 0L }
+            ?.let { nowWallMs - it }
+    }
+
+    /**
+     * Sélectionne la meilleure mesure sans confondre « plus récente » et
+     * « utilisable ». Une mesure hors tolérance ne peut donc plus faire disparaître
+     * le ciel si une autre position qualifiée est encore disponible.
+     */
+    private fun selectPreferredLocation(
+        locations: Sequence<Location>,
+        nowWallMs: Long
+    ): Location? {
+        var selected: Location? = null
+        locations.forEach { candidate ->
+            val current = selected
+            if (current == null) {
+                selected = candidate
+            } else {
+                val replace = CelestialTrackingPolicyV2.shouldReplaceLocation(
+                    currentAgeMs = locationAgeMs(current, nowWallMs),
+                    currentAccuracyMeters = current.takeIf { it.hasAccuracy() }?.accuracy,
+                    candidateAgeMs = locationAgeMs(candidate, nowWallMs),
+                    candidateAccuracyMeters = candidate.takeIf { it.hasAccuracy() }?.accuracy
+                )
+                if (replace) selected = candidate
+            }
+        }
+        return selected
+    }
+
+    private fun buildSnapshot(location: Location?, now: Long): CelestialSnapshotV2? {
+        if (locationQuality != CelestialLocationQualityV2.VALID ||
+            location == null ||
+            !HoraTrackV2.ENABLED
+        ) return null
+
+        return runCatching {
+            HoraTrackV2.celestial.snapshot(
+                latitudeDeg = location.latitude,
+                longitudeDeg = location.longitude,
+                timeMs = now,
+                observerAltitudeMeters = if (location.hasAltitude()) location.altitude else 0.0
+            )
+        }.getOrNull()
     }
 
     private fun hasLocationPermission(context: Context): Boolean {
@@ -418,27 +571,43 @@ object CelestialTrackerV2 {
         return fine || coarse
     }
 
-    private fun bestLastKnownLocation(context: Context): Location? {
+    private fun bestLastKnownLocation(context: Context, nowWallMs: Long): Location? {
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return runCatching {
-            manager.getProviders(true)
-                .mapNotNull { provider -> runCatching { manager.getLastKnownLocation(provider) }.getOrNull() }
-                .maxByOrNull { it.time }
-        }.getOrNull()
+        val locations = runCatching { manager.getProviders(true) }
+            .getOrDefault(emptyList())
+            .mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
+            }
+        return selectPreferredLocation(locations.asSequence(), nowWallMs)
     }
 
-    private fun currentStateInternal(): State = State(
-        snapshot = snapshot,
-        locationQuality = locationQuality,
-        locationAgeMs = locationAgeMs,
-        locationAccuracyMeters = locationAccuracyMeters,
-        locationProvider = locationProvider,
-        deviceAzimuthDeg = deviceAzimuthDeg,
-        devicePitchDeg = devicePitchDeg,
-        deviceRollDeg = deviceRollDeg,
-        magneticDeclinationDeg = magneticDeclinationDeg,
-        deviceFrame = deviceFrame
-    )
+    private fun currentStateInternal(): State {
+        val headingAgeMs = lastOrientationElapsedMs
+            .takeIf { it != Long.MIN_VALUE }
+            ?.let { SystemClock.elapsedRealtime() - it }
+        val headingQuality = CelestialHeadingPolicyV2.classify(
+            hasOrientation = deviceFrame != null,
+            headingAgeMs = headingAgeMs,
+            sensorReportedUnreliable = headingSensorReportedUnreliable,
+            headingAccuracyDeg = headingAccuracyDeg
+        )
+
+        return State(
+            snapshot = snapshot,
+            locationQuality = locationQuality,
+            locationAgeMs = locationAgeMs,
+            locationAccuracyMeters = locationAccuracyMeters,
+            locationProvider = locationProvider,
+            deviceAzimuthDeg = deviceAzimuthDeg,
+            devicePitchDeg = devicePitchDeg,
+            deviceRollDeg = deviceRollDeg,
+            magneticDeclinationDeg = magneticDeclinationDeg,
+            headingAccuracyDeg = headingAccuracyDeg,
+            headingAgeMs = headingAgeMs,
+            headingQuality = headingQuality,
+            deviceFrame = deviceFrame
+        )
+    }
 
     private fun notifyObservers() {
         val state = currentStateInternal()
@@ -453,6 +622,15 @@ object CelestialTrackerV2 {
         magneticValues = null
         lastDisplayRotationMatrix = null
         deviceFrame = null
+        headingAccuracyDeg = null
+        headingSensorReportedUnreliable = false
+        lastOrientationElapsedMs = Long.MIN_VALUE
+        filteredAzimuthDeg = Float.NaN
+        deviceAzimuthDeg = 0f
+        lastEmitUptimeMs = 0L
+        lastEmittedAzimuth = Float.NaN
+        lastEmittedPitch = Float.NaN
+        lastEmittedRoll = Float.NaN
 
         val manager = locationManager
         val listener = locationListener
@@ -461,6 +639,9 @@ object CelestialTrackerV2 {
         }
         locationListener = null
         locationManager = null
+        latestLiveLocation = null
+        resolvedLocation = null
+        lastLocationRecheckElapsedMs = Long.MIN_VALUE
         mainHandler.removeCallbacks(refreshTask)
     }
 
