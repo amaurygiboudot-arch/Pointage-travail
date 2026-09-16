@@ -142,19 +142,22 @@ final class PayrollEngineV2Tests: XCTestCase {
         XCTAssertEqual(result.grossEstimate, 3_000, accuracy: 0.001)
     }
 
-    func testInvalidOvertimeMultiplierIsRejected() {
-        XCTAssertThrowsError(
-            try PayrollEngineV2.calculate(
-                contract: hourlyContract(),
-                weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
-                rules: PayrollRulesV2(
-                    overtimeTiers: [
-                        OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)
-                    ]
-                )
+    func testInvalidOvertimeMultiplierIsNeutralizedAndMarksGrossUnreliable() throws {
+        let result = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
+            rules: PayrollRulesV2(
+                overtimeTiers: [
+                    OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)
+                ]
             )
-        ) { error in
-            XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidMultiplier)
-        }
+        )
+
+        XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
+        XCTAssertEqual(result.overtimeGross, 0, accuracy: 0.001)
+        XCTAssertEqual(result.grossEstimate, 350, accuracy: 0.001)
+        XCTAssertFalse(result.grossReliable)
+        XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
+        XCTAssertTrue(result.traces.contains { $0.contains("brut reste à confirmer") })
     }
 }

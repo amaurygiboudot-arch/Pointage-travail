@@ -229,6 +229,17 @@ enum PayrollEngineV2 {
             )
         }
 
+        let overtimeCoverageReliable = OvertimeCoverageV2.areWeeksFullyCovered(
+            regularLimitMinutes: regularLimit,
+            paidWeeks: weeks.map(\.paidMinutes),
+            tiers: rules.overtimeTiers
+        )
+        let safeOvertimeTiers = OvertimeCoverageV2.calculationSafeTiers(
+            regularLimitMinutes: regularLimit,
+            tiers: rules.overtimeTiers
+        )
+        let overtimeTiersRejected = !rules.overtimeTiers.isEmpty && safeOvertimeTiers.isEmpty
+
         var regularMinutes = 0
         var overtimeGross = 0.0
         var extras = 0.0
@@ -238,11 +249,7 @@ enum PayrollEngineV2 {
             let paid = max(0, week.paidMinutes)
             regularMinutes += min(paid, regularLimit)
 
-            for tier in rules.overtimeTiers {
-                guard tier.fromMinutes >= regularLimit else { throw PayrollEngineErrorV2.invalidOvertimeTier }
-                guard tier.multiplier >= 1, tier.multiplier.isFinite else {
-                    throw PayrollEngineErrorV2.invalidMultiplier
-                }
+            for tier in safeOvertimeTiers {
                 let end = tier.toMinutes ?? Int.max
                 let minutes = max(0, min(paid, end) - max(regularLimit, tier.fromMinutes))
                 if minutes > 0 {
@@ -260,8 +267,13 @@ enum PayrollEngineV2 {
         let deductionsTotal = max(0, deductions.reduce(0.0) { $0 + $1.amount })
 
         traces.append("Temps payé V2 + durée contractuelle/règles confirmées")
-        if rules.overtimeTiers.isEmpty {
+        if overtimeTiersRejected {
+            traces.append("Paliers d'heures supplémentaires ambigus ou invalides : aucune majoration issue de ces paliers n'est appliquée.")
+        } else if rules.overtimeTiers.isEmpty {
             traces.append("Aucune majoration d'heures supplémentaires appliquée : règle non fournie")
+        }
+        if !overtimeCoverageReliable {
+            traces.append("Heures supplémentaires : certaines minutes au-delà du seuil hebdomadaire ne sont couvertes par aucun palier confirmé ou les paliers se chevauchent ; aucune majoration n'est inventée pour les minutes non couvertes et le brut reste à confirmer.")
         }
         if !baskets.isEmpty {
             traces.append("Paniers suivis séparément du brut estimé")
@@ -277,7 +289,7 @@ enum PayrollEngineV2 {
             deductions: deductionsTotal,
             netBeforeUnknownContributions: max(0, gross - deductionsTotal),
             complementaryMinutes: 0,
-            grossReliable: true,
+            grossReliable: overtimeCoverageReliable,
             traces: traces
         )
     }
