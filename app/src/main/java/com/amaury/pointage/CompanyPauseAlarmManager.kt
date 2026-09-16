@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.RuntimePauseIntegrityV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.EventSourceV2
@@ -32,6 +33,7 @@ object CompanyPauseAlarmManager {
     private const val EVENT_END = "end"
     private const val CHANNEL_ID = "pause_reminders"
     private const val STATE_PREFS = "horatrack_v2_company_pause"
+    private const val STATE_RUNTIME_START = "runtimeStartMs"
 
     fun scheduleAll(context: Context) {
         ensureNotificationChannel(context)
@@ -80,6 +82,10 @@ object CompanyPauseAlarmManager {
         }
         confirmedCompanies(context).forEach { company ->
             for (pauseIndex in 1..2) {
+                // Annule aussi l'identité V2 historique (basée uniquement sur requestCode) afin
+                // qu'une mise à jour ne laisse pas une ancienne alarme en concurrence avec la nouvelle.
+                alarm.cancel(pendingV2LegacyIdentity(context, company.id, pauseIndex, EVENT_START))
+                alarm.cancel(pendingV2LegacyIdentity(context, company.id, pauseIndex, EVENT_END))
                 alarm.cancel(pendingV2(context, company.id, pauseIndex, EVENT_START))
                 alarm.cancel(pendingV2(context, company.id, pauseIndex, EVENT_END))
             }
@@ -113,6 +119,30 @@ object CompanyPauseAlarmManager {
     }
 
     private fun pendingV2(context: Context, companyId: String, pauseIndex: Int, event: String): PendingIntent {
+        val eventOffset = if (event == EVENT_END) 1 else 0
+        val requestCode = 31 * companyId.hashCode() + pauseIndex * 10 + eventOffset
+        val identity = android.net.Uri.Builder()
+            .scheme("horatrack")
+            .authority("company-pause-v2")
+            .appendPath(companyId)
+            .appendPath(pauseIndex.toString())
+            .appendPath(event)
+            .build()
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            Intent(context, CompanyPauseAlarmReceiver::class.java)
+                .setAction(ACTION)
+                .setData(identity)
+                .putExtra(EXTRA_COMPANY_ID, companyId)
+                .putExtra(EXTRA_PAUSE, pauseIndex)
+                .putExtra(EXTRA_EVENT, event),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    /** Identité utilisée avant l'ajout d'une URI unique ; uniquement pour annulation à la migration. */
+    private fun pendingV2LegacyIdentity(context: Context, companyId: String, pauseIndex: Int, event: String): PendingIntent {
         val eventOffset = if (event == EVENT_END) 1 else 0
         val requestCode = 31 * companyId.hashCode() + pauseIndex * 10 + eventOffset
         return PendingIntent.getBroadcast(
@@ -175,15 +205,24 @@ object CompanyPauseAlarmManager {
         companyId: String,
         pauseIndex: Int,
         active: Boolean,
-        paid: Boolean = false
-    ) {
+        paid: Boolean = false,
+        runtimeStartMs: Long? = null
+    ): Boolean {
+        if (active && (runtimeStartMs == null || runtimeStartMs <= 0L)) return false
         val editor = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("active", active)
             .putString("companyId", companyId)
             .remove("company")
             .putInt("pause", pauseIndex)
-        if (active) editor.putBoolean("paid", paid) else editor.remove("paid")
-        editor.apply()
+        if (active) {
+            editor.putBoolean("paid", paid)
+            editor.putLong(STATE_RUNTIME_START, runtimeStartMs!!)
+        } else {
+            editor.remove("paid")
+            editor.remove(STATE_RUNTIME_START)
+        }
+        // État critique pour la fermeture automatique : persistance synchrone avant la fin du receiver.
+        return editor.commit()
     }
 
     internal fun markAutomaticPause(context: Context, company: Int, pauseIndex: Int, active: Boolean) {
@@ -192,6 +231,7 @@ object CompanyPauseAlarmManager {
             .putInt("company", company)
             .remove("companyId")
             .remove("paid")
+            .remove(STATE_RUNTIME_START)
             .putInt("pause", pauseIndex)
             .apply()
     }
@@ -207,6 +247,13 @@ object CompanyPauseAlarmManager {
         if (!isAutomaticPause(context, companyId, pauseIndex)) return null
         val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
         return if (prefs.contains("paid")) prefs.getBoolean("paid", false) else null
+    }
+
+    internal fun automaticPauseStartMs(context: Context, companyId: String, pauseIndex: Int): Long? {
+        if (!isAutomaticPause(context, companyId, pauseIndex)) return null
+        val prefs = context.getSharedPreferences(STATE_PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(STATE_RUNTIME_START)) return null
+        return runCatching { prefs.getLong(STATE_RUNTIME_START, 0L) }.getOrNull()?.takeIf { it > 0L }
     }
 
     internal fun isAutomaticPause(context: Context, company: Int, pauseIndex: Int): Boolean {
@@ -304,8 +351,14 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
                 CompanyPauseAlarmManager.isStart(event) -> {
                     val configuredPause = CompanyPauseSettingsV2.pause(context, companyId, pauseIndex) ?: return
                     val snap = V2RuntimeStore.snapshot(context).session
+                    val startedAtMs = System.currentTimeMillis()
                     val started = if (snap != null && snap.realExitMs == null && snap.pauses.none { it.endMs == null }) {
-                        V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = configuredPause.paid)
+                        V2RuntimeStore.togglePause(
+                            context,
+                            nowMs = startedAtMs,
+                            source = EventSourceV2.SYSTEM,
+                            paid = configuredPause.paid
+                        )
                     } else false
                     if (started) {
                         CompanyPauseAlarmManager.markAutomaticPause(
@@ -313,7 +366,8 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
                             companyId,
                             pauseIndex,
                             active = true,
-                            paid = configuredPause.paid
+                            paid = configuredPause.paid,
+                            runtimeStartMs = startedAtMs
                         )
                     }
 
@@ -329,15 +383,33 @@ class CompanyPauseAlarmReceiver : BroadcastReceiver() {
 
                 CompanyPauseAlarmManager.isEnd(event) -> {
                     if (CompanyPauseAlarmManager.isAutomaticPause(context, companyId, pauseIndex)) {
-                        val snap = V2RuntimeStore.snapshot(context).session
-                        val automaticPauseOpen = snap != null && snap.realExitMs == null && snap.pauses.any {
-                            it.endMs == null && it.source == EventSourceV2.SYSTEM
+                        val session = V2RuntimeStore.snapshot(context).session
+                        if (session != null && session.realExitMs == null) {
+                            val openPause = session.pauses.singleOrNull { it.endMs == null }
+                            val expectedStartMs = CompanyPauseAlarmManager.automaticPauseStartMs(context, companyId, pauseIndex)
+                            val paid = CompanyPauseAlarmManager.automaticPausePaid(context, companyId, pauseIndex)
+                            when {
+                                openPause == null -> {
+                                    // Déjà fermée par un autre chemin : END rejoué = no-op idempotent.
+                                    CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
+                                }
+                                RuntimePauseIntegrityV2.matchesAutomaticPause(openPause, expectedStartMs) && paid != null -> {
+                                    val closed = V2RuntimeStore.togglePause(
+                                        context,
+                                        source = EventSourceV2.SYSTEM,
+                                        paid = paid
+                                    )
+                                    if (closed) {
+                                        CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
+                                    }
+                                }
+                                expectedStartMs != null -> {
+                                    // L'instance connue n'est plus ouverte : surtout ne pas fermer la pause courante.
+                                    CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
+                                }
+                                else -> Unit // Ancien état sans identité : preuve insuffisante, aucune mutation.
+                            }
                         }
-                        if (automaticPauseOpen) {
-                            val paid = CompanyPauseAlarmManager.automaticPausePaid(context, companyId, pauseIndex) ?: false
-                            V2RuntimeStore.togglePause(context, source = EventSourceV2.SYSTEM, paid = paid)
-                        }
-                        CompanyPauseAlarmManager.markAutomaticPause(context, companyId, pauseIndex, false)
                     }
                 }
             }
