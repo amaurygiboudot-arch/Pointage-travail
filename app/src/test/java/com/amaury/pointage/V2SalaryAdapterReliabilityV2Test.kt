@@ -110,6 +110,33 @@ class V2SalaryAdapterReliabilityV2Test {
     }
 
     @Test
+    fun invalidTierCannotBecomeFullTimeRegularReference() {
+        val reference = V2SalaryAdapter.resolveFullTimeRegularReference(
+            confirmedWeeklyRegularMinutes = null,
+            overtimeTiers = listOf(ConventionCatalog.OvertimeTier(35.0, null, 0.5)),
+            contractualWeeklyMinutes = 39 * 60
+        )
+
+        assertEquals(39 * 60, reference.minutes)
+        assertFalse(reference.reliable)
+    }
+
+    @Test
+    fun overlappingTiersCannotBecomeFullTimeRegularReference() {
+        val reference = V2SalaryAdapter.resolveFullTimeRegularReference(
+            confirmedWeeklyRegularMinutes = null,
+            overtimeTiers = listOf(
+                ConventionCatalog.OvertimeTier(35.0, 43.0, 1.25),
+                ConventionCatalog.OvertimeTier(40.0, null, 1.50)
+            ),
+            contractualWeeklyMinutes = 39 * 60
+        )
+
+        assertEquals(39 * 60, reference.minutes)
+        assertFalse(reference.reliable)
+    }
+
+    @Test
     fun missingRuleAndTierFallsBackToContractWithoutInventing35Hours() {
         val reference = V2SalaryAdapter.resolveFullTimeRegularReference(
             confirmedWeeklyRegularMinutes = null,
