@@ -54,6 +54,14 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun pendingPauseActivity(context: Context, widgetId: Int): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                widgetId * 10 + 2,
+                Intent(context, PauseActionActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
         private fun v2Paused(context: Context): Boolean {
             val session = V2RuntimeStore.snapshot(context).session ?: return false
             return session.realExitMs == null && session.pauses.any { it.endMs == null }
@@ -109,7 +117,11 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             }
 
             views.setOnClickPendingIntent(R.id.quick_entry_inner, pending(context, widgetId, ACTION_ENTRY, 1))
-            views.setOnClickPendingIntent(R.id.quick_pause_inner, pending(context, widgetId, ACTION_PAUSE, 2))
+            views.setOnClickPendingIntent(
+                R.id.quick_pause_inner,
+                if (HoraTrackV2.ENABLED) pendingPauseActivity(context, widgetId)
+                else pending(context, widgetId, ACTION_PAUSE, 2)
+            )
             views.setOnClickPendingIntent(R.id.quick_exit_inner, pending(context, widgetId, ACTION_EXIT, 3))
 
             val paused = if (HoraTrackV2.ENABLED) v2Paused(context) else PointageStore.isPaused(context)
@@ -145,8 +157,25 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     } else {
                         val wasPaused = snap.session.pauses.any { it.endMs == null }
-                        V2RuntimeStore.togglePause(context)
-                        Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                        if (wasPaused) {
+                            val changed = V2RuntimeStore.togglePause(context)
+                            Toast.makeText(
+                                context,
+                                if (changed) "Travail repris" else "Pause non modifiée : statut à vérifier",
+                                if (changed) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            val launched = runCatching {
+                                context.startActivity(
+                                    Intent(context, PauseActionActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                true
+                            }.getOrDefault(false)
+                            if (!launched) {
+                                Toast.makeText(context, "Ouvre HoraTrack pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                 } else {
                     when {
