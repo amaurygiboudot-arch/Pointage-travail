@@ -176,23 +176,23 @@ object GeofenceManager {
     private fun rememberLastGoodZones(context: Context) {
         if (!isAutomaticGpsEnabled(context)) return
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
-        val raw = prefs.getString("zones", "[]") ?: "[]"
-        val hasZones = runCatching { JSONArray(raw).length() > 0 }.getOrDefault(false)
-        if (hasZones) {
-            prefs.edit().putString(LAST_GOOD_ZONES, raw).apply()
-        }
+        val parsed = readPersistedGpsZones(prefs)
+        if (parsed !is GpsZonesReadResult.Valid || parsed.zones.isEmpty()) return
+        val raw = runCatching { prefs.getString("zones", null) }.getOrNull() ?: return
+        prefs.edit().putString(LAST_GOOD_ZONES, raw).apply()
     }
 
     /**
      * Si seul le rayon a été modifié et qu'un géocodage temporaire a vidé la liste
      * des zones, restaure les dernières coordonnées connues puis applique le nouveau
-     * rayon. La restauration n'est autorisée que si la liste des adresses est
-     * strictement identique, afin de ne jamais réutiliser un ancien lieu par erreur.
+     * rayon. La restauration n'est autorisée que si la liste courante est explicitement
+     * valide et vide, et si les adresses sont strictement identiques. Une configuration
+     * absente ou corrompue n'est jamais assimilée à une liste vide.
      */
     private fun recoverRadiusOnlyUpdate(context: Context): List<WorkZone> {
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
-        val currentZones = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }
-            .getOrElse { JSONArray() }
+        val current = readPersistedGpsZones(prefs)
+        if (current !is GpsZonesReadResult.Valid) return emptyList()
 
         val currentAddresses = prefs.getString("address", "")
             .orEmpty()
@@ -202,19 +202,17 @@ object GeofenceManager {
             .map { it.lowercase() }
             .toSet()
 
-        val backup = runCatching { JSONArray(prefs.getString(LAST_GOOD_ZONES, "[]") ?: "[]") }
-            .getOrElse { JSONArray() }
-        if (backup.length() == 0) return emptyList()
+        val backup = readPersistedGpsZones(prefs, LAST_GOOD_ZONES)
+        if (backup !is GpsZonesReadResult.Valid || backup.zones.isEmpty()) return emptyList()
 
-        val backupAddresses = buildSet {
-            for (i in 0 until backup.length()) {
-                val address = backup.optJSONObject(i)?.optString("address")?.trim().orEmpty()
-                if (address.isNotBlank()) add(address.lowercase())
-            }
-        }
+        val backupAddresses = backup.zones
+            .mapNotNull { it.address?.trim()?.takeIf(String::isNotBlank) }
+            .map { it.lowercase() }
+            .toSet()
+
         if (!shouldRecoverAutomaticGpsZones(
                 enabled = prefs.getBoolean("enabled", false),
-                currentZoneCount = currentZones.length(),
+                currentZoneCount = current.zones.size,
                 currentAddresses = currentAddresses,
                 backupAddresses = backupAddresses
             )
@@ -224,15 +222,9 @@ object GeofenceManager {
         val restoredJson = JSONArray()
         val restoredZones = mutableListOf<WorkZone>()
 
-        for (i in 0 until backup.length()) {
-            val old = backup.optJSONObject(i) ?: continue
-            val id = old.optString("id").takeIf { it.isNotBlank() } ?: continue
-            val latitude = old.optDouble("latitude", Double.NaN)
-            val longitude = old.optDouble("longitude", Double.NaN)
-            if (!latitude.isFinite() || !longitude.isFinite()) continue
-
-            restoredJson.put(JSONObject(old.toString()).put("radius", radius))
-            restoredZones += WorkZone(id, latitude, longitude, radius.toFloat())
+        backup.zones.forEach { old ->
+            restoredJson.put(JSONObject(old.sourceJson).put("radius", radius))
+            restoredZones += WorkZone(old.id, old.latitude, old.longitude, radius.toFloat())
         }
 
         if (restoredZones.isEmpty() || !isAutomaticGpsEnabled(context)) return emptyList()
@@ -243,6 +235,15 @@ object GeofenceManager {
             .apply()
 
         return restoredZones
+    }
+
+    /** Retire uniquement les geofences Android, sans tenter de restaurer une configuration. */
+    fun removeRegisteredGeofences(context: Context) {
+        try {
+            LocationServices.getGeofencingClient(context).removeGeofences(pendingIntent(context))
+        } catch (_: Exception) {
+            // L'absence des services de localisation du constructeur ne doit pas bloquer l'application.
+        }
     }
 
     fun remove(context: Context) {
