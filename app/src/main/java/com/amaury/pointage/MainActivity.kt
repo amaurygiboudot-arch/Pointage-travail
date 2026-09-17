@@ -621,6 +621,9 @@ class MainActivity : Activity() {
             return "⚠️ ANALYSE INDISPONIBLE\n${V2RuntimeReader.warningText(read.warnings)}"
         }
         val analytics = com.amaury.pointage.v2.engine.AnalyticsEngineV2.summarize(read.sessions, HoraTrackV2.time, System.currentTimeMillis())
+        if (!analytics.timeTotalsReliable) {
+            return "⚠️ ANALYSE À CONFIRMER\nUne ou plusieurs sessions contiennent une durée ou une pause non certifiable."
+        }
         return "⏱ TOTAL PRÉSENCE : ${formatDuration(analytics.totalPresenceMs)}\n⏱ TOTAL PAYÉ : ${formatDuration(analytics.totalPaidMs)}\n✅ Sessions : ${analytics.sessions}\n⚠️ Avertissements : ${analytics.warnings}"
     }
 
