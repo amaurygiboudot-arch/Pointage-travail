@@ -13,6 +13,9 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeReader
+import com.amaury.pointage.v2.engine.AnalyticsEngineV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -47,7 +50,7 @@ class LocationManagementView @JvmOverloads constructor(
         val contact = contacts.optJSONObject(address)
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
         val radius = prefs.getInt("radius", 150)
-        val total = totalWorkedAt(address)
+        val total = totalWorkedAtText(address)
         return LinearLayout(context).apply {
             orientation = VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(14))
             // Pas de panneau blanc : la photo/le thème reste visible derrière les informations.
@@ -56,7 +59,7 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply { text = "📍 $name"; textSize = 16f; setTextColor(accentText()) })
             addView(TextView(context).apply { text = address; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(5), 0, 0) })
             if (contactName != null) addView(TextView(context).apply { text = "Contact : $contactName"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(7), 0, 0) })
-            addView(TextView(context).apply { text = "Rayon GPS : $radius m   •   Temps travaillé : ${formatDuration(total)}"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(5), 0, 0) })
+            addView(TextView(context).apply { text = "Rayon GPS : $radius m   •   Temps travaillé : $total"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(5), 0, 0) })
         }.also { it.layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) } }
     }
 
@@ -70,9 +73,9 @@ class LocationManagementView @JvmOverloads constructor(
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"; val radius = prefs.getInt("radius", 150)
         val content = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()) }
         fun line(label: String, value: String): TextView = TextView(context).apply { text = "$label\n$value"; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(7), 0, dp(7)); content.addView(this) }
-        line("Nom", name); line("Adresse", address); line("Contact", contactName); line("Téléphone", phone); line("Prévenir à l'arrivée", notify); line("Rayon GPS", "$radius m"); val totalText = line("Temps total travaillé", formatDuration(totalWorkedAt(address)))
+        line("Nom", name); line("Adresse", address); line("Contact", contactName); line("Téléphone", phone); line("Prévenir à l'arrivée", notify); line("Rayon GPS", "$radius m"); val totalText = line("Temps total travaillé", totalWorkedAtText(address))
         val dialog = AlertDialog.Builder(context).setTitle(name).setView(content).setPositiveButton("Fermer", null).setNeutralButton("Modifier") { _, _ -> showEdit(address) }.setNegativeButton("Supprimer") { _, _ -> confirmDelete(address, name) }.create()
-        val handler = Handler(Looper.getMainLooper()); val updater = object : Runnable { override fun run() { if (!dialog.isShowing) return; totalText.text = "Temps total travaillé\n${formatDuration(totalWorkedAt(address))}"; handler.postDelayed(this, 10_000L) } }
+        val handler = Handler(Looper.getMainLooper()); val updater = object : Runnable { override fun run() { if (!dialog.isShowing) return; totalText.text = "Temps total travaillé\n${totalWorkedAtText(address)}"; handler.postDelayed(this, 10_000L) } }
         dialog.setOnShowListener { styleDialog(dialog); handler.post(updater) }; dialog.setOnDismissListener { handler.removeCallbacks(updater); refresh() }; dialog.show()
     }
 
@@ -120,8 +123,16 @@ class LocationManagementView @JvmOverloads constructor(
     private fun registerZones(list: JSONArray) { if (!prefs.getBoolean("enabled", false) || !GeofenceManager.hasRequiredPermissions(context)) return; val workZones = mutableListOf<WorkZone>(); for (i in 0 until list.length()) { val item = list.optJSONObject(i) ?: continue; val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue; val lat = item.optDouble("latitude", Double.NaN); val lon = item.optDouble("longitude", Double.NaN); if (!lat.isFinite() || !lon.isFinite()) continue; val radius = item.optDouble("radius", prefs.getInt("radius", 150).toDouble()).toFloat().coerceIn(50f, 1000f); workZones += WorkZone(id, lat, lon, radius) }; if (workZones.isEmpty()) GeofenceManager.remove(context) else GeofenceManager.registerAll(context, workZones) { _, _ -> } }
     private fun jsonObjectPreference(key: String): JSONObject = runCatching { JSONObject(prefs.getString(key, "{}") ?: "{}") }.getOrElse { JSONObject() }
     private fun savedAddresses(): List<String> = prefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.FRANCE) }
-    private fun totalWorkedAt(address: String): Long { val data = PointageStore.load(context); val now = System.currentTimeMillis(); var total = 0L; for (i in 0 until data.length()) { val item = data.optJSONObject(i) ?: continue; val storedPlace = item.optString("zoneAddress").trim(); if (!matchesAddress(storedPlace, address)) continue; val entry = item.optLong("entry", 0L); if (entry <= 0L) continue; val end = if (item.isNull("exit")) now else item.optLong("exit", entry); total += PointageStore.workedDuration(item, end) }; return total }
-    private fun matchesAddress(storedPlace: String, address: String): Boolean { val wanted = address.trim(); if (storedPlace.equals(wanted, true)) return true; val marker = " — "; return storedPlace.contains(marker) && storedPlace.substringAfterLast(marker).trim().equals(wanted, true) }
+    private fun totalWorkedAtText(address: String): String {
+        if (!HoraTrackV2.ENABLED) return formatDuration(legacyTotalWorkedAt(address))
+        val now = System.currentTimeMillis()
+        val runtime = V2RuntimeReader.allSessions(context, now)
+        if (!runtime.reliable) return "À vérifier"
+        val analytics = AnalyticsEngineV2.summarize(runtime.sessions, HoraTrackV2.time, now)
+        val place = AnalyticsEngineV2.placeTotalForAddress(analytics, address)
+        return if (place.reliable) formatDuration(place.paidMs) else "À confirmer"
+    }
+    private fun legacyTotalWorkedAt(address: String): Long { val data = PointageStore.load(context); val now = System.currentTimeMillis(); var total = 0L; for (i in 0 until data.length()) { val item = data.optJSONObject(i) ?: continue; val storedPlace = item.optString("zoneAddress").trim(); if (!AnalyticsEngineV2.matchesAddress(storedPlace, address)) continue; val entry = item.optLong("entry", 0L); if (entry <= 0L) continue; val end = if (item.isNull("exit")) now else item.optLong("exit", entry); total += PointageStore.workedDuration(item, end) }; return total }
     private fun formatDuration(ms: Long): String { val minutes = ms.coerceAtLeast(0L) / 60000L; return String.format(Locale.FRANCE, "%dh %02d", minutes / 60L, minutes % 60L) }
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

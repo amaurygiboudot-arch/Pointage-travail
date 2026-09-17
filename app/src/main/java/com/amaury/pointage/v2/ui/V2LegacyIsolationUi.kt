@@ -71,7 +71,7 @@ object V2LegacyIsolationUi {
                     append("🔴 ").append(time(s.realExitMs)).append(" SORTIE RÉELLE\n")
                     append("⏱ ").append(time(s.countedExitMs)).append(" SORTIE COMPTÉE\n")
                 } else append("🟢 EN COURS\n")
-                append("Total payé : ").append(duration(r.paidWorkMs))
+                append("Total payé : ").append(if (r.reliable) duration(r.paidWorkMs) else "À CONFIRMER")
             }
         }
     }
@@ -82,6 +82,9 @@ object V2LegacyIsolationUi {
         val sessions = read.sessions
         if (sessions.isEmpty()) return "Aucune donnée HoraTrack à analyser."
         val a = AnalyticsEngineV2.summarize(sessions, HoraTrackV2.time, System.currentTimeMillis())
+        if (!a.timeTotalsReliable) {
+            return "Analyse HoraTrack à confirmer.\nUne ou plusieurs sessions contiennent une durée ou une pause non certifiable."
+        }
         fun duration(ms: Long) = "%02dh %02dm".format(Locale.FRANCE, ms / 3_600_000L, (ms / 60_000L) % 60L)
         return buildString {
             append("HORATRACK\n\n")

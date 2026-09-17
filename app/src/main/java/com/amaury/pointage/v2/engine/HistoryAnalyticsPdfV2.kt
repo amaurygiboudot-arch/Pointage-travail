@@ -9,7 +9,14 @@ object HistoryEngineV2 {
     fun revise(history:List<HistoryEntryV2>,id:String,summary:String):List<HistoryEntryV2> = history + HistoryEntryV2(id,"REVISION",System.currentTimeMillis(),(history.filter{it.id==id}.maxOfOrNull{it.revision}?:0)+1,summary)
 }
 
-data class PlaceAnalyticsV2(val label:String,val paidMs:Long,val presenceMs:Long,val sessions:Int)
+data class PlaceAnalyticsV2(
+    val label:String,
+    val paidMs:Long,
+    val presenceMs:Long,
+    val sessions:Int,
+    /** Faux si une durée incluse dans ce sous-total n'est pas certifiable. */
+    val reliable:Boolean = true
+)
 data class AnalyticsV2(
     val totalPresenceMs:Long,
     val totalPaidMs:Long,
@@ -18,26 +25,44 @@ data class AnalyticsV2(
     val completedSessions:Int,
     val openSessions:Int,
     val warnings:Int,
-    val places:List<PlaceAnalyticsV2>
+    val places:List<PlaceAnalyticsV2>,
+    /** Les totaux de temps ne doivent être affichés que si toutes leurs sessions sont fiables. */
+    val timeTotalsReliable:Boolean = true,
+    /** Les totaux par lieu exigent aussi que chaque session possède un lieu explicite. */
+    val placeTotalsReliable:Boolean = true
 )
 object AnalyticsEngineV2 {
     /** Source unique de vérité pour les vues Analyses et leurs dérivés. */
     fun summarize(sessions:List<WorkSessionV2>,timeEngine:TimeEngineV2,nowMs:Long):AnalyticsV2 {
-        data class PlaceAcc(var paid:Long=0L,var presence:Long=0L,var sessions:Int=0)
+        data class PlaceAcc(
+            var paid:Long=0L,
+            var presence:Long=0L,
+            var sessions:Int=0,
+            var reliable:Boolean=true
+        )
         val places=LinkedHashMap<String,PlaceAcc>()
         var presence=0L;var paid=0L;var unpaid=0L;var warnings=0;var completed=0;var open=0
+        var timeTotalsReliable=true
+        var placeTotalsReliable=true
         sessions.forEach { session ->
             val result=timeEngine.calculate(session,nowMs)
             presence+=result.presenceMs.coerceAtLeast(0L)
             paid+=result.paidWorkMs.coerceAtLeast(0L)
             unpaid+=result.unpaidPauseMs.coerceAtLeast(0L)
             warnings+=result.warnings.size
+            if(!result.reliable) {
+                timeTotalsReliable=false
+                placeTotalsReliable=false
+            }
             if(session.realExitMs==null) open++ else completed++
-            val label=session.placeLabel?.trim()?.takeIf{it.isNotBlank()}?:"Lieu à confirmer"
+            val confirmedPlace=session.placeLabel?.trim()?.takeIf{it.isNotBlank()}
+            if(confirmedPlace==null) placeTotalsReliable=false
+            val label=confirmedPlace?:"Lieu à confirmer"
             val acc=places.getOrPut(label){PlaceAcc()}
             acc.paid+=result.paidWorkMs.coerceAtLeast(0L)
             acc.presence+=result.presenceMs.coerceAtLeast(0L)
             acc.sessions++
+            if(!result.reliable) acc.reliable=false
         }
         return AnalyticsV2(
             totalPresenceMs=presence,
@@ -47,8 +72,37 @@ object AnalyticsEngineV2 {
             completedSessions=completed,
             openSessions=open,
             warnings=warnings,
-            places=places.map{(label,a)->PlaceAnalyticsV2(label,a.paid,a.presence,a.sessions)}
+            places=places.map{(label,a)->PlaceAnalyticsV2(label,a.paid,a.presence,a.sessions,a.reliable)},
+            timeTotalsReliable=timeTotalsReliable,
+            placeTotalsReliable=placeTotalsReliable
         )
+    }
+
+    /**
+     * Sous-total attribué à une adresse enregistrée.
+     *
+     * Une session sans lieu rend l'ensemble des sous-totaux par lieu incomplet : elle pourrait
+     * appartenir à n'importe lequel d'entre eux. Le résultat reste donc non fiable même si les
+     * sessions déjà rattachées à l'adresse sont calculables.
+     */
+    fun placeTotalForAddress(analytics:AnalyticsV2,address:String):PlaceAnalyticsV2 {
+        val matches=analytics.places.filter { matchesAddress(it.label,address) }
+        return PlaceAnalyticsV2(
+            label=address.trim(),
+            paidMs=matches.sumOf { it.paidMs },
+            presenceMs=matches.sumOf { it.presenceMs },
+            sessions=matches.sumOf { it.sessions },
+            reliable=analytics.placeTotalsReliable && matches.all { it.reliable }
+        )
+    }
+
+    internal fun matchesAddress(placeLabel:String,address:String):Boolean {
+        val stored=placeLabel.trim()
+        val wanted=address.trim()
+        if(stored.equals(wanted,ignoreCase=true)) return true
+        val marker=" — "
+        return stored.contains(marker) &&
+            stored.substringAfterLast(marker).trim().equals(wanted,ignoreCase=true)
     }
 }
 

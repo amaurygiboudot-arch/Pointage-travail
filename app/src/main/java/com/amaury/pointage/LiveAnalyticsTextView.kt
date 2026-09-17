@@ -101,6 +101,15 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
         val analyticsNow = pendingExitAt?.coerceAtMost(now) ?: now
 
         val analytics = AnalyticsEngineV2.summarize(safeSessions, HoraTrackV2.time, analyticsNow)
+        if (!analytics.timeTotalsReliable) {
+            return buildString {
+                append("⚠️ ANALYSE À CONFIRMER\n")
+                append("Une ou plusieurs sessions contiennent une durée ou une pause non certifiable. Aucun total partiel n'est présenté comme définitif.")
+                if (staleOpenSessions > 0) {
+                    append("\nSessions anciennes restées ouvertes exclues : ").append(staleOpenSessions)
+                }
+            }
+        }
         return buildString {
             append("⏱ TOTAL PRÉSENCE : ").append(formatDuration(analytics.totalPresenceMs)).append('\n')
             append("⏱ TOTAL TEMPS PAYÉ : ").append(formatDuration(analytics.totalPaidMs)).append('\n')
@@ -113,6 +122,7 @@ class LiveAnalyticsTextView @JvmOverloads constructor(
             }
             append("\nHEURES PAR LIEU\n\n")
             if (analytics.places.isEmpty()) append("Aucune donnée.")
+            else if (!analytics.placeTotalsReliable) append("À CONFIRMER — certaines sessions n'ont pas de lieu attribué.\n")
             else analytics.places.forEach { place ->
                 append("📍 ").append(place.label).append('\n')
                 append("⏱ Payé : ").append(formatDuration(place.paidMs)).append('\n')
