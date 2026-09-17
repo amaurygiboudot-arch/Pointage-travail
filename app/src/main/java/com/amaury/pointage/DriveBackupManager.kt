@@ -8,10 +8,7 @@ import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
-import com.amaury.pointage.v2.V2RuntimeReader
-import com.amaury.pointage.v2.V2RuntimeStore
-import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
+import com.amaury.pointage.v2.V2BackupManager
 import org.json.JSONArray
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -24,6 +21,11 @@ object DriveBackupManager {
     private const val ROOT_FOLDER = "Pointage Travail"
     private val executor = Executors.newSingleThreadExecutor()
     private val storageLock = Any()
+
+    internal enum class SyncOwner { V2_SNAPSHOT, LEGACY_REPORTS }
+
+    internal fun syncOwner(v2Enabled: Boolean): SyncOwner =
+        if (v2Enabled) SyncOwner.V2_SNAPSHOT else SyncOwner.LEGACY_REPORTS
 
     /** Tous les accès au dossier Drive partagé passent par ce verrou unique. */
     internal fun <T> withStorageAccess(block: () -> T): T =
@@ -51,6 +53,10 @@ object DriveBackupManager {
 
     fun syncCurrentMonthAsync(context: Context) {
         if (!isConfigured(context)) return
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+            V2BackupManager.backupIfConfiguredAsync(context)
+            return
+        }
         val app = context.applicationContext
         executor.execute {
             runCatching {
@@ -64,6 +70,19 @@ object DriveBackupManager {
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+            executor.execute {
+                val result = V2BackupManager.backupToConfiguredDrive(app)
+                onDone?.invoke(
+                    result.isSuccess,
+                    result.fold(
+                        onSuccess = { "sauvegarde HoraTrack V2 à jour" },
+                        onFailure = { it.message ?: "Erreur Drive" }
+                    )
+                )
+            }
+            return
+        }
         executor.execute {
             val result = runCatching {
                 withStorageAccess {
@@ -77,12 +96,10 @@ object DriveBackupManager {
     }
 
     private fun loadReliablePointage(context: Context): JSONArray {
-        val all = PointageStore.load(context)
-        if (HoraTrackV2.ENABLED) {
-            val source = V2RuntimeHistoryGuardV2.sourceState()
-            check(source.reliable) { V2RuntimeReader.warningText(source.warnings) }
+        check(syncOwner(HoraTrackV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
+            "Lecture PointageStore interdite : la sauvegarde HoraTrack V2 est propriétaire"
         }
-        return all
+        return PointageStore.load(context)
     }
 
     private fun syncCompletedDays(context: Context) {
@@ -148,8 +165,12 @@ object DriveBackupManager {
         months.forEach { (y, m) -> syncMonthLocked(context, y, m) }
     }
 
-    fun syncMonth(context: Context, year: Int, month: Int) = withStorageAccess {
-        syncMonthLocked(context, year, month)
+    fun syncMonth(context: Context, year: Int, month: Int) {
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+            V2BackupManager.backupToConfiguredDrive(context).getOrThrow()
+            return
+        }
+        withStorageAccess { syncMonthLocked(context, year, month) }
     }
 
     private fun syncMonthLocked(context: Context, year: Int, month: Int) {
@@ -166,11 +187,7 @@ object DriveBackupManager {
         val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
         val pdfUri = ensureFile(context, monthFolder, fileName, "application/pdf")
         context.contentResolver.openOutputStream(pdfUri, "w")?.use { out ->
-            if (HoraTrackV2.ENABLED) {
-                MonthlyPdfReportV2.write(V2RuntimeStore.allSessions(context), year, month, out)
-            } else {
-                MonthlyPdfReport.write(context, all, year, month, out)
-            }
+            MonthlyPdfReport.write(context, all, year, month, out)
         } ?: error("Impossible d'écrire $fileName")
     }
 
