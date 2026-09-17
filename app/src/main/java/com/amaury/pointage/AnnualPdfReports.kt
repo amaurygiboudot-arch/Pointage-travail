@@ -19,6 +19,12 @@ import java.util.Locale
 
 object AnnualPdfReports {
 
+    /** Entrée canonique V2 : aucun chargement ni adaptateur PointageStore. */
+    fun writeWork(context: Context, year: Int, out: OutputStream) {
+        check(HoraTrackV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
+        writeWorkV2(context, year, out)
+    }
+
     /**
      * Bilan annuel du temps de travail.
      * Quand le moteur actuel est actif, aucun calcul WorkReportCalculator n'est utilisé.
@@ -29,7 +35,10 @@ object AnnualPdfReports {
             writeWorkLegacy(context, data, year, out)
             return
         }
+        writeWorkV2(context, year, out)
+    }
 
+    private fun writeWorkV2(context: Context, year: Int, out: OutputStream) {
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val sessions = runtimeSessions.filter { session ->
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
@@ -114,6 +123,17 @@ object AnnualPdfReports {
         writeSalary(context, data, year, out, company = null)
     }
 
+    /** Entrée canonique V2 : aucun chargement ni adaptateur PointageStore. */
+    fun writeSalary(
+        context: Context,
+        year: Int,
+        out: OutputStream,
+        company: SalaryCompanyStore.Company?
+    ) {
+        check(HoraTrackV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
+        writeSalaryV2(context, year, out, company)
+    }
+
     /** Estimation annuelle de rémunération limitée à l'entreprise V2 sélectionnée. */
     fun writeSalary(
         context: Context,
@@ -126,7 +146,15 @@ object AnnualPdfReports {
             writeSalaryLegacy(context, data, year, out)
             return
         }
+        writeSalaryV2(context, year, out, company)
+    }
 
+    private fun writeSalaryV2(
+        context: Context,
+        year: Int,
+        out: OutputStream,
+        company: SalaryCompanyStore.Company?
+    ) {
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
         val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null

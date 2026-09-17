@@ -4,6 +4,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeReader
+import com.amaury.pointage.v2.model.SessionStatusV2
 
 /**
  * Point d'entrée unique de l'environnement des icônes launcher HoraTrack.
@@ -21,7 +24,7 @@ object IconSwitcher {
     private const val KEY_DETAILS = "last_details"
     private const val KEY_TIMESTAMP = "last_timestamp"
 
-    private enum class IconState {
+    internal enum class IconState {
         DEFAULT,
         WORKING,
         PAUSED
@@ -46,14 +49,42 @@ object IconSwitcher {
     fun applyPending(context: Context) = sync(context)
 
     fun sync(context: Context) {
-        val state = when {
-            PointageStore.isPaused(context) -> IconState.PAUSED
-            PointageStore.hasOpen(context) -> IconState.WORKING
-            else -> IconState.DEFAULT
+        val state = if (HoraTrackV2.ENABLED) {
+            val current = V2RuntimeReader.current(context)
+            resolveV2IconState(
+                reliable = current.reliable,
+                status = current.snapshot.session?.status,
+                hasOpenPause = current.snapshot.session?.pauses?.any { it.endMs == null } == true
+            ) ?: run {
+                recordDiagnostic(
+                    context,
+                    success = false,
+                    target = "unchanged",
+                    details = V2RuntimeReader.warningText(current.warnings)
+                )
+                return
+            }
+        } else {
+            when {
+                PointageStore.isPaused(context) -> IconState.PAUSED
+                PointageStore.hasOpen(context) -> IconState.WORKING
+                else -> IconState.DEFAULT
+            }
         }
 
         val target = icons.firstOrNull { it.state == state } ?: fallbackIcon
         setOnly(context, target)
+    }
+
+    internal fun resolveV2IconState(
+        reliable: Boolean,
+        status: SessionStatusV2?,
+        hasOpenPause: Boolean
+    ): IconState? = when {
+        !reliable -> null
+        status == SessionStatusV2.OPEN && hasOpenPause -> IconState.PAUSED
+        status == SessionStatusV2.OPEN -> IconState.WORKING
+        else -> IconState.DEFAULT
     }
 
     private fun setOnly(context: Context, enabledIcon: LauncherIcon) {
@@ -120,10 +151,19 @@ object IconSwitcher {
             failures.joinToString(" | ")
         }
 
-        appContext.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
+        recordDiagnostic(appContext, success, enabledIcon.aliasClassName, details)
+    }
+
+    private fun recordDiagnostic(
+        context: Context,
+        success: Boolean,
+        target: String,
+        details: String
+    ) {
+        context.applicationContext.getSharedPreferences(DIAG_PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_SUCCESS, success)
-            .putString(KEY_TARGET, enabledIcon.aliasClassName)
+            .putString(KEY_TARGET, target)
             .putString(KEY_DETAILS, details)
             .putLong(KEY_TIMESTAMP, System.currentTimeMillis())
             .apply()

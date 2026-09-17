@@ -16,7 +16,9 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2ScheduleStore
+import com.amaury.pointage.v2.model.SessionStatusV2
 import java.util.Locale
 
 class ShiftControlView @JvmOverloads constructor(
@@ -87,14 +89,27 @@ class ShiftControlView @JvmOverloads constructor(
             else -> "Automatique"
         }
         modeButton.text = "Poste : $modeLabel"
-        val data = PointageStore.load(context)
-        var entry = System.currentTimeMillis()
-        for (i in data.length() - 1 downTo 0) {
-            val item = data.optJSONObject(i) ?: continue
-            if (item.optLong("entry", -1L) > 0L && item.isNull("exit")) {
-                entry = item.optLong("entry")
-                break
+        val entry = if (HoraTrackV2.ENABLED) {
+            val current = V2RuntimeReader.current(context)
+            if (!current.reliable) {
+                stateText.text = "Pointage à vérifier • horaire non calculé"
+                return
             }
+            current.snapshot.session
+                ?.takeIf { it.status == SessionStatusV2.OPEN && it.realExitMs == null }
+                ?.realArrivalMs
+                ?: System.currentTimeMillis()
+        } else {
+            val data = PointageStore.load(context)
+            var legacyEntry = System.currentTimeMillis()
+            for (i in data.length() - 1 downTo 0) {
+                val item = data.optJSONObject(i) ?: continue
+                if (item.optLong("entry", -1L) > 0L && item.isNull("exit")) {
+                    legacyEntry = item.optLong("entry")
+                    break
+                }
+            }
+            legacyEntry
         }
         val detected = ShiftProfileManager.resolve(context, entry)
         val pause = ShiftProfileManager.pauseMinutes(context, detected)
