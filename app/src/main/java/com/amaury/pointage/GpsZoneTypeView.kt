@@ -54,6 +54,14 @@ class GpsZoneTypeView @JvmOverloads constructor(
             setPadding(0, dp(4), 0, dp(6))
         })
         val zones = readZones()
+        if (zones == null) {
+            addView(TextView(context).apply {
+                text = "Configuration GPS illisible. Les types de lieux restent inchangés."
+                textSize = 13f
+            })
+            GeofenceManager.removeRegisteredGeofences(context)
+            return
+        }
         if (zones.length() == 0) {
             addView(TextView(context).apply { text = "Ajoute d'abord un lieu GPS."; textSize = 13f })
             return
@@ -82,6 +90,11 @@ class GpsZoneTypeView @JvmOverloads constructor(
             .setMessage(address)
             .setItems(labels) { _, which ->
                 val zones = readZones()
+                if (zones == null) {
+                    GeofenceManager.removeRegisteredGeofences(context)
+                    Toast.makeText(context, "Configuration GPS illisible : aucun type n'a été modifié", Toast.LENGTH_LONG).show()
+                    return@setItems
+                }
                 var changed = false
                 for (i in 0 until zones.length()) {
                     val zone = zones.optJSONObject(i) ?: continue
@@ -100,9 +113,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
             .show()
     }
 
-    private fun readZones(): JSONArray = runCatching {
-        JSONArray(prefs.getString("zones", "[]") ?: "[]")
-    }.getOrElse { JSONArray() }
+    private fun readZones(): JSONArray? = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
 
     private fun normalizedType(raw: String): String = when (raw.trim().uppercase(Locale.ROOT)) {
         "PARKING" -> "PARKING"

@@ -41,6 +41,7 @@
         <activity android:name=".AdminDiagnosticsActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".OwnerEnrollmentActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
         <activity android:name=".MainActivity" android:exported="false" />
+        <activity android:name=".PauseActionActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
         <activity android:name=".SalaryAuthActivity" android:exported="false" android:excludeFromRecents="true" android:noHistory="true" />
         <activity android:name=".FirebaseAccountActivity" android:exported="false" />
         <activity android:name=".OwnerFeedbackActivity" android:exported="false" />

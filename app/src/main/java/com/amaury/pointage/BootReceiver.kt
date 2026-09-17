@@ -3,7 +3,6 @@ package com.amaury.pointage
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import org.json.JSONArray
 
 class BootReceiver : BroadcastReceiver() {
     companion object {
@@ -28,6 +27,7 @@ class BootReceiver : BroadcastReceiver() {
             prefs.edit()
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)
                 .remove(KEY_RESTORE_STATUS)
+                .remove("active_zones")
                 .apply()
             return
         }
@@ -52,23 +52,41 @@ class BootReceiver : BroadcastReceiver() {
             .remove("active_zones")
             .apply()
 
-        val array = runCatching { JSONArray(prefs.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
-        val zones = mutableListOf<WorkZone>()
-        for (i in 0 until array.length()) {
-            val item = array.optJSONObject(i) ?: continue
-            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-            val latitude = item.optDouble("latitude", Double.NaN)
-            val longitude = item.optDouble("longitude", Double.NaN)
-            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
-            if (!latitude.isFinite() || !longitude.isFinite()) continue
-            zones += WorkZone(id, latitude, longitude, radius)
-        }
-        if (zones.isNotEmpty()) {
-            GeofenceManager.registerAll(context, zones) { success, message ->
+        when (val stored = readPersistedGpsZones(prefs)) {
+            GpsZonesReadResult.Missing -> {
+                // Une absence réelle de configuration est valide, mais aucun ancien
+                // geofence Android ne doit survivre à cet état.
+                GeofenceManager.removeRegisteredGeofences(context)
                 prefs.edit()
-                    .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, !success && !GeofenceManager.hasRequiredPermissions(context))
-                    .putString(KEY_RESTORE_STATUS, message)
+                    .putString(KEY_RESTORE_STATUS, "Aucune adresse GPS configurée")
                     .apply()
+            }
+
+            is GpsZonesReadResult.Corrupt -> {
+                // Corrompu != vide : on retire les inscriptions Android potentiellement
+                // anciennes et on refuse toute restauration automatique.
+                GeofenceManager.removeRegisteredGeofences(context)
+                prefs.edit()
+                    .putString(KEY_RESTORE_STATUS, "Configuration GPS invalide : reconfiguration nécessaire")
+                    .remove("active_zones")
+                    .apply()
+            }
+
+            is GpsZonesReadResult.Valid -> {
+                if (stored.zones.isEmpty()) {
+                    GeofenceManager.removeRegisteredGeofences(context)
+                    prefs.edit()
+                        .putString(KEY_RESTORE_STATUS, "Aucune adresse GPS configurée")
+                        .apply()
+                    return
+                }
+
+                GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() }) { success, message ->
+                    prefs.edit()
+                        .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, !success && !GeofenceManager.hasRequiredPermissions(context))
+                        .putString(KEY_RESTORE_STATUS, message)
+                        .apply()
+                }
             }
         }
     }

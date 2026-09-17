@@ -54,17 +54,17 @@ struct ContentView: View {
                         .font(.system(size: 52, weight: .bold, design: .rounded))
 
                     HStack(spacing: 18) {
-                        actionButton(title: "ENTRÉE", symbol: "arrow.right.circle.fill", color: .green, disabled: store.isWorking) {
+                        actionButton(title: "ENTRÉE", symbol: "arrow.right.circle.fill", color: .green, disabled: !store.storageReliable || store.isWorking) {
                             store.clockIn()
                         }
-                        actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.isWorking) {
+                        actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.storageReliable || !store.isWorking) {
                             if store.isPaused {
                                 store.togglePause()
                             } else {
                                 showPausePaymentChoice = true
                             }
                         }
-                        actionButton(title: "SORTIE", symbol: "arrow.left.circle.fill", color: .red, disabled: !store.isWorking) {
+                        actionButton(title: "SORTIE", symbol: "arrow.left.circle.fill", color: .red, disabled: !store.storageReliable || !store.isWorking) {
                             store.clockOut()
                         }
                     }
@@ -85,23 +85,39 @@ struct ContentView: View {
 
     private var historyView: some View {
         NavigationStack {
-            List(store.sessions.reversed()) { session in
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(session.entry.formatted(date: .abbreviated, time: .shortened))
-                        .font(.headline)
-                    if let exit = session.exit {
-                        Text("Sortie : \(exit.formatted(date: .omitted, time: .shortened))")
-                        Text(paidTimeLabel(for: session, until: exit))
-                    } else {
-                        Text("En cours")
-                            .foregroundStyle(.green)
+            Group {
+                if store.storageReliable {
+                    List(store.sessions.reversed()) { session in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(session.entry.formatted(date: .abbreviated, time: .shortened))
+                                .font(.headline)
+                            if let exit = session.exit {
+                                Text("Sortie : \(exit.formatted(date: .omitted, time: .shortened))")
+                                Text(paidTimeLabel(for: session, until: exit))
+                            } else {
+                                Text("En cours")
+                                    .foregroundStyle(.green)
+                            }
+                            if !session.pauses.isEmpty {
+                                Text("Pauses : \(session.pauses.count)")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 4)
                     }
-                    if !session.pauses.isEmpty {
-                        Text("Pauses : \(session.pauses.count)")
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundStyle(.orange)
+                        Text("Données à vérifier")
+                            .font(.headline)
+                        Text("L'historique HoraTrack est illisible. Aucun nouveau pointage ne sera enregistré tant qu'il n'est pas réparé.")
+                            .multilineTextAlignment(.center)
                             .foregroundStyle(.secondary)
                     }
+                    .padding()
                 }
-                .padding(.vertical, 4)
             }
             .navigationTitle("Historique")
         }
@@ -181,7 +197,7 @@ struct ContentView: View {
             Text("STATUT ACTUEL")
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
-            Text(store.isWorking ? (store.isPaused ? "EN PAUSE" : "ENTRÉE EN COURS") : "AUCUNE ENTRÉE EN COURS")
+            Text(currentStatusText)
                 .font(.title3.bold())
         }
         .frame(maxWidth: .infinity)
@@ -205,6 +221,12 @@ struct ContentView: View {
     }
 
     private var accent: Color { theme == "blue" ? .blue : .orange }
+
+    private var currentStatusText: String {
+        if !store.storageReliable { return "DONNÉES À VÉRIFIER" }
+        if store.isWorking { return store.isPaused ? "EN PAUSE" : "ENTRÉE EN COURS" }
+        return "AUCUNE ENTRÉE EN COURS"
+    }
 
     private var locationLabel: String {
         switch locationManager.authorizationStatus {

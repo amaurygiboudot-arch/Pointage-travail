@@ -94,7 +94,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun ensureCandidateZone(context: Context, companySlot: Int, address: String) {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
 
         for (i in 0 until zones.length()) {
             val z = zones.optJSONObject(i) ?: continue
@@ -215,7 +215,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun confirmCandidate(context: Context, zoneId: String) {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
         var confirmedAddress = ""
         var companySlot = 1
         for (i in 0 until zones.length()) {
@@ -248,7 +248,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun rejectCandidate(context: Context, zoneId: String) {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val old = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val old = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
         val kept = JSONArray()
         for (i in 0 until old.length()) {
             val zone = old.optJSONObject(i) ?: continue
@@ -301,7 +301,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun findZone(context: Context, zoneId: String): JSONObject? {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return null
         for (i in 0 until zones.length()) {
             val zone = zones.optJSONObject(i) ?: continue
             if (zone.optString("id") == zoneId) return zone
@@ -311,17 +311,17 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private fun registerStoredZones(context: Context) {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val raw = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
-        val zones = mutableListOf<WorkZone>()
-        for (i in 0 until raw.length()) {
-            val z = raw.optJSONObject(i) ?: continue
-            val id = z.optString("id")
-            val lat = z.optDouble("latitude", Double.NaN)
-            val lon = z.optDouble("longitude", Double.NaN)
-            val radius = z.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
-            if (id.isNotBlank() && lat.isFinite() && lon.isFinite()) zones += WorkZone(id, lat, lon, radius)
+        when (val stored = readPersistedGpsZones(gps)) {
+            is GpsZonesReadResult.Valid -> {
+                if (stored.zones.isEmpty()) {
+                    GeofenceManager.removeRegisteredGeofences(context)
+                } else {
+                    GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() })
+                }
+            }
+            GpsZonesReadResult.Missing,
+            is GpsZonesReadResult.Corrupt -> GeofenceManager.removeRegisteredGeofences(context)
         }
-        if (zones.isNotEmpty()) GeofenceManager.registerAll(context, zones) else GeofenceManager.remove(context)
     }
 
     private fun learnPausesAsync(context: Context) {

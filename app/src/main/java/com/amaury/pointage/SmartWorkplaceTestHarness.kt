@@ -16,7 +16,8 @@ object SmartWorkplaceTestHarness {
 
     fun simulateThreeQualifiedDays(context: Context): String {
         val gps = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
-        val zones = runCatching { JSONArray(gps.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+        val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull()
+            ?: return "Configuration GPS illisible. La simulation n'a rien modifié."
 
         // Réutilise d'abord une vraie zone candidate si HoraTrack en a déjà appris une.
         var zoneId = ""

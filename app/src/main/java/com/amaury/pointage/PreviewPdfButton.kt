@@ -8,7 +8,7 @@ import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import java.io.File
 import java.text.SimpleDateFormat
@@ -40,7 +40,7 @@ class PreviewPdfButton @JvmOverloads constructor(
             file.outputStream().use { out ->
                 if (HoraTrackV2.ENABLED) {
                     MonthlyPdfReportV2.write(
-                        V2RuntimeStore.allSessions(activity),
+                        V2RuntimeReader.allSessions(activity).requireReliable(),
                         cal.get(Calendar.YEAR),
                         cal.get(Calendar.MONTH),
                         out

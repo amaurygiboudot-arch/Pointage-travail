@@ -23,6 +23,7 @@ object V2RuntimeStore {
     private const val KEY_EXPECTED_END = "expected_end"
     private const val KEY_PAUSE_START = "pause_start"
     private const val KEY_PAUSE_SOURCE = "pause_source"
+    private const val KEY_PAUSE_PAID = "pause_paid"
     private const val KEY_PAUSES = "pauses"
     private const val KEY_PLACE_ID = "place_id"
     private const val KEY_PLACE_LABEL = "place_label"
@@ -105,7 +106,7 @@ object V2RuntimeStore {
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
             .remove(KEY_REAL_ENTRY).remove(KEY_COUNTED_ENTRY)
             .remove(KEY_REAL_EXIT).remove(KEY_COUNTED_EXIT).remove(KEY_EXPECTED_END)
-            .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSES)
+            .remove(KEY_PAUSE_START).remove(KEY_PAUSE_SOURCE).remove(KEY_PAUSE_PAID).remove(KEY_PAUSES)
             .remove(KEY_PLACE_ID).remove(KEY_PLACE_LABEL)
             .putString(KEY_ID, UUID.randomUUID().toString())
             .putLong(KEY_REAL_ENTRY, nowMs)
@@ -140,7 +141,7 @@ object V2RuntimeStore {
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
         source: EventSourceV2 = EventSourceV2.MANUAL,
-        paid: Boolean = false
+        paid: Boolean? = null
     ): Boolean {
         val current = readForWrite(context, nowMs)
         val session = current.session ?: return false
@@ -150,18 +151,25 @@ object V2RuntimeStore {
         val prefs = prefs(context)
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
+            // Une nouvelle pause manuelle est non payée par défaut. Dès son ouverture, son statut
+            // devient une donnée runtime canonique et ne dépend plus du futur appel de fermeture.
             return prefs.edit()
                 .putLong(KEY_PAUSE_START, nowMs)
                 .putString(KEY_PAUSE_SOURCE, source.name)
+                .putBoolean(KEY_PAUSE_PAID, paid ?: false)
                 .commit()
         }
         val storedSource = parseSourceOrNull(prefs.getString(KEY_PAUSE_SOURCE, null)) ?: return false
-        val updated = appendPause(prefs.getString(KEY_PAUSES, "[]").orEmpty(), start, nowMs, storedSource, paid)
+        val hasStoredPaid = prefs.contains(KEY_PAUSE_PAID)
+        val storedPaid = if (hasStoredPaid) strictBoolean(prefs.all[KEY_PAUSE_PAID]) ?: return false else false
+        val resolvedPaid = RuntimePauseIntegrityV2.paidForClose(hasStoredPaid, storedPaid, paid) ?: return false
+        val updated = appendPause(prefs.getString(KEY_PAUSES, "[]").orEmpty(), start, nowMs, storedSource, resolvedPaid)
             ?: return false
         return prefs.edit()
             .putString(KEY_PAUSES, updated)
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
+            .remove(KEY_PAUSE_PAID)
             .commit()
     }
 
@@ -343,7 +351,10 @@ object V2RuntimeStore {
         if (pauseArrayOrNull(pauses) == null) return false
         if (pauseStart > 0L) {
             val source = parseSourceOrNull(prefs.getString(KEY_PAUSE_SOURCE, null)) ?: return false
-            pauses = appendPause(pauses, pauseStart, nowMs, source, false) ?: return false
+            // Une sortie ne doit jamais transformer une pause de statut inconnu en non payée.
+            if (!prefs.contains(KEY_PAUSE_PAID)) return false
+            val paid = strictBoolean(prefs.all[KEY_PAUSE_PAID]) ?: return false
+            pauses = appendPause(pauses, pauseStart, nowMs, source, paid) ?: return false
         }
 
         val knownExpectedEnd = expectedEndMs
@@ -355,6 +366,7 @@ object V2RuntimeStore {
             .putString(KEY_PAUSES, pauses)
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
+            .remove(KEY_PAUSE_PAID)
             .putLong(KEY_REAL_EXIT, nowMs)
             .putLong(KEY_COUNTED_EXIT, countedExit)
             .commit()
@@ -415,8 +427,15 @@ object V2RuntimeStore {
         if (pauseStart != null) {
             if (realExit != null || pauseStart < realEntry) return corruptCurrentSnapshot()
             val source = parseSourceOrNull(storedPauseSource) ?: return corruptCurrentSnapshot()
-            pauses += PauseV2(pauseStart, null, paid = false, source = source)
-        } else if (prefs.contains(KEY_PAUSE_SOURCE)) {
+            val paid = if (prefs.contains(KEY_PAUSE_PAID)) {
+                strictBoolean(values[KEY_PAUSE_PAID]) ?: return corruptCurrentSnapshot()
+            } else {
+                // Compatibilité fail-closed pour une pause restée ouverte pendant la mise à jour :
+                // on conserve l'inconnu afin que le moteur marque le résultat non fiable.
+                null
+            }
+            pauses += PauseV2(pauseStart, null, paid = paid, source = source)
+        } else if (prefs.contains(KEY_PAUSE_SOURCE) || prefs.contains(KEY_PAUSE_PAID)) {
             return corruptCurrentSnapshot()
         }
 
@@ -623,6 +642,8 @@ object V2RuntimeStore {
         is String -> value.trim().toLongOrNull()?.takeIf { it > 0L }
         else -> null
     }
+
+    private fun strictBoolean(value: Any?): Boolean? = value as? Boolean
 
     private fun strictInt(value: Any?): Int? = when (value) {
         is Byte, is Short, is Int, is Long -> (value as Number).toLong()

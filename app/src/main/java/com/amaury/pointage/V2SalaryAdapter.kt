@@ -101,7 +101,9 @@ object V2SalaryAdapter {
   ) else null
   val period=PayrollPeriodV2.month(year,month)
   val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
-  val runtimeSessions=V2RuntimeStore.allSessions(context)
+  val runtimeSource=V2RuntimeReader.allSessions(context)
+  val runtimeSessions=runtimeSource.sessions
+  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
   val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),period.referenceDate,acceptedIds,workSessions=runtimeSessions)
   val companyAgreement=CompanyAgreementPayrollBridgeV2.load(context,company.id,period.referenceDate,period)
   val overtimeArbitration=OvertimeLegalArbitrationBridgeV2.load(context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,period=period)
@@ -116,7 +118,8 @@ object V2SalaryAdapter {
    context=context,
    base=calculateCore(
     contract,missing,runtimeSessions,year,month,rate?:0.0,calculationConvention,
-    conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope
+    conventionHistory.history,acceptedIds,companyAgreement,absenceImpact,overtimeArbitration,collectivePremiumArbitration,holidayScope,
+    runtimeReliable=runtimeSource.reliable
    ),
    contract=contract,
    sessions=runtimeSessions,
@@ -162,14 +165,16 @@ object V2SalaryAdapter {
   val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
   val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
   val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
-  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings).distinct())
+  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct())
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   val p=V2ProfileStore.load(context,companySlot.coerceIn(1,2))
   val ids=p.contract?.let{setOf(it.employerId)}.orEmpty()
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
-  val runtimeSessions=V2RuntimeStore.allSessions(context)
+  val runtimeSource=V2RuntimeReader.allSessions(context)
+  val runtimeSessions=runtimeSource.sessions
+  val runtimeWarnings=if(runtimeSource.reliable)emptyList()else runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)}
   val absenceImpact=AbsencePayrollImpactV2.forMonth(V2RightsStore.absences(context),referenceDate,ids,workSessions=runtimeSessions)
   val companyId=p.contract?.employerId
   val holidayContext=LegacySalaryHolidayScopeResolverV2.resolve(SalaryCompanyStore.readConfirmed(context),companyId)
@@ -181,11 +186,11 @@ object V2SalaryAdapter {
    stored=if(ruleHistory==null)V2ConventionRuleStore.readConfirmed(context)else null
   )
   val calculationConvention=conventionHistory.conventionForCalculation(convention,contractType)
-  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope)
+  val calculated=calculateCore(p.contract,p.missing,runtimeSessions,year,month,hourlyRate,calculationConvention,conventionHistory.history,ids,null,absenceImpact,null,collectivePremiumArbitration,holidayScope,runtimeReliable=runtimeSource.reliable)
   return applyMayFirstLegalAdjustment(context,calculated,p.contract,runtimeSessions,year,month,hourlyRate,ids,collectivePremiumArbitration,referenceDate).let{result->
    result.copy(
     monthlyGrossReliable=salaryConventionHistoryGrossReliableV2(result.monthlyGrossReliable,conventionHistory,contractType,result.overtimeGross)&&holidayContext.companyStoreReliable,
-    warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings).distinct()
+    warnings=(salaryConventionHistoryWarningsV2(result.warnings,conventionHistory,contractType)+holidayContext.warnings+runtimeWarnings).distinct()
    )
   }
  }

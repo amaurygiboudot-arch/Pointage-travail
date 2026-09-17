@@ -15,6 +15,7 @@ import android.view.View
 import android.widget.RemoteViews
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -91,6 +92,14 @@ class PointageWidgetProvider : AppWidgetProvider() {
             return PendingIntent.getBroadcast(context, widgetId * 10 + slot, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
 
+        private fun pendingPauseActivity(context: Context, widgetId: Int): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                widgetId * 10 + 2,
+                Intent(context, PauseActionActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
         private fun applyDynamicState(context: Context, views: RemoteViews) {
             val dark = AppThemeCatalog.useDarkPalette(context)
             val (adaptiveText, _) = adaptiveWidgetTextColors(context, dark)
@@ -106,10 +115,16 @@ class PointageWidgetProvider : AppWidgetProvider() {
             var paused = false
 
             if (HoraTrackV2.ENABLED) {
-                val snapshot = V2RuntimeStore.snapshot(context)
-                val session = snapshot.session
-                val result = snapshot.result
-                if (session != null) {
+                val read = V2RuntimeReader.current(context)
+                if (!read.reliable) {
+                    durationText = "--"
+                    pauseText = "--"
+                    stateText = "À VÉRIFIER"
+                    stateColor = Color.parseColor("#E38B20")
+                    locationText = "📍 Données HoraTrack à vérifier"
+                } else if (read.snapshot.session != null) {
+                    val session = read.snapshot.session
+                    val result = read.snapshot.result
                     paused = session.pauses.any { it.endMs == null }
                     session.realArrivalMs?.let { entryText = formatTime(it) }
                     session.realExitMs?.let { exitText = formatTime(it) }
@@ -195,7 +210,11 @@ class PointageWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_location, openSettings)
             views.setOnClickPendingIntent(R.id.widget_status_area, openApp)
             views.setOnClickPendingIntent(R.id.widget_entry_inner, pendingBroadcast(context, widgetId, ACTION_ENTRY, 1))
-            views.setOnClickPendingIntent(R.id.widget_pause_inner, pendingBroadcast(context, widgetId, ACTION_PAUSE, 2))
+            views.setOnClickPendingIntent(
+                R.id.widget_pause_inner,
+                if (HoraTrackV2.ENABLED) pendingPauseActivity(context, widgetId)
+                else pendingBroadcast(context, widgetId, ACTION_PAUSE, 2)
+            )
             views.setOnClickPendingIntent(R.id.widget_exit_inner, pendingBroadcast(context, widgetId, ACTION_EXIT, 3))
 
             val theme = AppThemeCatalog.current(context)
@@ -275,20 +294,43 @@ class PointageWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             ACTION_ENTRY -> {
                 handledAction = true
-                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
-                if (ok) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                } else {
+                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.entry(context) else PointageStore.entry(context)
+                    if (ok) Toast.makeText(context, "Entrée enregistrée", Toast.LENGTH_SHORT).show()
+                    else Toast.makeText(context, "Une entrée est déjà en cours", Toast.LENGTH_SHORT).show()
+                }
             }
             ACTION_PAUSE -> {
                 handledAction = true
                 if (HoraTrackV2.ENABLED) {
-                    val session = V2RuntimeStore.snapshot(context).session
-                    if (session == null || session.realExitMs != null) {
+                    val read = V2RuntimeReader.current(context)
+                    val session = read.snapshot.session
+                    if (!read.reliable) {
+                        Toast.makeText(context, "Pause bloquée : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                    } else if (session == null || session.realExitMs != null) {
                         Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
                     } else {
                         val wasPaused = session.pauses.any { it.endMs == null }
-                        if (V2RuntimeStore.togglePause(context)) {
-                            Toast.makeText(context, if (wasPaused) "Travail repris" else "Pause démarrée", Toast.LENGTH_SHORT).show()
+                        if (wasPaused) {
+                            val changed = V2RuntimeStore.togglePause(context)
+                            Toast.makeText(
+                                context,
+                                if (changed) "Travail repris" else "Pause non modifiée : statut à vérifier",
+                                if (changed) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            val launched = runCatching {
+                                context.startActivity(
+                                    Intent(context, PauseActionActivity::class.java)
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                                true
+                            }.getOrDefault(false)
+                            if (!launched) {
+                                Toast.makeText(context, "Ouvre HoraTrack pour choisir le statut de la pause", Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 } else {
@@ -301,9 +343,13 @@ class PointageWidgetProvider : AppWidgetProvider() {
             }
             ACTION_EXIT -> {
                 handledAction = true
-                val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
-                if (ok) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
-                else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                if (HoraTrackV2.ENABLED && !V2RuntimeReader.current(context).reliable) {
+                    Toast.makeText(context, "Pointage bloqué : données HoraTrack à vérifier", Toast.LENGTH_LONG).show()
+                } else {
+                    val ok = if (HoraTrackV2.ENABLED) V2RuntimeStore.exit(context) else PointageStore.exit(context)
+                    if (ok) Toast.makeText(context, "Sortie enregistrée", Toast.LENGTH_SHORT).show()
+                    else Toast.makeText(context, "Aucune entrée en cours", Toast.LENGTH_SHORT).show()
+                }
             }
             Intent.ACTION_CONFIGURATION_CHANGED, Intent.ACTION_WALLPAPER_CHANGED -> needsFullRebuild = true
         }
