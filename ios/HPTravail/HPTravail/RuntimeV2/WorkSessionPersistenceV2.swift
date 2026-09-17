@@ -29,6 +29,12 @@ enum WorkSessionsReadV2: Equatable {
     case corrupt
 }
 
+enum WorkSessionStorageResolutionV2: Equatable {
+    case missing
+    case valid([WorkSession], migratedFromLegacy: Bool)
+    case corrupt
+}
+
 /** Lecture fail-closed du journal de pointage iOS. */
 enum WorkSessionPersistenceV2 {
     static func read(_ data: Data?) -> WorkSessionsReadV2 {
@@ -60,5 +66,38 @@ enum WorkSessionPersistenceV2 {
             }
         }
         return true
+    }
+}
+
+/**
+ Propriétaire canonique des clés de persistance runtime iOS.
+
+ La clé V1 n'est lue que pour une migration unique lorsque la clé V2 est réellement absente.
+ Une clé V2 présente mais corrompue bloque la lecture : aucun fallback vers V1 n'est autorisé.
+ */
+enum WorkSessionStorageV2 {
+    static let primaryKey = "hp_travail_sessions_v2"
+    static let legacyKey = "hp_travail_sessions_v1"
+
+    static func resolve(primaryData: Data?, legacyData: Data?) -> WorkSessionStorageResolutionV2 {
+        if primaryData != nil {
+            switch WorkSessionPersistenceV2.read(primaryData) {
+            case .valid(let sessions):
+                return .valid(sessions, migratedFromLegacy: false)
+            case .missing:
+                return .missing
+            case .corrupt:
+                return .corrupt
+            }
+        }
+
+        switch WorkSessionPersistenceV2.read(legacyData) {
+        case .missing:
+            return .missing
+        case .valid(let sessions):
+            return .valid(sessions, migratedFromLegacy: true)
+        case .corrupt:
+            return .corrupt
+        }
     }
 }

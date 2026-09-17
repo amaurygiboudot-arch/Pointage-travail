@@ -1,17 +1,22 @@
 import Foundation
 
 @MainActor
-final class WorkStore: ObservableObject {
+final class WorkStoreV2: ObservableObject {
     @Published private(set) var sessions: [WorkSession] = []
     @Published private(set) var storageReliable = true
-    private let key = "hp_travail_sessions_v1"
 
-    init() { load() }
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        load()
+    }
 
     var currentSession: WorkSession? {
         guard storageReliable else { return nil }
         return sessions.last(where: { $0.exit == nil })
     }
+
     var isWorking: Bool { currentSession != nil }
     var isPaused: Bool { currentSession?.pauses.last?.end == nil && currentSession?.pauses.last != nil }
 
@@ -84,17 +89,53 @@ final class WorkStore: ObservableObject {
             storageReliable = false
             return
         }
-        UserDefaults.standard.set(data, forKey: key)
+
+        defaults.set(data, forKey: WorkSessionStorageV2.primaryKey)
+        guard WorkSessionPersistenceV2.read(
+            defaults.data(forKey: WorkSessionStorageV2.primaryKey)
+        ) == .valid(sessions) else {
+            storageReliable = false
+            return
+        }
     }
 
     private func load() {
-        switch WorkSessionPersistenceV2.read(UserDefaults.standard.data(forKey: key)) {
+        let resolution = WorkSessionStorageV2.resolve(
+            primaryData: defaults.data(forKey: WorkSessionStorageV2.primaryKey),
+            legacyData: defaults.data(forKey: WorkSessionStorageV2.legacyKey)
+        )
+
+        switch resolution {
         case .missing:
             sessions = []
             storageReliable = true
-        case .valid(let decoded):
+
+        case .valid(let decoded, let migratedFromLegacy):
+            guard migratedFromLegacy else {
+                sessions = decoded
+                storageReliable = true
+                return
+            }
+
+            guard let migratedData = try? JSONEncoder().encode(decoded) else {
+                sessions = []
+                storageReliable = false
+                return
+            }
+
+            defaults.set(migratedData, forKey: WorkSessionStorageV2.primaryKey)
+            guard WorkSessionPersistenceV2.read(
+                defaults.data(forKey: WorkSessionStorageV2.primaryKey)
+            ) == .valid(decoded) else {
+                sessions = []
+                storageReliable = false
+                return
+            }
+
+            defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
             sessions = decoded
             storageReliable = true
+
         case .corrupt:
             sessions = []
             storageReliable = false

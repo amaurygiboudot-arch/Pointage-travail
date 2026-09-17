@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var store: WorkStore
+    @EnvironmentObject private var store: WorkStoreV2
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var authManager: AuthManager
     @AppStorage("hp_theme") private var theme = "signature"
@@ -264,7 +264,7 @@ struct ContentView: View {
 
 private struct ManualEntrySheetV2: View {
     @Environment(\.dismiss) private var dismiss
-    @EnvironmentObject private var store: WorkStore
+    @EnvironmentObject private var store: WorkStoreV2
     @State private var day = Date()
     @State private var startTime = Calendar.current.date(
         bySettingHour: 8,
