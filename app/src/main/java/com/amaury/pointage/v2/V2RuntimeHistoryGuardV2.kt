@@ -120,6 +120,8 @@ object V2RuntimeHistoryGuardV2 {
                 malformed = true
             } else if (!validPauseArray(pauses)) {
                 malformed = true
+            } else if (realEntry != null && !pausesWithinRealBounds(pauses, realEntry, realExit.value)) {
+                malformed = true
             }
         }
 
@@ -166,8 +168,27 @@ object V2RuntimeHistoryGuardV2 {
             if (runCatching { EventSourceV2.valueOf(source) }.isFailure) return false
 
             if (!item.has("paid") || item.opt("paid") !is Boolean) return false
-            val identity = "$start:$end:$source:${item.optBoolean("paid")}" 
+            val identity = "$start:$end:$source:${item.optBoolean("paid")}"
             if (!identities.add(identity)) return false
+        }
+        return true
+    }
+
+    /**
+     * Une pause appartient à la chronologie réelle de sa session : elle ne peut pas commencer
+     * avant l'entrée réelle ni dépasser une sortie réelle déjà connue.
+     */
+    internal fun pausesWithinRealBounds(
+        array: JSONArray,
+        realEntry: Long,
+        realExit: Long?
+    ): Boolean {
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: return false
+            val start = positiveLong(item, "start") ?: return false
+            val end = positiveLong(item, "end") ?: return false
+            if (start < realEntry) return false
+            if (realExit != null && end > realExit) return false
         }
         return true
     }
