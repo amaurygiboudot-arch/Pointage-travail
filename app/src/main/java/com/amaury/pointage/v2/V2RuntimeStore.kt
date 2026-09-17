@@ -361,8 +361,22 @@ object V2RuntimeStore {
             ?: safeLong(prefs.all[KEY_EXPECTED_END]).takeIf { it > 0L }
             ?: V2ScheduleStore.expectedEnd(context, entry, nowMs)
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(nowMs, knownExpectedEnd)
+        val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
+        val closedSession = session.copy(
+            countedExitMs = countedExit,
+            realExitMs = nowMs,
+            pauses = closedPauses,
+            status = SessionStatusV2.CLOSED
+        )
+        val storedHistory = V2RuntimeHistoryGuardV2.read(context)
+        if (!storedHistory.reliable) return false
+        val legacySlot = safeInt(prefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
+        val history = historyWithClosedSession(storedHistory.history, closedSession, legacySlot) ?: return false
 
+        // La fermeture runtime et l'ajout Historique partagent le même SharedPreferences : un seul
+        // commit garantit qu'une sortie ne peut jamais être CLOSED sans sa copie historique durable.
         val closed = prefs.edit()
+            .putString(KEY_HISTORY, history.toString())
             .putString(KEY_PAUSES, pauses)
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
@@ -370,11 +384,14 @@ object V2RuntimeStore {
             .putLong(KEY_REAL_EXIT, nowMs)
             .putLong(KEY_COUNTED_EXIT, countedExit)
             .commit()
-        if (!closed) return false
-
-        val closedSession = snapshot(context, nowMs).session ?: return false
-        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return false
-        if (!persistClosed(context, closedSession)) return false
+        if (!closed) {
+            V2RuntimeHistoryGuardV2.publishSourceState(
+                false,
+                listOf("Sortie V2 non enregistrée : runtime et historique sont restés inchangés.")
+            )
+            return false
+        }
+        V2RuntimeHistoryGuardV2.publishSourceState(true)
         WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
     }
@@ -501,19 +518,20 @@ object V2RuntimeStore {
         return history.distinctBy { it.id }.sortedBy { it.realArrivalMs ?: Long.MAX_VALUE }
     }
 
-    private fun persistClosed(context: Context, session: WorkSessionV2): Boolean {
-        if (session.status != SessionStatusV2.CLOSED) return false
-        val stored = V2RuntimeHistoryGuardV2.read(context)
-        if (!stored.reliable) return false
-        val history = stored.history
+    internal fun historyWithClosedSession(
+        sourceHistory: JSONArray,
+        session: WorkSessionV2,
+        companySlot: Int?
+    ): JSONArray? {
+        if (session.status != SessionStatusV2.CLOSED || session.realArrivalMs == null || session.realExitMs == null) return null
+        if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
+        val history = runCatching { JSONArray(sourceHistory.toString()) }.getOrNull() ?: return null
         for (i in 0 until history.length()) {
-            val item = history.optJSONObject(i) ?: return false
-            if (item.optString("id") == session.id) return true
+            val item = history.optJSONObject(i) ?: return null
+            if (item.optString("id") == session.id) return null
         }
-        val runtimePrefs = prefs(context)
-        val legacySlot = safeInt(runtimePrefs.all[KEY_COMPANY_SLOT], 0).takeIf { it in 1..2 }
-        history.put(sessionToJson(session, legacySlot))
-        return V2RuntimeHistoryGuardV2.save(context, history)
+        history.put(sessionToJson(session, companySlot))
+        return history.takeIf { V2RuntimeHistoryGuardV2.inspect(it).reliable }
     }
 
     private fun sessionToJson(session: WorkSessionV2, companySlot: Int?) = JSONObject()
