@@ -1,48 +1,33 @@
 import Foundation
 
-struct WorkSession: Codable, Identifiable {
-    let id: UUID
-    var entry: Date
-    var exit: Date?
-    var pauses: [PausePeriod]
-}
-
-struct PausePeriod: Codable, Identifiable {
-    let id: UUID
-    var start: Date
-    var end: Date?
-    var paid: Bool?
-
-    init(id: UUID, start: Date, end: Date?, paid: Bool? = nil) {
-        self.id = id
-        self.start = start
-        self.end = end
-        self.paid = paid
-    }
-}
-
 @MainActor
 final class WorkStore: ObservableObject {
     @Published private(set) var sessions: [WorkSession] = []
+    @Published private(set) var storageReliable = true
     private let key = "hp_travail_sessions_v1"
 
     init() { load() }
 
-    var currentSession: WorkSession? { sessions.last(where: { $0.exit == nil }) }
+    var currentSession: WorkSession? {
+        guard storageReliable else { return nil }
+        return sessions.last(where: { $0.exit == nil })
+    }
     var isWorking: Bool { currentSession != nil }
     var isPaused: Bool { currentSession?.pauses.last?.end == nil && currentSession?.pauses.last != nil }
 
     func clockIn() {
-        guard !isWorking else { return }
+        guard storageReliable, !isWorking else { return }
         sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
         save()
     }
 
     func togglePause(paid: Bool? = nil) {
+        guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
         } else {
+            guard let paid else { return }
             sessions[index].pauses.append(
                 PausePeriod(id: UUID(), start: Date(), end: nil, paid: paid)
             )
@@ -51,6 +36,7 @@ final class WorkStore: ObservableObject {
     }
 
     func clockOut() {
+        guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
@@ -71,13 +57,25 @@ final class WorkStore: ObservableObject {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(sessions) else { return }
+        guard storageReliable,
+              let data = try? JSONEncoder().encode(sessions) else {
+            storageReliable = false
+            return
+        }
         UserDefaults.standard.set(data, forKey: key)
     }
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let decoded = try? JSONDecoder().decode([WorkSession].self, from: data) else { return }
-        sessions = decoded
+        switch WorkSessionPersistenceV2.read(UserDefaults.standard.data(forKey: key)) {
+        case .missing:
+            sessions = []
+            storageReliable = true
+        case .valid(let decoded):
+            sessions = decoded
+            storageReliable = true
+        case .corrupt:
+            sessions = []
+            storageReliable = false
+        }
     }
 }
