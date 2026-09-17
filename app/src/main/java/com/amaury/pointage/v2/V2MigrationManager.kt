@@ -14,7 +14,7 @@ object V2MigrationManager {
     private const val LEGACY_PREFS = "pointage"
     private const val LEGACY_KEY = "data"
     private const val HISTORY_KEY = "history"
-    private const val VERSION = 6
+    private const val VERSION = 5
 
     private const val RUNTIME_REAL_ENTRY = "real_entry"
     private const val RUNTIME_COUNTED_ENTRY = "counted_entry"
