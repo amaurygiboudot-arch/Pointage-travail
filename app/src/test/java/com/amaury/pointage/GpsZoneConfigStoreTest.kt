@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -90,5 +91,30 @@ class GpsZoneConfigStoreTest {
         )
 
         assertTrue(result is GpsZonesReadResult.Corrupt)
+    }
+
+    @Test
+    fun `une copie editable conserve les metadonnees de la zone`() {
+        val result = parsePersistedGpsZones(
+            """[{
+                "id":"candidate_1",
+                "latitude":46.7,
+                "longitude":-1.4,
+                "radius":150,
+                "smartCandidate":true
+            }]""".trimIndent()
+        )
+
+        val editable = result.toMutableJsonArrayOrNull()
+
+        assertEquals(1, editable?.length())
+        assertTrue(editable?.getJSONObject(0)?.optBoolean("smartCandidate") == true)
+    }
+
+    @Test
+    fun `une configuration corrompue ne fournit jamais une liste editable vide`() {
+        val result = parsePersistedGpsZones("{invalide}")
+
+        assertNull(result.toMutableJsonArrayOrNull())
     }
 }

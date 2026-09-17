@@ -151,7 +151,11 @@ class GpsPointPickerView @JvmOverloads constructor(
      * à partir du point manuel enregistré au lieu de la perdre silencieusement.
      */
     private fun reapplyStoredOverrides() {
-        val source = zones()
+        val source = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
+        if (source == null) {
+            GeofenceManager.removeRegisteredGeofences(context)
+            return
+        }
         val custom = overrides()
         val addresses = savedAddresses()
         var changed = false
@@ -515,18 +519,17 @@ class GpsPointPickerView @JvmOverloads constructor(
     private fun registerCurrentZones() {
         if (!prefs.getBoolean("enabled", false)) return
         if (!GeofenceManager.hasRequiredPermissions(context)) return
-        val list = zones()
-        val workZones = mutableListOf<WorkZone>()
-        for (i in 0 until list.length()) {
-            val item = list.optJSONObject(i) ?: continue
-            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-            val lat = item.optDouble("latitude", Double.NaN)
-            val lon = item.optDouble("longitude", Double.NaN)
-            if (!lat.isFinite() || !lon.isFinite()) continue
-            val radius = item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f)
-            workZones += WorkZone(id, lat, lon, radius)
+        when (val stored = readPersistedGpsZones(prefs)) {
+            is GpsZonesReadResult.Valid -> {
+                if (stored.zones.isEmpty()) {
+                    GeofenceManager.removeRegisteredGeofences(context)
+                } else {
+                    GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() }) { _, _ -> }
+                }
+            }
+            GpsZonesReadResult.Missing,
+            is GpsZonesReadResult.Corrupt -> GeofenceManager.removeRegisteredGeofences(context)
         }
-        if (workZones.isNotEmpty()) GeofenceManager.registerAll(context, workZones) { _, _ -> }
     }
 
     /**

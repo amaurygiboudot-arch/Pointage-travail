@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import android.content.SharedPreferences
 import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * Lecture canonique de la configuration des zones GPS.
@@ -28,6 +29,19 @@ internal sealed class GpsZonesReadResult {
     object Missing : GpsZonesReadResult()
     data class Valid(val zones: List<StoredGpsZone>) : GpsZonesReadResult()
     data class Corrupt(val reason: String) : GpsZonesReadResult()
+}
+
+/**
+ * Copie modifiable réservée aux parcours qui vont explicitement éditer la configuration.
+ * Une configuration corrompue ne devient jamais une liste vide susceptible d'écraser
+ * silencieusement les zones encore récupérables.
+ */
+internal fun GpsZonesReadResult.toMutableJsonArrayOrNull(): JSONArray? = when (this) {
+    GpsZonesReadResult.Missing -> JSONArray()
+    is GpsZonesReadResult.Valid -> JSONArray().apply {
+        zones.forEach { put(JSONObject(it.sourceJson)) }
+    }
+    is GpsZonesReadResult.Corrupt -> null
 }
 
 internal fun readPersistedGpsZones(
