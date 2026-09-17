@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.BuildConfig
 import com.amaury.pointage.v2.engine.CelestialEngineV2
 import com.amaury.pointage.v2.engine.DefaultCelestialEngineV2
 import com.amaury.pointage.v2.engine.DefaultTimeEngineV2
@@ -9,8 +10,11 @@ import java.util.Calendar
 
 object HoraTrackV2 {
     const val ENABLED = true
-    const val TEST_MODE = true
+    val TEST_MODE: Boolean
+        get() = diagnosticsEnabled(BuildConfig.DEBUG)
     const val SCHEMA_VERSION = 2
+
+    internal fun diagnosticsEnabled(debuggable: Boolean): Boolean = ENABLED && debuggable
 
     enum class Layer {
         TIME,
