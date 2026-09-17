@@ -5,6 +5,8 @@ struct WorkSession: Codable, Equatable, Identifiable {
     var entry: Date
     var exit: Date?
     var pauses: [PausePeriod]
+    var employerId: String? = nil
+    var placeLabel: String? = nil
 }
 
 struct PausePeriod: Codable, Equatable, Identifiable {
@@ -38,7 +40,7 @@ enum WorkSessionPersistenceV2 {
         return .valid(sessions)
     }
 
-    private static func isStructurallyValid(_ sessions: [WorkSession]) -> Bool {
+    static func isStructurallyValid(_ sessions: [WorkSession]) -> Bool {
         guard Set(sessions.map(\.id)).count == sessions.count else { return false }
         guard sessions.filter({ $0.exit == nil }).count <= 1 else { return false }
 

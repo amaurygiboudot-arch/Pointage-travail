@@ -45,6 +45,28 @@ final class WorkStore: ObservableObject {
         save()
     }
 
+    @discardableResult
+    func addManualSession(
+        entry: Date,
+        exit: Date,
+        employerId: String?,
+        placeLabel: String?
+    ) -> Bool {
+        guard storageReliable,
+              let updated = ManualSessionPolicyV2.appending(
+                to: sessions,
+                entry: entry,
+                exit: exit,
+                employerId: employerId,
+                placeLabel: placeLabel
+              ) else {
+            return false
+        }
+        sessions = updated
+        save()
+        return storageReliable
+    }
+
     func paidTimeAssessment(for session: WorkSession, until endDate: Date = Date()) -> PaidTimeAssessmentV2 {
         PaidTimePolicyV2.assess(
             sessionStart: session.entry,

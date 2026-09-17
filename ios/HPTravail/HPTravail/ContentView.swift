@@ -6,6 +6,7 @@ struct ContentView: View {
     @EnvironmentObject private var authManager: AuthManager
     @AppStorage("hp_theme") private var theme = "signature"
     @State private var showPausePaymentChoice = false
+    @State private var showManualEntry = false
 
     var body: some View {
         TabView {
@@ -19,6 +20,9 @@ struct ContentView: View {
                 .tabItem { Label("Réglages", systemImage: "gearshape") }
         }
         .tint(accent)
+        .sheet(isPresented: $showManualEntry) {
+            ManualEntrySheetV2()
+        }
         .confirmationDialog(
             "Cette pause est-elle rémunérée ?",
             isPresented: $showPausePaymentChoice,
@@ -70,6 +74,14 @@ struct ContentView: View {
                     }
 
                     statusCard
+                    Button {
+                        showManualEntry = true
+                    } label: {
+                        Label("Ajouter des heures manuellement", systemImage: "square.and.pencil")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(!store.storageReliable)
                     if let current = store.currentSession {
                         TimelineView(.periodic(from: .now, by: 1)) { context in
                             Text(paidTimeLabel(for: current, until: context.date))
@@ -247,5 +259,106 @@ struct ContentView: View {
     private func format(_ duration: TimeInterval) -> String {
         let total = Int(duration) / 60
         return String(format: "%02dh %02dm", total / 60, total % 60)
+    }
+}
+
+private struct ManualEntrySheetV2: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var store: WorkStore
+    @State private var day = Date()
+    @State private var startTime = Calendar.current.date(
+        bySettingHour: 8,
+        minute: 0,
+        second: 0,
+        of: Date()
+    ) ?? Date()
+    @State private var endTime = Calendar.current.date(
+        bySettingHour: 16,
+        minute: 0,
+        second: 0,
+        of: Date()
+    ) ?? Date()
+    @State private var selectedCompanyId = ""
+    @State private var placeLabel = ""
+    @State private var errorMessage: String?
+    @State private var companies = SalaryCompanyStoreV2.readConfirmed()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Plage oubliée") {
+                    DatePicker("Date", selection: $day, displayedComponents: .date)
+                    DatePicker("Début", selection: $startTime, displayedComponents: .hourAndMinute)
+                    DatePicker("Fin", selection: $endTime, displayedComponents: .hourAndMinute)
+                    Text("Une heure de fin antérieure au début est enregistrée le lendemain.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Entreprise") {
+                    if companies.reliable {
+                        Picker("Entreprise", selection: $selectedCompanyId) {
+                            Text("Sans entreprise / autre").tag("")
+                            ForEach(companies.companies) { company in
+                                Text(company.name.isEmpty ? company.id : company.name)
+                                    .tag(company.id)
+                            }
+                        }
+                    } else {
+                        Label("Stockage des entreprises à vérifier", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                    TextField("Lieu / client (facultatif)", text: $placeLabel)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Saisie manuelle V2")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Ajouter") { add() }
+                        .disabled(!companies.reliable || !store.storageReliable)
+                }
+            }
+        }
+    }
+
+    private func add() {
+        guard companies.reliable else {
+            errorMessage = "Vérifie d'abord le stockage des entreprises."
+            return
+        }
+        guard let range = ManualSessionPolicyV2.normalizedRange(
+            day: day,
+            startTime: startTime,
+            endTime: endTime
+        ) else {
+            errorMessage = "Les heures sont invalides ou identiques."
+            return
+        }
+        let employerId = selectedCompanyId.isEmpty ? nil : selectedCompanyId
+        guard employerId == nil || companies.companies.contains(where: { $0.id == employerId }) else {
+            errorMessage = "L'entreprise sélectionnée n'est plus disponible."
+            return
+        }
+        guard store.addManualSession(
+            entry: range.entry,
+            exit: range.exit,
+            employerId: employerId,
+            placeLabel: placeLabel
+        ) else {
+            errorMessage = "Plage non ajoutée : doublon, données invalides ou historique à vérifier."
+            return
+        }
+        dismiss()
     }
 }
