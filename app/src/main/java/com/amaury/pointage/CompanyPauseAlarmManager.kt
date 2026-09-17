@@ -131,7 +131,9 @@ object CompanyPauseAlarmManager {
         return PendingIntent.getBroadcast(
             context,
             requestCode,
-            Intent(context, CompanyPauseAlarmReceiver::class.java)
+            Intent()
+                .setClass(context, CompanyPauseAlarmReceiver::class.java)
+                .setPackage(context.packageName)
                 .setAction(ACTION)
                 .setData(identity)
                 .putExtra(EXTRA_COMPANY_ID, companyId)
@@ -148,7 +150,9 @@ object CompanyPauseAlarmManager {
         return PendingIntent.getBroadcast(
             context,
             requestCode,
-            Intent(context, CompanyPauseAlarmReceiver::class.java)
+            Intent()
+                .setClass(context, CompanyPauseAlarmReceiver::class.java)
+                .setPackage(context.packageName)
                 .setAction(ACTION)
                 .putExtra(EXTRA_COMPANY_ID, companyId)
                 .putExtra(EXTRA_PAUSE, pauseIndex)
@@ -163,7 +167,9 @@ object CompanyPauseAlarmManager {
         return PendingIntent.getBroadcast(
             context,
             requestCode,
-            Intent(context, CompanyPauseAlarmReceiver::class.java)
+            Intent()
+                .setClass(context, CompanyPauseAlarmReceiver::class.java)
+                .setPackage(context.packageName)
                 .setAction(ACTION)
                 .putExtra(EXTRA_COMPANY, company)
                 .putExtra(EXTRA_PAUSE, pauseIndex)

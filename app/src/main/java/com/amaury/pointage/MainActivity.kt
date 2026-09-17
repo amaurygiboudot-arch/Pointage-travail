@@ -401,7 +401,14 @@ class MainActivity : Activity() {
         updatingGpsSwitch = false
     }
 
-    private fun loadSavedZoneObjects(): JSONArray = runCatching { JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]") }.getOrElse { JSONArray() }
+    private fun loadSavedZoneObjects(): JSONArray =
+        when (val stored = readPersistedGpsZones(gpsPrefs)) {
+            GpsZonesReadResult.Missing -> JSONArray()
+            is GpsZonesReadResult.Valid -> JSONArray().apply {
+                stored.zones.forEach { put(JSONObject(it.sourceJson)) }
+            }
+            is GpsZonesReadResult.Corrupt -> JSONArray()
+        }
 
     private fun existingZoneIdForAddress(address: String, existingZones: JSONArray): String? {
         for (i in 0 until existingZones.length()) {
@@ -504,18 +511,27 @@ class MainActivity : Activity() {
 
     private fun tryRestoreGeofence() {
         if (!gpsPrefs.getBoolean("enabled", false) || !GeofenceManager.hasRequiredPermissions(this)) return
-        val array = loadSavedZoneObjects()
-        val zones = mutableListOf<WorkZone>()
-        for (i in 0 until array.length()) {
-            val item = array.optJSONObject(i) ?: continue
-            val id = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-            val latitude = item.optDouble("latitude", Double.NaN)
-            val longitude = item.optDouble("longitude", Double.NaN)
-            if (!latitude.isFinite() || !longitude.isFinite()) continue
-            zones += WorkZone(id, latitude, longitude, item.optDouble("radius", 150.0).toFloat().coerceIn(50f, 1000f))
+        when (val stored = readPersistedGpsZones(gpsPrefs)) {
+            GpsZonesReadResult.Missing -> {
+                disableAutomaticGps("Aucune zone GPS enregistrée")
+            }
+
+            is GpsZonesReadResult.Corrupt -> {
+                disableAutomaticGps("Configuration GPS invalide : reconfigure les adresses")
+            }
+
+            is GpsZonesReadResult.Valid -> {
+                if (stored.zones.isEmpty()) {
+                    disableAutomaticGps("Aucune zone GPS valide enregistrée")
+                    return
+                }
+                GeofenceManager.registerAll(this, stored.zones.map { it.asWorkZone() }) { success, message ->
+                    runOnUiThread {
+                        gpsStatusText.text = if (success) "GPS automatique actif" else message
+                    }
+                }
+            }
         }
-        if (zones.isEmpty()) { disableAutomaticGps("Aucune zone GPS valide enregistrée"); return }
-        GeofenceManager.registerAll(this, zones) { success, message -> runOnUiThread { gpsStatusText.text = if (success) "GPS automatique actif" else message } }
     }
 
     private fun updateGpsStatus() {
