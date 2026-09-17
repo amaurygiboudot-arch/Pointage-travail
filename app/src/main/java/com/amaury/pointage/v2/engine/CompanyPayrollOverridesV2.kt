@@ -19,7 +19,7 @@ import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
 import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
 import com.amaury.pointage.v2.V2ConventionProvidentContributionStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.VerifiedProtectionCategoryProviderV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import java.time.Instant
@@ -297,11 +297,12 @@ object CompanyPayrollOverridesV2 {
         val apprenticeship=CompanyApprenticeshipTaxStoreV2.resolve(context,companyId,payrollMonth)
         val reduction=CompanyEmployerReductionStoreV2.resolve(context,companyId,payrollMonth)
         val acceptedEmployerIds=SalaryCompanyStore.acceptedEmployerIds(context,companyId)
+        val runtimeSource=V2RuntimeReader.allSessions(context)
         val observedAbsenceImpact=AbsencePayrollImpactV2.forMonth(
             absences=V2RightsStore.absences(context),
             referenceDate=referenceDate,
             acceptedEmployerIds=acceptedEmployerIds,
-            workSessions=V2RuntimeStore.allSessions(context)
+            workSessions=runtimeSource.sessions
         )
         val absenceImpact=if(ignoreAbsencesForTheoreticalBase){
             AbsencePayrollImpactV2.Snapshot(
@@ -320,6 +321,7 @@ object CompanyPayrollOverridesV2 {
             addAll(incomeTaxRate.warnings)
             addAll(verifiedProvidentStored.warnings)
             addAll(verifiedCompanyProvidentStored.warnings)
+            if(!runtimeSource.reliable)addAll(runtimeSource.warnings.ifEmpty{listOf(V2RuntimeReader.UNRELIABLE_MESSAGE)})
             if(mutual==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE].warnings.isEmpty())add("Mutuelle salariale : à confirmer")
             if(provident==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE].warnings.isEmpty())add("Prévoyance salariale entreprise : à confirmer")
             if(transport==null && employeeDeductions[CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE].warnings.isEmpty())add("Retenue transport : à confirmer")
@@ -348,7 +350,7 @@ object CompanyPayrollOverridesV2 {
             contractType=contractType,
             contractualWeeklyMinutes=contractualWeeklyMinutes,
             forfaitAnnualDays=forfaitAnnualDays,
-            unpaidAbsenceDays=absenceImpact.unpaidFullCalendarDays,
+            unpaidAbsenceDays=absenceImpact.unpaidFullCalendarDays.takeIf{runtimeSource.reliable},
             hasUnpaidAbsence=absenceImpact.hasUnpaidAbsence,
             mutualEmployeeAmount=mutual,
             providentEmployeeAmount=provident,

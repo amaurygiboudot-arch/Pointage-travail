@@ -5,7 +5,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
-import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -67,7 +67,12 @@ class V2MonthlyPdfActivity : Activity() {
         val uri = data?.data ?: run { finish(); return }
         val result = runCatching {
             contentResolver.openOutputStream(uri)?.use { output ->
-                MonthlyPdfReportV2.write(V2RuntimeStore.allSessions(this), year, month, output)
+                MonthlyPdfReportV2.write(
+                    V2RuntimeReader.allSessions(this).requireReliable(),
+                    year,
+                    month,
+                    output
+                )
             } ?: error("Impossible d'ouvrir le fichier")
         }
         Toast.makeText(
