@@ -16,12 +16,13 @@ object V2BackupManager {
     private const val ROOT_FOLDER = "Pointage Travail"
     private const val FILE_NAME = "HoraTrack_backup.json"
     private const val LEGACY_FILE_NAME = "HoraTrack_V2_backup.json"
+    private const val RUNTIME_PREFS = "horatrack_v2_test_runtime"
     private const val SALARY_COMPANIES_PREFS = "salary_companies_v2"
     private const val SALARY_COMPANY_PREFIX = "salary_company_"
     private val executor = Executors.newSingleThreadExecutor()
 
     private val basePreferenceFiles = listOf(
-        "horatrack_v2_test_runtime",
+        RUNTIME_PREFS,
         "horatrack_v2_integration",
         "horatrack_v2_migration",
         "horatrack_v2_legal_sources",
@@ -41,6 +42,7 @@ object V2BackupManager {
     )
 
     data class RestoreResult(val restoredFiles:Int,val mergedSessions:Int)
+    internal data class HistoryMergePlan(val history:JSONArray,val added:Int)
 
     fun backupIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null)return;executor.execute{backupToConfiguredDrive(app)} }
     fun restoreFreshInstallIfConfiguredAsync(context:Context){ val app=context.applicationContext;if(DriveBackupManager.savedTreeUri(app)==null||!isFreshInstall(app))return;executor.execute{runCatching{val uri=configuredBackupUri(app)?:return@runCatching;restoreFromUri(app,uri).getOrThrow()}} }
@@ -49,11 +51,27 @@ object V2BackupManager {
 
     /** Même restauration conservatrice pour Drive et Firestore. */
     fun restoreFromJson(context:Context,raw:String):Result<RestoreResult> = runCatching {
-        val root=JSONObject(raw);require(isSupportedFormatVersion(root.optInt("formatVersion",0))){"Format de sauvegarde non reconnu"};val files=root.optJSONObject("preferences")?:error("Sauvegarde incomplète")
-        var restored=0;var merged=0
+        val root=JSONObject(raw)
+        require(isSupportedFormatVersion(root.optInt("formatVersion",0))){"Format de sauvegarde non reconnu"}
+        val files=root.optJSONObject("preferences")?:error("Sauvegarde incomplète")
         val savedNames=files.keys().asSequence().filter(::isManagedPreferenceFileName).filter(BackupSecurityPolicy::canTransferPreferenceFile).toList()
-            .sortedWith(compareBy<String> { if (it == SALARY_COMPANIES_PREFS) 0 else if (it.startsWith(SALARY_COMPANY_PREFIX)) 1 else 2 }.thenBy { it })
-        savedNames.forEach{name->val saved=files.optJSONObject(name)?:return@forEach;if(name=="horatrack_v2_test_runtime")merged+=restoreRuntime(context,saved) else mergePreferences(context,name,saved);restored++}
+            .sortedWith(compareBy<String> { if (it == RUNTIME_PREFS) 0 else if (it == SALARY_COMPANIES_PREFS) 1 else if (it.startsWith(SALARY_COMPANY_PREFIX)) 2 else 3 }.thenBy { it })
+        require(savedNames.isNotEmpty()){"Sauvegarde vide ou sans données reconnues"}
+        val payloads=savedNames.associateWith{name->
+            val saved=files.optJSONObject(name)?:error("Préférences $name illisibles")
+            require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
+            saved
+        }
+        val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
+        var restored=0;var merged=0
+        savedNames.forEach{name->
+            val saved=payloads.getValue(name)
+            if(name==RUNTIME_PREFS){
+                val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
+                merged=applyRuntimeMerge(context,plan)
+            }else mergePreferences(context,name,saved)
+            restored++
+        }
         V2ProfileStore.bind(context);V2MigrationManager.ensureMigrated(context);RestoreResult(restored,merged)
     }
 
@@ -62,6 +80,7 @@ object V2BackupManager {
         V2MigrationManager.importLegacyArray(context.applicationContext, legacy).imported
 
     fun snapshot(context:Context):JSONObject {
+        V2RuntimeReader.allSessions(context).requireReliable()
         val all=JSONObject()
         transferablePreferenceFiles(context).forEach{all.put(it,encodePreferences(context,it))}
         return JSONObject().put("formatVersion",FORMAT_VERSION).put("schemaVersion",HoraTrackV2.SCHEMA_VERSION).put("createdAtMs",System.currentTimeMillis()).put("preferences",all)
@@ -90,22 +109,124 @@ object V2BackupManager {
     }
 
     private fun isFreshInstall(context:Context):Boolean {
-        val runtime=context.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE)
-        val legacy=context.getSharedPreferences("pointage",Context.MODE_PRIVATE).getString("data","[]").orEmpty()
+        val runtime=context.getSharedPreferences(RUNTIME_PREFS,Context.MODE_PRIVATE)
+        val history=V2RuntimeHistoryGuardV2.read(context)
+        if(!history.reliable)return false
+        val runtimeEntry=runtime.all["real_entry"]
+        if(runtime.contains("real_entry")&&strictLong(runtimeEntry)==null)return false
+        val legacyPrefs=context.getSharedPreferences("pointage",Context.MODE_PRIVATE)
+        val legacy=if(!legacyPrefs.contains("data"))JSONArray() else {
+            val raw=runCatching{legacyPrefs.getString("data",null)}.getOrNull()?:return false
+            runCatching{JSONArray(raw)}.getOrNull()?:return false
+        }
         val salary=context.getSharedPreferences("salary_settings",Context.MODE_PRIVATE)
         val salaryV2=context.getSharedPreferences(SALARY_COMPANIES_PREFS,Context.MODE_PRIVATE)
-        val hasRuntime=numeric(runtime.all["real_entry"])>0L||runCatching{JSONArray(runtime.getString("history","[]")?:"[]").length()>0}.getOrDefault(false)
-        val hasLegacy=runCatching{JSONArray(legacy.ifBlank{"[]"}).length()>0}.getOrDefault(false)
+        val hasRuntime=(strictLong(runtimeEntry)?:0L)>0L||history.history.length()>0
+        val hasLegacy=legacy.length()>0
         return !hasRuntime&&!hasLegacy&&salary.all.isEmpty()&&salaryV2.all.isEmpty()
     }
     private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess { val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null;val root=treeRootDocumentUri(tree);val folder=findChild(context,root,ROOT_FOLDER,DocumentsContract.Document.MIME_TYPE_DIR)?:return@withStorageAccess null;findChild(context,folder,FILE_NAME,"application/json")?:findChild(context,folder,LEGACY_FILE_NAME,"application/json") }
     private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
-    private fun mergePreferences(context:Context,name:String,saved:JSONObject){val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit();val keys=saved.keys();while(keys.hasNext()){val k=keys.next();val i=saved.optJSONObject(k)?:continue;when(i.optString("t")){"s"->editor.putString(k,i.optString("v"));"b"->editor.putBoolean(k,i.optBoolean("v"));"i"->editor.putInt(k,i.optInt("v"));"l"->editor.putLong(k,i.optLong("v"));"f"->editor.putFloat(k,i.optDouble("v").toFloat());"set"->{val a=i.optJSONArray("v")?:JSONArray();val set=buildSet{for(x in 0 until a.length())a.optString(x).takeIf{it.isNotBlank()}?.let(::add)};editor.putStringSet(k,set)}}};editor.apply()}
-    private fun restoreRuntime(context:Context,saved:JSONObject):Int { val prefs=context.applicationContext.getSharedPreferences("horatrack_v2_test_runtime",Context.MODE_PRIVATE);val currentOpen=numeric(prefs.all["real_entry"])>0L&&numeric(prefs.all["real_exit"])==0L;val savedHistory=decodeTypedString(saved.optJSONObject("history"))?.let{runCatching{JSONArray(it)}.getOrNull()}?:JSONArray();val current=runCatching{JSONArray(prefs.getString("history","[]")?:"[]")}.getOrElse{JSONArray()};val seen=mutableSetOf<String>();for(i in 0 until current.length())current.optJSONObject(i)?.let{seen+=historySignature(it)};var merged=0;for(i in 0 until savedHistory.length()){val item=savedHistory.optJSONObject(i)?:continue;val sig=historySignature(item);if(sig !in seen){current.put(item);seen+=sig;merged++}};prefs.edit().putString("history",current.toString()).apply();if(!currentOpen&&numeric(prefs.all["real_entry"])==0L){val rest=JSONObject(saved.toString()).apply{remove("history")};mergePreferences(context,"horatrack_v2_test_runtime",rest);prefs.edit().putString("history",current.toString()).apply()};return merged }
-    private fun decodeTypedString(i:JSONObject?):String?=i?.takeIf{it.optString("t")=="s"}?.optString("v")
-    internal fun historySignature(id:String,realEntry:Long,realExit:Long,countedEntry:Long,countedExit:Long)=listOf(id,realEntry,realExit,countedEntry,countedExit).joinToString(":")
-    private fun historySignature(o:JSONObject)=historySignature(o.optString("id"),o.optLong("realEntry",0L),o.optLong("realExit",0L),o.optLong("countedEntry",0L),o.optLong("countedExit",0L))
-    private fun numeric(v:Any?):Long=when(v){is Number->v.toLong();is String->v.toLongOrNull()?:0L;else->0L}
+    private fun mergePreferences(context:Context,name:String,saved:JSONObject){
+        require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
+        val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit()
+        val keys=saved.keys()
+        while(keys.hasNext()){
+            val key=keys.next();val item=saved.getJSONObject(key);val value=item.get("v")
+            when(item.getString("t")){
+                "s"->editor.putString(key,value as String)
+                "b"->editor.putBoolean(key,value as Boolean)
+                "i"->editor.putInt(key,strictLong(value)?.toInt()?:error("Entier invalide pour $key"))
+                "l"->editor.putLong(key,strictLong(value)?:error("Long invalide pour $key"))
+                "f"->editor.putFloat(key,(value as Number).toFloat())
+                "set"->{val array=value as JSONArray;val set=buildSet{for(index in 0 until array.length())add(array.getString(index))};editor.putStringSet(key,set)}
+            }
+        }
+        check(editor.commit()){ "Échec d'écriture de $name" }
+    }
+
+    internal fun isValidTypedPreferencePayload(saved:JSONObject):Boolean {
+        val keys=saved.keys()
+        while(keys.hasNext()){
+            val key=keys.next();val item=saved.optJSONObject(key)?:return false
+            if(!item.has("v")||item.isNull("v"))return false
+            val value=item.opt("v")
+            val valid=when(item.optString("t")){
+                "s"->value is String
+                "b"->value is Boolean
+                "i"->strictLong(value)?.let{it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()}==true
+                "l"->strictLong(value)!=null
+                "f"->(value as? Number)?.toDouble()?.isFinite()==true
+                "set"->{val array=value as? JSONArray?:return false;(0 until array.length()).all{array.opt(it) is String}}
+                else->false
+            }
+            if(!valid)return false
+        }
+        return true
+    }
+
+    internal fun decodeBackupHistory(saved:JSONObject):JSONArray {
+        if(!saved.has("history"))return JSONArray()
+        val item=saved.optJSONObject("history")?:error("Historique de sauvegarde mal typé")
+        val raw=(item.opt("v") as? String)?.takeIf{item.optString("t")=="s"}
+            ?:error("Historique de sauvegarde mal typé")
+        val decoded=V2RuntimeHistoryGuardV2.decode(raw)
+        require(decoded.reliable){"Historique de sauvegarde illisible ou incohérent"}
+        return JSONArray(decoded.history.toString())
+    }
+
+    internal fun mergeHistories(current:JSONArray,saved:JSONArray):HistoryMergePlan {
+        require(V2RuntimeHistoryGuardV2.inspect(current).reliable){"Historique local illisible ou incohérent"}
+        require(V2RuntimeHistoryGuardV2.inspect(saved).reliable){"Historique de sauvegarde illisible ou incohérent"}
+        val merged=JSONArray(current.toString())
+        val localById=mutableMapOf<String,JSONObject>()
+        for(index in 0 until merged.length()){
+            val item=merged.getJSONObject(index)
+            localById[item.getString("id")]=item
+        }
+        var added=0
+        for(index in 0 until saved.length()){
+            val item=saved.getJSONObject(index);val id=item.getString("id")
+            val local=localById[id]
+            if(local==null){
+                val copy=JSONObject(item.toString())
+                merged.put(copy);localById[id]=copy;added++
+            }else require(canonicalJson(local)==canonicalJson(item)){
+                "La session $id diffère entre le téléphone et la sauvegarde"
+            }
+        }
+        require(V2RuntimeHistoryGuardV2.inspect(merged).reliable){"Fusion d'historique incohérente"}
+        return HistoryMergePlan(merged,added)
+    }
+
+    private fun canonicalJson(value:Any?):String=when(value){
+        is JSONObject->value.keys().asSequence().toList().sorted()
+            .joinToString(prefix="{",postfix="}"){key->JSONObject.quote(key)+":"+canonicalJson(value.get(key))}
+        is JSONArray->(0 until value.length()).joinToString(prefix="[",postfix="]"){index->canonicalJson(value.get(index))}
+        JSONObject.NULL,null->"null"
+        is String->JSONObject.quote(value)
+        is Number->java.math.BigDecimal(value.toString()).stripTrailingZeros().toPlainString()
+        else->value.toString()
+    }
+
+    private fun prepareRuntimeMerge(context:Context,saved:JSONObject):HistoryMergePlan {
+        V2RuntimeReader.allSessions(context).requireReliable()
+        val current=V2RuntimeHistoryGuardV2.read(context)
+        require(current.reliable){"Historique local illisible : restauration bloquée"}
+        return mergeHistories(current.history,decodeBackupHistory(saved))
+    }
+
+    private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
+        if(plan.added==0)return 0
+        check(V2RuntimeHistoryGuardV2.save(context,plan.history)){"Impossible d'enregistrer l'historique fusionné"}
+        return plan.added
+    }
+    private fun strictLong(value:Any?):Long?=when(value){
+        is Byte,is Short,is Int,is Long->(value as Number).toLong()
+        is Float,is Double->{val number=(value as Number).toDouble();number.takeIf{it.isFinite()&&it%1.0==0.0}?.toLong()}
+        is String->value.trim().toLongOrNull()
+        else->null
+    }
     private fun treeRootDocumentUri(u:Uri):Uri=DocumentsContract.buildDocumentUriUsingTree(u,DocumentsContract.getTreeDocumentId(u))
     private fun ensureDirectory(c:Context,p:Uri,n:String):Uri=findChild(c,p,n,DocumentsContract.Document.MIME_TYPE_DIR)?:DocumentsContract.createDocument(c.contentResolver,p,DocumentsContract.Document.MIME_TYPE_DIR,n)?:error("Impossible de créer $n")
     private fun ensureFile(c:Context,p:Uri,n:String,m:String):Uri=findChild(c,p,n,m)?:DocumentsContract.createDocument(c.contentResolver,p,m,n)?:error("Impossible de créer $n")

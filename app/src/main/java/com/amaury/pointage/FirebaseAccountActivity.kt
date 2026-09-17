@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
@@ -146,6 +147,18 @@ class FirebaseAccountActivity : Activity() {
     private fun saveEverything() {
         setCloudButtonsEnabled(false)
         CloudPointageBackup.saveAll(this) { historyOk, historyMessage ->
+            if (HoraTrackV2.ENABLED) {
+                runOnUiThread {
+                    setCloudButtonsEnabled(true)
+                    val message = if (historyOk) {
+                        "Sauvegarde complète : $historyMessage"
+                    } else {
+                        "Sauvegarde impossible : $historyMessage"
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
+                return@saveAll
+            }
             if (!historyOk) {
                 runOnUiThread {
                     setCloudButtonsEnabled(true)
@@ -169,6 +182,19 @@ class FirebaseAccountActivity : Activity() {
 
     private fun restoreEverything() {
         setCloudButtonsEnabled(false)
+        if (HoraTrackV2.ENABLED) {
+            CloudPointageBackup.restoreAll(this) { ok, message ->
+                runOnUiThread {
+                    setCloudButtonsEnabled(true)
+                    Toast.makeText(
+                        this,
+                        if (ok) "Restauration complète : $message" else "Restauration impossible : $message",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            return
+        }
         // Les réglages sont restaurés d'abord. On ne remplace jamais l'historique local
         // si sa sauvegarde cloud est illisible.
         CloudSettingsBackup.restoreAll(this) { settingsOk, settingsMessage ->

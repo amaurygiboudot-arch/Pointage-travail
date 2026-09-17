@@ -96,7 +96,7 @@ class V2SecuritySettingsView @JvmOverloads constructor(
     private fun chooseTimeout() {
         val values = intArrayOf(1, 5, 15, 30, 60)
         val labels = values.map { "$it minute${if (it > 1) "s" else ""}" }.toTypedArray()
-        val selected = values.indexOf(V2AppLock.timeoutMinutes(context)).coerceAtLeast(1)
+        val selected = lockTimeoutSelectionIndex(values, V2AppLock.timeoutMinutes(context))
         AlertDialog.Builder(context)
             .setTitle("Verrouiller après")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
@@ -118,4 +118,10 @@ class V2SecuritySettingsView @JvmOverloads constructor(
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
+}
+
+internal fun lockTimeoutSelectionIndex(values: IntArray, current: Int): Int {
+    val exact = values.indexOf(current)
+    if (exact >= 0) return exact
+    return values.indexOf(5).takeIf { it >= 0 } ?: 0
 }
