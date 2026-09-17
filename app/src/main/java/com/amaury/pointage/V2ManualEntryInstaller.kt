@@ -28,6 +28,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 
 private data class V2ManualDialogColors(
     val background: Int,
@@ -46,7 +47,6 @@ private data class V2ManualDialogColors(
  */
 object V2ManualEntryInstaller {
     private const val BUTTON_TAG = "v2_manual_entry_button"
-    private const val DAY_MS = 24L * 60L * 60L * 1000L
 
     fun install(activity: Activity) {
         if (!HoraTrackV2.ENABLED) return
@@ -286,9 +286,16 @@ object V2ManualEntryInstaller {
         }.timeInMillis
     }
 
-    internal fun normalizeEnd(startMs: Long, rawEndMs: Long): Long? = when {
+    internal fun normalizeEnd(
+        startMs: Long,
+        rawEndMs: Long,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): Long? = when {
         rawEndMs == startMs -> null
-        rawEndMs < startMs -> rawEndMs + DAY_MS
+        rawEndMs < startMs -> Calendar.getInstance(timeZone).apply {
+            timeInMillis = rawEndMs
+            add(Calendar.DAY_OF_YEAR, 1)
+        }.timeInMillis
         else -> rawEndMs
     }
 

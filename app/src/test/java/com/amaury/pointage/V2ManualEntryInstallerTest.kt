@@ -40,7 +40,11 @@ class V2ManualEntryInstallerTest {
 
         assertEquals(
             9L * 60L * 60L * 1000L,
-            V2ManualEntryInstaller.normalizeEnd(start, rawEnd)!! - start
+            V2ManualEntryInstaller.normalizeEnd(
+                start,
+                rawEnd,
+                TimeZone.getTimeZone("Europe/Paris")
+            )!! - start
         )
         assertNull(V2ManualEntryInstaller.normalizeEnd(start, start))
     }
