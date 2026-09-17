@@ -21,6 +21,7 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 import org.json.JSONObject
 import java.io.File
 
@@ -295,7 +296,11 @@ object SettingsUiInstaller {
         section.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
         val driveStatus = TextView(activity).apply {
             textSize = 14f
-            text = if (DriveBackupManager.isConfigured(activity)) "● Sauvegarde Drive active — PDF classés par lieu / année / mois" else "Drive non configuré"
+            text = when {
+                !DriveBackupManager.isConfigured(activity) -> "Drive non configuré"
+                HoraTrackV2.ENABLED -> "● Sauvegarde Drive V2 active — pointages et réglages fonctionnels"
+                else -> "● Sauvegarde Drive active — PDF classés par lieu / année / mois"
+            }
         }
         section.addView(driveStatus)
         section.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE").apply {
