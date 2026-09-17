@@ -43,10 +43,10 @@ enum ManualSessionPolicyV2 {
         placeLabel: String?
     ) -> [WorkSession]? {
         guard entry.timeIntervalSince1970 > 0, exit > entry else { return nil }
-        let employer = employerId?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
-        let place = placeLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
-            .flatMap { $0.isEmpty ? nil : $0 }
+        let employerCandidate = employerId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let employer = employerCandidate?.isEmpty == false ? employerCandidate : nil
+        let placeCandidate = placeLabel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = placeCandidate?.isEmpty == false ? placeCandidate : nil
         guard !sessions.contains(where: {
             $0.entry == entry && $0.exit == exit && $0.employerId == employer
         }) else {
