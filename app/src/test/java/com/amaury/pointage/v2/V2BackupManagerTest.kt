@@ -3,6 +3,8 @@ package com.amaury.pointage.v2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Test
 
 class V2BackupManagerTest {
@@ -26,42 +28,77 @@ class V2BackupManagerTest {
     }
 
     @Test
-    fun `signature historique identique detecte un doublon exact`() {
-        val first = V2BackupManager.historySignature(
-            id = "session-1",
-            realEntry = 1_000L,
-            realExit = 2_000L,
-            countedEntry = 1_100L,
-            countedExit = 1_900L
-        )
-        val duplicate = V2BackupManager.historySignature(
-            id = "session-1",
-            realEntry = 1_000L,
-            realExit = 2_000L,
-            countedEntry = 1_100L,
-            countedExit = 1_900L
-        )
+    fun `un paquet de preferences doit etre entierement type`() {
+        val valid = JSONObject()
+            .put("name", typed("s", "HoraTrack"))
+            .put("enabled", typed("b", true))
+            .put("count", typed("i", 2))
+            .put("timestamp", typed("l", 2_000L))
+            .put("ratio", typed("f", 1.5))
+            .put("labels", typed("set", JSONArray().put("a").put("b")))
 
-        assertEquals(first, duplicate)
+        assertTrue(V2BackupManager.isValidTypedPreferencePayload(valid))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("broken", "raw")))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("unknown", typed("x", "value"))))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("fraction", typed("i", 1.5))))
+        assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("set", typed("set", JSONArray().put(1)))))
     }
 
     @Test
-    fun `signature historique ne confond pas deux sessions aux horaires differents`() {
-        val first = V2BackupManager.historySignature(
-            id = "session-1",
-            realEntry = 1_000L,
-            realExit = 2_000L,
-            countedEntry = 1_100L,
-            countedExit = 1_900L
-        )
-        val changedExit = V2BackupManager.historySignature(
-            id = "session-1",
-            realEntry = 1_000L,
-            realExit = 2_100L,
-            countedEntry = 1_100L,
-            countedExit = 2_000L
+    fun `historique absent reste compatible avec les anciennes sauvegardes`() {
+        assertEquals(0, V2BackupManager.decodeBackupHistory(JSONObject()).length())
+    }
+
+    @Test
+    fun `historique present mais corrompu bloque la restauration`() {
+        val saved = JSONObject().put("history", typed("s", "not-json"))
+
+        assertTrue(runCatching { V2BackupManager.decodeBackupHistory(saved) }.isFailure)
+    }
+
+    @Test
+    fun `fusion historique ignore une session strictement identique et ajoute une nouvelle`() {
+        val local = session("session-1", 10_000L, 20_000L)
+        val remoteSameId = JSONObject(local.toString())
+        val remoteNew = session("session-2", 50_000L, 60_000L)
+
+        val result = V2BackupManager.mergeHistories(
+            JSONArray().put(local),
+            JSONArray().put(remoteSameId).put(remoteNew)
         )
 
-        assertFalse(first == changedExit)
+        assertEquals(1, result.added)
+        assertEquals(2, result.history.length())
+        assertEquals(10_000L, result.history.getJSONObject(0).getLong("realEntry"))
+        assertEquals("session-2", result.history.getJSONObject(1).getString("id"))
     }
+
+    @Test
+    fun `fusion historique refuse un meme identifiant avec un contenu different`() {
+        val local = JSONArray().put(session("session-1", 10_000L, 20_000L))
+        val conflicting = JSONArray().put(session("session-1", 30_000L, 40_000L))
+
+        assertTrue(runCatching { V2BackupManager.mergeHistories(local, conflicting) }.isFailure)
+    }
+
+    @Test
+    fun `fusion historique refuse toute source corrompue`() {
+        val malformed = JSONArray().put(session("session-1", 20_000L, 10_000L))
+
+        assertTrue(runCatching { V2BackupManager.mergeHistories(malformed, JSONArray()) }.isFailure)
+        assertTrue(runCatching { V2BackupManager.mergeHistories(JSONArray(), malformed) }.isFailure)
+    }
+
+    private fun typed(type: String, value: Any) = JSONObject().put("t", type).put("v", value)
+
+    private fun session(id: String, entry: Long, exit: Long) = JSONObject()
+        .put("id", id)
+        .put("employerId", "company-a")
+        .put("realEntry", entry)
+        .put("countedEntry", entry)
+        .put("realExit", exit)
+        .put("countedExit", exit)
+        .put("pauses", JSONArray())
+        .put("placeId", JSONObject.NULL)
+        .put("placeLabel", JSONObject.NULL)
 }
