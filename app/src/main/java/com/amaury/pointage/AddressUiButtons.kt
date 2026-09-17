@@ -20,7 +20,6 @@ import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
-import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
@@ -178,10 +177,18 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             Toast.makeText(context, "Ce lieu est déjà enregistré", Toast.LENGTH_LONG).show()
                             return@finishGeocoding
                         }
+                        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+                        val zones = readPersistedGpsZones(gpsPrefs).toMutableJsonArrayOrNull()
+                        if (zones == null) {
+                            GeofenceManager.removeRegisteredGeofences(context)
+                            positiveButton.isEnabled = true
+                            positiveButton.text = "Ajouter"
+                            Toast.makeText(context, "Configuration GPS illisible : le lieu n'a pas été ajouté", Toast.LENGTH_LONG).show()
+                            return@finishGeocoding
+                        }
                         val updated = (latestAddresses + formatted).distinctBy { it.lowercase() }.take(10)
                         addressList.setText(updated.joinToString("\n"))
 
-                        val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
                         PlaceNames.put(context, formatted, nameValue)
 
                         val contacts = runCatching {
@@ -200,9 +207,6 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         }.getOrElse { JSONObject() }
                         companyMap.put(formatted, companySlot)
 
-                        val zones = runCatching {
-                            JSONArray(gpsPrefs.getString("zones", "[]") ?: "[]")
-                        }.getOrElse { JSONArray() }
                         if (geocoded != null) {
                             val zone = JSONObject()
                                 .put("id", UUID.randomUUID().toString())

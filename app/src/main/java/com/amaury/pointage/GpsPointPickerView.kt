@@ -103,9 +103,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
     }
 
-    private fun zones(): JSONArray = runCatching {
-        JSONArray(prefs.getString("zones", "[]") ?: "[]")
-    }.getOrElse { JSONArray() }
+    private fun zones(): JSONArray? = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
 
     private fun savedAddresses(): List<String> = prefs.getString("address", "")
         .orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -119,7 +117,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONObject(prefs.getString("zone_point_confirmed", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
 
-    private fun findZone(address: String, list: JSONArray = zones()): JSONObject? {
+    private fun findZone(address: String, list: JSONArray?): JSONObject? {
+        if (list == null) return null
         for (i in 0 until list.length()) {
             val zone = list.optJSONObject(i) ?: continue
             if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return zone
@@ -215,7 +214,12 @@ class GpsPointPickerView @JvmOverloads constructor(
             prefs.edit().remove("pending_point_address").apply()
             return
         }
-        val zone = findZone(pending) ?: provisionalZone(pending)
+        val storedZones = zones()
+        if (storedZones == null) {
+            GeofenceManager.removeRegisteredGeofences(context)
+            return
+        }
+        val zone = findZone(pending, storedZones) ?: provisionalZone(pending)
         promptScheduled = true
         postDelayed({
             promptScheduled = false
@@ -230,6 +234,11 @@ class GpsPointPickerView @JvmOverloads constructor(
             return
         }
         val list = zones()
+        if (list == null) {
+            GeofenceManager.removeRegisteredGeofences(context)
+            Toast.makeText(context, "Configuration GPS illisible : aucun point n'a été modifié", Toast.LENGTH_LONG).show()
+            return
+        }
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
         addresses.forEach { address ->
@@ -470,10 +479,15 @@ class GpsPointPickerView @JvmOverloads constructor(
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
 
+        val list = zones()
+        if (list == null) {
+            GeofenceManager.removeRegisteredGeofences(context)
+            Toast.makeText(context, "Configuration GPS illisible : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
+            return
+        }
         val custom = overrides().apply {
             put(address, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
         }
-        val list = zones()
         var found = false
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue

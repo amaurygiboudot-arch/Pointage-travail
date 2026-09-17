@@ -401,13 +401,13 @@ class MainActivity : Activity() {
         updatingGpsSwitch = false
     }
 
-    private fun loadSavedZoneObjects(): JSONArray =
+    private fun loadSavedZoneObjects(allowCorruptRepair: Boolean): JSONArray? =
         when (val stored = readPersistedGpsZones(gpsPrefs)) {
             GpsZonesReadResult.Missing -> JSONArray()
             is GpsZonesReadResult.Valid -> JSONArray().apply {
                 stored.zones.forEach { put(JSONObject(it.sourceJson)) }
             }
-            is GpsZonesReadResult.Corrupt -> JSONArray()
+            is GpsZonesReadResult.Corrupt -> if (allowCorruptRepair) JSONArray() else null
         }
 
     private fun existingZoneIdForAddress(address: String, existingZones: JSONArray): String? {
@@ -418,14 +418,25 @@ class MainActivity : Activity() {
         return null
     }
 
-    private fun saveGpsSettings() {
+    private fun saveGpsSettings(allowCorruptRepair: Boolean = false) {
         val rawLines = workplaceAddress.text.toString().lines().map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { it.lowercase(Locale.FRANCE) }
         if (rawLines.isEmpty()) { Toast.makeText(this, "Entre au moins une adresse", Toast.LENGTH_LONG).show(); return }
         val addresses = rawLines.take(10)
         if (rawLines.size > 10) Toast.makeText(this, "Seules les 10 premières adresses seront enregistrées", Toast.LENGTH_LONG).show()
         val radius = geofenceRadius.text.toString().toIntOrNull()?.coerceIn(50, 1000) ?: 150
         geofenceRadius.setText(radius.toString())
-        val existingZones = loadSavedZoneObjects()
+        val existingZones = loadSavedZoneObjects(allowCorruptRepair)
+        if (existingZones == null) {
+            GeofenceManager.removeRegisteredGeofences(this)
+            gpsStatusText.text = "Configuration GPS illisible — automatisation suspendue"
+            AlertDialog.Builder(this)
+                .setTitle("Configuration GPS à réparer")
+                .setMessage("Les zones enregistrées sont illisibles. HoraTrack a suspendu l'automatisation. Veux-tu recréer explicitement les zones à partir des adresses affichées ?")
+                .setPositiveButton("Recréer") { _, _ -> saveGpsSettings(allowCorruptRepair = true) }
+                .setNegativeButton("Annuler", null)
+                .show()
+            return
+        }
         val storedAddressBeforeRequest = gpsPrefs.getString("address", "")
         val storedRadiusBeforeRequest = gpsPrefs.getInt("radius", 150)
         val storedZonesBeforeRequest = gpsPrefs.getString("zones", "[]")
