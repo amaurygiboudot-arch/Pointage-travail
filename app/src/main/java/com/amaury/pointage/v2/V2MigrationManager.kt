@@ -32,14 +32,35 @@ object V2MigrationManager {
 
     fun ensureMigrated(context: Context): Result {
         if (!HoraTrackV2.ENABLED) return Result(0, 0, 0, 0)
-        val prefs = context.applicationContext.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
-        if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(context, JSONArray())
+        val app = context.applicationContext
+        val meta = app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
+        val completedVersion = meta.getInt("version", 0)
+
+        // Une migration legacy validée pour la version courante devient immuable : les démarrages
+        // et mutations V2 suivants ne doivent plus relire l'ancienne base ni enrichir l'historique
+        // canonique avec une seconde vérité. On continue toutefois à valider l'historique V2.
+        if (!migrationRequired(completedVersion)) {
+            val storedHistory = V2RuntimeHistoryGuardV2.read(app)
+            return Result(
+                imported = 0,
+                skipped = 0,
+                legacyCount = meta.getInt("legacy_count", 0).coerceAtLeast(0),
+                v2Count = storedHistory.history.length(),
+                reliable = storedHistory.reliable,
+                warnings = storedHistory.warnings
+            )
+        }
+
+        val prefs = app.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(LEGACY_KEY)) return importLegacyArray(app, JSONArray())
         val raw = runCatching { prefs.getString(LEGACY_KEY, null) }.getOrNull()
         if (raw == null) return migrationFailure()
         if (raw.isBlank()) return migrationFailure()
         val legacy = runCatching { JSONArray(raw) }.getOrNull() ?: return migrationFailure()
-        return importLegacyArray(context, legacy)
+        return importLegacyArray(app, legacy)
     }
+
+    internal fun migrationRequired(completedVersion: Int): Boolean = completedVersion < VERSION
 
     fun importLegacyArray(context: Context, legacy: JSONArray): Result {
         if (!HoraTrackV2.ENABLED) return Result(0, 0, legacy.length(), 0)
