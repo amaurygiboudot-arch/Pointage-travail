@@ -535,11 +535,12 @@ object V2RuntimeStore {
                 val o = array.getJSONObject(i)
                 val realEntry = positive(o, "realEntry") ?: error("realEntry invalide")
                 val realExit = positive(o, "realExit")
-                val slot = if (o.has("companySlot") && !o.isNull("companySlot")) {
-                    strictInt(o.opt("companySlot"))?.takeIf { it in 1..2 } ?: error("companySlot invalide")
-                } else 1
-                val employerId = o.optString("employerId").takeIf { it.isNotBlank() && it != "null" }
-                    ?: V2ProfileStore.load(context, slot).employer?.id
+                val employerSource = historyEmployerSource(o)
+                val employerId = if (employerSource.useLegacyProfile) {
+                    V2ProfileStore.load(context, employerSource.legacySlot ?: 1).employer?.id
+                } else {
+                    employerSource.employerId
+                }
                 val placeId = o.optString("placeId").trim().takeIf { it.isNotBlank() && it != "null" }
                 val placeLabel = o.optString("placeLabel").trim().takeIf { it.isNotBlank() && it != "null" }
                 val pauses = parsePauseArray(o.getJSONArray(KEY_PAUSES)) ?: error("pauses invalides")
@@ -563,6 +564,35 @@ object V2RuntimeStore {
             }
         }
     }.getOrNull()
+
+    internal data class HistoryEmployerSource(
+        val employerId: String?,
+        val legacySlot: Int?,
+        val useLegacyProfile: Boolean
+    )
+
+    internal fun historyEmployerSource(item: JSONObject): HistoryEmployerSource {
+        val slot = if (item.has("companySlot") && !item.isNull("companySlot")) {
+            strictInt(item.opt("companySlot"))?.takeIf { it in 1..2 }
+                ?: error("companySlot invalide")
+        } else {
+            null
+        }
+        if (item.has("employerId")) {
+            if (item.isNull("employerId")) {
+                return if (slot != null) {
+                    HistoryEmployerSource(null, slot, useLegacyProfile = true)
+                } else {
+                    HistoryEmployerSource(null, null, useLegacyProfile = false)
+                }
+            }
+            val employerId = item.getString("employerId").trim()
+                .takeIf { it.isNotBlank() && it != "null" }
+                ?: error("employerId invalide")
+            return HistoryEmployerSource(employerId, slot, useLegacyProfile = false)
+        }
+        return HistoryEmployerSource(null, slot ?: 1, useLegacyProfile = true)
+    }
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 

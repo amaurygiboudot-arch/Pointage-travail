@@ -7,17 +7,14 @@ import java.util.UUID
 
 /** Ajoute une session manuelle fermée directement dans l'historique V2. */
 object V2ManualSessionWriter {
-    /** Compatibilité temporaire avec les anciens écrans encore basés sur les slots 1/2. */
-    fun add(
+    /** Écriture V2 explicite d'une plage sans employeur associé. */
+    fun addWithoutCompany(
         context: Context,
         realStartMs: Long,
         realEndMs: Long,
-        companySlot: Int,
         place: String? = null
     ): Boolean {
-        val slot = companySlot.coerceIn(1, 2)
-        val employerId = V2ProfileStore.load(context, slot).employer?.id
-        return addInternal(context, realStartMs, realEndMs, employerId, slot, place)
+        return addInternal(context, realStartMs, realEndMs, null, null, place)
     }
 
     /** Écriture V2 canonique : l'entreprise est identifiée par son ID stable et non par sa position. */
@@ -55,32 +52,61 @@ object V2ManualSessionWriter {
         val stored = V2RuntimeHistoryGuardV2.read(context)
         if (!stored.reliable) return false
         val history = stored.history
-        val employerKey = employerId ?: "slot:${legacySlot ?: 1}"
+        val employerKey = employerKey(employerId, legacySlot)
         val signature = "$realStartMs:$realEndMs:$countedEntry:$countedExit:$employerKey"
         for (i in 0 until history.length()) {
             val o = history.optJSONObject(i) ?: return false
-            val existingEmployer = o.optString("employerId")
-                .takeIf { it.isNotBlank() && it != "null" }
-                ?: "slot:${o.optInt("companySlot", 1)}"
+            val existingEmployer = employerKey(
+                employerId = o.optString("employerId").takeIf {
+                    o.has("employerId") && !o.isNull("employerId") && it.isNotBlank() && it != "null"
+                },
+                legacySlot = o.optInt("companySlot").takeIf {
+                    o.has("companySlot") && !o.isNull("companySlot") && it in 1..2
+                }
+            )
             val existing = "${o.optLong("realEntry", 0L)}:${o.optLong("realExit", 0L)}:${o.optLong("countedEntry", 0L)}:${o.optLong("countedExit", 0L)}:$existingEmployer"
             if (existing == signature) return false
         }
 
-        history.put(
-            JSONObject()
-                .put("id", "manual-${UUID.randomUUID()}")
-                .put("employerId", employerId ?: JSONObject.NULL)
-                .apply { legacySlot?.let { put("companySlot", it) } }
-                .put("realEntry", realStartMs)
-                .put("countedEntry", countedEntry)
-                .put("realExit", realEndMs)
-                .put("countedExit", countedExit)
-                .put("pauses", JSONArray())
-                .put("source", "MANUAL")
-                .put("placeId", JSONObject.NULL)
-                .put("placeLabel", placeLabel ?: JSONObject.NULL)
-                .put("place", placeLabel ?: JSONObject.NULL)
-        )
+        history.put(createManualSessionJson(
+            id = "manual-${UUID.randomUUID()}",
+            realStartMs = realStartMs,
+            realEndMs = realEndMs,
+            countedEntryMs = countedEntry,
+            countedExitMs = countedExit,
+            employerId = employerId,
+            legacySlot = legacySlot,
+            placeLabel = placeLabel
+        ))
         return V2RuntimeHistoryGuardV2.save(context, history)
+    }
+
+    internal fun createManualSessionJson(
+        id: String,
+        realStartMs: Long,
+        realEndMs: Long,
+        countedEntryMs: Long,
+        countedExitMs: Long,
+        employerId: String?,
+        legacySlot: Int?,
+        placeLabel: String?
+    ): JSONObject = JSONObject()
+        .put("id", id)
+        .put("employerId", employerId ?: JSONObject.NULL)
+        .apply { legacySlot?.let { put("companySlot", it) } }
+        .put("realEntry", realStartMs)
+        .put("countedEntry", countedEntryMs)
+        .put("realExit", realEndMs)
+        .put("countedExit", countedExitMs)
+        .put("pauses", JSONArray())
+        .put("source", "MANUAL")
+        .put("placeId", JSONObject.NULL)
+        .put("placeLabel", placeLabel ?: JSONObject.NULL)
+        .put("place", placeLabel ?: JSONObject.NULL)
+
+    internal fun employerKey(employerId: String?, legacySlot: Int?): String = when {
+        !employerId.isNullOrBlank() -> "employer:$employerId"
+        legacySlot in 1..2 -> "slot:$legacySlot"
+        else -> "none"
     }
 }

@@ -50,8 +50,8 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
         activity.window.decorView.post {
             PrimaryButtonIsolation.install(activity)
-            V2ManualEntryInstaller.install(activity)
             installEmployerSelector(activity)
+            V2ManualEntryInstaller.install(activity)
             installOwnerShortcut(activity)
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
@@ -65,8 +65,6 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             WorkplaceProposalLimiter.showIfAllowed(activity)
             CompanyNameUiBinder.bind(activity)
             PrimaryButtonIsolation.install(activity)
-            V2ManualEntryInstaller.install(activity)
-            installEmployerSelector(activity)
         }
     }
 
