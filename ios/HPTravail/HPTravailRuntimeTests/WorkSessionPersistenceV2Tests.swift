@@ -29,6 +29,48 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(sessions.first).pauses.first?.paid)
     }
 
+    func testCompletedPauseWithoutPaidStatusIsCorrupt() throws {
+        let session = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: nil,
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(300),
+                    end: start.addingTimeInterval(600),
+                    paid: nil
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            WorkSessionPersistenceV2.read(try JSONEncoder().encode([session])),
+            .corrupt
+        )
+    }
+
+    func testClosedSessionWithoutExplicitPauseStatusIsCorrupt() throws {
+        let session = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: start.addingTimeInterval(3_600),
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(900),
+                    end: start.addingTimeInterval(1_200),
+                    paid: nil
+                )
+            ]
+        )
+
+        XCTAssertEqual(
+            WorkSessionPersistenceV2.read(try JSONEncoder().encode([session])),
+            .corrupt
+        )
+    }
+
     func testTwoOpenSessionsAreCorrupt() throws {
         let sessions = [
             WorkSession(id: UUID(), entry: start, exit: nil, pauses: []),
