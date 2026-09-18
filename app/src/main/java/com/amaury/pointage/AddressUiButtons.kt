@@ -20,6 +20,7 @@ import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
 import org.json.JSONObject
 import java.util.Locale
 import java.util.UUID
@@ -46,28 +47,64 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
             setPadding(dp(20), dp(8), dp(20), 0)
         }
 
-        val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-        val company1Name = salaryPrefs.getString("company_name", "").orEmpty().ifBlank { "Entreprise 1" }
-        val company2Name = salaryPrefs.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
-
+        val useV2EmployerBinding = HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)
         val companyLabel = TextView(context).apply {
             text = "Entreprise associée"
             textSize = 14f
             setPadding(0, dp(6), 0, dp(4))
         }
         val companyGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
-        val company1Button = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = "Entreprise 1 — $company1Name"
-            textSize = 15f
+        val companyByButtonId = linkedMapOf<Int, String?>()
+        val legacySlotByButtonId = linkedMapOf<Int, Int>()
+        val companyDisplayByButtonId = linkedMapOf<Int, String>()
+
+        if (useV2EmployerBinding) {
+            val none = RadioButton(context).apply {
+                id = View.generateViewId()
+                text = "Aucune association automatique — garder l'entreprise choisie au pointage"
+                textSize = 15f
+            }
+            companyGroup.addView(none)
+            companyByButtonId[none.id] = null
+            companyDisplayByButtonId[none.id] = "sans association automatique"
+
+            val stored = SalaryCompanyStore.readConfirmed(context)
+            if (!stored.reliable) {
+                container.addView(TextView(context).apply {
+                    text = "Entreprises V2 à vérifier : ce lieu peut être enregistré sans association automatique."
+                    textSize = 13f
+                    setPadding(0, 0, 0, dp(4))
+                })
+            } else {
+                stored.companies.forEach { company ->
+                    val button = RadioButton(context).apply {
+                        id = View.generateViewId()
+                        text = buildString {
+                            append(company.name.ifBlank { "Entreprise" })
+                            if (company.siret.isNotBlank()) append(" — SIRET ${company.siret}")
+                        }
+                        textSize = 15f
+                    }
+                    companyGroup.addView(button)
+                    companyByButtonId[button.id] = company.id
+                    companyDisplayByButtonId[button.id] = company.name.ifBlank { "Entreprise" }
+                }
+            }
+        } else {
+            val salaryPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+            val company1Name = salaryPrefs.getString("company_name", "").orEmpty().ifBlank { "Entreprise 1" }
+            val company2Name = salaryPrefs.getString("company2_name", "").orEmpty().ifBlank { "Entreprise 2" }
+            listOf(1 to company1Name, 2 to company2Name).forEach { (slot, name) ->
+                val button = RadioButton(context).apply {
+                    id = View.generateViewId()
+                    text = "Entreprise $slot — $name"
+                    textSize = 15f
+                }
+                companyGroup.addView(button)
+                legacySlotByButtonId[button.id] = slot
+                companyDisplayByButtonId[button.id] = name
+            }
         }
-        val company2Button = RadioButton(context).apply {
-            id = View.generateViewId()
-            text = "Entreprise 2 — $company2Name"
-            textSize = 15f
-        }
-        companyGroup.addView(company1Button)
-        companyGroup.addView(company2Button)
 
         val placeName = EditText(context).apply {
             hint = "Nom du lieu / client"
@@ -119,16 +156,23 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                 val streetValue = street.text.toString().trim()
                 val postalValue = postalCode.text.toString().trim()
                 val cityValue = city.text.toString().trim()
-                val companySlot = when (companyGroup.checkedRadioButtonId) {
-                    company1Button.id -> 1
-                    company2Button.id -> 2
-                    else -> 0
-                }
+                val checkedCompanyButtonId = companyGroup.checkedRadioButtonId
 
-                if (companySlot == 0) {
-                    Toast.makeText(context, "Choisis Entreprise 1 ou Entreprise 2", Toast.LENGTH_LONG).show()
+                if (checkedCompanyButtonId == -1 ||
+                    (useV2EmployerBinding && !companyByButtonId.containsKey(checkedCompanyButtonId)) ||
+                    (!useV2EmployerBinding && !legacySlotByButtonId.containsKey(checkedCompanyButtonId))
+                ) {
+                    Toast.makeText(
+                        context,
+                        if (useV2EmployerBinding) "Choisis une entreprise ou Aucune association automatique" else "Choisis Entreprise 1 ou Entreprise 2",
+                        Toast.LENGTH_LONG
+                    ).show()
                     return@setOnClickListener
                 }
+                val selectedCompanyId = companyByButtonId[checkedCompanyButtonId]
+                val legacyCompanySlot = legacySlotByButtonId[checkedCompanyButtonId]
+                val selectedCompanyLabel = companyDisplayByButtonId[checkedCompanyButtonId] ?: "sans association automatique"
+
                 if (nameValue.isBlank()) {
                     placeName.error = "Donne un nom à ce lieu"
                     return@setOnClickListener
@@ -205,7 +249,9 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         val companyMap = runCatching {
                             JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
                         }.getOrElse { JSONObject() }
-                        companyMap.put(formatted, companySlot)
+                        if (!useV2EmployerBinding && legacyCompanySlot != null) {
+                            companyMap.put(formatted, legacyCompanySlot)
+                        }
 
                         if (geocoded != null) {
                             val zone = JSONObject()
@@ -215,17 +261,19 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                                 .put("longitude", geocoded.longitude)
                                 .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
                                 .put("pointSource", "geocoder")
+                            selectedCompanyId?.let { zone.put("companyId", it) }
+                            if (!useV2EmployerBinding && legacyCompanySlot != null) zone.put("companySlot", legacyCompanySlot)
                             zones.put(zone)
                         }
 
-                        gpsPrefs.edit()
+                        val editor = gpsPrefs.edit()
                             .putString("address", updated.joinToString("\n"))
                             .putString("arrival_contacts", contacts.toString())
-                            .putString("address_company_slots", companyMap.toString())
                             .putString("zones", zones.toString())
                             .remove("active_zones")
                             .putString("pending_point_address", formatted)
-                            .apply()
+                        if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
+                        editor.apply()
 
                         if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -234,11 +282,10 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         }
 
                         rootView.findViewById<LocationManagementView>(R.id.locationManagementView)?.refresh()
-                        val companyName = if (companySlot == 1) company1Name else company2Name
                         val message = if (geocoded != null)
-                            "$nameValue ajouté à $companyName — la carte va s'ouvrir sur l'adresse"
+                            "$nameValue ajouté — $selectedCompanyLabel — la carte va s'ouvrir sur l'adresse"
                         else
-                            "$nameValue ajouté à $companyName — adresse introuvable automatiquement, place le point manuellement"
+                            "$nameValue ajouté — $selectedCompanyLabel — adresse introuvable automatiquement, place le point manuellement"
                         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                         dialog.dismiss()
                     }
