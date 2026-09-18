@@ -19,6 +19,13 @@ final class WorkStoreV2: ObservableObject {
 
     var isWorking: Bool { currentSession != nil }
     var isPaused: Bool { currentSession?.pauses.last?.end == nil && currentSession?.pauses.last != nil }
+    var currentPauseNeedsQualification: Bool {
+        guard storageReliable,
+              let pause = currentSession?.pauses.last(where: { $0.end == nil }) else {
+            return false
+        }
+        return pause.paid == nil
+    }
 
     func clockIn() {
         guard storageReliable, !isWorking else { return }
@@ -30,6 +37,8 @@ final class WorkStoreV2: ObservableObject {
         guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
+            guard let resolvedPaid = sessions[index].pauses[pauseIndex].paid ?? paid else { return }
+            sessions[index].pauses[pauseIndex].paid = resolvedPaid
             sessions[index].pauses[pauseIndex].end = Date()
         } else {
             guard let paid else { return }
@@ -43,6 +52,7 @@ final class WorkStoreV2: ObservableObject {
     func clockOut() {
         guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
+        guard sessions[index].pauses.allSatisfy({ $0.paid != nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
         }
