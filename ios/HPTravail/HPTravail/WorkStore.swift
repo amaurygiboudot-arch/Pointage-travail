@@ -19,6 +19,13 @@ final class WorkStoreV2: ObservableObject {
 
     var isWorking: Bool { currentSession != nil }
     var isPaused: Bool { currentSession?.pauses.last?.end == nil && currentSession?.pauses.last != nil }
+    var currentPauseNeedsQualification: Bool {
+        guard storageReliable,
+              let pause = currentSession?.pauses.last(where: { $0.end == nil }) else {
+            return false
+        }
+        return pause.paid == nil
+    }
 
     func clockIn() {
         guard storageReliable, !isWorking else { return }
@@ -30,6 +37,8 @@ final class WorkStoreV2: ObservableObject {
         guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
+            guard let resolvedPaid = sessions[index].pauses[pauseIndex].paid ?? paid else { return }
+            sessions[index].pauses[pauseIndex].paid = resolvedPaid
             sessions[index].pauses[pauseIndex].end = Date()
         } else {
             guard let paid else { return }
@@ -43,6 +52,7 @@ final class WorkStoreV2: ObservableObject {
     func clockOut() {
         guard storageReliable else { return }
         guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
+        guard sessions[index].pauses.allSatisfy({ $0.paid != nil }) else { return }
         if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
             sessions[index].pauses[pauseIndex].end = Date()
         }
@@ -84,57 +94,64 @@ final class WorkStoreV2: ObservableObject {
     }
 
     private func save() {
-        guard storageReliable,
-              let data = try? JSONEncoder().encode(sessions) else {
-            storageReliable = false
-            return
-        }
-
-        defaults.set(data, forKey: WorkSessionStorageV2.primaryKey)
-        guard WorkSessionPersistenceV2.read(
-            defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-        ) == .valid(sessions) else {
+        guard storageReliable, persistCanonical(sessions) else {
             storageReliable = false
             return
         }
     }
 
+    private func persistCanonical(_ decoded: [WorkSession]) -> Bool {
+        guard let data = try? JSONEncoder().encode(decoded) else { return false }
+
+        defaults.set(data, forKey: WorkSessionStorageV2.primaryKey)
+        return WorkSessionPersistenceV2.read(
+            defaults.data(forKey: WorkSessionStorageV2.primaryKey)
+        ) == .valid(decoded)
+    }
+
     private func load() {
+        let primaryData = defaults.data(forKey: WorkSessionStorageV2.primaryKey)
+        let legacyData = defaults.data(forKey: WorkSessionStorageV2.legacyKey)
+        let paidRepairAlreadyHandled = defaults.bool(forKey: WorkSessionStorageV2.paidRepairMarkerKey)
+
         let resolution = WorkSessionStorageV2.resolve(
-            primaryData: defaults.data(forKey: WorkSessionStorageV2.primaryKey),
-            legacyData: defaults.data(forKey: WorkSessionStorageV2.legacyKey)
+            primaryData: primaryData,
+            legacyData: legacyData,
+            allowTransitionalPrimaryRepair: !paidRepairAlreadyHandled
         )
+
+        // La compatibilité paid=nil n'est autorisée qu'une seule fois sur une installation existante.
+        // Le marqueur est posé même si aucune réparation n'était nécessaire, afin qu'une corruption
+        // future ne puisse jamais réactiver ce chemin historique.
+        if !paidRepairAlreadyHandled {
+            defaults.set(true, forKey: WorkSessionStorageV2.paidRepairMarkerKey)
+        }
 
         switch resolution {
         case .missing:
             sessions = []
             storageReliable = true
 
-        case .valid(let decoded, let migratedFromLegacy):
-            guard migratedFromLegacy else {
+        case .valid(let decoded, let origin):
+            switch origin {
+            case .primary:
                 sessions = decoded
                 storageReliable = true
-                return
-            }
 
-            guard let migratedData = try? JSONEncoder().encode(decoded) else {
-                sessions = []
-                storageReliable = false
-                return
-            }
+            case .legacyMigration, .transitionalPrimaryRepair:
+                guard persistCanonical(decoded) else {
+                    sessions = []
+                    storageReliable = false
+                    return
+                }
 
-            defaults.set(migratedData, forKey: WorkSessionStorageV2.primaryKey)
-            guard WorkSessionPersistenceV2.read(
-                defaults.data(forKey: WorkSessionStorageV2.primaryKey)
-            ) == .valid(decoded) else {
-                sessions = []
-                storageReliable = false
-                return
-            }
+                if origin == .legacyMigration {
+                    defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
+                }
 
-            defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
-            sessions = decoded
-            storageReliable = true
+                sessions = decoded
+                storageReliable = true
+            }
 
         case .corrupt:
             sessions = []

@@ -63,13 +63,21 @@ struct ContentView: View {
                         }
                         actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.storageReliable || !store.isWorking) {
                             if store.isPaused {
-                                store.togglePause()
+                                if store.currentPauseNeedsQualification {
+                                    showPausePaymentChoice = true
+                                } else {
+                                    store.togglePause()
+                                }
                             } else {
                                 showPausePaymentChoice = true
                             }
                         }
                         actionButton(title: "SORTIE", symbol: "arrow.left.circle.fill", color: .red, disabled: !store.storageReliable || !store.isWorking) {
-                            store.clockOut()
+                            if store.currentPauseNeedsQualification {
+                                showPausePaymentChoice = true
+                            } else {
+                                store.clockOut()
+                            }
                         }
                     }
 
