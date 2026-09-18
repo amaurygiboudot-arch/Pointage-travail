@@ -19,6 +19,8 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.QualifiedManualPauseV2
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -32,8 +34,10 @@ class ManualPauseButton @JvmOverloads constructor(
         val container: LinearLayout,
         val start: Button,
         val end: Button,
+        val status: Button,
         var startMinutes: Int? = null,
-        var endMinutes: Int? = null
+        var endMinutes: Int? = null,
+        var paid: Boolean? = null
     )
 
     init { setOnClickListener { showDialog() } }
@@ -86,6 +90,7 @@ class ManualPauseButton @JvmOverloads constructor(
         })
 
         var reloadPausesForSelectedDate: (() -> Unit)? = null
+        var sourceReliable = true
         val dateButton = styledButton("DATE : ${dateFormat.format(selectedDate.time)}")
         dateButton.setOnClickListener {
             DatePickerDialog(
@@ -182,6 +187,7 @@ class ManualPauseButton @JvmOverloads constructor(
             val slotNumber = index + 1
             val start = styledButton("DÉBUT $slotNumber : choisir")
             val end = styledButton("FIN $slotNumber : choisir")
+            val status = styledButton("STATUT $slotNumber : choisir")
             val container = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 visibility = if (index == 0) View.VISIBLE else View.GONE
@@ -196,11 +202,22 @@ class ManualPauseButton @JvmOverloads constructor(
                 }
                 addView(start, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)))
                 addView(end, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
+                addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply { topMargin = dp(7) })
             }
             body.addView(container)
-            val slot = PauseSlot(container, start, end)
+            val slot = PauseSlot(container, start, end, status)
             start.setOnClickListener { openTimePicker(slot, true, "DÉBUT $slotNumber") }
             end.setOnClickListener { openTimePicker(slot, false, "FIN $slotNumber") }
+            status.setOnClickListener {
+                AlertDialog.Builder(context)
+                    .setTitle("Statut de la pause $slotNumber")
+                    .setItems(arrayOf("Payée", "Non payée")) { _, which ->
+                        slot.paid = which == 0
+                        status.text = "STATUT $slotNumber : ${if (slot.paid == true) "PAYÉE" else "NON PAYÉE"}"
+                    }
+                    .setNegativeButton("ANNULER", null)
+                    .show()
+            }
             slots += slot
         }
 
@@ -215,25 +232,36 @@ class ManualPauseButton @JvmOverloads constructor(
             }
             val dayStart = dayStartCalendar.timeInMillis
             val dayEnd = (dayStartCalendar.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
-            val saved = PointageStore.manualPausesForDay(context, dayStart, dayEnd)
+            val saved = ManualPauseBatchStore.editableForDay(context, dayStart, dayEnd)
+            sourceReliable = saved != null
 
             slots.forEachIndexed { index, slot ->
                 slot.startMinutes = null
                 slot.endMinutes = null
+                slot.paid = null
                 slot.start.text = "DÉBUT ${index + 1} : choisir"
                 slot.end.text = "FIN ${index + 1} : choisir"
+                slot.status.text = "STATUT ${index + 1} : choisir"
                 slot.container.visibility = if (index == 0) View.VISIBLE else View.GONE
             }
 
-            if (saved.isNotEmpty()) {
-                saved.take(5).forEachIndexed { index, range ->
+            if (saved == null) {
+                Toast.makeText(
+                    context,
+                    "Pauses indisponibles : les données HoraTrack doivent être vérifiées.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else if (saved.isNotEmpty()) {
+                saved.take(5).forEachIndexed { index, pause ->
                     val slot = slots[index]
-                    val startCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = range.first }
-                    val endCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = range.second }
+                    val startCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = pause.startMs }
+                    val endCal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = pause.endMs }
                     slot.startMinutes = startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE)
                     slot.endMinutes = endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE)
+                    slot.paid = pause.paid
                     slot.start.text = "DÉBUT ${index + 1} : ${formatTime(slot.startMinutes!!)}"
                     slot.end.text = "FIN ${index + 1} : ${formatTime(slot.endMinutes!!)}"
+                    slot.status.text = "STATUT ${index + 1} : ${if (pause.paid) "PAYÉE" else "NON PAYÉE"}"
                 }
             } else {
                 slots[0].startMinutes = schedule.startHour * 60 + schedule.startMinute
@@ -246,11 +274,14 @@ class ManualPauseButton @JvmOverloads constructor(
         }
         reloadPausesForSelectedDate?.invoke()
 
+        val automaticAllowed = !HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)
         val automatic = Switch(context).apply {
             text = "Programmer automatiquement tous les jours avec le 1er créneau"
             textSize = 14f
             setTextColor(textColor)
-            isChecked = schedule.enabled
+            isChecked = automaticAllowed && schedule.enabled
+            isEnabled = automaticAllowed
+            visibility = if (automaticAllowed) View.VISIBLE else View.GONE
             setPadding(0, dp(12), 0, dp(4))
         }
         body.addView(automatic)
@@ -288,7 +319,11 @@ class ManualPauseButton @JvmOverloads constructor(
         }
         cancel.setOnClickListener { dialog.dismiss() }
         save.setOnClickListener {
-            val ranges = mutableListOf<Pair<Long, Long>>()
+            if (!sourceReliable) {
+                Toast.makeText(context, "Impossible d'enregistrer tant que les données HoraTrack ne sont pas fiables.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val ranges = mutableListOf<QualifiedManualPauseV2>()
             for ((index, slot) in slots.withIndex()) {
                 val startMinutes = slot.startMinutes
                 val endMinutes = slot.endMinutes
@@ -305,32 +340,42 @@ class ManualPauseButton @JvmOverloads constructor(
                     Toast.makeText(context, "La fin du créneau ${index + 1} doit être après le début", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                ranges += minutesToMillis(selectedDate, startMinutes) to minutesToMillis(selectedDate, endMinutes)
+                val paid = slot.paid
+                if (paid == null) {
+                    Toast.makeText(context, "Choisis si le créneau ${index + 1} est payé ou non payé", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                ranges += QualifiedManualPauseV2(
+                    minutesToMillis(selectedDate, startMinutes),
+                    minutesToMillis(selectedDate, endMinutes),
+                    paid
+                )
             }
             if (ranges.isEmpty()) return@setOnClickListener
 
-            val firstStart = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().first }
-            val firstEnd = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().second }
-            if (automatic.isChecked) {
+            val firstStart = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().startMs }
+            val firstEnd = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = ranges.first().endMs }
+            if (automaticAllowed && automatic.isChecked) {
                 PauseScheduleManager.save(
                     context,
                     firstStart.get(Calendar.HOUR_OF_DAY), firstStart.get(Calendar.MINUTE),
                     firstEnd.get(Calendar.HOUR_OF_DAY), firstEnd.get(Calendar.MINUTE),
                     enabled = true
                 )
-            } else if (schedule.enabled) {
+            } else if (automaticAllowed && schedule.enabled) {
                 PauseScheduleManager.setEnabled(context, false)
             }
 
             val addedCount = ManualPauseBatchStore.addAll(context, ranges)
+            val totalRanges = ranges.map { it.startMs to it.endMs }
             val message = when {
-                automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(ranges)} — programmation automatique activée"
-                automatic.isChecked -> "Pause automatique programmée"
-                addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(ranges)}"
+                automaticAllowed && automatic.isChecked && addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(totalRanges)} — programmation automatique activée"
+                automaticAllowed && automatic.isChecked -> "Pause automatique programmée"
+                addedCount > 0 -> "$addedCount pause${if (addedCount > 1) "s" else ""} ajoutée${if (addedCount > 1) "s" else ""} — total ${formatMergedDuration(totalRanges)}"
                 else -> "Aucune session ne contient ces plages horaires"
             }
             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-            if (automatic.isChecked || addedCount > 0) {
+            if ((automaticAllowed && automatic.isChecked) || addedCount > 0) {
                 dialog.dismiss()
                 (context as? Activity)?.recreate()
             }
