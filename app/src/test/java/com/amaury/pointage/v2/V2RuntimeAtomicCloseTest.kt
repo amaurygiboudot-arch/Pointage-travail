@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.v2.model.EventSourceV2
+import com.amaury.pointage.v2.model.PauseV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.json.JSONArray
@@ -69,6 +71,42 @@ class V2RuntimeAtomicCloseTest {
             V2RuntimeStore.historyWithClosedSession(
                 sourceHistory = JSONArray(),
                 session = open,
+                companySlot = null
+            )
+        )
+    }
+
+    @Test
+    fun `une pause fermee sans statut paye explicite est refusee`() {
+        val ambiguousPause = PauseV2(
+            startMs = 12_000L,
+            endMs = 13_000L,
+            paid = null,
+            source = EventSourceV2.MANUAL
+        )
+
+        assertNull(
+            V2RuntimeStore.historyWithClosedSession(
+                sourceHistory = JSONArray(),
+                session = closedSession().copy(pauses = listOf(ambiguousPause)),
+                companySlot = null
+            )
+        )
+    }
+
+    @Test
+    fun `une pause encore ouverte est refusee dans une session fermee`() {
+        val openPause = PauseV2(
+            startMs = 12_000L,
+            endMs = null,
+            paid = true,
+            source = EventSourceV2.MANUAL
+        )
+
+        assertNull(
+            V2RuntimeStore.historyWithClosedSession(
+                sourceHistory = JSONArray(),
+                session = closedSession().copy(pauses = listOf(openPause)),
                 companySlot = null
             )
         )
