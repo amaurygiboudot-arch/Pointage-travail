@@ -49,9 +49,11 @@ final class SalaryNetPresentationV2Tests: XCTestCase {
 
         XCTAssertEqual(presentation.state, .available)
         XCTAssertEqual(presentation.primaryLabel, "Net avant impôt")
-        XCTAssertEqual(presentation.primaryAmount, 2_000, accuracy: 0.001)
+        XCTAssertNotNil(presentation.primaryAmount)
+        XCTAssertEqual(presentation.primaryAmount!, 2_000, accuracy: 0.001)
         XCTAssertEqual(presentation.secondaryLabel, "Net après impôt")
-        XCTAssertEqual(presentation.secondaryAmount, 1_900, accuracy: 0.001)
+        XCTAssertNotNil(presentation.secondaryAmount)
+        XCTAssertEqual(presentation.secondaryAmount!, 1_900, accuracy: 0.001)
     }
 
     func testIncompleteFlagWinsOverAccidentallyProvidedAmounts() {
