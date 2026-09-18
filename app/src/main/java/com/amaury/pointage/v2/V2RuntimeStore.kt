@@ -589,6 +589,10 @@ object V2RuntimeStore {
         companySlot: Int?
     ): JSONArray? {
         if (session.status != SessionStatusV2.CLOSED || session.realArrivalMs == null || session.realExitMs == null) return null
+        if (session.pauses.any { pause ->
+                val end = pause.endMs ?: return@any true
+                end <= pause.startMs || pause.paid == null
+            }) return null
         if (!V2RuntimeHistoryGuardV2.inspect(sourceHistory).reliable) return null
         val history = runCatching { JSONArray(sourceHistory.toString()) }.getOrNull() ?: return null
         for (i in 0 until history.length()) {
@@ -700,7 +704,7 @@ object V2RuntimeStore {
 
     private fun pausesToJson(pauses: List<PauseV2>) = JSONArray().apply {
         pauses.filter { it.endMs != null && it.endMs!! > it.startMs }.forEach { p ->
-            put(JSONObject().put("start", p.startMs).put("end", p.endMs).put("source", p.source.name).put("paid", p.paid ?: false))
+            put(JSONObject().put("start", p.startMs).put("end", p.endMs).put("source", p.source.name).put("paid", p.paid))
         }
     }
 
