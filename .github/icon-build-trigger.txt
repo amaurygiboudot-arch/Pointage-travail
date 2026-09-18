@@ -1,1 +1,1 @@
-Rebuild HoraTrack - Firebase backend update popup and notification - 2026-09-07 10:00 CEST
+Rebuild HoraTrack - progress snapshot after PR #274 - 2026-09-18 12:15 CEST
