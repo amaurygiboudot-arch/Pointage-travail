@@ -33,6 +33,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertEqual(result.monthlyStructuralOvertimeMinutes, 1040.0, accuracy: 0.01)
         XCTAssertEqual(result.structuralOvertimeGross, 216.6667, accuracy: 0.01)
         XCTAssertEqual(result.monthlyBaseGross, 1733.3334, accuracy: 0.01)
+        XCTAssertEqual(result.unresolvedStructuralOvertimeMinutes, 0.0, accuracy: 0.001)
     }
 
     func testOnlyHoursAbove39hAreAddedAgainAsVariableOvertime() {
@@ -45,6 +46,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         )
 
         XCTAssertEqual(result.variableOvertimeGross, 25.0, accuracy: 0.001)
+        XCTAssertEqual(result.unresolvedVariableOvertimeMinutes, 0.0, accuracy: 0.001)
     }
 
     func testContract35hKeepsAllOvertimeVariable() {
@@ -60,7 +62,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertEqual(result.variableOvertimeGross, 50.0, accuracy: 0.001)
     }
 
-    func testMissingTiersUseTenPercentOnlyAsAProvisionalFloor() {
+    func testMissingTiersKeepMinutesButDoNotInventAnyAmount() {
         let result = FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes: 39 * 60,
             regularWeeklyLimit: 35 * 60,
@@ -69,13 +71,15 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             overtimeTiers: []
         )
 
-        XCTAssertEqual(result.structuralOvertimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertEqual(result.structuralOvertimeGross, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.monthlyBaseGross, 1516.6667, accuracy: 0.01)
+        XCTAssertEqual(result.unresolvedStructuralOvertimeMinutes, 1040.0, accuracy: 0.01)
         XCTAssertTrue(result.provisionalRateUsed)
-        XCTAssertTrue(result.warnings.contains { $0.contains("plancher de +10 %") })
-        XCTAssertTrue(result.warnings.contains { $0.contains("n'est pas le barème supplétif de +25 % puis +50 %") })
+        XCTAssertTrue(result.warnings.contains { $0.contains("aucune valorisation n'est injectée") })
+        XCTAssertFalse(result.warnings.contains { $0.contains("+10 %") })
     }
 
-    func testInvalidMultiplierIsNeutralizedBeforeStructuralCalculation() {
+    func testInvalidMultiplierIsNeutralizedWithoutFallbackAmount() {
         let result = FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes: 39 * 60,
             regularWeeklyLimit: 35 * 60,
@@ -84,12 +88,13 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)]
         )
 
-        XCTAssertEqual(result.structuralOvertimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertEqual(result.structuralOvertimeGross, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.unresolvedStructuralOvertimeMinutes, 1040.0, accuracy: 0.01)
         XCTAssertTrue(result.provisionalRateUsed)
         XCTAssertTrue(result.warnings.contains { $0.contains("ambigus ou invalides") })
     }
 
-    func testOverlappingTiersAreNeutralizedBeforeStructuralCalculation() {
+    func testOverlappingTiersAreNeutralizedWithoutFallbackAmount() {
         let result = FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes: 39 * 60,
             regularWeeklyLimit: 35 * 60,
@@ -101,7 +106,8 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(result.structuralOvertimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertEqual(result.structuralOvertimeGross, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.unresolvedStructuralOvertimeMinutes, 1040.0, accuracy: 0.01)
         XCTAssertTrue(result.provisionalRateUsed)
         XCTAssertTrue(result.warnings.contains { $0.contains("ambigus ou invalides") })
     }
@@ -149,19 +155,21 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
     }
 
-    func testPayrollEngineMissingFullTimeTierKeepsEstimateButFailsClosed() throws {
+    func testPayrollEngineMissingFullTimeTierFailsClosedWithoutInventedEstimate() throws {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [],
             rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
         )
 
-        XCTAssertEqual(result.overtimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertEqual(result.overtimeGross, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.grossEstimate, 1516.6667, accuracy: 0.01)
         XCTAssertFalse(result.grossReliable)
-        XCTAssertTrue(result.traces.contains { $0.contains("plancher de +10 %") })
+        XCTAssertTrue(result.traces.contains { $0.contains("aucune valorisation n'est injectée") })
+        XCTAssertFalse(result.traces.contains { $0.contains("+10 %") })
     }
 
-    func testPayrollEngineInvalidFullTimeTierKeepsProvisionalEstimateButFailsClosed() throws {
+    func testPayrollEngineInvalidFullTimeTierFailsClosedWithoutFallbackEstimate() throws {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [],
@@ -171,9 +179,11 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(result.overtimeGross, 190.6667, accuracy: 0.01)
+        XCTAssertEqual(result.overtimeGross, 0.0, accuracy: 0.001)
+        XCTAssertEqual(result.grossEstimate, 1516.6667, accuracy: 0.01)
         XCTAssertFalse(result.grossReliable)
         XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
+        XCTAssertFalse(result.traces.contains { $0.contains("+10 %") })
     }
 
     func testPayrollEngineWithoutConfirmedRegularReferenceFailsClosed() throws {
