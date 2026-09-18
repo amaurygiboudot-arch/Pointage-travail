@@ -38,9 +38,12 @@ jobs:
           KEY_PASSWORD: ${{ secrets.POINTAGE_KEY_PASSWORD }}
         run: |
           test -n "$KEYSTORE_B64" || (echo "Secret POINTAGE_KEYSTORE_B64 manquant" && exit 1)
+          test -n "$KEYSTORE_PASSWORD" || (echo "Secret POINTAGE_KEYSTORE_PASSWORD manquant" && exit 1)
+          test -n "$KEY_ALIAS" || (echo "Secret POINTAGE_KEY_ALIAS manquant" && exit 1)
+          test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
 
-      - name: Compiler APK test signe
+      - name: Tester lint et compiler APK test signe
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
           POINTAGE_KEYSTORE_PASSWORD: ${{ secrets.POINTAGE_KEYSTORE_PASSWORD }}
@@ -51,7 +54,7 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
-        run: gradle :app:assembleRelease --stacktrace
+        run: gradle :app:testDebugUnitTest :app:lintRelease :app:assembleRelease --stacktrace
 
       - name: Preparer APK test
         run: |
