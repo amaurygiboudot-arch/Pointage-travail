@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.SharedPreferences
 import android.location.Geocoder
+import com.amaury.pointage.v2.HoraTrackV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -37,6 +38,9 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     @Volatile private var busyCompany = false
     @Volatile private var busyPause = false
 
+    internal fun legacyPauseLearningAllowed(): Boolean =
+        !HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)
+
     fun init(context: Context) {
         val app = context.applicationContext
         appContext = app
@@ -52,8 +56,10 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         if (!listening) {
             app.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(this)
-            app.getSharedPreferences("pointage", Context.MODE_PRIVATE)
-                .registerOnSharedPreferenceChangeListener(this)
+            if (legacyPauseLearningAllowed()) {
+                app.getSharedPreferences("pointage", Context.MODE_PRIVATE)
+                    .registerOnSharedPreferenceChangeListener(this)
+            }
             listening = true
         }
         syncKnownCompaniesAsync(app)
@@ -325,6 +331,10 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     private fun learnPausesAsync(context: Context) {
+        // Sous Temps V2, une pause apprise depuis l'ancien historique ne peut pas devenir un fait
+        // canonique : son statut payé/non payé n'est pas démontrable. On garde ce moteur uniquement
+        // pour le rollback V1 au lieu de relire et réécrire silencieusement des données legacy.
+        if (!legacyPauseLearningAllowed()) return
         if (!enabled(context) || !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_PAUSES, true)) return
         if (busyPause) return
         busyPause = true
