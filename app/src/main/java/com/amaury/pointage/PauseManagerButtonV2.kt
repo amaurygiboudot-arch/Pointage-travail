@@ -13,6 +13,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import com.amaury.pointage.v2.QualifiedManualPauseV2
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -41,7 +42,8 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }
-        val ranges = mutableListOf<Pair<Long, Long>>()
+        val ranges = mutableListOf<QualifiedManualPauseV2>()
+        var sourceReliable = true
         val theme = AppThemeCatalog.current(context)
         val dark = AppThemeCatalog.useDarkPalette(context)
         val background = if (dark) theme.darkBackground else theme.lightBackground
@@ -130,16 +132,23 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         }
 
         fun updateTotal() {
-            val total = ranges.sumOf { (start, end) -> (end - start).coerceAtLeast(0L) }
+            val total = ranges.sumOf { pause -> (pause.endMs - pause.startMs).coerceAtLeast(0L) }
             val minutes = total / 60_000L
-            totalText.text = String.format(Locale.FRANCE, "TOTAL : %02dh %02dm", minutes / 60L, minutes % 60L)
-            addButton.isEnabled = ranges.size < 5
+            totalText.text = if (sourceReliable) {
+                String.format(Locale.FRANCE, "TOTAL : %02dh %02dm", minutes / 60L, minutes % 60L)
+            } else {
+                "TOTAL : indisponible"
+            }
+            addButton.isEnabled = sourceReliable && ranges.size < 5
             addButton.alpha = if (addButton.isEnabled) 1f else .45f
+            saveButton.isEnabled = sourceReliable
+            saveButton.alpha = if (saveButton.isEnabled) 1f else .45f
         }
 
-        fun overlaps(candidate: Pair<Long, Long>, ignoredIndex: Int?): Boolean = ranges.withIndex().any { (index, existing) ->
-            index != ignoredIndex && candidate.first < existing.second && existing.first < candidate.second
-        }
+        fun overlaps(start: Long, end: Long, ignoredIndex: Int?): Boolean =
+            ranges.withIndex().any { (index, existing) ->
+                index != ignoredIndex && start < existing.endMs && existing.startMs < end
+            }
 
         var render: (() -> Unit)? = null
         var editRange: ((Int?) -> Unit)? = null
@@ -161,38 +170,59 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
 
+        fun pickPaid(onPicked: (Boolean) -> Unit) {
+            AlertDialog.Builder(context)
+                .setTitle("Statut de la pause")
+                .setItems(arrayOf("Payée", "Non payée")) { _, which ->
+                    onPicked(which == 0)
+                }
+                .setNegativeButton("ANNULER", null)
+                .show()
+        }
+
         editRange = { index ->
             val existing = index?.let { ranges.getOrNull(it) }
-            val startCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.first }
+            val startCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.startMs }
             val initialStart = if (existing != null) startCal.get(Calendar.HOUR_OF_DAY) * 60 + startCal.get(Calendar.MINUTE) else 10 * 60
             pickMinute(initialStart, startPick@{ startMinute ->
-                val endCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.second }
+                val endCal = Calendar.getInstance(Locale.FRANCE).apply { if (existing != null) timeInMillis = existing.endMs }
                 val initialEnd = if (existing != null) endCal.get(Calendar.HOUR_OF_DAY) * 60 + endCal.get(Calendar.MINUTE) else (startMinute + 15).coerceAtMost(23 * 60 + 59)
                 pickMinute(initialEnd, endPick@{ endMinute ->
                     if (endMinute <= startMinute) {
                         Toast.makeText(context, "La fin doit être après le début de la pause", Toast.LENGTH_LONG).show()
                         return@endPick
                     }
-                    val candidate = millisForMinute(startMinute) to millisForMinute(endMinute)
-                    if (overlaps(candidate, index)) {
+                    val startMs = millisForMinute(startMinute)
+                    val endMs = millisForMinute(endMinute)
+                    if (overlaps(startMs, endMs, index)) {
                         Toast.makeText(context, "Cette pause chevauche déjà une autre pause", Toast.LENGTH_LONG).show()
                         return@endPick
                     }
-                    if (index == null) {
-                        if (ranges.size >= 5) return@endPick
-                        ranges += candidate
-                    } else {
-                        ranges[index] = candidate
+                    pickPaid { paid ->
+                        val candidate = QualifiedManualPauseV2(startMs, endMs, paid)
+                        if (index == null) {
+                            if (ranges.size >= 5) return@pickPaid
+                            ranges += candidate
+                        } else {
+                            ranges[index] = candidate
+                        }
+                        ranges.sortBy { it.startMs }
+                        render?.invoke()
                     }
-                    ranges.sortBy { it.first }
-                    render?.invoke()
                 })
             })
         }
 
         render = {
             listBox.removeAllViews()
-            if (ranges.isEmpty()) {
+            if (!sourceReliable) {
+                listBox.addView(TextView(context).apply {
+                    text = "Pauses indisponibles : les données HoraTrack doivent être vérifiées avant toute modification."
+                    textSize = 14f
+                    setTextColor(hintColor)
+                    setPadding(0, dp(10), 0, dp(10))
+                })
+            } else if (ranges.isEmpty()) {
                 listBox.addView(TextView(context).apply {
                     text = "Aucune pause enregistrée pour cette journée."
                     textSize = 14f
@@ -208,8 +238,9 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
                         setBackgroundColor(panel)
                     }
                     card.addView(TextView(context).apply {
-                        val label = if (range.first > now) "Pause programmée ${index + 1}" else "Pause ${index + 1}"
-                        text = "$label  •  ${timeLabel(range.first)} → ${timeLabel(range.second)}  •  ${durationLabel(range.first, range.second)}"
+                        val label = if (range.startMs > now) "Pause programmée ${index + 1}" else "Pause ${index + 1}"
+                        val paidLabel = if (range.paid) "PAYÉE" else "NON PAYÉE"
+                        text = "$label  •  ${timeLabel(range.startMs)} → ${timeLabel(range.endMs)}  •  ${durationLabel(range.startMs, range.endMs)}  •  $paidLabel"
                         textSize = 14f
                         setTypeface(typeface, Typeface.BOLD)
                         setTextColor(textColor)
@@ -233,9 +264,13 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
 
         fun loadDay() {
             val (start, end) = dayBounds()
+            val loaded = ManualPauseBatchStore.editableForDay(context, start, end)
             ranges.clear()
-            ranges += ManualPauseBatchStore.editableForDay(context, start, end)
-            ranges.sortBy { it.first }
+            sourceReliable = loaded != null
+            if (loaded != null) {
+                ranges += loaded
+                ranges.sortBy { it.startMs }
+            }
             dateButton.text = "JOURNÉE : ${dateFormat.format(selectedDate.time)}"
             render?.invoke()
         }
@@ -256,6 +291,10 @@ class PauseManagerButtonV2 @JvmOverloads constructor(
         addButton.setOnClickListener { editRange?.invoke(null) }
         cancelButton.setOnClickListener { dialog.dismiss() }
         saveButton.setOnClickListener {
+            if (!sourceReliable) {
+                Toast.makeText(context, "Impossible d'enregistrer tant que les données HoraTrack ne sont pas fiables.", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
             val (start, end) = dayBounds()
             if (!ManualPauseBatchStore.replaceDay(context, start, end, ranges.toList())) {
                 Toast.makeText(context, "Impossible d'enregistrer : chaque pause doit être comprise dans une journée de travail existante.", Toast.LENGTH_LONG).show()
