@@ -236,13 +236,46 @@ object SalaryCompanyStore {
      *
      * Si le store entreprises n'est pas fiable, seul l'identifiant explicite demandé est conservé :
      * aucun alias historique n'est déduit d'un paquet partiellement récupéré.
+     * Un alias historique n'est accepté que s'il désigne une seule entreprise actuelle.
      */
     fun acceptedEmployerIds(context: Context, companyId: String): Set<String> {
         val requestedId = companyId.trim()
         if (requestedId.isBlank()) return emptySet()
         val companies = companiesForAliasResolution(readConfirmed(context)) ?: return setOf(requestedId)
         val company = companies.firstOrNull { it.id == requestedId } ?: return setOf(requestedId)
-        return acceptedEmployerIdsForCompany(context, company)
+        return retainUnambiguousEmployerIds(
+            requestedCompanyId = company.id,
+            companies = companies,
+            idsForCompany = { acceptedEmployerIdsForCompany(context, it) }
+        )
+    }
+
+    /**
+     * Garde l'identifiant stable demandé et seulement les alias historiques possédant un propriétaire unique.
+     * Une collision entre deux entreprises, ou entre un alias et l'identifiant stable d'une autre entreprise,
+     * reste volontairement non résolue afin qu'une session ne puisse jamais alimenter deux paies.
+     */
+    internal fun retainUnambiguousEmployerIds(
+        requestedCompanyId: String,
+        companies: List<Company>,
+        idsForCompany: (Company) -> Set<String>
+    ): Set<String> {
+        val requestedId = requestedCompanyId.trim()
+        if (requestedId.isBlank()) return emptySet()
+        val company = companies.firstOrNull { it.id == requestedId } ?: return setOf(requestedId)
+        val result = linkedSetOf(requestedId)
+        idsForCompany(company)
+            .filterNot { it == requestedId }
+            .forEach { candidate ->
+                val owners = companies.asSequence()
+                    .filter { candidate in idsForCompany(it) }
+                    .map { it.id }
+                    .distinct()
+                    .take(2)
+                    .count()
+                if (owners == 1) result += candidate
+            }
+        return result
     }
 
     private fun acceptedEmployerIdsForCompany(context: Context, company: Company): Set<String> {
