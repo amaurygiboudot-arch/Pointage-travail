@@ -56,6 +56,23 @@ class EmployeeNetProjectionV2Test {
     }
 
     @Test
+    fun unreliableUpstreamGrossBlocksFinalEmployeeNet() {
+        val result = EmployeeNetProjectionV2.calculate(
+            gross = 2500.0,
+            year = 2026,
+            company = completeSnapshot(),
+            upstreamGrossReliable = false
+        )
+
+        assertFalse(result.netBeforeIncomeTaxComplete)
+        assertNull(result.netBeforeIncomeTax)
+        assertNull(result.netTaxable)
+        assertNull(result.incomeTax)
+        assertNull(result.netAfterIncomeTax)
+        assertTrue(result.warnings.any { it.contains("temps/primes", ignoreCase = true) })
+    }
+
+    @Test
     fun missingEmployeeDeductionNeverBecomesZero() {
         val result = EmployeeNetProjectionV2.calculate(
             gross = 2500.0,
