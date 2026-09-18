@@ -29,9 +29,15 @@ enum WorkSessionsReadV2: Equatable {
     case corrupt
 }
 
+enum WorkSessionStorageOriginV2: Equatable {
+    case primary
+    case legacyMigration
+    case transitionalPrimaryRepair
+}
+
 enum WorkSessionStorageResolutionV2: Equatable {
     case missing
-    case valid([WorkSession], migratedFromLegacy: Bool)
+    case valid([WorkSession], origin: WorkSessionStorageOriginV2)
     case corrupt
 }
 
@@ -51,11 +57,24 @@ enum WorkSessionPersistenceV2 {
 
      Avant l'introduction du statut `paid`, le moteur iOS soustrayait systématiquement toute pause
      terminée du temps travaillé. Une pause V1 terminée sans champ `paid` a donc une sémantique
-     historique connue : non rémunérée. Cette normalisation n'est jamais appliquée au stockage V2.
-     Une pause V1 encore ouverte reste volontairement indéterminée afin d'exiger une qualification
-     explicite avant sa fermeture.
+     historique connue : non rémunérée. Cette normalisation n'est jamais utilisée comme lecture V2
+     normale. Une pause encore ouverte reste volontairement indéterminée afin d'exiger une
+     qualification explicite avant sa fermeture.
      */
     static func readLegacy(_ data: Data?) -> WorkSessionsReadV2 {
+        readHistoricalUnpaidCompatibility(data)
+    }
+
+    /**
+     Réparation de transition réservée aux installations qui avaient déjà copié la V1 vers la
+     première clé V2 avant que `paid` devienne obligatoire pour les pauses terminées.
+     L'appelant doit la protéger par un marqueur one-shot persistant.
+     */
+    static func readTransitionalPrimary(_ data: Data?) -> WorkSessionsReadV2 {
+        readHistoricalUnpaidCompatibility(data)
+    }
+
+    private static func readHistoricalUnpaidCompatibility(_ data: Data?) -> WorkSessionsReadV2 {
         guard let data else { return .missing }
         guard var sessions = try? JSONDecoder().decode([WorkSession].self, from: data) else {
             return .corrupt
@@ -102,21 +121,33 @@ enum WorkSessionPersistenceV2 {
  Propriétaire canonique des clés de persistance runtime iOS.
 
  La clé V1 n'est lue que pour une migration unique lorsque la clé V2 est réellement absente.
- Une clé V2 présente mais corrompue bloque la lecture : aucun fallback vers V1 n'est autorisé.
+ Une clé V2 présente mais corrompue bloque la lecture, sauf pendant l'unique réparation de transition
+ explicitement autorisée par l'appelant. Après pose du marqueur, aucun fallback V1/V2 n'est permis.
  */
 enum WorkSessionStorageV2 {
     static let primaryKey = "hp_travail_sessions_v2"
     static let legacyKey = "hp_travail_sessions_v1"
+    static let paidRepairMarkerKey = "hp_travail_sessions_v2_paid_repair_v1_done"
 
-    static func resolve(primaryData: Data?, legacyData: Data?) -> WorkSessionStorageResolutionV2 {
+    static func resolve(
+        primaryData: Data?,
+        legacyData: Data?,
+        allowTransitionalPrimaryRepair: Bool = false
+    ) -> WorkSessionStorageResolutionV2 {
         if primaryData != nil {
             switch WorkSessionPersistenceV2.read(primaryData) {
             case .valid(let sessions):
-                return .valid(sessions, migratedFromLegacy: false)
+                return .valid(sessions, origin: .primary)
             case .missing:
                 return .missing
             case .corrupt:
-                return .corrupt
+                guard allowTransitionalPrimaryRepair else { return .corrupt }
+                switch WorkSessionPersistenceV2.readTransitionalPrimary(primaryData) {
+                case .valid(let sessions):
+                    return .valid(sessions, origin: .transitionalPrimaryRepair)
+                case .missing, .corrupt:
+                    return .corrupt
+                }
             }
         }
 
@@ -124,7 +155,7 @@ enum WorkSessionStorageV2 {
         case .missing:
             return .missing
         case .valid(let sessions):
-            return .valid(sessions, migratedFromLegacy: true)
+            return .valid(sessions, origin: .legacyMigration)
         case .corrupt:
             return .corrupt
         }
