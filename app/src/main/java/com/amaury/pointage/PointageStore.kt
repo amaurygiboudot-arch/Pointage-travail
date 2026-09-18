@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.QualifiedManualPauseV2
 import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
 import org.json.JSONObject
@@ -236,9 +237,20 @@ object PointageStore {
 
     fun resumeAnyPause(context: Context): Boolean = resumePause(context, automaticOnly = false)
 
-    fun addManualPause(context: Context, pauseStart: Long, pauseEnd: Long): Boolean {
+    fun addManualPause(
+        context: Context,
+        pauseStart: Long,
+        pauseEnd: Long,
+        paid: Boolean? = null
+    ): Boolean {
         if (pauseStart <= 0L || pauseEnd <= pauseStart) return false
-        if (v2Active()) return V2RuntimeStore.addManualPauses(context, listOf(pauseStart to pauseEnd)) > 0
+        if (v2Active()) {
+            val resolvedPaid = paid ?: return false
+            return V2RuntimeStore.addQualifiedManualPauses(
+                context,
+                listOf(QualifiedManualPauseV2(pauseStart, pauseEnd, resolvedPaid))
+            ) > 0
+        }
 
         val changed = synchronized(storageLock) {
             val data = loadUnlocked(context)

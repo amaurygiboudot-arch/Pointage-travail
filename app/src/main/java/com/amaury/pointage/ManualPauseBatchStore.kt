@@ -2,37 +2,52 @@ package com.amaury.pointage
 
 import android.content.Context
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.ManualPauseDraftV2
+import com.amaury.pointage.v2.ManualPauseQualificationV2
+import com.amaury.pointage.v2.QualifiedManualPauseV2
 import com.amaury.pointage.v2.V2RuntimeStore
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Enregistre les pauses manuelles dans le moteur actif sans modifier l'interface. */
+/** Enregistre les pauses manuelles dans le moteur actif sans perdre leur statut payé. */
 object ManualPauseBatchStore {
-    fun addAll(context: Context, ranges: List<Pair<Long, Long>>): Int {
-        val valid = ranges.filter { (start, end) -> start > 0L && end > start }
+    fun addAll(context: Context, pauses: List<QualifiedManualPauseV2>): Int {
+        val valid = ManualPauseQualificationV2.qualify(
+            pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
+        ) ?: return 0
         if (valid.isEmpty()) return 0
 
         if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)) {
-            val added = V2RuntimeStore.addManualPauses(context, valid)
+            val added = V2RuntimeStore.addQualifiedManualPauses(context, valid)
             if (added > 0) refreshAfterChange(context)
             return added
         }
 
+        // Le stockage historique legacy ne sait pas représenter une pause payée de façon fiable.
+        if (valid.any { it.paid }) return 0
         val added = PointageStore.update(context) { data ->
             var count = 0
-            valid.forEach { (pauseStart, pauseEnd) ->
-                val target = findContainingSession(data, pauseStart, pauseEnd) ?: return@forEach
-                val pauses = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
+            valid.forEach { pause ->
+                val target = findContainingSession(data, pause.startMs, pause.endMs) ?: return@forEach
+                val stored = target.optJSONArray("pauses") ?: JSONArray().also { target.put("pauses", it) }
                 var duplicate = false
-                for (i in 0 until pauses.length()) {
-                    val existing = pauses.optJSONObject(i) ?: continue
-                    if (existing.optLong("start", -1L) == pauseStart && existing.optLong("end", -1L) == pauseEnd) {
+                for (i in 0 until stored.length()) {
+                    val existing = stored.optJSONObject(i) ?: continue
+                    if (
+                        existing.optLong("start", -1L) == pause.startMs &&
+                        existing.optLong("end", -1L) == pause.endMs
+                    ) {
                         duplicate = true
                         break
                     }
                 }
                 if (!duplicate) {
-                    pauses.put(JSONObject().put("start", pauseStart).put("end", pauseEnd).put("manual", true))
+                    stored.put(
+                        JSONObject()
+                            .put("start", pause.startMs)
+                            .put("end", pause.endMs)
+                            .put("manual", true)
+                    )
                     count++
                 }
             }
@@ -43,30 +58,47 @@ object ManualPauseBatchStore {
         return added
     }
 
-    /** Charge les pauses que l'utilisateur peut réellement modifier/supprimer pour une journée. */
-    fun editableForDay(context: Context, dayStart: Long, dayEnd: Long): List<Pair<Long, Long>> {
+    /**
+     * Charge les pauses que l'utilisateur peut réellement modifier/supprimer pour une journée.
+     * null signifie que la source V2 n'est pas fiable ; ce cas ne doit jamais être présenté comme vide.
+     */
+    fun editableForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long
+    ): List<QualifiedManualPauseV2>? {
         return if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)) {
-            V2RuntimeStore.editablePauseRangesForDay(context, dayStart, dayEnd)
+            V2RuntimeStore.editablePausesForDay(context, dayStart, dayEnd)
         } else {
             PointageStore.manualPausesForDay(context, dayStart, dayEnd)
+                .map { (start, end) -> QualifiedManualPauseV2(start, end, false) }
         }
     }
 
-    /**
-     * Remplace la liste complète des pauses éditables du jour. Une liste vide signifie
-     * « supprimer toutes les pauses éditables de cette journée ».
-     */
-    fun replaceDay(context: Context, dayStart: Long, dayEnd: Long, ranges: List<Pair<Long, Long>>): Boolean {
-        val valid = ranges
-            .filter { (start, end) -> start > 0L && end > start }
-            .distinct()
-            .sortedBy { it.first }
-        if (valid.any { (start, end) -> start !in dayStart until dayEnd || end > dayEnd }) return false
+    /** Remplace la liste complète des pauses éditables du jour avec leur statut payé explicite. */
+    fun replaceDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long,
+        pauses: List<QualifiedManualPauseV2>
+    ): Boolean {
+        val valid = ManualPauseQualificationV2.qualify(
+            pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
+        ) ?: return false
+        if (valid.any { pause ->
+                pause.startMs !in dayStart until dayEnd || pause.endMs > dayEnd
+            }) return false
 
         val changed = if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.TIME)) {
-            V2RuntimeStore.replaceEditablePausesForDay(context, dayStart, dayEnd, valid)
+            V2RuntimeStore.replaceQualifiedEditablePausesForDay(context, dayStart, dayEnd, valid)
         } else {
-            replaceLegacyDay(context, dayStart, dayEnd, valid)
+            if (valid.any { it.paid }) return false
+            replaceLegacyDay(
+                context,
+                dayStart,
+                dayEnd,
+                valid.map { it.startMs to it.endMs }
+            )
         }
         if (changed) refreshAfterChange(context)
         return changed
