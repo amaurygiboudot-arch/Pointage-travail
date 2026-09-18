@@ -7,10 +7,10 @@ settings:
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk.git
-    from: 11.0.0
+    exactVersion: 11.0.0
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS.git
-    from: 8.0.0
+    exactVersion: 8.0.0
 targets:
   HPTravail:
     type: application
