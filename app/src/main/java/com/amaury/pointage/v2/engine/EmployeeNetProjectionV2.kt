@@ -24,7 +24,8 @@ object EmployeeNetProjectionV2 {
         gross: Double,
         year: Int,
         company: CompanyPayrollOverridesV2.Snapshot,
-        complementaryMinutes: Int? = null
+        complementaryMinutes: Int? = null,
+        upstreamGrossReliable: Boolean = true
     ): Result = project(
         payroll = NetSalaryEngineV2.calculate(
             gross = gross,
@@ -33,13 +34,15 @@ object EmployeeNetProjectionV2 {
             complementaryMinutes = complementaryMinutes
         ),
         year = year,
-        company = company
+        company = company,
+        upstreamGrossReliable = upstreamGrossReliable
     )
 
     internal fun project(
         payroll: NetSalaryEngineV2.Result,
         year: Int,
-        company: CompanyPayrollOverridesV2.Snapshot
+        company: CompanyPayrollOverridesV2.Snapshot,
+        upstreamGrossReliable: Boolean = true
     ): Result {
         val professionalStatus = company.professionalStatus?.trim()?.uppercase(Locale.ROOT)
         val supportedNationalTables = SocialContributionCatalogV2.employeeRules(year).isNotEmpty() &&
@@ -55,6 +58,7 @@ object EmployeeNetProjectionV2 {
 
         val blockers = buildList {
             if (!supportedNationalTables) add("barèmes nationaux non intégrés pour $year")
+            if (!upstreamGrossReliable) add("brut issu du calcul temps/primes incomplet")
             if (!payroll.grossReliable) add("brut social incomplet ou avantages en nature non confirmés")
             if (!payroll.socialSecurityCeilingComplete) add("plafond de Sécurité sociale incomplet")
             if (company.alsaceMoselleLocalRegime == null) add("affiliation Alsace-Moselle à confirmer")
@@ -69,6 +73,7 @@ object EmployeeNetProjectionV2 {
         }
 
         val netBeforeIncomeTaxComplete = supportedNationalTables &&
+            upstreamGrossReliable &&
             payroll.grossReliable &&
             payroll.socialSecurityCeilingComplete &&
             directEmployeeDeductionsComplete &&
