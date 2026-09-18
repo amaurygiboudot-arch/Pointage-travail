@@ -59,6 +59,7 @@ enum WorkSessionPersistenceV2 {
                 guard pause.start >= session.entry else { return false }
                 if let end = pause.end {
                     guard end > pause.start else { return false }
+                    guard pause.paid != nil else { return false }
                     if let exit = session.exit, end > exit { return false }
                 } else if session.exit != nil {
                     return false
