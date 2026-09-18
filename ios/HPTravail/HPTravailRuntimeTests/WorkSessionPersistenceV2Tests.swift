@@ -21,7 +21,7 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
             pauses: [PausePeriod(id: UUID(), start: start.addingTimeInterval(300), end: nil)]
         )
 
-        guard case .valid(let sessions) = WorkSessionPersistenceV2.read(
+        guard case .valid(let sessions) = WorkSessionPersistenceV2.readLegacy(
             try JSONEncoder().encode([session])
         ) else {
             return XCTFail("Expected a valid legacy session")
@@ -29,7 +29,32 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
         XCTAssertNil(try XCTUnwrap(sessions.first).pauses.first?.paid)
     }
 
-    func testCompletedPauseWithoutPaidStatusIsCorrupt() throws {
+    func testLegacyCompletedPauseWithoutPaidStatusMigratesAsHistoricallyUnpaid() throws {
+        let session = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: start.addingTimeInterval(3_600),
+            pauses: [
+                PausePeriod(
+                    id: UUID(),
+                    start: start.addingTimeInterval(900),
+                    end: start.addingTimeInterval(1_200),
+                    paid: nil
+                )
+            ]
+        )
+
+        guard case .valid(let sessions, let migratedFromLegacy) = WorkSessionStorageV2.resolve(
+            primaryData: nil,
+            legacyData: try JSONEncoder().encode([session])
+        ) else {
+            return XCTFail("Expected the historical V1 session to migrate")
+        }
+        XCTAssertTrue(migratedFromLegacy)
+        XCTAssertEqual(try XCTUnwrap(sessions.first).pauses.first?.paid, false)
+    }
+
+    func testCompletedPauseWithoutPaidStatusIsCorruptInPrimaryV2() throws {
         let session = WorkSession(
             id: UUID(),
             entry: start,
@@ -50,7 +75,7 @@ final class WorkSessionPersistenceV2Tests: XCTestCase {
         )
     }
 
-    func testClosedSessionWithoutExplicitPauseStatusIsCorrupt() throws {
+    func testClosedSessionWithoutExplicitPauseStatusIsCorruptInPrimaryV2() throws {
         let session = WorkSession(
             id: UUID(),
             entry: start,
