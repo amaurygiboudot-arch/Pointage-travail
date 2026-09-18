@@ -24,6 +24,7 @@ class FullTimeStructuralOvertimeV2Test {
         assertEquals(1040.0,result.monthlyStructuralOvertimeMinutes,0.01)
         assertEquals(216.6667,result.structuralOvertimeGross,0.01)
         assertEquals(1733.3334,result.monthlyBaseGross,0.01)
+        assertEquals(0.0,result.unresolvedStructuralOvertimeMinutes,0.001)
     }
 
     @Test
@@ -37,6 +38,7 @@ class FullTimeStructuralOvertimeV2Test {
         )
 
         assertEquals(25.0,result.variableOvertimeGross,0.001)
+        assertEquals(0.0,result.unresolvedVariableOvertimeMinutes,0.001)
     }
 
     @Test
@@ -54,7 +56,7 @@ class FullTimeStructuralOvertimeV2Test {
     }
 
     @Test
-    fun missingTiersUseTenPercentOnlyAsAProvisionalFloor() {
+    fun missingTiersKeepMinutesButDoNotInventAnyAmount() {
         val result=FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes=39*60,
             regularWeeklyLimit=35*60,
@@ -63,14 +65,16 @@ class FullTimeStructuralOvertimeV2Test {
             overtimeTiers=emptyList()
         )
 
-        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertEquals(0.0,result.structuralOvertimeGross,0.001)
+        assertEquals(1516.6667,result.monthlyBaseGross,0.01)
+        assertEquals(1040.0,result.unresolvedStructuralOvertimeMinutes,0.01)
         assertTrue(result.provisionalRateUsed)
-        assertTrue(result.warnings.any { it.contains("plancher de +10 %") })
-        assertTrue(result.warnings.any { it.contains("n'est pas le barème supplétif de +25 % puis +50 %") })
+        assertTrue(result.warnings.any { it.contains("aucune valorisation n'est injectée") })
+        assertTrue(result.warnings.none { it.contains("+10 %") })
     }
 
     @Test
-    fun invalidMultiplierIsNeutralizedBeforeStructuralCalculation() {
+    fun invalidMultiplierIsNeutralizedWithoutFallbackAmount() {
         val result=FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes=39*60,
             regularWeeklyLimit=35*60,
@@ -79,13 +83,14 @@ class FullTimeStructuralOvertimeV2Test {
             overtimeTiers=listOf(OvertimeTierV2(35*60,null,0.5))
         )
 
-        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertEquals(0.0,result.structuralOvertimeGross,0.001)
+        assertEquals(1040.0,result.unresolvedStructuralOvertimeMinutes,0.01)
         assertTrue(result.provisionalRateUsed)
         assertTrue(result.warnings.any { it.contains("ambigus ou invalides") })
     }
 
     @Test
-    fun overlappingTiersAreNeutralizedBeforeStructuralCalculation() {
+    fun overlappingTiersAreNeutralizedWithoutFallbackAmount() {
         val result=FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes=39*60,
             regularWeeklyLimit=35*60,
@@ -97,7 +102,8 @@ class FullTimeStructuralOvertimeV2Test {
             )
         )
 
-        assertEquals(190.6667,result.structuralOvertimeGross,0.01)
+        assertEquals(0.0,result.structuralOvertimeGross,0.001)
+        assertEquals(1040.0,result.unresolvedStructuralOvertimeMinutes,0.01)
         assertTrue(result.provisionalRateUsed)
         assertTrue(result.warnings.any { it.contains("ambigus ou invalides") })
     }

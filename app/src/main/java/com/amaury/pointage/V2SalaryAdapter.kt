@@ -321,7 +321,7 @@ object V2SalaryAdapter {
    if(historical&&hr==null)warnings+="Règles conventionnelles historiques : À confirmer pour cette période"
    else if(!historical&&!convention.rulesIntegrated){
     warnings+=if(isFullTime){
-     "Barème conventionnel d'heures supplémentaires non intégré : HoraTrack valorise provisoirement les minutes non couvertes au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le montant reste à vérifier."
+     "Barème conventionnel d'heures supplémentaires non intégré : aucune majoration n'est inventée pour les minutes non couvertes ; le brut restera à confirmer si un dépassement existe."
     }else{
      "Barème conventionnel d'heures supplémentaires non intégré : aucune majoration n'est inventée pour les minutes non couvertes ; le brut restera à confirmer si un dépassement existe."
     }
@@ -356,13 +356,22 @@ object V2SalaryAdapter {
    val contractual=contract.contractualWeeklyMinutes?:regularLimit
    FullTimeStructuralOvertimeV2.calculate(contractualWeeklyMinutes=contractual,regularWeeklyLimit=regularLimit,paidWeeks=weeks.values.map{it.paid},grossHourlyRate=rate,overtimeTiers=effectiveRules.overtimeTiers)
   }else null
-  fullTime?.let{ft->warnings+=ft.warnings;if((contract.contractualWeeklyMinutes?:0)>regularLimit)warnings+="Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."}
+  fullTime?.let{ft->
+   warnings+=ft.warnings
+   if((contract.contractualWeeklyMinutes?:0)>regularLimit){
+    warnings+=if(ft.provisionalRateUsed){
+     "Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont identifiées, mais les minutes sans taux confirmé ne sont pas valorisées ; le brut reste à confirmer."
+    }else{
+     "Temps plein supérieur à ${String.format(Locale.FRANCE,"%.2f",regularLimit/60.0)} h : les heures supplémentaires structurelles sont intégrées à la mensualisation avec leur majoration."
+    }
+   }
+  }
 
   val premiumApplied=(nightRule!=null&&nightMs>0L)||(saturdayRule!=null&&satMs>0L)||(sundayRule!=null&&sunMs>0L)||(publicHolidayRule!=null&&holidayMs>0L)
   val overtimeOrComplementaryApplied=complementaryMinutes>0||(fullTime?.let{it.monthlyStructuralOvertimeMinutes>0.0||it.variableTiers.any{tier->tier.minutes>0.0}}==true)||(!isFullTime&&!isPartTime&&worked.overtimeGross>0.0)
   val cumulReviewRequired=collectiveCumulReviewRequired||(premiumApplied&&overtimeOrComplementaryApplied)
   if(cumulReviewRequired)warnings+="Cumuls de majorations : plusieurs majorations peuvent concerner une même période (heures supplémentaires/complémentaires, nuit, samedi, dimanche ou jour férié). Le cumul n'étant pas explicitement démontré par les règles arbitrées, le brut reste une estimation à vérifier."
-  val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0})
+  val overtimeNeedsLegalArbitration=isFullTime&&fullTime!=null&&(fullTime.monthlyStructuralOvertimeMinutes>0.0||fullTime.variableTiers.any{it.minutes>0.0}||fullTime.unresolvedVariableOvertimeMinutes>0.0)
   val legalArbitrationResolved=overtimeArbitrationSnapshot?.let{it.resolution.state==PayrollLegalArbitratorV2.State.RESOLVED&&it.selectedSchedule!=null}==true
   val publicHolidayReliable=holidayMs==0L||publicHolidayRule!=null
   val monthlyGrossReliable=monthlyGrossReliability(baseReliable=baseMonthlyGrossReliable,provisionalOvertimeRateUsed=fullTime?.provisionalRateUsed==true,arbitrationRequired=overtimeNeedsLegalArbitration&&overtimeArbitrationSnapshot!=null,arbitrationResolved=legalArbitrationResolved,cumulReviewRequired=cumulReviewRequired,runtimeReliable=runtimeReliable,provisionalComplementaryRateUsed=provisionalComplementaryRateUsed,genericOvertimeCoverageReliable=genericOvertimeCoverageReliable,fullTimeRegularReferenceReliable=fullTimeRegularReference?.reliable!=false)&&publicHolidayReliable&&mayFirstMs==0L&&unresolvedHolidayMs==0L
