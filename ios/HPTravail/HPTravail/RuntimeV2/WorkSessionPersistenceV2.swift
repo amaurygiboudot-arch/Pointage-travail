@@ -46,6 +46,34 @@ enum WorkSessionPersistenceV2 {
         return .valid(sessions)
     }
 
+    /**
+     Lecture réservée à la clé V1 historique.
+
+     Avant l'introduction du statut `paid`, le moteur iOS soustrayait systématiquement toute pause
+     terminée du temps travaillé. Une pause V1 terminée sans champ `paid` a donc une sémantique
+     historique connue : non rémunérée. Cette normalisation n'est jamais appliquée au stockage V2.
+     Une pause V1 encore ouverte reste volontairement indéterminée afin d'exiger une qualification
+     explicite avant sa fermeture.
+     */
+    static func readLegacy(_ data: Data?) -> WorkSessionsReadV2 {
+        guard let data else { return .missing }
+        guard var sessions = try? JSONDecoder().decode([WorkSession].self, from: data) else {
+            return .corrupt
+        }
+
+        for sessionIndex in sessions.indices {
+            for pauseIndex in sessions[sessionIndex].pauses.indices {
+                if sessions[sessionIndex].pauses[pauseIndex].end != nil,
+                   sessions[sessionIndex].pauses[pauseIndex].paid == nil {
+                    sessions[sessionIndex].pauses[pauseIndex].paid = false
+                }
+            }
+        }
+
+        guard isStructurallyValid(sessions) else { return .corrupt }
+        return .valid(sessions)
+    }
+
     static func isStructurallyValid(_ sessions: [WorkSession]) -> Bool {
         guard Set(sessions.map(\.id)).count == sessions.count else { return false }
         guard sessions.filter({ $0.exit == nil }).count <= 1 else { return false }
@@ -92,7 +120,7 @@ enum WorkSessionStorageV2 {
             }
         }
 
-        switch WorkSessionPersistenceV2.read(legacyData) {
+        switch WorkSessionPersistenceV2.readLegacy(legacyData) {
         case .missing:
             return .missing
         case .valid(let sessions):
