@@ -151,12 +151,13 @@ object V2RuntimeStore {
         val prefs = prefs(context)
         val start = safeLong(prefs.all[KEY_PAUSE_START])
         if (start <= 0L) {
-            // Une nouvelle pause manuelle est non payée par défaut. Dès son ouverture, son statut
-            // devient une donnée runtime canonique et ne dépend plus du futur appel de fermeture.
+            // Le canal de saisie ne permet jamais de déduire si une pause est payée.
+            // Une nouvelle pause doit donc être explicitement qualifiée avant toute écriture.
+            val openingPaid = paid ?: return false
             return prefs.edit()
                 .putLong(KEY_PAUSE_START, nowMs)
                 .putString(KEY_PAUSE_SOURCE, source.name)
-                .putBoolean(KEY_PAUSE_PAID, paid ?: false)
+                .putBoolean(KEY_PAUSE_PAID, openingPaid)
                 .commit()
         }
         val storedSource = parseSourceOrNull(prefs.getString(KEY_PAUSE_SOURCE, null)) ?: return false
@@ -173,67 +174,123 @@ object V2RuntimeStore {
             .commit()
     }
 
-    fun addManualPauses(context: Context, ranges: List<Pair<Long, Long>>): Int {
+    /**
+     * Ajoute des pauses manuelles uniquement après qualification explicite du statut payé.
+     * Une plage invalide ou hors session bloque l'ensemble du lot.
+     */
+    fun addQualifiedManualPauses(context: Context, pauses: List<QualifiedManualPauseV2>): Int {
+        val qualified = ManualPauseQualificationV2.qualify(
+            pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
+        ) ?: return 0
+        if (qualified.isEmpty()) return 0
+
         val current = readForWrite(context)
         val session = current.session ?: return 0
         if (!current.reliable) return 0
         val entry = session.realArrivalMs ?: return 0
         val realExit = session.realExitMs
+        if (qualified.any { pause ->
+                pause.startMs < entry || (realExit != null && pause.endMs > realExit)
+            }) return 0
+
         val prefs = prefs(context)
         var raw = prefs.getString(KEY_PAUSES, "[]").orEmpty()
         if (pauseArrayOrNull(raw) == null) return 0
         var added = 0
-        ranges.filter { (s, e) -> s > 0L && e > s && s >= entry && (realExit == null || e <= realExit) }.forEach { (s, e) ->
+
+        for (pause in qualified) {
             val before = pauseArrayOrNull(raw)?.length() ?: return 0
-            val next = appendPause(raw, s, e, EventSourceV2.MANUAL, false) ?: return 0
+            val next = appendPause(
+                raw,
+                pause.startMs,
+                pause.endMs,
+                EventSourceV2.MANUAL,
+                pause.paid
+            ) ?: return 0
             val after = pauseArrayOrNull(next)?.length() ?: return 0
             raw = next
             if (after > before) added++
         }
+
         if (added > 0 && !prefs.edit().putString(KEY_PAUSES, raw).commit()) return 0
         return added
     }
 
     /**
-     * Pauses réellement éditables par l'utilisateur : pauses non rémunérées créées
-     * manuellement ou par l'ancien programmateur automatique. Les pauses payées sont préservées.
+     * Ancienne API sans statut payé. Elle reste uniquement pour détecter les appels résiduels :
+     * en V2, une pause non qualifiée est refusée plutôt que transformée en pause non payée.
      */
-    fun editablePauseRangesForDay(context: Context, dayStart: Long, dayEnd: Long): List<Pair<Long, Long>> {
-        if (dayStart <= 0L || dayEnd <= dayStart) return emptyList()
-        return allSessions(context)
+    @Deprecated("Utiliser addQualifiedManualPauses avec un statut payé explicite")
+    fun addManualPauses(context: Context, ranges: List<Pair<Long, Long>>): Int = 0
+
+    /**
+     * Pauses réellement éditables par l'utilisateur.
+     *
+     * Toutes les pauses MANUAL restent éditables, qu'elles soient payées ou non. Les anciennes
+     * pauses SYSTEM ne restent éditables que lorsqu'elles sont explicitement non payées.
+     * Un stockage non fiable renvoie null, jamais une fausse liste vide.
+     */
+    fun editablePausesForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long
+    ): List<QualifiedManualPauseV2>? {
+        if (dayStart <= 0L || dayEnd <= dayStart) return null
+        val sessions = allSessions(context)
+        if (!V2RuntimeHistoryGuardV2.sourceState().reliable) return null
+
+        return sessions
             .flatMap { it.pauses }
             .filter { pause ->
-                pause.paid != true &&
-                    (pause.source == EventSourceV2.MANUAL || pause.source == EventSourceV2.SYSTEM)
+                val paid = pause.paid ?: return@filter false
+                pause.source == EventSourceV2.MANUAL ||
+                    (pause.source == EventSourceV2.SYSTEM && !paid)
             }
             .mapNotNull { pause ->
                 val end = pause.endMs ?: return@mapNotNull null
-                if (pause.startMs in dayStart until dayEnd && end > pause.startMs) pause.startMs to end else null
+                val paid = pause.paid ?: return@mapNotNull null
+                if (pause.startMs in dayStart until dayEnd && end > pause.startMs) {
+                    QualifiedManualPauseV2(pause.startMs, end, paid)
+                } else {
+                    null
+                }
             }
             .distinct()
-            .sortedBy { it.first }
+            .sortedBy { it.startMs }
     }
 
+    @Deprecated("Utiliser editablePausesForDay afin de conserver le statut payé")
+    fun editablePauseRangesForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long
+    ): List<Pair<Long, Long>> =
+        editablePausesForDay(context, dayStart, dayEnd)
+            ?.filterNot { it.paid }
+            ?.map { it.startMs to it.endMs }
+            .orEmpty()
+
     /**
-     * Remplace atomiquement les pauses éditables d'une journée. Les pauses payées ou provenant
-     * d'autres sources restent intactes. Une liste vide supprime toutes les pauses éditables du jour.
+     * Remplace atomiquement les pauses éditables d'une journée.
+     * Le statut payé fait partie du fait enregistré et doit être fourni pour chaque plage.
      */
-    fun replaceEditablePausesForDay(
+    fun replaceQualifiedEditablePausesForDay(
         context: Context,
         dayStart: Long,
         dayEnd: Long,
-        ranges: List<Pair<Long, Long>>
+        pauses: List<QualifiedManualPauseV2>
     ): Boolean {
         bind(context)
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) return false
         if (dayStart <= 0L || dayEnd <= dayStart) return false
 
-        val clean = ranges
-            .filter { (start, end) -> start > 0L && end > start }
-            .distinct()
-            .sortedBy { it.first }
-        if (clean.any { (start, end) -> start !in dayStart until dayEnd || end > dayEnd }) return false
+        val clean = ManualPauseQualificationV2.qualify(
+            pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
+        ) ?: return false
+        if (clean.any { pause ->
+                pause.startMs !in dayStart until dayEnd || pause.endMs > dayEnd
+            }) return false
 
         val p = prefs(context)
         val storedHistory = V2RuntimeHistoryGuardV2.read(context)
@@ -261,16 +318,16 @@ object V2RuntimeStore {
         }
 
         val targets = mutableListOf<Target>()
-        for ((start, end) in clean) {
+        for (pause in clean) {
             var found: Target? = null
             for (i in 0 until history.length()) {
                 val sessionItem = history.optJSONObject(i) ?: return false
-                if (historyContains(sessionItem, start, end)) {
+                if (historyContains(sessionItem, pause.startMs, pause.endMs)) {
                     found = Target(historyIndex = i)
                     break
                 }
             }
-            if (found == null && currentContains(start, end)) found = Target(current = true)
+            if (found == null && currentContains(pause.startMs, pause.endMs)) found = Target(current = true)
             if (found == null) return false
             targets += found
         }
@@ -282,9 +339,9 @@ object V2RuntimeStore {
                 val item = raw.optJSONObject(i) ?: return null
                 val start = positive(item, "start") ?: return null
                 val source = parseSourceOrNull(item.optString("source")) ?: return null
+                val paid = strictBoolean(item.opt("paid")) ?: return null
                 val editable = start in dayStart until dayEnd &&
-                    !item.optBoolean("paid", false) &&
-                    (source == EventSourceV2.MANUAL || source == EventSourceV2.SYSTEM)
+                    (source == EventSourceV2.MANUAL || (source == EventSourceV2.SYSTEM && !paid))
                 if (!editable) filtered.put(item)
             }
             return filtered
@@ -292,26 +349,26 @@ object V2RuntimeStore {
 
         for (i in 0 until history.length()) {
             val sessionItem = history.optJSONObject(i) ?: return false
-            val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
-            sessionItem.put(KEY_PAUSES, filtered(pauses) ?: return false)
+            val storedPauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
+            sessionItem.put(KEY_PAUSES, filtered(storedPauses) ?: return false)
         }
 
         val rawCurrentPauses = p.getString(KEY_PAUSES, "[]").orEmpty()
         var currentPauses = filtered(pauseArrayOrNull(rawCurrentPauses) ?: return false) ?: return false
 
-        clean.zip(targets).forEach { (range, target) ->
-            val pause = JSONObject()
-                .put("start", range.first)
-                .put("end", range.second)
+        clean.zip(targets).forEach { (pause, target) ->
+            val item = JSONObject()
+                .put("start", pause.startMs)
+                .put("end", pause.endMs)
                 .put("source", EventSourceV2.MANUAL.name)
-                .put("paid", false)
+                .put("paid", pause.paid)
             when {
                 target.historyIndex != null -> {
                     val sessionItem = history.optJSONObject(target.historyIndex) ?: return false
-                    val pauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
-                    pauses.put(pause)
+                    val storedPauses = sessionItem.optJSONArray(KEY_PAUSES) ?: return false
+                    storedPauses.put(item)
                 }
-                target.current -> currentPauses.put(pause)
+                target.current -> currentPauses.put(item)
             }
         }
 
@@ -334,6 +391,14 @@ object V2RuntimeStore {
             .putString(KEY_PAUSES, currentPauses.toString())
             .commit()
     }
+
+    @Deprecated("Utiliser replaceQualifiedEditablePausesForDay avec un statut payé explicite")
+    fun replaceEditablePausesForDay(
+        context: Context,
+        dayStart: Long,
+        dayEnd: Long,
+        ranges: List<Pair<Long, Long>>
+    ): Boolean = false
 
     fun exit(
         context: Context,
