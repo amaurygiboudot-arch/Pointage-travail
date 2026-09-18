@@ -17,6 +17,9 @@ internal data class StoredGpsZone(
     val longitude: Double,
     val radius: Float,
     val address: String?,
+    /** Identifiant stable V2 de l'entreprise explicitement associée à la zone. */
+    val companyId: String?,
+    /** Compatibilité historique uniquement avec les anciennes associations Entreprise 1/2. */
     val companySlot: Int?,
     val pointTypeToken: String?,
     val label: String?,
@@ -103,8 +106,27 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
         val address = item.optString("address")
             .trim()
             .takeIf { it.isNotBlank() }
-        val companySlot = item.optInt("companySlot", 0)
-            .takeIf { it in 1..2 }
+
+        val companyId = if (item.has("companyId") && !item.isNull("companyId")) {
+            val rawCompanyId = item.optString("companyId").trim()
+            if (rawCompanyId.isBlank()) {
+                return GpsZonesReadResult.Corrupt("Identifiant d'entreprise vide pour la zone GPS $id")
+            }
+            rawCompanyId
+        } else null
+
+        val companySlot = if (item.has("companySlot") && !item.isNull("companySlot")) {
+            val rawSlot = item.opt("companySlot")
+            val slot = when (rawSlot) {
+                is Number -> rawSlot.toInt().takeIf { rawSlot.toDouble() == it.toDouble() }
+                else -> null
+            }
+            if (slot !in 1..2) {
+                return GpsZonesReadResult.Corrupt("Ancien slot d'entreprise invalide pour la zone GPS $id")
+            }
+            slot
+        } else null
+
         val pointTypeToken = listOf("pointType", "zoneType", "type")
             .asSequence()
             .map { key -> item.optString(key).trim() }
@@ -120,6 +142,7 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
             longitude = longitude,
             radius = radius,
             address = address,
+            companyId = companyId,
             companySlot = companySlot,
             pointTypeToken = pointTypeToken,
             label = label,

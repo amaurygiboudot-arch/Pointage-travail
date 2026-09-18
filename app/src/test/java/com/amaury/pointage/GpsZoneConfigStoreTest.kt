@@ -55,6 +55,7 @@ class GpsZoneConfigStoreTest {
                     "longitude":-1.4,
                     "radius":175,
                     "address":"12 rue des Lilas",
+                    "companyId":"company-stable-3",
                     "companySlot":2,
                     "pointType":"POSTE",
                     "label":"Atelier"
@@ -69,6 +70,7 @@ class GpsZoneConfigStoreTest {
         assertEquals(-1.4, zone.longitude, 0.0)
         assertEquals(175f, zone.radius, 0f)
         assertEquals("12 rue des Lilas", zone.address)
+        assertEquals("company-stable-3", zone.companyId)
         assertEquals(2, zone.companySlot)
         assertEquals("POSTE", zone.pointTypeToken)
         assertEquals("Atelier", zone.label)
@@ -94,6 +96,33 @@ class GpsZoneConfigStoreTest {
     }
 
     @Test
+    fun `un company id explicitement vide rend la configuration corrompue`() {
+        val result = parsePersistedGpsZones(
+            """[{"id":"workplace_1","latitude":46.7,"longitude":-1.4,"radius":150,"companyId":"   "}]"""
+        )
+
+        assertTrue(result is GpsZonesReadResult.Corrupt)
+    }
+
+    @Test
+    fun `un ancien slot hors de 1 et 2 rend la configuration corrompue`() {
+        val result = parsePersistedGpsZones(
+            """[{"id":"workplace_1","latitude":46.7,"longitude":-1.4,"radius":150,"companySlot":3}]"""
+        )
+
+        assertTrue(result is GpsZonesReadResult.Corrupt)
+    }
+
+    @Test
+    fun `un ancien slot non entier rend la configuration corrompue`() {
+        val result = parsePersistedGpsZones(
+            """[{"id":"workplace_1","latitude":46.7,"longitude":-1.4,"radius":150,"companySlot":1.5}]"""
+        )
+
+        assertTrue(result is GpsZonesReadResult.Corrupt)
+    }
+
+    @Test
     fun `une copie editable conserve les metadonnees de la zone`() {
         val result = parsePersistedGpsZones(
             """[{
@@ -101,6 +130,7 @@ class GpsZoneConfigStoreTest {
                 "latitude":46.7,
                 "longitude":-1.4,
                 "radius":150,
+                "companyId":"company-stable-3",
                 "smartCandidate":true
             }]""".trimIndent()
         )
@@ -108,6 +138,7 @@ class GpsZoneConfigStoreTest {
         val editable = result.toMutableJsonArrayOrNull()
 
         assertEquals(1, editable?.length())
+        assertEquals("company-stable-3", editable?.getJSONObject(0)?.optString("companyId"))
         assertTrue(editable?.getJSONObject(0)?.optBoolean("smartCandidate") == true)
     }
 
