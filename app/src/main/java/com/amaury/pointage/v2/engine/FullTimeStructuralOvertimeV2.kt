@@ -11,7 +11,13 @@ object FullTimeStructuralOvertimeV2 {
         val variableOvertimeGross:Double,
         val structuralTiers:List<TierAmount>,
         val variableTiers:List<TierAmount>,
+        /**
+         * Compatibilité API : true signifie désormais qu'au moins une tranche n'a pas pu être
+         * valorisée faute de taux confirmé. Aucun taux de secours n'est injecté dans le montant.
+         */
         val provisionalRateUsed:Boolean,
+        val unresolvedStructuralOvertimeMinutes:Double,
+        val unresolvedVariableOvertimeMinutes:Double,
         val warnings:List<String>
     )
 
@@ -20,13 +26,11 @@ object FullTimeStructuralOvertimeV2 {
         regularWeeklyLimit:Int,
         paidWeeks:List<Int>,
         grossHourlyRate:Double,
-        overtimeTiers:List<OvertimeTierV2>,
-        minimumFallbackMultiplier:Double=1.10
+        overtimeTiers:List<OvertimeTierV2>
     ):Result {
         require(contractualWeeklyMinutes>0)
         require(regularWeeklyLimit>0)
         require(grossHourlyRate>0.0)
-        require(minimumFallbackMultiplier>=1.10)
 
         // Réutilise la même barrière canonique que PayrollEngineV2 : un jeu de paliers ambigu
         // ou invalide ne doit jamais alimenter directement un montant, quelle que soit la plateforme.
@@ -39,8 +43,7 @@ object FullTimeStructuralOvertimeV2 {
             upper=contractualWeeklyMinutes,
             lower=regularWeeklyLimit,
             rate=grossHourlyRate,
-            tiers=safeOvertimeTiers,
-            fallbackMultiplier=minimumFallbackMultiplier
+            tiers=safeOvertimeTiers
         )
         val monthlyRegularMinutes=regularContractMinutes*factor
         val monthlyStructuralMinutes=structuralWeekly.minutes*factor
@@ -52,8 +55,7 @@ object FullTimeStructuralOvertimeV2 {
                 upper=paid.coerceAtLeast(0),
                 lower=maxOf(contractualWeeklyMinutes,regularWeeklyLimit),
                 rate=grossHourlyRate,
-                tiers=safeOvertimeTiers,
-                fallbackMultiplier=minimumFallbackMultiplier
+                tiers=safeOvertimeTiers
             )
         }
         val variableGross=variableParts.sumOf{it.gross}
@@ -61,7 +63,7 @@ object FullTimeStructuralOvertimeV2 {
         val warnings=buildList {
             addAll(allRated.flatMap{it.warnings})
             if(!tiersStructurallyValid&&overtimeTiers.isNotEmpty()) {
-                add("Paliers d'heures supplémentaires ambigus ou invalides : ils sont neutralisés et toute tranche concernée reste provisoire à confirmer.")
+                add("Paliers d'heures supplémentaires ambigus ou invalides : ils sont neutralisés et aucune valorisation n'est inventée pour les tranches concernées.")
             }
         }.distinct()
 
@@ -83,6 +85,8 @@ object FullTimeStructuralOvertimeV2 {
             structuralTiers=aggregate(listOf(structuralWeekly),true),
             variableTiers=aggregate(variableParts,false),
             provisionalRateUsed=allRated.any{it.provisionalRateUsed},
+            unresolvedStructuralOvertimeMinutes=structuralWeekly.unresolvedMinutes*factor,
+            unresolvedVariableOvertimeMinutes=variableParts.sumOf{it.unresolvedMinutes},
             warnings=warnings
         )
     }
@@ -93,22 +97,25 @@ object FullTimeStructuralOvertimeV2 {
         val gross:Double,
         val tiers:List<Piece>,
         val provisionalRateUsed:Boolean,
+        val unresolvedMinutes:Double,
         val warnings:List<String>
     )
 
-    /** Rémunère la tranche (lower, upper] sans jamais laisser disparaître une minute. */
+    /**
+     * Analyse la tranche (lower, upper] sans jamais laisser disparaître une minute.
+     * Une minute sans palier confirmé reste comptée mais n'alimente aucun montant.
+     */
     private fun ratedBetween(
         upper:Int,
         lower:Int,
         rate:Double,
-        tiers:List<OvertimeTierV2>,
-        fallbackMultiplier:Double
+        tiers:List<OvertimeTierV2>
     ):Rated {
-        if(upper<=lower)return Rated(0.0,0.0,emptyList(),false,emptyList())
+        if(upper<=lower)return Rated(0.0,0.0,emptyList(),false,0.0,emptyList())
         val sorted=tiers.sortedBy{it.fromMinutes}
         var cursor=lower
         var gross=0.0
-        var provisionalRateUsed=false
+        var unresolvedMinutes=0.0
         val pieces=mutableListOf<Piece>()
         val warnings=mutableListOf<String>()
 
@@ -120,11 +127,10 @@ object FullTimeStructuralOvertimeV2 {
             gross+=amount
         }
 
-        fun addFallback(from:Int,to:Int){
+        fun addUnresolved(from:Int,to:Int){
             if(to<=from)return
-            add(from,to,fallbackMultiplier)
-            provisionalRateUsed=true
-            warnings+="Palier d'heures supplémentaires incomplet : valorisation provisoire au plancher de +10 % autorisé pour un accord collectif. Ce plancher n'est pas le barème supplétif de +25 % puis +50 % ; le taux exact reste à vérifier."
+            unresolvedMinutes+=(to-from).toDouble()
+            warnings+="Palier d'heures supplémentaires non confirmé : aucune valorisation n'est injectée pour les minutes non couvertes ; le brut reste à confirmer."
         }
 
         sorted.forEach{tier->
@@ -133,7 +139,7 @@ object FullTimeStructuralOvertimeV2 {
             val tierEnd=minOf(upper,tier.toMinutes?:Int.MAX_VALUE)
             if(tierEnd<=cursor||tierEnd<=tierStart)return@forEach
             if(tierStart>cursor){
-                addFallback(cursor,minOf(tierStart,upper))
+                addUnresolved(cursor,minOf(tierStart,upper))
                 cursor=minOf(tierStart,upper)
             }
             if(cursor<upper&&tierEnd>cursor){
@@ -141,7 +147,14 @@ object FullTimeStructuralOvertimeV2 {
                 cursor=tierEnd
             }
         }
-        if(cursor<upper)addFallback(cursor,upper)
-        return Rated((upper-lower).toDouble(),gross,pieces,provisionalRateUsed,warnings.distinct())
+        if(cursor<upper)addUnresolved(cursor,upper)
+        return Rated(
+            minutes=(upper-lower).toDouble(),
+            gross=gross,
+            tiers=pieces,
+            provisionalRateUsed=unresolvedMinutes>0.0,
+            unresolvedMinutes=unresolvedMinutes,
+            warnings=warnings.distinct()
+        )
     }
 }
