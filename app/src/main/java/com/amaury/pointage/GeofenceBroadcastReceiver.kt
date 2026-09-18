@@ -88,8 +88,12 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     val zoneLabel = findZoneLabel(context, zone)
                     val zoneType = findZoneType(zone)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
-                        resolveCompanySlot(context, prefs, zone)?.let {
-                            V2ProfileStore.setActiveCompanySlot(context, it)
+                        // Une association explicite à un employeur doit être certifiable avant
+                        // qu'une entrée GPS puisse démarrer. Sinon l'entreprise active précédente
+                        // pourrait recevoir silencieusement le pointage d'une autre zone.
+                        if (!applyZoneEmployer(context, prefs, zone)) {
+                            updateWidgets(context)
+                            return
                         }
                         val now = System.currentTimeMillis()
                         val gpsEvent = GpsEventV2(
@@ -143,48 +147,65 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun resolveCompanySlot(
+    private fun applyZoneEmployer(
         context: Context,
         prefs: android.content.SharedPreferences,
         zone: StoredGpsZone
-    ): Int? {
-        zone.companySlot?.let { return it }
+    ): Boolean {
+        val companies = SalaryCompanyStore.readConfirmed(context)
+        val legacySlot = zone.companySlot ?: resolveLegacyAddressCompanySlot(prefs, zone)
+        return when (
+            val resolution = resolveGpsZoneEmployerV2(
+                companyId = zone.companyId,
+                legacyCompanySlot = legacySlot,
+                companiesReliable = companies.reliable,
+                confirmedCompanyIds = companies.companies.map { it.id }
+            )
+        ) {
+            GpsZoneEmployerResolutionV2.KeepCurrent -> true
+            is GpsZoneEmployerResolutionV2.UseCompany ->
+                V2ProfileStore.setActiveCompanyId(context, resolution.companyId)
+            is GpsZoneEmployerResolutionV2.Block -> false
+        }
+    }
 
-        val map = if (!prefs.contains("address_company_slots")) {
-            null
-        } else {
-            val raw = try {
-                prefs.getString("address_company_slots", null)
-            } catch (_: ClassCastException) {
-                return null
-            }
-            try {
-                JSONObject(raw ?: return null)
-            } catch (_: Exception) {
-                // Une table corrompue n'est pas assimilée à une table vide.
-                return null
-            }
+    /**
+     * Compatibilité des installations qui stockaient encore le lien adresse -> Entreprise 1/2
+     * hors du JSON de zone. Aucune absence de lien ne retombe sur un ancien slot actif : une zone
+     * non associée doit conserver l'employeur V2 actuellement choisi, y compris le 3e ou suivant.
+     */
+    private fun resolveLegacyAddressCompanySlot(
+        prefs: android.content.SharedPreferences,
+        zone: StoredGpsZone
+    ): Int? {
+        if (!prefs.contains("address_company_slots")) return null
+        val raw = try {
+            prefs.getString("address_company_slots", null)
+        } catch (_: ClassCastException) {
+            return null
+        }
+        val map = try {
+            JSONObject(raw ?: return null)
+        } catch (_: Exception) {
+            return null
         }
 
-        if (map != null) {
-            val candidates = listOfNotNull(zone.address, zone.id)
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-            candidates.forEach { key ->
-                val slot = map.optInt(key, 0)
-                if (slot in 1..2) return slot
-                val keys = map.keys()
-                while (keys.hasNext()) {
-                    val saved = keys.next()
-                    if (saved.equals(key, ignoreCase = true)) {
-                        val savedSlot = map.optInt(saved, 0)
-                        if (savedSlot in 1..2) return savedSlot
-                    }
+        val candidates = listOfNotNull(zone.address, zone.id)
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        candidates.forEach { key ->
+            val slot = map.optInt(key, 0)
+            if (slot in 1..2) return slot
+            val keys = map.keys()
+            while (keys.hasNext()) {
+                val saved = keys.next()
+                if (saved.equals(key, ignoreCase = true)) {
+                    val savedSlot = map.optInt(saved, 0)
+                    if (savedSlot in 1..2) return savedSlot
                 }
             }
         }
-
-        return V2ProfileStore.activeCompanySlot(context).takeIf { it in 1..2 }
+        return null
     }
 
     private fun updateWidgets(context: Context) {
