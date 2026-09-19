@@ -1,3 +1,5 @@
+pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+
 buildscript {
     dependencies {
         constraints {
@@ -26,7 +28,6 @@ buildscript {
     }
 }
 
-pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
 rootProject.name = "PointageTravail"
 include(":app")
