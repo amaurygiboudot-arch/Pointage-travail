@@ -2,7 +2,7 @@ name: Dependency Submission controlee
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix/dependabot-bcprov-build-tooling ]
     paths:
       - '**/*.gradle'
       - '**/*.gradle.kts'
