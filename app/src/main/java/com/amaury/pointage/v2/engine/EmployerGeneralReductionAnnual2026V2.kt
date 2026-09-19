@@ -8,8 +8,8 @@ import kotlin.math.round
  *
  * Cette étape sert à la régularisation de fin d'année prévue à l'article D.241-9 du CSS.
  * Elle ne tente volontairement pas de traiter les années incomplètes, changements de durée
- * contractuelle, changements de tranche d'effectif ou cas spéciaux D.241-10 : ces situations
- * doivent disposer d'un moteur dédié avant tout calcul automatique.
+ * contractuelle, changements de régime logement/taux éligibles ou cas spéciaux D.241-10 :
+ * ces situations doivent disposer d'un moteur dédié avant tout calcul automatique.
  */
 object EmployerGeneralReductionAnnual2026V2 {
     private const val MONTHS_IN_YEAR = 12.0
@@ -18,7 +18,8 @@ object EmployerGeneralReductionAnnual2026V2 {
         val year: Int,
         /** Rémunération annuelle entrant dans la formule RGDU. */
         val annualReductionRemuneration: Double,
-        val workforceBand: EmployerWorkforceContributionsV2.Band?,
+        /** Contexte Tδ/maximal confirmé comme homogène sur toute l'année. */
+        val rateContext: EmployerGeneralReductionRateContext2026V2.Snapshot?,
         val contractType: ContractTypeV2?,
         val contractualWeeklyMinutes: Int?,
         /** Heures supplémentaires/complémentaires rémunérées sur l'année, sans majoration. */
@@ -28,8 +29,8 @@ object EmployerGeneralReductionAnnual2026V2 {
         /** true uniquement si le cas de droit commun du noyau RGDU standard est confirmé sur toute l'année. */
         val standardCommonLawCaseConfirmed: Boolean?,
         /**
-         * true uniquement si le type de contrat, la durée contractuelle et la tranche d'effectif
-         * utilisés ici sont confirmés comme stables sur toute la période annuelle.
+         * true uniquement si le type de contrat, la durée contractuelle, le régime de contribution
+         * logement et la somme des taux éligibles sont confirmés comme stables sur toute l'année.
          */
         val homogeneousAnnualParametersConfirmed: Boolean?
     )
@@ -59,7 +60,7 @@ object EmployerGeneralReductionAnnual2026V2 {
         }
         if (input.homogeneousAnnualParametersConfirmed != true) {
             return blocked(
-                "RGDU annuelle 2026 : stabilité du contrat, de la durée contractuelle et de la tranche d'effectif à confirmer sur toute l'année."
+                "RGDU annuelle 2026 : stabilité du contrat, de la durée contractuelle, du régime logement et des taux éligibles à confirmer sur toute l'année."
             )
         }
 
@@ -71,7 +72,7 @@ object EmployerGeneralReductionAnnual2026V2 {
             EmployerGeneralReduction2026V2.Input(
                 year = input.year,
                 reductionRemunerationMonthly = input.annualReductionRemuneration / MONTHS_IN_YEAR,
-                workforceBand = input.workforceBand,
+                rateContext = input.rateContext,
                 contractType = input.contractType,
                 contractualWeeklyMinutes = input.contractualWeeklyMinutes,
                 additionalPaidMinutes = additionalMinutes / MONTHS_IN_YEAR,
