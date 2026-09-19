@@ -43,9 +43,9 @@ jobs:
             --jq '.artifacts[] | [.id, .name, .size_in_bytes, .created_at, .expired] | @tsv' > "$all"
 
           latest_full_id="$(awk -F '\t' '$2 == "HoraTrack-APK-AAB" && $5 == "false" { print }' "$all" \
-            | sort -t $'\t' -k4,4 \
-            | tail -n 1 \
-            | cut -f1 || true)"
+            | sort -t $'\t' -k4,4 | tail -n 1 | cut -f1 || true)"
+          latest_diamond_id="$(awk -F '\t' '$2 == "HP-Travail-Diamant-Carbone-Test" && $5 == "false" { print }' "$all" \
+            | sort -t $'\t' -k4,4 | tail -n 1 | cut -f1 || true)"
 
           now="$(date -u +%s)"
           kept=0
@@ -61,8 +61,8 @@ jobs:
               reason="expire"
             elif [ "$name" = "HoraTrack-APK-AAB" ] && [ "$id" != "$latest_full_id" ]; then
               reason="APK/AAB redondant avec GitHub Releases"
-            elif [ "$name" = "HP-Travail-Diamant-Carbone-Test" ] && [ "$age_days" -ge 3 ]; then
-              reason="test Diamant vieux de ${age_days}j"
+            elif [ "$name" = "HP-Travail-Diamant-Carbone-Test" ] && [ "$id" != "$latest_diamond_id" ]; then
+              reason="ancien APK de test Diamant"
             elif [[ "$name" == diagnostic-* ]] && [ "$age_days" -ge 7 ]; then
               reason="diagnostic vieux de ${age_days}j"
             elif [ "$age_days" -ge 14 ]; then
@@ -98,6 +98,6 @@ jobs:
             echo "- Artefacts vises/supprimes : $deleted"
             echo "- Artefacts conserves : $kept"
             echo "- Espace vise a liberer : ${freed_mb} MiB"
-            echo "- Politique : dernier APK/AAB Actions conserve, anciens APK/AAB redondants supprimes, tests Diamant 3 j, diagnostics 7 j, autres artefacts 14 j."
+            echo "- Politique : dernier APK/AAB complet conserve, dernier APK Diamant conserve, anciens exemplaires redondants supprimes, diagnostics 7 j, autres artefacts 14 j."
             echo "- GitHub Releases, code, commits, branches et PR ne sont jamais supprimes par ce workflow."
           } >> "$GITHUB_STEP_SUMMARY"
