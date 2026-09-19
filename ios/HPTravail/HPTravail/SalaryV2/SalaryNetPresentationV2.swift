@@ -68,14 +68,14 @@ struct SalaryNetPresentationV2: Equatable {
         )
     }
 
-    /// Seule la projection canonique peut publier le net avant impôt. Le net après impôt reste
-    /// volontairement absent tant que le prélèvement à la source daté n'est pas raccordé sur iOS.
+    /// Seule la projection canonique peut publier le net salarié. Le net après impôt est transmis
+    /// uniquement lorsque le prélèvement à la source daté a été calculé de façon fiable.
     static func fromProjection(_ projection: EmployeeNetProjectionV2.Result) -> SalaryNetPresentationV2 {
         make(
             grossReliable: projection.grossReliable,
             netComplete: projection.netBeforeIncomeTaxComplete,
             netBeforeIncomeTax: projection.netBeforeIncomeTax,
-            netAfterIncomeTax: nil
+            netAfterIncomeTax: projection.netAfterIncomeTax
         )
     }
 }

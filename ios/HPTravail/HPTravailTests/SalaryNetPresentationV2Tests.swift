@@ -56,6 +56,19 @@ final class SalaryNetPresentationV2Tests: XCTestCase {
         XCTAssertEqual(presentation.secondaryAmount!, 1_900, accuracy: 0.001)
     }
 
+    func testProjectionForwardsNetAfterIncomeTax() {
+        let presentation = SalaryNetPresentationV2.make(
+            grossReliable: true,
+            netComplete: true,
+            netBeforeIncomeTax: 2_000,
+            netAfterIncomeTax: 1_936
+        )
+
+        XCTAssertEqual(presentation.secondaryLabel, "Net après impôt")
+        XCTAssertNotNil(presentation.secondaryAmount)
+        XCTAssertEqual(presentation.secondaryAmount!, 1_936, accuracy: 0.001)
+    }
+
     func testIncompleteFlagWinsOverAccidentallyProvidedAmounts() {
         let presentation = SalaryNetPresentationV2.make(
             grossReliable: true,
