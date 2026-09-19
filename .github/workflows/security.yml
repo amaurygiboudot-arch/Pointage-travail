@@ -49,6 +49,11 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+          # AGP 9.4.1 still declares Bouncy Castle 1.80.2 transitively in its
+          # metadata. The separate gradle-security-build job must prove that
+          # Gradle resolves bcprov/bcpkix/bcutil to 1.86 before this PR can pass.
+          # Keep this exception limited to those two AGP metadata advisories.
+          allow-ghsas: GHSA-9pwp-9qqc-pr26, GHSA-qp49-qgx5-5m26
           retry-on-snapshot-warnings: true
           retry-on-snapshot-warnings-timeout: 300
       - name: Dependency review not required
