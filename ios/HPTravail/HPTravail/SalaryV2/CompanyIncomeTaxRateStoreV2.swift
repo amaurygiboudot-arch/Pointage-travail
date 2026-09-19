@@ -60,6 +60,18 @@ final class CompanyIncomeTaxRateStoreV2 {
         }
     }
 
+    @discardableResult
+    func remove(companyId: String, period: YearMonthV2) -> Bool {
+        let storageKey = key(companyId: companyId)
+        guard !companyId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard let data = defaults.data(forKey: storageKey) else { return true }
+        guard let decoded = try? JSONDecoder().decode([StoredRecord].self, from: data) else { return false }
+        let records = decoded.filter { $0.from != period.description }
+        guard let encoded = try? JSONEncoder().encode(records) else { return false }
+        defaults.set(encoded, forKey: storageKey)
+        return true
+    }
+
     private enum StoreError: Error { case invalidPeriod }
 
     @discardableResult
