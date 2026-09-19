@@ -17,6 +17,7 @@ enum EmployeeNetProjectionV2 {
         let protectionCategory: ProtectionCategoryV2.Result
         let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
         let period: CompanyEmployeeDeductionResolverV2.YearMonth
+        let incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?
     }
 
     struct Result {
@@ -31,6 +32,8 @@ enum EmployeeNetProjectionV2 {
         let knownNetBeforeIncomeTax: Double
         let netBeforeIncomeTax: Double?
         let netTaxable: Double?
+        let incomeTax: Double?
+        let netAfterIncomeTax: Double?
         let netBeforeIncomeTaxComplete: Bool
         let netTaxableComplete: Bool
         let warnings: [String]
@@ -168,6 +171,29 @@ enum EmployeeNetProjectionV2 {
             )
         }
 
+        let taxRate = input.incomeTaxRate
+        let incomeTax: Double?
+        let netAfterIncomeTax: Double?
+        if let taxable,
+           let rateSnapshot = taxRate,
+           rateSnapshot.reliable,
+           let rate = rateSnapshot.rate,
+           rate.isFinite,
+           rate >= 0,
+           rate <= 1,
+           beforeTaxComplete {
+            let calculatedTax = roundedCurrency(taxable * rate)
+            incomeTax = calculatedTax
+            netAfterIncomeTax = max(0, knownBeforeTax - calculatedTax)
+        } else {
+            incomeTax = nil
+            netAfterIncomeTax = nil
+        }
+        if taxable != nil && (taxRate == nil || taxRate?.rate == nil || taxRate?.reliable != true) {
+            warnings.append("PAS : taux personnel daté et confirmé indisponible ; aucun net après impôt n'est affiché.")
+        }
+        warnings.append(contentsOf: taxRate?.warnings ?? [])
+
         let traces = unique(
             direct.traces + [
                 "Brut social : brut en espèces + avantages en nature confirmés.",
@@ -186,6 +212,8 @@ enum EmployeeNetProjectionV2 {
             knownNetBeforeIncomeTax: knownBeforeTax,
             netBeforeIncomeTax: beforeTaxComplete ? knownBeforeTax : nil,
             netTaxable: taxable,
+            incomeTax: incomeTax,
+            netAfterIncomeTax: netAfterIncomeTax,
             netBeforeIncomeTaxComplete: beforeTaxComplete,
             netTaxableComplete: beforeTaxComplete && taxInputsComplete,
             warnings: unique(warnings),
