@@ -15,26 +15,36 @@ enum EmployerAtMpContributionV2 {
     }
 
     static func calculate(gross: Double, confirmedRate: Double?) -> Result {
-        let base = max(0, gross)
-        guard let rate = confirmedRate,
-              rate.isFinite,
-              rate >= 0,
-              rate <= 1 else {
+        let validGross = gross.isFinite && gross >= 0 ? gross : nil
+        let base = validGross ?? 0
+        let rate = confirmedRate.flatMap { value in
+            value.isFinite && value >= 0 && value <= 1 ? value : nil
+        }
+        guard let validGross, let rate else {
+            var warnings: [String] = []
+            if validGross == nil {
+                warnings.append(
+                    "AT/MP employeur : assiette brute invalide ; aucun montant patronal n'est calculé."
+                )
+            }
+            if rate == nil {
+                warnings.append(
+                    "AT/MP employeur : taux de l'établissement non renseigné ; coût employeur incomplet."
+                )
+            }
             return Result(
-                rate: nil,
+                rate: rate,
                 baseGross: base,
                 employerAmount: nil,
                 complete: false,
-                warnings: [
-                    "AT/MP employeur : taux de l'établissement non renseigné ; coût employeur incomplet."
-                ]
+                warnings: warnings
             )
         }
 
         return Result(
             rate: rate,
-            baseGross: base,
-            employerAmount: base * rate,
+            baseGross: validGross,
+            employerAmount: validGross * rate,
             complete: true,
             warnings: []
         )
