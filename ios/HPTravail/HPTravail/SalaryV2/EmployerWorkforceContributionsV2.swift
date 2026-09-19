@@ -43,6 +43,7 @@ enum EmployerWorkforceContributionsV2 {
         let effectiveTo: Period?
         let source: String
         let fnalTreatment: FnalTreatment?
+        let trainingTreatment: TrainingTreatment?
 
         init(
             id: String,
@@ -50,7 +51,8 @@ enum EmployerWorkforceContributionsV2 {
             effectiveFrom: Period,
             effectiveTo: Period? = nil,
             source: String,
-            fnalTreatment: FnalTreatment? = nil
+            fnalTreatment: FnalTreatment? = nil,
+            trainingTreatment: TrainingTreatment? = nil
         ) {
             self.id = id
             self.band = band
@@ -58,6 +60,7 @@ enum EmployerWorkforceContributionsV2 {
             self.effectiveTo = effectiveTo
             self.source = source
             self.fnalTreatment = fnalTreatment
+            self.trainingTreatment = trainingTreatment
         }
     }
 
@@ -67,6 +70,7 @@ enum EmployerWorkforceContributionsV2 {
         let reliable: Bool
         let warnings: [String]
         let fnalTreatment: FnalTreatment?
+        let trainingTreatment: TrainingTreatment?
     }
 
     struct Result: Equatable {
@@ -96,27 +100,27 @@ enum EmployerWorkforceContributionsV2 {
             period >= record.effectiveFrom && (record.effectiveTo == nil || period <= record.effectiveTo!)
         }
         guard !active.isEmpty else {
-            return blockedSnapshot("Effectif employeur : tranche <11 / 11–49 / >=50 et régime FNAL à confirmer pour \(period.label) ; cotisations incomplètes.")
+            return blockedSnapshot("Effectif employeur : tranche <11 / 11–49 / >=50, régime FNAL et applicabilité formation à confirmer pour \(period.label) ; cotisations incomplètes.")
         }
         guard active.count == 1, let selected = active.first else {
             return blockedSnapshot("Effectif employeur : plusieurs règles se chevauchent sur la période ; FNAL/formation bloqués.")
         }
-        guard let fnalTreatment = selected.fnalTreatment else {
-            return Snapshot(
-                band: selected.band,
-                source: selected.source,
-                reliable: false,
-                warnings: ["FNAL : régime 0,10 % plafonné / 0,50 % déplafonné à confirmer ; la tranche d'effectif seule ne suffit pas pour tous les employeurs."],
-                fnalTreatment: nil
-            )
+
+        var warnings: [String] = []
+        if selected.fnalTreatment == nil {
+            warnings.append("FNAL : régime 0,10 % plafonné / 0,50 % déplafonné à confirmer ; la tranche d'effectif seule ne suffit pas pour tous les employeurs.")
+        }
+        if selected.trainingTreatment == nil {
+            warnings.append("Formation professionnelle : applicabilité/exonération à confirmer pour la rémunération considérée.")
         }
 
         return Snapshot(
             band: selected.band,
             source: selected.source,
-            reliable: true,
-            warnings: [],
-            fnalTreatment: fnalTreatment
+            reliable: selected.fnalTreatment != nil && selected.trainingTreatment != nil,
+            warnings: unique(warnings),
+            fnalTreatment: selected.fnalTreatment,
+            trainingTreatment: selected.trainingTreatment
         )
     }
 
@@ -188,7 +192,8 @@ enum EmployerWorkforceContributionsV2 {
             source: nil,
             reliable: false,
             warnings: [warning],
-            fnalTreatment: nil
+            fnalTreatment: nil,
+            trainingTreatment: nil
         )
     }
 
