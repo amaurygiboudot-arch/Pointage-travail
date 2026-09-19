@@ -6,11 +6,30 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.YearMonth
 
 class EmployerGeneralReduction2026V2Test {
+    private fun rateContext(
+        regime: EmployerGeneralReductionRateContext2026V2.HousingContributionRegime =
+            EmployerGeneralReductionRateContext2026V2.HousingContributionRegime.L813_5_2,
+        rateSum: Double = 0.4021
+    ): EmployerGeneralReductionRateContext2026V2.Snapshot =
+        EmployerGeneralReductionRateContext2026V2.resolve(
+            records = listOf(
+                EmployerGeneralReductionRateContext2026V2.Record(
+                    id = "rate",
+                    housingContributionRegime = regime,
+                    eligibleEmployerRateSum = rateSum,
+                    effectiveFrom = YearMonth.of(2026, 1),
+                    source = "DSN / paramétrage paie 2026"
+                )
+            ),
+            period = YearMonth.of(2026, 9)
+        )
+
     private fun input(
         gross: Double = 2000.0,
-        band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        context: EmployerGeneralReductionRateContext2026V2.Snapshot? = rateContext(),
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
         additionalMinutes: Double? = 0.0,
@@ -19,7 +38,7 @@ class EmployerGeneralReduction2026V2Test {
     ) = EmployerGeneralReduction2026V2.Input(
         year = 2026,
         reductionRemunerationMonthly = gross,
-        workforceBand = band,
+        rateContext = context,
         contractType = type,
         contractualWeeklyMinutes = weeklyMinutes,
         additionalPaidMinutes = additionalMinutes,
@@ -28,7 +47,7 @@ class EmployerGeneralReduction2026V2Test {
     )
 
     @Test
-    fun `urssaf example at least 50 gives 0 point 3178 and 635 point 60 euros`() {
+    fun `urssaf example with L813 5 second regime gives 0 point 3178 and 635 point 60 euros`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(input())
 
         assertTrue(result.reliable)
@@ -38,9 +57,14 @@ class EmployerGeneralReduction2026V2Test {
     }
 
     @Test
-    fun `under 50 uses lower maximum coefficient`() {
+    fun `L813 5 first regime uses lower legal coefficient regardless of raw workforce`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
-            input(band = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49)
+            input(
+                context = rateContext(
+                    regime = EmployerGeneralReductionRateContext2026V2.HousingContributionRegime.L813_5_1,
+                    rateSum = 0.3981
+                )
+            )
         )
 
         assertEquals(0.3147, result.coefficient!!, 0.0000001)
@@ -48,17 +72,46 @@ class EmployerGeneralReduction2026V2Test {
     }
 
     @Test
-    fun `coefficient is capped at legal maximum below smic`() {
+    fun `coefficient is capped at confirmed eligible employer rates`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
-            input(gross = 1500.0, band = EmployerWorkforceContributionsV2.Band.UNDER_11)
+            input(gross = 1500.0, context = rateContext(rateSum = 0.3500))
         )
 
-        assertEquals(0.3981, result.coefficient!!, 0.0000001)
-        assertEquals(597.15, result.amount!!, 0.001)
+        assertTrue(result.reliable)
+        assertEquals(0.3500, result.coefficient!!, 0.0000001)
+        assertEquals(525.00, result.amount!!, 0.001)
     }
 
     @Test
-    fun `reduction becomes zero at three times reference minimum`() {
+    fun `missing rate context never falls back to workforce assumptions`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(input(context = null))
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertTrue(result.warnings.any { it.contains("régime de contribution logement", ignoreCase = true) })
+    }
+
+    @Test
+    fun `unreliable rate context propagates its reason`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
+            input(
+                context = EmployerGeneralReductionRateContext2026V2.Snapshot(
+                    tDelta = null,
+                    maximumCoefficient = null,
+                    source = null,
+                    reliable = false,
+                    warnings = listOf("Contexte RGDU 2026 à confirmer")
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.coefficient)
+        assertTrue(result.warnings.contains("Contexte RGDU 2026 à confirmer"))
+    }
+
+    @Test
+    fun `coefficient becomes zero at three times reference minimum`() {
         val monthlySmic = 12.02 * 35.0 * 52.0 / 12.0
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
             input(gross = 3.0 * monthlySmic)
