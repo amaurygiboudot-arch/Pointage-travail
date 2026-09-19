@@ -13,7 +13,6 @@ enum EmployeeNetProjectionV2 {
         let year: Int
         let ceiling: SocialSecurityCeilingV2.Snapshot
         let alsaceMoselleLocalRegime: Bool?
-        let employerProtectionCsgCrdsBaseAmount: Double?
         let professionalStatus: String?
         let protectionCategory: ProtectionCategoryV2.Result
         let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
@@ -50,12 +49,15 @@ enum EmployeeNetProjectionV2 {
             validBenefits &&
             contributionGross.isFinite
 
+        let employerProtectionCsgCrdsBase = confirmedSnapshotAmount(
+            input.companyDeductions[.employerProtectionCsgCrdsBase]
+        )
         let statutory = SocialContributionCatalogV2.estimateEmployeeDeductions(
             gross: contributionGross,
             year: input.year,
             ceiling: input.ceiling,
             alsaceMoselleLocalRegime: input.alsaceMoselleLocalRegime,
-            employerProtectionCsgCrdsBaseAmount: input.employerProtectionCsgCrdsBaseAmount
+            employerProtectionCsgCrdsBaseAmount: employerProtectionCsgCrdsBase
         )
         let retirement = ComplementaryRetirementCatalogV2.estimate(
             gross: contributionGross,
@@ -83,7 +85,7 @@ enum EmployeeNetProjectionV2 {
         let supportedNationalTables = SocialSecurityCeilingV2.fullMonthly(year: input.year) != nil &&
             !SocialContributionCatalogV2.employeeRules(year: input.year).isEmpty
         let statutoryInputsComplete = input.alsaceMoselleLocalRegime != nil &&
-            confirmedNonNegative(input.employerProtectionCsgCrdsBaseAmount) != nil
+            employerProtectionCsgCrdsBase != nil
 
         var blockers: [String] = []
         if !supportedNationalTables { blockers.append("barèmes nationaux non intégrés pour \(input.year)") }
@@ -94,7 +96,7 @@ enum EmployeeNetProjectionV2 {
         }
         if !input.ceiling.complete { blockers.append("plafond de Sécurité sociale incomplet") }
         if input.alsaceMoselleLocalRegime == nil { blockers.append("affiliation Alsace-Moselle à confirmer") }
-        if confirmedNonNegative(input.employerProtectionCsgCrdsBaseAmount) == nil {
+        if employerProtectionCsgCrdsBase == nil {
             blockers.append("part employeur de protection complémentaire soumise à CSG/CRDS à confirmer")
         }
         if !direct.confirmedEmployeeDeductionsComplete {
