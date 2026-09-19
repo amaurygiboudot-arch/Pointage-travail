@@ -6,11 +6,29 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.YearMonth
 
 class EmployerGeneralReductionAnnual2026V2Test {
+    private fun rateContext(
+        regime: EmployerGeneralReductionRateContext2026V2.HousingContributionRegime =
+            EmployerGeneralReductionRateContext2026V2.HousingContributionRegime.L813_5_2,
+        rateSum: Double = 0.4021
+    ) = EmployerGeneralReductionRateContext2026V2.resolve(
+        listOf(
+            EmployerGeneralReductionRateContext2026V2.Record(
+                id = "annual-rate",
+                housingContributionRegime = regime,
+                eligibleEmployerRateSum = rateSum,
+                effectiveFrom = YearMonth.of(2026, 1),
+                source = "Paramétrage paie annuel 2026"
+            )
+        ),
+        YearMonth.of(2026, 1)
+    )
+
     private fun annualInput(
         remuneration: Double = 24_000.0,
-        band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        context: EmployerGeneralReductionRateContext2026V2.Snapshot? = rateContext(),
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
         additionalMinutes: Double? = 0.0,
@@ -20,7 +38,7 @@ class EmployerGeneralReductionAnnual2026V2Test {
     ) = EmployerGeneralReductionAnnual2026V2.Input(
         year = 2026,
         annualReductionRemuneration = remuneration,
-        workforceBand = band,
+        rateContext = context,
         contractType = type,
         contractualWeeklyMinutes = weeklyMinutes,
         additionalPaidMinutesAnnual = additionalMinutes,
@@ -38,6 +56,40 @@ class EmployerGeneralReductionAnnual2026V2Test {
         assertEquals(7_627.20, result.amount!!, 0.001)
         assertEquals(21_876.40, result.referenceMinimumAnnual!!, 0.000001)
         assertEquals(65_629.20, result.thresholdAnnual!!, 0.000001)
+    }
+
+    @Test
+    fun `annual coefficient follows confirmed housing regime not raw workforce`() {
+        val result = EmployerGeneralReductionAnnual2026V2.calculate(
+            annualInput(
+                context = rateContext(
+                    regime = EmployerGeneralReductionRateContext2026V2.HousingContributionRegime.L813_5_1,
+                    rateSum = 0.3981
+                )
+            )
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(0.3147, result.coefficient!!, 0.0000001)
+    }
+
+    @Test
+    fun `annual lower eligible rate sum reduces the legal coefficient`() {
+        val result = EmployerGeneralReductionAnnual2026V2.calculate(
+            annualInput(remuneration = 18_000.0, context = rateContext(rateSum = 0.3500))
+        )
+
+        assertTrue(result.reliable)
+        assertTrue(result.coefficient!! <= 0.3500)
+    }
+
+    @Test
+    fun `missing annual rate context blocks calculation`() {
+        val result = EmployerGeneralReductionAnnual2026V2.calculate(annualInput(context = null))
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertTrue(result.warnings.any { it.contains("régime de contribution logement", ignoreCase = true) })
     }
 
     @Test
