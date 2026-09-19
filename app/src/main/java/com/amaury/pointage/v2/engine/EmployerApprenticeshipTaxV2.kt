@@ -64,7 +64,10 @@ object EmployerApprenticeshipTaxV2 {
         if (!validRate(principalRate) || !validRate(balanceRate)) {
             return Result(null,null,null,false,listOf("Taxe d’apprentissage : taux invalide ; aucun montant n'est calculé."))
         }
-        val base=grossSocial.coerceAtLeast(0.0)
+        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+            return Result(null,null,null,false,listOf("Taxe d’apprentissage : assiette brute sociale invalide ; aucun montant patronal n'est calculé."))
+        }
+        val base=grossSocial
         val principal=base*principalRate
         val balance=base*balanceRate
         return Result(principal,balance,principal+balance,true,emptyList())
