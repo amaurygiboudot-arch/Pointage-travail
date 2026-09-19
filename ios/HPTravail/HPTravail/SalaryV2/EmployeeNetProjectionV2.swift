@@ -175,6 +175,7 @@ enum EmployeeNetProjectionV2 {
         let incomeTax: Double?
         let netAfterIncomeTax: Double?
         if let taxable,
+           taxable.isFinite,
            let rateSnapshot = taxRate,
            rateSnapshot.reliable,
            let rate = rateSnapshot.rate,
@@ -183,8 +184,13 @@ enum EmployeeNetProjectionV2 {
            rate <= 1,
            beforeTaxComplete {
             let calculatedTax = roundedCurrency(taxable * rate)
-            incomeTax = calculatedTax
-            netAfterIncomeTax = max(0, knownBeforeTax - calculatedTax)
+            if calculatedTax.isFinite {
+                incomeTax = calculatedTax
+                netAfterIncomeTax = max(0, knownBeforeTax - calculatedTax)
+            } else {
+                incomeTax = nil
+                netAfterIncomeTax = nil
+            }
         } else {
             incomeTax = nil
             netAfterIncomeTax = nil
