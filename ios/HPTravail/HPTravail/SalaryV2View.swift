@@ -10,6 +10,7 @@ struct SalaryV2View: View {
                     periodSelector
                     reliabilityCard
                     referenceCard
+                    incomeTaxCard
                     warningsCard
                 }
                 .padding()
@@ -66,6 +67,10 @@ struct SalaryV2View: View {
             amountRow("Net estimé avant impôt", amount: salaryStore.snapshot.netBeforeIncomeTax)
             Divider()
             amountRow("Net imposable estimé", amount: salaryStore.snapshot.netTaxable)
+            Divider()
+            amountRow("Prélèvement à la source", amount: salaryStore.snapshot.incomeTax)
+            Divider()
+            amountRow("Net après impôt", amount: salaryStore.snapshot.netAfterIncomeTax)
 
             Divider()
             HStack {
@@ -81,6 +86,29 @@ struct SalaryV2View: View {
                     .fontWeight(.semibold)
             }
         }
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var incomeTaxCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PRÉLÈVEMENT À LA SOURCE")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            TextField("Taux personnel (%)", text: $salaryStore.incomeTaxRateText)
+                .keyboardType(.decimalPad)
+                .textFieldStyle(.roundedBorder)
+            TextField("Source (ex. bulletin confirmé)", text: $salaryStore.incomeTaxSource)
+                .textFieldStyle(.roundedBorder)
+            Button("Confirmer ce taux pour ce mois") {
+                _ = salaryStore.confirmIncomeTaxRate()
+            }
+            .buttonStyle(.borderedProminent)
+            Text("Le taux est enregistré uniquement pour le mois affiché et n'est jamais réutilisé silencieusement pour un autre mois.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
