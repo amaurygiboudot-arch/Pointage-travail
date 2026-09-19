@@ -9,6 +9,10 @@ on:
     - cron: '20 4 * * 1'
   workflow_dispatch:
 
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -149,8 +153,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
-      - name: Compile Google Play variant
-        run: gradle :app:assemblePlay --stacktrace
+      - name: Compile Google Play APK and AAB variants
+        run: gradle :app:assemblePlay :app:bundlePlay --stacktrace
       - name: Verify merged Play manifest
         shell: bash
         run: |
