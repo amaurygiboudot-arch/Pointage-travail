@@ -71,11 +71,13 @@ enum EmployeeNetProjectionV2 {
             period: input.period
         )
 
-        let directTotal = direct.deductions.reduce(0) { $0 + $1.amount }
-        let knownBeforeTax = max(
-            0,
-            safeCashGross - statutory.employeeDeductions - retirement.employeeDeductions - directTotal
-        )
+        // Les lignes de paie sont des montants monétaires : on arrondit chaque ligne au centime
+        // avant d'assembler les totaux, plutôt que d'arrondir uniquement le résultat final.
+        let statutoryTotal = statutory.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
+        let retirementTotal = retirement.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
+        let directTotal = direct.deductions.reduce(0) { $0 + roundedCurrency($1.amount) }
+        let rawBeforeTax = safeCashGross - statutoryTotal - retirementTotal - directTotal
+        let knownBeforeTax = max(0, rawBeforeTax)
 
         let normalizedStatus = input.professionalStatus?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,7 +133,7 @@ enum EmployeeNetProjectionV2 {
            let employeeProvidentNonDeductible {
             taxable = max(
                 0,
-                knownBeforeTax +
+                rawBeforeTax +
                     benefitsGross +
                     nonDeductibleCsgCrds +
                     employerProtectionTaxable +
@@ -189,6 +191,10 @@ enum EmployeeNetProjectionV2 {
             warnings: unique(warnings),
             traces: traces
         )
+    }
+
+    private static func roundedCurrency(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
     }
 
     private static func confirmedNonNegative(_ value: Double?) -> Double? {
