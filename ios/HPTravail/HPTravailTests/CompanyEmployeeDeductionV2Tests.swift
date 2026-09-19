@@ -95,18 +95,29 @@ final class CompanyEmployeeDeductionV2Tests: XCTestCase {
         XCTAssertFalse(resolved[.mutualEmployee].legacyUsed)
     }
 
-    func testPayrollBridgeRequiresExplicitValueIncludingZeroForEveryDirectDeduction() {
+    func testPayrollBridgeRequiresExplicitValueIncludingZeroForEveryCashDeduction() {
         let period = month(2026, 4)
         let snapshot = Resolver.resolve(records: completeDirectRecords(period: period), period: period)
         let result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(snapshot: snapshot, period: period)
 
         XCTAssertTrue(result.confirmedEmployeeDeductionsComplete)
-        XCTAssertEqual(result.deductions.count, 3)
-        XCTAssertEqual(result.deductions.reduce(0) { $0 + $1.amount }, 64, accuracy: 0.001)
+        XCTAssertEqual(result.deductions.count, 2)
+        XCTAssertEqual(result.deductions.reduce(0) { $0 + $1.amount }, 60, accuracy: 0.001)
+        XCTAssertFalse(result.deductions.contains { $0.id.contains("employee_provident_non_deductible") })
         XCTAssertFalse(result.traces.isEmpty)
     }
 
-    func testPayrollBridgeFailsClosedWhenOneDirectDeductionIsMissing() {
+    func testPayrollBridgeDoesNotRequireTaxOnlyProvidentBreakdownForCashNet() {
+        let period = month(2026, 4)
+        let records = completeDirectRecords(period: period).filter { $0.kind != .employeeProvidentNonDeductible }
+        let snapshot = Resolver.resolve(records: records, period: period)
+        let result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(snapshot: snapshot, period: period)
+
+        XCTAssertTrue(result.confirmedEmployeeDeductionsComplete)
+        XCTAssertEqual(result.deductions.reduce(0) { $0 + $1.amount }, 60, accuracy: 0.001)
+    }
+
+    func testPayrollBridgeFailsClosedWhenOneCashDeductionIsMissing() {
         let period = month(2026, 4)
         let records = completeDirectRecords(period: period).filter { $0.kind != .transportEmployee }
         let snapshot = Resolver.resolve(records: records, period: period)
