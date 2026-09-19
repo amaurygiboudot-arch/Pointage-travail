@@ -54,15 +54,17 @@ object EmployerHealthFamilyV2 {
     }
 
     fun calculate(grossSocial: Double, healthRate: Double?, familyRate: Double?): Result {
+        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+            return Result(null, null, null, false, listOf("Maladie/allocations familiales employeur : assiette brute invalide ; aucun montant patronal n'est calculé."))
+        }
         if (healthRate == null || familyRate == null) {
             return Result(null, null, null, false, listOf("Maladie/allocations familiales employeur : taux confirmés manquants ; coût employeur incomplet."))
         }
         if (!validRate(healthRate) || !validRate(familyRate)) {
             return Result(null, null, null, false, listOf("Maladie/allocations familiales employeur : taux invalide ; aucun montant n'est calculé."))
         }
-        val base = grossSocial.coerceAtLeast(0.0)
-        val health = base * healthRate
-        val family = base * familyRate
+        val health = grossSocial * healthRate
+        val family = grossSocial * familyRate
         return Result(health, family, health + family, true, emptyList())
     }
 
