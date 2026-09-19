@@ -1,6 +1,6 @@
 #!/bin/sh
 set -eu
-GRADLE_VERSION=9.5.0
+GRADLE_VERSION=9.6.0
 BASE_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/wrapper/dists/horatrack-gradle-$GRADLE_VERSION"
 DIST_DIR="$BASE_DIR/gradle-$GRADLE_VERSION"
 ZIP="$BASE_DIR/gradle-$GRADLE_VERSION-bin.zip"

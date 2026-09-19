@@ -9,6 +9,10 @@ on:
     - cron: '20 4 * * 1'
   workflow_dispatch:
 
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -45,6 +49,11 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
+          # AGP 9.4.1 still declares Bouncy Castle 1.80.2 transitively in its
+          # metadata. The separate gradle-security-build job must prove that
+          # Gradle resolves bcprov/bcpkix/bcutil to 1.86 before this PR can pass.
+          # Keep this exception limited to those two AGP metadata advisories.
+          allow-ghsas: GHSA-9pwp-9qqc-pr26, GHSA-qp49-qgx5-5m26
           retry-on-snapshot-warnings: true
           retry-on-snapshot-warnings-timeout: 300
       - name: Dependency review not required
@@ -62,10 +71,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: '9.6.0'
       - name: Run V2 unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
@@ -99,10 +108,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: '9.6.0'
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
@@ -125,12 +134,43 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
+          gradle-version: '9.6.0'
       - name: Verify single APK update path
         run: python scripts/verify_update_architecture.py
+      - name: Verify patched Bouncy Castle is selected
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle buildEnvironment --console=plain > /tmp/build-environment.txt
+          cat /tmp/build-environment.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('/tmp/build-environment.txt').read_text(encoding='utf-8')
+          artifacts = (
+              'bcprov-jdk18on',
+              'bcpkix-jdk18on',
+              'bcutil-jdk18on',
+          )
+          for artifact in artifacts:
+              pattern = re.compile(
+                  rf'org\.bouncycastle:{re.escape(artifact)}:([^\s]+)(?:\s+->\s+([^\s]+))?'
+              )
+              matches = pattern.findall(text)
+              if not matches:
+                  raise SystemExit(f'{artifact}: absent du classpath de build résolu')
+              selected = [target or requested for requested, target in matches]
+              bad = [version for version in selected if version != '1.86']
+              if bad:
+                  raise SystemExit(
+                      f'{artifact}: version résolue non sûre détectée: {bad}; attendu 1.86'
+                  )
+              print(f'{artifact}: 1.86 sélectionné ({len(matches)} occurrence(s))')
+          PY
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
 
@@ -145,12 +185,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Set up Gradle 8.13
+      - name: Set up Gradle 9.6.0
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.13'
-      - name: Compile Google Play variant
-        run: gradle :app:assemblePlay --stacktrace
+          gradle-version: '9.6.0'
+      - name: Compile Google Play APK and AAB variants
+        run: gradle :app:assemblePlay :app:bundlePlay --stacktrace
       - name: Verify merged Play manifest
         shell: bash
         run: |
