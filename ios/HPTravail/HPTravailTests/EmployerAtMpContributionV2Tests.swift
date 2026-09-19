@@ -42,14 +42,18 @@ final class EmployerAtMpContributionV2Tests: XCTestCase {
         }
     }
 
-    func testNegativeGrossIsClampedWithoutChangingConfirmedRate() {
-        let result = EmployerAtMpContributionV2.calculate(
-            gross: -50,
-            confirmedRate: 0.0208
-        )
+    func testInvalidGrossNeverInventsEmployerAmount() {
+        for gross in [-50, .infinity, .nan] {
+            let result = EmployerAtMpContributionV2.calculate(
+                gross: gross,
+                confirmedRate: 0.0208
+            )
 
-        XCTAssertTrue(result.complete)
-        XCTAssertEqual(result.baseGross, 0, accuracy: 0.001)
-        XCTAssertEqual(result.employerAmount ?? -1, 0, accuracy: 0.001)
+            XCTAssertFalse(result.complete)
+            XCTAssertEqual(result.rate ?? -1, 0.0208, accuracy: 0.000_001)
+            XCTAssertEqual(result.baseGross, 0, accuracy: 0.001)
+            XCTAssertNil(result.employerAmount)
+            XCTAssertTrue(result.warnings.contains { $0.contains("assiette brute invalide") })
+        }
     }
 }
