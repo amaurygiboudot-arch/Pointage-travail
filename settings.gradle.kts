@@ -20,7 +20,7 @@ buildscript {
             add("classpath", "org.bouncycastle:bcutil-jdk18on") {
                 version {
                     strictly("[1.85,2.0[")
-                    prefer("1.85.1")
+                    prefer("1.85")
                 }
                 because("Keep the Android build classpath on the patched Bouncy Castle 1.85 family")
             }
