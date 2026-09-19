@@ -21,7 +21,7 @@ final class ComplementaryRetirementCatalogV2Tests: XCTestCase {
             year: 2026,
             professionalStatus: "NON_CADRE",
             ceiling: fullCeiling2026(),
-            protectionCategory: .noConventionOverride()
+            protectionCategory: ProtectionCategoryV2.noConventionOverride()
         )
 
         XCTAssertEqual(result.lines.first { $0.id == "agirc_t1" }?.baseAmount ?? -1, 2_500, accuracy: 0.001)
@@ -39,7 +39,7 @@ final class ComplementaryRetirementCatalogV2Tests: XCTestCase {
             year: 2026,
             professionalStatus: "NON_CADRE",
             ceiling: fullCeiling2026(),
-            protectionCategory: .noConventionOverride()
+            protectionCategory: ProtectionCategoryV2.noConventionOverride()
         )
 
         XCTAssertEqual(result.lines.first { $0.id == "agirc_t1" }?.baseAmount ?? -1, 4_005, accuracy: 0.001)
@@ -54,7 +54,7 @@ final class ComplementaryRetirementCatalogV2Tests: XCTestCase {
             year: 2026,
             professionalStatus: "CADRE",
             ceiling: fullCeiling2026(),
-            protectionCategory: .noConventionOverride()
+            protectionCategory: ProtectionCategoryV2.noConventionOverride()
         )
 
         let apec = result.lines.first { $0.id == "apec" }
@@ -121,7 +121,7 @@ final class ComplementaryRetirementCatalogV2Tests: XCTestCase {
             year: 2026,
             professionalStatus: nil,
             ceiling: fullCeiling2026(),
-            protectionCategory: .noConventionOverride()
+            protectionCategory: ProtectionCategoryV2.noConventionOverride()
         )
 
         XCTAssertNil(result.lines.first { $0.id == "apec" })
