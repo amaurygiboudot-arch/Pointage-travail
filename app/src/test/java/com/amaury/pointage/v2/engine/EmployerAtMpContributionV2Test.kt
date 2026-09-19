@@ -24,4 +24,16 @@ class EmployerAtMpContributionV2Test {
         assertNull(result.employerAmount)
         assertTrue(result.warnings.any { it.contains("coût employeur incomplet") })
     }
+
+    @Test
+    fun `assiette invalide ne contamine jamais le cout employeur`() {
+        listOf(Double.NaN, Double.POSITIVE_INFINITY, -50.0).forEach { gross ->
+            val result = EmployerAtMpContributionV2.calculate(gross, 0.0208)
+
+            assertFalse(result.complete)
+            assertEquals(0.0208, result.rate!!, 0.000001)
+            assertNull(result.employerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette brute invalide") })
+        }
+    }
 }

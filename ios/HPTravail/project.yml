@@ -62,6 +62,7 @@ targets:
       - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
       - path: HPTravail/SalaryV2/OvertimeCoverageV2.swift
       - path: HPTravail/SalaryV2/SalaryReferencePayrollBridgeV2.swift
+      - path: HPTravail/SalaryV2/EmployerAtMpContributionV2.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.amaury.hptravail.tests
