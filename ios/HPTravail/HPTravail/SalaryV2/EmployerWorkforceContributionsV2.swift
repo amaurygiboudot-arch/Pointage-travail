@@ -178,7 +178,7 @@ enum EmployerWorkforceContributionsV2 {
             trainingAmount: training,
             totalEmployerAmount: complete ? fnal! + training! : nil,
             complete: complete,
-            warnings: Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
+            warnings: unique(warnings)
         )
     }
 
@@ -200,5 +200,10 @@ enum EmployerWorkforceContributionsV2 {
             complete: false,
             warnings: [warning]
         )
+    }
+
+    private static func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 }
