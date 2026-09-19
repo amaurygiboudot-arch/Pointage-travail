@@ -105,7 +105,14 @@ object EmployerMobilityContributionV2 {
                 warnings = listOf("Versement mobilité employeur : taux invalide ; aucun montant patronal n'est calculé.")
             )
         }
-        val base = grossSocial.coerceAtLeast(0.0)
+        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+            return Result(
+                employerAmount = null,
+                complete = false,
+                warnings = listOf("Versement mobilité employeur : assiette brute sociale invalide ; aucun montant patronal n'est calculé.")
+            )
+        }
+        val base = grossSocial
         return Result(
             employerAmount = base * rate,
             complete = true,
