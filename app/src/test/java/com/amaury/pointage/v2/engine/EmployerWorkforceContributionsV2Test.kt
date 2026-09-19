@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.YearMonth
@@ -49,6 +50,24 @@ class EmployerWorkforceContributionsV2Test {
         val result = EmployerWorkforceContributionsV2.calculate(2500.0, 4005.0, 2026, null)
         assertFalse(result.complete)
         assertTrue(result.warnings.any { it.contains("effectif", ignoreCase = true) })
+    }
+
+    @Test
+    fun `invalid social gross never produces workforce employer amounts`() {
+        listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach { gross ->
+            val result = EmployerWorkforceContributionsV2.calculate(
+                grossSocial = gross,
+                applicableMonthlyCeiling = 4005.0,
+                year = 2026,
+                band = EmployerWorkforceContributionsV2.Band.UNDER_11
+            )
+
+            assertFalse(result.complete)
+            assertNull(result.fnalAmount)
+            assertNull(result.trainingAmount)
+            assertNull(result.totalEmployerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette", ignoreCase = true) })
+        }
     }
 
     @Test
