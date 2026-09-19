@@ -45,6 +45,23 @@ class EmployerApprenticeshipTaxV2Test {
     }
 
     @Test
+    fun `invalid social gross never produces apprenticeship tax amounts`() {
+        listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach { gross ->
+            val result = EmployerApprenticeshipTaxV2.calculate(
+                grossSocial = gross,
+                principalRate = 0.0059,
+                balanceRate = 0.0009
+            )
+
+            assertFalse(result.complete)
+            assertNull(result.principalAmount)
+            assertNull(result.balanceAccrualAmount)
+            assertNull(result.totalEmployerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette", ignoreCase = true) })
+        }
+    }
+
+    @Test
     fun `overlapping records block automatic calculation`() {
         val records = listOf(
             EmployerApprenticeshipTaxV2.Record(

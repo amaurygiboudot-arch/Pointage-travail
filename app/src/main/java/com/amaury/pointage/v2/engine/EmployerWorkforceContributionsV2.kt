@@ -65,8 +65,11 @@ object EmployerWorkforceContributionsV2 {
         if (applicableMonthlyCeiling == null || !applicableMonthlyCeiling.isFinite() || applicableMonthlyCeiling < 0.0) {
             return Result(null, null, null, false, listOf("FNAL/formation : plafond social applicable indisponible."))
         }
+        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+            return Result(null, null, null, false, listOf("FNAL/formation : assiette brute sociale invalide ; aucun montant patronal n'est calculé."))
+        }
 
-        val gross = grossSocial.coerceAtLeast(0.0)
+        val gross = grossSocial
         val fnalBase = when (band) {
             Band.UNDER_11, Band.FROM_11_TO_49 -> min(gross, applicableMonthlyCeiling)
             Band.AT_LEAST_50 -> gross
