@@ -11,13 +11,17 @@ final class SalaryV2Store: ObservableObject {
 
     @Published private(set) var selectedPeriod: YearMonthV2
     @Published private(set) var snapshot: SalaryWorkspaceSnapshotV2
+    @Published var incomeTaxRateText = ""
+    @Published var incomeTaxSource = ""
 
     private let referenceProvider: ReferenceProvider
+    private let incomeTaxStore: CompanyIncomeTaxRateStoreV2
 
     init(
         referenceProvider: @escaping ReferenceProvider = { _ in nil },
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        incomeTaxStore: CompanyIncomeTaxRateStoreV2 = CompanyIncomeTaxRateStoreV2()
     ) {
         let components = calendar.dateComponents([.year, .month], from: now)
         let period = YearMonthV2(
@@ -26,18 +30,38 @@ final class SalaryV2Store: ObservableObject {
         ) ?? YearMonthV2(year: 1970, month: 1)!
 
         self.referenceProvider = referenceProvider
+        self.incomeTaxStore = incomeTaxStore
         self.selectedPeriod = period
+        let taxRate = incomeTaxStore.snapshot(for: period)
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
-            reference: referenceProvider(period)
+            reference: referenceProvider(period),
+            incomeTaxRate: taxRate
         )
+        self.incomeTaxRateText = taxRate.ratePercent.map { String(format: "%.2f", $0) } ?? ""
+        self.incomeTaxSource = taxRate.source ?? ""
     }
 
     func refresh() {
+        let taxRate = incomeTaxStore.snapshot(for: selectedPeriod)
         snapshot = SalaryWorkspaceResolverV2.resolve(
             period: selectedPeriod,
-            reference: referenceProvider(selectedPeriod)
+            reference: referenceProvider(selectedPeriod),
+            incomeTaxRate: taxRate
         )
+        incomeTaxRateText = taxRate.ratePercent.map { String(format: "%.2f", $0) } ?? ""
+        incomeTaxSource = taxRate.source ?? ""
+    }
+
+    @discardableResult
+    func confirmIncomeTaxRate() -> Bool {
+        let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
+        guard let rate = Double(normalized),
+              incomeTaxStore.confirm(ratePercent: rate, period: selectedPeriod, source: incomeTaxSource) else {
+            return false
+        }
+        refresh()
+        return true
     }
 
     func moveMonth(by delta: Int) {
