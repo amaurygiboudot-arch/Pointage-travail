@@ -84,7 +84,10 @@ enum CompanyIncomeTaxRateResolverV2 {
               !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
-        if let end = record.effectiveTo, end < start { return false }
+        guard start.year > 0 else { return false }
+        if let end = record.effectiveTo {
+            guard end.year > 0, end >= start else { return false }
+        }
         return true
     }
 }
