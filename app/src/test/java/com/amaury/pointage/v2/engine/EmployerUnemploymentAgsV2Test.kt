@@ -65,4 +65,23 @@ class EmployerUnemploymentAgsV2Test {
         assertEquals(16020.0 * 0.04, result.unemploymentAmount!!, 0.001)
         assertEquals(16020.0 * 0.0025, result.agsAmount!!, 0.001)
     }
+
+    @Test
+    fun `invalid gross never invents employer amounts`() {
+        listOf(-50.0, Double.POSITIVE_INFINITY, Double.NaN).forEach { gross ->
+            val result = EmployerUnemploymentAgsV2.calculate(
+                grossSocial = gross,
+                fourTimesApplicableCeiling = 16020.0,
+                unemploymentRate = 0.04,
+                agsRate = 0.0025
+            )
+
+            assertFalse(result.complete)
+            assertNull(result.baseAmount)
+            assertNull(result.unemploymentAmount)
+            assertNull(result.agsAmount)
+            assertNull(result.totalEmployerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette brute invalide", ignoreCase = true) })
+        }
+    }
 }
