@@ -189,8 +189,16 @@ enum EmployeeNetProjectionV2 {
             incomeTax = nil
             netAfterIncomeTax = nil
         }
-        if taxable != nil && (taxRate == nil || taxRate?.rate == nil || taxRate?.reliable != true) {
-            warnings.append("PAS : taux personnel daté et confirmé indisponible ; aucun net après impôt n'est affiché.")
+        let usableTaxRate = taxRate.flatMap { snapshot -> Double? in
+            guard snapshot.reliable,
+                  let rate = snapshot.rate,
+                  rate.isFinite,
+                  rate >= 0,
+                  rate <= 1 else { return nil }
+            return rate
+        }
+        if taxable != nil && usableTaxRate == nil {
+            warnings.append("PAS : taux personnel daté et confirmé indisponible ou invalide ; aucun net après impôt n'est affiché.")
         }
         warnings.append(contentsOf: taxRate?.warnings ?? [])
 
