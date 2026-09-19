@@ -214,6 +214,47 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         XCTAssertNil(result.netTaxable)
     }
 
+
+    func testCanonicalNetUsesCentRoundedContributionLines() {
+        let result = EmployeeNetProjectionV2.calculate(input())
+        let statutoryRounded = result.statutory.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
+        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
+        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
+            $0 + (($1.amount * 100).rounded() / 100)
+        }
+        let expected = max(0, 3_000 - statutoryRounded - retirementRounded - directRounded)
+
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, expected, accuracy: 0.0001)
+        XCTAssertEqual(result.netBeforeIncomeTax ?? -1, expected, accuracy: 0.0001)
+    }
+
+    func testTaxableNetKeepsNegativeUnclampedPreTaxBalance() {
+        let result = EmployeeNetProjectionV2.calculate(
+            input(cashGross: 0, benefits: benefits(total: 1_000))
+        )
+        let statutoryRounded = result.statutory.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
+        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
+        let directRounded = result.companyCashDeductions.deductions.reduce(0) {
+            $0 + (($1.amount * 100).rounded() / 100)
+        }
+        let rawBeforeTax = -statutoryRounded - retirementRounded - directRounded
+        let nonDeductibleCsgCrds = result.statutory.lines
+            .filter { $0.id == "csg_taxable" || $0.id == "crds" }
+            .reduce(0) { $0 + $1.employeeAmount }
+        let expectedTaxable = max(0, rawBeforeTax + 1_000 + nonDeductibleCsgCrds + 8 + 4)
+
+        XCTAssertEqual(result.knownNetBeforeIncomeTax, 0, accuracy: 0.0001)
+        XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.0001)
+    }
+
     func testUnsupportedYearDoesNotInventFinalNet() {
         let result = EmployeeNetProjectionV2.calculate(input(year: 2027))
 
