@@ -84,7 +84,8 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         alsaceMoselle: Bool? = false,
         professionalStatus: String? = "NON_CADRE",
         protectionCategory: ProtectionCategoryV2.Result = ProtectionCategoryV2.noConventionOverride(),
-        omittedDeductions: Set<Resolver.Kind> = []
+        omittedDeductions: Set<Resolver.Kind> = [],
+        incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
     ) -> EmployeeNetProjectionV2.Input {
         let period = deductionPeriod(year, 4)
         return .init(
@@ -97,7 +98,8 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
             professionalStatus: professionalStatus,
             protectionCategory: protectionCategory,
             companyDeductions: deductions(period: period, omitted: omittedDeductions),
-            period: period
+            period: period,
+            incomeTaxRate: incomeTaxRate
         )
     }
 
@@ -259,6 +261,37 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
 
         XCTAssertEqual(result.knownNetBeforeIncomeTax, 0, accuracy: 0.0001)
         XCTAssertEqual(result.netTaxable ?? -1, expectedTaxable, accuracy: 0.0001)
+    }
+
+
+    func testConfirmedIncomeTaxRatePublishesTaxAndNetAfterTax() {
+        let rate = CompanyIncomeTaxRateResolverV2.Snapshot(
+            rate: 0.032,
+            ratePercent: 3.2,
+            source: "Bulletin confirmé",
+            hasDatedRecords: true,
+            reliable: true,
+            warnings: []
+        )
+        let result = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
+        let expectedTax = ((result.netTaxable! * 0.032) * 100).rounded() / 100
+
+        XCTAssertEqual(result.incomeTax ?? -1, expectedTax, accuracy: 0.0001)
+        XCTAssertEqual(
+            result.netAfterIncomeTax ?? -1,
+            max(0, result.knownNetBeforeIncomeTax - expectedTax),
+            accuracy: 0.0001
+        )
+    }
+
+    func testMissingIncomeTaxRateFailsClosedAfterTaxOnly() {
+        let result = EmployeeNetProjectionV2.calculate(input())
+
+        XCTAssertNotNil(result.netBeforeIncomeTax)
+        XCTAssertNotNil(result.netTaxable)
+        XCTAssertNil(result.incomeTax)
+        XCTAssertNil(result.netAfterIncomeTax)
+        XCTAssertTrue(result.warnings.contains { $0.contains("taux personnel daté") })
     }
 
     func testUnsupportedYearDoesNotInventFinalNet() {
