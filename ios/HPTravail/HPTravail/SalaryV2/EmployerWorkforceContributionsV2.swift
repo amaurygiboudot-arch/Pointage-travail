@@ -1,11 +1,26 @@
 import Foundation
 
-/// FNAL et formation professionnelle 2026 selon la tranche d'effectif social confirmée.
+/// Cotisations patronales liées à l'effectif en 2026.
+///
+/// La tranche d'effectif ne suffit pas à elle seule à déterminer le FNAL pour tous les employeurs :
+/// certains employeurs agricoles/cooperatifs relèvent du taux plafonné de 0,10 % même avec un
+/// effectif d'au moins 50 salariés. L'applicabilité de la contribution formation peut elle aussi
+/// dépendre de la situation du salarié. Les deux faits restent donc explicites et fail-closed.
 enum EmployerWorkforceContributionsV2 {
     enum Band: Equatable {
         case under11
         case from11To49
         case atLeast50
+    }
+
+    enum FnalTreatment: Equatable {
+        case capped0Point1Percent
+        case uncapped0Point5Percent
+    }
+
+    enum TrainingTreatment: Equatable {
+        case standard
+        case exemptConfirmed
     }
 
     struct Period: Equatable, Comparable {
@@ -27,6 +42,23 @@ enum EmployerWorkforceContributionsV2 {
         let effectiveFrom: Period
         let effectiveTo: Period?
         let source: String
+        let fnalTreatment: FnalTreatment?
+
+        init(
+            id: String,
+            band: Band,
+            effectiveFrom: Period,
+            effectiveTo: Period? = nil,
+            source: String,
+            fnalTreatment: FnalTreatment? = nil
+        ) {
+            self.id = id
+            self.band = band
+            self.effectiveFrom = effectiveFrom
+            self.effectiveTo = effectiveTo
+            self.source = source
+            self.fnalTreatment = fnalTreatment
+        }
     }
 
     struct Snapshot: Equatable {
@@ -34,6 +66,7 @@ enum EmployerWorkforceContributionsV2 {
         let source: String?
         let reliable: Bool
         let warnings: [String]
+        let fnalTreatment: FnalTreatment?
     }
 
     struct Result: Equatable {
@@ -46,12 +79,7 @@ enum EmployerWorkforceContributionsV2 {
 
     static func resolve(records: [Record], period: Period) -> Snapshot {
         guard period.isValid else {
-            return Snapshot(
-                band: nil,
-                source: nil,
-                reliable: false,
-                warnings: ["Effectif employeur : période invalide ; FNAL/formation non calculés."]
-            )
+            return blockedSnapshot("Effectif employeur : période invalide ; FNAL/formation non calculés.")
         }
 
         let malformed = records.filter { record in
@@ -61,31 +89,25 @@ enum EmployerWorkforceContributionsV2 {
                 (record.effectiveTo.map { $0 < record.effectiveFrom } ?? false)
         }
         guard malformed.isEmpty else {
-            return Snapshot(
-                band: nil,
-                source: nil,
-                reliable: false,
-                warnings: ["Effectif employeur : une règle enregistrée est incomplète ou incohérente ; FNAL/formation non calculés."]
-            )
+            return blockedSnapshot("Effectif employeur : une règle enregistrée est incomplète ou incohérente ; FNAL/formation non calculés.")
         }
 
         let active = records.filter { record in
             period >= record.effectiveFrom && (record.effectiveTo == nil || period <= record.effectiveTo!)
         }
         guard !active.isEmpty else {
-            return Snapshot(
-                band: nil,
-                source: nil,
-                reliable: false,
-                warnings: ["Effectif employeur : tranche <11 / 11–49 / ≥50 à confirmer pour \(period.label) ; FNAL/formation incomplets."]
-            )
+            return blockedSnapshot("Effectif employeur : tranche <11 / 11–49 / >=50 et régime FNAL à confirmer pour \(period.label) ; cotisations incomplètes.")
         }
         guard active.count == 1, let selected = active.first else {
+            return blockedSnapshot("Effectif employeur : plusieurs règles se chevauchent sur la période ; FNAL/formation bloqués.")
+        }
+        guard let fnalTreatment = selected.fnalTreatment else {
             return Snapshot(
-                band: nil,
-                source: nil,
+                band: selected.band,
+                source: selected.source,
                 reliable: false,
-                warnings: ["Effectif employeur : plusieurs tranches se chevauchent sur la période ; FNAL/formation bloqués."]
+                warnings: ["FNAL : régime 0,10 % plafonné / 0,50 % déplafonné à confirmer ; la tranche d'effectif seule ne suffit pas pour tous les employeurs."],
+                fnalTreatment: nil
             )
         }
 
@@ -93,7 +115,8 @@ enum EmployerWorkforceContributionsV2 {
             band: selected.band,
             source: selected.source,
             reliable: true,
-            warnings: []
+            warnings: [],
+            fnalTreatment: fnalTreatment
         )
     }
 
@@ -101,49 +124,71 @@ enum EmployerWorkforceContributionsV2 {
         grossSocial: Double,
         applicableMonthlyCeiling: Double?,
         year: Int,
-        band: Band?
+        band: Band?,
+        fnalTreatment: FnalTreatment? = nil,
+        trainingTreatment: TrainingTreatment? = nil
     ) -> Result {
         guard year == 2026 else {
             return incomplete("FNAL/formation : barème non intégré pour \(year).")
-        }
-        guard let band else {
-            return incomplete("FNAL/formation : tranche d'effectif à confirmer ; coût employeur incomplet.")
-        }
-        guard let ceiling = applicableMonthlyCeiling,
-              ceiling.isFinite,
-              ceiling >= 0 else {
-            return incomplete("FNAL/formation : plafond social applicable indisponible.")
         }
         guard grossSocial.isFinite, grossSocial >= 0 else {
             return incomplete("FNAL/formation : assiette brute sociale invalide ; aucun montant patronal n'est calculé.")
         }
 
-        let fnalBase: Double
-        let fnalRate: Double
-        let trainingRate: Double
-        switch band {
-        case .under11:
-            fnalBase = min(grossSocial, ceiling)
-            fnalRate = 0.0010
-            trainingRate = 0.0055
-        case .from11To49:
-            fnalBase = min(grossSocial, ceiling)
-            fnalRate = 0.0010
-            trainingRate = 0.0100
-        case .atLeast50:
-            fnalBase = grossSocial
-            fnalRate = 0.0050
-            trainingRate = 0.0100
+        var warnings: [String] = []
+
+        let fnal: Double?
+        switch fnalTreatment {
+        case nil:
+            warnings.append("FNAL : régime 0,10 % plafonné / 0,50 % déplafonné à confirmer ; aucun taux n'est déduit du seul effectif.")
+            fnal = nil
+        case .capped0Point1Percent:
+            guard let ceiling = applicableMonthlyCeiling, ceiling.isFinite, ceiling >= 0 else {
+                warnings.append("FNAL : plafond social applicable indisponible pour le régime plafonné.")
+                fnal = nil
+                break
+            }
+            fnal = min(grossSocial, ceiling) * 0.0010
+        case .uncapped0Point5Percent:
+            fnal = grossSocial * 0.0050
         }
 
-        let fnal = fnalBase * fnalRate
-        let training = grossSocial * trainingRate
+        let training: Double?
+        switch trainingTreatment {
+        case nil:
+            warnings.append("Formation professionnelle : applicabilité/exonération à confirmer pour la rémunération considérée.")
+            training = nil
+        case .exemptConfirmed:
+            training = 0
+        case .standard:
+            switch band {
+            case nil:
+                warnings.append("Formation professionnelle : tranche d'effectif <11 / >=11 à confirmer.")
+                training = nil
+            case .under11:
+                training = grossSocial * 0.0055
+            case .from11To49, .atLeast50:
+                training = grossSocial * 0.0100
+            }
+        }
+
+        let complete = fnal != nil && training != nil
         return Result(
             fnalAmount: fnal,
             trainingAmount: training,
-            totalEmployerAmount: fnal + training,
-            complete: true,
-            warnings: []
+            totalEmployerAmount: complete ? fnal! + training! : nil,
+            complete: complete,
+            warnings: Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
+        )
+    }
+
+    private static func blockedSnapshot(_ warning: String) -> Snapshot {
+        Snapshot(
+            band: nil,
+            source: nil,
+            reliable: false,
+            warnings: [warning],
+            fnalTreatment: nil
         )
     }
 
