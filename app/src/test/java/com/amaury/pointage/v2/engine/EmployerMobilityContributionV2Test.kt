@@ -76,4 +76,15 @@ class EmployerMobilityContributionV2Test {
         assertTrue(result.complete)
         assertEquals(54.0, result.employerAmount!!, 0.001)
     }
+
+    @Test
+    fun `invalid social gross never produces mobility employer amount`() {
+        listOf(-1.0, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY).forEach { gross ->
+            val result = EmployerMobilityContributionV2.calculate(gross, 0.02)
+
+            assertFalse(result.complete)
+            assertNull(result.employerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette", ignoreCase = true) })
+        }
+    }
 }
