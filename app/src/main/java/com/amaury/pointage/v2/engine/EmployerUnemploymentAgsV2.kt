@@ -92,6 +92,9 @@ object EmployerUnemploymentAgsV2 {
         unemploymentRate: Double?,
         agsRate: Double?
     ): Result {
+        if (!grossSocial.isFinite() || grossSocial < 0.0) {
+            return Result(null, null, null, null, false, listOf("Chômage/AGS employeur : assiette brute invalide ; aucun montant patronal n'est calculé."))
+        }
         if (fourTimesApplicableCeiling == null || !fourTimesApplicableCeiling.isFinite() || fourTimesApplicableCeiling < 0.0) {
             return Result(null, null, null, null, false, listOf("Chômage/AGS employeur : plafond social applicable indisponible ; coût employeur incomplet."))
         }
@@ -102,7 +105,7 @@ object EmployerUnemploymentAgsV2 {
             return Result(null, null, null, null, false, listOf("Chômage/AGS employeur : taux invalide ; aucun montant patronal n'est calculé."))
         }
 
-        val base = min(grossSocial.coerceAtLeast(0.0), fourTimesApplicableCeiling)
+        val base = min(grossSocial, fourTimesApplicableCeiling)
         val unemployment = base * unemploymentRate
         val ags = base * agsRate
         return Result(
