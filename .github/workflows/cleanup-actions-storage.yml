@@ -26,6 +26,7 @@ jobs:
   cleanup:
     name: Nettoyer le stockage GitHub Actions
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Purger les artefacts redondants et anciens
         env:
@@ -34,20 +35,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          tmp="$(mktemp)"
-          trap 'rm -f "$tmp"' EXIT
+          all="$(mktemp)"
+          del="$(mktemp)"
+          trap 'rm -f "$all" "$del"' EXIT
 
           gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
-            --jq '.artifacts[] | [.id, .name, .size_in_bytes, .created_at, .expired] | @tsv' > "$tmp"
+            --jq '.artifacts[] | [.id, .name, .size_in_bytes, .created_at, .expired] | @tsv' > "$all"
 
-          latest_full_id="$(awk -F '\t' '$2 == "HoraTrack-APK-AAB" && $5 == "false" { print }' "$tmp" \
+          latest_full_id="$(awk -F '\t' '$2 == "HoraTrack-APK-AAB" && $5 == "false" { print }' "$all" \
             | sort -t $'\t' -k4,4 \
             | tail -n 1 \
             | cut -f1 || true)"
 
           now="$(date -u +%s)"
-          deleted=0
-          freed=0
           kept=0
 
           while IFS=$'\t' read -r id name size created expired; do
@@ -55,45 +55,49 @@ jobs:
 
             created_epoch="$(date -u -d "$created" +%s)"
             age_days="$(( (now - created_epoch) / 86400 ))"
-            delete=false
             reason=""
 
             if [ "$expired" = "true" ]; then
-              delete=true
               reason="expire"
             elif [ "$name" = "HoraTrack-APK-AAB" ] && [ "$id" != "$latest_full_id" ]; then
-              # Ces gros fichiers sont deja publies dans GitHub Releases.
-              delete=true
-              reason="APK/AAB redondant avec Releases"
+              reason="APK/AAB redondant avec GitHub Releases"
             elif [ "$name" = "HP-Travail-Diamant-Carbone-Test" ] && [ "$age_days" -ge 3 ]; then
-              delete=true
               reason="test Diamant vieux de ${age_days}j"
             elif [[ "$name" == diagnostic-* ]] && [ "$age_days" -ge 7 ]; then
-              delete=true
               reason="diagnostic vieux de ${age_days}j"
             elif [ "$age_days" -ge 14 ]; then
-              delete=true
               reason="artefact vieux de ${age_days}j"
             fi
 
-            if [ "$delete" = "true" ]; then
-              echo "Suppression: id=$id name=$name taille=$size raison=$reason"
-              gh api --method DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
-              deleted="$((deleted + 1))"
-              freed="$((freed + size))"
+            if [ -n "$reason" ]; then
+              printf '%s\t%s\t%s\t%s\n' "$id" "$size" "$name" "$reason" >> "$del"
             else
               kept="$((kept + 1))"
             fi
-          done < "$tmp"
+          done < "$all"
+
+          deleted="$(wc -l < "$del" | tr -d ' ')"
+          freed="$(awk -F '\t' '{ total += $2 } END { printf "%.0f", total + 0 }' "$del")"
+
+          if [ "$deleted" -gt 0 ]; then
+            echo "Suppression parallele de $deleted artefact(s)..."
+            cut -f1 "$del" | xargs -r -P 12 -I{} bash -c '
+              id="$1"
+              if ! gh api --silent --method DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id"; then
+                echo "Avertissement: suppression impossible pour artefact $id" >&2
+              fi
+            ' _ {}
+          fi
 
           freed_mb="$(awk -v b="$freed" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
-          echo "Artefacts supprimes: $deleted"
+          echo "Artefacts vises: $deleted"
           echo "Artefacts conserves: $kept"
-          echo "Espace libere estime: ${freed_mb} MiB"
+          echo "Espace vise a liberer: ${freed_mb} MiB"
           {
             echo "## Nettoyage GitHub Actions"
-            echo "- Artefacts supprimes : $deleted"
+            echo "- Artefacts vises/supprimes : $deleted"
             echo "- Artefacts conserves : $kept"
-            echo "- Espace libere estime : ${freed_mb} MiB"
+            echo "- Espace vise a liberer : ${freed_mb} MiB"
             echo "- Politique : dernier APK/AAB Actions conserve, anciens APK/AAB redondants supprimes, tests Diamant 3 j, diagnostics 7 j, autres artefacts 14 j."
+            echo "- GitHub Releases, code, commits, branches et PR ne sont jamais supprimes par ce workflow."
           } >> "$GITHUB_STEP_SUMMARY"
