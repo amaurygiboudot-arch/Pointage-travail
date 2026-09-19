@@ -8,6 +8,7 @@ on:
       - '**/*.gradle.kts'
       - 'gradle.properties'
       - 'settings.gradle.kts'
+      - 'gradlew'
       - 'gradle/**'
       - '.github/workflows/dependency-submission.yml'
   workflow_dispatch:
