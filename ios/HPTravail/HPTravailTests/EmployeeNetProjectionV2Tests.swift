@@ -65,8 +65,11 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
             ("provident-nondeductible", .employeeProvidentNonDeductible, 4)
         ]
         return Resolver.resolve(
-            records: all.compactMap { id, kind, amount in
-                omitted.contains(kind) ? nil : record(id: id, kind: kind, amount: amount, period: period)
+            records: all.compactMap { item in
+                let (id, kind, amount) = item
+                return omitted.contains(kind)
+                    ? nil
+                    : record(id: id, kind: kind, amount: amount, period: period)
             },
             period: period
         )
