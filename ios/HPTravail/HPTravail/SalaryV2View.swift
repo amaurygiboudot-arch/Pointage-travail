@@ -104,6 +104,13 @@ struct SalaryV2View: View {
                 _ = salaryStore.confirmIncomeTaxRate()
             }
             .buttonStyle(.borderedProminent)
+            Button("Retirer le taux confirmé de ce mois", role: .destructive) {
+                _ = salaryStore.removeIncomeTaxRate()
+            }
+            if let feedback = salaryStore.incomeTaxFeedback {
+                Text(feedback)
+                    .font(.footnote)
+            }
             Text("Le taux est enregistré uniquement pour le mois affiché et n'est jamais réutilisé silencieusement pour un autre mois.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
