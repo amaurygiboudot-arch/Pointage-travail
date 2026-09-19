@@ -128,9 +128,15 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
     func testNonDeductibleProvidentShareIsNotSubtractedTwiceFromCashNet() {
         let result = EmployeeNetProjectionV2.calculate(input())
         let expectedCashDeductions = 42.0 + 18.0
+        let statutoryRounded = result.statutory.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
+        let retirementRounded = result.complementaryRetirement.lines.reduce(0) {
+            $0 + (($1.employeeAmount * 100).rounded() / 100)
+        }
         let expected = 3_000 -
-            result.statutory.employeeDeductions -
-            result.complementaryRetirement.employeeDeductions -
+            statutoryRounded -
+            retirementRounded -
             expectedCashDeductions
 
         XCTAssertEqual(result.companyCashDeductions.deductions.reduce(0) { $0 + $1.amount }, 60, accuracy: 0.001)
