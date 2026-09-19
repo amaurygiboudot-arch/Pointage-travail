@@ -1,21 +1,18 @@
 pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
 
 buildscript {
-    dependencies {
-        constraints {
-            add("classpath", "org.bouncycastle:bcprov-jdk18on") {
-                version { strictly("1.86") }
-                because("Keep the Android build classpath on the current patched Bouncy Castle family")
-            }
-            add("classpath", "org.bouncycastle:bcpkix-jdk18on") {
-                version { strictly("1.86") }
-                because("Keep the Android build classpath on one coherent published Bouncy Castle family")
-            }
-            add("classpath", "org.bouncycastle:bcutil-jdk18on") {
-                version { strictly("1.86") }
-                because("Keep the Android build classpath on one coherent published Bouncy Castle family")
-            }
-        }
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+
+    configurations.configureEach {
+        resolutionStrategy.force(
+            "org.bouncycastle:bcprov-jdk18on:1.86",
+            "org.bouncycastle:bcpkix-jdk18on:1.86",
+            "org.bouncycastle:bcutil-jdk18on:1.86"
+        )
     }
 }
 
