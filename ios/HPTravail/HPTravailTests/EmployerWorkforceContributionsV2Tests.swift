@@ -166,18 +166,27 @@ final class EmployerWorkforceContributionsV2Tests: XCTestCase {
         }
     }
 
-    func testResolvedEmployerFactsRequireExplicitFnalRegime() {
+    func testResolvedEmployerFactsRequireBothExplicitTreatments() {
         let completeRecord = EmployerWorkforceContributionsV2.Record(
             id: "a",
             band: .atLeast50,
             effectiveFrom: .init(year: 2026, month: 1),
             source: "DSN",
-            fnalTreatment: cappedFnal
+            fnalTreatment: cappedFnal,
+            trainingTreatment: standardTraining
         )
         let complete = EmployerWorkforceContributionsV2.resolve(
             records: [completeRecord],
             period: .init(year: 2026, month: 9)
         )
+
+        XCTAssertTrue(complete.reliable)
+        XCTAssertEqual(complete.fnalTreatment, cappedFnal)
+        XCTAssertEqual(complete.trainingTreatment, standardTraining)
+        XCTAssertTrue(complete.warnings.isEmpty)
+    }
+
+    func testLegacyRecordKeepsKnownFactsButStaysFailClosed() {
         let legacyRecord = EmployerWorkforceContributionsV2.Record(
             id: "legacy",
             band: .atLeast50,
@@ -189,11 +198,32 @@ final class EmployerWorkforceContributionsV2Tests: XCTestCase {
             period: .init(year: 2026, month: 9)
         )
 
-        XCTAssertTrue(complete.reliable)
-        XCTAssertEqual(complete.fnalTreatment, cappedFnal)
         XCTAssertFalse(migratedUnknown.reliable)
+        XCTAssertEqual(migratedUnknown.band, .atLeast50)
         XCTAssertNil(migratedUnknown.fnalTreatment)
+        XCTAssertNil(migratedUnknown.trainingTreatment)
         XCTAssertTrue(migratedUnknown.warnings.contains { $0.localizedCaseInsensitiveContains("FNAL") })
+        XCTAssertTrue(migratedUnknown.warnings.contains { $0.localizedCaseInsensitiveContains("formation") })
+    }
+
+    func testPartialResolvedFactsRemainVisibleWithoutClaimingReliability() {
+        let record = EmployerWorkforceContributionsV2.Record(
+            id: "partial",
+            band: .under11,
+            effectiveFrom: .init(year: 2026, month: 1),
+            source: "DSN",
+            fnalTreatment: cappedFnal,
+            trainingTreatment: nil
+        )
+        let resolved = EmployerWorkforceContributionsV2.resolve(
+            records: [record],
+            period: .init(year: 2026, month: 9)
+        )
+
+        XCTAssertFalse(resolved.reliable)
+        XCTAssertEqual(resolved.fnalTreatment, cappedFnal)
+        XCTAssertNil(resolved.trainingTreatment)
+        XCTAssertTrue(resolved.warnings.contains { $0.localizedCaseInsensitiveContains("formation") })
     }
 
     func testOverlappingWorkforceFactsBlockResolution() {
@@ -202,14 +232,16 @@ final class EmployerWorkforceContributionsV2Tests: XCTestCase {
             band: .under11,
             effectiveFrom: .init(year: 2026, month: 1),
             source: "DSN",
-            fnalTreatment: cappedFnal
+            fnalTreatment: cappedFnal,
+            trainingTreatment: standardTraining
         )
         let second = EmployerWorkforceContributionsV2.Record(
             id: "b",
             band: .from11To49,
             effectiveFrom: .init(year: 2026, month: 6),
             source: "DSN",
-            fnalTreatment: cappedFnal
+            fnalTreatment: cappedFnal,
+            trainingTreatment: standardTraining
         )
         let result = EmployerWorkforceContributionsV2.resolve(
             records: [first, second],
@@ -218,6 +250,8 @@ final class EmployerWorkforceContributionsV2Tests: XCTestCase {
 
         XCTAssertFalse(result.reliable)
         XCTAssertNil(result.band)
+        XCTAssertNil(result.fnalTreatment)
+        XCTAssertNil(result.trainingTreatment)
         XCTAssertTrue(result.warnings.contains { $0.localizedCaseInsensitiveContains("chevauchent") })
     }
 }
