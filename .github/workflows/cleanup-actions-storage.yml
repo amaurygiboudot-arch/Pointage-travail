@@ -1,0 +1,99 @@
+name: Actions storage cleanup
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/cleanup-actions-storage.yml'
+  workflow_run:
+    workflows:
+      - 'Compiler HoraTrack APK et AAB'
+      - 'Compiler test Diamant Carbone'
+    types: [ completed ]
+  schedule:
+    - cron: '15 3 * * *'
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: actions-storage-cleanup
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    name: Nettoyer le stockage GitHub Actions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Purger les artefacts redondants et anciens
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tmp="$(mktemp)"
+          trap 'rm -f "$tmp"' EXIT
+
+          gh api --paginate "/repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .name, .size_in_bytes, .created_at, .expired] | @tsv' > "$tmp"
+
+          latest_full_id="$(awk -F '\t' '$2 == "HoraTrack-APK-AAB" && $5 == "false" { print }' "$tmp" \
+            | sort -t $'\t' -k4,4 \
+            | tail -n 1 \
+            | cut -f1 || true)"
+
+          now="$(date -u +%s)"
+          deleted=0
+          freed=0
+          kept=0
+
+          while IFS=$'\t' read -r id name size created expired; do
+            [ -n "${id:-}" ] || continue
+
+            created_epoch="$(date -u -d "$created" +%s)"
+            age_days="$(( (now - created_epoch) / 86400 ))"
+            delete=false
+            reason=""
+
+            if [ "$expired" = "true" ]; then
+              delete=true
+              reason="expire"
+            elif [ "$name" = "HoraTrack-APK-AAB" ] && [ "$id" != "$latest_full_id" ]; then
+              # Ces gros fichiers sont deja publies dans GitHub Releases.
+              delete=true
+              reason="APK/AAB redondant avec Releases"
+            elif [ "$name" = "HP-Travail-Diamant-Carbone-Test" ] && [ "$age_days" -ge 3 ]; then
+              delete=true
+              reason="test Diamant vieux de ${age_days}j"
+            elif [[ "$name" == diagnostic-* ]] && [ "$age_days" -ge 7 ]; then
+              delete=true
+              reason="diagnostic vieux de ${age_days}j"
+            elif [ "$age_days" -ge 14 ]; then
+              delete=true
+              reason="artefact vieux de ${age_days}j"
+            fi
+
+            if [ "$delete" = "true" ]; then
+              echo "Suppression: id=$id name=$name taille=$size raison=$reason"
+              gh api --method DELETE "/repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+              deleted="$((deleted + 1))"
+              freed="$((freed + size))"
+            else
+              kept="$((kept + 1))"
+            fi
+          done < "$tmp"
+
+          freed_mb="$(awk -v b="$freed" 'BEGIN { printf "%.1f", b / 1024 / 1024 }')"
+          echo "Artefacts supprimes: $deleted"
+          echo "Artefacts conserves: $kept"
+          echo "Espace libere estime: ${freed_mb} MiB"
+          {
+            echo "## Nettoyage GitHub Actions"
+            echo "- Artefacts supprimes : $deleted"
+            echo "- Artefacts conserves : $kept"
+            echo "- Espace libere estime : ${freed_mb} MiB"
+            echo "- Politique : dernier APK/AAB Actions conserve, anciens APK/AAB redondants supprimes, tests Diamant 3 j, diagnostics 7 j, autres artefacts 14 j."
+          } >> "$GITHUB_STEP_SUMMARY"
