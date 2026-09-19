@@ -56,6 +56,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift
       - path: HPTravail/SalaryV2/SalaryCompanyStoreV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
+      - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
       - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
       - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift

@@ -37,4 +37,17 @@ class EmployerHealthFamilyV2Test {
         assertNull(result.totalEmployerAmount)
         assertTrue(result.warnings.any { it.contains("manquants", ignoreCase = true) })
     }
+
+    @Test
+    fun `invalid gross never invents an employer amount`() {
+        listOf(-50.0, Double.POSITIVE_INFINITY, Double.NaN).forEach { gross ->
+            val result = EmployerHealthFamilyV2.calculate(gross, 0.13, 0.0525)
+
+            assertFalse(result.complete)
+            assertNull(result.healthAmount)
+            assertNull(result.familyAmount)
+            assertNull(result.totalEmployerAmount)
+            assertTrue(result.warnings.any { it.contains("assiette brute invalide", ignoreCase = true) })
+        }
+    }
 }
