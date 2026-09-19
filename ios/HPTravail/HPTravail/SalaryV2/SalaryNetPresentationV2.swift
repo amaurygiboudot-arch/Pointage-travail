@@ -56,15 +56,25 @@ struct SalaryNetPresentationV2: Equatable {
         )
     }
 
-    /// Le moteur Swift actuel calcule le brut et les retenues explicitement fournies, mais il ne
-    /// démontre pas encore la couverture exhaustive des cotisations salariales. Son champ
-    /// `netBeforeUnknownContributions` reste donc un sous-total interne et n'est jamais publié comme
-    /// net final par cette couche.
+    /// Le moteur brut seul ne démontre pas la couverture exhaustive des cotisations salariales.
+    /// Son champ `netBeforeUnknownContributions` reste donc un sous-total interne et n'est jamais
+    /// publié comme net final par cette couche.
     static func fromPayroll(_ payroll: PayrollResultV2) -> SalaryNetPresentationV2 {
         make(
             grossReliable: payroll.grossReliable,
             netComplete: false,
             netBeforeIncomeTax: nil,
+            netAfterIncomeTax: nil
+        )
+    }
+
+    /// Seule la projection canonique peut publier le net avant impôt. Le net après impôt reste
+    /// volontairement absent tant que le prélèvement à la source daté n'est pas raccordé sur iOS.
+    static func fromProjection(_ projection: EmployeeNetProjectionV2.Result) -> SalaryNetPresentationV2 {
+        make(
+            grossReliable: projection.grossReliable,
+            netComplete: projection.netBeforeIncomeTaxComplete,
+            netBeforeIncomeTax: projection.netBeforeIncomeTax,
             netAfterIncomeTax: nil
         )
     }

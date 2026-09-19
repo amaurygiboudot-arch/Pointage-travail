@@ -8,11 +8,16 @@ enum CompanyEmployeeDeductionPayrollBridgeV2 {
         let traces: [String]
     }
 
+    /// Retenues qui diminuent réellement le net versé.
+    ///
+    /// `employeeProvidentNonDeductible` n'est volontairement pas ici : il s'agit de la part
+    /// fiscale non déductible d'une prévoyance déjà comprise dans `providentEmployee`. La déduire
+    /// une seconde fois diminuerait artificiellement le net en espèces ; elle est seulement
+    /// réintégrée lors du calcul du net imposable.
     private static let directKinds: [CompanyEmployeeDeductionResolverV2.Kind] = [
         .mutualEmployee,
         .providentEmployee,
-        .transportEmployee,
-        .employeeProvidentNonDeductible
+        .transportEmployee
     ]
 
     static func resolve(
