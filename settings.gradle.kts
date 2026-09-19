@@ -4,22 +4,16 @@ buildscript {
     dependencies {
         constraints {
             add("classpath", "org.bouncycastle:bcprov-jdk18on") {
-                version {
-                    strictly("1.85.2")
-                }
-                because("CVE-2026-8763 and CVE-2026-13506 affect Bouncy Castle versions before 1.85")
+                version { strictly("1.86") }
+                because("Keep the Android build classpath on the current patched Bouncy Castle family")
             }
             add("classpath", "org.bouncycastle:bcpkix-jdk18on") {
-                version {
-                    strictly("1.85")
-                }
-                because("Keep the Android build classpath on the patched Bouncy Castle 1.85 family")
+                version { strictly("1.86") }
+                because("Keep the Android build classpath on one coherent published Bouncy Castle family")
             }
             add("classpath", "org.bouncycastle:bcutil-jdk18on") {
-                version {
-                    strictly("1.85")
-                }
-                because("Keep the Android build classpath on the published patched Bouncy Castle 1.85 family")
+                version { strictly("1.86") }
+                because("Keep the Android build classpath on one coherent published Bouncy Castle family")
             }
         }
     }
