@@ -45,8 +45,8 @@ final class SalaryV2Store: ObservableObject {
             reference: referenceProvider(period),
             incomeTaxRate: taxRate
         )
-        self.incomeTaxRateText = taxRate.ratePercent.map { String(format: "%.2f", $0) } ?? ""
-        self.incomeTaxSource = taxRate.source ?? ""
+        self.incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
+        self.incomeTaxSource = taxRate?.source ?? ""
     }
 
     func refresh() {
@@ -56,8 +56,8 @@ final class SalaryV2Store: ObservableObject {
             reference: referenceProvider(selectedPeriod),
             incomeTaxRate: taxRate
         )
-        incomeTaxRateText = taxRate.ratePercent.map { String(format: "%.2f", $0) } ?? ""
-        incomeTaxSource = taxRate.source ?? ""
+        incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
+        incomeTaxSource = taxRate?.source ?? ""
     }
 
     @discardableResult
