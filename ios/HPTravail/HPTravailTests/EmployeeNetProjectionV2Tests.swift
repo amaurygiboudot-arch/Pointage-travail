@@ -284,6 +284,28 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         )
     }
 
+    func testConfirmedIncomeTaxRateReachesPresentationAdapter() {
+        let rate = CompanyIncomeTaxRateResolverV2.Snapshot(
+            rate: 0.032,
+            ratePercent: 3.2,
+            source: "Bulletin confirmé",
+            hasDatedRecords: true,
+            reliable: true,
+            warnings: []
+        )
+        let projection = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
+        let presentation = SalaryNetPresentationV2.fromProjection(projection)
+
+        XCTAssertNotNil(projection.netAfterIncomeTax)
+        XCTAssertEqual(presentation.secondaryLabel, "Net après impôt")
+        XCTAssertNotNil(presentation.secondaryAmount)
+        XCTAssertEqual(
+            presentation.secondaryAmount!,
+            projection.netAfterIncomeTax!,
+            accuracy: 0.0001
+        )
+    }
+
     func testMissingIncomeTaxRateFailsClosedAfterTaxOnly() {
         let result = EmployeeNetProjectionV2.calculate(input())
 
