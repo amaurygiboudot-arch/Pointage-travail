@@ -135,6 +135,37 @@ jobs:
           gradle-version: '9.6.0'
       - name: Verify single APK update path
         run: python scripts/verify_update_architecture.py
+      - name: Verify patched Bouncy Castle is selected
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle buildEnvironment --console=plain > /tmp/build-environment.txt
+          cat /tmp/build-environment.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('/tmp/build-environment.txt').read_text(encoding='utf-8')
+          artifacts = (
+              'bcprov-jdk18on',
+              'bcpkix-jdk18on',
+              'bcutil-jdk18on',
+          )
+          for artifact in artifacts:
+              pattern = re.compile(
+                  rf'org\.bouncycastle:{re.escape(artifact)}:([^\s]+)(?:\s+->\s+([^\s]+))?'
+              )
+              matches = pattern.findall(text)
+              if not matches:
+                  raise SystemExit(f'{artifact}: absent du classpath de build résolu')
+              selected = [target or requested for requested, target in matches]
+              bad = [version for version in selected if version != '1.86']
+              if bad:
+                  raise SystemExit(
+                      f'{artifact}: version résolue non sûre détectée: {bad}; attendu 1.86'
+                  )
+              print(f'{artifact}: 1.86 sélectionné ({len(matches)} occurrence(s))')
+          PY
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
 
