@@ -294,6 +294,22 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("taux personnel daté") })
     }
 
+    func testInvalidIncomeTaxRateFailsClosedWithWarning() {
+        let rate = CompanyIncomeTaxRateResolverV2.Snapshot(
+            rate: 1.2,
+            ratePercent: 120,
+            source: "Snapshot invalide",
+            hasDatedRecords: true,
+            reliable: true,
+            warnings: []
+        )
+        let result = EmployeeNetProjectionV2.calculate(input(incomeTaxRate: rate))
+
+        XCTAssertNil(result.incomeTax)
+        XCTAssertNil(result.netAfterIncomeTax)
+        XCTAssertTrue(result.warnings.contains { $0.contains("indisponible ou invalide") })
+    }
+
     func testUnsupportedYearDoesNotInventFinalNet() {
         let result = EmployeeNetProjectionV2.calculate(input(year: 2027))
 
