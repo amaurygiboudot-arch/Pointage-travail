@@ -58,7 +58,7 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertEqual(snapshot.socialGross ?? -1, 2_500, accuracy: 0.001)
         XCTAssertEqual(snapshot.netBeforeIncomeTax ?? -1, 2_000, accuracy: 0.001)
         XCTAssertEqual(snapshot.netTaxable ?? -1, 2_050, accuracy: 0.001)
-        XCTAssertTrue(snapshot.warnings.isEmpty)
+        XCTAssertTrue(snapshot.warnings.contains { $0.contains("PAS") })
     }
 
     func testIncompleteReferenceMayExposeReliableGrossButKeepsNetBlocked() {
