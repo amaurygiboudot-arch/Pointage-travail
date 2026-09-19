@@ -14,6 +14,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var snapshot: SalaryWorkspaceSnapshotV2
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
+    @Published private(set) var incomeTaxFeedback: String?
 
     private let referenceProvider: ReferenceProvider
     private let companyIdProvider: CompanyIdProvider
@@ -66,8 +67,24 @@ final class SalaryV2Store: ObservableObject {
         guard let companyId = companyIdProvider(),
               let rate = Double(normalized),
               incomeTaxStore.confirm(companyId: companyId, ratePercent: rate, period: selectedPeriod, source: incomeTaxSource) else {
+            incomeTaxFeedback = "Confirmation impossible : vérifiez le taux, la source et l’entreprise confirmée."
             return false
         }
+        incomeTaxFeedback = "Taux PAS confirmé pour le mois affiché."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func removeIncomeTaxRate() -> Bool {
+        guard let companyId = companyIdProvider(),
+              incomeTaxStore.remove(companyId: companyId, period: selectedPeriod) else {
+            incomeTaxFeedback = "Impossible de retirer le taux PAS. Vérifiez l’entreprise confirmée et le stockage local."
+            return false
+        }
+        incomeTaxRateText = ""
+        incomeTaxSource = ""
+        incomeTaxFeedback = "Taux PAS retiré : le calcul après impôt est bloqué jusqu’à une nouvelle confirmation."
         refresh()
         return true
     }
