@@ -10,7 +10,8 @@ class V2ConventionRuleStoreFailClosedV2Test {
         version: String,
         from: Long,
         to: Long? = null,
-        multiplier: Double = 1.25
+        multiplier: Double = 1.25,
+        publicHolidayMultiplier: Double? = null
     ): String = """
         {
           "idcc":"0292",
@@ -21,6 +22,7 @@ class V2ConventionRuleStoreFailClosedV2Test {
           "checkedAtMs":1,
           "rules":{
             "weeklyRegularMinutes":2100,
+            "publicHolidayMultiplier":${publicHolidayMultiplier ?: "null"},
             "overtimeTiers":[
               {"fromMinutes":2100,"toMinutes":2580,"multiplier":$multiplier},
               {"fromMinutes":2580,"toMinutes":null,"multiplier":1.5}
@@ -97,6 +99,25 @@ class V2ConventionRuleStoreFailClosedV2Test {
     @Test
     fun `multiplicateur impossible rend historique non fiable`() {
         val result = V2ConventionRuleStore.decodeConfirmed("[${snapshot("v1", 1000, multiplier = 0.5)}]")
+
+        assertFalse(result.reliable)
+    }
+
+    @Test
+    fun `majoration jour ferie est conservee dans historique conventionnel`() {
+        val result = V2ConventionRuleStore.decodeConfirmed(
+            "[${snapshot("v1", 1000, publicHolidayMultiplier = 1.75)}]"
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1.75, result.snapshots.single().rules.publicHolidayMultiplier ?: 0.0, 0.0)
+    }
+
+    @Test
+    fun `majoration jour ferie invalide rend historique non fiable`() {
+        val result = V2ConventionRuleStore.decodeConfirmed(
+            "[${snapshot("v1", 1000, publicHolidayMultiplier = 0.5)}]"
+        )
 
         assertFalse(result.reliable)
     }
