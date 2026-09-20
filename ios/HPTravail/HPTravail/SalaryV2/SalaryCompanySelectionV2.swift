@@ -5,12 +5,13 @@ import Foundation
 /// Règles de sécurité :
 /// - 0 entreprise confirmée : aucune sélection ;
 /// - 1 entreprise confirmée : sélection automatique non ambiguë ;
-/// - plusieurs entreprises : aucune sélection implicite, sauf conservation d'un choix
-///   déjà explicite et toujours valide pendant la session courante ;
+/// - plusieurs entreprises : aucune sélection implicite ; un identifiant courant n'est conservé
+///   que s'il provient d'un choix utilisateur explicitement tracé et reste confirmé ;
 /// - stockage non fiable ou identifiant inconnu : aucune sélection.
 enum SalaryCompanySelectionV2 {
     static func reconcile(
         currentCompanyId: String?,
+        selectionWasExplicit: Bool,
         companies stored: SalaryCompanyReadResultV2
     ) -> String? {
         guard stored.reliable else { return nil }
@@ -20,6 +21,7 @@ enum SalaryCompanySelectionV2 {
         }
 
         guard stored.companies.count > 1,
+              selectionWasExplicit,
               let current = normalized(currentCompanyId),
               SalaryCompanyStoreV2.confirmedCompany(stored, companyId: current) != nil else {
             return nil
