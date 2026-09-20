@@ -92,7 +92,7 @@ enum SalaryPaidWorkAggregatorV2 {
         var reliable = sourceReliable
         var warnings: [String] = sourceReliable ? [] : [sourceWarning]
         var completedSessionCount = 0
-        var paidSecondsByWeek: [WeekKey: TimeInterval] = [:]
+        var paidMinutesByWeek: [WeekKey: Int] = [:]
         var coveredIntervals: [(start: Date, end: Date)] = []
 
         for session in sessions where normalizedEmployerId(session.employerId) == employerId {
@@ -156,7 +156,9 @@ enum SalaryPaidWorkAggregatorV2 {
                 let key = WeekKey(year: weekYear, week: weekOfYear)
                 let paidSeconds = max(0, assessment.paidDuration)
                 if paidSeconds.isFinite {
-                    paidSecondsByWeek[key, default: 0] += paidSeconds
+                    // Android PaidWorkAllocationV2 tronque chaque tranche à la minute avant
+                    // l'agrégation hebdomadaire. Garder la même règle évite tout écart inter-plateforme.
+                    paidMinutesByWeek[key, default: 0] += Int(floor(paidSeconds / 60.0))
                 } else {
                     reliable = false
                     warnings.append(invalidSessionWarning)
@@ -175,12 +177,11 @@ enum SalaryPaidWorkAggregatorV2 {
             warnings.append(overlapWarning)
         }
 
-        let weeks = paidSecondsByWeek.keys.sorted().map { key in
-            let seconds = paidSecondsByWeek[key, default: 0]
-            return SalaryPaidWeekV2(
+        let weeks = paidMinutesByWeek.keys.sorted().map { key in
+            SalaryPaidWeekV2(
                 yearForWeekOfYear: key.year,
                 weekOfYear: key.week,
-                paidMinutes: Int(floor(seconds / 60.0))
+                paidMinutes: paidMinutesByWeek[key, default: 0]
             )
         }
 
