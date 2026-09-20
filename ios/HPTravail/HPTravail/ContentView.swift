@@ -152,7 +152,13 @@ struct ContentView: View {
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
 
-            if !clockCompanies.reliable {
+            if let current = store.currentSession {
+                Text(activeEmployerLabel(for: current))
+                    .fontWeight(.semibold)
+                Text("Entreprise enregistrée dans le pointage en cours. Le prochain pointage demandera de nouveau un choix si plusieurs entreprises sont configurées.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if !clockCompanies.reliable {
                 Label("Stockage entreprises à vérifier : ce pointage restera sans entreprise.", systemImage: "exclamationmark.triangle")
                     .font(.footnote)
                     .foregroundStyle(.orange)
@@ -174,7 +180,6 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .disabled(store.isWorking)
 
                 if clockCompanies.companies.count > 1 && clockEmployerChoice == .unresolved {
                     Text("Plusieurs entreprises sont configurées : choisis explicitement celle de ce pointage.")
@@ -186,6 +191,15 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func activeEmployerLabel(for session: WorkSession) -> String {
+        guard let employerId = session.employerId else { return "Sans entreprise / autre" }
+        if clockCompanies.reliable,
+           let company = clockCompanies.companies.first(where: { $0.id == employerId }) {
+            return salaryCompanyLabel(company)
+        }
+        return "Entreprise enregistrée — \(employerId)"
     }
 
     private func refreshClockEmployerSelection() {
