@@ -1,12 +1,21 @@
 import SwiftUI
 
 struct ContentView: View {
+    private enum ClockEmployerChoice: Hashable {
+        case unresolved
+        case unassigned
+        case employer(String)
+    }
+
     @EnvironmentObject private var store: WorkStoreV2
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var authManager: AuthManager
     @AppStorage("hp_theme") private var theme = "signature"
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
+    @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
+    @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
+    @State private var clockInFeedback: String?
 
     var body: some View {
         TabView {
@@ -57,9 +66,30 @@ struct ContentView: View {
                     Text(Date.now.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
 
+                    clockEmployerCard
+
                     HStack(spacing: 18) {
-                        actionButton(title: "ENTRÉE", symbol: "arrow.right.circle.fill", color: .green, disabled: !store.storageReliable || store.isWorking) {
-                            store.clockIn()
+                        actionButton(
+                            title: "ENTRÉE",
+                            symbol: "arrow.right.circle.fill",
+                            color: .green,
+                            disabled: !store.storageReliable || store.isWorking || clockEmployerChoice == .unresolved
+                        ) {
+                            clockInFeedback = nil
+                            let employerId: String?
+                            switch clockEmployerChoice {
+                            case .unresolved:
+                                clockInFeedback = "Choisis l'entreprise de ce pointage."
+                                return
+                            case .unassigned:
+                                employerId = nil
+                            case .employer(let id):
+                                employerId = id
+                            }
+                            if !store.clockIn(employerId: employerId) {
+                                clockInFeedback = "Entrée non enregistrée : entreprise ou historique à vérifier."
+                                refreshClockEmployerSelection()
+                            }
                         }
                         actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.storageReliable || !store.isWorking) {
                             if store.isPaused {
@@ -81,6 +111,12 @@ struct ContentView: View {
                         }
                     }
 
+                    if let clockInFeedback {
+                        Text(clockInFeedback)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+
                     statusCard
                     Button {
                         showManualEntry = true
@@ -100,6 +136,70 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("HP Travail")
+            .onAppear {
+                refreshClockEmployerSelection()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var clockEmployerCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("ENTREPRISE DU POINTAGE")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            if !clockCompanies.reliable {
+                Label("Stockage entreprises à vérifier : ce pointage restera sans entreprise.", systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            } else if clockCompanies.companies.isEmpty {
+                Text("Sans entreprise / autre")
+                    .fontWeight(.semibold)
+                Text("Aucune entreprise confirmée : le pointage reste utilisable et n'est rattaché à personne.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Entreprise", selection: $clockEmployerChoice) {
+                    if clockCompanies.companies.count > 1 {
+                        Text("Choisir…").tag(ClockEmployerChoice.unresolved)
+                    }
+                    Text("Sans entreprise / autre").tag(ClockEmployerChoice.unassigned)
+                    ForEach(clockCompanies.companies) { company in
+                        Text(company.name.isEmpty ? company.id : company.name)
+                            .tag(ClockEmployerChoice.employer(company.id))
+                    }
+                }
+                .pickerStyle(.menu)
+
+                if clockCompanies.companies.count > 1 && clockEmployerChoice == .unresolved {
+                    Text("Plusieurs entreprises sont configurées : choisis explicitement celle de ce pointage.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func refreshClockEmployerSelection() {
+        let latest = SalaryCompanyStoreV2.readConfirmed()
+        clockCompanies = latest
+        clockInFeedback = nil
+
+        guard latest.reliable else {
+            clockEmployerChoice = .unassigned
+            return
+        }
+        switch latest.companies.count {
+        case 0:
+            clockEmployerChoice = .unassigned
+        case 1:
+            clockEmployerChoice = .employer(latest.companies[0].id)
+        default:
+            clockEmployerChoice = .unresolved
         }
     }
 
@@ -117,6 +217,10 @@ struct ContentView: View {
                             } else {
                                 Text("En cours")
                                     .foregroundStyle(.green)
+                            }
+                            if let employerId = session.employerId {
+                                Text("Entreprise : \(employerId)")
+                                    .foregroundStyle(.secondary)
                             }
                             if !session.pauses.isEmpty {
                                 Text("Pauses : \(session.pauses.count)")
