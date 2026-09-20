@@ -5,10 +5,14 @@ import XCTest
 #endif
 
 final class SalaryPaidWorkRoundingParityV2Tests: XCTestCase {
-    func testSubMinuteSessionsAreTruncatedPerSliceLikeAndroid() {
+    private func calendar() -> Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let start = calendar.date(from: DateComponents(
+        return calendar
+    }
+
+    private func startDate(_ calendar: Calendar) -> Date {
+        calendar.date(from: DateComponents(
             calendar: calendar,
             timeZone: calendar.timeZone,
             year: 2026,
@@ -18,6 +22,11 @@ final class SalaryPaidWorkRoundingParityV2Tests: XCTestCase {
             minute: 0,
             second: 0
         ))!
+    }
+
+    func testSubMinuteSessionsRemainEmittedButAreTruncatedPerSliceLikeAndroid() {
+        let calendar = calendar()
+        let start = startDate(calendar)
         let secondStart = start.addingTimeInterval(120)
 
         let sessions = [
@@ -46,6 +55,32 @@ final class SalaryPaidWorkRoundingParityV2Tests: XCTestCase {
 
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(result.completedSessionCount, 2)
+        XCTAssertEqual(result.weeks.count, 1)
+        XCTAssertEqual(result.weeks.first?.paidMinutes, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+    }
+
+    func testFullyUnpaidReliableSliceIsNotEmittedLikeAndroid() {
+        let calendar = calendar()
+        let start = startDate(calendar)
+        let end = start.addingTimeInterval(30 * 60)
+
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [SalarySessionFactV2(
+                id: "fully-unpaid",
+                entry: start,
+                exit: end,
+                employerId: "company-a",
+                pauses: [PaidPauseFactV2(start: start, end: end, paid: false)]
+            )],
+            employerId: "company-a",
+            period: YearMonthV2(year: 2026, month: 9)!,
+            calendar: calendar
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 1)
+        XCTAssertEqual(result.weeks, [])
         XCTAssertEqual(result.totalPaidMinutes, 0)
     }
 }
