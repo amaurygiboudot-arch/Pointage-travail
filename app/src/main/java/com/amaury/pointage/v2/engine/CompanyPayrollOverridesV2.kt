@@ -14,6 +14,7 @@ import com.amaury.pointage.v2.CompanyWorkforceContributionStoreV2
 import com.amaury.pointage.v2.ConventionLegalProfileV2
 import com.amaury.pointage.v2.OfficialAccoProvidentContributionParserV2
 import com.amaury.pointage.v2.PayrollLegalSourceKnowledgeStoreV2
+import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2CompanyProvidentContributionStore
 import com.amaury.pointage.v2.V2ConventionMatterCoverageStore
 import com.amaury.pointage.v2.V2ConventionProvidentContributionBridge
@@ -29,7 +30,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
-import kotlin.math.roundToInt
 
 /** Couche 4/6 — paramètres salarié/entreprise. Les valeurs absentes restent explicitement inconnues. */
 object CompanyPayrollOverridesV2 {
@@ -181,7 +181,7 @@ object CompanyPayrollOverridesV2 {
     ):Snapshot {
         val companyId=company.id
         val p=SalaryCompanyStore.prefs(context,companyId)
-        fun number(key:String)=p.getString(key,"").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>=0.0}
+        fun number(key:String)=SalaryNumericInputV2.nonNegativeDecimal(p.getString(key,"").orEmpty())
         fun normalizeIdcc(raw:String?)=raw.orEmpty().filter(Char::isDigit).trimStart('0').ifBlank{null}
         val idcc=normalizeIdcc(company.idcc) ?: normalizeIdcc(p.getString("company_idcc",""))
         val entryDate=runCatching {
@@ -201,10 +201,12 @@ object CompanyPayrollOverridesV2 {
             "OTHER" -> ContractTypeV2.OTHER
             else -> null
         }
-        val contractualWeeklyMinutes=number("contract_weekly_hours")
-            ?.takeIf { it > 0.0 }
-            ?.let { (it * 60.0).roundToInt() }
-        val forfaitAnnualDays=number("forfait_annual_days")?.takeIf { it > 0.0 }
+        val contractualWeeklyMinutes=SalaryNumericInputV2.positiveMinutesFromHours(
+            p.getString("contract_weekly_hours","").orEmpty()
+        )
+        val forfaitAnnualDays=SalaryNumericInputV2.positiveDecimal(
+            p.getString("forfait_annual_days","").orEmpty()
+        )
         val legacyMutual=number("mutual_employee_amount")
         val legacyProvident=number("provident_employee_amount")
         val legacyTransport=number("transport_employee_amount")
