@@ -30,21 +30,13 @@ final class WorkStoreV2: ObservableObject {
     @discardableResult
     func clockIn(employerId requestedEmployerId: String? = nil) -> Bool {
         guard storageReliable, !isWorking else { return false }
-
-        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
-        let employerId: String?
-        switch ClockInEmployerResolverV2.resolve(
-            requestedEmployerId: requestedEmployerId,
-            companies: companies
-        ) {
-        case .unassigned:
-            employerId = nil
-        case .employer(let confirmedEmployerId):
-            employerId = confirmedEmployerId
-        case .rejected:
-            return false
+        guard let employerId = resolvedEmployerId(requestedEmployerId) else {
+            return requestedEmployerId == nil ? appendClockIn(employerId: nil) : false
         }
+        return appendClockIn(employerId: employerId)
+    }
 
+    private func appendClockIn(employerId: String?) -> Bool {
         sessions.append(
             WorkSession(
                 id: UUID(),
@@ -57,6 +49,21 @@ final class WorkStoreV2: ObservableObject {
         )
         save()
         return storageReliable
+    }
+
+    private func resolvedEmployerId(_ requestedEmployerId: String?) -> String? {
+        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
+        switch ClockInEmployerResolverV2.resolve(
+            requestedEmployerId: requestedEmployerId,
+            companies: companies
+        ) {
+        case .unassigned:
+            return nil
+        case .employer(let confirmedEmployerId):
+            return confirmedEmployerId
+        case .rejected:
+            return nil
+        }
     }
 
     func togglePause(paid: Bool? = nil) {
@@ -90,17 +97,32 @@ final class WorkStoreV2: ObservableObject {
     func addManualSession(
         entry: Date,
         exit: Date,
-        employerId: String?,
+        employerId requestedEmployerId: String?,
         placeLabel: String?
     ) -> Bool {
-        guard storageReliable,
-              let updated = ManualSessionPolicyV2.appending(
-                to: sessions,
-                entry: entry,
-                exit: exit,
-                employerId: employerId,
-                placeLabel: placeLabel
-              ) else {
+        guard storageReliable else { return false }
+
+        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
+        let employerId: String?
+        switch ClockInEmployerResolverV2.resolve(
+            requestedEmployerId: requestedEmployerId,
+            companies: companies
+        ) {
+        case .unassigned:
+            employerId = nil
+        case .employer(let confirmedEmployerId):
+            employerId = confirmedEmployerId
+        case .rejected:
+            return false
+        }
+
+        guard let updated = ManualSessionPolicyV2.appending(
+            to: sessions,
+            entry: entry,
+            exit: exit,
+            employerId: employerId,
+            placeLabel: placeLabel
+        ) else {
             return false
         }
         sessions = updated
@@ -146,9 +168,6 @@ final class WorkStoreV2: ObservableObject {
             allowTransitionalPrimaryRepair: !paidRepairAlreadyHandled
         )
 
-        // La compatibilité paid=nil n'est autorisée qu'une seule fois sur une installation existante.
-        // Le marqueur est posé même si aucune réparation n'était nécessaire, afin qu'une corruption
-        // future ne puisse jamais réactiver ce chemin historique.
         if !paidRepairAlreadyHandled {
             defaults.set(true, forKey: WorkSessionStorageV2.paidRepairMarkerKey)
         }
