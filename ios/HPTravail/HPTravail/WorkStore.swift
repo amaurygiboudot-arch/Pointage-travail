@@ -27,9 +27,20 @@ final class WorkStoreV2: ObservableObject {
         return pause.paid == nil
     }
 
-    func clockIn() {
+    func clockIn(employerId: String? = nil) {
         guard storageReliable, !isWorking else { return }
-        sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
+        let normalizedEmployerId = employerId?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+        sessions.append(
+            WorkSession(
+                id: UUID(),
+                entry: Date(),
+                exit: nil,
+                pauses: [],
+                employerId: normalizedEmployerId
+            )
+        )
         save()
     }
 
@@ -158,4 +169,8 @@ final class WorkStoreV2: ObservableObject {
             storageReliable = false
         }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
