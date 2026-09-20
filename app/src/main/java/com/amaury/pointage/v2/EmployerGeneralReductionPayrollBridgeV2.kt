@@ -10,9 +10,10 @@ import java.time.YearMonth
 /**
  * Passerelle Android entre les faits locaux RGDU, le noyau 2026 et l'arbitre des réductions.
  *
- * Elle ne déduit volontairement aucune donnée depuis le pointage : la rémunération RGDU et les
- * minutes supplémentaires/complémentaires rémunérées doivent être fournies explicitement par
- * l'appelant une fois leur assiette démontrée. Une valeur absente reste inconnue, jamais 0.
+ * Elle ne déduit volontairement aucune donnée depuis le pointage : la rémunération RGDU, le
+ * régime FNAL/logement et les minutes supplémentaires/complémentaires rémunérées doivent être
+ * fournis explicitement par l'appelant une fois leur assiette démontrée. Une valeur absente reste
+ * inconnue, jamais 0 et le régime FNAL n'est jamais déduit du seul effectif.
  */
 object EmployerGeneralReductionPayrollBridgeV2 {
     fun resolve(
@@ -20,7 +21,7 @@ object EmployerGeneralReductionPayrollBridgeV2 {
         companyId: String,
         period: YearMonth,
         reductionRemunerationMonthly: Double?,
-        workforceBand: EmployerWorkforceContributionsV2.Band?,
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment?,
         contractType: ContractTypeV2?,
         contractualWeeklyMinutes: Int?,
         additionalPaidMinutes: Double?
@@ -55,7 +56,7 @@ object EmployerGeneralReductionPayrollBridgeV2 {
                 EmployerGeneralReduction2026V2.Input(
                     year = period.year,
                     reductionRemunerationMonthly = reductionRemunerationMonthly,
-                    workforceBand = workforceBand,
+                    fnalTreatment = fnalTreatment,
                     contractType = contractType,
                     contractualWeeklyMinutes = contractualWeeklyMinutes,
                     additionalPaidMinutes = additionalPaidMinutes,
