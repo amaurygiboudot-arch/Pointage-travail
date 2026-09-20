@@ -27,6 +27,16 @@ final class OvertimeCoverageV2Tests: XCTestCase {
         )
     }
 
+    func testNegativePaidMinutesAreNeverConsideredCovered() {
+        XCTAssertFalse(
+            OvertimeCoverageV2.isFullyCovered(
+                regularLimitMinutes: limit,
+                paidMinutes: -1,
+                tiers: []
+            )
+        )
+    }
+
     func testOvertimeWithoutTierIsNotCovered() {
         XCTAssertFalse(
             OvertimeCoverageV2.isFullyCovered(
