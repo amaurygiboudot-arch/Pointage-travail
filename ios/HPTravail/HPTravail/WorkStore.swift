@@ -29,9 +29,8 @@ final class WorkStoreV2: ObservableObject {
 
     func clockIn(employerId: String? = nil) {
         guard storageReliable, !isWorking else { return }
-        let normalizedEmployerId = employerId?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
+        let candidate = employerId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEmployerId = candidate?.isEmpty == false ? candidate : nil
         sessions.append(
             WorkSession(
                 id: UUID(),
@@ -169,8 +168,4 @@ final class WorkStoreV2: ObservableObject {
             storageReliable = false
         }
     }
-}
-
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
