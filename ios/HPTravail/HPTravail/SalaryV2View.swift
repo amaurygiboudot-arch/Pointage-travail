@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
+    @EnvironmentObject private var workStore: WorkStoreV2
 
     var body: some View {
         NavigationStack {
@@ -19,6 +20,12 @@ struct SalaryV2View: View {
             }
             .navigationTitle("Salaire")
             .onAppear {
+                salaryStore.refresh()
+            }
+            .onChange(of: workStore.sessions) { _ in
+                salaryStore.refresh()
+            }
+            .onChange(of: workStore.storageReliable) { _ in
                 salaryStore.refresh()
             }
         }
