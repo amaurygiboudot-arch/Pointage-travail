@@ -8,10 +8,10 @@ struct SalaryConventionCoverageSegmentV2: Equatable {
 
 /// Couverture conventionnelle factuelle d'une entreprise pour un mois de paie.
 ///
-/// `sourceReliable` décrit uniquement la fiabilité des stores amont. `fullyCovered`
-/// indique si chaque jour civil du mois possède une version confirmée. Une couverture
-/// complète avec plusieurs versions reste factuellement exploitable, mais elle n'autorise
-/// pas à appliquer une règle unique à tout le mois.
+/// `sourceReliable` indique que les sources nécessaires à la résolution sont fiables et
+/// suffisamment identifiées. `fullyCovered` indique si chaque jour civil du mois possède
+/// une version confirmée. Une couverture complète avec plusieurs versions reste factuellement
+/// exploitable, mais elle n'autorise pas à appliquer une règle unique à tout le mois.
 struct SalaryConventionCoverageV2: Equatable {
     let companyId: String
     let idcc: String?
@@ -108,7 +108,7 @@ enum SalaryConventionCoverageResolverV2 {
             }
 
         let fullyCovered = coversEveryDay(segments, range: range)
-        var warnings: [String] = []
+        var warnings = storedRules.warnings
         if !fullyCovered {
             warnings.append(coverageWarning)
         } else if segments.count > 1 {
@@ -123,7 +123,7 @@ enum SalaryConventionCoverageResolverV2 {
             segments: segments,
             sourceReliable: true,
             fullyCovered: fullyCovered,
-            warnings: warnings
+            warnings: unique(warnings)
         )
     }
 
@@ -229,5 +229,10 @@ enum SalaryConventionCoverageResolverV2 {
             fullyCovered: false,
             warnings: [warning]
         )
+    }
+
+    private static func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 }
