@@ -53,6 +53,18 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
         XCTAssertTrue(result.traces.contains { $0.contains("dépasse 1/10") })
     }
 
+    func testDirectComplementaryCalculatorRejectsNegativePaidMinutes() {
+        XCTAssertThrowsError(
+            try PartTimeComplementaryHoursV2.calculateWeek(
+                contractualMinutes: 20 * 60,
+                paidMinutes: -1,
+                grossHourlyRate: 10
+            )
+        ) { error in
+            XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
+        }
+    }
+
     func testPayrollReliabilityCannotBeRehabilitatedByConfirmedBenefits() throws {
         let payroll = try PayrollEngineV2.calculate(
             contract: partTimeContract(),
