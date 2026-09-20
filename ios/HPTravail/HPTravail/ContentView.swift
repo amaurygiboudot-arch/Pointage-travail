@@ -7,6 +7,8 @@ struct ContentView: View {
     @AppStorage("hp_theme") private var theme = "signature"
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
+    @State private var pointageCompanySelection = ActiveSalaryCompanySelectionV2.resolve()
+    @State private var selectedPointageCompanyId = ""
 
     var body: some View {
         TabView {
@@ -57,9 +59,16 @@ struct ContentView: View {
                     Text(Date.now.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
 
+                    pointageEmployerCard
+
                     HStack(spacing: 18) {
-                        actionButton(title: "ENTRÉE", symbol: "arrow.right.circle.fill", color: .green, disabled: !store.storageReliable || store.isWorking) {
-                            store.clockIn()
+                        actionButton(
+                            title: "ENTRÉE",
+                            symbol: "arrow.right.circle.fill",
+                            color: .green,
+                            disabled: !store.storageReliable || store.isWorking || pointageCompanySelection.requiresExplicitSelection
+                        ) {
+                            clockInWithConfirmedEmployer()
                         }
                         actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.storageReliable || !store.isWorking) {
                             if store.isPaused {
@@ -100,6 +109,9 @@ struct ContentView: View {
                 .padding()
             }
             .navigationTitle("HP Travail")
+            .onAppear {
+                refreshPointageCompanySelection()
+            }
         }
     }
 
@@ -212,6 +224,54 @@ struct ContentView: View {
         }
     }
 
+    private var pointageEmployerCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ENTREPRISE DU POINTAGE")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            if !pointageCompanySelection.reliable {
+                Label("Stockage des entreprises à vérifier", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Text("Le pointage reste disponible sans rattachement d'entreprise, mais ces heures ne seront pas attribuées automatiquement au Salaire V2.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if pointageCompanySelection.companies.isEmpty {
+                Text("Aucune entreprise Salaire V2 confirmée")
+                    .font(.headline)
+                Text("Le prochain pointage restera sans entreprise. Vous pourrez continuer à suivre votre temps sans inventer un employeur.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("Entreprise", selection: $selectedPointageCompanyId) {
+                    if pointageCompanySelection.companies.count > 1 {
+                        Text("Choisir une entreprise").tag("")
+                    }
+                    ForEach(pointageCompanySelection.companies) { company in
+                        Text(company.name.isEmpty ? company.id : company.name)
+                            .tag(company.id)
+                    }
+                }
+                .onChange(of: selectedPointageCompanyId) { newValue in
+                    selectPointageCompany(newValue)
+                }
+
+                if pointageCompanySelection.requiresExplicitSelection {
+                    Label("Choisissez l'entreprise avant l'entrée", systemImage: "exclamationmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Text("Ce choix s'applique uniquement aux nouveaux pointages. L'historique existant n'est jamais réattribué automatiquement.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
     private var statusCard: some View {
         VStack(spacing: 8) {
             Text("STATUT ACTUEL")
@@ -256,6 +316,30 @@ struct ContentView: View {
         case .restricted: return "Localisation : restreinte"
         default: return "Localisation : non demandée"
         }
+    }
+
+    private func refreshPointageCompanySelection() {
+        let latest = ActiveSalaryCompanySelectionV2.resolve()
+        pointageCompanySelection = latest
+        selectedPointageCompanyId = latest.activeCompany?.id ?? ""
+    }
+
+    private func selectPointageCompany(_ companyId: String) {
+        let id = companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if id.isEmpty {
+            ActiveSalaryCompanySelectionV2.clear()
+        } else {
+            _ = ActiveSalaryCompanySelectionV2.select(companyId: id)
+        }
+        refreshPointageCompanySelection()
+    }
+
+    private func clockInWithConfirmedEmployer() {
+        let latest = ActiveSalaryCompanySelectionV2.resolve()
+        pointageCompanySelection = latest
+        selectedPointageCompanyId = latest.activeCompany?.id ?? ""
+        guard !latest.requiresExplicitSelection else { return }
+        store.clockIn(employerId: latest.activeCompany?.id)
     }
 
     private func paidTimeLabel(for session: WorkSession, until endDate: Date) -> String {
