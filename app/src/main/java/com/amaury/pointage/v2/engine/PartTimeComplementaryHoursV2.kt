@@ -34,9 +34,11 @@ object PartTimeComplementaryHoursV2 {
         legalWeeklyMinutes: Int = 35 * 60
     ): Result {
         require(contractualMinutes > 0) { "Durée contractuelle temps partiel invalide" }
-        require(grossHourlyRate > 0.0) { "Taux horaire brut invalide" }
+        require(paidMinutes >= 0) { "Minutes payées invalides" }
+        require(grossHourlyRate > 0.0 && grossHourlyRate.isFinite()) { "Taux horaire brut invalide" }
+        require(legalWeeklyMinutes > 0) { "Durée légale hebdomadaire invalide" }
 
-        val paid = paidMinutes.coerceAtLeast(0)
+        val paid = paidMinutes
         val extra = (paid - contractualMinutes).coerceAtLeast(0)
         if (extra == 0) return Result(0, 0.0, emptyList(), emptyList())
 
