@@ -163,7 +163,7 @@ class RgduPayrollInputBridgeV2Test {
             EmployerGeneralReduction2026V2.Input(
                 year = 2026,
                 reductionRemunerationMonthly = bridge.reductionRemunerationMonthly!!,
-                workforceBand = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+                fnalTreatment = EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
                 contractType = ContractTypeV2.FULL_TIME,
                 contractualWeeklyMinutes = 35 * 60,
                 additionalPaidMinutes = bridge.additionalPaidMinutes,
