@@ -172,6 +172,7 @@ enum PayrollEngineErrorV2: Error, Equatable {
     case invalidHourlyRate
     case missingWeeklyDuration
     case invalidWeeklyDuration
+    case invalidPaidMinutes
     case invalidOvertimeTier
     case invalidMultiplier
     case missingMonthlyGross
@@ -199,6 +200,8 @@ enum PayrollEngineV2 {
         baskets: [BasketV2] = [],
         deductions: [DeductionV2] = []
     ) throws -> PayrollResultV2 {
+        try weeks.forEach(validateWeek)
+
         if contract.type == .forfaitDays || contract.type == .forfaitHours {
             return try calculateForfait(
                 contract: contract,
@@ -274,7 +277,7 @@ enum PayrollEngineV2 {
         var traces: [String] = []
 
         for week in weeks {
-            let paid = max(0, week.paidMinutes)
+            let paid = week.paidMinutes
             regularMinutes += min(paid, regularLimit)
 
             for tier in safeOvertimeTiers {
@@ -543,6 +546,20 @@ enum PayrollEngineV2 {
             }
         }
         return extras
+    }
+
+    private static func validateWeek(_ week: PayrollWeekV2) throws {
+        guard week.paidMinutes >= 0,
+              week.nightMinutes >= 0,
+              week.saturdayMinutes >= 0,
+              week.sundayMinutes >= 0,
+              week.publicHolidayMinutes >= 0,
+              week.nightMinutes <= week.paidMinutes,
+              week.saturdayMinutes <= week.paidMinutes,
+              week.sundayMinutes <= week.paidMinutes,
+              week.publicHolidayMinutes <= week.paidMinutes else {
+            throw PayrollEngineErrorV2.invalidPaidMinutes
+        }
     }
 
     private static func validateMultiplier(_ multiplier: Double) throws {

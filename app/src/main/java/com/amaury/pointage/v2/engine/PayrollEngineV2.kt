@@ -58,12 +58,14 @@ object PayrollEngineV2 {
         baskets:List<BasketV2> = emptyList(),
         deductions:List<DeductionV2> = emptyList()
     ):PayrollResultV2 {
+        weeks.forEach(::validateWeek)
+
         if (contract.type == ContractTypeV2.FORFAIT_DAYS || contract.type == ContractTypeV2.FORFAIT_HOURS) {
             return calculateForfait(contract, premiums, baskets, deductions)
         }
 
         val rate = requireNotNull(contract.grossHourlyRate) { "Taux horaire brut obligatoire" }
-        require(rate > 0.0) { "Taux horaire brut invalide" }
+        require(rate > 0.0 && rate.isFinite()) { "Taux horaire brut invalide" }
 
         val regularLimit = rules.weeklyRegularMinutes
             ?: contract.contractualWeeklyMinutes
@@ -79,7 +81,7 @@ object PayrollEngineV2 {
         val trace = mutableListOf<String>()
 
         weeks.forEach { week ->
-            val paid = week.paidMinutes.coerceAtLeast(0)
+            val paid = week.paidMinutes
             val regular = minOf(paid, regularLimit)
             regularMinutes += regular
 
@@ -90,19 +92,19 @@ object PayrollEngineV2 {
             }
 
             rules.nightMultiplier?.let { multiplier ->
-                require(multiplier >= 1.0)
+                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur nuit invalide" }
                 if (week.nightMinutes > 0) extras += week.nightMinutes / 60.0 * rate * (multiplier - 1.0)
             }
             rules.saturdayMultiplier?.let { multiplier ->
-                require(multiplier >= 1.0)
+                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur samedi invalide" }
                 if (week.saturdayMinutes > 0) extras += week.saturdayMinutes / 60.0 * rate * (multiplier - 1.0)
             }
             rules.sundayMultiplier?.let { multiplier ->
-                require(multiplier >= 1.0)
+                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur dimanche invalide" }
                 if (week.sundayMinutes > 0) extras += week.sundayMinutes / 60.0 * rate * (multiplier - 1.0)
             }
             rules.publicHolidayMultiplier?.let { multiplier ->
-                require(multiplier >= 1.0)
+                require(multiplier.isFinite() && multiplier >= 1.0) { "Multiplicateur jour férié invalide" }
                 if (week.publicHolidayMinutes > 0) {
                     extras += week.publicHolidayMinutes / 60.0 * rate * (multiplier - 1.0)
                 }
@@ -144,17 +146,17 @@ object PayrollEngineV2 {
         val monthlyGross = requireNotNull(contract.monthlyGrossSalary) {
             "Salaire brut mensuel convenu obligatoire pour un forfait"
         }
-        require(monthlyGross > 0.0) { "Salaire brut mensuel convenu invalide" }
+        require(monthlyGross > 0.0 && monthlyGross.isFinite()) { "Salaire brut mensuel convenu invalide" }
 
         when (contract.type) {
             ContractTypeV2.FORFAIT_HOURS -> {
                 requireNotNull(contract.forfaitHoursPeriod) { "Période du forfait heures obligatoire" }
                 val hours = requireNotNull(contract.forfaitHours) { "Nombre d'heures du forfait obligatoire" }
-                require(hours > 0.0) { "Nombre d'heures du forfait invalide" }
+                require(hours > 0.0 && hours.isFinite()) { "Nombre d'heures du forfait invalide" }
             }
             ContractTypeV2.FORFAIT_DAYS -> {
                 val days = requireNotNull(contract.forfaitAnnualDays) { "Nombre annuel de jours du forfait obligatoire" }
-                require(days > 0.0 && days <= 218.0) { "Nombre annuel de jours du forfait invalide" }
+                require(days > 0.0 && days <= 218.0 && days.isFinite()) { "Nombre annuel de jours du forfait invalide" }
             }
             else -> error("Type de forfait incohérent")
         }
@@ -183,5 +185,21 @@ object PayrollEngineV2 {
             netBeforeUnknownContributions = (gross - deductionsTotal).coerceAtLeast(0.0),
             traces = trace
         )
+    }
+
+    private fun validateWeek(week: PayrollWeekV2) {
+        require(week.paidMinutes >= 0) { "Minutes payées invalides" }
+        val categories = listOf(
+            "nuit" to week.nightMinutes,
+            "samedi" to week.saturdayMinutes,
+            "dimanche" to week.sundayMinutes,
+            "jour férié" to week.publicHolidayMinutes
+        )
+        categories.forEach { (label, minutes) ->
+            require(minutes >= 0) { "Minutes $label invalides" }
+            require(minutes <= week.paidMinutes) {
+                "Minutes $label supérieures aux minutes payées de la semaine"
+            }
+        }
     }
 }

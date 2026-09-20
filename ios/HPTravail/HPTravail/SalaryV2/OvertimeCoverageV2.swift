@@ -39,8 +39,8 @@ enum OvertimeCoverageV2 {
         paidMinutes: Int,
         tiers: [OvertimeTierV2]
     ) -> Bool {
-        guard regularLimitMinutes > 0 else { return false }
-        let paid = max(0, paidMinutes)
+        guard regularLimitMinutes > 0, paidMinutes >= 0 else { return false }
+        let paid = paidMinutes
         if paid <= regularLimitMinutes { return true }
         guard isStructurallyValid(regularLimitMinutes: regularLimitMinutes, tiers: tiers) else {
             return false

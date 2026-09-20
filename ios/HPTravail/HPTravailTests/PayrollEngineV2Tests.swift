@@ -64,6 +64,61 @@ final class PayrollEngineV2Tests: XCTestCase {
         XCTAssertEqual(result.grossEstimate, 372.5, accuracy: 0.001)
     }
 
+    func testOverlappingCategoriesRemainAllowedWhenEachFitsInsidePaidTime() throws {
+        let result = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [
+                PayrollWeekV2(
+                    paidMinutes: 60,
+                    nightMinutes: 60,
+                    sundayMinutes: 60
+                )
+            ],
+            rules: PayrollRulesV2(
+                nightMultiplier: 1.25,
+                sundayMultiplier: 2.0
+            )
+        )
+
+        XCTAssertEqual(result.premiumsGross, 12.5, accuracy: 0.001)
+    }
+
+    func testNegativePaidMinutesAreRejectedInsteadOfClampedToZero() {
+        XCTAssertThrowsError(
+            try PayrollEngineV2.calculate(
+                contract: hourlyContract(),
+                weeks: [PayrollWeekV2(paidMinutes: -1)],
+                rules: PayrollRulesV2()
+            )
+        ) { error in
+            XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
+        }
+    }
+
+    func testNegativePremiumCategoryMinutesAreRejected() {
+        XCTAssertThrowsError(
+            try PayrollEngineV2.calculate(
+                contract: hourlyContract(),
+                weeks: [PayrollWeekV2(paidMinutes: 60, nightMinutes: -1)],
+                rules: PayrollRulesV2(nightMultiplier: 1.25)
+            )
+        ) { error in
+            XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
+        }
+    }
+
+    func testPremiumCategoryCannotExceedPaidMinutes() {
+        XCTAssertThrowsError(
+            try PayrollEngineV2.calculate(
+                contract: hourlyContract(),
+                weeks: [PayrollWeekV2(paidMinutes: 60, publicHolidayMinutes: 61)],
+                rules: PayrollRulesV2(publicHolidayMultiplier: 1.5)
+            )
+        ) { error in
+            XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
+        }
+    }
+
     func testBasketsStayOutsideGrossEstimate() throws {
         let result = try PayrollEngineV2.calculate(
             contract: hourlyContract(),

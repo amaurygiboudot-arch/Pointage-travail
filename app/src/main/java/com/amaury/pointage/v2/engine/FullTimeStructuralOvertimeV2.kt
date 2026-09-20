@@ -30,7 +30,8 @@ object FullTimeStructuralOvertimeV2 {
     ):Result {
         require(contractualWeeklyMinutes>0)
         require(regularWeeklyLimit>0)
-        require(grossHourlyRate>0.0)
+        require(paidWeeks.all { it >= 0 }) { "Minutes payées invalides" }
+        require(grossHourlyRate>0.0 && grossHourlyRate.isFinite())
 
         // Réutilise la même barrière canonique que PayrollEngineV2 : un jeu de paliers ambigu
         // ou invalide ne doit jamais alimenter directement un montant, quelle que soit la plateforme.
@@ -52,7 +53,7 @@ object FullTimeStructuralOvertimeV2 {
 
         val variableParts=paidWeeks.map { paid ->
             ratedBetween(
-                upper=paid.coerceAtLeast(0),
+                upper=paid,
                 lower=maxOf(contractualWeeklyMinutes,regularWeeklyLimit),
                 rate=grossHourlyRate,
                 tiers=safeOvertimeTiers
