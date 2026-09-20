@@ -45,6 +45,8 @@ enum SalaryPaidWorkAggregatorV2 {
         "Temps de travail : un pointage de la période est incohérent ; le total payé reste à confirmer."
     static let unresolvedPauseWarning =
         "Temps de travail : une pause de la période n'a pas un statut payé/non payé fiable ; le total payé reste à confirmer."
+    static let conflictingPauseWarning =
+        "Temps de travail : des pauses qui se chevauchent ont des statuts payé/non payé contradictoires ; le total payé reste à confirmer."
     static let overlapWarning =
         "Temps de travail : des pointages de la même entreprise se chevauchent ; le total payé reste à confirmer."
 
@@ -55,7 +57,12 @@ enum SalaryPaidWorkAggregatorV2 {
         sourceReliable: Bool = true,
         calendar inputCalendar: Calendar = .current
     ) -> SalaryPaidWorkAggregationV2 {
-        var calendar = inputCalendar
+        // YearMonthV2 et les périodes de paie HoraTrack sont grégoriennes. Le calendrier choisi
+        // dans les réglages du téléphone ne doit jamais transformer 2026 en une autre ère civile.
+        // On conserve en revanche le fuseau et la locale afin que les frontières locales restent justes.
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = inputCalendar.timeZone
+        calendar.locale = inputCalendar.locale
         calendar.firstWeekday = 2 // lundi
         calendar.minimumDaysInFirstWeek = 4 // définition ISO-8601
 
@@ -111,6 +118,11 @@ enum SalaryPaidWorkAggregatorV2 {
                   pausesAreStructurallyUsable(session.pauses, sessionStart: session.entry, sessionEnd: exit) else {
                 reliable = false
                 warnings.append(invalidSessionWarning)
+                continue
+            }
+            if hasConflictingPauseClassifications(session.pauses) {
+                reliable = false
+                warnings.append(conflictingPauseWarning)
                 continue
             }
 
@@ -224,6 +236,29 @@ enum SalaryPaidWorkAggregatorV2 {
             }
             return true
         }
+    }
+
+    private static func hasConflictingPauseClassifications(_ pauses: [PaidPauseFactV2]) -> Bool {
+        let classified = pauses.compactMap { pause -> (start: Date, end: Date, paid: Bool)? in
+            guard let end = pause.end, let paid = pause.paid else { return nil }
+            return (pause.start, end, paid)
+        }.sorted {
+            $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
+        }
+
+        for index in classified.indices {
+            let current = classified[index]
+            var nextIndex = classified.index(after: index)
+            while nextIndex < classified.endIndex {
+                let candidate = classified[nextIndex]
+                if candidate.start >= current.end { break }
+                if candidate.end > current.start && candidate.paid != current.paid {
+                    return true
+                }
+                nextIndex = classified.index(after: nextIndex)
+            }
+        }
+        return false
     }
 
     private static func unique(_ values: [String]) -> [String] {
