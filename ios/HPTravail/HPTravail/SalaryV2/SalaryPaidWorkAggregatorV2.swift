@@ -103,6 +103,15 @@ enum SalaryPaidWorkAggregatorV2 {
         var coveredIntervals: [(start: Date, end: Date)] = []
 
         for session in sessions where normalizedEmployerId(session.employerId) == employerId {
+            // Une date non finie ne peut pas être classée de façon fiable dedans/dehors du mois.
+            // On invalide donc la source avant tout filtrage calendaire au lieu de la sauter.
+            guard session.entry.timeIntervalSince1970.isFinite,
+                  session.exit?.timeIntervalSince1970.isFinite ?? true else {
+                reliable = false
+                warnings.append(invalidSessionWarning)
+                continue
+            }
+
             guard potentiallyTouchesPeriod(session, monthStart: monthStart, monthEnd: monthEnd) else {
                 continue
             }
@@ -113,8 +122,6 @@ enum SalaryPaidWorkAggregatorV2 {
                 continue
             }
             guard exit > session.entry,
-                  session.entry.timeIntervalSince1970.isFinite,
-                  exit.timeIntervalSince1970.isFinite,
                   pausesAreStructurallyUsable(session.pauses, sessionStart: session.entry, sessionEnd: exit) else {
                 reliable = false
                 warnings.append(invalidSessionWarning)
