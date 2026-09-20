@@ -112,25 +112,33 @@ object SocialSecurityCeilingV2 {
                 } else if (presenceRatio <= 0.0) {
                     0.0
                 } else {
-                    val complementary = input.complementaryMinutes
-                    if (complementary == null) {
-                        complete = false
-                        warnings += "Plafond SS temps partiel : heures complémentaires du mois inconnues, calcul conservateur sans heures complémentaires."
+                    val complementary = when (val raw = input.complementaryMinutes) {
+                        null -> {
+                            complete = false
+                            warnings += "Plafond SS temps partiel : heures complémentaires du mois inconnues, calcul conservateur sans heures complémentaires."
+                            0
+                        }
+                        in Int.MIN_VALUE until 0 -> {
+                            complete = false
+                            warnings += "Plafond SS temps partiel : heures complémentaires incohérentes ($raw min) ; aucune heure complémentaire n'est appliquée automatiquement."
+                            0
+                        }
+                        else -> raw
                     }
                     val contractualMonthly = weekly * 52.0 / 12.0
                     val legalMonthly = LEGAL_WEEKLY_MINUTES * 52.0 / 12.0
                     val contractualDuringPresence = contractualMonthly * presenceRatio
                     val legalDuringPresence = legalMonthly * presenceRatio
-                    ((contractualDuringPresence + (complementary ?: 0).coerceAtLeast(0)) / legalDuringPresence)
+                    ((contractualDuringPresence + complementary) / legalDuringPresence)
                         .coerceIn(0.0, 1.0)
                 }
             }
 
             ContractTypeV2.FORFAIT_DAYS -> {
                 val days = input.forfaitAnnualDays
-                if (days == null || days <= 0.0) {
+                if (days == null || !days.isFinite() || days <= 0.0) {
                     complete = false
-                    warnings += "Plafond SS forfait jours : nombre annuel de jours absent, réduction éventuelle non calculée."
+                    warnings += "Plafond SS forfait jours : nombre annuel de jours absent ou invalide, réduction éventuelle non calculée."
                     1.0
                 } else {
                     (days / FULL_TIME_ANNUAL_DAYS_REFERENCE).coerceIn(0.0, 1.0)
