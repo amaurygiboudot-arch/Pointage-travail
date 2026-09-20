@@ -3,13 +3,14 @@ import Foundation
 
 /// Façade d'état de l'onglet Salaire iOS.
 ///
-/// Toute donnée de salaire est désormais résolue pour une entreprise explicitement sélectionnée.
-/// Une seule entreprise confirmée peut être sélectionnée automatiquement car le choix est non ambigu ;
-/// avec plusieurs entreprises, aucun `companyId` n'est inventé.
+/// Toute donnée de salaire est résolue pour une entreprise sélectionnée sans ambiguïté.
+/// Une seule entreprise confirmée peut être sélectionnée automatiquement ; dès qu'il existe
+/// plusieurs entreprises, seul un choix utilisateur explicitement tracé peut être conservé.
+@MainActor
 final class SalaryV2Store: ObservableObject {
     typealias ReferenceProvider = (_ companyId: String, _ period: YearMonthV2) -> SalaryReferenceContractV2?
     typealias CompaniesProvider = () -> SalaryCompanyReadResultV2
-    typealias WorkSourceProvider = () -> SalaryWorkSessionSourceV2
+    typealias WorkSourceProvider = @MainActor () -> SalaryWorkSessionSourceV2
 
     @Published private(set) var selectedPeriod: YearMonthV2
     @Published private(set) var snapshot: SalaryWorkspaceSnapshotV2
@@ -25,6 +26,7 @@ final class SalaryV2Store: ObservableObject {
     private let workSourceProvider: WorkSourceProvider
     private let incomeTaxStore: CompanyIncomeTaxRateStoreV2
     private let calendar: Calendar
+    private var selectedCompanyWasExplicit = false
 
     init(
         referenceProvider: @escaping ReferenceProvider = { _, _ in nil },
@@ -44,6 +46,7 @@ final class SalaryV2Store: ObservableObject {
         let storedCompanies = companiesProvider()
         let companyId = SalaryCompanySelectionV2.reconcile(
             currentCompanyId: nil,
+            selectionWasExplicit: false,
             companies: storedCompanies
         )
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: period) }
@@ -98,11 +101,18 @@ final class SalaryV2Store: ObservableObject {
     }
 
     func refresh() {
+        let previousWasExplicit = selectedCompanyWasExplicit
         companies = companiesProvider()
-        selectedCompanyId = SalaryCompanySelectionV2.reconcile(
+        let reconciled = SalaryCompanySelectionV2.reconcile(
             currentCompanyId: selectedCompanyId,
+            selectionWasExplicit: previousWasExplicit,
             companies: companies
         )
+        selectedCompanyId = reconciled
+        selectedCompanyWasExplicit = companies.reliable
+            && companies.companies.count > 1
+            && previousWasExplicit
+            && reconciled != nil
         recompute()
     }
 
@@ -114,6 +124,7 @@ final class SalaryV2Store: ObservableObject {
 
         guard let requestedCompanyId else {
             selectedCompanyId = nil
+            selectedCompanyWasExplicit = false
             recompute()
             return true
         }
@@ -123,11 +134,15 @@ final class SalaryV2Store: ObservableObject {
             companies: companies
         ) else {
             selectedCompanyId = nil
+            selectedCompanyWasExplicit = false
             recompute()
             return false
         }
 
         selectedCompanyId = confirmed
+        // Un choix parmi plusieurs entreprises est réellement explicite. Avec une seule entreprise,
+        // on ne transforme pas ce contexte non ambigu en préférence réutilisable si une 2e apparaît.
+        selectedCompanyWasExplicit = companies.companies.count > 1
         incomeTaxFeedback = nil
         recompute()
         return true
