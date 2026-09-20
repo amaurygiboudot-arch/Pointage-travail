@@ -1,0 +1,90 @@
+import XCTest
+#if SWIFT_PACKAGE
+@testable import SalaryV2Contract
+#endif
+
+final class SalaryCompanySelectionV2Tests: XCTestCase {
+    private func stored(_ ids: [String], reliable: Bool = true) -> SalaryCompanyReadResultV2 {
+        SalaryCompanyReadResultV2(
+            companies: ids.map { SalaryCompanyV2(id: $0, name: "Entreprise \($0)", siret: "") },
+            reliable: reliable,
+            repairedFromBackup: false,
+            warnings: reliable ? [] : [SalaryCompanyStoreV2.storageWarning]
+        )
+    }
+
+    func testNoCompanyMeansNoSelection() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: nil,
+                companies: stored([])
+            )
+        )
+    }
+
+    func testSingleCompanyIsAutoSelectedBecauseChoiceIsUnambiguous() {
+        XCTAssertEqual(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: nil,
+                companies: stored(["company-a"])
+            ),
+            "company-a"
+        )
+    }
+
+    func testMultipleCompaniesNeverCreateImplicitSelection() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: nil,
+                companies: stored(["company-a", "company-b"])
+            )
+        )
+    }
+
+    func testExplicitSelectionIsPreservedWhileStillConfirmed() {
+        XCTAssertEqual(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: "company-b",
+                companies: stored(["company-a", "company-b"])
+            ),
+            "company-b"
+        )
+    }
+
+    func testRemovedOrUnknownSelectionIsCleared() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: "company-c",
+                companies: stored(["company-a", "company-b"])
+            )
+        )
+    }
+
+    func testUnreliableCompanyStoreClearsAnySelection() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: "company-a",
+                companies: stored(["company-a"], reliable: false)
+            )
+        )
+    }
+
+    func testExplicitSelectionRejectsUnknownCompany() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.explicitSelection(
+                requestedCompanyId: "company-c",
+                companies: stored(["company-a", "company-b"])
+            )
+        )
+    }
+
+    func testExplicitSelectionAcceptsOnlyExactConfirmedCompany() {
+        XCTAssertEqual(
+            SalaryCompanySelectionV2.explicitSelection(
+                requestedCompanyId: " company-b ",
+                companies: stored(["company-a", "company-b"])
+            ),
+            "company-b"
+        )
+    }
+}
