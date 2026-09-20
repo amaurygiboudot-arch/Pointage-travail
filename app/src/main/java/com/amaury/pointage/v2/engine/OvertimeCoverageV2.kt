@@ -43,7 +43,7 @@ object OvertimeCoverageV2 {
         tiers: List<OvertimeTierV2>
     ): Boolean {
         require(regularLimitMinutes > 0) { "Seuil hebdomadaire invalide" }
-        require(paidMinutes >= 0) { "Minutes payées invalides" }
+        if (paidMinutes < 0) return false
         val paid = paidMinutes
         if (paid <= regularLimitMinutes) return true
         if (!isStructurallyValid(regularLimitMinutes, tiers)) return false
