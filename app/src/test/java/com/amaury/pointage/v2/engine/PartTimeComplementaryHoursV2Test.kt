@@ -48,4 +48,13 @@ class PartTimeComplementaryHoursV2Test {
         assertTrue(result.grossToAdd > 0.0)
         assertTrue(result.warnings.any { it.contains("supérieur au tiers") })
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun negativePaidMinutesAreRejectedInsteadOfClampedToZero() {
+        PartTimeComplementaryHoursV2.calculateWeek(
+            contractualMinutes = 28 * 60,
+            paidMinutes = -1,
+            grossHourlyRate = 10.0
+        )
+    }
 }
