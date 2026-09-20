@@ -86,9 +86,11 @@ struct ContentView: View {
                             case .employer(let id):
                                 employerId = id
                             }
-                            if !store.clockIn(employerId: employerId) {
+
+                            let didClockIn = store.clockIn(employerId: employerId)
+                            refreshClockEmployerSelection()
+                            if !didClockIn {
                                 clockInFeedback = "Entrée non enregistrée : entreprise ou historique à vérifier."
-                                refreshClockEmployerSelection()
                             }
                         }
                         actionButton(title: store.isPaused ? "REPRISE" : "PAUSE", symbol: "pause.circle.fill", color: .orange, disabled: !store.storageReliable || !store.isWorking) {
@@ -107,6 +109,7 @@ struct ContentView: View {
                                 showPausePaymentChoice = true
                             } else {
                                 store.clockOut()
+                                refreshClockEmployerSelection()
                             }
                         }
                     }
@@ -166,11 +169,12 @@ struct ContentView: View {
                     }
                     Text("Sans entreprise / autre").tag(ClockEmployerChoice.unassigned)
                     ForEach(clockCompanies.companies) { company in
-                        Text(company.name.isEmpty ? company.id : company.name)
+                        Text(salaryCompanyLabel(company))
                             .tag(ClockEmployerChoice.employer(company.id))
                     }
                 }
                 .pickerStyle(.menu)
+                .disabled(store.isWorking)
 
                 if clockCompanies.companies.count > 1 && clockEmployerChoice == .unresolved {
                     Text("Plusieurs entreprises sont configurées : choisis explicitement celle de ce pointage.")
@@ -374,6 +378,13 @@ struct ContentView: View {
     }
 }
 
+private func salaryCompanyLabel(_ company: SalaryCompanyV2) -> String {
+    let name = company.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let siret = company.siret.trimmingCharacters(in: .whitespacesAndNewlines)
+    let details = siret.isEmpty ? company.id : "SIRET \(siret) • \(company.id)"
+    return name.isEmpty ? details : "\(name) — \(details)"
+}
+
 private struct ManualEntrySheetV2: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: WorkStoreV2
@@ -412,7 +423,7 @@ private struct ManualEntrySheetV2: View {
                         Picker("Entreprise", selection: $selectedCompanyId) {
                             Text("Sans entreprise / autre").tag("")
                             ForEach(companies.companies) { company in
-                                Text(company.name.isEmpty ? company.id : company.name)
+                                Text(salaryCompanyLabel(company))
                                     .tag(company.id)
                             }
                         }
