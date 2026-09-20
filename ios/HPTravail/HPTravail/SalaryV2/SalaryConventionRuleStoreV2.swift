@@ -70,6 +70,7 @@ enum SalaryConventionRuleStoreV2 {
     private static let primaryKey = "salary_convention_rules_v2.confirmed_snapshots"
     private static let backupKey = "salary_convention_rules_v2.confirmed_snapshots_last_known_good"
     private static let lock = NSLock()
+    private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
     static func readConfirmed(defaults: UserDefaults = .standard) -> SalaryConventionRuleReadResultV2 {
         let primaryObject = defaults.object(forKey: primaryKey)
@@ -141,6 +142,7 @@ enum SalaryConventionRuleStoreV2 {
         defaults: UserDefaults = .standard
     ) -> Bool {
         guard validSnapshotPayload(snapshot) else { return false }
+        let candidate = normalizedSnapshot(snapshot)
 
         lock.lock()
         defer { lock.unlock() }
@@ -148,11 +150,11 @@ enum SalaryConventionRuleStoreV2 {
         let stored = readConfirmed(defaults: defaults)
         guard stored.reliable else { return false }
 
-        let normalizedIdcc = normalizeIdcc(snapshot.idcc)
         var current = stored.snapshots.filter {
-            !(normalizeIdcc($0.idcc) == normalizedIdcc && $0.versionId == snapshot.versionId)
+            !(normalizeIdcc($0.idcc) == candidate.idcc &&
+              $0.versionId.trimmingCharacters(in: .whitespacesAndNewlines) == candidate.versionId)
         }
-        current.append(normalizedSnapshot(snapshot))
+        current.append(candidate)
         guard historyIsStructurallyValid(current), let raw = encodeConfirmed(current) else {
             return false
         }
@@ -161,21 +163,22 @@ enum SalaryConventionRuleStoreV2 {
             return false
         }
         let reloaded = readConfirmed(defaults: defaults)
-        return reloaded.reliable
-            && reloaded.snapshots.contains(normalizedSnapshot(snapshot))
+        return reloaded.reliable && reloaded.snapshots.contains(candidate)
     }
 
     static func decodeConfirmed(_ raw: String) -> SalaryConventionRuleReadResultV2 {
         guard let data = raw.data(using: .utf8) else { return unreliableResult() }
         do {
-            guard let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            guard let array = try JSONSerialization.jsonObject(with: data) as? [Any] else {
                 return unreliableResult()
             }
 
             var snapshots: [SalaryConventionRuleSnapshotV2] = []
             var malformed = false
-            for object in array {
-                guard let snapshot = decodeSnapshot(object), validSnapshotPayload(snapshot) else {
+            for item in array {
+                guard let object = item as? [String: Any],
+                      let snapshot = decodeSnapshot(object),
+                      validSnapshotPayload(snapshot) else {
                     malformed = true
                     continue
                 }
@@ -197,12 +200,16 @@ enum SalaryConventionRuleStoreV2 {
     static func historyIsStructurallyValid(_ snapshots: [SalaryConventionRuleSnapshotV2]) -> Bool {
         guard snapshots.allSatisfy(validSnapshotPayload) else { return false }
 
-        let versionKeys = snapshots.map { "\(normalizeIdcc($0.idcc))\u{0}\($0.versionId)" }
+        let versionKeys = snapshots.map {
+            let version = $0.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+            return "\(normalizeIdcc($0.idcc))\u{0}\(version)"
+        }
         guard Set(versionKeys).count == versionKeys.count else { return false }
 
         let grouped = Dictionary(grouping: snapshots) { normalizeIdcc($0.idcc) }
         for items in grouped.values {
             let ascending = items.sorted { $0.effectiveFromEpochDay < $1.effectiveFromEpochDay }
+            guard ascending.count > 1 else { continue }
             for index in 1..<ascending.count {
                 let previous = ascending[index - 1]
                 let current = ascending[index]
@@ -273,7 +280,7 @@ enum SalaryConventionRuleStoreV2 {
             let tiers = snapshot.rules.overtimeTiers.map { tier -> [String: Any] in
                 [
                     "fromMinutes": tier.fromMinutes,
-                    "toMinutes": tier.toMinutes ?? NSNull(),
+                    "toMinutes": jsonValue(tier.toMinutes),
                     "multiplier": tier.multiplier
                 ]
             }
@@ -282,15 +289,15 @@ enum SalaryConventionRuleStoreV2 {
                 "versionId": snapshot.versionId,
                 "sourceId": snapshot.sourceId,
                 "effectiveFromEpochDay": snapshot.effectiveFromEpochDay,
-                "effectiveToEpochDay": snapshot.effectiveToEpochDay ?? NSNull(),
+                "effectiveToEpochDay": jsonValue(snapshot.effectiveToEpochDay),
                 "checkedAtMs": snapshot.checkedAtMs,
-                "note": snapshot.note ?? NSNull(),
+                "note": jsonValue(snapshot.note),
                 "rules": [
-                    "weeklyRegularMinutes": snapshot.rules.weeklyRegularMinutes ?? NSNull(),
-                    "nightMultiplier": snapshot.rules.nightMultiplier ?? NSNull(),
-                    "saturdayMultiplier": snapshot.rules.saturdayMultiplier ?? NSNull(),
-                    "sundayMultiplier": snapshot.rules.sundayMultiplier ?? NSNull(),
-                    "publicHolidayMultiplier": snapshot.rules.publicHolidayMultiplier ?? NSNull(),
+                    "weeklyRegularMinutes": jsonValue(snapshot.rules.weeklyRegularMinutes),
+                    "nightMultiplier": jsonValue(snapshot.rules.nightMultiplier),
+                    "saturdayMultiplier": jsonValue(snapshot.rules.saturdayMultiplier),
+                    "sundayMultiplier": jsonValue(snapshot.rules.sundayMultiplier),
+                    "publicHolidayMultiplier": jsonValue(snapshot.rules.publicHolidayMultiplier),
                     "overtimeTiers": tiers
                 ]
             ]
@@ -342,10 +349,11 @@ enum SalaryConventionRuleStoreV2 {
 
     private static func decodeTiers(_ raw: Any?) -> [OvertimeTierV2]? {
         if raw == nil || raw is NSNull { return [] }
-        guard let array = raw as? [[String: Any]] else { return nil }
+        guard let array = raw as? [Any] else { return nil }
         var tiers: [OvertimeTierV2] = []
-        for object in array {
-            guard let from = strictInt(object["fromMinutes"]),
+        for item in array {
+            guard let object = item as? [String: Any],
+                  let from = strictInt(object["fromMinutes"]),
                   let to = optionalInt(object["toMinutes"]),
                   let multiplier = strictDouble(object["multiplier"]) else {
                 return nil
@@ -358,16 +366,19 @@ enum SalaryConventionRuleStoreV2 {
     private static func strictInt(_ raw: Any?) -> Int? {
         guard let number = raw as? NSNumber, !(raw is Bool) else { return nil }
         let value = number.doubleValue
-        guard value.isFinite, value.rounded() == value,
-              value >= Double(Int.min), value <= Double(Int.max) else { return nil }
-        return Int(value)
+        guard value.isFinite,
+              value.rounded() == value,
+              abs(value) <= maxExactJSONInteger else { return nil }
+        let int64 = Int64(value)
+        return Int(exactly: int64)
     }
 
     private static func strictInt64(_ raw: Any?) -> Int64? {
         guard let number = raw as? NSNumber, !(raw is Bool) else { return nil }
         let value = number.doubleValue
-        guard value.isFinite, value.rounded() == value,
-              value >= Double(Int64.min), value <= Double(Int64.max) else { return nil }
+        guard value.isFinite,
+              value.rounded() == value,
+              abs(value) <= maxExactJSONInteger else { return nil }
         return Int64(value)
     }
 
@@ -400,6 +411,10 @@ enum SalaryConventionRuleStoreV2 {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return .some(trimmed.isEmpty ? nil : trimmed)
+    }
+
+    private static func jsonValue<T>(_ value: T?) -> Any {
+        value ?? NSNull()
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
