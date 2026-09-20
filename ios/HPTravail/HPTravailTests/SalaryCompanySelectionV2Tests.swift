@@ -17,6 +17,7 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
         XCTAssertNil(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: nil,
+                selectionWasExplicit: false,
                 companies: stored([])
             )
         )
@@ -26,6 +27,7 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
         XCTAssertEqual(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: nil,
+                selectionWasExplicit: false,
                 companies: stored(["company-a"])
             ),
             "company-a"
@@ -36,6 +38,17 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
         XCTAssertNil(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: nil,
+                selectionWasExplicit: false,
+                companies: stored(["company-a", "company-b"])
+            )
+        )
+    }
+
+    func testAutoSelectionFromSingleCompanyIsClearedWhenSecondCompanyAppears() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.reconcile(
+                currentCompanyId: "company-a",
+                selectionWasExplicit: false,
                 companies: stored(["company-a", "company-b"])
             )
         )
@@ -45,16 +58,18 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
         XCTAssertEqual(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: "company-b",
+                selectionWasExplicit: true,
                 companies: stored(["company-a", "company-b"])
             ),
             "company-b"
         )
     }
 
-    func testRemovedOrUnknownSelectionIsCleared() {
+    func testRemovedOrUnknownExplicitSelectionIsCleared() {
         XCTAssertNil(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: "company-c",
+                selectionWasExplicit: true,
                 companies: stored(["company-a", "company-b"])
             )
         )
@@ -64,6 +79,7 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
         XCTAssertNil(
             SalaryCompanySelectionV2.reconcile(
                 currentCompanyId: "company-a",
+                selectionWasExplicit: true,
                 companies: stored(["company-a"], reliable: false)
             )
         )
