@@ -107,4 +107,15 @@ class FullTimeStructuralOvertimeV2Test {
         assertTrue(result.provisionalRateUsed)
         assertTrue(result.warnings.any { it.contains("ambigus ou invalides") })
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun negativePaidWeekIsRejectedInsteadOfClampedToZero() {
+        FullTimeStructuralOvertimeV2.calculate(
+            contractualWeeklyMinutes=39*60,
+            regularWeeklyLimit=35*60,
+            paidWeeks=listOf(-1),
+            grossHourlyRate=10.0,
+            overtimeTiers=legalTiers
+        )
+    }
 }
