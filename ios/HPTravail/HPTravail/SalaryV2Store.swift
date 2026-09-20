@@ -101,18 +101,7 @@ final class SalaryV2Store: ObservableObject {
     }
 
     func refresh() {
-        let previousWasExplicit = selectedCompanyWasExplicit
-        companies = companiesProvider()
-        let reconciled = SalaryCompanySelectionV2.reconcile(
-            currentCompanyId: selectedCompanyId,
-            selectionWasExplicit: previousWasExplicit,
-            companies: companies
-        )
-        selectedCompanyId = reconciled
-        selectedCompanyWasExplicit = companies.reliable
-            && companies.companies.count > 1
-            && previousWasExplicit
-            && reconciled != nil
+        synchronizeCompanySelectionWithLatestStore()
         recompute()
     }
 
@@ -151,18 +140,24 @@ final class SalaryV2Store: ObservableObject {
     @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
-        let latestCompanies = companiesProvider()
-        guard let companyId = SalaryCompanySelectionV2.explicitSelection(
-            requestedCompanyId: selectedCompanyId,
-            companies: latestCompanies
-        ),
-        let rate = Double(normalized),
-        incomeTaxStore.confirm(
-            companyId: companyId,
-            ratePercent: rate,
-            period: selectedPeriod,
-            source: incomeTaxSource
-        ) else {
+
+        // Le magasin d'entreprises peut avoir changé depuis l'affichage de l'écran.
+        // Revalider ici empêche une ancienne auto-sélection mono-employeur d'être utilisée
+        // comme si elle était devenue un choix explicite après l'ajout d'un second employeur.
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = selectedCompanyId else {
+            recompute()
+            incomeTaxFeedback = "Confirmation impossible : choisissez explicitement l’entreprise à analyser."
+            return false
+        }
+
+        guard let rate = Double(normalized),
+              incomeTaxStore.confirm(
+                  companyId: companyId,
+                  ratePercent: rate,
+                  period: selectedPeriod,
+                  source: incomeTaxSource
+              ) else {
             incomeTaxFeedback = "Confirmation impossible : vérifiez le taux, la source et l’entreprise sélectionnée."
             return false
         }
@@ -173,12 +168,14 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func removeIncomeTaxRate() -> Bool {
-        let latestCompanies = companiesProvider()
-        guard let companyId = SalaryCompanySelectionV2.explicitSelection(
-            requestedCompanyId: selectedCompanyId,
-            companies: latestCompanies
-        ),
-        incomeTaxStore.remove(companyId: companyId, period: selectedPeriod) else {
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = selectedCompanyId else {
+            recompute()
+            incomeTaxFeedback = "Impossible de retirer le taux PAS : choisissez explicitement l’entreprise à analyser."
+            return false
+        }
+
+        guard incomeTaxStore.remove(companyId: companyId, period: selectedPeriod) else {
             incomeTaxFeedback = "Impossible de retirer le taux PAS. Vérifiez l’entreprise sélectionnée et le stockage local."
             return false
         }
@@ -197,6 +194,21 @@ final class SalaryV2Store: ObservableObject {
         guard let next else { return }
         selectedPeriod = next
         refresh()
+    }
+
+    private func synchronizeCompanySelectionWithLatestStore() {
+        let previousWasExplicit = selectedCompanyWasExplicit
+        companies = companiesProvider()
+        let reconciled = SalaryCompanySelectionV2.reconcile(
+            currentCompanyId: selectedCompanyId,
+            selectionWasExplicit: previousWasExplicit,
+            companies: companies
+        )
+        selectedCompanyId = reconciled
+        selectedCompanyWasExplicit = companies.reliable
+            && companies.companies.count > 1
+            && previousWasExplicit
+            && reconciled != nil
     }
 
     private func recompute() {
