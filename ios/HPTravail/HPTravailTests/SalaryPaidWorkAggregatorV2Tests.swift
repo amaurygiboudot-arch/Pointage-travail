@@ -309,6 +309,23 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.conflictingPauseWarning))
     }
 
+    func testNonFiniteEntryFailsClosedBeforePeriodFiltering() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: Date(timeIntervalSince1970: .infinity),
+                exit: date(2026, 9, 26, 9)
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.invalidSessionWarning))
+    }
+
     func testBlankEmployerIdFailsClosed() {
         let result = SalaryPaidWorkAggregatorV2.aggregate(
             sessions: [],
