@@ -10,7 +10,8 @@ import org.junit.Test
 class EmployerGeneralReduction2026V2Test {
     private fun input(
         gross: Double = 2000.0,
-        band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? =
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
         additionalMinutes: Double? = 0.0,
@@ -19,7 +20,7 @@ class EmployerGeneralReduction2026V2Test {
     ) = EmployerGeneralReduction2026V2.Input(
         year = 2026,
         reductionRemunerationMonthly = gross,
-        workforceBand = band,
+        fnalTreatment = fnalTreatment,
         contractType = type,
         contractualWeeklyMinutes = weeklyMinutes,
         additionalPaidMinutes = additionalMinutes,
@@ -28,7 +29,7 @@ class EmployerGeneralReduction2026V2Test {
     )
 
     @Test
-    fun `urssaf example at least 50 gives 0 point 3178 and 635 point 60 euros`() {
+    fun `uncapped 0 point 5 percent regime gives 0 point 3178 and 635 point 60 euros`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(input())
 
         assertTrue(result.reliable)
@@ -38,23 +39,37 @@ class EmployerGeneralReduction2026V2Test {
     }
 
     @Test
-    fun `under 50 uses lower maximum coefficient`() {
+    fun `capped 0 point 1 percent regime uses lower delta without workforce inference`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
-            input(band = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49)
+            input(fnalTreatment = EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT)
         )
 
+        assertTrue(result.reliable)
         assertEquals(0.3147, result.coefficient!!, 0.0000001)
         assertEquals(629.40, result.amount!!, 0.001)
     }
 
     @Test
-    fun `coefficient is capped at legal maximum below smic`() {
+    fun `coefficient is capped at legal maximum for capped 0 point 1 percent regime`() {
         val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
-            input(gross = 1500.0, band = EmployerWorkforceContributionsV2.Band.UNDER_11)
+            input(
+                gross = 1500.0,
+                fnalTreatment = EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT
+            )
         )
 
         assertEquals(0.3981, result.coefficient!!, 0.0000001)
         assertEquals(597.15, result.amount!!, 0.001)
+    }
+
+    @Test
+    fun `missing FNAL treatment is fail closed and never inferred`() {
+        val result = EmployerGeneralReduction2026V2.calculateMonthlyAdvance(input(fnalTreatment = null))
+
+        assertFalse(result.reliable)
+        assertNull(result.amount)
+        assertNull(result.coefficient)
+        assertTrue(result.warnings.any { it.contains("FNAL/logement") })
     }
 
     @Test
