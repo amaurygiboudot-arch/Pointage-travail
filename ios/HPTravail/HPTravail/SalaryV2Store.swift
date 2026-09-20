@@ -140,14 +140,18 @@ final class SalaryV2Store: ObservableObject {
     @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
+        let targetBeforeReconciliation = selectedCompanyId
 
         // Le magasin d'entreprises peut avoir changé depuis l'affichage de l'écran.
-        // Revalider ici empêche une ancienne auto-sélection mono-employeur d'être utilisée
-        // comme si elle était devenue un choix explicite après l'ajout d'un second employeur.
+        // La mutation reste liée à sa cible d'origine : si la réconciliation sélectionne une autre
+        // entreprise, aucune écriture n'est autorisée avec les champs saisis pour l'ancienne cible.
         synchronizeCompanySelectionWithLatestStore()
-        guard let companyId = selectedCompanyId else {
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
             recompute()
-            incomeTaxFeedback = "Confirmation impossible : choisissez explicitement l’entreprise à analyser."
+            incomeTaxFeedback = "Confirmation impossible : l’entreprise analysée a changé. Vérifiez la sélection avant de confirmer le taux."
             return false
         }
 
@@ -168,10 +172,14 @@ final class SalaryV2Store: ObservableObject {
 
     @discardableResult
     func removeIncomeTaxRate() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
         synchronizeCompanySelectionWithLatestStore()
-        guard let companyId = selectedCompanyId else {
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
             recompute()
-            incomeTaxFeedback = "Impossible de retirer le taux PAS : choisissez explicitement l’entreprise à analyser."
+            incomeTaxFeedback = "Impossible de retirer le taux PAS : l’entreprise analysée a changé. Vérifiez la sélection."
             return false
         }
 
