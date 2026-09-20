@@ -52,15 +52,18 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - HPTravailTests
+      - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
       - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift
       - path: HPTravail/SalaryV2/SalaryCompanyStoreV2.swift
+      - path: HPTravail/SalaryV2/SalaryCompanySelectionV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractStoreV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
       - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
       - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
       - path: HPTravail/SalaryV2/SalaryPaidWorkAggregatorV2.swift
+      - path: HPTravail/SalaryV2/SalaryWorkSessionBridgeV2.swift
       - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
       - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
       - path: HPTravail/SalaryV2/EmployerUnemploymentAgsV2.swift

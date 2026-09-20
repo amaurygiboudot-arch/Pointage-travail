@@ -1,21 +1,41 @@
 import Foundation
 
-struct WorkSession: Codable, Equatable, Identifiable {
-    let id: UUID
-    var entry: Date
-    var exit: Date?
-    var pauses: [PausePeriod]
-    var employerId: String? = nil
-    var placeLabel: String? = nil
+/// Contrat factuel du journal de pointage RuntimeV2.
+///
+/// Le type est public uniquement pour permettre aux couches consommatrices (dont Salaire V2)
+/// de lire les faits enregistrés. RuntimeV2 ne dépend d'aucune règle ou type SalaireV2.
+public struct WorkSession: Codable, Equatable, Identifiable {
+    public let id: UUID
+    public var entry: Date
+    public var exit: Date?
+    public var pauses: [PausePeriod]
+    public var employerId: String? = nil
+    public var placeLabel: String? = nil
+
+    public init(
+        id: UUID,
+        entry: Date,
+        exit: Date?,
+        pauses: [PausePeriod],
+        employerId: String? = nil,
+        placeLabel: String? = nil
+    ) {
+        self.id = id
+        self.entry = entry
+        self.exit = exit
+        self.pauses = pauses
+        self.employerId = employerId
+        self.placeLabel = placeLabel
+    }
 }
 
-struct PausePeriod: Codable, Equatable, Identifiable {
-    let id: UUID
-    var start: Date
-    var end: Date?
-    var paid: Bool?
+public struct PausePeriod: Codable, Equatable, Identifiable {
+    public let id: UUID
+    public var start: Date
+    public var end: Date?
+    public var paid: Bool?
 
-    init(id: UUID, start: Date, end: Date?, paid: Bool? = nil) {
+    public init(id: UUID, start: Date, end: Date?, paid: Bool? = nil) {
         self.id = id
         self.start = start
         self.end = end
