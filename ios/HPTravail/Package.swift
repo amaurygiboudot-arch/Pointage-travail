@@ -17,12 +17,11 @@ let package = Package(
         ),
         .target(
             name: "RuntimeV2Contract",
-            dependencies: ["SalaryV2Contract"],
             path: "HPTravail/RuntimeV2"
         ),
         .testTarget(
             name: "SalaryV2ContractTests",
-            dependencies: ["SalaryV2Contract", "RuntimeV2Contract"],
+            dependencies: ["SalaryV2Contract"],
             path: "HPTravailTests"
         ),
         .testTarget(
