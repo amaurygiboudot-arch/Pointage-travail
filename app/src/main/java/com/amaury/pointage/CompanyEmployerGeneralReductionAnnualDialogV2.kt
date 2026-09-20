@@ -29,7 +29,7 @@ import java.util.UUID
  */
 object CompanyEmployerGeneralReductionAnnualDialogV2 {
     private val yesNoLabels = listOf("À confirmer", "Oui", "Non")
-    private val workforceLabels = listOf("À confirmer", "Moins de 11 salariés", "11 à 49 salariés", "50 salariés ou plus")
+    private val fnalLabels = listOf("À confirmer", "0,10 % plafonné", "0,50 % déplafonné")
     private val contractLabels = listOf("À confirmer", "Temps plein", "Temps partiel")
 
     fun show(context: Context, companyId: String, year: Int = selectedPayrollYear(context)) {
@@ -140,7 +140,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
         val fullYear = labelledSpinner(context, box, "Présence sur toute l'année civile", yesNoLabels)
         val standard = labelledSpinner(context, box, "Cas RGDU de droit commun sur toute l'année", yesNoLabels)
         val homogeneous = labelledSpinner(context, box, "Paramètres stables sur toute l'année", yesNoLabels)
-        val workforce = labelledSpinner(context, box, "Tranche d'effectif historique", workforceLabels)
+        val fnal = labelledSpinner(context, box, "Régime FNAL/logement historique", fnalLabels)
         val contract = labelledSpinner(context, box, "Type de contrat historique", contractLabels)
         val weeklyMinutes = EditText(context).apply {
             hint = "Durée contractuelle hebdomadaire en minutes — ex. 2100 = 35 h"
@@ -159,7 +159,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
             fullYear.setSelection(booleanSelection(record.fullCalendarYearPresent))
             standard.setSelection(booleanSelection(record.standardCommonLawCaseConfirmed))
             homogeneous.setSelection(nullableBooleanSelection(record.homogeneousAnnualParametersConfirmed))
-            workforce.setSelection(workforceSelection(record.confirmedWorkforceBand))
+            fnal.setSelection(fnalSelection(record.confirmedFnalTreatment))
             contract.setSelection(contractSelection(record.confirmedContractType))
             record.confirmedContractualWeeklyMinutes?.let { weeklyMinutes.setText(it.toString()) }
             source.setText(record.source)
@@ -182,7 +182,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                 }
 
                 val homogeneousValue = parseNullableBoolean(homogeneous.selectedItemPosition)
-                val workforceValue = parseWorkforce(workforce.selectedItemPosition)
+                val fnalValue = parseFnal(fnal.selectedItemPosition)
                 val contractValue = parseContract(contract.selectedItemPosition)
                 val minutesValue = weeklyMinutes.text.toString().trim().toIntOrNull()
                 val rawSource = source.text.toString().trim()
@@ -196,8 +196,8 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                     return@setOnClickListener
                 }
                 if (homogeneousValue == true) {
-                    if (workforceValue == null) {
-                        Toast.makeText(context, "Confirme la tranche d'effectif historique", Toast.LENGTH_LONG).show()
+                    if (fnalValue == null) {
+                        Toast.makeText(context, "Confirme le régime FNAL/logement historique", Toast.LENGTH_LONG).show()
                         return@setOnClickListener
                     }
                     if (contractValue == null) {
@@ -217,7 +217,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
                     standardCommonLawCaseConfirmed = standardValue,
                     homogeneousAnnualParametersConfirmed = homogeneousValue,
                     source = rawSource,
-                    confirmedWorkforceBand = workforceValue,
+                    confirmedFnalTreatment = fnalValue,
                     confirmedContractType = contractValue,
                     confirmedContractualWeeklyMinutes = minutesValue
                 )
@@ -286,7 +286,7 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
             append("Année complète : ").append(boolLabel(snapshot.fullCalendarYearPresent)).append('\n')
             append("Droit commun : ").append(boolLabel(snapshot.standardCommonLawCaseConfirmed)).append('\n')
             append("Paramètres stables : ").append(boolLabel(snapshot.homogeneousAnnualParametersConfirmed)).append('\n')
-            append("Effectif : ").append(workforceLabel(snapshot.confirmedWorkforceBand)).append('\n')
+            append("Régime FNAL/logement : ").append(fnalLabel(snapshot.confirmedFnalTreatment)).append('\n')
             append("Contrat : ").append(contractLabel(snapshot.confirmedContractType)).append('\n')
             append("Durée hebdo : ")
             append(snapshot.confirmedContractualWeeklyMinutes?.let { "$it min" } ?: "À confirmer").append('\n')
@@ -319,17 +319,15 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
     private fun parseRequiredBoolean(position: Int): Boolean? = when (position) { 1 -> true; 2 -> false; else -> null }
     private fun parseNullableBoolean(position: Int): Boolean? = parseRequiredBoolean(position)
 
-    private fun workforceSelection(value: EmployerWorkforceContributionsV2.Band?) = when (value) {
-        EmployerWorkforceContributionsV2.Band.UNDER_11 -> 1
-        EmployerWorkforceContributionsV2.Band.FROM_11_TO_49 -> 2
-        EmployerWorkforceContributionsV2.Band.AT_LEAST_50 -> 3
+    private fun fnalSelection(value: EmployerWorkforceContributionsV2.FnalTreatment?) = when (value) {
+        EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT -> 1
+        EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT -> 2
         null -> 0
     }
 
-    private fun parseWorkforce(position: Int): EmployerWorkforceContributionsV2.Band? = when (position) {
-        1 -> EmployerWorkforceContributionsV2.Band.UNDER_11
-        2 -> EmployerWorkforceContributionsV2.Band.FROM_11_TO_49
-        3 -> EmployerWorkforceContributionsV2.Band.AT_LEAST_50
+    private fun parseFnal(position: Int): EmployerWorkforceContributionsV2.FnalTreatment? = when (position) {
+        1 -> EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT
+        2 -> EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT
         else -> null
     }
 
@@ -347,10 +345,9 @@ object CompanyEmployerGeneralReductionAnnualDialogV2 {
 
     private fun boolLabel(value: Boolean?) = when (value) { true -> "Oui"; false -> "Non"; null -> "À confirmer" }
 
-    private fun workforceLabel(value: EmployerWorkforceContributionsV2.Band?) = when (value) {
-        EmployerWorkforceContributionsV2.Band.UNDER_11 -> "Moins de 11"
-        EmployerWorkforceContributionsV2.Band.FROM_11_TO_49 -> "11 à 49"
-        EmployerWorkforceContributionsV2.Band.AT_LEAST_50 -> "50 ou plus"
+    private fun fnalLabel(value: EmployerWorkforceContributionsV2.FnalTreatment?) = when (value) {
+        EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT -> "0,10 % plafonné"
+        EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT -> "0,50 % déplafonné"
         null -> "À confirmer"
     }
 
