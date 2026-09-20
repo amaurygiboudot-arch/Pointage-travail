@@ -27,10 +27,36 @@ final class WorkStoreV2: ObservableObject {
         return pause.paid == nil
     }
 
-    func clockIn() {
-        guard storageReliable, !isWorking else { return }
-        sessions.append(WorkSession(id: UUID(), entry: Date(), exit: nil, pauses: []))
+    @discardableResult
+    func clockIn(employerId requestedEmployerId: String? = nil) -> Bool {
+        guard storageReliable, !isWorking else { return false }
+
+        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
+        let employerId: String?
+        switch ClockInEmployerResolverV2.resolve(
+            requestedEmployerId: requestedEmployerId,
+            companies: companies
+        ) {
+        case .unassigned:
+            employerId = nil
+        case .employer(let confirmedEmployerId):
+            employerId = confirmedEmployerId
+        case .rejected:
+            return false
+        }
+
+        sessions.append(
+            WorkSession(
+                id: UUID(),
+                entry: Date(),
+                exit: nil,
+                pauses: [],
+                employerId: employerId,
+                placeLabel: nil
+            )
+        )
         save()
+        return storageReliable
     }
 
     func togglePause(paid: Bool? = nil) {
