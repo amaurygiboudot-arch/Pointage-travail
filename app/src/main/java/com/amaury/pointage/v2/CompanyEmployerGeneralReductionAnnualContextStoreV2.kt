@@ -141,7 +141,7 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
         .put("standardCommonLawCaseConfirmed", record.standardCommonLawCaseConfirmed)
         .put("homogeneousAnnualParametersConfirmed", record.homogeneousAnnualParametersConfirmed ?: JSONObject.NULL)
         .put("source", record.source)
-        .put("confirmedWorkforceBand", record.confirmedWorkforceBand?.name ?: JSONObject.NULL)
+        .put("confirmedFnalTreatment", record.confirmedFnalTreatment?.name ?: JSONObject.NULL)
         .put("confirmedContractType", record.confirmedContractType?.name ?: JSONObject.NULL)
         .put("confirmedContractualWeeklyMinutes", record.confirmedContractualWeeklyMinutes ?: JSONObject.NULL)
 
@@ -158,11 +158,15 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
             else -> return null
         }
         val source = o.opt("source") as? String ?: return null
-        val confirmedWorkforceBand = when (val value = o.opt("confirmedWorkforceBand")) {
+        val confirmedFnalTreatment = when (val value = o.opt("confirmedFnalTreatment")) {
             null, JSONObject.NULL -> null
-            is String -> runCatching { EmployerWorkforceContributionsV2.Band.valueOf(value) }.getOrNull() ?: return null
+            is String -> runCatching { EmployerWorkforceContributionsV2.FnalTreatment.valueOf(value) }.getOrNull()
+                ?: return null
             else -> return null
         }
+        // Migration fail-closed : une ancienne clé confirmedWorkforceBand peut encore être présente,
+        // mais elle n'est jamais convertie en régime FNAL/logement. L'ancien enregistrement reste
+        // décodable avec confirmedFnalTreatment=null et le résolveur exigera une confirmation explicite.
         val confirmedContractType = when (val value = o.opt("confirmedContractType")) {
             null, JSONObject.NULL -> null
             is String -> runCatching { ContractTypeV2.valueOf(value) }.getOrNull() ?: return null
@@ -184,7 +188,7 @@ object CompanyEmployerGeneralReductionAnnualContextStoreV2 {
             standardCommonLawCaseConfirmed = standardCommonLawCaseConfirmed,
             homogeneousAnnualParametersConfirmed = homogeneousAnnualParametersConfirmed,
             source = source,
-            confirmedWorkforceBand = confirmedWorkforceBand,
+            confirmedFnalTreatment = confirmedFnalTreatment,
             confirmedContractType = confirmedContractType,
             confirmedContractualWeeklyMinutes = confirmedContractualWeeklyMinutes
         )
