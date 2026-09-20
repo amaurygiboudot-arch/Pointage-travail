@@ -73,6 +73,26 @@ enum SalaryPaidWorkAggregatorV2 {
             )
         }
 
+        let nextYear: Int
+        let nextMonth: Int
+        if period.month == 12 {
+            guard period.year < Int.max else {
+                return SalaryPaidWorkAggregationV2(
+                    weeks: [],
+                    completedSessionCount: 0,
+                    reliable: false,
+                    warnings: [invalidSessionWarning]
+                )
+            }
+            nextYear = period.year + 1
+            nextMonth = 1
+        } else {
+            nextYear = period.year
+            nextMonth = period.month + 1
+        }
+
+        // Construire les deux bornes indépendamment évite de conserver une heure normalisée
+        // lorsque le premier jour du mois subit un saut DST à minuit.
         guard let monthStart = calendar.date(from: DateComponents(
             calendar: calendar,
             timeZone: calendar.timeZone,
@@ -83,7 +103,16 @@ enum SalaryPaidWorkAggregatorV2 {
             minute: 0,
             second: 0
         )),
-        let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart),
+        let monthEnd = calendar.date(from: DateComponents(
+            calendar: calendar,
+            timeZone: calendar.timeZone,
+            year: nextYear,
+            month: nextMonth,
+            day: 1,
+            hour: 0,
+            minute: 0,
+            second: 0
+        )),
         monthEnd > monthStart else {
             return SalaryPaidWorkAggregationV2(
                 weeks: [],
@@ -129,19 +158,24 @@ enum SalaryPaidWorkAggregatorV2 {
                 warnings.append(openSessionWarning)
                 continue
             }
+
+            let clippedStart = max(session.entry, monthStart)
+            let clippedEnd = min(exit, monthEnd)
+            guard clippedEnd > clippedStart else { continue }
+
+            // Les défauts structurels de pause ne contaminent que la période demandée.
+            // Une pause malformée entièrement hors de ce mois n'annule pas du travail valide du mois.
             guard pausesAreStructurallyUsable(
                 session.pauses,
                 sessionStart: session.entry,
-                sessionEnd: exit
+                sessionEnd: exit,
+                rangeStart: clippedStart,
+                rangeEnd: clippedEnd
             ) else {
                 reliable = false
                 warnings.append(invalidSessionWarning)
                 continue
             }
-
-            let clippedStart = max(session.entry, monthStart)
-            let clippedEnd = min(exit, monthEnd)
-            guard clippedEnd > clippedStart else { continue }
 
             if hasConflictingPauseClassifications(
                 session.pauses,
@@ -166,10 +200,13 @@ enum SalaryPaidWorkAggregatorV2 {
                 }
 
                 let sliceEnd = min(clippedEnd, weekInterval.end)
+                let slicePauses = session.pauses.filter {
+                    pausePotentiallyTouchesRange($0, rangeStart: cursor, rangeEnd: sliceEnd)
+                }
                 let assessment = PaidTimePolicyV2.assess(
                     sessionStart: cursor,
                     sessionEnd: sliceEnd,
-                    pauses: session.pauses,
+                    pauses: slicePauses,
                     until: sliceEnd
                 )
                 if !assessment.reliable {
@@ -265,17 +302,50 @@ enum SalaryPaidWorkAggregatorV2 {
     private static func pausesAreStructurallyUsable(
         _ pauses: [PaidPauseFactV2],
         sessionStart: Date,
-        sessionEnd: Date
+        sessionEnd: Date,
+        rangeStart: Date,
+        rangeEnd: Date
     ) -> Bool {
         pauses.allSatisfy { pause in
-            guard pause.start >= sessionStart,
+            guard pausePotentiallyTouchesRange(
+                pause,
+                rangeStart: rangeStart,
+                rangeEnd: rangeEnd
+            ) else {
+                return true
+            }
+
+            guard pause.start.timeIntervalSince1970.isFinite,
+                  pause.start >= sessionStart,
                   let end = pause.end,
+                  end.timeIntervalSince1970.isFinite,
                   end > pause.start,
                   end <= sessionEnd else {
                 return false
             }
             return true
         }
+    }
+
+    private static func pausePotentiallyTouchesRange(
+        _ pause: PaidPauseFactV2,
+        rangeStart: Date,
+        rangeEnd: Date
+    ) -> Bool {
+        guard pause.start.timeIntervalSince1970.isFinite else { return true }
+
+        guard let end = pause.end else {
+            // Sans fin connue, une pause commencée avant la fin de la tranche peut encore la toucher.
+            return pause.start < rangeEnd
+        }
+        guard end.timeIntervalSince1970.isFinite else { return true }
+
+        let lower = min(pause.start, end)
+        let upper = max(pause.start, end)
+        if lower == upper {
+            return lower >= rangeStart && lower < rangeEnd
+        }
+        return lower < rangeEnd && upper > rangeStart
     }
 
     private static func hasConflictingPauseClassifications(
