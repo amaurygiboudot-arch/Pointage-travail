@@ -78,9 +78,29 @@ class PayrollEngineV2Test {
             )
         )
 
-        // 1 h samedi : 12 € × 25 % = 3 € ; 1 h dimanche : 12 € × 100 % = 12 €.
         assertEquals(15.0, result.premiumsGross, 0.001)
         assertEquals(435.0, result.grossEstimate, 0.001)
+    }
+
+    @Test
+    fun overlappingCategoriesRemainAllowedWhenEachFitsInsidePaidTime() {
+        val result = PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(
+                PayrollWeekV2(
+                    paidMinutes = 60,
+                    nightMinutes = 60,
+                    sundayMinutes = 60
+                )
+            ),
+            rules = PayrollRulesV2(
+                weeklyRegularMinutes = 35 * 60,
+                nightMultiplier = 1.25,
+                sundayMultiplier = 2.0
+            )
+        )
+
+        assertEquals(15.0, result.premiumsGross, 0.001)
     }
 
     @Test
@@ -99,9 +119,35 @@ class PayrollEngineV2Test {
             )
         )
 
-        // 1 h fériée à +50 % sur 12 €/h = 6 € de majoration, sans aucun multiplicateur dimanche.
         assertEquals(6.0, result.premiumsGross, 0.001)
         assertEquals(426.0, result.grossEstimate, 0.001)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun negativePaidMinutesAreRejectedInsteadOfClampedToZero() {
+        PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(PayrollWeekV2(paidMinutes = -1)),
+            rules = PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun negativePremiumCategoryMinutesAreRejected() {
+        PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(PayrollWeekV2(paidMinutes = 60, nightMinutes = -1)),
+            rules = PayrollRulesV2(weeklyRegularMinutes = 35 * 60, nightMultiplier = 1.25)
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun premiumCategoryCannotExceedPaidMinutes() {
+        PayrollEngineV2.calculate(
+            contract = contract(),
+            weeks = listOf(PayrollWeekV2(paidMinutes = 60, publicHolidayMinutes = 61)),
+            rules = PayrollRulesV2(weeklyRegularMinutes = 35 * 60, publicHolidayMultiplier = 1.5)
+        )
     }
 
     @Test(expected = IllegalArgumentException::class)
