@@ -30,10 +30,18 @@ final class WorkStoreV2: ObservableObject {
     @discardableResult
     func clockIn(employerId requestedEmployerId: String? = nil) -> Bool {
         guard storageReliable, !isWorking else { return false }
-        guard let employerId = resolvedEmployerId(requestedEmployerId) else {
-            return requestedEmployerId == nil ? appendClockIn(employerId: nil) : false
+        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
+        switch ClockInEmployerResolverV2.resolve(
+            requestedEmployerId: requestedEmployerId,
+            companies: companies
+        ) {
+        case .unassigned:
+            return appendClockIn(employerId: nil)
+        case .employer(let employerId):
+            return appendClockIn(employerId: employerId)
+        case .rejected:
+            return false
         }
-        return appendClockIn(employerId: employerId)
     }
 
     private func appendClockIn(employerId: String?) -> Bool {
@@ -49,21 +57,6 @@ final class WorkStoreV2: ObservableObject {
         )
         save()
         return storageReliable
-    }
-
-    private func resolvedEmployerId(_ requestedEmployerId: String?) -> String? {
-        let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
-        switch ClockInEmployerResolverV2.resolve(
-            requestedEmployerId: requestedEmployerId,
-            companies: companies
-        ) {
-        case .unassigned:
-            return nil
-        case .employer(let confirmedEmployerId):
-            return confirmedEmployerId
-        case .rejected:
-            return nil
-        }
     }
 
     func togglePause(paid: Bool? = nil) {
