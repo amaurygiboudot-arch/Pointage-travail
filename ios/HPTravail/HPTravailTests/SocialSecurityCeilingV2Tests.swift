@@ -52,6 +52,42 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
         XCTAssertEqual(confirmedZero.applicableMonthly, 2_002.5, accuracy: 0.01)
     }
 
+    func testNegativeComplementaryMinutesNeverBecomeConfirmedZero() {
+        let result = SocialSecurityCeilingV2.calculate(
+            .init(
+                period: january2026,
+                contractType: .partTime,
+                contractualWeeklyMinutes: 28 * 60,
+                complementaryMinutes: -60,
+                entryDate: oldEntry
+            )
+        )
+
+        XCTAssertFalse(result.complete)
+        XCTAssertEqual(result.workTimeRatio, 0.8, accuracy: 0.000001)
+        XCTAssertEqual(result.applicableMonthly, 3_204, accuracy: 0.01)
+        XCTAssertTrue(result.warnings.contains { $0.contains("heures complémentaires incohérentes") })
+    }
+
+    func testForfaitDaysNonFiniteNeverProducesReliableCeiling() {
+        for invalidDays in [Double.nan, Double.infinity] {
+            let result = SocialSecurityCeilingV2.calculate(
+                .init(
+                    period: january2026,
+                    contractType: .forfaitDays,
+                    contractualWeeklyMinutes: nil,
+                    entryDate: oldEntry,
+                    forfaitAnnualDays: invalidDays
+                )
+            )
+
+            XCTAssertFalse(result.complete)
+            XCTAssertTrue(result.applicableMonthly.isFinite)
+            XCTAssertEqual(result.applicableMonthly, 4_005, accuracy: 0.001)
+            XCTAssertTrue(result.warnings.contains { $0.contains("nombre annuel de jours") })
+        }
+    }
+
     func testMidMonthEntryUsesCalendarPresenceRatio() {
         let march = YearMonthV2(year: 2026, month: 3)!
         let entry = PayrollCivilDateV2(year: 2026, month: 3, day: 16)!
