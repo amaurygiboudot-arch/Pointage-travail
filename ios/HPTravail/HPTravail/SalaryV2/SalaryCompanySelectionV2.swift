@@ -41,6 +41,20 @@ enum SalaryCompanySelectionV2 {
         return requested
     }
 
+    /// Une mutation commencée pour une entreprise ne peut jamais être redirigée vers une autre
+    /// par une réconciliation automatique intervenue entre l'affichage et l'écriture.
+    static func stableMutationTarget(
+        beforeReconciliation: String?,
+        afterReconciliation: String?
+    ) -> String? {
+        guard let before = normalized(beforeReconciliation),
+              let after = normalized(afterReconciliation),
+              before == after else {
+            return nil
+        }
+        return after
+    }
+
     private static func normalized(_ raw: String?) -> String? {
         guard let raw else { return nil }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
