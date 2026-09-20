@@ -309,6 +309,35 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.conflictingPauseWarning))
     }
 
+    func testConflictingPausesBeforeRequestedMonthDoNotPoisonInMonthSlice() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 8, 31, 20),
+                exit: date(2026, 9, 1, 8),
+                pauses: [
+                    PaidPauseFactV2(
+                        start: date(2026, 8, 31, 21),
+                        end: date(2026, 8, 31, 22),
+                        paid: false
+                    ),
+                    PaidPauseFactV2(
+                        start: date(2026, 8, 31, 21, 30),
+                        end: date(2026, 8, 31, 22, 30),
+                        paid: true
+                    )
+                ]
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 1)
+        XCTAssertEqual(result.totalPaidMinutes, 480)
+        XCTAssertFalse(result.warnings.contains(SalaryPaidWorkAggregatorV2.conflictingPauseWarning))
+    }
+
     func testNonFiniteEntryFailsClosedBeforePeriodFiltering() {
         let result = SalaryPaidWorkAggregatorV2.aggregate(
             sessions: [session(
@@ -324,6 +353,40 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertEqual(result.completedSessionCount, 0)
         XCTAssertEqual(result.totalPaidMinutes, 0)
         XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.invalidSessionWarning))
+    }
+
+    func testReversedSessionWithEndpointInsidePeriodFailsClosed() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 10, 2, 10),
+                exit: date(2026, 9, 15, 10)
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.invalidSessionWarning))
+    }
+
+    func testReversedSessionEntirelyOutsidePeriodDoesNotPoisonRequestedMonth() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 10, 3, 10),
+                exit: date(2026, 10, 2, 10)
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertEqual(result.warnings, [])
     }
 
     func testBlankEmployerIdFailsClosed() {
