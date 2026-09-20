@@ -27,19 +27,23 @@ final class SalaryConventionRuleStoreV2Tests: XCTestCase {
         from: Int64,
         to: Int64? = nil,
         overtimeMultiplier: Double = 1.25,
-        publicHolidayMultiplier: Double? = nil
+        publicHolidayMultiplier: Double? = nil,
+        includePublicHolidayField: Bool = true
     ) -> String {
-        """
+        let holidayField = includePublicHolidayField
+            ? "\"publicHolidayMultiplier\":\(publicHolidayMultiplier.map { String($0) } ?? "null"),"
+            : ""
+        return """
         {
           "idcc":"0292",
           "versionId":"\(version)",
           "sourceId":"legifrance:KALI:\(version)",
           "effectiveFromEpochDay":\(from),
-          "effectiveToEpochDay":\(to.map(String.init) ?? "null"),
+          "effectiveToEpochDay":\(to.map { String($0) } ?? "null"),
           "checkedAtMs":1,
           "rules":{
             "weeklyRegularMinutes":2100,
-            "publicHolidayMultiplier":\(publicHolidayMultiplier.map(String.init) ?? "null"),
+            \(holidayField)
             "overtimeTiers":[
               {"fromMinutes":2100,"toMinutes":2580,"multiplier":\(overtimeMultiplier)},
               {"fromMinutes":2580,"toMinutes":null,"multiplier":1.5}
@@ -145,9 +149,9 @@ final class SalaryConventionRuleStoreV2Tests: XCTestCase {
     }
 
     func testOlderSnapshotWithoutPublicHolidayFieldRemainsCompatible() {
-        let raw = rawSnapshot(version: "v1", from: 1_000)
-            .replacingOccurrences(of: "\n    \"publicHolidayMultiplier\":null,", with: "")
-        let result = SalaryConventionRuleStoreV2.decodeConfirmed("[\(raw)]")
+        let result = SalaryConventionRuleStoreV2.decodeConfirmed(
+            "[\(rawSnapshot(version: "v1", from: 1_000, includePublicHolidayField: false))]"
+        )
 
         XCTAssertTrue(result.reliable)
         XCTAssertNil(result.snapshots.single?.rules.publicHolidayMultiplier)
