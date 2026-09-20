@@ -44,6 +44,30 @@ final class SalaryConventionCoverageV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.isEmpty)
     }
 
+    func testReliableRepairedRuleStoreWarningRemainsVisible() throws {
+        let month = period(2026, 9)
+        let range = try XCTUnwrap(SalaryConventionCoverageResolverV2.monthEpochDayRange(month))
+        let snapshot = rule(idcc: "1486", version: "v1", from: range.start, to: range.end)
+        let stored = SalaryConventionRuleReadResultV2(
+            snapshots: [snapshot],
+            reliable: true,
+            repairedFromBackup: true,
+            warnings: [SalaryConventionRuleStoreV2.repairedWarning]
+        )
+
+        let result = SalaryConventionCoverageResolverV2.resolve(
+            companyId: "company-a",
+            period: month,
+            companies: companyResult(idcc: "1486"),
+            rules: stored
+        )
+
+        XCTAssertTrue(result.sourceReliable)
+        XCTAssertTrue(result.fullyCovered)
+        XCTAssertNotNil(result.singleSnapshotForWholePeriod)
+        XCTAssertEqual(result.warnings, [SalaryConventionRuleStoreV2.repairedWarning])
+    }
+
     func testTwoContiguousVersionsRemainDistinctAndBlockSingleRuleShortcut() throws {
         let month = period(2026, 9)
         let range = try XCTUnwrap(SalaryConventionCoverageResolverV2.monthEpochDayRange(month))
