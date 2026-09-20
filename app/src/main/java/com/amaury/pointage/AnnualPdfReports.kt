@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
@@ -165,7 +166,7 @@ object AnnualPdfReports {
             else -> emptySet()
         }
         val rate = if (company != null) {
-            companyPrefs?.getString("hourly_rate", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+            SalaryNumericInputV2.positiveDecimal(companyPrefs?.getString("hourly_rate", "").orEmpty())
         } else {
             legacyProfile?.contract?.grossHourlyRate ?: prefDouble(legacyPrefs.all["hourly_rate"])
         }
@@ -355,8 +356,8 @@ object AnnualPdfReports {
         .replaceFirstChar { it.uppercase() }
 
     private fun prefDouble(value: Any?): Double? = when (value) {
-        is Number -> value.toDouble().takeIf { it > 0.0 }
-        is String -> value.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        is Number -> SalaryNumericInputV2.positiveDecimal(value.toDouble())
+        is String -> SalaryNumericInputV2.positiveDecimal(value)
         else -> null
     }
 

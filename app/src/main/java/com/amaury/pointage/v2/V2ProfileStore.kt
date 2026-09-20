@@ -132,11 +132,13 @@ object V2ProfileStore {
     private fun loadV2Company(context: Context, company: SalaryCompanyStore.Company, slot: Int): Profile {
         val prefs = SalaryCompanyStore.prefs(context, company.id)
         val type = parseContractType(prefs.getString("contract_type", "").orEmpty())
-        val weeklyMinutes = prefs.getString("contract_weekly_hours", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }?.let { (it * 60.0).toInt() }
-        val rate = prefs.getString("hourly_rate", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
-        val forfaitHours = prefs.getString("forfait_annual_hours", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
-        val forfaitDays = prefs.getString("forfait_annual_days", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
-        val monthlyGross = prefs.getString("monthly_gross_salary", "").orEmpty().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val weeklyMinutes = SalaryNumericInputV2.positiveMinutesFromHours(
+            prefs.getString("contract_weekly_hours", "").orEmpty()
+        )
+        val rate = SalaryNumericInputV2.positiveDecimal(prefs.getString("hourly_rate", "").orEmpty())
+        val forfaitHours = SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_hours", "").orEmpty())
+        val forfaitDays = SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_days", "").orEmpty())
+        val monthlyGross = SalaryNumericInputV2.positiveDecimal(prefs.getString("monthly_gross_salary", "").orEmpty())
         val hireEpochDay = runCatching {
             prefs.getString("entry_date", "").orEmpty().trim().takeIf { it.isNotBlank() }?.let {
                 LocalDate.parse(it, DateTimeFormatter.ofPattern("dd/MM/yyyy", Locale.FRANCE)).toEpochDay()
@@ -205,8 +207,8 @@ object V2ProfileStore {
         val weeklyRaw = if (companySlot == 1) text("contract_weekly_hours") else text("company2_contract_weekly_hours")
         val rateRaw = if (companySlot == 1) text("hourly_rate") else text("company2_hourly_rate")
         val type = parseContractType(contractTypeRaw)
-        val weeklyMinutes = weeklyRaw.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }?.let { (it * 60.0).toInt() }
-        val rate = rateRaw.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+        val weeklyMinutes = SalaryNumericInputV2.positiveMinutesFromHours(weeklyRaw)
+        val rate = SalaryNumericInputV2.positiveDecimal(rateRaw)
         val hireDateKey = if (companySlot == 1) "employment_start_date" else "company2_employment_start_date"
         val hireEpochDay = safeLong(prefs.all[hireDateKey])?.takeIf { it > 0L }?.let(::localEpochDay)
         val missing = mutableListOf<String>()

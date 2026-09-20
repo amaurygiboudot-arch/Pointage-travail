@@ -250,10 +250,10 @@ object V2PayslipStore {
     V2SalaryAdapter.calculateForCompany(context,company,ym.year,ym.monthValue-1,convention)
    }.getOrNull()
    val rawType=prefs.getString("contract_type","").orEmpty().trim().uppercase(Locale.ROOT)
-   val hourlyRate=prefs.getString("hourly_rate","").orEmpty().replace(',','.').toDoubleOrNull()
-   val contractualGross=when(rawType){
+   val hourlyRate=SalaryNumericInputV2.positiveDecimal(prefs.getString("hourly_rate","").orEmpty())
+   val contractualGross=SalaryNumericInputV2.positiveDecimal(when(rawType){
     "FULL_TIME" -> {
-     val structural=if(hourlyRate!=null && hourlyRate>0.0){
+     val structural=if(hourlyRate!=null){
       calc?.overtimeTiers.orEmpty()
        .filter{it.label.contains("structurelles",ignoreCase=true)}
        .sumOf{tier->tier.durationMs/3_600_000.0*hourlyRate*tier.multiplier}
@@ -262,7 +262,7 @@ object V2PayslipStore {
     }
     "PART_TIME","FORFAIT_HEURES","FORFAIT_JOURS" -> calc?.regularGross
     else -> null
-   }?.takeIf{it>0.0}
+   })
 
    if(contractualGross==null){
     bridgeWarnings += "Base nette maladie : rémunération contractuelle théorique indisponible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."

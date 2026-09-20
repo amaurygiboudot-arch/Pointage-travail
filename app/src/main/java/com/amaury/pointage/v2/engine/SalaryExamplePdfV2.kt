@@ -13,6 +13,7 @@ import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
+import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeReader
@@ -21,7 +22,6 @@ import java.text.DateFormatSymbols
 import java.time.ZoneId
 import java.util.Calendar
 import java.util.Locale
-import kotlin.math.roundToInt
 
 /** Génère une vraie page PDF d'estimation, visuellement structurée comme un bulletin. */
 object SalaryExamplePdfV2 {
@@ -148,22 +148,16 @@ object SalaryExamplePdfV2 {
 
         val rawContractType = companyPrefs?.getString("contract_type", "").orEmpty().trim()
         val contractualWeeklyMinutes = if (company != null) {
-            companyPrefs?.getString("contract_weekly_hours", "").orEmpty()
-                .replace(',', '.')
-                .toDoubleOrNull()
-                ?.takeIf { it > 0.0 }
-                ?.let { (it * 60.0).roundToInt() }
+            SalaryNumericInputV2.positiveMinutesFromHours(
+                companyPrefs?.getString("contract_weekly_hours", "").orEmpty()
+            )
         } else legacyContract?.contractualWeeklyMinutes
         val rate = if (company != null) {
-            companyPrefs?.getString("hourly_rate", "").orEmpty()
-                .replace(',', '.')
-                .toDoubleOrNull()
-                ?.takeIf { it > 0.0 }
+            SalaryNumericInputV2.positiveDecimal(companyPrefs?.getString("hourly_rate", "").orEmpty())
         } else legacyContract?.grossHourlyRate
-        val monthlyGross = companyPrefs?.getString("monthly_gross_salary", "").orEmpty()
-            .replace(',', '.')
-            .toDoubleOrNull()
-            ?.takeIf { it > 0.0 }
+        val monthlyGross = SalaryNumericInputV2.positiveDecimal(
+            companyPrefs?.getString("monthly_gross_salary", "").orEmpty()
+        )
 
         val companyName = company?.name?.takeIf { it.isNotBlank() }
             ?: legacyEmployer?.name?.takeIf { it.isNotBlank() }
