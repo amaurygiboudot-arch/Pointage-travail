@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 struct SalaryConventionRuleSnapshotV2: Equatable {
@@ -11,8 +12,9 @@ struct SalaryConventionRuleSnapshotV2: Equatable {
     let note: String?
 
     func applies(to epochDay: Int64) -> Bool {
-        epochDay >= effectiveFromEpochDay
-            && (effectiveToEpochDay == nil || epochDay <= effectiveToEpochDay!)
+        guard epochDay >= effectiveFromEpochDay else { return false }
+        guard let end = effectiveToEpochDay else { return true }
+        return epochDay <= end
     }
 }
 
@@ -24,9 +26,7 @@ struct SalaryConventionRuleReadResultV2: Equatable {
 }
 
 /// Historique déterministe des règles conventionnelles confirmées.
-///
-/// Aucune règle plus récente n'est utilisée comme fallback pour une période historique :
-/// si aucun snapshot daté ne couvre la date demandée, `applicable` renvoie `nil`.
+/// Aucune règle plus récente n'est utilisée comme fallback pour une période historique.
 struct SalaryConventionRuleHistoryV2 {
     private let versions: [String: [SalaryConventionRuleSnapshotV2]]
 
@@ -233,8 +233,10 @@ enum SalaryConventionRuleStoreV2 {
         guard !normalizeIdcc(snapshot.idcc).isEmpty,
               !snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !snapshot.sourceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              snapshot.effectiveToEpochDay == nil || snapshot.effectiveToEpochDay! >= snapshot.effectiveFromEpochDay,
               snapshot.checkedAtMs >= 0 else {
+            return false
+        }
+        if let end = snapshot.effectiveToEpochDay, end < snapshot.effectiveFromEpochDay {
             return false
         }
         if let weekly = snapshot.rules.weeklyRegularMinutes, weekly <= 0 { return false }
@@ -248,10 +250,13 @@ enum SalaryConventionRuleStoreV2 {
         guard multipliers.allSatisfy({ $0.isFinite && $0 >= 1.0 }) else { return false }
 
         return snapshot.rules.overtimeTiers.allSatisfy { tier in
-            tier.fromMinutes >= 0
-                && (tier.toMinutes == nil || tier.toMinutes! > tier.fromMinutes)
-                && tier.multiplier.isFinite
-                && tier.multiplier >= 1.0
+            guard tier.fromMinutes >= 0,
+                  tier.multiplier.isFinite,
+                  tier.multiplier >= 1.0 else {
+                return false
+            }
+            if let to = tier.toMinutes, to <= tier.fromMinutes { return false }
+            return true
         }
     }
 
@@ -364,28 +369,45 @@ enum SalaryConventionRuleStoreV2 {
     }
 
     private static func strictInt(_ raw: Any?) -> Int? {
-        guard let number = raw as? NSNumber, !(raw is Bool) else { return nil }
+        guard let number = raw as? NSNumber,
+              !isBooleanNumber(number) else {
+            return nil
+        }
         let value = number.doubleValue
         guard value.isFinite,
               value.rounded() == value,
-              abs(value) <= maxExactJSONInteger else { return nil }
+              abs(value) <= maxExactJSONInteger else {
+            return nil
+        }
         let int64 = Int64(value)
         return Int(exactly: int64)
     }
 
     private static func strictInt64(_ raw: Any?) -> Int64? {
-        guard let number = raw as? NSNumber, !(raw is Bool) else { return nil }
+        guard let number = raw as? NSNumber,
+              !isBooleanNumber(number) else {
+            return nil
+        }
         let value = number.doubleValue
         guard value.isFinite,
               value.rounded() == value,
-              abs(value) <= maxExactJSONInteger else { return nil }
+              abs(value) <= maxExactJSONInteger else {
+            return nil
+        }
         return Int64(value)
     }
 
     private static func strictDouble(_ raw: Any?) -> Double? {
-        guard let number = raw as? NSNumber, !(raw is Bool) else { return nil }
+        guard let number = raw as? NSNumber,
+              !isBooleanNumber(number) else {
+            return nil
+        }
         let value = number.doubleValue
         return value.isFinite ? value : nil
+    }
+
+    private static func isBooleanNumber(_ number: NSNumber) -> Bool {
+        CFGetTypeID(number) == CFBooleanGetTypeID()
     }
 
     private static func optionalInt(_ raw: Any?) -> Int?? {
@@ -414,7 +436,8 @@ enum SalaryConventionRuleStoreV2 {
     }
 
     private static func jsonValue<T>(_ value: T?) -> Any {
-        value ?? NSNull()
+        if let value { return value }
+        return NSNull()
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
