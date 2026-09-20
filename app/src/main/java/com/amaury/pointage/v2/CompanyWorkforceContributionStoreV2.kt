@@ -7,7 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.YearMonth
 
-/** Stockage de la tranche d'effectif social, sauvegardé avec l'entreprise Salaire V2. */
+/** Stockage des paramètres effectif/FNAL/formation, sauvegardés avec l'entreprise Salaire V2. */
 object CompanyWorkforceContributionStoreV2 {
     private const val KEY = "employer_workforce_contributions_v2"
     private const val STORAGE_WARNING =
@@ -59,7 +59,9 @@ object CompanyWorkforceContributionStoreV2 {
                 band = null,
                 source = null,
                 reliable = false,
-                warnings = stored.warnings.ifEmpty { listOf(STORAGE_WARNING) }
+                warnings = stored.warnings.ifEmpty { listOf(STORAGE_WARNING) },
+                fnalTreatment = null,
+                trainingTreatment = null
             )
         }
         return EmployerWorkforceContributionsV2.resolve(stored.records, period)
@@ -91,6 +93,8 @@ object CompanyWorkforceContributionStoreV2 {
         .put("effectiveFrom", record.effectiveFrom.toString())
         .put("effectiveTo", record.effectiveTo?.toString() ?: JSONObject.NULL)
         .put("source", record.source)
+        .put("fnalTreatment", record.fnalTreatment?.name ?: JSONObject.NULL)
+        .put("trainingTreatment", record.trainingTreatment?.name ?: JSONObject.NULL)
 
     private fun fromJson(o: JSONObject?): EmployerWorkforceContributionsV2.Record? {
         o ?: return null
@@ -102,15 +106,45 @@ object CompanyWorkforceContributionStoreV2 {
         val from = runCatching { YearMonth.parse(fromRaw) }.getOrNull() ?: return null
         val to = parseOptionalMonth(o, "effectiveTo") ?: return null
         val source = o.opt("source") as? String ?: return null
-        return EmployerWorkforceContributionsV2.Record(id, band, from, to.value, source)
+        val fnalTreatment = parseOptionalFnalTreatment(o, "fnalTreatment") ?: return null
+        val trainingTreatment = parseOptionalTrainingTreatment(o, "trainingTreatment") ?: return null
+        return EmployerWorkforceContributionsV2.Record(
+            id = id,
+            band = band,
+            effectiveFrom = from,
+            effectiveTo = to.value,
+            source = source,
+            fnalTreatment = fnalTreatment.value,
+            trainingTreatment = trainingTreatment.value
+        )
     }
 
     private data class OptionalMonth(val value: YearMonth?)
+    private data class OptionalFnalTreatment(val value: EmployerWorkforceContributionsV2.FnalTreatment?)
+    private data class OptionalTrainingTreatment(val value: EmployerWorkforceContributionsV2.TrainingTreatment?)
 
     private fun parseOptionalMonth(o: JSONObject, key: String): OptionalMonth? = when (val raw = o.opt(key)) {
         null, JSONObject.NULL -> OptionalMonth(null)
         is String -> if (raw.isBlank() || raw == "null") OptionalMonth(null)
         else runCatching { OptionalMonth(YearMonth.parse(raw)) }.getOrNull()
+        else -> null
+    }
+
+    private fun parseOptionalFnalTreatment(o: JSONObject, key: String): OptionalFnalTreatment? = when (val raw = o.opt(key)) {
+        null, JSONObject.NULL -> OptionalFnalTreatment(null)
+        is String -> if (raw.isBlank() || raw == "null") OptionalFnalTreatment(null)
+        else runCatching {
+            OptionalFnalTreatment(EmployerWorkforceContributionsV2.FnalTreatment.valueOf(raw))
+        }.getOrNull()
+        else -> null
+    }
+
+    private fun parseOptionalTrainingTreatment(o: JSONObject, key: String): OptionalTrainingTreatment? = when (val raw = o.opt(key)) {
+        null, JSONObject.NULL -> OptionalTrainingTreatment(null)
+        is String -> if (raw.isBlank() || raw == "null") OptionalTrainingTreatment(null)
+        else runCatching {
+            OptionalTrainingTreatment(EmployerWorkforceContributionsV2.TrainingTreatment.valueOf(raw))
+        }.getOrNull()
         else -> null
     }
 }

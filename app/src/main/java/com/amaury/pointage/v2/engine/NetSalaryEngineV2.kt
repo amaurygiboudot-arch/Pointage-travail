@@ -238,7 +238,9 @@ object NetSalaryEngineV2 {
             grossSocial = contributionGross,
             applicableMonthlyCeiling = ceiling.applicableMonthly,
             year = year,
-            band = company.employerWorkforceBand
+            band = company.employerWorkforceBand,
+            fnalTreatment = company.employerFnalTreatment,
+            trainingTreatment = company.employerTrainingTreatment
         )
         val healthFamily = EmployerHealthFamilyV2.calculate(
             grossSocial = contributionGross,
