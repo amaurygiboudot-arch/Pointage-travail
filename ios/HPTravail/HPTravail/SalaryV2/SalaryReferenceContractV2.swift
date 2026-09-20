@@ -338,6 +338,10 @@ struct SalaryReferenceContractV2 {
             && benefits.totalGross.isFinite
             && benefits.totalGross >= 0
             && gross.isFinite
+        let netBeforeIncomeTaxReliable = netBeforeIncomeTax.isFinite && netBeforeIncomeTax >= 0
+        let normalizedNetBeforeIncomeTax = netBeforeIncomeTaxReliable ? netBeforeIncomeTax : 0
+        let netTaxableReliable = netTaxable == nil || (netTaxable!.isFinite && netTaxable! >= 0)
+        let normalizedNetTaxable = netTaxableReliable ? netTaxable : nil
 
         var warnings = benefits.warnings + additionalWarnings
         if !grossReliable {
@@ -346,13 +350,23 @@ struct SalaryReferenceContractV2 {
                 at: 0
             )
         }
+        if !netBeforeIncomeTaxReliable {
+            warnings.append(
+                "Net avant impôt : valeur amont invalide ; aucune référence nette fiable n'est disponible."
+            )
+        }
+        if !netTaxableReliable {
+            warnings.append(
+                "Net imposable : valeur amont invalide ; aucune référence imposable n'est publiée."
+            )
+        }
         warnings = uniqueWarnings(warnings)
 
         return SalaryReferenceContractV2(
             gross: gross,
             grossReliable: grossReliable,
-            netBeforeIncomeTax: max(0, netBeforeIncomeTax),
-            netTaxable: netTaxable,
+            netBeforeIncomeTax: normalizedNetBeforeIncomeTax,
+            netTaxable: normalizedNetTaxable,
             complete: warnings.isEmpty,
             warnings: warnings,
             benefitsInKindDeduction: normalizedBenefits
