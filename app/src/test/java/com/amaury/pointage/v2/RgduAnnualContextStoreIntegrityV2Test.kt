@@ -58,7 +58,7 @@ class RgduAnnualContextStoreIntegrityV2Test {
         assertEquals(1, result.records.size)
         val record = result.records.single()
         assertNull(record.homogeneousAnnualParametersConfirmed)
-        assertNull(record.confirmedWorkforceBand)
+        assertNull(record.confirmedFnalTreatment)
         assertNull(record.confirmedContractType)
         assertNull(record.confirmedContractualWeeklyMinutes)
     }
@@ -66,12 +66,15 @@ class RgduAnnualContextStoreIntegrityV2Test {
     @Test
     fun `valid exact historical annual parameters are preserved`() {
         val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.decode(
-            """[{"id":"a1","year":2026,"fullCalendarYearPresent":true,"standardCommonLawCaseConfirmed":true,"homogeneousAnnualParametersConfirmed":true,"source":"DSN 2026","confirmedWorkforceBand":"AT_LEAST_50","confirmedContractType":"FULL_TIME","confirmedContractualWeeklyMinutes":2100}]"""
+            """[{"id":"a1","year":2026,"fullCalendarYearPresent":true,"standardCommonLawCaseConfirmed":true,"homogeneousAnnualParametersConfirmed":true,"source":"DSN 2026","confirmedFnalTreatment":"UNCAPPED_0_5_PERCENT","confirmedContractType":"FULL_TIME","confirmedContractualWeeklyMinutes":2100}]"""
         )
 
         assertTrue(result.reliable)
         val record = result.records.single()
-        assertEquals(EmployerWorkforceContributionsV2.Band.AT_LEAST_50, record.confirmedWorkforceBand)
+        assertEquals(
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
+            record.confirmedFnalTreatment
+        )
         assertEquals(ContractTypeV2.FULL_TIME, record.confirmedContractType)
         assertEquals(2100, record.confirmedContractualWeeklyMinutes)
     }
@@ -91,9 +94,20 @@ class RgduAnnualContextStoreIntegrityV2Test {
     }
 
     @Test
-    fun `unknown workforce enum blocks store reliability`() {
+    fun `legacy workforce enum is ignored and never inferred as FNAL treatment`() {
         val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.decode(
-            """[{"id":"broken","year":2026,"fullCalendarYearPresent":true,"standardCommonLawCaseConfirmed":true,"homogeneousAnnualParametersConfirmed":true,"source":"DSN 2026","confirmedWorkforceBand":"UNKNOWN"}]"""
+            """[{"id":"legacy","year":2026,"fullCalendarYearPresent":true,"standardCommonLawCaseConfirmed":true,"homogeneousAnnualParametersConfirmed":true,"source":"ancien contexte","confirmedWorkforceBand":"AT_LEAST_50","confirmedContractType":"FULL_TIME","confirmedContractualWeeklyMinutes":2100}]"""
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1, result.records.size)
+        assertNull(result.records.single().confirmedFnalTreatment)
+    }
+
+    @Test
+    fun `unknown FNAL enum blocks store reliability`() {
+        val result = CompanyEmployerGeneralReductionAnnualContextStoreV2.decode(
+            """[{"id":"broken","year":2026,"fullCalendarYearPresent":true,"standardCommonLawCaseConfirmed":true,"homogeneousAnnualParametersConfirmed":true,"source":"DSN 2026","confirmedFnalTreatment":"UNKNOWN"}]"""
         )
 
         assertFalse(result.reliable)
