@@ -10,7 +10,7 @@ class CompanyEmployeeDeductionPayrollBridgeV2Test {
     private val period = YearMonth.of(2026, 9)
 
     @Test
-    fun `seules les retenues salariales directes alimentent PayrollEngineV2`() {
+    fun `seules les retenues salariales cash alimentent PayrollEngineV2`() {
         val snapshot = CompanyEmployeeDeductionResolverV2.resolve(
             listOf(
                 record("mutuelle", CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE, 30.0),
@@ -26,9 +26,11 @@ class CompanyEmployeeDeductionPayrollBridgeV2Test {
         val result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(snapshot, period)
 
         assertTrue(result.confirmedEmployeeDeductionsComplete)
-        assertEquals(3, result.deductions.size)
-        assertEquals(46.5, result.deductions.sumOf { it.amount }, 0.001)
+        assertEquals(2, result.deductions.size)
+        assertEquals(42.5, result.deductions.sumOf { it.amount }, 0.001)
+        assertTrue(result.deductions.none { it.id.contains("employee_provident_non_deductible") })
         assertTrue(result.deductions.none { it.label.contains("employeur", ignoreCase = true) })
+        assertEquals(3, result.traces.size)
         assertTrue(result.warnings.isEmpty())
     }
 
@@ -49,12 +51,11 @@ class CompanyEmployeeDeductionPayrollBridgeV2Test {
     }
 
     @Test
-    fun `zero explicite confirme labsence dune retenue`() {
+    fun `zero explicite confirme labsence de toute retenue cash`() {
         val records = listOf(
             record("mutuelle", CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE, 0.0),
             record("prevoyance", CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE, 0.0),
-            record("transport", CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE, 0.0),
-            record("prev_non_deductible", CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE, 0.0)
+            record("transport", CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE, 0.0)
         )
         val result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(
             CompanyEmployeeDeductionResolverV2.resolve(records, period),
@@ -63,11 +64,29 @@ class CompanyEmployeeDeductionPayrollBridgeV2Test {
 
         assertTrue(result.confirmedEmployeeDeductionsComplete)
         assertTrue(result.deductions.isEmpty())
-        assertEquals(4, result.traces.size)
+        assertEquals(3, result.traces.size)
     }
 
     @Test
-    fun `periode manquante bloque le type sans montant de secours`() {
+    fun `detail fiscal de prevoyance manquant ne bloque pas le net cash`() {
+        val records = listOf(
+            record("mutuelle", CompanyEmployeeDeductionResolverV2.Kind.MUTUAL_EMPLOYEE, 30.0),
+            record("prevoyance", CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE, 12.5),
+            record("transport", CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE, 0.0)
+        )
+
+        val result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(
+            CompanyEmployeeDeductionResolverV2.resolve(records, period),
+            period
+        )
+
+        assertTrue(result.confirmedEmployeeDeductionsComplete)
+        assertEquals(42.5, result.deductions.sumOf { it.amount }, 0.001)
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `periode manquante bloque le type cash sans montant de secours`() {
         val records = listOf(
             CompanyEmployeeDeductionResolverV2.Record(
                 id = "mutuelle_old",
@@ -78,8 +97,7 @@ class CompanyEmployeeDeductionPayrollBridgeV2Test {
                 source = "Bulletin janvier 2026"
             ),
             record("prevoyance", CompanyEmployeeDeductionResolverV2.Kind.PROVIDENT_EMPLOYEE, 0.0),
-            record("transport", CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE, 0.0),
-            record("prev_non_deductible", CompanyEmployeeDeductionResolverV2.Kind.EMPLOYEE_PROVIDENT_NON_DEDUCTIBLE, 0.0)
+            record("transport", CompanyEmployeeDeductionResolverV2.Kind.TRANSPORT_EMPLOYEE, 0.0)
         )
 
         val result = CompanyEmployeeDeductionPayrollBridgeV2.resolve(
