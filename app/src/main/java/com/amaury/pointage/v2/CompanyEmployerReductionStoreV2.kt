@@ -12,7 +12,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.time.YearMonth
 import java.util.Locale
-import kotlin.math.roundToInt
 
 object CompanyEmployerReductionStoreV2 {
     private const val KEY = "employer_reductions_v2"
@@ -142,12 +141,9 @@ object CompanyEmployerReductionStoreV2 {
         val workforce = CompanyWorkforceContributionStoreV2.resolve(context, company.id, month)
         val monthlyContext = CompanyEmployerGeneralReductionContextStoreV2.resolve(context, company.id, month)
         val contractType = parseContractType(prefs.getString("contract_type", ""))
-        val contractualWeeklyMinutes = prefs.getString("contract_weekly_hours", "")
-            .orEmpty()
-            .replace(',', '.')
-            .toDoubleOrNull()
-            ?.takeIf { it.isFinite() && it > 0.0 }
-            ?.let { (it * 60.0).roundToInt() }
+        val contractualWeeklyMinutes = SalaryNumericInputV2.positiveMinutesFromHours(
+            prefs.getString("contract_weekly_hours", "").orEmpty()
+        )
 
         val payrollInput = RgduPayrollInputBridgeV2.resolve(
             salary = salary,
