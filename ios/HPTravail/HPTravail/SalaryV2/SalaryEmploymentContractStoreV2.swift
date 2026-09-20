@@ -243,14 +243,14 @@ enum SalaryEmploymentContractStoreV2 {
                 "id": contract.id,
                 "employerId": contract.employerId,
                 "type": contract.type.rawValue,
-                "contractualWeeklyMinutes": contract.contractualWeeklyMinutes.map { NSNumber(value: $0) } ?? NSNull(),
-                "grossHourlyRate": contract.grossHourlyRate.map { NSNumber(value: $0) } ?? NSNull(),
-                "hireDateEpochDay": contract.hireDateEpochDay.map { NSNumber(value: $0) } ?? NSNull(),
-                "payrollCutoffDay": contract.payrollCutoffDay.map { NSNumber(value: $0) } ?? NSNull(),
-                "forfaitHoursPeriod": contract.forfaitHoursPeriod?.rawValue ?? NSNull(),
-                "forfaitHours": contract.forfaitHours.map { NSNumber(value: $0) } ?? NSNull(),
-                "forfaitAnnualDays": contract.forfaitAnnualDays.map { NSNumber(value: $0) } ?? NSNull(),
-                "monthlyGrossSalary": contract.monthlyGrossSalary.map { NSNumber(value: $0) } ?? NSNull()
+                "contractualWeeklyMinutes": jsonValue(contract.contractualWeeklyMinutes),
+                "grossHourlyRate": jsonValue(contract.grossHourlyRate),
+                "hireDateEpochDay": jsonValue(contract.hireDateEpochDay),
+                "payrollCutoffDay": jsonValue(contract.payrollCutoffDay),
+                "forfaitHoursPeriod": jsonValue(contract.forfaitHoursPeriod?.rawValue),
+                "forfaitHours": jsonValue(contract.forfaitHours),
+                "forfaitAnnualDays": jsonValue(contract.forfaitAnnualDays),
+                "monthlyGrossSalary": jsonValue(contract.monthlyGrossSalary)
             ]
         }
         guard JSONSerialization.isValidJSONObject(array),
@@ -325,6 +325,11 @@ enum SalaryEmploymentContractStoreV2 {
             return nil
         }
         return .some(period)
+    }
+
+    private static func jsonValue<T>(_ value: T?) -> Any {
+        guard let value else { return NSNull() }
+        return value
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {
