@@ -76,6 +76,10 @@ object CompanyPayrollOverridesV2 {
         val employerUnemploymentAgsWarnings:List<String> = emptyList(),
         /** Tranche d'effectif social confirmée pour FNAL/formation. */
         val employerWorkforceBand:EmployerWorkforceContributionsV2.Band?=null,
+        /** Régime FNAL explicitement confirmé pour la période. */
+        val employerFnalTreatment:EmployerWorkforceContributionsV2.FnalTreatment?=null,
+        /** Applicabilité/exonération formation explicitement confirmée pour la rémunération. */
+        val employerTrainingTreatment:EmployerWorkforceContributionsV2.TrainingTreatment?=null,
         val employerWorkforceSource:String?=null,
         /** Avertissements patronaux d'effectif, séparés de la fiabilité du net salarié. */
         val employerWorkforceWarnings:List<String> = emptyList(),
@@ -372,6 +376,8 @@ object CompanyPayrollOverridesV2 {
             employerUnemploymentAgsSource=unemploymentAgs.source,
             employerUnemploymentAgsWarnings=unemploymentAgs.warnings,
             employerWorkforceBand=workforce.band,
+            employerFnalTreatment=workforce.fnalTreatment,
+            employerTrainingTreatment=workforce.trainingTreatment,
             employerWorkforceSource=workforce.source,
             employerWorkforceWarnings=workforce.warnings,
             employerHealthRate=healthFamily.healthRate,
