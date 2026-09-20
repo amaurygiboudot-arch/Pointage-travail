@@ -7,6 +7,7 @@ import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
 import com.amaury.pointage.v2.MayFirstLegalRuleStoreV2
 import com.amaury.pointage.v2.MealBasketSalaryBridgeV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
+import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2ConventionMinimumSalaryBridge
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
@@ -54,6 +55,9 @@ object V2SalaryAdapter {
  data class Result(val regularMs:Long,val overtimeTiers:List<TierDuration>,val totalWorkedMs:Long,val regularGross:Double,val overtimeGross:Double,val premiumsGross:Double,val monthlyEstimatedGross:Double,val monthlyGrossReliable:Boolean,val nightMs:Long,val saturdayMs:Long,val sundayMs:Long,val complementaryMinutes:Int,val completedSessions:Int,val warnings:List<String>,val mealBasketCount:Int=0,val mealBasketAmount:Double?=null,val mealBasketTotal:Double?=null,val publicHolidayMs:Long=0L,val conventionMinimumMonthlyGross:Double?=null,val conventionClassificationLabel:String?=null,val seniorityPremiumGross:Double?=null)
  data class FullTimeRegularReference(val minutes:Int?,val reliable:Boolean)
 
+ internal fun resolvePositiveHourlyRate(contractRate:Double?,fallbackRate:Double?):Double? =
+  SalaryNumericInputV2.positiveDecimal(contractRate) ?: SalaryNumericInputV2.positiveDecimal(fallbackRate)
+
  internal fun resolveFullTimeRegularReference(confirmedWeeklyRegularMinutes:Int?,overtimeTiers:List<ConventionCatalog.OvertimeTier>,contractualWeeklyMinutes:Int?):FullTimeRegularReference {
   if(confirmedWeeklyRegularMinutes!=null)return FullTimeRegularReference(confirmedWeeklyRegularMinutes,true)
   val engineTiers=overtimeTiers.map{OvertimeTierV2((it.fromHour*60).roundToInt(),it.toHour?.let{x->(x*60).roundToInt()},it.multiplier)}
@@ -76,11 +80,11 @@ object V2SalaryAdapter {
   val prefs=SalaryCompanyStore.prefs(context,company.id)
   val rawType=prefs.getString("contract_type","").orEmpty().uppercase(Locale.ROOT)
   val type=when(rawType){"FULL_TIME"->ContractTypeV2.FULL_TIME;"PART_TIME"->ContractTypeV2.PART_TIME;"FORFAIT_HEURES"->ContractTypeV2.FORFAIT_HOURS;"FORFAIT_JOURS"->ContractTypeV2.FORFAIT_DAYS;"FORFAIT"->ContractTypeV2.FORFAIT;"OTHER"->ContractTypeV2.OTHER;else->null}
-  val weekly=prefs.getString("contract_weekly_hours","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>0.0}?.let{(it*60).roundToInt()}
-  val rate=prefs.getString("hourly_rate","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>0.0}
-  val forfaitHours=prefs.getString("forfait_annual_hours","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>0.0}
-  val forfaitDays=prefs.getString("forfait_annual_days","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>0.0}
-  val monthlyGross=prefs.getString("monthly_gross_salary","").orEmpty().replace(',','.').toDoubleOrNull()?.takeIf{it>0.0}
+  val weekly=SalaryNumericInputV2.positiveMinutesFromHours(prefs.getString("contract_weekly_hours","").orEmpty())
+  val rate=SalaryNumericInputV2.positiveDecimal(prefs.getString("hourly_rate","").orEmpty())
+  val forfaitHours=SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_hours","").orEmpty())
+  val forfaitDays=SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_days","").orEmpty())
+  val monthlyGross=SalaryNumericInputV2.positiveDecimal(prefs.getString("monthly_gross_salary","").orEmpty())
   val hire=runCatching{prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE)).toEpochDay()}}.getOrNull()
   val missing=mutableListOf<String>()
   if(type==null)missing+="type de contrat"
@@ -311,7 +315,7 @@ object V2SalaryAdapter {
    )
   }
 
-  val rate=contract.grossHourlyRate?:fallbackRate.takeIf{it>0}?:return empty(missing.map{"Fiche Salaire à compléter : $it"})
+  val rate=resolvePositiveHourlyRate(contract.grossHourlyRate,fallbackRate)?:return empty(missing.map{"Fiche Salaire à compléter : $it"})
   val date=LocalDate.of(year,month+1,1);val snap=ruleHistory?.applicable(convention.idcc,date.toEpochDay());val hr=snap?.rules
   val isPartTime=contract.type==ContractTypeV2.PART_TIME
   val isFullTime=contract.type==ContractTypeV2.FULL_TIME
@@ -432,7 +436,7 @@ object V2SalaryAdapter {
   val legalAtMs=referenceDate.atStartOfDay(zone).toInstant().toEpochMilli()
   val verifiedRule=MayFirstLegalRuleStoreV2.applicableAt(context,legalAtMs)
   val forfait=contract?.type==ContractTypeV2.FORFAIT_HOURS||contract?.type==ContractTypeV2.FORFAIT_DAYS
-  val rate=if(forfait)null else contract?.grossHourlyRate?:fallbackRate?.takeIf{it.isFinite()&&it>0.0}
+  val rate=if(forfait)null else resolvePositiveHourlyRate(contract?.grossHourlyRate,fallbackRate)
   val overtimeOrComplementaryOverlap=base.overtimeTiers.any{it.durationMs>0L}||base.complementaryMinutes>0
 
   val mayFirstStart=mayFirst.atStartOfDay(zone).toInstant().toEpochMilli()
