@@ -175,9 +175,14 @@ enum SalaryPaidWorkAggregatorV2 {
                 let key = WeekKey(year: weekYear, week: weekOfYear)
                 let paidSeconds = max(0, assessment.paidDuration)
                 if paidSeconds.isFinite {
-                    // Android PaidWorkAllocationV2 tronque chaque tranche à la minute avant
-                    // l'agrégation hebdomadaire. Garder la même règle évite tout écart inter-plateforme.
-                    paidMinutesByWeek[key, default: 0] += Int(floor(paidSeconds / 60.0))
+                    let roundedMinutes = Int(floor(paidSeconds / 60.0))
+                    // Parité exacte avec Android PaidWorkAllocationV2 :
+                    // - une tranche fiable réellement à 0 temps payé n'est pas émise ;
+                    // - une tranche avec du temps payé, même < 1 minute, reste émise puis tronquée ;
+                    // - une tranche non fiable reste émise pour conserver le signal d'incertitude.
+                    if paidSeconds > 0 || !assessment.reliable {
+                        paidMinutesByWeek[key, default: 0] += roundedMinutes
+                    }
                 } else {
                     reliable = false
                     warnings.append(invalidSessionWarning)
