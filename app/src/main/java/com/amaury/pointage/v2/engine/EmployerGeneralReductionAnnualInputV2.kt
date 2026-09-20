@@ -19,7 +19,7 @@ object EmployerGeneralReductionAnnualInputV2 {
         val reductionRemunerationMonthly: Double?,
         val additionalPaidMinutes: Double?,
         val automaticRgduAdvanceAmount: Double?,
-        val workforceBand: EmployerWorkforceContributionsV2.Band?,
+        val fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment?,
         val contractType: ContractTypeV2?,
         val contractualWeeklyMinutes: Int?,
         val fullMonthPresent: Boolean?,
@@ -58,10 +58,10 @@ object EmployerGeneralReductionAnnualInputV2 {
                 add("RGDU annuelle : cas de droit commun non confirmé sur toute l'année.")
             }
             if (annualContext.homogeneousAnnualParametersConfirmed != true) {
-                add("RGDU annuelle : stabilité annuelle du contrat, de la durée contractuelle et de l'effectif non confirmée.")
+                add("RGDU annuelle : stabilité annuelle du contrat, de la durée contractuelle et du régime FNAL/logement non confirmée.")
             }
-            if (annualContext.confirmedWorkforceBand == null) {
-                add("RGDU annuelle : tranche d'effectif annuelle exacte non confirmée.")
+            if (annualContext.confirmedFnalTreatment == null) {
+                add("RGDU annuelle : régime FNAL/logement annuel exact non confirmé.")
             }
             if (annualContext.confirmedContractType == null) {
                 add("RGDU annuelle : type de contrat annuel exact non confirmé.")
@@ -128,8 +128,8 @@ object EmployerGeneralReductionAnnualInputV2 {
             if (advance == null || !advance.isFinite() || advance < 0.0) {
                 monthlyBlockers += "RGDU annuelle : avance RGDU automatique inconnue ou invalide pour $label."
             }
-            if (month.workforceBand == null) {
-                monthlyBlockers += "RGDU annuelle : tranche d'effectif inconnue pour $label."
+            if (month.fnalTreatment == null) {
+                monthlyBlockers += "RGDU annuelle : régime FNAL/logement inconnu pour $label."
             }
             if (month.contractType != ContractTypeV2.FULL_TIME && month.contractType != ContractTypeV2.PART_TIME) {
                 monthlyBlockers += "RGDU annuelle : type de contrat non couvert ou inconnu pour $label."
@@ -140,22 +140,22 @@ object EmployerGeneralReductionAnnualInputV2 {
         }
         if (monthlyBlockers.isNotEmpty()) return blocked(monthlyBlockers.distinct())
 
-        val bands = ordered.mapNotNull { it.workforceBand }.distinct()
+        val fnalTreatments = ordered.mapNotNull { it.fnalTreatment }.distinct()
         val contractTypes = ordered.mapNotNull { it.contractType }.distinct()
         val weeklyDurations = ordered.mapNotNull { it.contractualWeeklyMinutes }.distinct()
         val homogeneityBlockers = buildList {
-            if (bands.size != 1) add("RGDU annuelle : la tranche d'effectif varie au cours de l'année ; cas standard bloqué.")
+            if (fnalTreatments.size != 1) add("RGDU annuelle : le régime FNAL/logement varie au cours de l'année ; cas standard bloqué.")
             if (contractTypes.size != 1) add("RGDU annuelle : le type de contrat varie au cours de l'année ; cas standard bloqué.")
             if (weeklyDurations.size != 1) add("RGDU annuelle : la durée contractuelle hebdomadaire varie au cours de l'année ; cas standard bloqué.")
         }
         if (homogeneityBlockers.isNotEmpty()) return blocked(homogeneityBlockers)
 
-        val band = bands.single()
+        val fnalTreatment = fnalTreatments.single()
         val contractType = contractTypes.single()
         val contractualWeeklyMinutes = weeklyDurations.single()
         val annualSnapshotBlockers = buildList {
-            if (annualContext.confirmedWorkforceBand != band) {
-                add("RGDU annuelle : la tranche d'effectif des 12 mois ne correspond pas au contexte annuel confirmé.")
+            if (annualContext.confirmedFnalTreatment != fnalTreatment) {
+                add("RGDU annuelle : le régime FNAL/logement des 12 mois ne correspond pas au contexte annuel confirmé.")
             }
             if (annualContext.confirmedContractType != contractType) {
                 add("RGDU annuelle : le type de contrat des 12 mois ne correspond pas au contexte annuel confirmé.")
@@ -173,7 +173,7 @@ object EmployerGeneralReductionAnnualInputV2 {
                 EmployerGeneralReduction2026V2.Input(
                     year = year,
                     reductionRemunerationMonthly = month.reductionRemunerationMonthly!!,
-                    workforceBand = month.workforceBand,
+                    fnalTreatment = month.fnalTreatment,
                     contractType = month.contractType,
                     contractualWeeklyMinutes = month.contractualWeeklyMinutes,
                     additionalPaidMinutes = month.additionalPaidMinutes,
@@ -206,7 +206,7 @@ object EmployerGeneralReductionAnnualInputV2 {
         val annualInput = EmployerGeneralReductionAnnual2026V2.Input(
             year = year,
             annualReductionRemuneration = annualRemuneration,
-            workforceBand = band,
+            fnalTreatment = fnalTreatment,
             contractType = contractType,
             contractualWeeklyMinutes = contractualWeeklyMinutes,
             additionalPaidMinutesAnnual = annualAdditionalMinutes,
