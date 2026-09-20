@@ -21,9 +21,11 @@ enum PartTimeComplementaryHoursV2 {
         legalWeeklyMinutes: Int = 35 * 60
     ) throws -> PartTimeComplementaryResultV2 {
         guard contractualMinutes > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
+        guard paidMinutes >= 0 else { throw PayrollEngineErrorV2.invalidPaidMinutes }
         guard grossHourlyRate > 0, grossHourlyRate.isFinite else { throw PayrollEngineErrorV2.invalidHourlyRate }
+        guard legalWeeklyMinutes > 0 else { throw PayrollEngineErrorV2.invalidWeeklyDuration }
 
-        let paid = max(0, paidMinutes)
+        let paid = paidMinutes
         let extra = max(0, paid - contractualMinutes)
         guard extra > 0 else {
             return PartTimeComplementaryResultV2(
