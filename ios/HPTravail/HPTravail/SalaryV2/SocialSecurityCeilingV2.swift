@@ -199,8 +199,20 @@ enum SocialSecurityCeilingV2 {
                 workTimeRatio = 0
                 break
             }
-            if input.complementaryMinutes == nil {
+            let complementary: Int
+            if let raw = input.complementaryMinutes {
+                if raw < 0 {
+                    complete = false
+                    complementary = 0
+                    warnings.append(
+                        "Plafond SS temps partiel : heures complémentaires incohérentes (\(raw) min) ; aucune heure complémentaire n'est appliquée automatiquement."
+                    )
+                } else {
+                    complementary = raw
+                }
+            } else {
                 complete = false
+                complementary = 0
                 warnings.append(
                     "Plafond SS temps partiel : heures complémentaires du mois inconnues, calcul conservateur sans heures complémentaires."
                 )
@@ -209,7 +221,6 @@ enum SocialSecurityCeilingV2 {
             let legalMonthly = Double(legalWeeklyMinutes) * 52.0 / 12.0
             let contractualDuringPresence = contractualMonthly * presenceRatio
             let legalDuringPresence = legalMonthly * presenceRatio
-            let complementary = max(0, input.complementaryMinutes ?? 0)
             workTimeRatio = min(1, max(0, (contractualDuringPresence + Double(complementary)) / legalDuringPresence))
 
         case .forfaitDays:

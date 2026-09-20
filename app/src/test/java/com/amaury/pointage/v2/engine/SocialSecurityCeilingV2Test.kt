@@ -127,6 +127,25 @@ class SocialSecurityCeilingV2Test {
     }
 
     @Test
+    fun `heures complementaires negatives ne deviennent jamais zero confirme`() {
+        val result = SocialSecurityCeilingV2.calculate(
+            SocialSecurityCeilingV2.Input(
+                year = 2026,
+                referenceDate = LocalDate.of(2026, 3, 31),
+                contractType = ContractTypeV2.PART_TIME,
+                contractualWeeklyMinutes = 28 * 60,
+                complementaryMinutes = -60,
+                entryDate = LocalDate.of(2020, 1, 1)
+            )
+        )
+
+        assertEquals(3204.0, result.applicableMonthly, 0.001)
+        assertEquals(0.8, result.workTimeRatio, 0.000001)
+        assertFalse(result.complete)
+        assertTrue(result.warnings.any { it.contains("heures complémentaires incohérentes") })
+    }
+
+    @Test
     fun `forfait 215 jours utilise la reference de 218 jours`() {
         val result = SocialSecurityCeilingV2.calculate(
             SocialSecurityCeilingV2.Input(
@@ -140,5 +159,26 @@ class SocialSecurityCeilingV2Test {
         )
 
         assertEquals(4005.0 * 215.0 / 218.0, result.applicableMonthly, 0.001)
+    }
+
+    @Test
+    fun `forfait jours non fini reste incomplet sans propager NaN ou infini`() {
+        listOf(Double.NaN, Double.POSITIVE_INFINITY).forEach { invalidDays ->
+            val result = SocialSecurityCeilingV2.calculate(
+                SocialSecurityCeilingV2.Input(
+                    year = 2026,
+                    referenceDate = LocalDate.of(2026, 3, 31),
+                    contractType = ContractTypeV2.FORFAIT_DAYS,
+                    contractualWeeklyMinutes = null,
+                    entryDate = LocalDate.of(2020, 1, 1),
+                    forfaitAnnualDays = invalidDays
+                )
+            )
+
+            assertEquals(4005.0, result.applicableMonthly, 0.001)
+            assertTrue(result.applicableMonthly.isFinite())
+            assertFalse(result.complete)
+            assertTrue(result.warnings.any { it.contains("absent ou invalide") })
+        }
     }
 }
