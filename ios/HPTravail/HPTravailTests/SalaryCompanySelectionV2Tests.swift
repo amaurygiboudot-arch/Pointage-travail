@@ -103,4 +103,32 @@ final class SalaryCompanySelectionV2Tests: XCTestCase {
             "company-b"
         )
     }
+
+    func testMutationTargetIsPreservedOnlyWhenEmployerDoesNotChange() {
+        XCTAssertEqual(
+            SalaryCompanySelectionV2.stableMutationTarget(
+                beforeReconciliation: "company-a",
+                afterReconciliation: "company-a"
+            ),
+            "company-a"
+        )
+    }
+
+    func testMutationTargetRejectsAutomaticSwitchToDifferentEmployer() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.stableMutationTarget(
+                beforeReconciliation: "company-a",
+                afterReconciliation: "company-b"
+            )
+        )
+    }
+
+    func testMutationTargetRejectsSelectionCreatedOnlyDuringReconciliation() {
+        XCTAssertNil(
+            SalaryCompanySelectionV2.stableMutationTarget(
+                beforeReconciliation: nil,
+                afterReconciliation: "company-b"
+            )
+        )
+    }
 }
