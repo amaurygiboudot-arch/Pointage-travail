@@ -2,6 +2,7 @@ import SwiftUI
 import GoogleSignIn
 
 @main
+@MainActor
 struct HPTravailApp: App {
     @StateObject private var store: WorkStoreV2
     @StateObject private var salaryStore: SalaryV2Store
