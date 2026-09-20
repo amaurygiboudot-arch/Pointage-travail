@@ -147,6 +147,7 @@ object V2ConventionRuleStore {
                 .put("nightMultiplier", snapshot.rules.nightMultiplier)
                 .put("saturdayMultiplier", snapshot.rules.saturdayMultiplier)
                 .put("sundayMultiplier", snapshot.rules.sundayMultiplier)
+                .put("publicHolidayMultiplier", snapshot.rules.publicHolidayMultiplier)
                 .put("overtimeTiers", tiers))
     }
 
@@ -178,7 +179,8 @@ object V2ConventionRuleStore {
                 overtimeTiers = tiers,
                 nightMultiplier = if (rules.isNull("nightMultiplier")) null else rules.getDouble("nightMultiplier"),
                 saturdayMultiplier = if (rules.isNull("saturdayMultiplier")) null else rules.getDouble("saturdayMultiplier"),
-                sundayMultiplier = if (rules.isNull("sundayMultiplier")) null else rules.getDouble("sundayMultiplier")
+                sundayMultiplier = if (rules.isNull("sundayMultiplier")) null else rules.getDouble("sundayMultiplier"),
+                publicHolidayMultiplier = if (rules.isNull("publicHolidayMultiplier")) null else rules.getDouble("publicHolidayMultiplier")
             ),
             checkedAtMs = obj.getLong("checkedAtMs"),
             note = if (obj.isNull("note")) null else obj.optString("note").takeIf { it.isNotBlank() }
@@ -191,7 +193,8 @@ object V2ConventionRuleStore {
         val multipliers = listOf(
             snapshot.rules.nightMultiplier,
             snapshot.rules.saturdayMultiplier,
-            snapshot.rules.sundayMultiplier
+            snapshot.rules.sundayMultiplier,
+            snapshot.rules.publicHolidayMultiplier
         ).filterNotNull()
         if (multipliers.any { !it.isFinite() || it < 1.0 }) return false
         return snapshot.rules.overtimeTiers.all { tier ->
