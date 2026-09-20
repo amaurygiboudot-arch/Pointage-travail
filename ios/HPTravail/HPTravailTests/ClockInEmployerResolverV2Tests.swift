@@ -1,6 +1,7 @@
 import XCTest
 #if SWIFT_PACKAGE
 @testable import SalaryV2Contract
+@testable import RuntimeV2Contract
 #endif
 
 final class ClockInEmployerResolverV2Tests: XCTestCase {
