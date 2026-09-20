@@ -57,14 +57,11 @@ enum SalaryPaidWorkAggregatorV2 {
         sourceReliable: Bool = true,
         calendar inputCalendar: Calendar = .current
     ) -> SalaryPaidWorkAggregationV2 {
-        // YearMonthV2 et les périodes de paie HoraTrack sont grégoriennes. Le calendrier choisi
-        // dans les réglages du téléphone ne doit jamais transformer 2026 en une autre ère civile.
-        // On conserve en revanche le fuseau et la locale afin que les frontières locales restent justes.
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = inputCalendar.timeZone
         calendar.locale = inputCalendar.locale
-        calendar.firstWeekday = 2 // lundi
-        calendar.minimumDaysInFirstWeek = 4 // définition ISO-8601
+        calendar.firstWeekday = 2
+        calendar.minimumDaysInFirstWeek = 4
 
         let employerId = rawEmployerId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !employerId.isEmpty else {
@@ -103,12 +100,23 @@ enum SalaryPaidWorkAggregatorV2 {
         var coveredIntervals: [(start: Date, end: Date)] = []
 
         for session in sessions where normalizedEmployerId(session.employerId) == employerId {
-            // Une date non finie ne peut pas être classée de façon fiable dedans/dehors du mois.
-            // On invalide donc la source avant tout filtrage calendaire au lieu de la sauter.
             guard session.entry.timeIntervalSince1970.isFinite,
                   session.exit?.timeIntervalSince1970.isFinite ?? true else {
                 reliable = false
                 warnings.append(invalidSessionWarning)
+                continue
+            }
+
+            if let exit = session.exit, exit <= session.entry {
+                if unorderedEndpointsTouchPeriod(
+                    entry: session.entry,
+                    exit: exit,
+                    monthStart: monthStart,
+                    monthEnd: monthEnd
+                ) {
+                    reliable = false
+                    warnings.append(invalidSessionWarning)
+                }
                 continue
             }
 
@@ -121,21 +129,29 @@ enum SalaryPaidWorkAggregatorV2 {
                 warnings.append(openSessionWarning)
                 continue
             }
-            guard exit > session.entry,
-                  pausesAreStructurallyUsable(session.pauses, sessionStart: session.entry, sessionEnd: exit) else {
+            guard pausesAreStructurallyUsable(
+                session.pauses,
+                sessionStart: session.entry,
+                sessionEnd: exit
+            ) else {
                 reliable = false
                 warnings.append(invalidSessionWarning)
-                continue
-            }
-            if hasConflictingPauseClassifications(session.pauses) {
-                reliable = false
-                warnings.append(conflictingPauseWarning)
                 continue
             }
 
             let clippedStart = max(session.entry, monthStart)
             let clippedEnd = min(exit, monthEnd)
             guard clippedEnd > clippedStart else { continue }
+
+            if hasConflictingPauseClassifications(
+                session.pauses,
+                rangeStart: clippedStart,
+                rangeEnd: clippedEnd
+            ) {
+                reliable = false
+                warnings.append(conflictingPauseWarning)
+                continue
+            }
 
             completedSessionCount += 1
             coveredIntervals.append((clippedStart, clippedEnd))
@@ -176,10 +192,6 @@ enum SalaryPaidWorkAggregatorV2 {
                 let paidSeconds = max(0, assessment.paidDuration)
                 if paidSeconds.isFinite {
                     let roundedMinutes = Int(floor(paidSeconds / 60.0))
-                    // Parité exacte avec Android PaidWorkAllocationV2 :
-                    // - une tranche fiable réellement à 0 temps payé n'est pas émise ;
-                    // - une tranche avec du temps payé, même < 1 minute, reste émise puis tronquée ;
-                    // - une tranche non fiable reste émise pour conserver le signal d'incertitude.
                     if paidSeconds > 0 || !assessment.reliable {
                         paidMinutesByWeek[key, default: 0] += roundedMinutes
                     }
@@ -234,6 +246,22 @@ enum SalaryPaidWorkAggregatorV2 {
         return exit > monthStart
     }
 
+    private static func unorderedEndpointsTouchPeriod(
+        entry: Date,
+        exit: Date,
+        monthStart: Date,
+        monthEnd: Date
+    ) -> Bool {
+        func isInside(_ value: Date) -> Bool {
+            value >= monthStart && value < monthEnd
+        }
+        if isInside(entry) || isInside(exit) { return true }
+
+        let lower = min(entry, exit)
+        let upper = max(entry, exit)
+        return lower < monthEnd && upper > monthStart
+    }
+
     private static func pausesAreStructurallyUsable(
         _ pauses: [PaidPauseFactV2],
         sessionStart: Date,
@@ -250,10 +278,17 @@ enum SalaryPaidWorkAggregatorV2 {
         }
     }
 
-    private static func hasConflictingPauseClassifications(_ pauses: [PaidPauseFactV2]) -> Bool {
+    private static func hasConflictingPauseClassifications(
+        _ pauses: [PaidPauseFactV2],
+        rangeStart: Date,
+        rangeEnd: Date
+    ) -> Bool {
         let classified = pauses.compactMap { pause -> (start: Date, end: Date, paid: Bool)? in
-            guard let end = pause.end, let paid = pause.paid else { return nil }
-            return (pause.start, end, paid)
+            guard let rawEnd = pause.end, let paid = pause.paid else { return nil }
+            let start = max(pause.start, rangeStart)
+            let end = min(rawEnd, rangeEnd)
+            guard end > start else { return nil }
+            return (start, end, paid)
         }.sorted {
             $0.start == $1.start ? $0.end < $1.end : $0.start < $1.start
         }
