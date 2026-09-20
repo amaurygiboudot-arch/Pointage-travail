@@ -2,6 +2,7 @@ package com.amaury.pointage
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -83,6 +84,22 @@ class V2SalaryAdapterReliabilityV2Test {
         )
 
         assertFalse(reliable)
+    }
+
+    @Test
+    fun invalidContractRateFallsBackOnlyToFinitePositiveRate() {
+        assertEquals(
+            13.7,
+            V2SalaryAdapter.resolvePositiveHourlyRate(Double.POSITIVE_INFINITY, 13.7)!!,
+            0.0
+        )
+    }
+
+    @Test
+    fun invalidContractAndFallbackRatesProduceNoRate() {
+        assertNull(
+            V2SalaryAdapter.resolvePositiveHourlyRate(Double.NaN, Double.POSITIVE_INFINITY)
+        )
     }
 
     @Test
