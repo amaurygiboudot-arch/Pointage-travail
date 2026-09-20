@@ -49,6 +49,7 @@ enum FullTimeStructuralOvertimeV2 {
     ) -> Result {
         precondition(contractualWeeklyMinutes > 0)
         precondition(regularWeeklyLimit > 0)
+        precondition(paidWeeks.allSatisfy { $0 >= 0 }, "Minutes payées invalides")
         precondition(grossHourlyRate > 0 && grossHourlyRate.isFinite)
 
         let tiersStructurallyValid = OvertimeCoverageV2.isStructurallyValid(
@@ -75,7 +76,7 @@ enum FullTimeStructuralOvertimeV2 {
 
         let variableParts = paidWeeks.map { paid in
             ratedBetween(
-                upper: max(0, paid),
+                upper: paid,
                 lower: max(contractualWeeklyMinutes, regularWeeklyLimit),
                 rate: grossHourlyRate,
                 tiers: safeOvertimeTiers
