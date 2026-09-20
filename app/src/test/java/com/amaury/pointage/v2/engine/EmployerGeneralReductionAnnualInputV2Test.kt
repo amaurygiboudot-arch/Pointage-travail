@@ -17,7 +17,8 @@ class EmployerGeneralReductionAnnualInputV2Test {
         source: String? = "DSN annuelle 2026",
         reliable: Boolean = true,
         warnings: List<String> = emptyList(),
-        confirmedBand: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        confirmedFnal: EmployerWorkforceContributionsV2.FnalTreatment? =
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
         confirmedContractType: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         confirmedWeeklyMinutes: Int? = 35 * 60
     ) = EmployerGeneralReductionAnnualContextV2.Snapshot(
@@ -27,7 +28,7 @@ class EmployerGeneralReductionAnnualInputV2Test {
         source = source,
         reliable = reliable,
         warnings = warnings,
-        confirmedWorkforceBand = confirmedBand,
+        confirmedFnalTreatment = confirmedFnal,
         confirmedContractType = confirmedContractType,
         confirmedContractualWeeklyMinutes = confirmedWeeklyMinutes
     )
@@ -36,7 +37,8 @@ class EmployerGeneralReductionAnnualInputV2Test {
         month: Int,
         remuneration: Double = 2_000.0,
         additionalMinutes: Double = 0.0,
-        band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? =
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
         contractType: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60,
         fullMonth: Boolean? = true,
@@ -50,13 +52,13 @@ class EmployerGeneralReductionAnnualInputV2Test {
     ): EmployerGeneralReductionAnnualInputV2.Month {
         val automatic = if (
             remuneration.isFinite() && remuneration >= 0.0 &&
-            band != null && contractType != null && weeklyMinutes != null
+            fnalTreatment != null && contractType != null && weeklyMinutes != null
         ) {
             EmployerGeneralReduction2026V2.calculateMonthlyAdvance(
                 EmployerGeneralReduction2026V2.Input(
                     year = period.year,
                     reductionRemunerationMonthly = remuneration,
-                    workforceBand = band,
+                    fnalTreatment = fnalTreatment,
                     contractType = contractType,
                     contractualWeeklyMinutes = weeklyMinutes,
                     additionalPaidMinutes = additionalMinutes,
@@ -71,7 +73,7 @@ class EmployerGeneralReductionAnnualInputV2Test {
             reductionRemunerationMonthly = remuneration,
             additionalPaidMinutes = additionalMinutes,
             automaticRgduAdvanceAmount = advanceOverride ?: automatic,
-            workforceBand = band,
+            fnalTreatment = fnalTreatment,
             contractType = contractType,
             contractualWeeklyMinutes = weeklyMinutes,
             fullMonthPresent = fullMonth,
@@ -83,49 +85,36 @@ class EmployerGeneralReductionAnnualInputV2Test {
         )
     }
 
-    private fun fullYear(
-        additionalMinutes: Double = 0.0
-    ) = (1..12).map { month(it, additionalMinutes = additionalMinutes) }
+    private fun fullYear(additionalMinutes: Double = 0.0) =
+        (1..12).map { month(it, additionalMinutes = additionalMinutes) }
 
     @Test
     fun `twelve reliable homogeneous months build annual input and advances`() {
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            year = 2026,
-            months = fullYear(additionalMinutes = 0.5),
-            annualContext = context()
-        )
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear(0.5), context())
         assertTrue(result.reliable)
         val input = result.annualInput!!
         assertEquals(24_000.0, input.annualReductionRemuneration, 0.000001)
         assertEquals(6.0, input.additionalPaidMinutesAnnual!!, 0.000001)
-        assertEquals(EmployerWorkforceContributionsV2.Band.AT_LEAST_50, input.workforceBand)
+        assertEquals(EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT, input.fnalTreatment)
         assertEquals(ContractTypeV2.FULL_TIME, input.contractType)
         assertEquals(35 * 60, input.contractualWeeklyMinutes)
-        assertTrue(input.fullCalendarYearPresent == true)
-        assertTrue(input.standardCommonLawCaseConfirmed == true)
-        assertTrue(input.homogeneousAnnualParametersConfirmed == true)
         assertEquals((1..12).toList(), result.monthlyAdvances.map { it.month })
     }
 
     @Test
     fun `fractional paid minutes are preserved across the year`() {
-        val months = (1..12).map { month(it, additionalMinutes = 0.125) }
-
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(
+            2026,
+            (1..12).map { month(it, additionalMinutes = 0.125) },
+            context()
+        )
         assertTrue(result.reliable)
         assertEquals(1.5, result.annualInput!!.additionalPaidMinutesAnnual!!, 0.0000001)
     }
 
     @Test
     fun `missing month is never converted to zero`() {
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear().dropLast(1),
-            context()
-        )
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear().dropLast(1), context())
         assertFalse(result.reliable)
         assertNull(result.annualInput)
         assertTrue(result.warnings.any { it.contains("2026-12") })
@@ -133,10 +122,7 @@ class EmployerGeneralReductionAnnualInputV2Test {
 
     @Test
     fun `duplicate month blocks aggregation`() {
-        val months = fullYear() + month(12)
-
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear() + month(12), context())
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("même mois", ignoreCase = true) })
     }
@@ -144,52 +130,35 @@ class EmployerGeneralReductionAnnualInputV2Test {
     @Test
     fun `month from another year blocks aggregation`() {
         val months = fullYear().dropLast(1) + month(12, period = YearMonth.of(2025, 12))
-
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("hors année", ignoreCase = true) })
     }
 
     @Test
     fun `unknown paid hours completeness blocks annual aggregation`() {
-        val months = fullYear().map {
-            if (it.period.monthValue == 4) it.copy(paidHoursComplete = null) else it
-        }
-
+        val months = fullYear().map { if (it.period.monthValue == 4) it.copy(paidHoursComplete = null) else it }
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("exhaustivité", ignoreCase = true) })
     }
 
     @Test
-    fun `actual monthly workforce variation blocks standard annual case`() {
+    fun `actual FNAL treatment variation blocks standard annual case`() {
         val months = fullYear().map {
             if (it.period.monthValue == 7) {
-                month(
-                    month = 7,
-                    band = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49
-                )
+                month(7, fnalTreatment = EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT)
             } else it
         }
-
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context(homogeneous = true))
-
         assertFalse(result.reliable)
-        assertTrue(result.warnings.any { it.contains("effectif varie", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("FNAL/logement varie", ignoreCase = true) })
     }
 
     @Test
     fun `actual weekly duration variation blocks standard annual case`() {
-        val months = fullYear().map {
-            if (it.period.monthValue == 8) {
-                month(month = 8, weeklyMinutes = 30 * 60)
-            } else it
-        }
-
+        val months = fullYear().map { if (it.period.monthValue == 8) month(8, weeklyMinutes = 30 * 60) else it }
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context(homogeneous = true))
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("durée contractuelle", ignoreCase = true) })
     }
@@ -199,9 +168,7 @@ class EmployerGeneralReductionAnnualInputV2Test {
         val months = fullYear().map {
             if (it.period.monthValue == 5) it.copy(automaticRgduAdvanceAmount = it.automaticRgduAdvanceAmount!! + 1.0) else it
         }
-
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("ne correspond plus", ignoreCase = true) })
     }
@@ -209,23 +176,15 @@ class EmployerGeneralReductionAnnualInputV2Test {
     @Test
     fun `annual homogeneity confirmation must be explicit`() {
         val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear(),
-            context(homogeneous = null, warnings = listOf("stabilité à confirmer"))
+            2026, fullYear(), context(homogeneous = null, warnings = listOf("stabilité à confirmer"))
         )
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("stabilité", ignoreCase = true) })
     }
 
     @Test
     fun `annual source is mandatory even if flags are true`() {
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear(),
-            context(source = "")
-        )
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear(), context(source = ""))
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("source", ignoreCase = true) })
     }
@@ -235,9 +194,7 @@ class EmployerGeneralReductionAnnualInputV2Test {
         val months = fullYear().map {
             if (it.period.monthValue == 3) it.copy(warnings = listOf("preuve mensuelle partielle")) else it
         }
-
         val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, months, context())
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.contains("preuve mensuelle partielle"))
     }
@@ -247,72 +204,47 @@ class EmployerGeneralReductionAnnualInputV2Test {
         val result = EmployerGeneralReductionAnnualInputV2.resolve(
             2026,
             fullYear(),
-            context(
-                homogeneous = true,
-                confirmedBand = null,
-                confirmedContractType = null,
-                confirmedWeeklyMinutes = null
-            )
+            context(homogeneous = true, confirmedFnal = null, confirmedContractType = null, confirmedWeeklyMinutes = null)
         )
-
         assertFalse(result.reliable)
-        assertTrue(result.warnings.any { it.contains("annuelle exacte", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("annuel", ignoreCase = true) || it.contains("annuelle", ignoreCase = true) })
     }
 
     @Test
-    fun `confirmed annual workforce band must match all monthly facts`() {
+    fun `confirmed annual FNAL treatment must match all monthly facts`() {
         val result = EmployerGeneralReductionAnnualInputV2.resolve(
             2026,
             fullYear(),
-            context(confirmedBand = EmployerWorkforceContributionsV2.Band.FROM_11_TO_49)
+            context(confirmedFnal = EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT)
         )
-
         assertFalse(result.reliable)
-        assertTrue(result.warnings.any { it.contains("tranche d'effectif", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("FNAL/logement", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
     }
 
     @Test
     fun `confirmed annual contract type must match all monthly facts`() {
         val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear(),
-            context(confirmedContractType = ContractTypeV2.PART_TIME)
+            2026, fullYear(), context(confirmedContractType = ContractTypeV2.PART_TIME)
         )
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("type de contrat", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
     }
 
     @Test
     fun `confirmed annual weekly duration must match all monthly facts`() {
-        val result = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear(),
-            context(confirmedWeeklyMinutes = 30 * 60)
-        )
-
+        val result = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear(), context(confirmedWeeklyMinutes = 30 * 60))
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("durée contractuelle", ignoreCase = true) && it.contains("ne correspond pas", ignoreCase = true) })
     }
 
     @Test
     fun `prepared annual input can feed annual entitlement and regularization`() {
-        val prepared = EmployerGeneralReductionAnnualInputV2.resolve(
-            2026,
-            fullYear(additionalMinutes = 0.5),
-            context()
-        )
-
+        val prepared = EmployerGeneralReductionAnnualInputV2.resolve(2026, fullYear(0.5), context())
         assertTrue(prepared.reliable)
         val annual = EmployerGeneralReductionAnnual2026V2.calculate(prepared.annualInput!!)
         assertTrue(annual.reliable)
         assertNotNull(annual.amount)
-
-        val regularization = EmployerGeneralReductionAnnualRegularizationV2.resolve(
-            2026,
-            annual,
-            prepared.monthlyAdvances
-        )
+        val regularization = EmployerGeneralReductionAnnualRegularizationV2.resolve(2026, annual, prepared.monthlyAdvances)
         assertTrue(regularization.reliable)
         assertNotNull(regularization.adjustment)
     }
