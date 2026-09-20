@@ -15,7 +15,7 @@ class EmployerGeneralReductionAnnualContextV2Test {
         standardCase: Boolean = true,
         homogeneous: Boolean? = true,
         source: String = "DSN annuelle 2026",
-        confirmedBand: EmployerWorkforceContributionsV2.Band? = null,
+        confirmedFnal: EmployerWorkforceContributionsV2.FnalTreatment? = null,
         confirmedContractType: ContractTypeV2? = null,
         confirmedWeeklyMinutes: Int? = null
     ) = EmployerGeneralReductionAnnualContextV2.Record(
@@ -25,7 +25,7 @@ class EmployerGeneralReductionAnnualContextV2Test {
         standardCommonLawCaseConfirmed = standardCase,
         homogeneousAnnualParametersConfirmed = homogeneous,
         source = source,
-        confirmedWorkforceBand = confirmedBand,
+        confirmedFnalTreatment = confirmedFnal,
         confirmedContractType = confirmedContractType,
         confirmedContractualWeeklyMinutes = confirmedWeeklyMinutes
     )
@@ -33,7 +33,6 @@ class EmployerGeneralReductionAnnualContextV2Test {
     @Test
     fun `missing annual context stays unknown`() {
         val result = EmployerGeneralReductionAnnualContextV2.resolve(emptyList(), 2026)
-
         assertFalse(result.reliable)
         assertNull(result.fullCalendarYearPresent)
         assertNull(result.homogeneousAnnualParametersConfirmed)
@@ -42,10 +41,8 @@ class EmployerGeneralReductionAnnualContextV2Test {
     @Test
     fun `explicit false facts are preserved`() {
         val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(fullYear = false, standardCase = false, homogeneous = false)),
-            2026
+            listOf(record(fullYear = false, standardCase = false, homogeneous = false)), 2026
         )
-
         assertTrue(result.reliable)
         assertFalse(result.fullCalendarYearPresent!!)
         assertFalse(result.standardCommonLawCaseConfirmed!!)
@@ -54,11 +51,7 @@ class EmployerGeneralReductionAnnualContextV2Test {
 
     @Test
     fun `unknown stability remains unknown and visible`() {
-        val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(homogeneous = null)),
-            2026
-        )
-
+        val result = EmployerGeneralReductionAnnualContextV2.resolve(listOf(record(homogeneous = null)), 2026)
         assertTrue(result.reliable)
         assertNull(result.homogeneousAnnualParametersConfirmed)
         assertTrue(result.warnings.any { it.contains("stabilité", ignoreCase = true) })
@@ -66,16 +59,12 @@ class EmployerGeneralReductionAnnualContextV2Test {
 
     @Test
     fun `homogeneous flag without exact historical parameters stays visible and unusable downstream`() {
-        val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(homogeneous = true)),
-            2026
-        )
-
+        val result = EmployerGeneralReductionAnnualContextV2.resolve(listOf(record(homogeneous = true)), 2026)
         assertTrue(result.reliable)
-        assertNull(result.confirmedWorkforceBand)
+        assertNull(result.confirmedFnalTreatment)
         assertNull(result.confirmedContractType)
         assertNull(result.confirmedContractualWeeklyMinutes)
-        assertTrue(result.warnings.any { it.contains("tranche d'effectif", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("FNAL/logement", ignoreCase = true) })
         assertTrue(result.warnings.any { it.contains("type de contrat", ignoreCase = true) })
         assertTrue(result.warnings.any { it.contains("durée contractuelle", ignoreCase = true) })
     }
@@ -86,17 +75,16 @@ class EmployerGeneralReductionAnnualContextV2Test {
             listOf(
                 record(
                     homogeneous = true,
-                    confirmedBand = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+                    confirmedFnal = EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT,
                     confirmedContractType = ContractTypeV2.FULL_TIME,
                     confirmedWeeklyMinutes = 35 * 60
                 )
             ),
             2026
         )
-
         assertTrue(result.reliable)
         assertTrue(result.warnings.isEmpty())
-        assertEquals(EmployerWorkforceContributionsV2.Band.AT_LEAST_50, result.confirmedWorkforceBand)
+        assertEquals(EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT, result.confirmedFnalTreatment)
         assertEquals(ContractTypeV2.FULL_TIME, result.confirmedContractType)
         assertEquals(35 * 60, result.confirmedContractualWeeklyMinutes)
     }
@@ -104,10 +92,8 @@ class EmployerGeneralReductionAnnualContextV2Test {
     @Test
     fun `duplicate year blocks annual context`() {
         val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(id = "a"), record(id = "b")),
-            2026
+            listOf(record(id = "a"), record(id = "b")), 2026
         )
-
         assertFalse(result.reliable)
         assertTrue(result.warnings.any { it.contains("plusieurs", ignoreCase = true) })
     }
@@ -115,10 +101,8 @@ class EmployerGeneralReductionAnnualContextV2Test {
     @Test
     fun `blank source anywhere blocks automatic annual context`() {
         val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(year = 2025, source = ""), record()),
-            2026
+            listOf(record(year = 2025, source = ""), record()), 2026
         )
-
         assertFalse(result.reliable)
         assertNull(result.source)
         assertTrue(result.warnings.any { it.contains("incomplet", ignoreCase = true) })
@@ -127,10 +111,8 @@ class EmployerGeneralReductionAnnualContextV2Test {
     @Test
     fun `invalid confirmed weekly duration blocks annual context`() {
         val result = EmployerGeneralReductionAnnualContextV2.resolve(
-            listOf(record(confirmedWeeklyMinutes = -1)),
-            2026
+            listOf(record(confirmedWeeklyMinutes = -1)), 2026
         )
-
         assertFalse(result.reliable)
         assertNull(result.confirmedContractualWeeklyMinutes)
     }

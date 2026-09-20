@@ -19,15 +19,16 @@ object EmployerGeneralReduction2026V2 {
     private const val SMIC_HOURLY_2026 = 12.02
     private const val LEGAL_WEEKLY_MINUTES = 35 * 60
     private const val T_MIN = 0.0200
-    private const val T_DELTA_UNDER_50 = 0.3781
-    private const val T_DELTA_AT_LEAST_50 = 0.3821
+    private const val T_DELTA_CAPPED_0_1_PERCENT = 0.3781
+    private const val T_DELTA_UNCAPPED_0_5_PERCENT = 0.3821
     private const val EXPONENT = 1.75
 
     data class Input(
         val year: Int,
         /** Rémunération mensuelle entrant dans la formule RGDU (assiette L.242-1 + PPV le cas échéant). */
         val reductionRemunerationMonthly: Double,
-        val workforceBand: EmployerWorkforceContributionsV2.Band?,
+        /** Régime de contribution logement/FNAL explicitement confirmé ; jamais déduit du seul effectif. */
+        val fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment?,
         val contractType: ContractTypeV2?,
         val contractualWeeklyMinutes: Int?,
         /**
@@ -61,8 +62,8 @@ object EmployerGeneralReduction2026V2 {
         if (!input.reductionRemunerationMonthly.isFinite() || input.reductionRemunerationMonthly < 0.0) {
             return blocked("RGDU 2026 : rémunération de référence invalide.")
         }
-        val band = input.workforceBand
-            ?: return blocked("RGDU 2026 : effectif <50 / ≥50 à confirmer.")
+        val fnalTreatment = input.fnalTreatment
+            ?: return blocked("RGDU 2026 : régime FNAL/logement 0,10 % plafonné ou 0,50 % déplafonné à confirmer.")
         val type = input.contractType
             ?: return blocked("RGDU 2026 : type de contrat à confirmer.")
         if (type != ContractTypeV2.FULL_TIME && type != ContractTypeV2.PART_TIME) {
@@ -91,7 +92,7 @@ object EmployerGeneralReduction2026V2 {
         if (remuneration <= 0.0) {
             return Result(
                 amount = 0.0,
-                coefficient = maximumCoefficient(band),
+                coefficient = maximumCoefficient(fnalTreatment),
                 referenceMinimumMonthly = referenceMinimum,
                 thresholdMonthly = threshold,
                 reliable = true,
@@ -111,14 +112,13 @@ object EmployerGeneralReduction2026V2 {
             )
         }
 
-        val tDelta = when (band) {
-            EmployerWorkforceContributionsV2.Band.UNDER_11,
-            EmployerWorkforceContributionsV2.Band.FROM_11_TO_49 -> T_DELTA_UNDER_50
-            EmployerWorkforceContributionsV2.Band.AT_LEAST_50 -> T_DELTA_AT_LEAST_50
+        val tDelta = when (fnalTreatment) {
+            EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT -> T_DELTA_CAPPED_0_1_PERCENT
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT -> T_DELTA_UNCAPPED_0_5_PERCENT
         }
         val formulaBase = 0.5 * (3.0 * referenceMinimum / remuneration - 1.0)
         val rawCoefficient = T_MIN + tDelta * formulaBase.coerceAtLeast(0.0).pow(EXPONENT)
-        val coefficient = round4(rawCoefficient).coerceIn(0.0, maximumCoefficient(band))
+        val coefficient = round4(rawCoefficient).coerceIn(0.0, maximumCoefficient(fnalTreatment))
         val amount = roundCents(remuneration * coefficient)
 
         return Result(
@@ -131,10 +131,13 @@ object EmployerGeneralReduction2026V2 {
         )
     }
 
-    private fun maximumCoefficient(band: EmployerWorkforceContributionsV2.Band): Double = when (band) {
-        EmployerWorkforceContributionsV2.Band.UNDER_11,
-        EmployerWorkforceContributionsV2.Band.FROM_11_TO_49 -> T_MIN + T_DELTA_UNDER_50
-        EmployerWorkforceContributionsV2.Band.AT_LEAST_50 -> T_MIN + T_DELTA_AT_LEAST_50
+    private fun maximumCoefficient(
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment
+    ): Double = when (fnalTreatment) {
+        EmployerWorkforceContributionsV2.FnalTreatment.CAPPED_0_1_PERCENT ->
+            T_MIN + T_DELTA_CAPPED_0_1_PERCENT
+        EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT ->
+            T_MIN + T_DELTA_UNCAPPED_0_5_PERCENT
     }
 
     private fun round4(value: Double): Double = round(value * 10_000.0) / 10_000.0

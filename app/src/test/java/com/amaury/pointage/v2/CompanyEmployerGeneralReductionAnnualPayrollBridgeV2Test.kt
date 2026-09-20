@@ -51,14 +51,20 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
 
     private fun workforce(
         band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
-        source: String? = "DSN effectif 2026",
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? =
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
+        trainingTreatment: EmployerWorkforceContributionsV2.TrainingTreatment? =
+            EmployerWorkforceContributionsV2.TrainingTreatment.STANDARD,
+        source: String? = "DSN régime FNAL 2026",
         reliable: Boolean = true,
         warnings: List<String> = emptyList()
     ) = EmployerWorkforceContributionsV2.Snapshot(
         band = band,
         source = source,
         reliable = reliable,
-        warnings = warnings
+        warnings = warnings,
+        fnalTreatment = fnalTreatment,
+        trainingTreatment = trainingTreatment
     )
 
     private fun monthlyContext(
@@ -79,7 +85,8 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
     )
 
     private fun annualContext(
-        band: EmployerWorkforceContributionsV2.Band? = EmployerWorkforceContributionsV2.Band.AT_LEAST_50,
+        fnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? =
+            EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT,
         type: ContractTypeV2? = ContractTypeV2.FULL_TIME,
         weeklyMinutes: Int? = 35 * 60
     ) = EmployerGeneralReductionAnnualContextV2.Snapshot(
@@ -89,13 +96,13 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
         source = "DSN annuelle 2026",
         reliable = true,
         warnings = emptyList(),
-        confirmedWorkforceBand = band,
+        confirmedFnalTreatment = fnalTreatment,
         confirmedContractType = type,
         confirmedContractualWeeklyMinutes = weeklyMinutes
     )
 
     @Test
-    fun `reliable month uses confirmed historical annual contract parameters`() {
+    fun `reliable month uses explicit monthly FNAL and confirmed historical annual contract parameters`() {
         val result = CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.buildMonth(
             period = YearMonth.of(2026, 1),
             salary = salary(),
@@ -106,12 +113,33 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
         )
 
         assertTrue(result.reliable)
+        assertEquals(EmployerWorkforceContributionsV2.FnalTreatment.UNCAPPED_0_5_PERCENT, result.fnalTreatment)
         assertEquals(ContractTypeV2.FULL_TIME, result.contractType)
         assertEquals(35 * 60, result.contractualWeeklyMinutes)
         assertEquals(2_125.50, result.reductionRemunerationMonthly!!, 0.000001)
         assertNotNull(result.automaticRgduAdvanceAmount)
         assertTrue(result.source!!.contains("Bulletin 01/2026"))
-        assertTrue(result.source!!.contains("DSN effectif 2026"))
+        assertTrue(result.source!!.contains("DSN régime FNAL 2026"))
+    }
+
+    @Test
+    fun `training applicability is irrelevant to RGDU when FNAL treatment is confirmed`() {
+        val result = CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.buildMonth(
+            period = YearMonth.of(2026, 1),
+            salary = salary(),
+            benefits = benefits(),
+            workforce = workforce(
+                trainingTreatment = null,
+                reliable = false,
+                warnings = listOf("Formation professionnelle : applicabilité/exonération à confirmer pour la rémunération considérée.")
+            ),
+            monthlyContext = monthlyContext(),
+            annualContext = annualContext()
+        )
+
+        assertTrue(result.reliable)
+        assertNotNull(result.automaticRgduAdvanceAmount)
+        assertFalse(result.warnings.any { it.contains("Formation professionnelle", ignoreCase = true) })
     }
 
     @Test
@@ -205,15 +233,15 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
     }
 
     @Test
-    fun `workforce failure remains visible and blocks automatic advance`() {
+    fun `missing monthly FNAL treatment remains visible and blocks automatic advance`() {
         val result = CompanyEmployerGeneralReductionAnnualPayrollBridgeV2.buildMonth(
             period = YearMonth.of(2026, 7),
             salary = salary(),
             benefits = benefits(),
             workforce = workforce(
-                band = null,
+                fnalTreatment = null,
                 reliable = false,
-                warnings = listOf("effectif mensuel à confirmer")
+                warnings = listOf("FNAL : régime mensuel à confirmer")
             ),
             monthlyContext = monthlyContext(),
             annualContext = annualContext()
@@ -221,7 +249,7 @@ class CompanyEmployerGeneralReductionAnnualPayrollBridgeV2Test {
 
         assertFalse(result.reliable)
         assertNull(result.automaticRgduAdvanceAmount)
-        assertTrue(result.warnings.any { it.contains("effectif mensuel", ignoreCase = true) })
+        assertTrue(result.warnings.any { it.contains("FNAL", ignoreCase = true) })
     }
 
     @Test

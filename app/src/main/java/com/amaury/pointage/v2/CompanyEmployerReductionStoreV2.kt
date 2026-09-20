@@ -160,7 +160,7 @@ object CompanyEmployerReductionStoreV2 {
             companyId = company.id,
             period = month,
             reductionRemunerationMonthly = payrollInput.reductionRemunerationMonthly,
-            workforceBand = workforce.band,
+            fnalTreatment = workforce.fnalTreatment,
             contractType = contractType,
             contractualWeeklyMinutes = contractualWeeklyMinutes,
             additionalPaidMinutes = payrollInput.additionalPaidMinutes
@@ -190,7 +190,7 @@ object CompanyEmployerReductionStoreV2 {
                     payrollInput.warnings +
                     salary.warnings.takeIf { !payrollInput.reliable }.orEmpty() +
                     benefits.warnings.takeIf { !benefits.reliable }.orEmpty() +
-                    workforce.warnings +
+                    workforce.warnings.filterNot { it.startsWith("Formation professionnelle", ignoreCase = true) } +
                     resolution.warnings
                 ).distinct()
         )

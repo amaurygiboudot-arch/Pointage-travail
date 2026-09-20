@@ -21,6 +21,7 @@ import java.time.YearMonth
  *
  * Les paramètres de contrat utilisés ici viennent exclusivement du snapshot annuel historique
  * confirmé. Les préférences de contrat courantes ne sont jamais recopiées dans le passé.
+ * Le régime FNAL mensuel est utilisé explicitement et n'est jamais déduit de la tranche d'effectif.
  *
  * Pour la régularisation, douze montants RGDU réellement constatés et sourcés sont prioritaires.
  * Tant que cette série historique est incomplète, HoraTrack conserve une reconstruction
@@ -249,6 +250,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
     ): EmployerGeneralReductionAnnualInputV2.Month {
         val contractType = annualContext.confirmedContractType
         val contractualWeeklyMinutes = annualContext.confirmedContractualWeeklyMinutes
+        val fnalTreatment = workforce.fnalTreatment
         val payrollInput = RgduPayrollInputBridgeV2.resolve(
             salary = salary,
             contractType = contractType,
@@ -265,7 +267,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
                 EmployerGeneralReduction2026V2.Input(
                     year = period.year,
                     reductionRemunerationMonthly = payrollInput.reductionRemunerationMonthly,
-                    workforceBand = workforce.band,
+                    fnalTreatment = fnalTreatment,
                     contractType = contractType,
                     contractualWeeklyMinutes = contractualWeeklyMinutes,
                     additionalPaidMinutes = payrollInput.additionalPaidMinutes,
@@ -280,9 +282,15 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             workforce.source?.trim()?.takeIf { it.isNotBlank() }
         ).distinct().joinToString(" | ").takeIf { it.isNotBlank() }
 
+        val rgduWorkforceWarnings = workforce.warnings.filterNot {
+            it.startsWith("Formation professionnelle", ignoreCase = true)
+        }
         val warnings = buildList {
             addAll(monthlyContext.warnings)
-            addAll(workforce.warnings)
+            addAll(rgduWorkforceWarnings)
+            if (fnalTreatment == null) {
+                add("RGDU annuelle : régime FNAL/logement mensuel exact à confirmer pour $period.")
+            }
             if (!benefits.reliable) addAll(benefits.warnings)
             if (!payrollInput.reliable) {
                 addAll(payrollInput.warnings)
@@ -304,7 +312,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             annualContext.confirmedContractType != null &&
                 annualContext.confirmedContractualWeeklyMinutes != null &&
                 monthlyContext.reliable &&
-                workforce.reliable &&
+                fnalTreatment != null &&
                 benefits.reliable &&
                 payrollInput.reliable &&
                 monthlyAdvance?.reliable == true &&
@@ -317,7 +325,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
             reductionRemunerationMonthly = payrollInput.reductionRemunerationMonthly,
             additionalPaidMinutes = payrollInput.additionalPaidMinutes,
             automaticRgduAdvanceAmount = monthlyAdvance?.amount,
-            workforceBand = workforce.band,
+            fnalTreatment = fnalTreatment,
             contractType = contractType,
             contractualWeeklyMinutes = contractualWeeklyMinutes,
             fullMonthPresent = monthlyContext.fullMonthPresent,
@@ -337,7 +345,7 @@ object CompanyEmployerGeneralReductionAnnualPayrollBridgeV2 {
         if (context.fullCalendarYearPresent != true) add("RGDU annuelle : année civile complète non confirmée.")
         if (context.standardCommonLawCaseConfirmed != true) add("RGDU annuelle : cas de droit commun non confirmé sur toute l'année.")
         if (context.homogeneousAnnualParametersConfirmed != true) add("RGDU annuelle : stabilité annuelle des paramètres non confirmée.")
-        if (context.confirmedWorkforceBand == null) add("RGDU annuelle : tranche d'effectif historique exacte à confirmer.")
+        if (context.confirmedFnalTreatment == null) add("RGDU annuelle : régime FNAL/logement historique exact à confirmer.")
         if (context.confirmedContractType == null) add("RGDU annuelle : type de contrat historique exact à confirmer.")
         if (context.confirmedContractualWeeklyMinutes == null) add("RGDU annuelle : durée contractuelle historique exacte à confirmer.")
         addAll(context.warnings)

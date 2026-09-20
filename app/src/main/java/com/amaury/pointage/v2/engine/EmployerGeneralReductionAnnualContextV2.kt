@@ -18,15 +18,15 @@ object EmployerGeneralReductionAnnualContextV2 {
         /** true uniquement si le cas de droit commun RGDU est confirmé pour toute l'année. */
         val standardCommonLawCaseConfirmed: Boolean,
         /**
-         * true uniquement si type de contrat, durée contractuelle et tranche d'effectif utilisées
+         * true uniquement si type de contrat, durée contractuelle et régime FNAL/logement utilisés
          * par le moteur annuel sont confirmés comme stables sur toute l'année.
          * null est conservé pour une migration sûre d'un éventuel ancien enregistrement.
          */
         val homogeneousAnnualParametersConfirmed: Boolean? = null,
         /** Source humaine vérifiable : DSN, bulletins, attestation employeur, contrôle qualifié, etc. */
         val source: String,
-        /** Valeurs exactes confirmées stables sur l'année ; null reste inconnu, jamais recopié du profil courant. */
-        val confirmedWorkforceBand: EmployerWorkforceContributionsV2.Band? = null,
+        /** Valeurs exactes confirmées stables sur l'année ; null reste inconnu, jamais déduit de l'effectif courant. */
+        val confirmedFnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? = null,
         val confirmedContractType: ContractTypeV2? = null,
         val confirmedContractualWeeklyMinutes: Int? = null
     )
@@ -39,7 +39,7 @@ object EmployerGeneralReductionAnnualContextV2 {
         val reliable: Boolean,
         val warnings: List<String>,
         /** Valeurs historiques exactes prouvées pour l'année, distinctes des paramètres courants. */
-        val confirmedWorkforceBand: EmployerWorkforceContributionsV2.Band? = null,
+        val confirmedFnalTreatment: EmployerWorkforceContributionsV2.FnalTreatment? = null,
         val confirmedContractType: ContractTypeV2? = null,
         val confirmedContractualWeeklyMinutes: Int? = null
     )
@@ -75,8 +75,8 @@ object EmployerGeneralReductionAnnualContextV2 {
                 add("RGDU annuelle : stabilité des paramètres à confirmer pour $year.")
             }
             if (selected.homogeneousAnnualParametersConfirmed == true) {
-                if (selected.confirmedWorkforceBand == null) {
-                    add("RGDU annuelle : tranche d'effectif annuelle exacte à confirmer pour $year.")
+                if (selected.confirmedFnalTreatment == null) {
+                    add("RGDU annuelle : régime FNAL/logement annuel exact à confirmer pour $year.")
                 }
                 if (selected.confirmedContractType == null) {
                     add("RGDU annuelle : type de contrat annuel exact à confirmer pour $year.")
@@ -94,7 +94,7 @@ object EmployerGeneralReductionAnnualContextV2 {
             source = selected.source,
             reliable = true,
             warnings = warnings.distinct(),
-            confirmedWorkforceBand = selected.confirmedWorkforceBand,
+            confirmedFnalTreatment = selected.confirmedFnalTreatment,
             confirmedContractType = selected.confirmedContractType,
             confirmedContractualWeeklyMinutes = selected.confirmedContractualWeeklyMinutes
         )
@@ -107,7 +107,7 @@ object EmployerGeneralReductionAnnualContextV2 {
         source = null,
         reliable = false,
         warnings = listOf(message),
-        confirmedWorkforceBand = null,
+        confirmedFnalTreatment = null,
         confirmedContractType = null,
         confirmedContractualWeeklyMinutes = null
     )
