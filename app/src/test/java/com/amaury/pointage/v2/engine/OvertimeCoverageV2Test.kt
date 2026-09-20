@@ -14,6 +14,11 @@ class OvertimeCoverageV2Test {
     }
 
     @Test
+    fun negativePaidMinutesAreNeverConsideredCovered() {
+        assertFalse(OvertimeCoverageV2.isFullyCovered(limit, -1, emptyList()))
+    }
+
+    @Test
     fun overtimeWithoutTierIsNotCovered() {
         assertFalse(OvertimeCoverageV2.isFullyCovered(limit, 40 * 60, emptyList()))
     }
