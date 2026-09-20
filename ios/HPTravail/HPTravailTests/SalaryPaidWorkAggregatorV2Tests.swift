@@ -259,6 +259,27 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertEqual(result.totalPaidMinutes, 60)
     }
 
+    func testMonthEndUsesIndependentNextMonthBoundaryAcrossMidnightDstShift() {
+        var asuncion = Calendar(identifier: .gregorian)
+        asuncion.locale = Locale(identifier: "es_PY")
+        asuncion.timeZone = TimeZone(identifier: "America/Asuncion")!
+
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2023, 11, 1, 0, 30, calendar: asuncion),
+                exit: date(2023, 11, 1, 1, 30, calendar: asuncion)
+            )],
+            employerId: employerA,
+            period: YearMonthV2(year: 2023, month: 10)!,
+            calendar: asuncion
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertEqual(result.weeks, [])
+    }
+
     func testNonGregorianDeviceCalendarStillUsesGregorianPayrollPeriod() {
         var buddhist = Calendar(identifier: .buddhist)
         buddhist.locale = Locale(identifier: "th_TH")
@@ -336,6 +357,50 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertEqual(result.completedSessionCount, 1)
         XCTAssertEqual(result.totalPaidMinutes, 480)
         XCTAssertFalse(result.warnings.contains(SalaryPaidWorkAggregatorV2.conflictingPauseWarning))
+    }
+
+    func testMalformedPauseBeforeRequestedMonthDoesNotPoisonInMonthSlice() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 8, 31, 20),
+                exit: date(2026, 9, 1, 8),
+                pauses: [PaidPauseFactV2(
+                    start: date(2026, 8, 31, 21, 30),
+                    end: date(2026, 8, 31, 21),
+                    paid: false
+                )]
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 1)
+        XCTAssertEqual(result.totalPaidMinutes, 480)
+        XCTAssertFalse(result.warnings.contains(SalaryPaidWorkAggregatorV2.invalidSessionWarning))
+    }
+
+    func testMalformedPauseInsideRequestedMonthStillFailsClosed() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 9, 1, 0),
+                exit: date(2026, 9, 1, 8),
+                pauses: [PaidPauseFactV2(
+                    start: date(2026, 9, 1, 2),
+                    end: date(2026, 9, 1, 1, 30),
+                    paid: false
+                )]
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.invalidSessionWarning))
     }
 
     func testNonFiniteEntryFailsClosedBeforePeriodFiltering() {
