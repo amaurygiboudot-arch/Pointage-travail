@@ -1,4 +1,7 @@
 import Foundation
+#if SWIFT_PACKAGE
+import SalaryV2Contract
+#endif
 
 enum ClockInEmployerResolutionV2: Equatable {
     case unassigned
