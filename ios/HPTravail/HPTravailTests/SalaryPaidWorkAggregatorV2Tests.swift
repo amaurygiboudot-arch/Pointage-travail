@@ -259,6 +259,56 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
         XCTAssertEqual(result.totalPaidMinutes, 60)
     }
 
+    func testNonGregorianDeviceCalendarStillUsesGregorianPayrollPeriod() {
+        var buddhist = Calendar(identifier: .buddhist)
+        buddhist.locale = Locale(identifier: "th_TH")
+        buddhist.timeZone = TimeZone(secondsFromGMT: 0)!
+
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 9, 24, 8),
+                exit: date(2026, 9, 24, 9)
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: buddhist
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 1)
+        XCTAssertEqual(result.totalPaidMinutes, 60)
+        XCTAssertEqual(result.weeks.first?.yearForWeekOfYear, 2026)
+    }
+
+    func testConflictingOverlappingPauseClassificationsFailClosed() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [session(
+                entry: date(2026, 9, 25, 8),
+                exit: date(2026, 9, 25, 16),
+                pauses: [
+                    PaidPauseFactV2(
+                        start: date(2026, 9, 25, 12),
+                        end: date(2026, 9, 25, 13),
+                        paid: false
+                    ),
+                    PaidPauseFactV2(
+                        start: date(2026, 9, 25, 12, 30),
+                        end: date(2026, 9, 25, 13, 30),
+                        paid: true
+                    )
+                ]
+            )],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 0)
+        XCTAssertEqual(result.totalPaidMinutes, 0)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.conflictingPauseWarning))
+    }
+
     func testBlankEmployerIdFailsClosed() {
         let result = SalaryPaidWorkAggregatorV2.aggregate(
             sessions: [],
