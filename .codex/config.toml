@@ -1,19 +1,90 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
 approval_policy = "on-request"
 default_permissions = "horatrack-dev"
 allow_login_shell = false
 
+[features]
+apps = true
+
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 5
+default_subagent_reasoning_effort = "medium"
+
+[agents.salary_v2]
+description = "Salaire V2, paie, conventions, majorations et règles vérifiables."
+config_file = "./agents/salary-v2.toml"
+
+[agents.time_engine]
+description = "Pointage, temps, pauses, déplacements, GPS, zones et widgets."
+config_file = "./agents/time-engine.toml"
+
+[agents.mobile_platforms]
+description = "Architecture Android/iOS, Firebase, stockage, permissions, builds et CI."
+config_file = "./agents/mobile-platforms.toml"
+
+[agents.ui_ux]
+description = "UI/UX, navigation, affichages, accessibilité et rendu multi-écrans."
+config_file = "./agents/ui-ux.toml"
+
+[agents.team_lead]
+description = "Chef d'équipe technique, coordination, dépendances et pré-validation."
+config_file = "./agents/team-lead.toml"
+
+[agents.qa_reviewer]
+description = "QA indépendant en lecture seule, recherche de bugs et régressions."
+config_file = "./agents/qa-reviewer.toml"
+
+[agents.control_gate]
+description = "Sas final en lecture seule, décision PASS/FAIL avant fusion."
+config_file = "./agents/control-gate.toml"
+
+[agents.sales_growth]
+description = "Commercial, offres, argumentaires, démonstrations et retour marché."
+config_file = "./agents/sales-growth.toml"
+
+[agents.customer_support]
+description = "SAV, diagnostic utilisateur, reproduction et escalade."
+config_file = "./agents/customer-support.toml"
+
+[agents.marketing_comms]
+description = "Marketing, communication, SEO/ASO, pages store et lancement."
+config_file = "./agents/marketing-comms.toml"
+
+[agents.people_ops]
+description = "Organisation interne, rôles, procédures et charge de l'équipe."
+config_file = "./agents/people-ops.toml"
+
+[agents.finance_accounting]
+description = "Prix, abonnements, coûts, marges, prévisions et rentabilité."
+config_file = "./agents/finance-accounting.toml"
+
+[agents.legal_compliance]
+description = "Juridique, RGPD, conformité store et validation des sources."
+config_file = "./agents/legal-compliance.toml"
+
+[agents.incident_ops]
+description = "Incidents, triage, coordination de crise et post-mortems."
+config_file = "./agents/incident-ops.toml"
+
+[agents.product_manager]
+description = "Produit, roadmap, priorisation et critères d'acceptation."
+config_file = "./agents/product-manager.toml"
+
+[agents.international_lead]
+description = "Internationalisation et coordination des futures équipes pays."
+config_file = "./agents/international-lead.toml"
 
 [permissions.horatrack-dev]
-description = "HoraTrack development with governance files protected from agent writes."
+description = "Développement HoraTrack avec gouvernance protégée."
 extends = ":workspace"
 
 [permissions.horatrack-dev.filesystem]
 glob_scan_max_depth = 4
 
 [permissions.horatrack-dev.filesystem.":workspace_roots"]
+"." = "write"
 "AGENTS.md" = "read"
 ".codex" = "read"
 ".github/workflows" = "read"
@@ -21,3 +92,12 @@ glob_scan_max_depth = 4
 "SECURITY.md" = "read"
 "**/.env*" = "deny"
 "**/*.pem" = "deny"
+
+# GitHub MCP prêt pour l'étape d'authentification. Désactivé par défaut :
+# aucune clé ni aucun jeton n'est stocké dans le dépôt.
+[mcp_servers.github]
+enabled = false
+required = false
+url = "https://api.githubcopilot.com/mcp/readonly"
+auth = "oauth"
+default_tools_approval_mode = "prompt"
