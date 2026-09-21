@@ -10,7 +10,9 @@ Agents disponibles :
 - time_engine
 - mobile_platforms
 - ui_ux
+- team_lead
 - qa_reviewer
+- control_gate
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
@@ -53,14 +55,32 @@ Utiliser plusieurs agents pour les tâches indépendantes.
 Éviter que plusieurs agents modifient simultanément les mêmes fichiers.
 
 Pour une modification sensible :
-1. faire analyser le domaine par le spécialiste ;
+1. faire analyser le domaine par le ou les spécialistes ;
 2. effectuer la modification ;
-3. lancer les tests adaptés ;
-4. faire contrôler le résultat par qa_reviewer ;
-5. corriger les anomalies réelles ;
-6. relancer les tests et builds concernés.
+3. faire coordonner et pré-valider le lot par team_lead ;
+4. lancer les tests adaptés ;
+5. faire contrôler le résultat par qa_reviewer ;
+6. corriger les anomalies réelles ;
+7. relancer les tests et builds concernés ;
+8. soumettre le lot à control_gate ;
+9. fusionner uniquement si control_gate rend PASS et "FUSION AUTORISÉE : OUI".
 
 Le chef d'orchestre attend les résultats nécessaires avant de conclure.
+
+## CHAÎNE DE CONTRÔLE
+
+La chaîne normale est :
+
+chef d'orchestre → agents spécialisés → team_lead → qa_reviewer → control_gate → fusion.
+
+Rôles :
+- le chef d'orchestre décide quoi faire et dans quel ordre ;
+- team_lead coordonne la réalisation technique et les dépendances ;
+- qa_reviewer recherche activement bugs, régressions et manques de tests ;
+- control_gate ne développe rien : il autorise ou bloque le passage final.
+
+Le chef d'orchestre ne doit pas contourner control_gate pour une fusion normale.
+Tout FAIL du sas interdit la fusion jusqu'à correction et nouveau contrôle.
 
 ## FIABILITÉ
 
