@@ -7,8 +7,8 @@ import com.amaury.pointage.v2.model.ContractV2
  * Base de proratisation explicitement confirmée pour un mois contenant plusieurs versions de contrat.
  *
  * HoraTrack n'invente jamais un prorata calendaire. La seule méthode supportée ici utilise des
- * minutes planifiées de référence confirmées pour chaque segment. Ces minutes et leur source doivent
- * être fournies par une couche amont (utilisateur, entreprise ou source structurée fiable).
+ * minutes planifiées de référence confirmées pour chaque segment. Ces minutes, leurs bornes et leur
+ * source doivent être fournies par une couche amont (utilisateur, entreprise ou source fiable).
  */
 enum class ConfirmedProrationMethodV2 {
     SCHEDULED_MINUTES
@@ -16,6 +16,8 @@ enum class ConfirmedProrationMethodV2 {
 
 data class ConfirmedProrationSegmentV2(
     val versionId: String,
+    val startEpochDay: Long,
+    val endEpochDay: Long,
     val scheduledMinutes: Int
 )
 
@@ -28,6 +30,8 @@ data class ConfirmedSegmentedMonthlyProrationV2(
 
 data class SegmentedMonthlyBasePieceV2(
     val versionId: String,
+    val startEpochDay: Long,
+    val endEpochDay: Long,
     val scheduledMinutes: Int,
     val factor: Double,
     val fullMonthBaseGross: Double,
@@ -64,8 +68,10 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (proration == null) return blocked(MISSING_PRORATION_WARNING)
         if (!validProration(proration, segments)) return blocked(INVALID_PRORATION_WARNING)
 
-        val scheduledByVersion = proration.segments.associate { it.versionId.trim() to it.scheduledMinutes }
-        val totalScheduled = scheduledByVersion.values.sumOf { it.toLong() }
+        val scheduledBySegment = proration.segments.associate {
+            key(it.versionId, it.startEpochDay, it.endEpochDay) to it.scheduledMinutes
+        }
+        val totalScheduled = scheduledBySegment.values.sumOf { it.toLong() }
         if (totalScheduled <= 0L) return blocked(INVALID_PRORATION_WARNING)
 
         val pieces = mutableListOf<SegmentedMonthlyBasePieceV2>()
@@ -73,7 +79,8 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
 
         for (segment in segments.sortedBy { it.startEpochDay }) {
             val versionId = segment.snapshot.versionId.trim()
-            val scheduled = scheduledByVersion[versionId] ?: return blocked(INVALID_PRORATION_WARNING)
+            val scheduled = scheduledBySegment[key(versionId, segment.startEpochDay, segment.endEpochDay)]
+                ?: return blocked(INVALID_PRORATION_WARNING)
             val rules = rulesByVersionId[versionId] ?: PayrollRulesV2()
             val base = fullMonthBaseGross(segment.snapshot.contract, rules)
             if (base == null) {
@@ -90,6 +97,8 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             val factor = scheduled.toDouble() / totalScheduled.toDouble()
             pieces += SegmentedMonthlyBasePieceV2(
                 versionId = versionId,
+                startEpochDay = segment.startEpochDay,
+                endEpochDay = segment.endEpochDay,
                 scheduledMinutes = scheduled,
                 factor = factor,
                 fullMonthBaseGross = base,
@@ -140,12 +149,17 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (proration.sourceId.isBlank() || proration.checkedAtMs < 0L) return false
         if (proration.method != ConfirmedProrationMethodV2.SCHEDULED_MINUTES) return false
 
-        val expectedIds = segments.map { it.snapshot.versionId.trim() }
-        if (expectedIds.any { it.isBlank() } || expectedIds.distinct().size != expectedIds.size) return false
+        val expectedKeys = segments.map {
+            key(it.snapshot.versionId, it.startEpochDay, it.endEpochDay)
+        }
+        if (expectedKeys.any { it.first.isBlank() } || expectedKeys.distinct().size != expectedKeys.size) return false
 
-        val providedIds = proration.segments.map { it.versionId.trim() }
-        if (providedIds.any { it.isBlank() } || providedIds.distinct().size != providedIds.size) return false
-        if (providedIds.toSet() != expectedIds.toSet()) return false
+        val providedKeys = proration.segments.map {
+            if (it.endEpochDay < it.startEpochDay) return false
+            key(it.versionId, it.startEpochDay, it.endEpochDay)
+        }
+        if (providedKeys.any { it.first.isBlank() } || providedKeys.distinct().size != providedKeys.size) return false
+        if (providedKeys.toSet() != expectedKeys.toSet()) return false
         if (proration.segments.any { it.scheduledMinutes < 0 }) return false
         if (proration.segments.sumOf { it.scheduledMinutes.toLong() } <= 0L) return false
         return true
@@ -163,6 +177,9 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         }
         return true
     }
+
+    private fun key(versionId: String, startEpochDay: Long, endEpochDay: Long): Triple<String, Long, Long> =
+        Triple(versionId.trim(), startEpochDay, endEpochDay)
 
     private fun blocked(warning: String): SegmentedMonthlyBaseResultV2 = blocked(listOf(warning))
 
