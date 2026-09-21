@@ -22,12 +22,17 @@ object WorkTimelineEngine {
         events.forEach { event ->
             when (event.type) {
                 WorkEventType.ENTRY -> {
-                    if (activeStartMs != null) {
-                        warnings += "Entrée ignorée : une période de travail est déjà ouverte"
-                    } else {
-                        firstEntryMs = firstEntryMs ?: event.occurredAtMs
-                        activeStartMs = event.occurredAtMs
-                        pauseStartMs = null
+                    when {
+                        activeStartMs != null -> {
+                            warnings += "Entrée ignorée : une période de travail est déjà ouverte"
+                        }
+                        pauseStartMs != null -> {
+                            warnings += "Entrée ignorée : une pause est déjà ouverte"
+                        }
+                        else -> {
+                            firstEntryMs = firstEntryMs ?: event.occurredAtMs
+                            activeStartMs = event.occurredAtMs
+                        }
                     }
                 }
 
