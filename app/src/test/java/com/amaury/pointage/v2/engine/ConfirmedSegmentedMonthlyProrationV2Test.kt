@@ -64,6 +64,26 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
     }
 
     @Test
+    fun `un trou entre deux segments bloque la proratisation`() {
+        val segments = listOf(
+            segment("v1", 0, 10, fullTime(rate = 10.0)),
+            segment("v2", 12, 30, fullTime(rate = 20.0))
+        )
+        val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments = segments,
+            rulesByVersionId = mapOf(
+                "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
+                "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
+            ),
+            proration = confirmed("v1" to 4_200, "v2" to 4_200)
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.baseGross)
+        assertTrue(result.warnings.contains(ConfirmedSegmentedMonthlyProrationCalculatorV2.INVALID_PRORATION_WARNING))
+    }
+
+    @Test
     fun `un temps plein 39h exige les paliers structurels confirmes`() {
         val contract = fullTime(rate = 10.0, weeklyMinutes = 39 * 60)
         val segment = segment("v1", 0, 30, contract)
@@ -88,6 +108,26 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
         )
         assertTrue(calculated.reliable)
         assertEquals(1733.333333, calculated.baseGross!!, 0.0001)
+    }
+
+    @Test
+    fun `un temps partiel utilise uniquement sa duree et son taux confirmes`() {
+        val contract = ContractV2(
+            id = "part",
+            employerId = "company",
+            type = ContractTypeV2.PART_TIME,
+            contractualWeeklyMinutes = 20 * 60,
+            grossHourlyRate = 12.0,
+            hireDateEpochDay = 0L
+        )
+        val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments = listOf(segment("v1", 0, 30, contract)),
+            rulesByVersionId = emptyMap(),
+            proration = confirmed("v1" to 4_800)
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1040.0, result.baseGross!!, 0.0001)
     }
 
     @Test
