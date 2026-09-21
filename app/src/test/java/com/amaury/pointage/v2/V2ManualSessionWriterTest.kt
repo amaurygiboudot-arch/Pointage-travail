@@ -59,7 +59,8 @@ class V2ManualSessionWriterTest {
         assertEquals(1, defaultSlot.legacySlot)
         assertTrue(secondSlot.useLegacyProfile)
         assertEquals(2, secondSlot.legacySlot)
-        assertTrue(explicitNullWithSlot.useLegacyProfile)
-        assertEquals(2, explicitNullWithSlot.legacySlot)
+        assertFalse(explicitNullWithSlot.useLegacyProfile)
+        assertNull(explicitNullWithSlot.legacySlot)
+        assertNull(explicitNullWithSlot.employerId)
     }
 }

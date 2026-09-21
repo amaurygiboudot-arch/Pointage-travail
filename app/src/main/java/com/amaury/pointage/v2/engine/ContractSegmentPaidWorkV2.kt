@@ -47,6 +47,8 @@ object ContractSegmentPaidWorkAllocatorV2 {
         "Temps payé segmenté : une session ou une pause traversant un segment reste à confirmer."
     const val OVERLAPPING_SESSION_WARNING =
         "Temps payé segmenté : des pointages de la même entreprise se chevauchent ; calcul automatique à confirmer."
+    const val UNASSIGNED_EMPLOYER_WARNING =
+        "Temps payé segmenté : un pointage de la période n'est rattaché à aucune entreprise ; calcul automatique bloqué."
 
     fun allocate(
         sessions: List<WorkSessionV2>,
@@ -81,7 +83,12 @@ object ContractSegmentPaidWorkAllocatorV2 {
                 rangeStartMs = startMs,
                 rangeEndMs = endExclusiveMs
             )
-            if (overlappingSessions) segmentReliable = false
+            val unassignedEmployerSession = WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                sessions = sessions,
+                rangeStartMs = startMs,
+                rangeEndMs = endExclusiveMs
+            )
+            if (overlappingSessions || unassignedEmployerSession) segmentReliable = false
 
             matchingSessions.asSequence()
                 .forEach { session ->
@@ -108,6 +115,7 @@ object ContractSegmentPaidWorkAllocatorV2 {
                 addAll(sourceWarnings)
                 if (touchedUnreliableSession) add(UNRELIABLE_SESSION_WARNING)
                 if (overlappingSessions) add(OVERLAPPING_SESSION_WARNING)
+                if (unassignedEmployerSession) add(UNASSIGNED_EMPLOYER_WARNING)
             }.distinct()
 
             ContractSegmentPaidWorkV2(

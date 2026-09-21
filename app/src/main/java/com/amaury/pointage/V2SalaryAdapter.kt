@@ -38,6 +38,7 @@ import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
 import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
+import com.amaury.pointage.v2.engine.WorkSessionEmployerAssignmentV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
@@ -224,9 +225,15 @@ object V2SalaryAdapter {
    rangeStartMs=monthStart,
    rangeEndMs=monthEnd
   )
-  val paidTimeReliable=individualPaidTimeReliable&&!overlappingPaidSessions
+  val unassignedEmployerSession=WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+   sessions=sessions,
+   rangeStartMs=monthStart,
+   rangeEndMs=monthEnd
+  )
+  val paidTimeReliable=individualPaidTimeReliable&&!overlappingPaidSessions&&!unassignedEmployerSession
   if(!individualPaidTimeReliable)warnings+="Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
   if(overlappingPaidSessions)warnings+=WorkSessionOverlapV2.WARNING
+  if(unassignedEmployerSession)warnings+=WorkSessionEmployerAssignmentV2.WARNING
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
   val entryDate=contract.hireDateEpochDay?.let(LocalDate::ofEpochDay)
   val grossAssessment=MonthlySalaryProrationV2.assess(entryDate,referenceDate)

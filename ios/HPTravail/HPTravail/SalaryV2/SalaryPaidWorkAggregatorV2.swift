@@ -49,6 +49,8 @@ enum SalaryPaidWorkAggregatorV2 {
         "Temps de travail : des pauses qui se chevauchent ont des statuts payé/non payé contradictoires ; le total payé reste à confirmer."
     static let overlapWarning =
         "Temps de travail : des pointages de la même entreprise se chevauchent ; le total payé reste à confirmer."
+    static let unassignedEmployerWarning =
+        "Temps de travail : un pointage de la période n'est rattaché à aucune entreprise ; le total payé reste à confirmer."
 
     static func aggregate(
         sessions: [SalarySessionFactV2],
@@ -124,6 +126,14 @@ enum SalaryPaidWorkAggregatorV2 {
 
         var reliable = sourceReliable
         var warnings: [String] = sourceReliable ? [] : [sourceWarning]
+        let unassignedEmployerTouchesPeriod = sessions.contains { session in
+            normalizedEmployerId(session.employerId) == nil &&
+                potentiallyTouchesPeriod(session, monthStart: monthStart, monthEnd: monthEnd)
+        }
+        if unassignedEmployerTouchesPeriod {
+            reliable = false
+            warnings.append(unassignedEmployerWarning)
+        }
         var completedSessionCount = 0
         var paidMinutesByWeek: [WeekKey: Int] = [:]
         var coveredIntervals: [(start: Date, end: Date)] = []

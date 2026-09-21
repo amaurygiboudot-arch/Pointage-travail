@@ -144,9 +144,35 @@ final class SalaryPaidWorkAggregatorV2Tests: XCTestCase {
             calendar: utcCalendar
         )
 
+        XCTAssertFalse(result.reliable)
+        XCTAssertEqual(result.completedSessionCount, 1)
+        XCTAssertEqual(result.totalPaidMinutes, 60)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.unassignedEmployerWarning))
+    }
+
+    func testUnassignedSessionOutsideRequestedMonthDoesNotPoisonMonth() {
+        let result = SalaryPaidWorkAggregatorV2.aggregate(
+            sessions: [
+                session(
+                    entry: date(2026, 9, 15, 8),
+                    exit: date(2026, 9, 15, 9),
+                    employerId: employerA
+                ),
+                session(
+                    entry: date(2026, 10, 2, 8),
+                    exit: date(2026, 10, 2, 10),
+                    employerId: nil
+                )
+            ],
+            employerId: employerA,
+            period: september2026,
+            calendar: utcCalendar
+        )
+
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(result.completedSessionCount, 1)
         XCTAssertEqual(result.totalPaidMinutes, 60)
+        XCTAssertFalse(result.warnings.contains(SalaryPaidWorkAggregatorV2.unassignedEmployerWarning))
     }
 
     func testSessionCrossingMonthBoundaryIsClippedToRequestedMonth() {
