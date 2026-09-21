@@ -4,7 +4,7 @@ import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 
 /**
- * Base de proratisation explicitement confirmée pour un mois contenant plusieurs versions de contrat.
+ * Base de proratisation explicitement confirmée pour un mois contenant plusieurs segments de calcul.
  *
  * HoraTrack n'invente jamais un prorata calendaire. La seule méthode supportée ici utilise des
  * minutes planifiées de référence confirmées pour chaque segment. Ces minutes, leurs bornes et leur
@@ -35,7 +35,9 @@ data class SegmentedMonthlyBasePieceV2(
     val scheduledMinutes: Int,
     val factor: Double,
     val fullMonthBaseGross: Double,
-    val proratedBaseGross: Double
+    val proratedBaseGross: Double,
+    /** Version de règle conventionnelle appliquée à cette tranche, si le calcul vient de la timeline. */
+    val ruleVersionId: String? = null
 )
 
 data class SegmentedMonthlyBaseResultV2(
@@ -49,42 +51,101 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
     const val MISSING_PRORATION_WARNING =
         "Proratisation mensuelle : base planifiée confirmée absente ; aucun prorata calendaire n'est inventé."
     const val INVALID_PRORATION_WARNING =
-        "Proratisation mensuelle : la base confirmée ne correspond pas exactement aux segments contractuels du mois ; calcul bloqué."
+        "Proratisation mensuelle : la base confirmée ne correspond pas exactement aux segments de calcul du mois ; calcul bloqué."
+    const val UNRELIABLE_TIMELINE_WARNING =
+        "Proratisation mensuelle : timeline contrat/règles non fiable ou incomplète ; aucun montant segmenté n'est produit."
     const val UNSUPPORTED_CONTRACT_WARNING =
         "Proratisation mensuelle : ce type de contrat ne peut pas être proratisé automatiquement avec des minutes planifiées confirmées."
     const val MISSING_PAYROLL_RULE_WARNING =
         "Proratisation mensuelle : une règle nécessaire à la base mensuelle du segment n'est pas confirmée ; calcul bloqué."
 
     /**
-     * Calcule uniquement la base mensuelle proratisée. Les primes fixes, paniers, absences,
-     * majorations variables et retenues restent traités par leurs moteurs dédiés afin d'éviter
-     * tout double comptage.
+     * Compatibilité avec le calcul par seuls segments contractuels introduit avant la timeline
+     * contrat × règles. Les règles restent recherchées par version contractuelle.
      */
     fun calculate(
         segments: List<EmploymentContractCoverageSegmentV2>,
         rulesByVersionId: Map<String, PayrollRulesV2>,
         proration: ConfirmedSegmentedMonthlyProrationV2?
     ): SegmentedMonthlyBaseResultV2 {
-        if (proration == null) return blocked(MISSING_PRORATION_WARNING)
-        if (!validProration(proration, segments)) return blocked(INVALID_PRORATION_WARNING)
+        val inputs = segments.map { segment ->
+            val versionId = segment.snapshot.versionId.trim()
+            BaseSegment(
+                versionId = versionId,
+                ruleVersionId = null,
+                startEpochDay = segment.startEpochDay,
+                endEpochDay = segment.endEpochDay,
+                contract = segment.snapshot.contract,
+                rules = rulesByVersionId[versionId] ?: PayrollRulesV2()
+            )
+        }
+        return calculateInputs(inputs, proration, emptyList())
+    }
+
+    /**
+     * Calcule la base mensuelle sur la timeline datée contrat × règles.
+     *
+     * Une même version contractuelle peut donc apparaître plusieurs fois si la règle conventionnelle
+     * change en cours de mois. Les bornes exactes font partie de la confirmation de proratisation :
+     * une confirmation faite avant un changement de timeline devient automatiquement invalide.
+     *
+     * Cette couche ne valorise toujours ni heures supplémentaires variables, ni primes, ni paniers,
+     * ni absences : elle ne traite que la base mensualisée afin d'éviter tout double comptage.
+     */
+    fun calculate(
+        timeline: PayrollCalculationTimelineResultV2,
+        proration: ConfirmedSegmentedMonthlyProrationV2?
+    ): SegmentedMonthlyBaseResultV2 {
+        if (!timeline.reliable || timeline.slices.isEmpty()) {
+            return blocked((timeline.warnings + UNRELIABLE_TIMELINE_WARNING).distinct())
+        }
+        val inputs = timeline.slices.map { slice ->
+            BaseSegment(
+                versionId = slice.contractSnapshot.versionId.trim(),
+                ruleVersionId = slice.ruleSnapshot.versionId.trim(),
+                startEpochDay = slice.startEpochDay,
+                endEpochDay = slice.endEpochDay,
+                contract = slice.contractSnapshot.contract,
+                rules = slice.ruleSnapshot.rules
+            )
+        }
+        return calculateInputs(inputs, proration, timeline.warnings)
+    }
+
+    private data class BaseSegment(
+        val versionId: String,
+        val ruleVersionId: String?,
+        val startEpochDay: Long,
+        val endEpochDay: Long,
+        val contract: ContractV2,
+        val rules: PayrollRulesV2
+    )
+
+    private fun calculateInputs(
+        segments: List<BaseSegment>,
+        proration: ConfirmedSegmentedMonthlyProrationV2?,
+        upstreamWarnings: List<String>
+    ): SegmentedMonthlyBaseResultV2 {
+        if (proration == null) return blocked(upstreamWarnings + MISSING_PRORATION_WARNING)
+        if (!validProration(proration, segments)) return blocked(upstreamWarnings + INVALID_PRORATION_WARNING)
 
         val scheduledBySegment = proration.segments.associate {
             key(it.versionId, it.startEpochDay, it.endEpochDay) to it.scheduledMinutes
         }
-        val totalScheduled = scheduledBySegment.values.sumOf { it.toLong() }
-        if (totalScheduled <= 0L) return blocked(INVALID_PRORATION_WARNING)
+        val totalScheduled = scheduledBySegment.values.fold(0L) { total, minutes ->
+            val next = total + minutes.toLong()
+            if (next < total) return blocked(upstreamWarnings + INVALID_PRORATION_WARNING)
+            next
+        }
+        if (totalScheduled <= 0L) return blocked(upstreamWarnings + INVALID_PRORATION_WARNING)
 
         val pieces = mutableListOf<SegmentedMonthlyBasePieceV2>()
-        val warnings = mutableListOf<String>()
-
         for (segment in segments.sortedBy { it.startEpochDay }) {
-            val versionId = segment.snapshot.versionId.trim()
-            val scheduled = scheduledBySegment[key(versionId, segment.startEpochDay, segment.endEpochDay)]
-                ?: return blocked(INVALID_PRORATION_WARNING)
-            val rules = rulesByVersionId[versionId] ?: PayrollRulesV2()
-            val base = fullMonthBaseGross(segment.snapshot.contract, rules)
+            val scheduled = scheduledBySegment[key(segment.versionId, segment.startEpochDay, segment.endEpochDay)]
+                ?: return blocked(upstreamWarnings + INVALID_PRORATION_WARNING)
+            val base = fullMonthBaseGross(segment.contract, segment.rules)
             if (base == null) {
-                warnings += when (segment.snapshot.contract.type) {
+                val warning = when (segment.contract.type) {
                     ContractTypeV2.FORFAIT_HOURS,
                     ContractTypeV2.FORFAIT_DAYS,
                     ContractTypeV2.FORFAIT,
@@ -92,17 +153,18 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                     ContractTypeV2.FULL_TIME,
                     ContractTypeV2.PART_TIME -> MISSING_PAYROLL_RULE_WARNING
                 }
-                return blocked(warnings.distinct())
+                return blocked(upstreamWarnings + warning)
             }
             val factor = scheduled.toDouble() / totalScheduled.toDouble()
             pieces += SegmentedMonthlyBasePieceV2(
-                versionId = versionId,
+                versionId = segment.versionId,
                 startEpochDay = segment.startEpochDay,
                 endEpochDay = segment.endEpochDay,
                 scheduledMinutes = scheduled,
                 factor = factor,
                 fullMonthBaseGross = base,
-                proratedBaseGross = base * factor
+                proratedBaseGross = base * factor,
+                ruleVersionId = segment.ruleVersionId
             )
         }
 
@@ -110,7 +172,7 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             pieces = pieces,
             baseGross = pieces.sumOf { it.proratedBaseGross },
             reliable = true,
-            warnings = emptyList()
+            warnings = upstreamWarnings.distinct()
         )
     }
 
@@ -143,15 +205,13 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
 
     private fun validProration(
         proration: ConfirmedSegmentedMonthlyProrationV2,
-        segments: List<EmploymentContractCoverageSegmentV2>
+        segments: List<BaseSegment>
     ): Boolean {
         if (segments.isEmpty() || !continuous(segments)) return false
         if (proration.sourceId.isBlank() || proration.checkedAtMs < 0L) return false
         if (proration.method != ConfirmedProrationMethodV2.SCHEDULED_MINUTES) return false
 
-        val expectedKeys = segments.map {
-            key(it.snapshot.versionId, it.startEpochDay, it.endEpochDay)
-        }
+        val expectedKeys = segments.map { key(it.versionId, it.startEpochDay, it.endEpochDay) }
         if (expectedKeys.any { it.first.isBlank() } || expectedKeys.distinct().size != expectedKeys.size) return false
 
         val providedKeys = proration.segments.map {
@@ -161,11 +221,17 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (providedKeys.any { it.first.isBlank() } || providedKeys.distinct().size != providedKeys.size) return false
         if (providedKeys.toSet() != expectedKeys.toSet()) return false
         if (proration.segments.any { it.scheduledMinutes < 0 }) return false
-        if (proration.segments.sumOf { it.scheduledMinutes.toLong() } <= 0L) return false
-        return true
+
+        var total = 0L
+        for (segment in proration.segments) {
+            val next = total + segment.scheduledMinutes.toLong()
+            if (next < total) return false
+            total = next
+        }
+        return total > 0L
     }
 
-    private fun continuous(segments: List<EmploymentContractCoverageSegmentV2>): Boolean {
+    private fun continuous(segments: List<BaseSegment>): Boolean {
         val sorted = segments.sortedBy { it.startEpochDay }
         if (sorted.any { it.endEpochDay < it.startEpochDay }) return false
         for (index in 1 until sorted.size) {
