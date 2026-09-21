@@ -20,7 +20,11 @@ class EmploymentContractPeriodResolverV2Test {
         )
 
         assertTrue(result.readyForSingleContractCalculation)
+        assertTrue(result.readyForSegmentedCalculation)
         assertFalse(result.requiresMultipleContractVersions)
+        assertEquals(1, result.calculationSegments.size)
+        assertEquals(100L, result.calculationSegments.single().startEpochDay)
+        assertEquals(129L, result.calculationSegments.single().endEpochDay)
         assertEquals(13.5, result.contract!!.grossHourlyRate!!, 0.0)
         assertTrue(result.warnings.isEmpty())
     }
@@ -36,12 +40,14 @@ class EmploymentContractPeriodResolverV2Test {
         )
 
         assertFalse(result.readyForSingleContractCalculation)
+        assertFalse(result.readyForSegmentedCalculation)
+        assertTrue(result.calculationSegments.isEmpty())
         assertNull(result.contract)
         assertEquals(listOf(EmploymentContractPeriodResolverV2.INCOMPLETE_WARNING), result.warnings)
     }
 
     @Test
-    fun `deux versions dans la periode bloquent le contrat unique`() {
+    fun `deux versions dans la periode exposent les segments sans choisir un contrat unique`() {
         val result = EmploymentContractPeriodResolverV2.resolve(
             employerId = "company-a",
             periodStartEpochDay = 100,
@@ -54,8 +60,16 @@ class EmploymentContractPeriodResolverV2Test {
         )
 
         assertFalse(result.readyForSingleContractCalculation)
+        assertTrue(result.readyForSegmentedCalculation)
         assertTrue(result.requiresMultipleContractVersions)
         assertNull(result.contract)
+        assertEquals(2, result.calculationSegments.size)
+        assertEquals(100L, result.calculationSegments[0].startEpochDay)
+        assertEquals(114L, result.calculationSegments[0].endEpochDay)
+        assertEquals(13.5, result.calculationSegments[0].snapshot.contract.grossHourlyRate!!, 0.0)
+        assertEquals(115L, result.calculationSegments[1].startEpochDay)
+        assertEquals(129L, result.calculationSegments[1].endEpochDay)
+        assertEquals(14.0, result.calculationSegments[1].snapshot.contract.grossHourlyRate!!, 0.0)
         assertEquals(listOf(EmploymentContractPeriodResolverV2.MULTIPLE_WARNING), result.warnings)
     }
 
@@ -71,6 +85,8 @@ class EmploymentContractPeriodResolverV2Test {
 
         assertFalse(result.sourceReliable)
         assertFalse(result.readyForSingleContractCalculation)
+        assertFalse(result.readyForSegmentedCalculation)
+        assertTrue(result.calculationSegments.isEmpty())
         assertNull(result.contract)
         assertEquals(listOf(EmploymentContractPeriodResolverV2.UNRELIABLE_WARNING), result.warnings)
     }

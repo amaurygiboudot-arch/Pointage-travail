@@ -16,7 +16,11 @@ final class SalaryEmploymentContractPeriodResolverV2Tests: XCTestCase {
         )
 
         XCTAssertTrue(result.readyForSingleContractCalculation)
+        XCTAssertTrue(result.readyForSegmentedCalculation)
         XCTAssertFalse(result.requiresMultipleContractVersions)
+        XCTAssertEqual(result.calculationSegments.count, 1)
+        XCTAssertEqual(result.calculationSegments[0].startEpochDay, 100)
+        XCTAssertEqual(result.calculationSegments[0].endEpochDay, 129)
         XCTAssertEqual(result.contract?.grossHourlyRate, 13.5)
         XCTAssertTrue(result.warnings.isEmpty)
     }
@@ -33,11 +37,13 @@ final class SalaryEmploymentContractPeriodResolverV2Tests: XCTestCase {
         )
 
         XCTAssertFalse(result.readyForSingleContractCalculation)
+        XCTAssertFalse(result.readyForSegmentedCalculation)
+        XCTAssertTrue(result.calculationSegments.isEmpty)
         XCTAssertNil(result.contract)
         XCTAssertEqual(result.warnings, [SalaryEmploymentContractPeriodResolverV2.incompleteWarning])
     }
 
-    func testTwoVersionsInPeriodBlockSingleContractCalculation() throws {
+    func testTwoVersionsExposeSegmentsWithoutChoosingSingleContract() throws {
         let result = try XCTUnwrap(
             SalaryEmploymentContractPeriodResolverV2.resolve(
                 companyId: "company-a",
@@ -52,8 +58,16 @@ final class SalaryEmploymentContractPeriodResolverV2Tests: XCTestCase {
         )
 
         XCTAssertFalse(result.readyForSingleContractCalculation)
+        XCTAssertTrue(result.readyForSegmentedCalculation)
         XCTAssertTrue(result.requiresMultipleContractVersions)
         XCTAssertNil(result.contract)
+        XCTAssertEqual(result.calculationSegments.count, 2)
+        XCTAssertEqual(result.calculationSegments[0].startEpochDay, 100)
+        XCTAssertEqual(result.calculationSegments[0].endEpochDay, 114)
+        XCTAssertEqual(result.calculationSegments[0].snapshot.contract.grossHourlyRate, 13.5)
+        XCTAssertEqual(result.calculationSegments[1].startEpochDay, 115)
+        XCTAssertEqual(result.calculationSegments[1].endEpochDay, 129)
+        XCTAssertEqual(result.calculationSegments[1].snapshot.contract.grossHourlyRate, 14.0)
         XCTAssertEqual(result.warnings, [SalaryEmploymentContractPeriodResolverV2.multipleWarning])
     }
 
@@ -70,6 +84,8 @@ final class SalaryEmploymentContractPeriodResolverV2Tests: XCTestCase {
 
         XCTAssertFalse(result.sourceReliable)
         XCTAssertFalse(result.readyForSingleContractCalculation)
+        XCTAssertFalse(result.readyForSegmentedCalculation)
+        XCTAssertTrue(result.calculationSegments.isEmpty)
         XCTAssertNil(result.contract)
         XCTAssertEqual(result.warnings, [SalaryEmploymentContractPeriodResolverV2.unreliableWarning])
     }
