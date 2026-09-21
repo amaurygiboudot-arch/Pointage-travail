@@ -4,7 +4,7 @@ import XCTest
 #endif
 
 final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
-    func testRateChangeUsesOnlyConfirmedScheduledMinutes() {
+    func testRateChangeUsesOnlyConfirmedScheduledMinutes() throws {
         let segments = [
             segment("v1", start: 0, end: 14, contract: fullTime(rate: 10)),
             segment("v2", start: 15, end: 30, contract: fullTime(rate: 20))
@@ -57,6 +57,25 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(ConfirmedSegmentedMonthlyProrationCalculatorV2.invalidProrationWarning))
     }
 
+    func testGapBetweenContractSegmentsBlocksProration() {
+        let segments = [
+            segment("v1", start: 0, end: 10, contract: fullTime(rate: 10)),
+            segment("v2", start: 12, end: 30, contract: fullTime(rate: 20))
+        ]
+        let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments: segments,
+            rulesByVersionId: [
+                "v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
+                "v2": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+            ],
+            proration: confirmed(("v1", 4_200), ("v2", 4_200))
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.baseGross)
+        XCTAssertTrue(result.warnings.contains(ConfirmedSegmentedMonthlyProrationCalculatorV2.invalidProrationWarning))
+    }
+
     func test39HourFullTimeRequiresConfirmedStructuralTiers() throws {
         let contract = fullTime(rate: 10, weeklyMinutes: 39 * 60)
         let only = segment("v1", start: 0, end: 30, contract: contract)
@@ -81,6 +100,25 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         )
         XCTAssertTrue(calculated.reliable)
         XCTAssertEqual(try XCTUnwrap(calculated.baseGross), 1733.333333, accuracy: 0.0001)
+    }
+
+    func testPartTimeUsesOnlyConfirmedWeeklyDurationAndRate() throws {
+        let contract = ContractV2(
+            id: "part",
+            employerId: "company",
+            type: .partTime,
+            contractualWeeklyMinutes: 20 * 60,
+            grossHourlyRate: 12,
+            hireDateEpochDay: 0
+        )
+        let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments: [segment("v1", start: 0, end: 30, contract: contract)],
+            rulesByVersionId: [:],
+            proration: confirmed(("v1", 4_800))
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(try XCTUnwrap(result.baseGross), 1040.0, accuracy: 0.0001)
     }
 
     func testForfaitIsNeverProratedByScheduledMinutesWithoutSpecificRule() {
