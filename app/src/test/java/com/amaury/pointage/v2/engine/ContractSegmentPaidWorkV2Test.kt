@@ -100,6 +100,28 @@ class ContractSegmentPaidWorkV2Test {
         assertTrue(result.warnings.contains(ContractSegmentPaidWorkAllocatorV2.UNRELIABLE_SESSION_WARNING))
     }
 
+
+    @Test
+    fun `deux sessions chevauchantes rendent le segment non fiable`() {
+        val startDay = LocalDate.of(2026, 9, 1).toEpochDay()
+        val endDay = LocalDate.of(2026, 9, 30).toEpochDay()
+
+        val result = ContractSegmentPaidWorkAllocatorV2.allocate(
+            sessions = listOf(
+                session(ms(2026, 9, 8, 8), ms(2026, 9, 8, 10)),
+                session(ms(2026, 9, 8, 9), ms(2026, 9, 8, 11))
+            ),
+            segments = listOf(segment("v1", startDay, endDay, 13.0)),
+            acceptedEmployerIds = setOf("company"),
+            sourceReliable = true,
+            zoneId = zone
+        )
+
+        assertFalse(result.reliable)
+        assertTrue(result.warnings.contains(ContractSegmentPaidWorkAllocatorV2.OVERLAPPING_SESSION_WARNING))
+        assertFalse(result.segments.single().reliable)
+    }
+
     @Test
     fun `source runtime non fiable contamine tous les segments`() {
         val startDay = LocalDate.of(2026, 9, 1).toEpochDay()
