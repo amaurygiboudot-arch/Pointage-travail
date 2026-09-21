@@ -15,6 +15,9 @@ Agents disponibles :
 - control_gate
 - sales_growth
 - customer_support
+- marketing_comms
+- people_ops
+- finance_accounting
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
@@ -69,16 +72,22 @@ Pour une modification sensible :
 
 Le chef d'orchestre attend les résultats nécessaires avant de conclure.
 
-## AGENTS COMMERCIAUX ET SUPPORT
+## SERVICES HORS CHAÎNE DE FUSION
 
-Ces agents sont hors de la chaîne de validation du code :
+Ces agents soutiennent le produit et l'entreprise mais ne peuvent pas autoriser une fusion :
 
 - sales_growth : commercial, argumentaires, démonstrations, onboarding et remontée des besoins marché ;
-- customer_support : SAV, diagnostic utilisateur, reproduction, triage et escalade vers l'agent technique approprié.
+- customer_support : SAV, diagnostic utilisateur, reproduction, triage et escalade vers l'agent technique approprié ;
+- marketing_comms : marketing, communication, lancement, acquisition, SEO/ASO, pages store et contenu ;
+- people_ops : organisation interne, rôles, charge, procédures et onboarding des agents ;
+- finance_accounting : revenus, coûts, marges, prix, prévisions et pilotage économique.
 
-Ils ne peuvent pas autoriser une fusion.
-customer_support reste en lecture seule et n'applique pas de correctif directement.
-sales_growth ne doit jamais annoncer comme disponible une fonction qui ne l'est pas ni modifier un tarif sans validation explicite.
+Règles :
+- customer_support reste en lecture seule et n'applique pas de correctif directement ;
+- sales_growth et marketing_comms ne doivent jamais annoncer comme disponible une fonction qui ne l'est pas ;
+- finance_accounting distingue toujours chiffres réels, hypothèses, estimations et scénarios ;
+- people_ops ne peut pas contourner la chaîne de contrôle technique ;
+- aucun de ces services ne peut remplacer team_lead, qa_reviewer ou control_gate.
 
 ## CHAÎNE DE CONTRÔLE
 
