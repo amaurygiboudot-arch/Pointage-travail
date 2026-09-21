@@ -10,77 +10,48 @@ struct SalaryEmploymentContractHistoryReadResultV2: Equatable {
 
 /// Stockage persistant fail-closed de l'historique des contrats salariés confirmés.
 ///
-/// Un stockage absent représente explicitement un historique vide. Un stockage présent mais
-/// illisible ou incohérent reste non fiable et n'est jamais remplacé par un historique vide.
-/// Le contrat courant n'est jamais utilisé comme fallback pour une période historique.
+/// L'état autoritatif iOS est un envelope unique contenant toute la chronologie confirmée. Une
+/// mutation complète est donc publiée avec un seul `UserDefaults.set`, puis les anciennes clés
+/// primaire/backup sont maintenues uniquement pour compatibilité, migration et récupération.
+/// Un stockage absent représente explicitement un historique vide ; un stockage présent mais
+/// illisible ou incohérent reste non fiable et n'est jamais transformé en historique vide.
 enum SalaryEmploymentContractHistoryStoreV2 {
     static let storageWarning =
         "Contrats Salaire V2 : historique local incohérent ; aucun contrat historique ni absence de contrat ne peut être déduit de ce stockage."
     static let repairedWarning =
         "Contrats Salaire V2 : historique local restauré depuis la dernière copie valide."
 
+    private static let envelopeKey = "salary_employment_contract_history_v2.confirmed_timeline_envelope"
     private static let primaryKey = "salary_employment_contract_history_v2.confirmed_snapshots"
     private static let backupKey = "salary_employment_contract_history_v2.confirmed_snapshots_last_known_good"
+    private static let envelopeSchemaVersion = 1
     private static let lock = NSLock()
     private static let maxExactJSONInteger = 9_007_199_254_740_991.0
 
     static func readConfirmed(defaults: UserDefaults = .standard) -> SalaryEmploymentContractHistoryReadResultV2 {
-        let primaryObject = defaults.object(forKey: primaryKey)
-        let backupObject = defaults.object(forKey: backupKey)
+        if let envelopeObject = defaults.object(forKey: envelopeKey) {
+            guard let envelopeRaw = envelopeObject as? String,
+                  let confirmedRaw = decodeEnvelope(envelopeRaw) else {
+                return recoverFromBackup(defaults: defaults)
+            }
 
-        if primaryObject == nil {
-            guard let backupObject else {
-                return SalaryEmploymentContractHistoryReadResultV2(
-                    snapshots: [],
-                    reliable: true,
-                    repairedFromBackup: false,
-                    warnings: []
-                )
+            let confirmed = decodeConfirmed(confirmedRaw)
+            guard confirmed.reliable else {
+                return recoverFromBackup(defaults: defaults, fallback: confirmed)
             }
-            guard let backupRaw = backupObject as? String else { return unreliableResult() }
-            let backup = decodeConfirmed(backupRaw)
-            guard backup.reliable else { return unreliableResult(snapshots: backup.snapshots) }
-            guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
-                return SalaryEmploymentContractHistoryReadResultV2(
-                    snapshots: backup.snapshots,
-                    reliable: false,
-                    repairedFromBackup: false,
-                    warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
-                )
+
+            // Compatibilité descendante et copie de récupération. Ces écritures ne sont pas la
+            // source autoritative : l'envelope unique ci-dessus l'est.
+            if defaults.string(forKey: primaryKey) != confirmedRaw {
+                _ = writeVerified(confirmedRaw, forKey: primaryKey, defaults: defaults)
             }
-            return SalaryEmploymentContractHistoryReadResultV2(
-                snapshots: backup.snapshots,
-                reliable: true,
-                repairedFromBackup: true,
-                warnings: [repairedWarning]
-            )
+            if defaults.string(forKey: backupKey) != confirmedRaw {
+                _ = writeVerified(confirmedRaw, forKey: backupKey, defaults: defaults)
+            }
+            return confirmed
         }
 
-        let primary = (primaryObject as? String).map(decodeConfirmed) ?? unreliableResult()
-        if primary.reliable, let raw = primaryObject as? String {
-            if defaults.string(forKey: backupKey) != raw {
-                _ = writeVerified(raw, forKey: backupKey, defaults: defaults)
-            }
-            return primary
-        }
-
-        guard let backupRaw = backupObject as? String else { return primary }
-        let backup = decodeConfirmed(backupRaw)
-        guard backup.reliable else { return primary }
-        guard writeVerified(backupRaw, forKey: primaryKey, defaults: defaults) else {
-            return SalaryEmploymentContractHistoryReadResultV2(
-                snapshots: backup.snapshots,
-                reliable: false,
-                repairedFromBackup: false,
-                warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration a échoué."]
-            )
-        }
-        return SalaryEmploymentContractHistoryReadResultV2(
-            snapshots: backup.snapshots,
-            reliable: true,
-            repairedFromBackup: true,
-            warnings: [repairedWarning]
-        )
+        return readLegacyAndMigrate(defaults: defaults)
     }
 
     static func history(
@@ -109,17 +80,60 @@ enum SalaryEmploymentContractHistoryStoreV2 {
               && $0.versionId.trimmingCharacters(in: .whitespacesAndNewlines) == candidate.versionId)
         }
         current.append(candidate)
-        guard SalaryEmploymentContractHistoryV2(current) != nil,
-              let raw = encodeConfirmed(current) else {
-            return false
-        }
-        guard writeVerified(raw, forKey: primaryKey, defaults: defaults),
-              writeVerified(raw, forKey: backupKey, defaults: defaults) else {
-            return false
-        }
+        guard writeTimelineVerified(current, defaults: defaults) else { return false }
 
         let reloaded = readConfirmed(defaults: defaults)
         return reloaded.reliable && reloaded.snapshots.contains(candidate)
+    }
+
+    /// Mutation transactionnelle d'une version datée.
+    ///
+    /// La chronologie entière est recalculée sous verrou puis publiée dans un envelope unique.
+    /// Une fermeture de l'ancienne version ne peut donc pas devenir l'état autoritatif sans la
+    /// nouvelle version, et inversement.
+    @discardableResult
+    static func saveEffectiveVersion(
+        contract: ContractV2,
+        effectiveFromEpochDay: Int64,
+        sourceId: String,
+        checkedAtMs: Int64,
+        note: String? = nil,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let stored = readConfirmed(defaults: defaults)
+        guard let updated = updatedTimeline(
+            from: stored,
+            contract: contract,
+            effectiveFromEpochDay: effectiveFromEpochDay,
+            sourceId: sourceId,
+            checkedAtMs: checkedAtMs,
+            note: note
+        ) else {
+            return false
+        }
+        return writeTimelineVerified(updated, defaults: defaults)
+    }
+
+    static func updatedTimeline(
+        from stored: SalaryEmploymentContractHistoryReadResultV2,
+        contract: ContractV2,
+        effectiveFromEpochDay: Int64,
+        sourceId: String,
+        checkedAtMs: Int64,
+        note: String? = nil
+    ) -> [SalaryEmploymentContractSnapshotV2]? {
+        guard stored.reliable else { return nil }
+        return SalaryEmploymentContractTimelineV2.upsertEffectiveVersion(
+            existing: stored.snapshots,
+            contract: contract,
+            effectiveFromEpochDay: effectiveFromEpochDay,
+            sourceId: sourceId,
+            checkedAtMs: checkedAtMs,
+            note: note
+        )
     }
 
     static func decodeConfirmed(_ raw: String) -> SalaryEmploymentContractHistoryReadResultV2 {
@@ -179,6 +193,101 @@ enum SalaryEmploymentContractHistoryStoreV2 {
             return nil
         }
         return raw
+    }
+
+    private static func readLegacyAndMigrate(
+        defaults: UserDefaults
+    ) -> SalaryEmploymentContractHistoryReadResultV2 {
+        let primaryObject = defaults.object(forKey: primaryKey)
+        let backupObject = defaults.object(forKey: backupKey)
+
+        if primaryObject == nil {
+            guard let backupObject else {
+                return SalaryEmploymentContractHistoryReadResultV2(
+                    snapshots: [],
+                    reliable: true,
+                    repairedFromBackup: false,
+                    warnings: []
+                )
+            }
+            guard let backupRaw = backupObject as? String else { return unreliableResult() }
+            let backup = decodeConfirmed(backupRaw)
+            guard backup.reliable else { return unreliableResult(snapshots: backup.snapshots) }
+            guard writeEnvelopeVerified(backupRaw, defaults: defaults) else {
+                return SalaryEmploymentContractHistoryReadResultV2(
+                    snapshots: backup.snapshots,
+                    reliable: false,
+                    repairedFromBackup: false,
+                    warnings: [storageWarning, "La copie valide a été trouvée mais sa migration vers le stockage transactionnel a échoué."]
+                )
+            }
+            _ = writeVerified(backupRaw, forKey: primaryKey, defaults: defaults)
+            return SalaryEmploymentContractHistoryReadResultV2(
+                snapshots: backup.snapshots,
+                reliable: true,
+                repairedFromBackup: true,
+                warnings: [repairedWarning]
+            )
+        }
+
+        let primary = (primaryObject as? String).map(decodeConfirmed) ?? unreliableResult()
+        if primary.reliable, let raw = primaryObject as? String {
+            guard writeEnvelopeVerified(raw, defaults: defaults) else {
+                return SalaryEmploymentContractHistoryReadResultV2(
+                    snapshots: primary.snapshots,
+                    reliable: false,
+                    repairedFromBackup: false,
+                    warnings: [storageWarning, "La migration vers le stockage transactionnel a échoué."]
+                )
+            }
+            if defaults.string(forKey: backupKey) != raw {
+                _ = writeVerified(raw, forKey: backupKey, defaults: defaults)
+            }
+            return primary
+        }
+
+        guard let backupRaw = backupObject as? String else { return primary }
+        let backup = decodeConfirmed(backupRaw)
+        guard backup.reliable else { return primary }
+        guard writeEnvelopeVerified(backupRaw, defaults: defaults) else {
+            return SalaryEmploymentContractHistoryReadResultV2(
+                snapshots: backup.snapshots,
+                reliable: false,
+                repairedFromBackup: false,
+                warnings: [storageWarning, "La copie valide existe mais sa restauration transactionnelle a échoué."]
+            )
+        }
+        _ = writeVerified(backupRaw, forKey: primaryKey, defaults: defaults)
+        return SalaryEmploymentContractHistoryReadResultV2(
+            snapshots: backup.snapshots,
+            reliable: true,
+            repairedFromBackup: true,
+            warnings: [repairedWarning]
+        )
+    }
+
+    private static func recoverFromBackup(
+        defaults: UserDefaults,
+        fallback: SalaryEmploymentContractHistoryReadResultV2 = unreliableResult()
+    ) -> SalaryEmploymentContractHistoryReadResultV2 {
+        guard let backupRaw = defaults.string(forKey: backupKey) else { return fallback }
+        let backup = decodeConfirmed(backupRaw)
+        guard backup.reliable else { return fallback }
+        guard writeEnvelopeVerified(backupRaw, defaults: defaults) else {
+            return SalaryEmploymentContractHistoryReadResultV2(
+                snapshots: backup.snapshots,
+                reliable: false,
+                repairedFromBackup: false,
+                warnings: [storageWarning, "La copie valide a été trouvée mais sa restauration transactionnelle a échoué."]
+            )
+        }
+        _ = writeVerified(backupRaw, forKey: primaryKey, defaults: defaults)
+        return SalaryEmploymentContractHistoryReadResultV2(
+            snapshots: backup.snapshots,
+            reliable: true,
+            repairedFromBackup: true,
+            warnings: [repairedWarning]
+        )
     }
 
     private static func decodeSnapshot(_ object: [String: Any]) -> SalaryEmploymentContractSnapshotV2? {
@@ -329,6 +438,55 @@ enum SalaryEmploymentContractHistoryStoreV2 {
     private static func jsonValue<T>(_ value: T?) -> Any {
         guard let value else { return NSNull() }
         return value
+    }
+
+    private static func encodeEnvelope(_ confirmedRaw: String) -> String? {
+        let object: [String: Any] = [
+            "schemaVersion": envelopeSchemaVersion,
+            "confirmedSnapshots": confirmedRaw
+        ]
+        guard JSONSerialization.isValidJSONObject(object),
+              let data = try? JSONSerialization.data(withJSONObject: object),
+              let raw = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return raw
+    }
+
+    private static func decodeEnvelope(_ raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let schema = object["schemaVersion"] as? NSNumber,
+              !isBooleanNumber(schema),
+              schema.intValue == envelopeSchemaVersion,
+              let confirmedRaw = object["confirmedSnapshots"] as? String else {
+            return nil
+        }
+        return confirmedRaw
+    }
+
+    private static func writeTimelineVerified(
+        _ snapshots: [SalaryEmploymentContractSnapshotV2],
+        defaults: UserDefaults
+    ) -> Bool {
+        guard SalaryEmploymentContractHistoryV2(snapshots) != nil,
+              let confirmedRaw = encodeConfirmed(snapshots),
+              writeEnvelopeVerified(confirmedRaw, defaults: defaults) else {
+            return false
+        }
+
+        // Après publication autoritative, garder les clés historiques synchronisées au mieux pour
+        // permettre un downgrade contrôlé et une restauration si l'envelope devient illisible.
+        _ = writeVerified(confirmedRaw, forKey: primaryKey, defaults: defaults)
+        _ = writeVerified(confirmedRaw, forKey: backupKey, defaults: defaults)
+        return true
+    }
+
+    private static func writeEnvelopeVerified(_ confirmedRaw: String, defaults: UserDefaults) -> Bool {
+        guard let envelopeRaw = encodeEnvelope(confirmedRaw) else { return false }
+        defaults.set(envelopeRaw, forKey: envelopeKey)
+        return defaults.string(forKey: envelopeKey) == envelopeRaw
+            && decodeEnvelope(envelopeRaw) == confirmedRaw
     }
 
     private static func writeVerified(_ value: String, forKey key: String, defaults: UserDefaults) -> Bool {

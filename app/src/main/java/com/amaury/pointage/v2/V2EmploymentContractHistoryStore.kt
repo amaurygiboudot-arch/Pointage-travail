@@ -3,6 +3,7 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.amaury.pointage.v2.engine.EmploymentContractHistoryV2
 import com.amaury.pointage.v2.engine.EmploymentContractSnapshotV2
+import com.amaury.pointage.v2.engine.EmploymentContractTimelineV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
@@ -104,13 +105,56 @@ object V2EmploymentContractHistoryStore {
             .toMutableList()
             .apply { add(candidate) }
 
-        if (runCatching { EmploymentContractHistoryV2(current) }.isFailure) return false
-        val raw = encodeConfirmed(current)
-        if (!writeVerified(context, KEY_CONFIRMED, raw)) return false
-        if (!writeVerified(context, KEY_BACKUP, raw)) return false
-
+        if (!writeTimelineVerified(context, current)) return false
         val reloaded = readConfirmed(context)
         return reloaded.reliable && reloaded.snapshots.contains(candidate)
+    }
+
+    /**
+     * Mutation transactionnelle d'une version datée.
+     *
+     * La chronologie est d'abord recalculée entièrement en mémoire puis écrite en une seule
+     * transaction SharedPreferences pour le primaire et sa copie de secours. Il est donc impossible
+     * d'enregistrer uniquement la fermeture de l'ancienne version ou uniquement la nouvelle version.
+     */
+    @Synchronized
+    fun saveEffectiveVersion(
+        context: Context,
+        contract: ContractV2,
+        effectiveFromEpochDay: Long,
+        sourceId: String,
+        checkedAtMs: Long,
+        note: String? = null
+    ): Boolean {
+        val stored = readConfirmed(context)
+        val updated = updatedTimelineFrom(
+            stored = stored,
+            contract = contract,
+            effectiveFromEpochDay = effectiveFromEpochDay,
+            sourceId = sourceId,
+            checkedAtMs = checkedAtMs,
+            note = note
+        ) ?: return false
+        return writeTimelineVerified(context, updated)
+    }
+
+    internal fun updatedTimelineFrom(
+        stored: ReadResult,
+        contract: ContractV2,
+        effectiveFromEpochDay: Long,
+        sourceId: String,
+        checkedAtMs: Long,
+        note: String? = null
+    ): List<EmploymentContractSnapshotV2>? {
+        if (!stored.reliable) return null
+        return EmploymentContractTimelineV2.upsertEffectiveVersion(
+            existing = stored.snapshots,
+            contract = contract,
+            effectiveFromEpochDay = effectiveFromEpochDay,
+            sourceId = sourceId,
+            checkedAtMs = checkedAtMs,
+            note = note
+        )
     }
 
     internal fun decodeConfirmed(raw: String): ReadResult {
@@ -263,6 +307,27 @@ object V2EmploymentContractHistoryStore {
             error("$key entier invalide")
         }
         return value.toLong()
+    }
+
+    private fun writeTimelineVerified(
+        context: Context,
+        snapshots: List<EmploymentContractSnapshotV2>
+    ): Boolean {
+        val normalized = snapshots.map(::normalizeSnapshot)
+        if (runCatching { EmploymentContractHistoryV2(normalized) }.isFailure) return false
+        val raw = encodeConfirmed(normalized)
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val committed = runCatching {
+            prefs.edit()
+                .putString(KEY_CONFIRMED, raw)
+                .putString(KEY_BACKUP, raw)
+                .commit()
+        }.getOrDefault(false)
+        if (!committed) return false
+        return runCatching {
+            prefs.getString(KEY_CONFIRMED, null) == raw &&
+                prefs.getString(KEY_BACKUP, null) == raw
+        }.getOrDefault(false)
     }
 
     private fun writeVerified(context: Context, key: String, value: String): Boolean {
