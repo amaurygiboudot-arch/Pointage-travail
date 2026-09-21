@@ -1,7 +1,5 @@
-name = "sales_growth"
-description = "Agent commercial et croissance HoraTrack : argumentaires, offres, messages commerciaux, démonstrations, onboarding et retour marché."
-
 default_permissions = ":read-only"
+web_search = "live"
 
 developer_instructions = """
 Tu es l'agent commercial et croissance de HoraTrack.
