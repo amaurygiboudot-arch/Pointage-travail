@@ -10,6 +10,7 @@ import Foundation
 final class SalaryV2Store: ObservableObject {
     typealias ReferenceProvider = (_ companyId: String, _ period: YearMonthV2) -> SalaryReferenceContractV2?
     typealias CompaniesProvider = () -> SalaryCompanyReadResultV2
+    typealias ConventionRulesProvider = () -> SalaryConventionRuleReadResultV2
     typealias WorkSourceProvider = @MainActor () -> SalaryWorkSessionSourceV2
 
     @Published private(set) var selectedPeriod: YearMonthV2
@@ -17,12 +18,14 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var companies: SalaryCompanyReadResultV2
     @Published private(set) var selectedCompanyId: String?
     @Published private(set) var paidWork: SalaryPaidWorkAggregationV2?
+    @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
 
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
+    private let conventionRulesProvider: ConventionRulesProvider
     private let workSourceProvider: WorkSourceProvider
     private let incomeTaxStore: CompanyIncomeTaxRateStoreV2
     private let calendar: Calendar
@@ -34,6 +37,7 @@ final class SalaryV2Store: ObservableObject {
         calendar: Calendar = .current,
         incomeTaxStore: CompanyIncomeTaxRateStoreV2 = CompanyIncomeTaxRateStoreV2(),
         companiesProvider: @escaping CompaniesProvider = { SalaryCompanyStoreV2.readConfirmed() },
+        conventionRulesProvider: @escaping ConventionRulesProvider = { SalaryConventionRuleStoreV2.readConfirmed() },
         workSourceProvider: @escaping WorkSourceProvider = {
             SalaryWorkSessionSourceV2(sessions: [], reliable: false)
         }
@@ -61,9 +65,18 @@ final class SalaryV2Store: ObservableObject {
                 calendar: calendar
             )
         }
+        let conventionCoverage = companyId.map { companyId in
+            SalaryConventionCoverageResolverV2.resolve(
+                companyId: companyId,
+                period: period,
+                companies: storedCompanies,
+                rules: conventionRulesProvider()
+            )
+        }
 
         self.referenceProvider = referenceProvider
         self.companiesProvider = companiesProvider
+        self.conventionRulesProvider = conventionRulesProvider
         self.workSourceProvider = workSourceProvider
         self.incomeTaxStore = incomeTaxStore
         self.calendar = calendar
@@ -71,6 +84,7 @@ final class SalaryV2Store: ObservableObject {
         self.companies = storedCompanies
         self.selectedCompanyId = companyId
         self.paidWork = paidWork
+        self.conventionCoverage = conventionCoverage
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             reference: reference,
@@ -92,6 +106,7 @@ final class SalaryV2Store: ObservableObject {
     var displayWarnings: [String] {
         unique(
             companies.warnings
+            + (conventionCoverage?.warnings ?? [])
             + snapshot.warnings
             + (paidWork?.warnings ?? [])
             + (requiresExplicitCompanySelection
@@ -233,8 +248,15 @@ final class SalaryV2Store: ObservableObject {
                 sourceReliable: source.reliable,
                 calendar: calendar
             )
+            conventionCoverage = SalaryConventionCoverageResolverV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod,
+                companies: companies,
+                rules: conventionRulesProvider()
+            )
         } else {
             paidWork = nil
+            conventionCoverage = nil
         }
 
         snapshot = SalaryWorkspaceResolverV2.resolve(

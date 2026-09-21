@@ -10,6 +10,7 @@ struct SalaryV2View: View {
                 VStack(spacing: 18) {
                     periodSelector
                     companySelectorCard
+                    conventionCoverageCard
                     reliabilityCard
                     paidWorkCard
                     referenceCard
@@ -117,6 +118,64 @@ struct SalaryV2View: View {
                 Text("Avec plusieurs employeurs, HoraTrack n'en choisit jamais un à votre place.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var conventionCoverageCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("CONVENTION COLLECTIVE — PÉRIODE")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            if salaryStore.selectedCompanyId == nil {
+                Text("À confirmer")
+                    .font(.title3.bold())
+                Text("Sélectionnez d'abord l'entreprise à analyser.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if let coverage = salaryStore.conventionCoverage {
+                if let snapshot = coverage.singleSnapshotForWholePeriod {
+                    Label("Mois entièrement couvert", systemImage: "checkmark.shield.fill")
+                        .font(.title3.bold())
+                    Text("IDCC \(snapshot.idcc) — version \(snapshot.versionId)")
+                        .font(.footnote)
+                    Text("Source confirmée : \(snapshot.sourceId)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if coverage.requiresMultipleRuleVersions {
+                    Label("Changement de version dans le mois", systemImage: "arrow.triangle.branch")
+                        .font(.title3.bold())
+                    Text("IDCC \(coverage.idcc ?? "à confirmer") — \(coverage.segments.count) versions confirmées")
+                        .font(.footnote)
+                    Text("HoraTrack conserve chaque période séparément et n'applique aucune version unique à tout le mois.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else if coverage.sourceReliable {
+                    Label("Couverture incomplète", systemImage: "exclamationmark.triangle.fill")
+                        .font(.title3.bold())
+                    Text("IDCC \(coverage.idcc ?? "à confirmer")")
+                        .font(.footnote)
+                    Text("Une partie du mois n'a pas de version confirmée : aucun fallback n'est utilisé.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("À confirmer", systemImage: "questionmark.diamond.fill")
+                        .font(.title3.bold())
+                    if let idcc = coverage.idcc {
+                        Text("IDCC \(idcc)")
+                            .font(.footnote)
+                    }
+                    Text("Les sources locales ne permettent pas d'établir une couverture conventionnelle fiable pour ce mois.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Text("À confirmer")
+                    .font(.title3.bold())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
