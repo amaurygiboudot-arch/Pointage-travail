@@ -71,6 +71,7 @@ targets:
       - path: HPTravail/SalaryV2/PayrollEngineV2.swift
       - path: HPTravail/SalaryV2/PaidTimePolicyV2.swift
       - path: HPTravail/SalaryV2/SalaryPaidWorkAggregatorV2.swift
+      - path: HPTravail/SalaryV2/SalaryContractSegmentPaidWorkV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkSessionBridgeV2.swift
       - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
       - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
