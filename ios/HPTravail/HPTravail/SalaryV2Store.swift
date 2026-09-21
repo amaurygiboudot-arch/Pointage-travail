@@ -119,15 +119,22 @@ final class SalaryV2Store: ObservableObject {
     }
 
     var displayWarnings: [String] {
-        unique(
-            companies.warnings
-            + (conventionCoverage?.warnings ?? [])
-            + (contractResolution?.warnings ?? [])
-            + snapshot.warnings
-            + (paidWork?.warnings ?? [])
-            + (requiresExplicitCompanySelection
-               ? ["Salaire V2 : plusieurs entreprises sont confirmées ; choisissez explicitement l'entreprise à analyser."]
-               : [])
+        let companyWarnings = companies.warnings
+        let conventionWarnings = conventionCoverage?.warnings ?? []
+        let contractWarnings = contractResolution?.warnings ?? []
+        let workspaceWarnings = snapshot.warnings
+        let workWarnings = paidWork?.warnings ?? []
+        let selectionWarnings: [String] = requiresExplicitCompanySelection
+            ? ["Salaire V2 : plusieurs entreprises sont confirmées ; choisissez explicitement l'entreprise à analyser."]
+            : []
+
+        return unique(
+            companyWarnings
+            + conventionWarnings
+            + contractWarnings
+            + workspaceWarnings
+            + workWarnings
+            + selectionWarnings
         )
     }
 
