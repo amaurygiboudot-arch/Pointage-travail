@@ -69,7 +69,7 @@ object ConventionRulePeriodResolverV2 {
         require(periodEndEpochDay >= periodStartEpochDay) { "Période invalide" }
         val rawIdcc = idcc.trim()
         if (rawIdcc.isBlank()) {
-            return blocked("", periodStartEpochDay, periodEndEpochDay, MISSING_IDCC_WARNING)
+            return unavailable("", periodStartEpochDay, periodEndEpochDay, MISSING_IDCC_WARNING)
         }
         val normalizedIdcc = normalizeIdcc(rawIdcc)
 
@@ -128,6 +128,22 @@ object ConventionRulePeriodResolverV2 {
         return false
     }
 
+    /** Donnée métier absente mais stockage techniquement exploitable. */
+    private fun unavailable(
+        idcc: String,
+        start: Long,
+        end: Long,
+        warning: String
+    ) = ConventionRulePeriodResolutionV2(
+        idcc = idcc,
+        periodStartEpochDay = start,
+        periodEndEpochDay = end,
+        sourceReliable = true,
+        coverage = null,
+        warnings = listOf(warning)
+    )
+
+    /** Source ou historique techniquement non fiable. */
     private fun blocked(
         idcc: String,
         start: Long,
