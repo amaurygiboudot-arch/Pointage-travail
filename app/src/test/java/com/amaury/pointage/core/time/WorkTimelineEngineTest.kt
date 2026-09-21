@@ -75,4 +75,24 @@ class WorkTimelineEngineTest {
         assertEquals(0L, result.workedMs)
         assertTrue(result.warnings.any { it.contains("aucune heure de sortie") })
     }
+
+    @Test
+    fun `une nouvelle entree pendant une pause est rejetee sans effacer la pause`() {
+        val result = WorkTimelineEngine.evaluate(
+            WorkTimelineInput(
+                events = listOf(
+                    WorkEvent("entry", WorkEventType.ENTRY, 8 * 60 * minute, WorkEventSource.MANUAL),
+                    WorkEvent("pause-start", WorkEventType.PAUSE_START, 12 * 60 * minute, WorkEventSource.MANUAL),
+                    WorkEvent("entry-duplicate", WorkEventType.ENTRY, 12 * 60 * minute + 30 * minute, WorkEventSource.MANUAL),
+                    WorkEvent("exit", WorkEventType.EXIT, 16 * 60 * minute, WorkEventSource.MANUAL)
+                )
+            )
+        )
+
+        assertEquals(4 * 60 * minute, result.workedMs)
+        assertEquals(4 * 60 * minute, result.pausedMs)
+        assertEquals(16 * 60 * minute, result.lastExitMs)
+        assertTrue(result.warnings.any { it.contains("une pause est déjà ouverte") })
+    }
+
 }
