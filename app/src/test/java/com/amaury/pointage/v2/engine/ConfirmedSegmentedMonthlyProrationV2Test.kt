@@ -19,7 +19,7 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
             "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
             "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
         )
-        val proration = confirmed("v1" to 4_200, "v2" to 4_200)
+        val proration = confirmed(segments[0] to 4_200, segments[1] to 4_200)
 
         val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(segments, rules, proration)
 
@@ -32,8 +32,9 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
 
     @Test
     fun `sans base de proratisation aucun montant nest invente`() {
+        val only = segment("v1", 0, 30, fullTime(rate = 14.0))
         val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments = listOf(segment("v1", 0, 30, fullTime(rate = 14.0))),
+            segments = listOf(only),
             rulesByVersionId = mapOf("v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)),
             proration = null
         )
@@ -55,7 +56,35 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
                 "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
                 "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
             ),
-            proration = confirmed("v1" to 8_400)
+            proration = confirmed(segments[0] to 8_400)
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.baseGross)
+        assertTrue(result.warnings.contains(ConfirmedSegmentedMonthlyProrationCalculatorV2.INVALID_PRORATION_WARNING))
+    }
+
+    @Test
+    fun `les bornes de la confirmation doivent rester identiques aux segments`() {
+        val segments = listOf(
+            segment("v1", 0, 14, fullTime(rate = 10.0)),
+            segment("v2", 15, 30, fullTime(rate = 20.0))
+        )
+        val stale = ConfirmedSegmentedMonthlyProrationV2(
+            sourceId = "planning-confirme",
+            checkedAtMs = 1L,
+            segments = listOf(
+                ConfirmedProrationSegmentV2("v1", 0, 13, 4_200),
+                ConfirmedProrationSegmentV2("v2", 14, 30, 4_200)
+            )
+        )
+        val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments = segments,
+            rulesByVersionId = mapOf(
+                "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
+                "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
+            ),
+            proration = stale
         )
 
         assertFalse(result.reliable)
@@ -75,7 +104,7 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
                 "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
                 "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
             ),
-            proration = confirmed("v1" to 4_200, "v2" to 4_200)
+            proration = confirmed(segments[0] to 4_200, segments[1] to 4_200)
         )
 
         assertFalse(result.reliable)
@@ -86,25 +115,25 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
     @Test
     fun `un temps plein 39h exige les paliers structurels confirmes`() {
         val contract = fullTime(rate = 10.0, weeklyMinutes = 39 * 60)
-        val segment = segment("v1", 0, 30, contract)
+        val only = segment("v1", 0, 30, contract)
 
         val blocked = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments = listOf(segment),
+            segments = listOf(only),
             rulesByVersionId = mapOf("v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)),
-            proration = confirmed("v1" to 8_400)
+            proration = confirmed(only to 8_400)
         )
         assertFalse(blocked.reliable)
         assertNull(blocked.baseGross)
 
         val calculated = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments = listOf(segment),
+            segments = listOf(only),
             rulesByVersionId = mapOf(
                 "v1" to PayrollRulesV2(
                     weeklyRegularMinutes = 35 * 60,
                     overtimeTiers = listOf(OvertimeTierV2(35 * 60, 43 * 60, 1.25))
                 )
             ),
-            proration = confirmed("v1" to 8_400)
+            proration = confirmed(only to 8_400)
         )
         assertTrue(calculated.reliable)
         assertEquals(1733.333333, calculated.baseGross!!, 0.0001)
@@ -120,10 +149,11 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
             grossHourlyRate = 12.0,
             hireDateEpochDay = 0L
         )
+        val only = segment("v1", 0, 30, contract)
         val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments = listOf(segment("v1", 0, 30, contract)),
+            segments = listOf(only),
             rulesByVersionId = emptyMap(),
-            proration = confirmed("v1" to 4_800)
+            proration = confirmed(only to 4_800)
         )
 
         assertTrue(result.reliable)
@@ -142,11 +172,12 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
             forfaitAnnualDays = 218.0,
             monthlyGrossSalary = 3_000.0
         )
+        val only = segment("v1", 0, 30, forfait)
 
         val result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments = listOf(segment("v1", 0, 30, forfait)),
+            segments = listOf(only),
             rulesByVersionId = emptyMap(),
-            proration = confirmed("v1" to 8_400)
+            proration = confirmed(only to 8_400)
         )
 
         assertFalse(result.reliable)
@@ -166,7 +197,7 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
                 "v1" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
                 "v2" to PayrollRulesV2(weeklyRegularMinutes = 35 * 60)
             ),
-            proration = confirmed("v1" to 0, "v2" to 8_400)
+            proration = confirmed(segments[0] to 0, segments[1] to 8_400)
         )
 
         assertTrue(result.reliable)
@@ -174,11 +205,19 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
         assertEquals(3033.333333, result.baseGross!!, 0.0001)
     }
 
-    private fun confirmed(vararg values: Pair<String, Int>) = ConfirmedSegmentedMonthlyProrationV2(
-        sourceId = "planning-confirme",
-        checkedAtMs = 1L,
-        segments = values.map { ConfirmedProrationSegmentV2(it.first, it.second) }
-    )
+    private fun confirmed(vararg values: Pair<EmploymentContractCoverageSegmentV2, Int>) =
+        ConfirmedSegmentedMonthlyProrationV2(
+            sourceId = "planning-confirme",
+            checkedAtMs = 1L,
+            segments = values.map { (segment, minutes) ->
+                ConfirmedProrationSegmentV2(
+                    versionId = segment.snapshot.versionId,
+                    startEpochDay = segment.startEpochDay,
+                    endEpochDay = segment.endEpochDay,
+                    scheduledMinutes = minutes
+                )
+            }
+        )
 
     private fun segment(
         versionId: String,
