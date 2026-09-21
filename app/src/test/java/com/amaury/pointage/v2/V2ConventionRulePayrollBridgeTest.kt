@@ -79,6 +79,27 @@ class V2ConventionRulePayrollBridgeTest {
         assertTrue(result.warnings.contains(ConventionRulePeriodResolverV2.INCOMPLETE_WARNING))
     }
 
+    @Test
+    fun `un idcc absent reste bloque sans exception`() {
+        val start = LocalDate.of(2026, 1, 1).toEpochDay()
+        val stored = V2ConventionRuleStore.ReadResult(
+            snapshots = listOf(rule("r1", start - 20, null)),
+            reliable = true,
+            warnings = emptyList()
+        )
+
+        val result = V2ConventionRulePayrollBridge.resolveStored(
+            stored = stored,
+            idcc = "   ",
+            year = 2026,
+            monthZeroBased = 0
+        )
+
+        assertFalse(result.resolution.readyForCalculation)
+        assertFalse(result.resolution.sourceReliable)
+        assertTrue(result.warnings.contains(ConventionRulePeriodResolverV2.MISSING_IDCC_WARNING))
+    }
+
     private fun rule(version: String, from: Long, to: Long?) = ConventionRuleSnapshotV2(
         idcc = "0292",
         versionId = version,
