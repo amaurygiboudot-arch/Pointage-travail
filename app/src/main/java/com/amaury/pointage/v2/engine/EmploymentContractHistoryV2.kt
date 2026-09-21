@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 
 /**
@@ -21,8 +22,7 @@ data class EmploymentContractSnapshotV2(
     init {
         require(versionId.isNotBlank()) { "Version de contrat obligatoire" }
         require(sourceId.isNotBlank()) { "Source du contrat obligatoire" }
-        require(contract.id.isNotBlank()) { "Identifiant de contrat obligatoire" }
-        require(contract.employerId.isNotBlank()) { "Employeur obligatoire" }
+        require(validHistoryContractV2(contract)) { "Contrat historique incohérent" }
         require(checkedAtMs >= 0L) { "Date de vérification invalide" }
         require(effectiveToEpochDay == null || effectiveToEpochDay >= effectiveFromEpochDay) {
             "Période de contrat invalide"
@@ -157,5 +157,47 @@ class EmploymentContractHistoryV2(
         fun empty(): EmploymentContractHistoryV2 = EmploymentContractHistoryV2(emptyList())
 
         private fun normalizeEmployerId(value: String): String = value.trim()
+    }
+}
+
+/**
+ * Validation du payload contractuel avant historisation.
+ * FORFAIT sans précision est volontairement refusé : ce type reste réservé à la relecture legacy.
+ */
+internal fun validHistoryContractV2(contract: ContractV2): Boolean {
+    if (contract.id.isBlank() || contract.employerId.isBlank()) return false
+    if (contract.payrollCutoffDay?.let { it !in 1..31 } == true) return false
+
+    return when (contract.type) {
+        ContractTypeV2.FORFAIT_HOURS -> {
+            contract.contractualWeeklyMinutes == null &&
+                contract.grossHourlyRate == null &&
+                contract.monthlyGrossSalary?.let { it.isFinite() && it > 0.0 } == true &&
+                contract.forfaitHoursPeriod != null &&
+                contract.forfaitHours?.let { it.isFinite() && it > 0.0 } == true &&
+                contract.forfaitAnnualDays == null
+        }
+
+        ContractTypeV2.FORFAIT_DAYS -> {
+            contract.contractualWeeklyMinutes == null &&
+                contract.grossHourlyRate == null &&
+                contract.monthlyGrossSalary?.let { it.isFinite() && it > 0.0 } == true &&
+                contract.forfaitHoursPeriod == null &&
+                contract.forfaitHours == null &&
+                contract.forfaitAnnualDays?.let { it.isFinite() && it > 0.0 && it <= 218.0 } == true
+        }
+
+        ContractTypeV2.FULL_TIME,
+        ContractTypeV2.PART_TIME,
+        ContractTypeV2.OTHER -> {
+            contract.contractualWeeklyMinutes?.let { it > 0 } == true &&
+                contract.grossHourlyRate?.let { it.isFinite() && it > 0.0 } == true &&
+                contract.forfaitHoursPeriod == null &&
+                contract.forfaitHours == null &&
+                contract.forfaitAnnualDays == null &&
+                contract.monthlyGrossSalary == null
+        }
+
+        ContractTypeV2.FORFAIT -> false
     }
 }
