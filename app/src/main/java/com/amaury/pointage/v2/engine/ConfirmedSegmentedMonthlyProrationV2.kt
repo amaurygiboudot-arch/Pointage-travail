@@ -65,8 +65,8 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (!validProration(proration, segments)) return blocked(INVALID_PRORATION_WARNING)
 
         val scheduledByVersion = proration.segments.associate { it.versionId.trim() to it.scheduledMinutes }
-        val totalScheduled = scheduledByVersion.values.sum()
-        if (totalScheduled <= 0) return blocked(INVALID_PRORATION_WARNING)
+        val totalScheduled = scheduledByVersion.values.sumOf { it.toLong() }
+        if (totalScheduled <= 0L) return blocked(INVALID_PRORATION_WARNING)
 
         val pieces = mutableListOf<SegmentedMonthlyBasePieceV2>()
         val warnings = mutableListOf<String>()
@@ -136,7 +136,7 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         proration: ConfirmedSegmentedMonthlyProrationV2,
         segments: List<EmploymentContractCoverageSegmentV2>
     ): Boolean {
-        if (segments.isEmpty()) return false
+        if (segments.isEmpty() || !continuous(segments)) return false
         if (proration.sourceId.isBlank() || proration.checkedAtMs < 0L) return false
         if (proration.method != ConfirmedProrationMethodV2.SCHEDULED_MINUTES) return false
 
@@ -147,7 +147,20 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (providedIds.any { it.isBlank() } || providedIds.distinct().size != providedIds.size) return false
         if (providedIds.toSet() != expectedIds.toSet()) return false
         if (proration.segments.any { it.scheduledMinutes < 0 }) return false
-        if (proration.segments.sumOf { it.scheduledMinutes } <= 0) return false
+        if (proration.segments.sumOf { it.scheduledMinutes.toLong() } <= 0L) return false
+        return true
+    }
+
+    private fun continuous(segments: List<EmploymentContractCoverageSegmentV2>): Boolean {
+        val sorted = segments.sortedBy { it.startEpochDay }
+        if (sorted.any { it.endEpochDay < it.startEpochDay }) return false
+        for (index in 1 until sorted.size) {
+            val previous = sorted[index - 1]
+            val current = sorted[index]
+            if (previous.endEpochDay == Long.MAX_VALUE || current.startEpochDay != previous.endEpochDay + 1L) {
+                return false
+            }
+        }
         return true
     }
 
