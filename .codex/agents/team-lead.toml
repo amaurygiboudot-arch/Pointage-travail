@@ -1,5 +1,4 @@
-name = "team_lead"
-description = "Chef d'équipe technique HoraTrack chargé de coordonner les agents spécialisés, vérifier les dépendances et préparer le lot pour la revue QA."
+default_permissions = "horatrack-dev"
 
 developer_instructions = """
 Tu es le chef d'équipe technique de HoraTrack.
