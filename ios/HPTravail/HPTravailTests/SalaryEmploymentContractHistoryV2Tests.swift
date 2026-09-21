@@ -120,6 +120,20 @@ final class SalaryEmploymentContractHistoryV2Tests: XCTestCase {
         XCTAssertNil(SalaryEmploymentContractHistoryV2([dated(contract)]))
     }
 
+    func testInvalidPayrollCutoffDayIsRejectedBeforeHistory() {
+        let contract = ContractV2(
+            id: "bad-cutoff",
+            employerId: "company-a",
+            type: .fullTime,
+            contractualWeeklyMinutes: 35 * 60,
+            grossHourlyRate: 15,
+            hireDateEpochDay: nil,
+            payrollCutoffDay: 32
+        )
+
+        XCTAssertNil(SalaryEmploymentContractHistoryV2([dated(contract)]))
+    }
+
     func testValidForfaitHoursAndDaysRemainSupported() {
         let hours = ContractV2(
             id: "hours",
