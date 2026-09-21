@@ -38,7 +38,7 @@ class EmploymentContractTimelineV2Test {
 
         val history = EmploymentContractHistoryV2(updated)
         assertEquals(199, history.allVersions("company-a").first { it.versionId == "v1" }.effectiveToEpochDay)
-        assertEquals(14.0, history.applicable("company-a", 200)?.contract?.grossHourlyRate, 0.0)
+        assertEquals(14.0, history.applicable("company-a", 200)!!.contract.grossHourlyRate!!, 0.0)
     }
 
     @Test
@@ -78,7 +78,7 @@ class EmploymentContractTimelineV2Test {
         val history = EmploymentContractHistoryV2(updated)
         assertNull(history.applicable("company-a", 30))
         assertEquals("old", history.applicable("company-a", 20)?.versionId)
-        assertEquals(14.0, history.applicable("company-a", 50)?.contract?.grossHourlyRate, 0.0)
+        assertEquals(14.0, history.applicable("company-a", 50)!!.contract.grossHourlyRate!!, 0.0)
         assertEquals(99, history.applicable("company-a", 50)?.effectiveToEpochDay)
     }
 
@@ -115,7 +115,7 @@ class EmploymentContractTimelineV2Test {
         )!!
 
         assertTrue(updated.contains(companyB))
-        assertEquals(20.0, EmploymentContractHistoryV2(updated).applicable("company-b", 500)?.contract?.grossHourlyRate, 0.0)
+        assertEquals(20.0, EmploymentContractHistoryV2(updated).applicable("company-b", 500)!!.contract.grossHourlyRate!!, 0.0)
     }
 
     @Test
@@ -141,7 +141,8 @@ class EmploymentContractTimelineV2Test {
         employerId = companyId,
         type = ContractTypeV2.FULL_TIME,
         contractualWeeklyMinutes = 35 * 60,
-        grossHourlyRate = rate
+        grossHourlyRate = rate,
+        hireDateEpochDay = null
     )
 
     private fun snapshot(
