@@ -88,6 +88,7 @@ object V2EmploymentContractHistoryStore {
         return runCatching { EmploymentContractHistoryV2(stored.snapshots) }.getOrNull()
     }
 
+    @Synchronized
     fun saveConfirmed(context: Context, snapshot: EmploymentContractSnapshotV2): Boolean {
         val candidate = normalizeSnapshot(snapshot)
         if (runCatching { EmploymentContractHistoryV2(listOf(candidate)) }.isFailure) return false
