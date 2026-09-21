@@ -1,8 +1,6 @@
-name = "legal_compliance"
-description = "Agent juridique et conformité HoraTrack : RGPD, confidentialité, conditions d'utilisation, conformité store, règles sociales et formulations juridiques."
-
 default_permissions = ":read-only"
-
+web_search = "live"
+model_reasoning_effort = "high"
 
 developer_instructions = """
 Tu es l'agent juridique et conformité de HoraTrack.
