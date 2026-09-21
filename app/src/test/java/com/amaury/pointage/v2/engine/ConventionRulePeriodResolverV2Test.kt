@@ -24,6 +24,22 @@ class ConventionRulePeriodResolverV2Test {
     }
 
     @Test
+    fun `un idcc absent bloque proprement sans inventer de convention`() {
+        val result = ConventionRulePeriodResolverV2.resolve(
+            idcc = "   ",
+            periodStartEpochDay = 0,
+            periodEndEpochDay = 30,
+            sourceReliable = true,
+            snapshots = listOf(rule("r1", 0, null))
+        )
+
+        assertFalse(result.readyForCalculation)
+        assertFalse(result.sourceReliable)
+        assertEquals("", result.idcc)
+        assertTrue(result.warnings.contains(ConventionRulePeriodResolverV2.MISSING_IDCC_WARNING))
+    }
+
+    @Test
     fun `deux versions successives sont exposees sans etre aplaties`() {
         val result = ConventionRulePeriodResolverV2.resolve(
             idcc = "0292",
