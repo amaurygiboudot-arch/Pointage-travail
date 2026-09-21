@@ -16,7 +16,7 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
             segments: segments,
             rulesByVersionId: rules,
-            proration: confirmed(("v1", 4_200), ("v2", 4_200))
+            proration: confirmed((segments[0], 4_200), (segments[1], 4_200))
         )
 
         XCTAssertTrue(result.reliable)
@@ -27,8 +27,9 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
     }
 
     func testMissingProrationNeverInventsCalendarRatio() {
+        let only = segment("v1", start: 0, end: 30, contract: fullTime(rate: 14))
         let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments: [segment("v1", start: 0, end: 30, contract: fullTime(rate: 14))],
+            segments: [only],
             rulesByVersionId: ["v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)],
             proration: nil
         )
@@ -49,7 +50,34 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
                 "v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
                 "v2": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
             ],
-            proration: confirmed(("v1", 8_400))
+            proration: confirmed((segments[0], 8_400))
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.baseGross)
+        XCTAssertTrue(result.warnings.contains(ConfirmedSegmentedMonthlyProrationCalculatorV2.invalidProrationWarning))
+    }
+
+    func testConfirmedBoundsMustStillMatchContractSegments() {
+        let segments = [
+            segment("v1", start: 0, end: 14, contract: fullTime(rate: 10)),
+            segment("v2", start: 15, end: 30, contract: fullTime(rate: 20))
+        ]
+        let stale = ConfirmedSegmentedMonthlyProrationV2(
+            sourceId: "planning-confirme",
+            checkedAtMs: 1,
+            segments: [
+                ConfirmedProrationSegmentV2(versionId: "v1", startEpochDay: 0, endEpochDay: 13, scheduledMinutes: 4_200),
+                ConfirmedProrationSegmentV2(versionId: "v2", startEpochDay: 14, endEpochDay: 30, scheduledMinutes: 4_200)
+            ]
+        )
+        let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
+            segments: segments,
+            rulesByVersionId: [
+                "v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
+                "v2": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+            ],
+            proration: stale
         )
 
         XCTAssertFalse(result.reliable)
@@ -68,7 +96,7 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
                 "v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
                 "v2": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
             ],
-            proration: confirmed(("v1", 4_200), ("v2", 4_200))
+            proration: confirmed((segments[0], 4_200), (segments[1], 4_200))
         )
 
         XCTAssertFalse(result.reliable)
@@ -83,7 +111,7 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         let blocked = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
             segments: [only],
             rulesByVersionId: ["v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)],
-            proration: confirmed(("v1", 8_400))
+            proration: confirmed((only, 8_400))
         )
         XCTAssertFalse(blocked.reliable)
         XCTAssertNil(blocked.baseGross)
@@ -96,7 +124,7 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
                     overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: 43 * 60, multiplier: 1.25)]
                 )
             ],
-            proration: confirmed(("v1", 8_400))
+            proration: confirmed((only, 8_400))
         )
         XCTAssertTrue(calculated.reliable)
         XCTAssertEqual(try XCTUnwrap(calculated.baseGross), 1733.333333, accuracy: 0.0001)
@@ -111,10 +139,11 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
             grossHourlyRate: 12,
             hireDateEpochDay: 0
         )
+        let only = segment("v1", start: 0, end: 30, contract: contract)
         let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments: [segment("v1", start: 0, end: 30, contract: contract)],
+            segments: [only],
             rulesByVersionId: [:],
-            proration: confirmed(("v1", 4_800))
+            proration: confirmed((only, 4_800))
         )
 
         XCTAssertTrue(result.reliable)
@@ -132,10 +161,11 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
             forfaitAnnualDays: 218,
             monthlyGrossSalary: 3_000
         )
+        let only = segment("v1", start: 0, end: 30, contract: contract)
         let result = ConfirmedSegmentedMonthlyProrationCalculatorV2.calculate(
-            segments: [segment("v1", start: 0, end: 30, contract: contract)],
+            segments: [only],
             rulesByVersionId: [:],
-            proration: confirmed(("v1", 8_400))
+            proration: confirmed((only, 8_400))
         )
 
         XCTAssertFalse(result.reliable)
@@ -154,7 +184,7 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
                 "v1": PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
                 "v2": PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
             ],
-            proration: confirmed(("v1", 0), ("v2", 8_400))
+            proration: confirmed((segments[0], 0), (segments[1], 8_400))
         )
 
         XCTAssertTrue(result.reliable)
@@ -162,11 +192,20 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.baseGross), 3033.333333, accuracy: 0.0001)
     }
 
-    private func confirmed(_ values: (String, Int)...) -> ConfirmedSegmentedMonthlyProrationV2 {
+    private func confirmed(
+        _ values: (SalaryEmploymentContractCoverageSegmentV2, Int)...
+    ) -> ConfirmedSegmentedMonthlyProrationV2 {
         ConfirmedSegmentedMonthlyProrationV2(
             sourceId: "planning-confirme",
             checkedAtMs: 1,
-            segments: values.map { ConfirmedProrationSegmentV2(versionId: $0.0, scheduledMinutes: $0.1) }
+            segments: values.map { segment, minutes in
+                ConfirmedProrationSegmentV2(
+                    versionId: segment.snapshot.versionId,
+                    startEpochDay: segment.startEpochDay,
+                    endEpochDay: segment.endEpochDay,
+                    scheduledMinutes: minutes
+                )
+            }
         )
     }
 
