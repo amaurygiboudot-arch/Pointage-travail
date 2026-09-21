@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
+import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -90,6 +91,76 @@ class EmploymentContractHistoryV2Test {
         assertEquals(13.5, history.applicable("company-a", 120)?.contract?.grossHourlyRate ?: 0.0, 0.0)
         assertEquals(18.0, history.applicable("company-b", 120)?.contract?.grossHourlyRate ?: 0.0, 0.0)
     }
+
+    @Test
+    fun `le forfait legacy ambigu ne peut pas devenir une verite historique`() {
+        val contract = ContractV2(
+            id = "legacy",
+            employerId = "company-a",
+            type = ContractTypeV2.FORFAIT,
+            contractualWeeklyMinutes = 35 * 60,
+            grossHourlyRate = 15.0,
+            hireDateEpochDay = null
+        )
+
+        val failure = runCatching { dated(contract) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
+    fun `un contrat horaire incomplet est refuse avant historisation`() {
+        val contract = ContractV2(
+            id = "incomplete",
+            employerId = "company-a",
+            type = ContractTypeV2.FULL_TIME,
+            contractualWeeklyMinutes = 35 * 60,
+            grossHourlyRate = null,
+            hireDateEpochDay = null
+        )
+
+        val failure = runCatching { dated(contract) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
+    fun `forfait heures et forfait jours valides restent supportes`() {
+        val hours = ContractV2(
+            id = "hours",
+            employerId = "company-a",
+            type = ContractTypeV2.FORFAIT_HOURS,
+            contractualWeeklyMinutes = null,
+            grossHourlyRate = null,
+            hireDateEpochDay = null,
+            forfaitHoursPeriod = ForfaitHoursPeriodV2.YEAR,
+            forfaitHours = 1607.0,
+            monthlyGrossSalary = 3200.0
+        )
+        val days = ContractV2(
+            id = "days",
+            employerId = "company-b",
+            type = ContractTypeV2.FORFAIT_DAYS,
+            contractualWeeklyMinutes = null,
+            grossHourlyRate = null,
+            hireDateEpochDay = null,
+            forfaitAnnualDays = 218.0,
+            monthlyGrossSalary = 4200.0
+        )
+
+        assertTrue(runCatching { dated(hours, "hours") }.isSuccess)
+        assertTrue(runCatching { dated(days, "days") }.isSuccess)
+    }
+
+    private fun dated(
+        contract: ContractV2,
+        version: String = "v1"
+    ) = EmploymentContractSnapshotV2(
+        versionId = version,
+        sourceId = "user-confirmed",
+        effectiveFromEpochDay = 100,
+        effectiveToEpochDay = null,
+        contract = contract,
+        checkedAtMs = 1L
+    )
 
     private fun snapshot(
         version: String,
