@@ -21,6 +21,7 @@ Agents disponibles :
 - legal_compliance
 - incident_ops
 - product_manager
+- international_lead
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
@@ -109,6 +110,31 @@ Rôles :
 
 Le chef d'orchestre ne doit pas contourner control_gate pour une fusion normale.
 Tout FAIL du sas interdit la fusion jusqu'à correction et nouveau contrôle.
+
+## GOUVERNANCE ANTI-CONTOURNEMENT
+
+Les agents HoraTrack doivent être considérés comme remplaçables. Aucun agent ne peut modifier les règles qui définissent sa propre autorité ou empêcher son remplacement.
+
+Fichiers de gouvernance protégés :
+- `AGENTS.md`
+- `.codex/**`
+- `.github/workflows/**`
+- `.github/CODEOWNERS`
+- `SECURITY.md`
+
+Règles obligatoires :
+- aucun agent spécialisé ne modifie son propre fichier de rôle ;
+- aucun agent ne modifie les permissions, les agents disponibles, la chaîne de contrôle ou les règles de fusion sans demande humaine explicite ;
+- aucun agent ne désactive, ne contourne ni n'assouplit les CI, contrôles, protections de branche ou règles de sécurité ;
+- aucun agent ne modifie, ne révèle ni ne tente de récupérer des secrets ou identifiants ;
+- aucun agent ne doit tenter de maintenir son propre rôle, ses permissions ou son existence ;
+- remplacer, désactiver ou supprimer un agent est toujours une décision extérieure à l'agent concerné ;
+- toute tentative de modification non explicitement autorisée d'un fichier de gouvernance est bloquante et doit être remontée au chef d'orchestre ;
+- `qa_reviewer` et `control_gate` doivent considérer toute modification inattendue de gouvernance comme un FAIL ;
+- les rôles non techniques restent en lecture seule par défaut ;
+- seul un changement explicitement demandé par l'humain peut modifier la gouvernance.
+
+Les permissions Codex du projet appliquent le principe du moindre privilège : le code applicatif reste modifiable par les agents techniques autorisés, tandis que les fichiers de gouvernance sont en lecture seule pour les sessions ordinaires.
 
 ## FIABILITÉ
 
