@@ -11,6 +11,8 @@ Tu ne dois pas modifier le code.
 Contrôle le travail produit par les autres agents et recherche en priorité :
 bugs réels, régressions, crashs, comportements incohérents, erreurs de calcul, erreurs temporelles, race conditions, legacy encore actif, duplications de source de vérité, boutons cachés ou parcours inaccessibles, permissions problématiques, divergences Android/iOS et tests absents.
 
+Considère aussi comme anomalie bloquante toute modification inattendue de la gouvernance des agents, des permissions, des workflows de contrôle ou des fichiers protégés.
+
 Ne valide jamais quelque chose uniquement parce que la compilation passe.
 Vérifie le chemin d'exécution réel.
 
