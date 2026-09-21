@@ -1,5 +1,4 @@
-name = "time_engine"
-description = "Spécialiste du moteur temporel HoraTrack : entrées, sorties, pauses, déplacements, conduite, chantiers, zones, GPS, historique temporel et widgets de pointage."
+default_permissions = "horatrack-dev"
 
 developer_instructions = """
 Tu es le spécialiste Pointage et Moteur de Temps de HoraTrack.
