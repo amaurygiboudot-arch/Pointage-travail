@@ -79,6 +79,34 @@ final class SalaryPayrollCalculationTimelineV2Tests: XCTestCase {
         XCTAssertEqual(result.slices[1].ruleVersionId, "r2")
     }
 
+    func testDifferentCompaniesBlockAlignment() throws {
+        let contracts = try XCTUnwrap(
+            SalaryEmploymentContractPeriodResolverV2.resolve(
+                companyId: "company",
+                periodStartEpochDay: 0,
+                periodEndEpochDay: 30,
+                sourceReliable: true,
+                snapshots: [contract("c1", from: 0, to: nil, rate: 12)]
+            )
+        )
+        let rules = SalaryConventionCoverageV2(
+            companyId: "other-company",
+            idcc: "0292",
+            periodStartEpochDay: 0,
+            periodEndEpochDay: 30,
+            segments: [ruleSegment("r1", start: 0, end: 30)],
+            sourceReliable: true,
+            fullyCovered: true,
+            warnings: []
+        )
+
+        let result = SalaryPayrollCalculationTimelineV2.align(contracts: contracts, rules: rules)
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertTrue(result.slices.isEmpty)
+        XCTAssertTrue(result.warnings.contains(SalaryPayrollCalculationTimelineV2.companyMismatchWarning))
+    }
+
     func testDifferentCoveragePeriodsBlockAlignment() throws {
         let contracts = try XCTUnwrap(
             SalaryEmploymentContractPeriodResolverV2.resolve(
