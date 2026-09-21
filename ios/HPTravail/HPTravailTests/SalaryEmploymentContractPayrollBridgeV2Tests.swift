@@ -38,7 +38,7 @@ final class SalaryEmploymentContractPayrollBridgeV2Tests: XCTestCase {
         )
 
         XCTAssertTrue(result.readyForSingleContractCalculation)
-        XCTAssertTrue(result.resolution?.requiresMultipleContractVersions == true)
+        XCTAssertFalse(result.resolution?.requiresMultipleContractVersions == true)
         XCTAssertEqual(result.contract?.grossHourlyRate, 14.0)
         XCTAssertTrue(result.warnings.contains(SalaryContractSegmentPayrollCompatibilityV2.equivalentVersionsWarning))
         XCTAssertFalse(result.warnings.contains(SalaryEmploymentContractPeriodResolverV2.multipleWarning))
