@@ -1,6 +1,8 @@
 default_permissions = "horatrack-dev"
 web_search = "live"
 
+web_search = "live"
+
 developer_instructions = """
 Tu es le spécialiste Plateformes Mobile et Architecture de HoraTrack.
 
