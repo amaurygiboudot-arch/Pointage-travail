@@ -10,6 +10,7 @@ struct SalaryV2View: View {
                 VStack(spacing: 18) {
                     periodSelector
                     companySelectorCard
+                    contractCard
                     conventionCoverageCard
                     reliabilityCard
                     paidWorkCard
@@ -123,6 +124,98 @@ struct SalaryV2View: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var contractCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CONTRAT DATÉ CONFIRMÉ")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Text("La date d’entrée et la date d’effet sont distinctes. HoraTrack ne déduit aucune date du mois affiché ni de la date du jour.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Picker("Type de contrat", selection: $salaryStore.contractTypeSelection) {
+                Text("À confirmer").tag("")
+                Text("Temps plein").tag("FULL_TIME")
+                Text("Temps partiel").tag("PART_TIME")
+                Text("Forfait heures annuel").tag("FORFAIT_HOURS")
+                Text("Forfait jours annuel").tag("FORFAIT_DAYS")
+                Text("Autre").tag("OTHER")
+            }
+            .pickerStyle(.menu)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            TextField("Date d’entrée — JJ/MM/AAAA", text: $salaryStore.contractHireDateText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Date d’effet de cette version — JJ/MM/AAAA", text: $salaryStore.contractEffectiveDateText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Source — contrat signé, avenant…", text: $salaryStore.contractSourceText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            if hourlyContractSelected {
+                TextField("Durée hebdomadaire — ex. 35", text: $salaryStore.contractWeeklyHoursText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+                TextField("Taux horaire brut — ex. 13,70", text: $salaryStore.contractHourlyRateText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+            } else if salaryStore.contractTypeSelection == "FORFAIT_HOURS" {
+                TextField("Nombre d’heures du forfait annuel", text: $salaryStore.contractForfaitHoursText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+                TextField("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+            } else if salaryStore.contractTypeSelection == "FORFAIT_DAYS" {
+                TextField("Nombre de jours du forfait annuel — max. standard 218", text: $salaryStore.contractForfaitDaysText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+                TextField("Salaire brut mensuel convenu", text: $salaryStore.contractMonthlyGrossText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(salaryStore.selectedCompanyId == nil)
+            }
+
+            Button("Confirmer cette version datée") {
+                _ = salaryStore.confirmEmploymentContract()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            if let feedback = salaryStore.contractFeedback {
+                Text(feedback)
+                    .font(.footnote)
+            }
+
+            if let resolution = salaryStore.contractResolution?.resolution,
+               resolution.requiresMultipleContractVersions {
+                Label("Plusieurs versions couvrent le mois : le calcul unique reste bloqué.", systemImage: "arrow.triangle.branch")
+                    .font(.footnote)
+            } else if salaryStore.contractResolution?.readyForSingleContractCalculation == true {
+                Label("Le mois est couvert par une version contractuelle datée confirmée.", systemImage: "checkmark.shield.fill")
+                    .font(.footnote)
+            } else if salaryStore.selectedCompanyId != nil {
+                Label("Le mois n’est pas encore entièrement couvert par un contrat daté confirmé.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var hourlyContractSelected: Bool {
+        ["FULL_TIME", "PART_TIME", "OTHER"].contains(salaryStore.contractTypeSelection)
     }
 
     private var conventionCoverageCard: some View {
