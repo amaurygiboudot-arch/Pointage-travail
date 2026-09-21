@@ -72,25 +72,29 @@ object V2PayrollCalculationTimelineBridge {
                 requestedIdcc == null || requestedIdcc != companyIdcc -> add(COMPANY_IDCC_MISMATCH_WARNING)
             }
         }
-        val safeConventionStored = if (companyBlockers.isEmpty()) {
-            conventionStored
-        } else {
-            conventionStored.copy(
-                reliable = false,
-                warnings = (conventionStored.warnings + companyStored.warnings + companyBlockers).distinct()
-            )
-        }
 
+        // Pour diagnostiquer la convention, on privilégie l'IDCC de l'entreprise confirmée.
+        // L'IDCC fourni par l'appelant n'est utilisé que si aucun IDCC entreprise n'est disponible,
+        // et la timeline reste de toute façon bloquée lorsqu'un des contrôles ci-dessus échoue.
         val convention = V2ConventionRulePayrollBridge.resolveStored(
-            stored = safeConventionStored,
-            idcc = idcc,
+            stored = conventionStored,
+            idcc = companyIdcc ?: idcc,
             year = year,
             monthZeroBased = monthZeroBased
         )
-        val timeline = PayrollCalculationTimelineV2.align(
+        val aligned = PayrollCalculationTimelineV2.align(
             contracts = contract.resolution,
             rules = convention.resolution
         )
+        val timeline = if (companyBlockers.isEmpty()) {
+            aligned
+        } else {
+            aligned.copy(
+                slices = emptyList(),
+                reliable = false,
+                warnings = (aligned.warnings + companyBlockers).distinct()
+            )
+        }
         return Snapshot(
             contract = contract,
             convention = convention,
