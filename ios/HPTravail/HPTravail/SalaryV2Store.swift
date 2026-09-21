@@ -25,6 +25,18 @@ final class SalaryV2Store: ObservableObject {
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
 
+    // Saisie contractuelle canonique. Les deux dates sont volontairement indépendantes.
+    @Published var contractTypeSelection = ""
+    @Published var contractHireDateText = ""
+    @Published var contractEffectiveDateText = ""
+    @Published var contractWeeklyHoursText = ""
+    @Published var contractForfaitHoursText = ""
+    @Published var contractForfaitDaysText = ""
+    @Published var contractMonthlyGrossText = ""
+    @Published var contractHourlyRateText = ""
+    @Published var contractSourceText = ""
+    @Published private(set) var contractFeedback: String?
+
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
     private let conventionRulesProvider: ConventionRulesProvider
@@ -107,6 +119,7 @@ final class SalaryV2Store: ObservableObject {
         )
         self.incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         self.incomeTaxSource = taxRate?.source ?? ""
+        hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
     }
 
     var selectedCompany: SalaryCompanyV2? {
@@ -152,6 +165,7 @@ final class SalaryV2Store: ObservableObject {
         guard let requestedCompanyId else {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
+            contractFeedback = nil
             recompute()
             return true
         }
@@ -162,16 +176,112 @@ final class SalaryV2Store: ObservableObject {
         ) else {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
+            contractFeedback = nil
             recompute()
             return false
         }
 
         selectedCompanyId = confirmed
-        // Un choix parmi plusieurs entreprises est réellement explicite. Avec une seule entreprise,
-        // on ne transforme pas ce contexte non ambigu en préférence réutilisable si une 2e apparaît.
         selectedCompanyWasExplicit = companies.companies.count > 1
         incomeTaxFeedback = nil
+        contractFeedback = nil
         recompute()
+        return true
+    }
+
+    @discardableResult
+    func confirmEmploymentContract() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            contractFeedback = "Confirmation impossible : l’entreprise analysée a changé. Vérifiez la sélection avant de confirmer le contrat."
+            return false
+        }
+
+        guard let type = contractType(from: contractTypeSelection) else {
+            contractFeedback = "Contrat : choisissez un type de contrat précis."
+            return false
+        }
+        guard let hireDate = epochDay(from: contractHireDateText) else {
+            contractFeedback = "Contrat : date d’entrée invalide — JJ/MM/AAAA."
+            return false
+        }
+        guard let effectiveDate = epochDay(from: contractEffectiveDateText) else {
+            contractFeedback = "Contrat : date d’effet invalide — JJ/MM/AAAA."
+            return false
+        }
+        let source = contractSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            contractFeedback = "Contrat : indiquez la source qui confirme cette version."
+            return false
+        }
+
+        var weeklyMinutes: Int?
+        var hourlyRate: Double?
+        var forfaitHours: Double?
+        var forfaitDays: Double?
+        var monthlyGross: Double?
+        var forfaitHoursPeriod: ForfaitHoursPeriodV2?
+
+        switch type {
+        case .fullTime, .partTime, .other:
+            weeklyMinutes = positiveMinutesFromHours(contractWeeklyHoursText)
+            hourlyRate = positiveDecimal(contractHourlyRateText)
+            guard weeklyMinutes != nil, hourlyRate != nil else {
+                contractFeedback = "Contrat : vérifiez la durée hebdomadaire et le taux horaire brut."
+                return false
+            }
+        case .forfaitHours:
+            forfaitHours = positiveDecimal(contractForfaitHoursText)
+            monthlyGross = positiveDecimal(contractMonthlyGrossText)
+            forfaitHoursPeriod = .year
+            guard forfaitHours != nil, monthlyGross != nil else {
+                contractFeedback = "Contrat : vérifiez les heures annuelles du forfait et le salaire brut mensuel."
+                return false
+            }
+        case .forfaitDays:
+            forfaitDays = positiveDecimal(contractForfaitDaysText)
+            monthlyGross = positiveDecimal(contractMonthlyGrossText)
+            guard let days = forfaitDays, days <= 218, monthlyGross != nil else {
+                contractFeedback = "Contrat : vérifiez les jours annuels du forfait (218 maximum standard) et le salaire brut mensuel."
+                return false
+            }
+        case .forfait:
+            contractFeedback = SalaryEmploymentContractVersionInputValidatorV2.legacyForfaitWarning
+            return false
+        }
+
+        let contract = ContractV2(
+            id: "contract_\(companyId)",
+            employerId: companyId,
+            type: type,
+            contractualWeeklyMinutes: weeklyMinutes,
+            grossHourlyRate: hourlyRate,
+            hireDateEpochDay: hireDate,
+            forfaitHoursPeriod: forfaitHoursPeriod,
+            forfaitHours: forfaitHours,
+            forfaitAnnualDays: forfaitDays,
+            monthlyGrossSalary: monthlyGross
+        )
+        let input = SalaryEmploymentContractVersionInputV2(
+            contract: contract,
+            effectiveFromEpochDay: effectiveDate,
+            sourceId: source,
+            checkedAtMs: Int64((Date().timeIntervalSince1970 * 1_000).rounded()),
+            note: nil
+        )
+        let result = SalaryEmploymentContractVersionConfirmationV2.confirm(input)
+        guard result.saved else {
+            contractFeedback = result.warnings.joined(separator: "\n")
+            return false
+        }
+
+        contractFeedback = "Version contractuelle datée confirmée pour cette entreprise."
+        refresh()
         return true
     }
 
@@ -180,9 +290,6 @@ final class SalaryV2Store: ObservableObject {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
 
-        // Le magasin d'entreprises peut avoir changé depuis l'affichage de l'écran.
-        // La mutation reste liée à sa cible d'origine : si la réconciliation sélectionne une autre
-        // entreprise, aucune écriture n'est autorisée avec les champs saisis pour l'ancienne cible.
         synchronizeCompanySelectionWithLatestStore()
         guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
             beforeReconciliation: targetBeforeReconciliation,
@@ -239,6 +346,7 @@ final class SalaryV2Store: ObservableObject {
         let next = YearMonthV2(year: zeroBased / 12, month: zeroBased % 12 + 1)
         guard let next else { return }
         selectedPeriod = next
+        contractFeedback = nil
         refresh()
     }
 
@@ -295,6 +403,88 @@ final class SalaryV2Store: ObservableObject {
         )
         incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         incomeTaxSource = taxRate?.source ?? ""
+        hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
+    }
+
+    private func hydrateContractForm(from stored: SalaryEmploymentContractSnapshotV2?) {
+        guard let stored else {
+            contractTypeSelection = ""
+            contractHireDateText = ""
+            contractEffectiveDateText = ""
+            contractWeeklyHoursText = ""
+            contractForfaitHoursText = ""
+            contractForfaitDaysText = ""
+            contractMonthlyGrossText = ""
+            contractHourlyRateText = ""
+            contractSourceText = ""
+            return
+        }
+        let contract = stored.contract
+        contractTypeSelection = contract.type.rawValue
+        contractHireDateText = contract.hireDateEpochDay.map(dateText) ?? ""
+        contractEffectiveDateText = dateText(stored.effectiveFromEpochDay)
+        contractWeeklyHoursText = contract.contractualWeeklyMinutes.map { decimalText(Double($0) / 60.0) } ?? ""
+        contractForfaitHoursText = contract.forfaitHours.map(decimalText) ?? ""
+        contractForfaitDaysText = contract.forfaitAnnualDays.map(decimalText) ?? ""
+        contractMonthlyGrossText = contract.monthlyGrossSalary.map(decimalText) ?? ""
+        contractHourlyRateText = contract.grossHourlyRate.map(decimalText) ?? ""
+        contractSourceText = stored.sourceId
+    }
+
+    private func contractType(from raw: String) -> ContractTypeV2? {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() {
+        case "FULL_TIME": return .fullTime
+        case "PART_TIME": return .partTime
+        case "FORFAIT_HEURES", "FORFAIT_HOURS": return .forfaitHours
+        case "FORFAIT_JOURS", "FORFAIT_DAYS": return .forfaitDays
+        case "OTHER": return .other
+        default: return nil
+        }
+    }
+
+    private func positiveDecimal(_ raw: String) -> Double? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite, value > 0 else { return nil }
+        return value
+    }
+
+    private func positiveMinutesFromHours(_ raw: String) -> Int? {
+        guard let hours = positiveDecimal(raw) else { return nil }
+        let minutes = hours * 60.0
+        guard minutes.isFinite, minutes > 0, minutes <= Double(Int.max) else { return nil }
+        let rounded = minutes.rounded()
+        guard rounded > 0, rounded <= Double(Int.max) else { return nil }
+        return Int(rounded)
+    }
+
+    private func epochDay(from raw: String) -> Int64? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "dd/MM/yyyy"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: text), formatter.string(from: date) == text else { return nil }
+        return Int64(floor(date.timeIntervalSince1970 / 86_400.0))
+    }
+
+    private func dateText(_ epochDay: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(epochDay) * 86_400.0)
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func decimalText(_ value: Double) -> String {
+        let text = String(format: "%.4f", locale: Locale(identifier: "fr_FR"), value)
+        return text.replacingOccurrences(of: #"[0]+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"[,]$"#, with: "", options: .regularExpression)
     }
 
     private func unique(_ values: [String]) -> [String] {
