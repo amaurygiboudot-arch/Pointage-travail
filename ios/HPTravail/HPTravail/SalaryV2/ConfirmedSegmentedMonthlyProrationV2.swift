@@ -7,6 +7,8 @@ enum ConfirmedProrationMethodV2: String, Equatable {
 
 struct ConfirmedProrationSegmentV2: Equatable {
     let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
     let scheduledMinutes: Int
 }
 
@@ -31,6 +33,8 @@ struct ConfirmedSegmentedMonthlyProrationV2: Equatable {
 
 struct SegmentedMonthlyBasePieceV2: Equatable {
     let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
     let scheduledMinutes: Int
     let factor: Double
     let fullMonthBaseGross: Double
@@ -46,9 +50,9 @@ struct SegmentedMonthlyBaseResultV2: Equatable {
 
 /// Miroir iOS du calcul Android de base mensuelle segmentée.
 ///
-/// Aucun prorata par jours calendaires n'est créé. Les minutes planifiées et leur source doivent
-/// être confirmées en amont. Les primes, paniers, absences et majorations variables restent hors de
-/// cette couche afin de ne jamais être comptés deux fois.
+/// Aucun prorata par jours calendaires n'est créé. Les minutes planifiées, les bornes du segment et
+/// leur source doivent être confirmées en amont. Les primes, paniers, absences et majorations
+/// variables restent hors de cette couche afin de ne jamais être comptés deux fois.
 enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
     static let missingProrationWarning =
         "Proratisation mensuelle : base planifiée confirmée absente ; aucun prorata calendaire n'est inventé."
@@ -71,16 +75,18 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             return blocked(invalidProrationWarning)
         }
 
-        let scheduledByVersion = Dictionary(
+        let scheduledBySegment = Dictionary(
             uniqueKeysWithValues: proration.segments.map {
-                ($0.versionId.trimmingCharacters(in: .whitespacesAndNewlines), $0.scheduledMinutes)
+                (key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay), $0.scheduledMinutes)
             }
         )
 
         var pieces: [SegmentedMonthlyBasePieceV2] = []
         for segment in segments.sorted(by: { $0.startEpochDay < $1.startEpochDay }) {
             let versionId = segment.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let scheduled = scheduledByVersion[versionId] else {
+            guard let scheduled = scheduledBySegment[
+                key(versionId, start: segment.startEpochDay, end: segment.endEpochDay)
+            ] else {
                 return blocked(invalidProrationWarning)
             }
             let rules = rulesByVersionId[versionId] ?? PayrollRulesV2()
@@ -96,6 +102,8 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             pieces.append(
                 SegmentedMonthlyBasePieceV2(
                     versionId: versionId,
+                    startEpochDay: segment.startEpochDay,
+                    endEpochDay: segment.endEpochDay,
                     scheduledMinutes: scheduled,
                     factor: factor,
                     fullMonthBaseGross: base,
@@ -162,20 +170,21 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             return false
         }
 
-        let expectedIds = segments.map {
-            $0.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedKeys = segments.map {
+            key($0.snapshot.versionId, start: $0.startEpochDay, end: $0.endEpochDay)
         }
-        guard expectedIds.allSatisfy({ !$0.isEmpty }),
-              Set(expectedIds).count == expectedIds.count else {
+        guard expectedKeys.allSatisfy({ !$0.versionId.isEmpty }),
+              Set(expectedKeys).count == expectedKeys.count else {
             return false
         }
 
-        let providedIds = proration.segments.map {
-            $0.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let providedKeys = proration.segments.map {
+            key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay)
         }
-        guard providedIds.allSatisfy({ !$0.isEmpty }),
-              Set(providedIds).count == providedIds.count,
-              Set(providedIds) == Set(expectedIds),
+        guard proration.segments.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }),
+              providedKeys.allSatisfy({ !$0.versionId.isEmpty }),
+              Set(providedKeys).count == providedKeys.count,
+              Set(providedKeys) == Set(expectedKeys),
               proration.segments.allSatisfy({ $0.scheduledMinutes >= 0 }),
               let total = scheduledTotal(proration.segments),
               total > 0 else {
@@ -209,6 +218,24 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             total = addition.partialValue
         }
         return total
+    }
+
+    private static func key(
+        _ versionId: String,
+        start: Int64,
+        end: Int64
+    ) -> SegmentKey {
+        SegmentKey(
+            versionId: versionId.trimmingCharacters(in: .whitespacesAndNewlines),
+            startEpochDay: start,
+            endEpochDay: end
+        )
+    }
+
+    private struct SegmentKey: Hashable {
+        let versionId: String
+        let startEpochDay: Int64
+        let endEpochDay: Int64
     }
 
     private static func blocked(_ warning: String) -> SegmentedMonthlyBaseResultV2 {
