@@ -119,8 +119,7 @@ struct SalaryEmploymentContractHistoryV2 {
         for snapshot in snapshots {
             guard !snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   !snapshot.sourceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !snapshot.contract.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  !normalizeCompanyId(snapshot.contract.employerId).isEmpty,
+                  validHistoryContract(snapshot.contract),
                   snapshot.checkedAtMs >= 0,
                   snapshot.effectiveToEpochDay.map({ $0 >= snapshot.effectiveFromEpochDay }) ?? true else {
                 return false
@@ -128,7 +127,7 @@ struct SalaryEmploymentContractHistoryV2 {
         }
 
         let grouped = Dictionary(grouping: snapshots) { normalizeCompanyId($0.contract.employerId) }
-        for (companyId, items) in grouped {
+        for (_, items) in grouped {
             let versionIds = items.map { $0.versionId.trimmingCharacters(in: .whitespacesAndNewlines) }
             guard Set(versionIds).count == versionIds.count else { return false }
 
@@ -139,12 +138,50 @@ struct SalaryEmploymentContractHistoryV2 {
                 let current = ascending[index]
                 guard let previousEnd = previous.effectiveToEpochDay,
                       previousEnd < current.effectiveFromEpochDay else {
-                    _ = companyId
                     return false
                 }
             }
         }
         return true
+    }
+
+    /// `forfait` non qualifié reste réservé à la relecture legacy et n'est jamais admis comme
+    /// nouvelle vérité historique. Les autres variantes doivent être cohérentes avec PayrollEngineV2.
+    private static func validHistoryContract(_ contract: ContractV2) -> Bool {
+        guard !contract.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !normalizeCompanyId(contract.employerId).isEmpty else {
+            return false
+        }
+        if let cutoff = contract.payrollCutoffDay, !(1...31).contains(cutoff) { return false }
+
+        switch contract.type {
+        case .forfaitHours:
+            return contract.contractualWeeklyMinutes == nil
+                && contract.grossHourlyRate == nil
+                && contract.monthlyGrossSalary.map { $0.isFinite && $0 > 0 } == true
+                && contract.forfaitHoursPeriod != nil
+                && contract.forfaitHours.map { $0.isFinite && $0 > 0 } == true
+                && contract.forfaitAnnualDays == nil
+
+        case .forfaitDays:
+            return contract.contractualWeeklyMinutes == nil
+                && contract.grossHourlyRate == nil
+                && contract.monthlyGrossSalary.map { $0.isFinite && $0 > 0 } == true
+                && contract.forfaitHoursPeriod == nil
+                && contract.forfaitHours == nil
+                && contract.forfaitAnnualDays.map { $0.isFinite && $0 > 0 && $0 <= 218 } == true
+
+        case .fullTime, .partTime, .other:
+            return contract.contractualWeeklyMinutes.map { $0 > 0 } == true
+                && contract.grossHourlyRate.map { $0.isFinite && $0 > 0 } == true
+                && contract.forfaitHoursPeriod == nil
+                && contract.forfaitHours == nil
+                && contract.forfaitAnnualDays == nil
+                && contract.monthlyGrossSalary == nil
+
+        case .forfait:
+            return false
+        }
     }
 
     private static func coversEveryDay(
