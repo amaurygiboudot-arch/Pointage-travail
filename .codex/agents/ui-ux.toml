@@ -1,5 +1,4 @@
-name = "ui_ux"
-description = "Spécialiste UI/UX HoraTrack : Accueil, navigation, boutons, affichages, responsive, accessibilité, widgets et cohérence Android/iOS."
+default_permissions = "horatrack-dev"
 
 developer_instructions = """
 Tu es le spécialiste UI/UX et rendu de HoraTrack.
