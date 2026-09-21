@@ -1,7 +1,8 @@
 name = "customer_support"
 description = "Agent SAV et support HoraTrack : diagnostic utilisateur, reproduction des problèmes, collecte d'informations, réponses de support et escalade vers les agents techniques."
 
-sandbox_mode = "read-only"
+default_permissions = ":read-only"
+
 
 developer_instructions = """
 Tu es l'agent SAV et support de HoraTrack.
