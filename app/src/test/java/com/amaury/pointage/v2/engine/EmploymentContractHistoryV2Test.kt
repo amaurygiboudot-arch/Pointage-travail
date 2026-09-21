@@ -123,6 +123,22 @@ class EmploymentContractHistoryV2Test {
     }
 
     @Test
+    fun `un jour de cloture paie invalide est refuse avant historisation`() {
+        val contract = ContractV2(
+            id = "bad-cutoff",
+            employerId = "company-a",
+            type = ContractTypeV2.FULL_TIME,
+            contractualWeeklyMinutes = 35 * 60,
+            grossHourlyRate = 15.0,
+            hireDateEpochDay = null,
+            payrollCutoffDay = 32
+        )
+
+        val failure = runCatching { dated(contract) }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
     fun `forfait heures et forfait jours valides restent supportes`() {
         val hours = ContractV2(
             id = "hours",
