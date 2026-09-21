@@ -77,6 +77,7 @@ object V2RuntimeStore {
         return WriteRead(source.reliable, if (source.reliable) current.session else null)
     }
 
+    @Synchronized
     fun entry(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
@@ -115,10 +116,10 @@ object V2RuntimeStore {
         legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
-        editor.apply()
-        return true
+        return editor.commit()
     }
 
+    @Synchronized
     fun setExpectedEnd(context: Context, expectedEndMs: Long?): Boolean {
         val current = readForWrite(context)
         val session = current.session ?: return false
@@ -127,16 +128,15 @@ object V2RuntimeStore {
         val prefs = prefs(context)
         val editor = prefs.edit()
         if (expectedEndMs == null) {
-            editor.remove(KEY_EXPECTED_END).apply()
-            return true
+            return editor.remove(KEY_EXPECTED_END).commit()
         }
         if (expectedEndMs <= entry) return false
-        editor.putLong(KEY_EXPECTED_END, expectedEndMs).apply()
-        return true
+        return editor.putLong(KEY_EXPECTED_END, expectedEndMs).commit()
     }
 
     fun expectedEnd(context: Context): Long? = safeLong(prefs(context).all[KEY_EXPECTED_END]).takeIf { it > 0L }
 
+    @Synchronized
     fun togglePause(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
@@ -178,6 +178,7 @@ object V2RuntimeStore {
      * Ajoute des pauses manuelles uniquement après qualification explicite du statut payé.
      * Une plage invalide ou hors session bloque l'ensemble du lot.
      */
+    @Synchronized
     fun addQualifiedManualPauses(context: Context, pauses: List<QualifiedManualPauseV2>): Int {
         val qualified = ManualPauseQualificationV2.qualify(
             pauses.map { ManualPauseDraftV2(it.startMs, it.endMs, it.paid) }
@@ -274,6 +275,7 @@ object V2RuntimeStore {
      * Remplace atomiquement les pauses éditables d'une journée.
      * Le statut payé fait partie du fait enregistré et doit être fourni pour chaque plage.
      */
+    @Synchronized
     fun replaceQualifiedEditablePausesForDay(
         context: Context,
         dayStart: Long,
@@ -400,6 +402,7 @@ object V2RuntimeStore {
         ranges: List<Pair<Long, Long>>
     ): Boolean = false
 
+    @Synchronized
     fun exit(
         context: Context,
         nowMs: Long = System.currentTimeMillis(),
@@ -462,9 +465,10 @@ object V2RuntimeStore {
     }
 
     /** Réservé aux tests isolés. Aucun écran utilisateur ne doit appeler ce reset. */
+    @Synchronized
     fun reset(context: Context) {
         bind(context)
-        prefs(context).edit().clear().apply()
+        prefs(context).edit().clear().commit()
     }
 
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
