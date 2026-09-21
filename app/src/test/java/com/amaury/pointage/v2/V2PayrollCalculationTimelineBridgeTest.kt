@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.v2.engine.ConventionRuleSnapshotV2
 import com.amaury.pointage.v2.engine.EmploymentContractSnapshotV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
@@ -19,6 +20,7 @@ class V2PayrollCalculationTimelineBridgeTest {
         val ruleChange = LocalDate.of(2026, 1, 21).toEpochDay()
 
         val result = V2PayrollCalculationTimelineBridge.resolveStored(
+            companyStored = companyStore("0292"),
             contractStored = V2EmploymentContractHistoryStore.ReadResult(
                 snapshots = listOf(
                     contract("c1", start - 20, contractChange - 1, 12.0),
@@ -53,6 +55,7 @@ class V2PayrollCalculationTimelineBridgeTest {
     fun `un historique conventionnel non fiable bloque le bridge entier`() {
         val start = LocalDate.of(2026, 1, 1).toEpochDay()
         val result = V2PayrollCalculationTimelineBridge.resolveStored(
+            companyStored = companyStore("0292"),
             contractStored = V2EmploymentContractHistoryStore.ReadResult(
                 snapshots = listOf(contract("c1", start - 20, null, 12.0)),
                 reliable = true,
@@ -74,6 +77,74 @@ class V2PayrollCalculationTimelineBridgeTest {
         assertTrue(result.timeline.slices.isEmpty())
         assertTrue(result.warnings.contains("règles test non fiables"))
     }
+
+    @Test
+    fun `un idcc appartenant a une autre entreprise ne peut jamais alimenter la timeline`() {
+        val start = LocalDate.of(2026, 1, 1).toEpochDay()
+        val result = V2PayrollCalculationTimelineBridge.resolveStored(
+            companyStored = companyStore("1486"),
+            contractStored = V2EmploymentContractHistoryStore.ReadResult(
+                snapshots = listOf(contract("c1", start - 20, null, 12.0)),
+                reliable = true,
+                repairedFromBackup = false,
+                warnings = emptyList()
+            ),
+            conventionStored = V2ConventionRuleStore.ReadResult(
+                snapshots = listOf(rule("r1", start - 20, null)),
+                reliable = true,
+                warnings = emptyList()
+            ),
+            companyId = "company",
+            idcc = "0292",
+            year = 2026,
+            monthZeroBased = 0
+        )
+
+        assertFalse(result.timeline.reliable)
+        assertTrue(result.timeline.slices.isEmpty())
+        assertTrue(result.warnings.contains(V2PayrollCalculationTimelineBridge.COMPANY_IDCC_MISMATCH_WARNING))
+    }
+
+    @Test
+    fun `un store entreprise non fiable bloque les regles meme si contrat et convention sont presents`() {
+        val start = LocalDate.of(2026, 1, 1).toEpochDay()
+        val result = V2PayrollCalculationTimelineBridge.resolveStored(
+            companyStored = companyStore("0292", reliable = false),
+            contractStored = V2EmploymentContractHistoryStore.ReadResult(
+                snapshots = listOf(contract("c1", start - 20, null, 12.0)),
+                reliable = true,
+                repairedFromBackup = false,
+                warnings = emptyList()
+            ),
+            conventionStored = V2ConventionRuleStore.ReadResult(
+                snapshots = listOf(rule("r1", start - 20, null)),
+                reliable = true,
+                warnings = emptyList()
+            ),
+            companyId = "company",
+            idcc = "0292",
+            year = 2026,
+            monthZeroBased = 0
+        )
+
+        assertFalse(result.timeline.reliable)
+        assertTrue(result.timeline.slices.isEmpty())
+        assertTrue(result.warnings.contains(V2PayrollCalculationTimelineBridge.COMPANY_STORE_WARNING))
+    }
+
+    private fun companyStore(idcc: String, reliable: Boolean = true) = SalaryCompanyStore.ReadResult(
+        companies = listOf(
+            SalaryCompanyStore.Company(
+                id = "company",
+                name = "Entreprise test",
+                siret = "",
+                idcc = idcc
+            )
+        ),
+        reliable = reliable,
+        repairedFromBackup = false,
+        warnings = if (reliable) emptyList() else listOf("store entreprise test non fiable")
+    )
 
     private fun contract(
         version: String,
