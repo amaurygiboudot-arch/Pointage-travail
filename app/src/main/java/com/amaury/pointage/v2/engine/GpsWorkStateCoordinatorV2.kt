@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import android.content.Context
 import com.amaury.pointage.v2.V2RuntimeStore
+import com.amaury.pointage.v2.model.EventSourceV2
 
 /**
  * Couche de décision distincte du capteur GPS.
@@ -126,6 +127,53 @@ object GpsWorkStateCoordinatorV2 {
         val pending = pending(context) ?: return false
         if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
         val ok = V2RuntimeStore.exit(context, pending.atMs, expectedEndMs)
+        if (ok) clearPending(context)
+        return ok
+    }
+
+    /**
+     * Confirme un début de pause détecté par GPS.
+     *
+     * Le statut payé/non payé est obligatoire : le GPS ne peut jamais l'inférer.
+     * L'événement reste en attente si l'écriture runtime échoue.
+     */
+    fun confirmPauseStart(context: Context, paid: Boolean): Boolean {
+        val pending = pending(context) ?: return false
+        if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.ENTER) {
+            return false
+        }
+        val session = V2RuntimeStore.snapshot(context, pending.atMs).session ?: return false
+        if (session.realExitMs != null || session.pauses.any { it.endMs == null }) return false
+
+        val ok = V2RuntimeStore.togglePause(
+            context = context,
+            nowMs = pending.atMs,
+            source = EventSourceV2.GPS,
+            paid = paid
+        )
+        if (ok) clearPending(context)
+        return ok
+    }
+
+    /**
+     * Confirme une reprise après une pause ouverte.
+     *
+     * Le statut payé mémorisé à l'ouverture reste la source canonique ; aucune nouvelle
+     * classification n'est inventée à la fermeture.
+     */
+    fun confirmPauseEnd(context: Context): Boolean {
+        val pending = pending(context) ?: return false
+        if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.EXIT) {
+            return false
+        }
+        val session = V2RuntimeStore.snapshot(context, pending.atMs).session ?: return false
+        if (session.realExitMs != null || session.pauses.none { it.endMs == null }) return false
+
+        val ok = V2RuntimeStore.togglePause(
+            context = context,
+            nowMs = pending.atMs,
+            source = EventSourceV2.GPS
+        )
         if (ok) clearPending(context)
         return ok
     }
