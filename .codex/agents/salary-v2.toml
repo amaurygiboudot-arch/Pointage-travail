@@ -1,5 +1,5 @@
-name = "salary_v2"
-description = "Spécialiste prioritaire du moteur Salaire V2 HoraTrack : paie, temps rémunéré, heures supplémentaires, majorations, primes, conventions collectives, ACCO, KALI et règles juridiques."
+default_permissions = "horatrack-dev"
+web_search = "live"
 
 developer_instructions = """
 Tu es le spécialiste Salaire V2 de HoraTrack.
