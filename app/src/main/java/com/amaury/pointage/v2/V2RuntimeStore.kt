@@ -540,7 +540,6 @@ object V2RuntimeStore {
         if (prefs.contains(KEY_EMPLOYER_ID) && directEmployerId == null) return corruptCurrentSnapshot()
         val employerId = directEmployerId
             ?: storedSlot?.let { V2ProfileStore.load(context, it).employer?.id }
-            ?: V2ProfileStore.loadActive(context).employer?.id
         val placeId = optionalStoredString(KEY_PLACE_ID)
         if (prefs.contains(KEY_PLACE_ID) && placeId == null) return corruptCurrentSnapshot()
         val placeLabel = optionalStoredString(KEY_PLACE_LABEL)
@@ -671,11 +670,9 @@ object V2RuntimeStore {
         }
         if (item.has("employerId")) {
             if (item.isNull("employerId")) {
-                return if (slot != null) {
-                    HistoryEmployerSource(null, slot, useLegacyProfile = true)
-                } else {
-                    HistoryEmployerSource(null, null, useLegacyProfile = false)
-                }
+                // Un null explicite est un fait : l'employeur est inconnu/non attribué.
+                // Ne jamais le transformer en entreprise legacy à partir d'un ancien slot.
+                return HistoryEmployerSource(null, null, useLegacyProfile = false)
             }
             val employerId = item.getString("employerId").trim()
                 .takeIf { it.isNotBlank() && it != "null" }
