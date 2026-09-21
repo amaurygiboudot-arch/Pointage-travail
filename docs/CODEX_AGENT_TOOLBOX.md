@@ -43,11 +43,13 @@ Les commandes locales sont centralisées dans `scripts/agent-toolbox.sh`.
 
 ## GitHub MCP
 
-Le serveur MCP GitHub officiel est préparé dans `.codex/config.toml` avec le point de terminaison **lecture seule**. Il reste désactivé par défaut tant que l'authentification OAuth n'a pas été explicitement réalisée.
+Le serveur MCP GitHub officiel utilise le point de terminaison **lecture seule**.
 
-Aucun jeton GitHub n'est stocké dans le dépôt.
+Dans un Codespace, Codex récupère l'identité GitHub déjà active via `gh auth token` à travers `scripts/github-mcp-headers.sh`. Le jeton n'est jamais enregistré dans le dépôt ni dans `.codex/config.toml`.
 
-Après authentification, le GitHub MCP pourra notamment aider les agents de contrôle à consulter les PR, issues et états CI sans leur donner de droits d'écriture.
+Ce mode évite de dépendre du flux `codex mcp login github` lorsque le client indique `Auth Unsupported`.
+
+Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états CI sans leur donner de droits d'écriture.
 
 ## Services externes futurs
 
