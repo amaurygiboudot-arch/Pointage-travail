@@ -37,7 +37,7 @@ class EmploymentContractTimelineV2Test {
         )!!
 
         val history = EmploymentContractHistoryV2(updated)
-        assertEquals(199, history.allVersions("company-a").first { it.versionId == "v1" }.effectiveToEpochDay)
+        assertEquals(199L, history.allVersions("company-a").first { it.versionId == "v1" }.effectiveToEpochDay)
         assertEquals(14.0, history.applicable("company-a", 200)!!.contract.grossHourlyRate!!, 0.0)
     }
 
@@ -55,10 +55,10 @@ class EmploymentContractTimelineV2Test {
         )!!
 
         val history = EmploymentContractHistoryV2(updated)
-        assertEquals(249, history.allVersions("company-a").first { it.versionId == "v1" }.effectiveToEpochDay)
+        assertEquals(249L, history.allVersions("company-a").first { it.versionId == "v1" }.effectiveToEpochDay)
         val inserted = history.applicable("company-a", 300)!!
         assertEquals(250, inserted.effectiveFromEpochDay)
-        assertEquals(399, inserted.effectiveToEpochDay)
+        assertEquals(399L, inserted.effectiveToEpochDay)
         assertEquals("v3", history.applicable("company-a", 400)?.versionId)
     }
 
@@ -79,7 +79,7 @@ class EmploymentContractTimelineV2Test {
         assertNull(history.applicable("company-a", 30))
         assertEquals("old", history.applicable("company-a", 20)?.versionId)
         assertEquals(14.0, history.applicable("company-a", 50)!!.contract.grossHourlyRate!!, 0.0)
-        assertEquals(99, history.applicable("company-a", 50)?.effectiveToEpochDay)
+        assertEquals(99L, history.applicable("company-a", 50)?.effectiveToEpochDay)
     }
 
     @Test
@@ -98,7 +98,7 @@ class EmploymentContractTimelineV2Test {
         val history = EmploymentContractHistoryV2(updated)
         val corrected = history.applicable("company-a", 150)!!
         assertEquals("stable-id", corrected.versionId)
-        assertEquals(199, corrected.effectiveToEpochDay)
+        assertEquals(199L, corrected.effectiveToEpochDay)
         assertEquals(14.25, corrected.contract.grossHourlyRate!!, 0.0)
     }
 
