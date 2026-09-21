@@ -65,7 +65,9 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         proration: ConfirmedSegmentedMonthlyProrationV2?
     ) -> SegmentedMonthlyBaseResultV2 {
         guard let proration else { return blocked(missingProrationWarning) }
-        guard validProration(proration, segments: segments) else {
+        guard validProration(proration, segments: segments),
+              let totalScheduled = scheduledTotal(proration.segments),
+              totalScheduled > 0 else {
             return blocked(invalidProrationWarning)
         }
 
@@ -74,8 +76,6 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                 ($0.versionId.trimmingCharacters(in: .whitespacesAndNewlines), $0.scheduledMinutes)
             }
         )
-        let totalScheduled = scheduledByVersion.values.reduce(0, +)
-        guard totalScheduled > 0 else { return blocked(invalidProrationWarning) }
 
         var pieces: [SegmentedMonthlyBasePieceV2] = []
         for segment in segments.sorted(by: { $0.startEpochDay < $1.startEpochDay }) {
@@ -155,6 +155,7 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         segments: [SalaryEmploymentContractCoverageSegmentV2]
     ) -> Bool {
         guard !segments.isEmpty,
+              continuous(segments),
               !proration.sourceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               proration.checkedAtMs >= 0,
               proration.method == .scheduledMinutes else {
@@ -176,10 +177,38 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
               Set(providedIds).count == providedIds.count,
               Set(providedIds) == Set(expectedIds),
               proration.segments.allSatisfy({ $0.scheduledMinutes >= 0 }),
-              proration.segments.reduce(0, { $0 + $1.scheduledMinutes }) > 0 else {
+              let total = scheduledTotal(proration.segments),
+              total > 0 else {
             return false
         }
         return true
+    }
+
+    private static func continuous(_ segments: [SalaryEmploymentContractCoverageSegmentV2]) -> Bool {
+        let sorted = segments.sorted { $0.startEpochDay < $1.startEpochDay }
+        guard sorted.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }) else { return false }
+        guard sorted.count > 1 else { return true }
+        for index in 1..<sorted.count {
+            let previous = sorted[index - 1]
+            let current = sorted[index]
+            guard previous.endEpochDay < Int64.max,
+                  current.startEpochDay == previous.endEpochDay + 1 else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func scheduledTotal(_ segments: [ConfirmedProrationSegmentV2]) -> Int64? {
+        var total: Int64 = 0
+        for segment in segments {
+            guard segment.scheduledMinutes >= 0 else { return nil }
+            let value = Int64(segment.scheduledMinutes)
+            let addition = total.addingReportingOverflow(value)
+            guard !addition.overflow else { return nil }
+            total = addition.partialValue
+        }
+        return total
     }
 
     private static func blocked(_ warning: String) -> SegmentedMonthlyBaseResultV2 {
