@@ -50,13 +50,6 @@ enum SalaryEmploymentContractTimelineV2 {
             candidateEnd = nil
         }
 
-        guard let previousEnd = dayBefore(effectiveFromEpochDay) ?? noPreviousBoundaryNeeded(
-            existing: sameEmployer,
-            effectiveFromEpochDay: effectiveFromEpochDay
-        ) else {
-            return nil
-        }
-
         let versionId = sameStart?.versionId.trimmingCharacters(in: .whitespacesAndNewlines).nilIfBlank
             ?? "effective-\(effectiveFromEpochDay)"
         let candidate = SalaryEmploymentContractSnapshotV2(
@@ -80,6 +73,7 @@ enum SalaryEmploymentContractTimelineV2 {
             }
             if snapshot.effectiveFromEpochDay < effectiveFromEpochDay,
                snapshot.effectiveToEpochDay == nil || snapshot.effectiveToEpochDay! >= effectiveFromEpochDay {
+                guard let previousEnd = dayBefore(effectiveFromEpochDay) else { return nil }
                 updated.append(
                     SalaryEmploymentContractSnapshotV2(
                         versionId: snapshot.versionId,
@@ -112,18 +106,6 @@ enum SalaryEmploymentContractTimelineV2 {
     private static func dayBefore(_ epochDay: Int64) -> Int64? {
         guard epochDay != Int64.min else { return nil }
         return epochDay - 1
-    }
-
-    /// Int64.min ne nécessite pas de borne précédente lorsqu'aucune version ne le précède.
-    private static func noPreviousBoundaryNeeded(
-        existing: [SalaryEmploymentContractSnapshotV2],
-        effectiveFromEpochDay: Int64
-    ) -> Int64? {
-        guard effectiveFromEpochDay == Int64.min,
-              !existing.contains(where: { $0.effectiveFromEpochDay < effectiveFromEpochDay }) else {
-            return nil
-        }
-        return Int64.min
     }
 
     private static func normalizeCompanyId(_ value: String) -> String {
