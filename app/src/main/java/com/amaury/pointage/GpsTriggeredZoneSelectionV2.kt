@@ -54,6 +54,16 @@ internal object GpsTriggeredZoneSelectionV2 {
         }
     }
 
+    internal fun pointType(zone: StoredGpsZone): GpsPointTypeV2 {
+        val raw = (zone.pointTypeToken ?: zone.id).uppercase()
+        return when {
+            raw.contains("PARK") -> GpsPointTypeV2.PARKING
+            raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER
+            raw.contains("POSTE") || raw.contains("WORKPLACE") || raw.contains("WORK") -> GpsPointTypeV2.POSTE
+            else -> GpsPointTypeV2.OTHER
+        }
+    }
+
     private data class Signature(
         val employerKey: String,
         val pointType: GpsPointTypeV2,
