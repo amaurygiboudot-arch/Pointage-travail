@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2ConventionMinimumSalaryBridge
 import com.amaury.pointage.v2.V2ConventionRuleStore
 import com.amaury.pointage.v2.V2ConventionSeniorityPremiumBridge
+import com.amaury.pointage.v2.V2EmploymentContractPayrollBridge
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.V2RuntimeStore
@@ -44,7 +45,6 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -77,33 +77,12 @@ object V2SalaryAdapter {
 
  fun calculateForCompany(context:Context,company:SalaryCompanyStore.Company,year:Int,month:Int,convention:ConventionCatalog.Convention,ruleHistory:ConventionRuleHistoryV2?=null):Result {
   require(HoraTrackV2.ENABLED)
-  val prefs=SalaryCompanyStore.prefs(context,company.id)
-  val rawType=prefs.getString("contract_type","").orEmpty().uppercase(Locale.ROOT)
-  val type=when(rawType){"FULL_TIME"->ContractTypeV2.FULL_TIME;"PART_TIME"->ContractTypeV2.PART_TIME;"FORFAIT_HEURES"->ContractTypeV2.FORFAIT_HOURS;"FORFAIT_JOURS"->ContractTypeV2.FORFAIT_DAYS;"FORFAIT"->ContractTypeV2.FORFAIT;"OTHER"->ContractTypeV2.OTHER;else->null}
-  val weekly=SalaryNumericInputV2.positiveMinutesFromHours(prefs.getString("contract_weekly_hours","").orEmpty())
-  val rate=SalaryNumericInputV2.positiveDecimal(prefs.getString("hourly_rate","").orEmpty())
-  val forfaitHours=SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_hours","").orEmpty())
-  val forfaitDays=SalaryNumericInputV2.positiveDecimal(prefs.getString("forfait_annual_days","").orEmpty())
-  val monthlyGross=SalaryNumericInputV2.positiveDecimal(prefs.getString("monthly_gross_salary","").orEmpty())
-  val hire=runCatching{prefs.getString("entry_date","").orEmpty().trim().takeIf{it.isNotBlank()}?.let{LocalDate.parse(it,DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE)).toEpochDay()}}.getOrNull()
-  val missing=mutableListOf<String>()
-  if(type==null)missing+="type de contrat"
-  when(type){
-   ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME,ContractTypeV2.OTHER->{if(weekly==null)missing+="durée hebdomadaire";if(rate==null)missing+="taux horaire"}
-   ContractTypeV2.FORFAIT_HOURS->{if(forfaitHours==null)missing+="heures du forfait annuel";if(monthlyGross==null)missing+="salaire brut mensuel convenu"}
-   ContractTypeV2.FORFAIT_DAYS->{if(forfaitDays==null)missing+="jours du forfait annuel";if(monthlyGross==null)missing+="salaire brut mensuel convenu"}
-   ContractTypeV2.FORFAIT->missing+="type de forfait à préciser"
-   null->Unit
-  }
-  val complete=type!=null&&missing.isEmpty()
-  val contract=if(complete) ContractV2(
-   id="contract_${company.id}",employerId=company.id,type=type!!,contractualWeeklyMinutes=weekly,grossHourlyRate=rate,hireDateEpochDay=hire,
-   forfaitHoursPeriod=if(type==ContractTypeV2.FORFAIT_HOURS)ForfaitHoursPeriodV2.YEAR else null,
-   forfaitHours=if(type==ContractTypeV2.FORFAIT_HOURS)forfaitHours else null,
-   forfaitAnnualDays=if(type==ContractTypeV2.FORFAIT_DAYS)forfaitDays else null,
-   monthlyGrossSalary=if(type==ContractTypeV2.FORFAIT_HOURS||type==ContractTypeV2.FORFAIT_DAYS)monthlyGross else null
-  ) else null
   val period=PayrollPeriodV2.month(year,month)
+  val contractSource=V2EmploymentContractPayrollBridge.resolve(context,company.id,year,month)
+  val contract=contractSource.resolution.contract
+  val type=contract?.type
+  val rate=contract?.grossHourlyRate
+  val missing=if(contract==null) listOf("contrat daté confirmé couvrant toute la période") else emptyList()
   val acceptedIds=SalaryCompanyStore.acceptedEmployerIds(context,company.id)
   val runtimeSource=V2RuntimeReader.allSessions(context)
   val runtimeSessions=runtimeSource.sessions
@@ -140,7 +119,7 @@ object V2SalaryAdapter {
    )
   }
   val conventionMinimum=V2ConventionMinimumSalaryBridge.load(context,company.id,convention.idcc,period.referenceDate)
-  val seniorityBase=baseCalculated.regularGross.takeIf{rawType in setOf("FULL_TIME","PART_TIME")&&baseCalculated.monthlyGrossReliable}
+  val seniorityBase=baseCalculated.regularGross.takeIf{type in setOf(ContractTypeV2.FULL_TIME,ContractTypeV2.PART_TIME)&&baseCalculated.monthlyGrossReliable}
   val seniority=V2ConventionSeniorityPremiumBridge.load(
    context=context,companyId=company.id,idcc=convention.idcc,referenceDate=period.referenceDate,
    actualMonthlyBaseGross=seniorityBase,conventionalMinimumMonthlyGross=conventionMinimum.selectedMonthlyGross
@@ -169,7 +148,7 @@ object V2SalaryAdapter {
   val legalAtMs=period.referenceDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
   val legalSnapshot=LegalPayrollSourceStoreV2.snapshot(context,legalAtMs)
   val legalWarnings=legalPayrollSourceWarnings(legalSnapshot)
-  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct())
+  return calculated.copy(mealBasketCount=meals.count,mealBasketAmount=meals.unitAmount,mealBasketTotal=meals.totalAmount,warnings=(calculated.warnings+contractSource.warnings+meals.warnings+legalWarnings+runtimeWarnings).distinct())
  }
 
  fun calculate(context:Context,year:Int,month:Int,hourlyRate:Double,convention:ConventionCatalog.Convention,companySlot:Int=1,ruleHistory:ConventionRuleHistoryV2?=null):Result {
