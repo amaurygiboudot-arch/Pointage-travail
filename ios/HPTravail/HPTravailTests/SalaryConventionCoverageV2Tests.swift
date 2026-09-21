@@ -1,4 +1,7 @@
 import XCTest
+#if SWIFT_PACKAGE
+@testable import SalaryV2Contract
+#endif
 
 final class SalaryConventionCoverageV2Tests: XCTestCase {
     func testJanuary1970UsesCivilUTCEpochDays() throws {
