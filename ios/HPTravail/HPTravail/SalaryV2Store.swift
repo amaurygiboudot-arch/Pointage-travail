@@ -19,6 +19,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var companies: SalaryCompanyReadResultV2
     @Published private(set) var selectedCompanyId: String?
     @Published private(set) var paidWork: SalaryPaidWorkAggregationV2?
+    @Published private(set) var contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2?
     @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
     @Published var incomeTaxRateText = ""
@@ -73,8 +74,9 @@ final class SalaryV2Store: ObservableObject {
         )
         let taxRate = companyId.map { incomeTaxStore.snapshot(companyId: $0, for: period) }
         let reference = companyId.flatMap { referenceProvider($0, period) }
-        let paidWork = companyId.map { companyId in
-            let source = workSourceProvider()
+        let workSource = companyId.map { _ in workSourceProvider() }
+        let paidWork: SalaryPaidWorkAggregationV2? = {
+            guard let companyId, let source = workSource else { return nil }
             return SalaryPaidWorkAggregatorV2.aggregate(
                 sessions: source.sessions,
                 employerId: companyId,
@@ -82,7 +84,7 @@ final class SalaryV2Store: ObservableObject {
                 sourceReliable: source.reliable,
                 calendar: calendar
             )
-        }
+        }()
         let conventionCoverage = companyId.map { companyId in
             SalaryConventionCoverageResolverV2.resolve(
                 companyId: companyId,
@@ -98,6 +100,22 @@ final class SalaryV2Store: ObservableObject {
                 stored: contractHistoryProvider()
             )
         }
+        let contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? = {
+            guard let companyId,
+                  let source = workSource,
+                  let segments = contractResolution?.resolution?.calculationSegments,
+                  !segments.isEmpty else {
+                return nil
+            }
+            return SalaryContractSegmentPaidWorkAllocatorV2.allocate(
+                sessions: source.sessions,
+                segments: segments,
+                employerId: companyId,
+                period: period,
+                sourceReliable: source.reliable,
+                calendar: calendar
+            )
+        }()
 
         self.referenceProvider = referenceProvider
         self.companiesProvider = companiesProvider
@@ -110,6 +128,7 @@ final class SalaryV2Store: ObservableObject {
         self.companies = storedCompanies
         self.selectedCompanyId = companyId
         self.paidWork = paidWork
+        self.contractSegmentPaidWork = contractSegmentPaidWork
         self.conventionCoverage = conventionCoverage
         self.contractResolution = contractResolution
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
@@ -135,6 +154,7 @@ final class SalaryV2Store: ObservableObject {
         let companyWarnings = companies.warnings
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
+        let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
         let selectionWarnings: [String] = requiresExplicitCompanySelection
@@ -145,6 +165,7 @@ final class SalaryV2Store: ObservableObject {
             companyWarnings
             + conventionWarnings
             + contractWarnings
+            + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
             + selectionWarnings
@@ -390,8 +411,21 @@ final class SalaryV2Store: ObservableObject {
                 period: selectedPeriod,
                 stored: contractHistoryProvider()
             )
+            if let segments = contractResolution?.resolution?.calculationSegments, !segments.isEmpty {
+                contractSegmentPaidWork = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
+                    sessions: source.sessions,
+                    segments: segments,
+                    employerId: companyId,
+                    period: selectedPeriod,
+                    sourceReliable: source.reliable,
+                    calendar: calendar
+                )
+            } else {
+                contractSegmentPaidWork = nil
+            }
         } else {
             paidWork = nil
+            contractSegmentPaidWork = nil
             conventionCoverage = nil
             contractResolution = nil
         }
