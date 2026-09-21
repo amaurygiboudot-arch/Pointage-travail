@@ -28,7 +28,8 @@ class EmploymentContractFormInputV2Test {
         )
 
         assertTrue(result.ready)
-        val input = assertNotNull(result.input)
+        assertNotNull(result.input)
+        val input = result.input!!
         assertEquals("contract_company-1", input.contract.id)
         assertEquals(ContractTypeV2.FULL_TIME, input.contract.type)
         assertEquals(35 * 60, input.contract.contractualWeeklyMinutes)
@@ -78,7 +79,8 @@ class EmploymentContractFormInputV2Test {
         )
 
         assertTrue(result.ready)
-        val contract = assertNotNull(result.input).contract
+        assertNotNull(result.input)
+        val contract = result.input!!.contract
         assertEquals(ContractTypeV2.FORFAIT_HOURS, contract.type)
         assertEquals(ForfaitHoursPeriodV2.YEAR, contract.forfaitHoursPeriod)
         assertEquals(1607.0, contract.forfaitHours!!, 0.0001)
