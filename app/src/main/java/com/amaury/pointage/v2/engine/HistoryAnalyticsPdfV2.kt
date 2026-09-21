@@ -42,8 +42,15 @@ object AnalyticsEngineV2 {
         )
         val places=LinkedHashMap<String,PlaceAcc>()
         var presence=0L;var paid=0L;var unpaid=0L;var warnings=0;var completed=0;var open=0
-        var timeTotalsReliable=true
-        var placeTotalsReliable=true
+        val overlappingSessions=WorkSessionOverlapV2.hasSameEmployerOverlap(
+            sessions=sessions,
+            rangeStartMs=1L,
+            rangeEndMs=Long.MAX_VALUE,
+            openEndMs=nowMs
+        )
+        var timeTotalsReliable=!overlappingSessions
+        var placeTotalsReliable=!overlappingSessions
+        if(overlappingSessions) warnings++
         sessions.forEach { session ->
             val result=timeEngine.calculate(session,nowMs)
             presence+=result.presenceMs.coerceAtLeast(0L)
@@ -64,6 +71,7 @@ object AnalyticsEngineV2 {
             acc.sessions++
             if(!result.reliable) acc.reliable=false
         }
+        if(overlappingSessions) places.values.forEach { it.reliable=false }
         return AnalyticsV2(
             totalPresenceMs=presence,
             totalPaidMs=paid,

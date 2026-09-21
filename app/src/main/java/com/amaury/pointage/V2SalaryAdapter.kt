@@ -37,6 +37,7 @@ import com.amaury.pointage.v2.engine.PayrollPeriodV2
 import com.amaury.pointage.v2.engine.PayrollRulesV2
 import com.amaury.pointage.v2.engine.PayrollWeekV2
 import com.amaury.pointage.v2.engine.PublicHolidayPremiumPolicyV2
+import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import com.amaury.pointage.v2.model.ForfaitHoursPeriodV2
@@ -216,8 +217,16 @@ object V2SalaryAdapter {
   val monthEnd=Calendar.getInstance(Locale.FRANCE).apply{clear();set(year,month,1,0,0,0);add(Calendar.MONTH,1)}.timeInMillis
   val selected=sessions.filter{s->val start=s.countedEntryMs?:return@filter false;val end=s.countedExitMs?:return@filter false;s.employerId in ids&&s.realExitMs!=null&&end>start&&start<monthEnd&&end>monthStart}
   val warnings=mutableListOf<String>()
-  val paidTimeReliable=selected.all{s->PaidWorkAllocationV2.isReliableForRange(s,monthStart,monthEnd)}
-  if(!paidTimeReliable)warnings+="Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
+  val individualPaidTimeReliable=selected.all{s->PaidWorkAllocationV2.isReliableForRange(s,monthStart,monthEnd)}
+  val overlappingPaidSessions=WorkSessionOverlapV2.hasOverlapWithinEmployerGroup(
+   sessions=selected,
+   acceptedEmployerIds=ids,
+   rangeStartMs=monthStart,
+   rangeEndMs=monthEnd
+  )
+  val paidTimeReliable=individualPaidTimeReliable&&!overlappingPaidSessions
+  if(!individualPaidTimeReliable)warnings+="Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
+  if(overlappingPaidSessions)warnings+=WorkSessionOverlapV2.WARNING
   val referenceDate=LocalDate.of(year,month+1,1).let{it.withDayOfMonth(it.lengthOfMonth())}
   val entryDate=contract.hireDateEpochDay?.let(LocalDate::ofEpochDay)
   val grossAssessment=MonthlySalaryProrationV2.assess(entryDate,referenceDate)
