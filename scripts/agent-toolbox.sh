@@ -9,7 +9,7 @@ usage() {
 HoraTrack agent toolbox
 
 Usage:
-  ./scripts/agent-toolbox.sh <commande>
+  bash scripts/agent-toolbox.sh <commande>
 
 Commandes:
   v2-tests           Tests unitaires Android V2
