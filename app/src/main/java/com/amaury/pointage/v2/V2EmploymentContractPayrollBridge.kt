@@ -22,11 +22,22 @@ object V2EmploymentContractPayrollBridge {
         companyId: String,
         year: Int,
         monthZeroBased: Int
+    ): Snapshot = resolveStored(
+        stored = V2EmploymentContractHistoryStore.readConfirmed(context),
+        companyId = companyId,
+        year = year,
+        monthZeroBased = monthZeroBased
+    )
+
+    internal fun resolveStored(
+        stored: V2EmploymentContractHistoryStore.ReadResult,
+        companyId: String,
+        year: Int,
+        monthZeroBased: Int
     ): Snapshot {
         require(monthZeroBased in 0..11) { "Mois invalide" }
         val start = LocalDate.of(year, monthZeroBased + 1, 1)
         val end = start.withDayOfMonth(start.lengthOfMonth())
-        val stored = V2EmploymentContractHistoryStore.readConfirmed(context)
         val resolution = EmploymentContractPeriodResolverV2.resolve(
             employerId = companyId,
             periodStartEpochDay = start.toEpochDay(),
