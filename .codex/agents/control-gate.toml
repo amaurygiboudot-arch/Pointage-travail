@@ -1,8 +1,5 @@
-name = "control_gate"
-description = "Sas de contrôle indépendant HoraTrack : lecture seule, décision PASS/FAIL avant fusion d'un lot."
-
 default_permissions = ":read-only"
-
+model_reasoning_effort = "high"
 
 developer_instructions = """
 Tu es le sas de contrôle final de HoraTrack.
