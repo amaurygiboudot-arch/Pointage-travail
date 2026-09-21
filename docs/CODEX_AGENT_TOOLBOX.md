@@ -63,3 +63,33 @@ Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états C
 - sources juridiques officielles par pays pour les équipes internationales.
 
 Un connecteur externe ne doit jamais recevoir plus de droits que nécessaire.
+
+
+## Firebase MCP
+
+HoraTrack utilise le serveur MCP officiel Firebase via :
+
+`npx -y firebase-tools@latest mcp --dir . --only functions,crashlytics,apphosting,developerknowledge`
+
+Le serveur réutilise les identifiants de la Firebase CLI présents dans le Codespace. La première connexion peut nécessiter :
+
+`firebase login --no-localhost`
+
+Le serveur est volontairement limité aux outils de lecture/diagnostic utiles :
+- état du projet et configuration SDK ;
+- lecture des règles de sécurité ;
+- logs Cloud Functions ;
+- liste des Functions ;
+- Crashlytics en lecture ;
+- logs App Hosting ;
+- documentation officielle Google/Firebase.
+
+Ne sont pas exposés :
+- écriture Firestore ou Realtime Database ;
+- gestion des comptes Firebase Auth ;
+- envoi FCM ;
+- modification Remote Config ;
+- création ou suppression de ressources ;
+- déploiement.
+
+Toute extension future de ces permissions doit être explicitement validée avant fusion.

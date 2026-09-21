@@ -98,7 +98,9 @@ Règles d'outillage :
 - les services externes nécessitant OAuth, clé ou secret ne sont activés qu'après authentification explicite ;
 - aucun secret n'est stocké dans le dépôt.
 
-Le GitHub MCP officiel est préparé en lecture seule dans `.codex/config.toml`, mais reste désactivé par défaut tant que l'authentification n'a pas été faite.
+Le GitHub MCP officiel est disponible en lecture seule via l'authentification GitHub du Codespace.
+
+Le Firebase MCP officiel est disponible en mode diagnostic restreint : état du projet, règles de sécurité, logs Functions, Crashlytics, App Hosting et documentation. Les outils d'écriture de données, gestion Auth, FCM, Remote Config, création/suppression de ressources et déploiement restent exclus.
 
 ## SERVICES HORS CHAÎNE DE FUSION
 

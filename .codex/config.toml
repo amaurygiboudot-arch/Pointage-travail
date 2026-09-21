@@ -101,3 +101,35 @@ required = false
 url = "https://api.githubcopilot.com/mcp/readonly"
 http_headers_helper = "bash scripts/github-mcp-headers.sh"
 default_tools_approval_mode = "prompt"
+
+
+# Firebase MCP officiel : diagnostic uniquement.
+# Le serveur utilise les identifiants de la Firebase CLI présents dans le Codespace.
+# Aucune écriture Firestore/Auth/Remote Config ni aucun déploiement n'est exposé.
+[mcp_servers.firebase]
+enabled = true
+required = false
+command = "npx"
+args = ["-y", "firebase-tools@latest", "mcp", "--dir", ".", "--only", "functions,crashlytics,apphosting,developerknowledge"]
+default_tools_approval_mode = "prompt"
+startup_timeout_sec = 30
+enabled_tools = [
+  "firebase_get_environment",
+  "firebase_get_project",
+  "firebase_list_apps",
+  "firebase_list_projects",
+  "firebase_get_sdk_config",
+  "firebase_get_security_rules",
+  "firebase_read_resources",
+  "functions_get_logs",
+  "functions_list_functions",
+  "crashlytics_get_issue",
+  "crashlytics_list_events",
+  "crashlytics_batch_get_events",
+  "crashlytics_list_notes",
+  "crashlytics_get_report",
+  "apphosting_fetch_logs",
+  "apphosting_list_backends",
+  "developerknowledge_search_documents",
+  "developerknowledge_answer_query"
+]

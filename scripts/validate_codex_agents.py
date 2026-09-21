@@ -69,6 +69,50 @@ else:
     if "bearer_token_env_var" in github_mcp:
         errors.append("GitHub MCP ne doit pas dépendre d'un token persistant dans la config")
 
+firebase_mcp = config.get("mcp_servers", {}).get("firebase", {})
+if not firebase_mcp:
+    errors.append("Firebase MCP absent")
+else:
+    if firebase_mcp.get("enabled") is not True:
+        errors.append("Firebase MCP doit être activé")
+    if firebase_mcp.get("command") != "npx":
+        errors.append("Firebase MCP doit utiliser npx")
+    args = firebase_mcp.get("args", [])
+    required_args = ["-y", "firebase-tools@latest", "mcp", "--dir", ".", "--only", "functions,crashlytics,apphosting,developerknowledge"]
+    if args != required_args:
+        errors.append("Firebase MCP: arguments inattendus")
+    tools = set(firebase_mcp.get("enabled_tools", []))
+    forbidden = {
+        "firebase_create_project",
+        "firebase_create_app",
+        "firebase_create_android_sha",
+        "firebase_update_environment",
+        "firebase_init",
+        "auth_update_user",
+        "auth_set_sms_region_policy",
+        "realtimedatabase_set_data",
+        "remoteconfig_update_template",
+        "firestore_add_document",
+        "firestore_update_document",
+        "firestore_delete_document",
+        "firestore_create_database",
+        "firestore_update_database",
+        "firestore_delete_database",
+        "firestore_create_index",
+        "firestore_delete_index",
+        "firestore_delete_backup",
+        "firestore_create_backup_schedule",
+        "firestore_update_backup_schedule",
+        "firestore_delete_backup_schedule",
+        "messaging_send_message",
+        "crashlytics_create_note",
+        "crashlytics_delete_note",
+        "crashlytics_update_issue",
+    }
+    exposed_forbidden = sorted(tools & forbidden)
+    if exposed_forbidden:
+        errors.append(f"Firebase MCP expose des outils d'écriture: {exposed_forbidden}")
+
 if errors:
     print("CONFIG CODEX HORATRACK: FAIL")
     for error in errors:
