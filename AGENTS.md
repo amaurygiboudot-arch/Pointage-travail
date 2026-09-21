@@ -18,6 +18,9 @@ Agents disponibles :
 - marketing_comms
 - people_ops
 - finance_accounting
+- legal_compliance
+- incident_ops
+- product_manager
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
@@ -80,7 +83,10 @@ Ces agents soutiennent le produit et l'entreprise mais ne peuvent pas autoriser 
 - customer_support : SAV, diagnostic utilisateur, reproduction, triage et escalade vers l'agent technique approprié ;
 - marketing_comms : marketing, communication, lancement, acquisition, SEO/ASO, pages store et contenu ;
 - people_ops : organisation interne, rôles, charge, procédures et onboarding des agents ;
-- finance_accounting : revenus, coûts, marges, prix, prévisions et pilotage économique.
+- finance_accounting : revenus, coûts, marges, prix, prévisions et pilotage économique ;
+- legal_compliance : juridique, RGPD, confidentialité, conformité et vérification des formulations sensibles ;
+- incident_ops : incidents, coordination de crise, restauration de service et post-mortems ;
+- product_manager : tri des demandes, roadmap, priorisation et cohérence produit.
 
 Règles :
 - customer_support reste en lecture seule et n'applique pas de correctif directement ;
