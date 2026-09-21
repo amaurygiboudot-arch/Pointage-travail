@@ -76,6 +76,30 @@ Pour une modification sensible :
 
 Le chef d'orchestre attend les résultats nécessaires avant de conclure.
 
+## ATELIER / OUTILLAGE
+
+Les agents techniques utilisent en priorité les commandes communes du dépôt afin d'exécuter les mêmes contrôles que la CI :
+
+- `bash scripts/agent-toolbox.sh codex-config` : valide le câblage des agents ;
+- `bash scripts/agent-toolbox.sh v2-tests` : tests unitaires Android V2 ;
+- `bash scripts/agent-toolbox.sh android-build` : compilation Android debug ;
+- `bash scripts/agent-toolbox.sh play-build` : compilation APK + AAB Google Play ;
+- `bash scripts/agent-toolbox.sh functions-tests` : tests Firebase Functions ;
+- `bash scripts/agent-toolbox.sh update-architecture` : contrôle de l'architecture de mise à jour ;
+- `bash scripts/agent-toolbox.sh ios-build` : build simulateur iOS sur macOS ;
+- `bash scripts/agent-toolbox.sh ios-tests` : tests Swift iOS sur macOS ;
+- `bash scripts/agent-toolbox.sh technical` : contrôle technique standard Android/Firebase.
+
+Règles d'outillage :
+- ne jamais inventer une nouvelle commande si une commande officielle du dépôt existe déjà ;
+- aligner les commandes locales sur les workflows GitHub ;
+- les rôles juridiques, internationaux, commerciaux, marketing, finance, produit, SAV et incidents utilisent la recherche web en direct lorsqu'une information fraîche est nécessaire ;
+- QA et control_gate restent en lecture seule ;
+- les services externes nécessitant OAuth, clé ou secret ne sont activés qu'après authentification explicite ;
+- aucun secret n'est stocké dans le dépôt.
+
+Le GitHub MCP officiel est préparé en lecture seule dans `.codex/config.toml`, mais reste désactivé par défaut tant que l'authentification n'a pas été faite.
+
 ## SERVICES HORS CHAÎNE DE FUSION
 
 Ces agents soutiennent le produit et l'entreprise mais ne peuvent pas autoriser une fusion :
