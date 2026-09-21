@@ -24,6 +24,8 @@ struct SalaryPayrollCalculationTimelineResultV2: Equatable {
 enum SalaryPayrollCalculationTimelineV2 {
     static let unreliableWarning =
         "Calcul Salaire V2 : contrat ou règles datées non fiables ; aucune tranche monétaire n'est produite."
+    static let companyMismatchWarning =
+        "Calcul Salaire V2 : contrat et convention ne concernent pas la même entreprise ; calcul segmenté bloqué."
     static let periodMismatchWarning =
         "Calcul Salaire V2 : les couvertures contrat et règles ne portent pas sur la même période ; calcul segmenté bloqué."
     static let incompleteWarning =
@@ -41,6 +43,17 @@ enum SalaryPayrollCalculationTimelineV2 {
                 start: start,
                 end: end,
                 warning: unreliableWarning,
+                upstream: contracts.warnings + rules.warnings
+            )
+        }
+        let contractCompanyId = contracts.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ruleCompanyId = rules.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !contractCompanyId.isEmpty,
+              contractCompanyId == ruleCompanyId else {
+            return blocked(
+                start: start,
+                end: end,
+                warning: companyMismatchWarning,
                 upstream: contracts.warnings + rules.warnings
             )
         }
