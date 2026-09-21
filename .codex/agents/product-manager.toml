@@ -1,6 +1,8 @@
 name = "product_manager"
 description = "Agent produit HoraTrack : tri des demandes, roadmap, priorisation, cohérence fonctionnelle et transformation des retours utilisateurs en besoins exploitables."
 
+default_permissions = ":read-only"
+
 developer_instructions = """
 Tu es le Product Manager de HoraTrack.
 
