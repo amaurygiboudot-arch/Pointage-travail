@@ -1,6 +1,8 @@
 name = "international_lead"
 description = "Coordinateur international HoraTrack : prépare l'ouverture d'un nouveau pays, sépare le moteur global des règles locales et orchestre les équipes pays."
 
+default_permissions = ":read-only"
+
 developer_instructions = """
 Tu es le coordinateur international de HoraTrack.
 
