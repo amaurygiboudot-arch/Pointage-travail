@@ -6,10 +6,11 @@ import com.amaury.pointage.v2.model.ContractV2
  * Résolution fail-closed du contrat applicable à une période de paie complète.
  *
  * Le résolveur ne choisit jamais arbitrairement une version :
- * - stockage amont non fiable => aucun contrat ;
- * - trou dans la couverture => aucun contrat ;
- * - plusieurs versions pendant la période => aucun contrat unique ;
- * - une seule version couvrant chaque jour => contrat utilisable.
+ * - stockage amont non fiable => aucun contrat ni segment calculable ;
+ * - trou dans la couverture => aucun contrat ni segment calculable ;
+ * - plusieurs versions pendant la période => aucun contrat unique, mais les segments datés
+ *   confirmés restent exposés pour un calcul segmenté ;
+ * - une seule version couvrant chaque jour => contrat unique utilisable.
  */
 data class EmploymentContractPeriodResolutionV2(
     val employerId: String,
@@ -23,6 +24,14 @@ data class EmploymentContractPeriodResolutionV2(
     val readyForSingleContractCalculation: Boolean
         get() = sourceReliable && contract != null
 
+    val calculationSegments: List<EmploymentContractCoverageSegmentV2>
+        get() = coverage?.segments.orEmpty().takeIf {
+            sourceReliable && coverage?.fullyCovered == true && it.isNotEmpty()
+        }.orEmpty()
+
+    val readyForSegmentedCalculation: Boolean
+        get() = calculationSegments.isNotEmpty()
+
     val requiresMultipleContractVersions: Boolean
         get() = coverage?.requiresMultipleContractVersions == true
 }
@@ -33,7 +42,7 @@ object EmploymentContractPeriodResolverV2 {
     const val INCOMPLETE_WARNING =
         "Contrat de paie : la période n'est pas entièrement couverte par un contrat daté confirmé ; aucun fallback n'est utilisé."
     const val MULTIPLE_WARNING =
-        "Contrat de paie : plusieurs versions contractuelles couvrent cette période ; le calcul unique est bloqué jusqu'au calcul segmenté."
+        "Contrat de paie : plusieurs versions contractuelles couvrent cette période ; le contrat unique est indisponible et les segments datés confirmés doivent être calculés séparément."
 
     fun resolve(
         employerId: String,
