@@ -1,6 +1,8 @@
 name = "marketing_comms"
 description = "Agent marketing et communication HoraTrack : lancement, acquisition, contenu, SEO/ASO, pages store, site, messages et campagnes."
 
+default_permissions = ":read-only"
+
 developer_instructions = """
 Tu es l'agent marketing et communication de HoraTrack.
 
