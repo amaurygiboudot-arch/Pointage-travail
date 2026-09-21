@@ -1,3 +1,23 @@
+approval_policy = "on-request"
+default_permissions = "horatrack-dev"
+allow_login_shell = false
+
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 5
+
+[permissions.horatrack-dev]
+description = "HoraTrack development with governance files protected from agent writes."
+extends = ":workspace"
+
+[permissions.horatrack-dev.filesystem]
+glob_scan_max_depth = 4
+
+[permissions.horatrack-dev.filesystem.":workspace_roots"]
+"AGENTS.md" = "read"
+".codex" = "read"
+".github/workflows" = "read"
+".github/CODEOWNERS" = "read"
+"SECURITY.md" = "read"
+"**/.env*" = "deny"
+"**/*.pem" = "deny"
