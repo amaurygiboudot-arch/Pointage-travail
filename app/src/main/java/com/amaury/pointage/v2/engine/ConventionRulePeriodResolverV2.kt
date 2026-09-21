@@ -50,6 +50,8 @@ data class ConventionRulePeriodResolutionV2(
  * plus récente. Le comportement est volontairement parallèle à EmploymentContractPeriodResolverV2.
  */
 object ConventionRulePeriodResolverV2 {
+    const val MISSING_IDCC_WARNING =
+        "Convention collective : IDCC absent ; aucune règle conventionnelle n'est appliquée automatiquement."
     const val UNRELIABLE_WARNING =
         "Convention collective : historique des règles non fiable ; aucune règle n'est utilisée pour cette période."
     const val INCOMPLETE_WARNING =
@@ -64,9 +66,12 @@ object ConventionRulePeriodResolverV2 {
         sourceReliable: Boolean,
         snapshots: List<ConventionRuleSnapshotV2>
     ): ConventionRulePeriodResolutionV2 {
-        require(idcc.trim().isNotBlank()) { "IDCC obligatoire" }
-        val normalizedIdcc = normalizeIdcc(idcc)
         require(periodEndEpochDay >= periodStartEpochDay) { "Période invalide" }
+        val rawIdcc = idcc.trim()
+        if (rawIdcc.isBlank()) {
+            return blocked("", periodStartEpochDay, periodEndEpochDay, MISSING_IDCC_WARNING)
+        }
+        val normalizedIdcc = normalizeIdcc(rawIdcc)
 
         if (!sourceReliable) {
             return blocked(normalizedIdcc, periodStartEpochDay, periodEndEpochDay, UNRELIABLE_WARNING)
