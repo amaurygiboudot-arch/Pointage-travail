@@ -13,6 +13,8 @@ Agents disponibles :
 - team_lead
 - qa_reviewer
 - control_gate
+- sales_growth
+- customer_support
 
 Le chef d'orchestre conserve la vision globale, évite les modifications concurrentes des mêmes fichiers et regroupe les résultats avant de conclure.
 
@@ -66,6 +68,17 @@ Pour une modification sensible :
 9. fusionner uniquement si control_gate rend PASS et "FUSION AUTORISÉE : OUI".
 
 Le chef d'orchestre attend les résultats nécessaires avant de conclure.
+
+## AGENTS COMMERCIAUX ET SUPPORT
+
+Ces agents sont hors de la chaîne de validation du code :
+
+- sales_growth : commercial, argumentaires, démonstrations, onboarding et remontée des besoins marché ;
+- customer_support : SAV, diagnostic utilisateur, reproduction, triage et escalade vers l'agent technique approprié.
+
+Ils ne peuvent pas autoriser une fusion.
+customer_support reste en lecture seule et n'applique pas de correctif directement.
+sales_growth ne doit jamais annoncer comme disponible une fonction qui ne l'est pas ni modifier un tarif sans validation explicite.
 
 ## CHAÎNE DE CONTRÔLE
 
