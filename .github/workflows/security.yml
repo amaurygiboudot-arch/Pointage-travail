@@ -66,6 +66,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Validate Codex agent configuration
+        run: python scripts/validate_codex_agents.py
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

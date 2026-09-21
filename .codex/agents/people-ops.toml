@@ -1,6 +1,3 @@
-name = "people_ops"
-description = "Agent organisation et RH interne HoraTrack : rôles, responsabilités, charge, procédures, onboarding des agents et amélioration du fonctionnement d'équipe."
-
 default_permissions = ":read-only"
 
 developer_instructions = """

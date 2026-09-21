@@ -1,8 +1,5 @@
-name = "customer_support"
-description = "Agent SAV et support HoraTrack : diagnostic utilisateur, reproduction des problèmes, collecte d'informations, réponses de support et escalade vers les agents techniques."
-
 default_permissions = ":read-only"
-
+web_search = "live"
 
 developer_instructions = """
 Tu es l'agent SAV et support de HoraTrack.
