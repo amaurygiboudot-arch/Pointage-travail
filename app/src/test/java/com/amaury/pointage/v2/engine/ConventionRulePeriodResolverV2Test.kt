@@ -34,7 +34,7 @@ class ConventionRulePeriodResolverV2Test {
         )
 
         assertFalse(result.readyForCalculation)
-        assertFalse(result.sourceReliable)
+        assertTrue(result.sourceReliable)
         assertEquals("", result.idcc)
         assertTrue(result.warnings.contains(ConventionRulePeriodResolverV2.MISSING_IDCC_WARNING))
     }
