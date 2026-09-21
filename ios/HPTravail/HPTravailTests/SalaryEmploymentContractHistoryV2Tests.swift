@@ -94,6 +94,77 @@ final class SalaryEmploymentContractHistoryV2Tests: XCTestCase {
         XCTAssertEqual(history.applicable(companyId: "company-b", epochDay: 120)?.contract.grossHourlyRate, 18.0)
     }
 
+    func testAmbiguousLegacyForfaitCannotBecomeHistoricalTruth() {
+        let contract = ContractV2(
+            id: "legacy",
+            employerId: "company-a",
+            type: .forfait,
+            contractualWeeklyMinutes: 35 * 60,
+            grossHourlyRate: 15,
+            hireDateEpochDay: nil
+        )
+
+        XCTAssertNil(SalaryEmploymentContractHistoryV2([dated(contract)]))
+    }
+
+    func testIncompleteHourlyContractIsRejectedBeforeHistory() {
+        let contract = ContractV2(
+            id: "incomplete",
+            employerId: "company-a",
+            type: .fullTime,
+            contractualWeeklyMinutes: 35 * 60,
+            grossHourlyRate: nil,
+            hireDateEpochDay: nil
+        )
+
+        XCTAssertNil(SalaryEmploymentContractHistoryV2([dated(contract)]))
+    }
+
+    func testValidForfaitHoursAndDaysRemainSupported() {
+        let hours = ContractV2(
+            id: "hours",
+            employerId: "company-a",
+            type: .forfaitHours,
+            contractualWeeklyMinutes: nil,
+            grossHourlyRate: nil,
+            hireDateEpochDay: nil,
+            forfaitHoursPeriod: .year,
+            forfaitHours: 1607,
+            forfaitAnnualDays: nil,
+            monthlyGrossSalary: 3200
+        )
+        let days = ContractV2(
+            id: "days",
+            employerId: "company-b",
+            type: .forfaitDays,
+            contractualWeeklyMinutes: nil,
+            grossHourlyRate: nil,
+            hireDateEpochDay: nil,
+            forfaitHoursPeriod: nil,
+            forfaitHours: nil,
+            forfaitAnnualDays: 218,
+            monthlyGrossSalary: 4200
+        )
+
+        XCTAssertNotNil(SalaryEmploymentContractHistoryV2([dated(hours, version: "hours")]))
+        XCTAssertNotNil(SalaryEmploymentContractHistoryV2([dated(days, version: "days")]))
+    }
+
+    private func dated(
+        _ contract: ContractV2,
+        version: String = "v1"
+    ) -> SalaryEmploymentContractSnapshotV2 {
+        SalaryEmploymentContractSnapshotV2(
+            versionId: version,
+            sourceId: "user-confirmed",
+            effectiveFromEpochDay: 100,
+            effectiveToEpochDay: nil,
+            contract: contract,
+            checkedAtMs: 1,
+            note: nil
+        )
+    }
+
     private func snapshot(
         version: String,
         from: Int64,
