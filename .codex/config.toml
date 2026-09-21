@@ -96,8 +96,8 @@ glob_scan_max_depth = 4
 # GitHub MCP prêt pour l'étape d'authentification. Désactivé par défaut :
 # aucune clé ni aucun jeton n'est stocké dans le dépôt.
 [mcp_servers.github]
-enabled = false
+enabled = true
 required = false
 url = "https://api.githubcopilot.com/mcp/readonly"
-auth = "oauth"
+http_headers_helper = "bash scripts/github-mcp-headers.sh"
 default_tools_approval_mode = "prompt"

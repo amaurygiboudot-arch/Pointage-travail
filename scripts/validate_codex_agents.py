@@ -56,6 +56,19 @@ for role, relative in expected.items():
 if agents.get("max_concurrent_threads_per_session") != 5:
     errors.append("concurrence agents différente de 5")
 
+github_mcp = config.get("mcp_servers", {}).get("github", {})
+if not github_mcp:
+    errors.append("GitHub MCP absent")
+else:
+    if github_mcp.get("enabled") is not True:
+        errors.append("GitHub MCP doit être activé")
+    if not str(github_mcp.get("url", "")).endswith("/readonly"):
+        errors.append("GitHub MCP doit rester sur le point de terminaison readonly")
+    if github_mcp.get("http_headers_helper") != "bash scripts/github-mcp-headers.sh":
+        errors.append("GitHub MCP doit utiliser le helper gh local")
+    if "bearer_token_env_var" in github_mcp:
+        errors.append("GitHub MCP ne doit pas dépendre d'un token persistant dans la config")
+
 if errors:
     print("CONFIG CODEX HORATRACK: FAIL")
     for error in errors:
