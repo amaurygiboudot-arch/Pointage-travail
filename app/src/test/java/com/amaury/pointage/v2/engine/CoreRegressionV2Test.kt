@@ -3,6 +3,7 @@ package com.amaury.pointage.v2.engine
 import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,6 +39,23 @@ class CoreRegressionV2Test {
         assertEquals(5 * 60 * minute, analytics.totalPaidMs)
         assertEquals(2, analytics.sessions)
         assertEquals(0, analytics.warnings)
+    }
+
+
+    @Test
+    fun `analyse marque les totaux non fiables si deux sessions du meme employeur se chevauchent`() {
+        val first = session("first-overlap", 8 * 60 * minute, 10 * 60 * minute)
+        val second = session("second-overlap", 9 * 60 * minute, 11 * 60 * minute)
+
+        val analytics = AnalyticsEngineV2.summarize(
+            listOf(first, second),
+            DefaultTimeEngineV2,
+            nowMs = 12 * 60 * minute
+        )
+
+        assertFalse(analytics.timeTotalsReliable)
+        assertFalse(analytics.placeTotalsReliable)
+        assertTrue(analytics.warnings > 0)
     }
 
     @Test
