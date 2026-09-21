@@ -27,8 +27,9 @@ struct SalaryEmploymentContractPeriodResolutionV2: Equatable {
         !calculationSegments.isEmpty
     }
 
+    /// Vrai uniquement si les versions multiples empêchent encore un contrat calculable.
     var requiresMultipleContractVersions: Bool {
-        coverage?.requiresMultipleContractVersions == true
+        contract == nil && coverage?.requiresMultipleContractVersions == true
     }
 }
 
