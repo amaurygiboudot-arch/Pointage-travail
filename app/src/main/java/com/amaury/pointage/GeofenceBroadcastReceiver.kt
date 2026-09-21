@@ -83,15 +83,20 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
                 if (wasOutsideAllZones && activeZones.isNotEmpty()) {
-                    val zone = zonesById[regularIds.first()] ?: return
+                    val choice = chooseTriggeredZone(context, prefs, regularIds, zonesById)
+                    if (choice == null) {
+                        updateWidgets(context)
+                        return
+                    }
+                    val zone = choice.zone
                     val zoneAddress = zone.address
                     val zoneLabel = findZoneLabel(context, zone)
-                    val zoneType = findZoneType(zone)
+                    val zoneType = GpsTriggeredZoneSelectionV2.pointType(zone)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         // Une association explicite à un employeur doit être certifiable avant
                         // qu'une entrée GPS puisse démarrer. Sinon l'entreprise active précédente
                         // pourrait recevoir silencieusement le pointage d'une autre zone.
-                        if (!applyZoneEmployer(context, prefs, zone)) {
+                        if (!applyZoneEmployer(context, choice.employerResolution)) {
                             updateWidgets(context)
                             return
                         }
@@ -125,8 +130,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                 prefs.edit().putStringSet("active_zones", activeZones).apply()
 
                 if (activeZones.isEmpty()) {
-                    val zone = zonesById[regularIds.first()] ?: return
-                    val zoneType = findZoneType(zone)
+                    val choice = chooseTriggeredZone(context, prefs, regularIds, zonesById)
+                    if (choice == null) {
+                        updateWidgets(context)
+                        return
+                    }
+                    val zone = choice.zone
+                    val zoneType = GpsTriggeredZoneSelectionV2.pointType(zone)
                     if (HoraTrackV2.legacyDisabledFor(HoraTrackV2.Layer.GPS)) {
                         val now = System.currentTimeMillis()
                         val gpsEvent = GpsEventV2(
@@ -147,26 +157,57 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun applyZoneEmployer(
+    private data class TriggeredZoneChoice(
+        val zone: StoredGpsZone,
+        val employerResolution: GpsZoneEmployerResolutionV2
+    )
+
+    private fun chooseTriggeredZone(
         context: Context,
         prefs: android.content.SharedPreferences,
-        zone: StoredGpsZone
-    ): Boolean {
+        zoneIds: List<String>,
+        zonesById: Map<String, StoredGpsZone>
+    ): TriggeredZoneChoice? {
         val companies = SalaryCompanyStore.readConfirmed(context)
-        val legacySlot = zone.companySlot ?: resolveLegacyAddressCompanySlot(prefs, zone)
-        return when (
-            val resolution = resolveGpsZoneEmployerV2(
+        val resolved = zoneIds.distinct().mapNotNull { id ->
+            val zone = zonesById[id] ?: return null
+            val legacySlot = zone.companySlot ?: resolveLegacyAddressCompanySlot(prefs, zone)
+            val employerResolution = resolveGpsZoneEmployerV2(
                 companyId = zone.companyId,
                 legacyCompanySlot = legacySlot,
                 companiesReliable = companies.reliable,
                 confirmedCompanyIds = companies.companies.map { it.id }
             )
-        ) {
-            GpsZoneEmployerResolutionV2.KeepCurrent -> true
-            is GpsZoneEmployerResolutionV2.UseCompany ->
-                V2ProfileStore.setActiveCompanyId(context, resolution.companyId)
-            is GpsZoneEmployerResolutionV2.Block -> false
+            if (employerResolution is GpsZoneEmployerResolutionV2.Block) return null
+            val employerKey = when (employerResolution) {
+                GpsZoneEmployerResolutionV2.KeepCurrent -> "keep-current"
+                is GpsZoneEmployerResolutionV2.UseCompany -> "company:" + employerResolution.companyId
+                is GpsZoneEmployerResolutionV2.Block -> return null
+            }
+            TriggeredZoneChoice(zone, employerResolution) to
+                GpsTriggeredZoneSelectionV2.Candidate(
+                    zoneId = zone.id,
+                    employerKey = employerKey,
+                    pointType = GpsTriggeredZoneSelectionV2.pointType(zone),
+                    placeKey = GpsTriggeredZoneSelectionV2.placeKey(zone)
+                )
         }
+
+        return when (val selected = GpsTriggeredZoneSelectionV2.select(resolved.map { it.second })) {
+            is GpsTriggeredZoneSelectionV2.Result.Blocked -> null
+            is GpsTriggeredZoneSelectionV2.Result.Selected ->
+                resolved.firstOrNull { it.first.zone.id == selected.zoneId }?.first
+        }
+    }
+
+    private fun applyZoneEmployer(
+        context: Context,
+        resolution: GpsZoneEmployerResolutionV2
+    ): Boolean = when (resolution) {
+        GpsZoneEmployerResolutionV2.KeepCurrent -> true
+        is GpsZoneEmployerResolutionV2.UseCompany ->
+            V2ProfileStore.setActiveCompanyId(context, resolution.companyId)
+        is GpsZoneEmployerResolutionV2.Block -> false
     }
 
     /**
@@ -218,17 +259,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         if (!zone.label.isNullOrBlank()) return zone.label
         return zone.address?.let {
             PlaceNames.get(context, it)?.trim()?.takeIf(String::isNotBlank)
-        }
-    }
-
-    private fun findZoneType(zone: StoredGpsZone): GpsPointTypeV2 {
-        val raw = (zone.pointTypeToken ?: zone.id).uppercase()
-        return when {
-            raw.contains("PARK") -> GpsPointTypeV2.PARKING
-            raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER
-            raw.contains("POSTE") || raw.contains("WORKPLACE") || raw.contains("WORK") -> GpsPointTypeV2.POSTE
-            // Un type inconnu ne doit jamais devenir implicitement un poste et ouvrir une session.
-            else -> GpsPointTypeV2.OTHER
         }
     }
 
