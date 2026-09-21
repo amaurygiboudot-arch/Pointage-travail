@@ -24,6 +24,12 @@ Vérifie au minimum :
 - que la modification reste générique pour tous les métiers, classes, configurations et appareils compatibles ;
 - qu'aucune anomalie de pointage ne peut perdre, dupliquer ou fausser un fait temporel utilisé ensuite par la paie.
 
+Vérifie aussi la gouvernance agents :
+- aucune modification inattendue de `AGENTS.md`, `.codex/**`, `.github/workflows/**`, `.github/CODEOWNERS` ou `SECURITY.md` ;
+- aucune baisse de permissions, de contrôle ou de protection n'a été introduite ;
+- aucun agent n'a modifié son propre rôle ou cherché à empêcher son remplacement ;
+- toute modification de gouvernance doit correspondre à une demande humaine explicite.
+
 Une compilation verte seule ne suffit jamais.
 
 Si une vérification nécessaire est absente ou non démontrée, la décision est FAIL.
