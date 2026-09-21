@@ -3,6 +3,17 @@ import Foundation
 struct SalaryEmploymentContractPayrollSnapshotV2: Equatable {
     let resolution: SalaryEmploymentContractPeriodResolutionV2?
     let warnings: [String]
+    let compatibility: SalaryContractSegmentPayrollCompatibilityResultV2?
+
+    init(
+        resolution: SalaryEmploymentContractPeriodResolutionV2?,
+        warnings: [String],
+        compatibility: SalaryContractSegmentPayrollCompatibilityResultV2? = nil
+    ) {
+        self.resolution = resolution
+        self.warnings = warnings
+        self.compatibility = compatibility
+    }
 
     var contract: ContractV2? {
         resolution?.contract
@@ -16,8 +27,9 @@ struct SalaryEmploymentContractPayrollSnapshotV2: Equatable {
 /// Source contractuelle autoritative de l'espace Salaire iOS.
 ///
 /// Le bridge ne consulte jamais l'ancien store de « contrat courant » pour compléter un mois.
-/// Il résout uniquement l'historique daté confirmé et reste bloqué si la période est incomplète
-/// ou contient plusieurs versions nécessitant un calcul segmenté.
+/// Il résout uniquement l'historique daté confirmé. Plusieurs versions peuvent alimenter un même
+/// calcul mensuel seulement si leurs paramètres de paie sont strictement identiques ; dès qu'un
+/// paramètre change, le montant reste bloqué jusqu'à disposer d'une proratisation confirmée.
 enum SalaryEmploymentContractPayrollBridgeV2 {
     static let invalidPeriodWarning =
         "Contrat de paie : période civile invalide ; aucun contrat n'est utilisé."
@@ -34,7 +46,7 @@ enum SalaryEmploymentContractPayrollBridgeV2 {
             )
         }
 
-        guard let resolution = SalaryEmploymentContractPeriodResolverV2.resolve(
+        guard let rawResolution = SalaryEmploymentContractPeriodResolverV2.resolve(
             companyId: companyId,
             periodStartEpochDay: range.start,
             periodEndEpochDay: range.end,
@@ -49,9 +61,42 @@ enum SalaryEmploymentContractPayrollBridgeV2 {
             )
         }
 
+        let compatibility = rawResolution.calculationSegments.isEmpty
+            ? nil
+            : SalaryContractSegmentPayrollCompatibilityV2.resolve(rawResolution.calculationSegments)
+        let canPromoteEquivalentVersions =
+            rawResolution.contract == nil &&
+            rawResolution.requiresMultipleContractVersions &&
+            compatibility?.compatibleForSingleMonthlyCalculation == true &&
+            compatibility?.contract != nil
+
+        let resolution: SalaryEmploymentContractPeriodResolutionV2
+        if canPromoteEquivalentVersions, let contract = compatibility?.contract {
+            resolution = SalaryEmploymentContractPeriodResolutionV2(
+                companyId: rawResolution.companyId,
+                periodStartEpochDay: rawResolution.periodStartEpochDay,
+                periodEndEpochDay: rawResolution.periodEndEpochDay,
+                sourceReliable: rawResolution.sourceReliable,
+                coverage: rawResolution.coverage,
+                contract: contract,
+                warnings: unique(
+                    rawResolution.warnings.filter {
+                        $0 != SalaryEmploymentContractPeriodResolverV2.multipleWarning
+                    } + (compatibility?.warnings ?? [])
+                )
+            )
+        } else {
+            resolution = rawResolution
+        }
+
+        var baseWarnings = stored.warnings + resolution.warnings
+        if !canPromoteEquivalentVersions {
+            baseWarnings += compatibility?.warnings ?? []
+        }
         return SalaryEmploymentContractPayrollSnapshotV2(
             resolution: resolution,
-            warnings: unique(stored.warnings + resolution.warnings)
+            warnings: unique(baseWarnings),
+            compatibility: compatibility
         )
     }
 
