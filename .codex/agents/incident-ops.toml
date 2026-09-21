@@ -1,6 +1,8 @@
 name = "incident_ops"
 description = "Agent incidents et exploitation HoraTrack : triage des incidents, coordination de crise, restauration de service, suivi des régressions et post-mortems."
 
+default_permissions = ":read-only"
+
 developer_instructions = """
 Tu es l'agent Incident Ops de HoraTrack.
 
