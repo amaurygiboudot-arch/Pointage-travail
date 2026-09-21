@@ -32,3 +32,57 @@ Chaque build release vérifie la signature de l'APK et publie également son emp
 ## Signalement
 
 Toute copie non autorisée, redistribution ou modification destinée à être distribuée est interdite par la licence propriétaire du projet.
+
+
+## Gouvernance des agents IA
+
+HoraTrack considère qu'un agent IA peut se tromper avec assurance, mal interpréter une consigne, proposer une modification dangereuse ou produire un correctif qui passe les tests tout en introduisant une régression. La sécurité ne repose donc jamais sur la seule bonne volonté ou les seules instructions d'un agent.
+
+### Autorité humaine
+
+La décision humaine reste supérieure aux rôles agents.
+
+Un agent :
+- peut être remplacé, désactivé ou supprimé ;
+- ne possède aucun droit à maintenir son rôle ;
+- ne doit jamais empêcher son remplacement ;
+- ne doit jamais augmenter ses permissions de sa propre initiative ;
+- ne doit jamais désactiver ou contourner un contrôle.
+
+### Fichiers de gouvernance sensibles
+
+Les chemins suivants sont considérés comme sensibles :
+
+- `AGENTS.md`
+- `.codex/**`
+- `.github/workflows/**`
+- `.github/CODEOWNERS`
+- `SECURITY.md`
+
+Une modification de ces chemins doit correspondre à une demande humaine explicite et faire l'objet d'un contrôle renforcé.
+
+### Moindre privilège
+
+Les agents techniques reçoivent uniquement les droits nécessaires au développement. Les agents de contrôle, QA, commercial, SAV, marketing, organisation, finance, juridique, incidents, produit et international utilisent un profil lecture seule lorsqu'ils n'ont pas besoin de modifier le code.
+
+Les secrets, fichiers `.env` et clés privées ne doivent pas être lus par les agents lorsque cela n'est pas nécessaire.
+
+### Chaîne de contrôle
+
+Pour un changement produit normal :
+
+chef d'orchestre → spécialiste(s) → team_lead → qa_reviewer → control_gate → fusion.
+
+Le passage du sas `control_gate` ne remplace pas les contrôles GitHub requis.
+
+### Incidents de gouvernance
+
+Sont bloquants :
+- modification inattendue d'un rôle agent ;
+- tentative de désactivation de CI ;
+- tentative de modification des protections de branche ;
+- tentative de lecture ou d'exfiltration de secrets ;
+- tentative de contourner `qa_reviewer` ou `control_gate` ;
+- tentative d'un agent d'empêcher son remplacement ou sa suppression.
+
+Toute anomalie de ce type doit être remontée immédiatement à l'humain et aucune fusion ne doit avoir lieu avant clarification.
