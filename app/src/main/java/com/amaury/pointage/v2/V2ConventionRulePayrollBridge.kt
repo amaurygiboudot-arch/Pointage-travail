@@ -10,6 +10,7 @@ import java.time.LocalDate
  *
  * Le bridge ne choisit jamais la version « actuelle » pour un ancien mois. Il expose la couverture
  * exacte de la période depuis l'historique confirmé et propage tout état non fiable ou incomplet.
+ * Un IDCC absent est traité en fail-closed par le resolver au lieu de provoquer une exception.
  */
 object V2ConventionRulePayrollBridge {
     data class Snapshot(
@@ -36,7 +37,6 @@ object V2ConventionRulePayrollBridge {
         monthZeroBased: Int
     ): Snapshot {
         require(monthZeroBased in 0..11) { "Mois invalide" }
-        require(idcc.trim().isNotBlank()) { "IDCC obligatoire" }
         val start = LocalDate.of(year, monthZeroBased + 1, 1)
         val end = start.withDayOfMonth(start.lengthOfMonth())
         val resolution = ConventionRulePeriodResolverV2.resolve(
