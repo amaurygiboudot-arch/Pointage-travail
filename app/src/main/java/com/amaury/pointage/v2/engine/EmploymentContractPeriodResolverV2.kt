@@ -32,8 +32,9 @@ data class EmploymentContractPeriodResolutionV2(
     val readyForSegmentedCalculation: Boolean
         get() = calculationSegments.isNotEmpty()
 
+    /** Vrai uniquement si les versions multiples empêchent encore un contrat calculable. */
     val requiresMultipleContractVersions: Boolean
-        get() = coverage?.requiresMultipleContractVersions == true
+        get() = contract == null && coverage?.requiresMultipleContractVersions == true
 }
 
 object EmploymentContractPeriodResolverV2 {

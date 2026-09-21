@@ -22,7 +22,29 @@ final class SalaryEmploymentContractPayrollBridgeV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.isEmpty)
     }
 
-    func testTwoVersionsInsideMonthBlockSingleContractCalculation() throws {
+    func testEquivalentVersionsInsideMonthCanShareMonthlyCalculation() throws {
+        let period = try XCTUnwrap(YearMonthV2(year: 2026, month: 1))
+        let range = try XCTUnwrap(SalaryConventionCoverageResolverV2.monthEpochDayRange(period))
+        let change = range.start + 15
+        let stored = reliable([
+            snapshot(version: "v1", from: range.start - 20, to: change - 1, rate: 14.0),
+            snapshot(version: "v2", from: change, to: nil, rate: 14.0)
+        ])
+
+        let result = SalaryEmploymentContractPayrollBridgeV2.resolve(
+            companyId: "company-a",
+            period: period,
+            stored: stored
+        )
+
+        XCTAssertTrue(result.readyForSingleContractCalculation)
+        XCTAssertFalse(result.resolution?.requiresMultipleContractVersions == true)
+        XCTAssertEqual(result.contract?.grossHourlyRate, 14.0)
+        XCTAssertTrue(result.warnings.contains(SalaryContractSegmentPayrollCompatibilityV2.equivalentVersionsWarning))
+        XCTAssertFalse(result.warnings.contains(SalaryEmploymentContractPeriodResolverV2.multipleWarning))
+    }
+
+    func testTwoDifferentRatesInsideMonthBlockSingleContractCalculation() throws {
         let period = try XCTUnwrap(YearMonthV2(year: 2026, month: 1))
         let range = try XCTUnwrap(SalaryConventionCoverageResolverV2.monthEpochDayRange(period))
         let change = range.start + 15
@@ -41,6 +63,7 @@ final class SalaryEmploymentContractPayrollBridgeV2Tests: XCTestCase {
         XCTAssertTrue(result.resolution?.requiresMultipleContractVersions == true)
         XCTAssertNil(result.contract)
         XCTAssertTrue(result.warnings.contains(SalaryEmploymentContractPeriodResolverV2.multipleWarning))
+        XCTAssertTrue(result.warnings.contains(SalaryContractSegmentPayrollCompatibilityV2.changedPayrollInputsWarning))
     }
 
     func testUnreliableHistoryBlocksEvenValidSnapshot() throws {
