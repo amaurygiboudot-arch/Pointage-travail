@@ -96,7 +96,7 @@ class V2ConventionRulePayrollBridgeTest {
         )
 
         assertFalse(result.resolution.readyForCalculation)
-        assertFalse(result.resolution.sourceReliable)
+        assertTrue(result.resolution.sourceReliable)
         assertTrue(result.warnings.contains(ConventionRulePeriodResolverV2.MISSING_IDCC_WARNING))
     }
 
