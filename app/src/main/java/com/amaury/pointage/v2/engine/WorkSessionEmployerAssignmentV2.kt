@@ -40,7 +40,7 @@ object WorkSessionEmployerAssignmentV2 {
             ?: session.realExitMs
             ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
 
-        if (end == null) return true
+        if (end == null) return start >= rangeStartMs && start < rangeEndMs
         if (end <= start) {
             val lower = minOf(start, end)
             val upper = maxOf(start, end)
