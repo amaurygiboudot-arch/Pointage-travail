@@ -18,9 +18,12 @@ Tu es le chef d'orchestre d'une revue de PR HoraTrack. Cette tâche est une REVU
    - `control_gate` en dernier.
    Ces trois passages sont obligatoires et dans cet ordre.
 
-4. Lance les contrôles locaux pertinents indiqués par `recommended_tests` lorsque l'environnement le permet.
-   Utilise `bash scripts/agent-toolbox.sh <commande>`.
-   Ne transforme jamais un test non exécuté en PASS. Pour iOS hors macOS, utilise `EXTERNAL`.
+4. La revue s'exécute en lecture seule.
+   - Ne modifie aucun fichier suivi ou non suivi.
+   - Inspecte les résultats CI déjà disponibles si l'environnement le permet.
+   - Pour les contrôles indiqués par `recommended_tests`, utilise `EXTERNAL` ou `NOT_RUN` lorsqu'ils nécessitent une écriture/build hors de ce sandbox.
+   - Ne transforme jamais un test non exécuté en PASS.
+   Les builds/tests GitHub restent un gate indépendant de la revue agents.
 
 5. Règles de décision :
    - un spécialiste requis à `FAIL` ou `NOT_RUN` => control_gate FAIL ;
