@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
+import com.amaury.pointage.v2.engine.WorkSessionRangeV2
 import com.amaury.pointage.v2.engine.TimeResultV2
 import com.amaury.pointage.v2.engine.WorkSessionEmployerAssignmentV2
 import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
@@ -98,12 +99,8 @@ internal fun crossesAnnualReportBoundaryV2(
     openEndMs: Long?
 ): Boolean {
     if (!touchesAnnualReportRangeV2(session, rangeStartMs, rangeEndMs, openEndMs)) return false
-    val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
-    val end = session.countedExitMs
-        ?: session.realExitMs
-        ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
-    if (end == null || end <= start) return true
-    return start < rangeStartMs || end > rangeEndMs
+    val interval = WorkSessionRangeV2.effectiveInterval(session, openEndMs) ?: return true
+    return interval.startMs < rangeStartMs || interval.endMs > rangeEndMs
 }
 
 internal fun touchesAnnualReportRangeV2(
@@ -112,14 +109,7 @@ internal fun touchesAnnualReportRangeV2(
     rangeEndMs: Long,
     openEndMs: Long?
 ): Boolean {
-    if (rangeEndMs <= rangeStartMs) return false
-    val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
-    val end = session.countedExitMs
-        ?: session.realExitMs
-        ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
-
-    if (end == null || end <= start) return start >= rangeStartMs && start < rangeEndMs
-    return start < rangeEndMs && end > rangeStartMs
+    return WorkSessionRangeV2.potentiallyTouches(session, rangeStartMs, rangeEndMs, openEndMs)
 }
 
 internal fun annualWorkSessionEndpointsReliableV2(session: WorkSessionV2): Boolean =

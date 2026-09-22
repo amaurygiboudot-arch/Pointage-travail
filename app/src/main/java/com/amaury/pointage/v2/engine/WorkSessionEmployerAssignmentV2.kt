@@ -1,6 +1,5 @@
 package com.amaury.pointage.v2.engine
 
-import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
 /**
@@ -23,29 +22,7 @@ object WorkSessionEmployerAssignmentV2 {
         if (rangeEndMs <= rangeStartMs) return false
         return sessions.any { session ->
             session.employerId?.trim().isNullOrEmpty() &&
-                potentiallyTouches(session, rangeStartMs, rangeEndMs, openEndMs)
+                WorkSessionRangeV2.potentiallyTouches(session, rangeStartMs, rangeEndMs, openEndMs)
         }
-    }
-
-    private fun potentiallyTouches(
-        session: WorkSessionV2,
-        rangeStartMs: Long,
-        rangeEndMs: Long,
-        openEndMs: Long?
-    ): Boolean {
-        val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
-        if (start <= 0L || start >= rangeEndMs) return false
-
-        val end = session.countedExitMs
-            ?: session.realExitMs
-            ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
-
-        if (end == null) return start >= rangeStartMs && start < rangeEndMs
-        if (end <= start) {
-            val lower = minOf(start, end)
-            val upper = maxOf(start, end)
-            return lower < rangeEndMs && upper > rangeStartMs
-        }
-        return end > rangeStartMs
     }
 }

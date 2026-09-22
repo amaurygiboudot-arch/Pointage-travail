@@ -124,4 +124,16 @@ class PaidWorkAllocationV2Test {
             assertEquals(6L*60L*60L*1000L,PaidWorkAllocationV2.paidOverlap(session(start,end),octoberStart,end))
         } finally { TimeZone.setDefault(previous) }
     }
+
+    @Test
+    fun openSessionWithStoredExitIsNeverAllocatedAsClosed() {
+        val start=ms(2026,Calendar.SEPTEMBER,8,8)
+        val end=ms(2026,Calendar.SEPTEMBER,8,16)
+        val open=session(start,end).copy(status=SessionStatusV2.OPEN)
+
+        val result=PaidWorkAllocationV2.paidOverlapResult(open,start,end)
+
+        assertEquals(0L,result.paidMs)
+        assertFalse(result.reliable)
+    }
 }

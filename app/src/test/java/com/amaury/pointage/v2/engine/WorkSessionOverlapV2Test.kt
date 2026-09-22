@@ -93,6 +93,23 @@ class WorkSessionOverlapV2Test {
         )
     }
 
+    @Test
+    fun `une session ouverte ignore une ancienne sortie pour les periodes futures`() {
+        val open = session("open", "company", 8 * 60 * minute, 72 * 60 * minute)
+            .copy(status = SessionStatusV2.OPEN)
+        val future = session("future", "company", 48 * 60 * minute, 50 * 60 * minute)
+
+        assertFalse(
+            WorkSessionOverlapV2.hasOverlapWithinEmployerGroup(
+                sessions = listOf(open, future),
+                acceptedEmployerIds = setOf("company"),
+                rangeStartMs = 48 * 60 * minute,
+                rangeEndMs = 72 * 60 * minute,
+                openEndMs = 12 * 60 * minute
+            )
+        )
+    }
+
     private fun session(
         id: String,
         employerId: String,

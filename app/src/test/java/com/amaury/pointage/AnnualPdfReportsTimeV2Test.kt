@@ -166,6 +166,25 @@ class AnnualPdfReportsTimeV2Test {
     }
 
     @Test
+    fun `session ouverte ignore une ancienne sortie pour les bornes annuelles`() {
+        val openWithStoredExit = session(
+            id = "open-stale-exit",
+            startMs = 12_000L,
+            endMs = 30_000L,
+            status = SessionStatusV2.OPEN
+        )
+
+        assertFalse(
+            crossesAnnualReportBoundaryV2(
+                session = openWithStoredExit,
+                rangeStartMs = 10_000L,
+                rangeEndMs = 20_000L,
+                openEndMs = 15_000L
+            )
+        )
+    }
+
+    @Test
     fun `session exactement contenue respecte les bornes debut inclus fin exclue`() {
         assertFalse(
             crossesAnnualReportBoundaryV2(

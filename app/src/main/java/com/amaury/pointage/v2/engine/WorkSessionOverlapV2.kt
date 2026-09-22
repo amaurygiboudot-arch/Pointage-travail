@@ -1,6 +1,5 @@
 package com.amaury.pointage.v2.engine
 
-import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
 /**
@@ -65,17 +64,13 @@ object WorkSessionOverlapV2 {
         rangeEndMs: Long,
         openEndMs: Long?
     ): Interval? {
-        val start = session.countedEntryMs ?: session.realArrivalMs ?: return null
-        val end = session.countedExitMs
-            ?: session.realExitMs
-            ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
-            ?: return null
-
-        if (start <= 0L || end <= start) return null
-
-        val clippedStart = maxOf(start, rangeStartMs)
-        val clippedEnd = minOf(end, rangeEndMs)
-        return if (clippedEnd > clippedStart) Interval(clippedStart, clippedEnd) else null
+        val interval = WorkSessionRangeV2.clippedInterval(
+            session = session,
+            rangeStartMs = rangeStartMs,
+            rangeEndMs = rangeEndMs,
+            openEndMs = openEndMs
+        ) ?: return null
+        return Interval(interval.startMs, interval.endMs)
     }
 
     private fun hasOverlap(intervals: List<Interval>): Boolean {
