@@ -75,6 +75,18 @@ class TimeEngineV2Test {
     }
 
     @Test
+    fun `une session ouverte ignore les anciennes sorties stockees`() {
+        val session = closedSession(baseMs = dayBase).copy(status = SessionStatusV2.OPEN)
+        val nowMs = dayBase + 4 * 60 * minute
+
+        val result = DefaultTimeEngineV2.calculate(session, nowMs)
+
+        assertEquals(4 * 60 * minute, result.presenceMs)
+        assertEquals(4 * 60 * minute, result.countedSpanMs)
+        assertEquals(4 * 60 * minute, result.paidWorkMs)
+    }
+
+    @Test
     fun `pause non payee est deduite meme si entree a six heures`() {
         val session = closedSession(
             baseMs = morningBase,

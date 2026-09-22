@@ -1,7 +1,6 @@
 package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.ContractV2
-import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.LocalDate
 import java.time.ZoneId
@@ -96,8 +95,16 @@ object ContractSegmentPaidWorkAllocatorV2 {
 
             matchingSessions.asSequence()
                 .forEach { session ->
+                    if (!WorkSessionRangeV2.potentiallyTouches(session, startMs, endExclusiveMs, nowMs)) {
+                        return@forEach
+                    }
+                    if (!WorkSessionRangeV2.isClosedAndComplete(session)) {
+                        segmentReliable = false
+                        touchedUnreliableSession = true
+                        return@forEach
+                    }
                     val overlap = PaidWorkAllocationV2.paidOverlapResult(session, startMs, endExclusiveMs)
-                    if (!overlap.reliable && potentiallyTouches(session, startMs, endExclusiveMs, nowMs)) {
+                    if (!overlap.reliable) {
                         segmentReliable = false
                         touchedUnreliableSession = true
                     }
@@ -164,18 +171,4 @@ object ContractSegmentPaidWorkAllocatorV2 {
     private fun startOfDayMs(epochDay: Long, zoneId: ZoneId): Long =
         LocalDate.ofEpochDay(epochDay).atStartOfDay(zoneId).toInstant().toEpochMilli()
 
-    private fun potentiallyTouches(
-        session: WorkSessionV2,
-        rangeStartMs: Long,
-        rangeEndMs: Long,
-        openEndMs: Long
-    ): Boolean {
-        val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
-        if (start >= rangeEndMs) return false
-        val end = session.countedExitMs
-            ?: session.realExitMs
-            ?: openEndMs.takeIf { session.status == SessionStatusV2.OPEN }
-        if (end == null || end <= start) return start >= rangeStartMs && start < rangeEndMs
-        return end > rangeStartMs
-    }
 }

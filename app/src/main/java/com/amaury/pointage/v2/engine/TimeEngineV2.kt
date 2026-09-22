@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 
 /** Moteur Temps HoraTrack V2 : source unique des calculs de présence et de temps payé. */
@@ -31,14 +32,22 @@ object DefaultTimeEngineV2 : TimeEngineV2 {
         val warnings = mutableListOf<String>()
 
         val realStart = session.realArrivalMs
-        val realEnd = session.realExitMs ?: if (session.status.name == "OPEN") nowMs else null
+        val realEnd = if (session.status == SessionStatusV2.OPEN) {
+            nowMs
+        } else {
+            session.realExitMs
+        }
         val presenceMs = validDuration(realStart, realEnd).also {
             if (realStart == null) warnings += "Arrivée réelle manquante"
             if (realEnd == null) warnings += "Sortie réelle manquante"
         }
 
         val countedStart = WorkTimePolicyV2.repairKnownCountedEntry(realStart, session.countedEntryMs)
-        val countedEnd = session.countedExitMs ?: if (session.status.name == "OPEN") nowMs else null
+        val countedEnd = if (session.status == SessionStatusV2.OPEN) {
+            nowMs
+        } else {
+            session.countedExitMs
+        }
         val countedSpanMs = validDuration(countedStart, countedEnd).also {
             if (countedStart == null) warnings += "Entrée comptée manquante"
             if (countedEnd == null) warnings += "Sortie comptée manquante"

@@ -16,11 +16,9 @@ import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RightsStore
-import com.amaury.pointage.v2.V2RuntimeReader
 import java.io.OutputStream
 import java.text.DateFormatSymbols
 import java.time.ZoneId
-import java.util.Calendar
 import java.util.Locale
 
 /** Génère une vraie page PDF d'estimation, visuellement structurée comme un bulletin. */
@@ -195,17 +193,7 @@ object SalaryExamplePdfV2 {
             }.getOrNull()
         } else null
 
-        val acceptedEmployerIds = if (company != null) {
-            SalaryCompanyStore.acceptedEmployerIds(context, company.id)
-        } else legacyContract?.let { setOf(it.employerId) }.orEmpty()
-        val sessions = V2RuntimeReader.allSessions(context).requireReliable().filter { session ->
-            val at = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
-            val cal = Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = at }
-            session.employerId in acceptedEmployerIds &&
-                cal.get(Calendar.YEAR) == year &&
-                cal.get(Calendar.MONTH) == month
-        }
-        val pauseMs = sessions.sumOf { HoraTrackV2.time.calculate(it).unpaidPauseMs }
+        val timeSection = timeSectionValues(salary, salary?.unpaidPauseMs)
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
         val legalReferenceAtMs = payrollReferenceDate
             .atStartOfDay(ZoneId.systemDefault())
@@ -280,16 +268,16 @@ object SalaryExamplePdfV2 {
 
         if (Field.HOURS in fields) {
             section("TEMPS DE TRAVAIL", listOf(
-                "Sessions terminées" to (salary?.completedSessions?.toString() ?: sessions.count { it.realExitMs != null }.toString()),
-                "Temps payé" to duration(salary?.totalWorkedMs ?: sessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }),
-                "Heures normales" to duration(salary?.regularMs ?: 0L),
-                "Heures supplémentaires" to (salary?.overtimeTiers?.joinToString { "${it.label}: ${duration(it.durationMs)}" }?.ifBlank { "Aucune règle confirmée applicable" } ?: "À confirmer")
+                "Sessions terminées" to timeSection.completedSessions,
+                "Temps payé" to timeSection.paidTime,
+                "Heures normales" to timeSection.regularHours,
+                "Heures supplémentaires" to timeSection.overtimeHours
             ))
         }
 
         if (Field.PAUSES in fields) {
             section("PAUSES", listOf(
-                "Pauses non payées déduites" to duration(pauseMs),
+                "Pauses non payées déduites" to timeSection.unpaidPauses,
                 "Méthode" to "Intervalles V2 confirmés sur l'entreprise sélectionnée"
             ))
         }
@@ -305,10 +293,14 @@ object SalaryExamplePdfV2 {
                     add("Dont avantages en nature" to String.format(Locale.FRANCE, "%.2f €", payroll!!.benefitsInKindDeduction))
                 }
                 add("Majoration heures supplémentaires" to (salary?.takeIf { it.monthlyGrossReliable }?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
-                salary?.mealBasketTotal?.let { total ->
-                    val count = salary.mealBasketCount
-                    val amount = salary.mealBasketAmount
-                    add("Paniers hors brut" to if (amount != null) "$count × ${String.format(Locale.FRANCE, "%.2f €", amount)} = ${String.format(Locale.FRANCE, "%.2f €", total)}" else String.format(Locale.FRANCE, "%.2f €", total))
+                if (salary?.paidTimeReliable != true) {
+                    add("Paniers hors brut" to "À confirmer")
+                } else {
+                    salary.mealBasketTotal?.let { total ->
+                        val count = salary.mealBasketCount
+                        val amount = salary.mealBasketAmount
+                        add("Paniers hors brut" to if (amount != null) "$count × ${String.format(Locale.FRANCE, "%.2f €", amount)} = ${String.format(Locale.FRANCE, "%.2f €", total)}" else String.format(Locale.FRANCE, "%.2f €", total))
+                    }
                 }
                 payroll?.let {
                     if (it.benefitsInKindDeduction > 0.0) {
@@ -402,6 +394,38 @@ object SalaryExamplePdfV2 {
         pdf.finishPage(page)
         pdf.writeTo(output)
         pdf.close()
+    }
+
+    internal data class TimeSectionValues(
+        val completedSessions: String,
+        val paidTime: String,
+        val regularHours: String,
+        val overtimeHours: String,
+        val unpaidPauses: String
+    )
+
+    internal fun timeSectionValues(
+        salary: V2SalaryAdapter.Result?,
+        unpaidPauseMs: Long?
+    ): TimeSectionValues {
+        if (salary?.paidTimeReliable != true || unpaidPauseMs == null) {
+            return TimeSectionValues(
+                completedSessions = "À confirmer",
+                paidTime = "À confirmer",
+                regularHours = "À confirmer",
+                overtimeHours = "À confirmer",
+                unpaidPauses = "À confirmer"
+            )
+        }
+        return TimeSectionValues(
+            completedSessions = salary.completedSessions.toString(),
+            paidTime = duration(salary.totalWorkedMs),
+            regularHours = duration(salary.regularMs),
+            overtimeHours = salary.overtimeTiers
+                .joinToString { "${it.label}: ${duration(it.durationMs)}" }
+                .ifBlank { "Aucune règle confirmée applicable" },
+            unpaidPauses = duration(unpaidPauseMs)
+        )
     }
 
     private fun duration(ms: Long): String {

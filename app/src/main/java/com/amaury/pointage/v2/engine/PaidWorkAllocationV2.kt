@@ -35,6 +35,7 @@ object PaidWorkAllocationV2 {
         rangeStartMs: Long,
         rangeEndMs: Long
     ): PaidOverlapResult {
+        if (!WorkSessionRangeV2.isClosedAndComplete(session)) return PaidOverlapResult(0L, false)
         val sessionStart = effectiveSessionStart(session) ?: return PaidOverlapResult(0L, false)
         val sessionEnd = session.countedExitMs ?: return PaidOverlapResult(0L, false)
         if (sessionEnd <= sessionStart || rangeEndMs <= rangeStartMs) return PaidOverlapResult(0L, false)

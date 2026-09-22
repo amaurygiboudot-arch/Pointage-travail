@@ -173,6 +173,34 @@ class ContractSegmentPaidWorkV2Test {
     }
 
     @Test
+    fun `une session ouverte avec ancienne sortie n est jamais allouee`() {
+        val septemberStart = LocalDate.of(2026, 9, 1).toEpochDay()
+        val septemberEnd = LocalDate.of(2026, 9, 30).toEpochDay()
+        val octoberStart = LocalDate.of(2026, 10, 1).toEpochDay()
+        val octoberEnd = LocalDate.of(2026, 10, 31).toEpochDay()
+        val open = session(ms(2026, 9, 8, 8), ms(2026, 10, 8, 9)).copy(
+            status = SessionStatusV2.OPEN
+        )
+
+        val result = ContractSegmentPaidWorkAllocatorV2.allocate(
+            sessions = listOf(open),
+            segments = listOf(
+                segment("september", septemberStart, septemberEnd, 13.0),
+                segment("october", octoberStart, octoberEnd, 13.0)
+            ),
+            acceptedEmployerIds = setOf("company"),
+            sourceReliable = true,
+            zoneId = zone,
+            nowMs = ms(2026, 9, 8, 12)
+        )
+
+        assertFalse(result.segments[0].reliable)
+        assertEquals(0L, result.segments[0].paidMs)
+        assertTrue(result.segments[1].reliable)
+        assertEquals(0L, result.segments[1].paidMs)
+    }
+
+    @Test
     fun `une session fermee assignee sans fin ne contamine pas un segment futur`() {
         val septemberStart = LocalDate.of(2026, 9, 1).toEpochDay()
         val septemberEnd = LocalDate.of(2026, 9, 30).toEpochDay()
