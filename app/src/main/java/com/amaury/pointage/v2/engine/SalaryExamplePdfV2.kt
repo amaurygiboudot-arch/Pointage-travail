@@ -213,141 +213,156 @@ object SalaryExamplePdfV2 {
             )
         } else null
 
+        val monthName = DateFormatSymbols(Locale.FRANCE).months.getOrNull(month).orEmpty().replaceFirstChar { it.uppercase() }
+        val sections = buildList {
+            if (Field.COMPANY in fields) add(PdfSection("EMPLOYEUR", listOf(
+                "Entreprise" to companyName,
+                "SIRET" to companySiret,
+                "Convention / régime" to if (convention != null) convention.displayName else "À confirmer"
+            )))
+
+            if (Field.CONTRACT in fields) {
+                add(PdfSection("CONTRAT", buildList {
+                    add("Type" to if (company != null) rawContractType.ifBlank { "À compléter" }.replace('_', ' ') else (legacyContract?.type?.name ?: "À compléter"))
+                    add("Durée hebdomadaire" to (contractualWeeklyMinutes?.let { "%dh%02d".format(Locale.FRANCE, it / 60, it % 60) } ?: "À confirmer"))
+                    add("Taux horaire brut" to (rate?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À compléter"))
+                    if (monthlyGross != null) add("Salaire brut mensuel convenu" to String.format(Locale.FRANCE, "%.2f €", monthlyGross))
+                }))
+            }
+
+            if (Field.HOURS in fields) add(PdfSection("TEMPS DE TRAVAIL", listOf(
+                "Sessions terminées" to timeSection.completedSessions,
+                "Temps payé" to timeSection.paidTime,
+                "Heures normales" to timeSection.regularHours,
+                "Heures supplémentaires" to timeSection.overtimeHours
+            )))
+
+            if (Field.PAUSES in fields) add(PdfSection("PAUSES", listOf(
+                "Pauses non payées déduites" to timeSection.unpaidPauses,
+                "Méthode" to "Intervalles V2 confirmés sur l'entreprise sélectionnée"
+            )))
+
+            if (Field.ESTIMATED_GROSS in fields) {
+                add(PdfSection("ESTIMATION DE RÉMUNÉRATION", estimatedGrossLines(salary, salaryNet)))
+            }
+
+            if (Field.COUNTERS in fields) {
+                add(PdfSection("COMPTEURS", if (counters.isEmpty()) listOf("Droits" to "Aucun compteur renseigné") else counters.flatMap { balance ->
+                    buildList {
+                        balance.acquired?.let { add("${balance.label} — acquis" to "${fmt(it)} ${balance.unit}") }
+                        balance.available?.let { add("${balance.label} — disponible" to "${fmt(it)} ${balance.unit}") }
+                        balance.taken?.let { add("${balance.label} — pris" to "${fmt(it)} ${balance.unit}") }
+                        balance.anticipated?.let { add("${balance.label} — anticipé" to "${fmt(it)} ${balance.unit}") }
+                        balance.remaining?.let { add("${balance.label} — restant" to "${fmt(it)} ${balance.unit}") }
+                    }
+                }))
+            }
+
+            if (Field.SOURCES in fields) {
+                val warningSections = warningSections(
+                    salaryWarnings = salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                    payrollWarnings = emptyList(),
+                    employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
+                )
+                val legalRefs = legalSnapshot.records
+                    .map { it.articleNumber?.takeIf(String::isNotBlank) ?: it.articleId }
+                    .filter(String::isNotBlank)
+                    .distinct()
+                val legalStatus = legalSourceStatus(
+                    reliable = legalSnapshot.reliable,
+                    coveredTopics = legalSnapshot.coveredTopics.size,
+                    totalTopics = OfficialLegalCodeSourceV2.Topic.entries.size,
+                    references = legalRefs
+                )
+                val boccRefs = boccSnapshot?.records.orEmpty()
+                    .mapNotNull { it.bulletinNumber?.takeIf(String::isNotBlank) ?: it.fileName.takeIf(String::isNotBlank) }
+                    .distinct()
+                val boccStatus = boccSourceStatus(
+                    configurationIssue = boccConfigurationIssue,
+                    reliable = boccSnapshot?.reliable ?: true,
+                    references = boccRefs
+                )
+                add(PdfSection("SOURCES & CONTRÔLES", buildList {
+                    add("Source des heures" to "Moteur HoraTrack V2")
+                    add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
+                    add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
+                    add("Code du travail — LEGI" to legalStatus.summary)
+                    add("Références LEGI" to legalStatus.references)
+                    add("Publications conventionnelles — BOCC" to boccStatus.summary)
+                    add("Références BOCC" to boccStatus.references)
+                    add(
+                        "Contrôles salaire / net" to
+                            if (warningSections.salaryAndNet.isEmpty()) "Aucun avertissement moteur"
+                            else warningSections.salaryAndNet.joinToString(" • ")
+                    )
+                    if (payroll != null) {
+                        add(
+                            "Contrôles coût employeur" to when {
+                                warningSections.employerCost.isNotEmpty() -> warningSections.employerCost.joinToString(" • ")
+                                payroll.employerCostComplete -> "Aucun avertissement coût employeur"
+                                else -> "Coût employeur non certifié"
+                            }
+                        )
+                    }
+                }))
+            }
+        }
+
+        val pages = paginateSections(sections)
         val pdf = PdfDocument()
-        val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
-        val canvas = page.canvas
         val title = PdfVisualStyle.boldPaint(16f)
         val bold = PdfVisualStyle.boldPaint(10f)
         val body = PdfVisualStyle.bodyPaint(9f)
         val muted = PdfVisualStyle.bodyPaint(8f).apply { color = Color.rgb(95, 95, 95) }
         val line = Paint(1).apply { color = PdfVisualStyle.line; strokeWidth = 0.8f }
-        var y = 42f
-        val monthName = DateFormatSymbols(Locale.FRANCE).months.getOrNull(month).orEmpty().replaceFirstChar { it.uppercase() }
-
-        canvas.drawText("FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, y, title)
-        y += 18f
-        canvas.drawText("$monthName $year • document personnel d'estimation • non officiel", 28f, y, muted)
-        y += 18f
-        canvas.drawLine(28f, y, 567f, y, line)
-        y += 22f
-
-        fun section(name: String, lines: List<Pair<String, String>>) {
-            if (lines.isEmpty()) return
-            canvas.drawText(name, 28f, y, bold)
-            y += 15f
-            lines.forEach { (label, value) ->
-                canvas.drawText(label, 38f, y, body)
-                canvas.drawText(value, 315f, y, body)
-                y += 14f
-            }
-            y += 5f
-            canvas.drawLine(28f, y, 567f, y, line)
-            y += 18f
-        }
-
-        if (Field.COMPANY in fields) {
-            section("EMPLOYEUR", listOf(
-                "Entreprise" to companyName,
-                "SIRET" to companySiret,
-                "Convention / régime" to if (convention != null) convention.displayName else "À confirmer"
-            ))
-        }
-
-        if (Field.CONTRACT in fields) {
-            val contractLines = buildList {
-                add("Type" to if (company != null) rawContractType.ifBlank { "À compléter" }.replace('_', ' ') else (legacyContract?.type?.name ?: "À compléter"))
-                add("Durée hebdomadaire" to (contractualWeeklyMinutes?.let { "%dh%02d".format(Locale.FRANCE, it / 60, it % 60) } ?: "À confirmer"))
-                add("Taux horaire brut" to (rate?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À compléter"))
-                if (monthlyGross != null) add("Salaire brut mensuel convenu" to String.format(Locale.FRANCE, "%.2f €", monthlyGross))
-            }
-            section("CONTRAT", contractLines)
-        }
-
-        if (Field.HOURS in fields) {
-            section("TEMPS DE TRAVAIL", listOf(
-                "Sessions terminées" to timeSection.completedSessions,
-                "Temps payé" to timeSection.paidTime,
-                "Heures normales" to timeSection.regularHours,
-                "Heures supplémentaires" to timeSection.overtimeHours
-            ))
-        }
-
-        if (Field.PAUSES in fields) {
-            section("PAUSES", listOf(
-                "Pauses non payées déduites" to timeSection.unpaidPauses,
-                "Méthode" to "Intervalles V2 confirmés sur l'entreprise sélectionnée"
-            ))
-        }
-
-        if (Field.ESTIMATED_GROSS in fields) {
-            section("ESTIMATION DE RÉMUNÉRATION", estimatedGrossLines(salary, salaryNet))
-        }
-
-        if (Field.COUNTERS in fields) {
-            section("COMPTEURS", if (counters.isEmpty()) listOf("Droits" to "Aucun compteur renseigné") else counters.flatMap { balance ->
-                buildList {
-                    balance.acquired?.let { add("${balance.label} — acquis" to "${fmt(it)} ${balance.unit}") }
-                    balance.available?.let { add("${balance.label} — disponible" to "${fmt(it)} ${balance.unit}") }
-                    balance.taken?.let { add("${balance.label} — pris" to "${fmt(it)} ${balance.unit}") }
-                    balance.anticipated?.let { add("${balance.label} — anticipé" to "${fmt(it)} ${balance.unit}") }
-                    balance.remaining?.let { add("${balance.label} — restant" to "${fmt(it)} ${balance.unit}") }
-                }
-            })
-        }
-
-        if (Field.SOURCES in fields) {
-            val warningSections = warningSections(
-                salaryWarnings = salaryNet?.warnings ?: salary?.warnings.orEmpty(),
-                payrollWarnings = emptyList(),
-                employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
-            )
-            val legalRefs = legalSnapshot.records
-                .map { it.articleNumber?.takeIf(String::isNotBlank) ?: it.articleId }
-                .filter(String::isNotBlank)
-                .distinct()
-            val legalStatus = legalSourceStatus(
-                reliable = legalSnapshot.reliable,
-                coveredTopics = legalSnapshot.coveredTopics.size,
-                totalTopics = OfficialLegalCodeSourceV2.Topic.entries.size,
-                references = legalRefs
-            )
-            val boccRefs = boccSnapshot?.records.orEmpty()
-                .mapNotNull { it.bulletinNumber?.takeIf(String::isNotBlank) ?: it.fileName.takeIf(String::isNotBlank) }
-                .distinct()
-            val boccStatus = boccSourceStatus(
-                configurationIssue = boccConfigurationIssue,
-                reliable = boccSnapshot?.reliable ?: true,
-                references = boccRefs
-            )
-            section("SOURCES & CONTRÔLES", buildList {
-                add("Source des heures" to "Moteur HoraTrack V2")
-                add("Entreprise de calcul" to if (company != null) companyName else "Profil historique principal")
-                add("Convention" to if (convention != null) "IDCC ${convention.idcc}" else "À confirmer")
-                add("Code du travail — LEGI" to legalStatus.summary)
-                add("Références LEGI" to legalStatus.references)
-                add("Publications conventionnelles — BOCC" to boccStatus.summary)
-                add("Références BOCC" to boccStatus.references)
-                add(
-                    "Contrôles salaire / net" to
-                        if (warningSections.salaryAndNet.isEmpty()) "Aucun avertissement moteur"
-                        else warningSections.salaryAndNet.joinToString(" • ")
+        try {
+            pages.forEachIndexed { pageIndex, plannedPage ->
+                val pageNumber = pageIndex + 1
+                val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
+                val canvas = page.canvas
+                var y = 42f
+                canvas.drawText("FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, y, title)
+                y += 18f
+                canvas.drawText(
+                    "$monthName $year • document personnel d'estimation • non officiel • page $pageNumber/${pages.size}",
+                    28f,
+                    y,
+                    muted
                 )
-                if (payroll != null) {
-                    add(
-                        "Contrôles coût employeur" to when {
-                            warningSections.employerCost.isNotEmpty() -> warningSections.employerCost.joinToString(" • ")
-                            payroll.employerCostComplete -> "Aucun avertissement coût employeur"
-                            else -> "Coût employeur non certifié"
-                        }
-                    )
-                }
-            })
-        }
+                y += 18f
+                canvas.drawLine(28f, y, 567f, y, line)
+                y = PDF_CONTENT_TOP
 
-        canvas.drawText("© HoraTrack • FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK", 28f, 816f, muted)
-        pdf.finishPage(page)
-        pdf.writeTo(output)
-        pdf.close()
+                plannedPage.fragments.forEach { fragment ->
+                    canvas.drawText(
+                        if (fragment.continuation) "${fragment.name} (suite)" else fragment.name,
+                        28f,
+                        y,
+                        bold
+                    )
+                    y += PDF_SECTION_HEADER_HEIGHT
+                    fragment.lines.forEach { (label, value) ->
+                        canvas.drawText(label, 38f, y, body)
+                        canvas.drawText(value, 315f, y, body)
+                        y += PDF_ROW_HEIGHT
+                    }
+                    y += 5f
+                    canvas.drawLine(28f, y, 567f, y, line)
+                    y += 18f
+                }
+
+                canvas.drawText(
+                    "© HoraTrack • FICHE DE PAIE EXEMPLE — ESTIMATION HORATRACK • page $pageNumber/${pages.size}",
+                    28f,
+                    816f,
+                    muted
+                )
+                pdf.finishPage(page)
+            }
+            pdf.writeTo(output)
+        } finally {
+            pdf.close()
+        }
     }
 
     internal data class TimeSectionValues(
@@ -357,6 +372,79 @@ object SalaryExamplePdfV2 {
         val overtimeHours: String,
         val unpaidPauses: String
     )
+
+    internal data class PdfSection(
+        val name: String,
+        val lines: List<Pair<String, String>>
+    )
+
+    internal data class PdfSectionFragment(
+        val name: String,
+        val lines: List<Pair<String, String>>,
+        val continuation: Boolean
+    )
+
+    internal data class PdfPagePlan(val fragments: List<PdfSectionFragment>)
+
+    internal fun paginateSections(
+        sections: List<PdfSection>,
+        contentTop: Float = PDF_CONTENT_TOP,
+        contentBottom: Float = PDF_CONTENT_BOTTOM,
+        sectionHeaderHeight: Float = PDF_SECTION_HEADER_HEIGHT,
+        rowHeight: Float = PDF_ROW_HEIGHT,
+        sectionTailHeight: Float = PDF_SECTION_TAIL_HEIGHT
+    ): List<PdfPagePlan> {
+        require(contentBottom > contentTop)
+        require(sectionHeaderHeight > 0f && rowHeight > 0f && sectionTailHeight >= 0f)
+        val pageCapacity = contentBottom - contentTop
+        require(sectionHeaderHeight + rowHeight + sectionTailHeight <= pageCapacity)
+
+        val pages = mutableListOf<PdfPagePlan>()
+        var fragments = mutableListOf<PdfSectionFragment>()
+        var usedHeight = 0f
+
+        fun finishPage() {
+            if (fragments.isNotEmpty()) pages += PdfPagePlan(fragments.toList())
+            fragments = mutableListOf()
+            usedHeight = 0f
+        }
+
+        sections.filter { it.lines.isNotEmpty() }.forEach { section ->
+            val wholeHeight = sectionHeaderHeight + section.lines.size * rowHeight + sectionTailHeight
+            if (wholeHeight <= pageCapacity) {
+                if (fragments.isNotEmpty() && usedHeight + wholeHeight > pageCapacity) finishPage()
+                fragments += PdfSectionFragment(section.name, section.lines, continuation = false)
+                usedHeight += wholeHeight
+            } else {
+                var firstLine = 0
+                while (firstLine < section.lines.size) {
+                    val available = pageCapacity - usedHeight
+                    val maxRows = ((available - sectionHeaderHeight - sectionTailHeight) / rowHeight).toInt()
+                    if (maxRows < 1) {
+                        finishPage()
+                        continue
+                    }
+                    val endExclusive = (firstLine + maxRows).coerceAtMost(section.lines.size)
+                    fragments += PdfSectionFragment(
+                        name = section.name,
+                        lines = section.lines.subList(firstLine, endExclusive),
+                        continuation = firstLine > 0
+                    )
+                    usedHeight += sectionHeaderHeight + (endExclusive - firstLine) * rowHeight + sectionTailHeight
+                    firstLine = endExclusive
+                    if (firstLine < section.lines.size) finishPage()
+                }
+            }
+        }
+        finishPage()
+        return pages.ifEmpty { listOf(PdfPagePlan(emptyList())) }
+    }
+
+    private const val PDF_CONTENT_TOP = 100f
+    private const val PDF_CONTENT_BOTTOM = 790f
+    private const val PDF_SECTION_HEADER_HEIGHT = 15f
+    private const val PDF_ROW_HEIGHT = 14f
+    private const val PDF_SECTION_TAIL_HEIGHT = 23f
 
     internal fun estimatedGrossLines(
         salary: V2SalaryAdapter.Result?,
