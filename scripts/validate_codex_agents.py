@@ -32,6 +32,19 @@ expected = {
 }
 
 errors = []
+
+orchestration_files = [
+    "scripts/agent_router.py",
+    "scripts/agent-review.schema.json",
+    "scripts/agent-review-prompt.md",
+    "scripts/validate_agent_review.py",
+    "scripts/format_agent_review_comment.py",
+    "scripts/run-agent-review.sh",
+]
+for relative in orchestration_files:
+    if not (root / relative).is_file():
+        errors.append(f"orchestration absente: {relative}")
+
 agents = config.get("agents", {})
 
 for role, relative in expected.items():
