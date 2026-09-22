@@ -160,6 +160,47 @@ class V2SalaryNetBridgeV2Test {
     }
 
     @Test
+    fun knownGrossProjectionUsesCanonicalFailClosedRules() {
+        val company = companyPayroll()
+        val expected = EmployeeNetProjectionV2.calculate(
+            gross = 2500.0,
+            year = 2026,
+            company = company,
+            complementaryMinutes = 0,
+            upstreamGrossReliable = true
+        )
+
+        val actual = V2SalaryNetBridgeV2.projectKnownGross(
+            gross = 2500.0,
+            year = 2026,
+            companyPayroll = company,
+            complementaryMinutes = 0,
+            upstreamGrossReliable = true
+        )
+
+        assertEquals(expected, actual)
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertTrue(actual.netBeforeIncomeTax != null)
+    }
+
+    @Test
+    fun knownGrossProjectionNeverPublishesUnreliableUpstreamGross() {
+        val actual = V2SalaryNetBridgeV2.projectKnownGross(
+            gross = 2500.0,
+            year = 2026,
+            companyPayroll = companyPayroll(),
+            complementaryMinutes = 0,
+            upstreamGrossReliable = false
+        )
+
+        assertFalse(actual.netBeforeIncomeTaxComplete)
+        assertNull(actual.netBeforeIncomeTax)
+        assertNull(actual.netTaxable)
+        assertNull(actual.incomeTax)
+        assertNull(actual.netAfterIncomeTax)
+    }
+
+    @Test
     fun bridgeKeepsSalaryAndPayrollWarningsVisible() {
         val actual = V2SalaryNetBridgeV2.project(
             salary = salary(warnings = listOf("Avertissement brut")),
