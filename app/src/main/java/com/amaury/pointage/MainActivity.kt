@@ -51,6 +51,9 @@ class MainActivity : Activity() {
     private lateinit var historyText: TextView
     private lateinit var contentTitle: TextView
     private lateinit var clockDigital: TextClock
+    private lateinit var contentPanel: LinearLayout
+    private lateinit var celestialHomePanel: View
+    private lateinit var sunIndicator: SunIndicatorView
     private lateinit var pointageButtons: LinearLayout
     private lateinit var gpsSettingsPanel: LinearLayout
     private lateinit var analyticsPdfPanel: LinearLayout
@@ -59,12 +62,14 @@ class MainActivity : Activity() {
     private lateinit var autoGpsSwitch: Switch
     private lateinit var gpsStatusText: TextView
     private lateinit var selectedReportMonthText: TextView
+    private lateinit var tabHome: TextView
     private lateinit var tabToday: TextView
     private lateinit var tabHistory: TextView
     private lateinit var tabAnalytics: TextView
+    private lateinit var tabSalary: SalaryTabTextView
     private lateinit var tabSettings: TextView
 
-    private var activeTab = "today"
+    private var activeTab = "home"
     private var updatingGpsSwitch = false
     private var gpsSaveRequestId = 0
 
@@ -97,6 +102,9 @@ class MainActivity : Activity() {
         historyText = requiredView(R.id.historyText, "historyText")
         contentTitle = requiredView(R.id.contentTitle, "contentTitle")
         clockDigital = requiredView(R.id.clockDigital, "clockDigital")
+        contentPanel = requiredView(R.id.contentPanel, "contentPanel")
+        celestialHomePanel = requiredView(R.id.celestialHomePanel, "celestialHomePanel")
+        sunIndicator = requiredView(R.id.sunIndicator, "sunIndicator")
         pointageButtons = requiredView(R.id.pointageButtons, "pointageButtons")
         gpsSettingsPanel = requiredView(R.id.gpsSettingsPanel, "gpsSettingsPanel")
         analyticsPdfPanel = requiredView(R.id.analyticsPdfPanel, "analyticsPdfPanel")
@@ -105,9 +113,11 @@ class MainActivity : Activity() {
         autoGpsSwitch = requiredView(R.id.autoGpsSwitch, "autoGpsSwitch")
         gpsStatusText = requiredView(R.id.gpsStatusText, "gpsStatusText")
         selectedReportMonthText = requiredView(R.id.selectedReportMonthText, "selectedReportMonthText")
+        tabHome = requiredView(R.id.tabHome, "tabHome")
         tabToday = requiredView(R.id.tabToday, "tabToday")
         tabHistory = requiredView(R.id.tabHistory, "tabHistory")
         tabAnalytics = requiredView(R.id.tabAnalytics, "tabAnalytics")
+        tabSalary = requiredView(R.id.tabSalary, "tabSalary")
         tabSettings = requiredView(R.id.tabSettings, "tabSettings")
 
         val settingsButton: Button? = findViewById(R.id.settingsButton)
@@ -183,6 +193,7 @@ class MainActivity : Activity() {
         chooseReportMonthButton?.setOnClickListener { animateClick(chooseReportMonthButton); showReportMonthDialog() }
         generateMonthlyPdfButton?.setOnClickListener { animateClick(generateMonthlyPdfButton); requestMonthlyPdfDestination() }
 
+        tabHome.setOnClickListener { showHomeTab() }
         tabToday.setOnClickListener { showTodayTab() }
         tabHistory.setOnClickListener { showHistoryTab() }
         tabAnalytics.setOnClickListener { showAnalyticsTab() }
@@ -204,8 +215,10 @@ class MainActivity : Activity() {
         updateGpsStatus()
         tryRestoreGeofence()
         when (activeTab) {
+            "home" -> showHomeTab()
             "history" -> showHistoryTab()
             "analytics" -> showAnalyticsTab()
+            "salary" -> tabSalary.performClick()
             "settings" -> showSettingsTab()
             else -> showTodayTab()
         }
@@ -218,11 +231,13 @@ class MainActivity : Activity() {
 
     private fun openRequestedTab(intent: Intent?) {
         val requestedTab = intent?.getStringExtra("open_tab")
-        val targetTab = requestedTab ?: navigationPrefs.getString(KEY_ACTIVE_TAB, "today")
+        val targetTab = requestedTab ?: navigationPrefs.getString(KEY_ACTIVE_TAB, "home")
         when (targetTab) {
+            "home" -> showHomeTab()
             "settings" -> showSettingsTab()
             "history" -> showHistoryTab()
             "analytics" -> showAnalyticsTab()
+            "salary" -> tabSalary.performClick()
             else -> showTodayTab()
         }
     }
@@ -230,6 +245,11 @@ class MainActivity : Activity() {
     private fun persistActiveTab(tab: String) {
         activeTab = tab
         navigationPrefs.edit().putString(KEY_ACTIVE_TAB, tab).apply()
+    }
+
+    internal fun onSalaryTabShown() {
+        persistActiveTab("salary")
+        setActiveTab(tabSalary)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -280,10 +300,29 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun showHomeTab() {
+        persistActiveTab("home")
+        setActiveTab(tabHome)
+        celestialHomePanel.visibility = View.VISIBLE
+        sunIndicator.setSunVisible(true)
+        clockDigital.visibility = View.VISIBLE
+        statusCard.visibility = View.GONE
+        pointageButtons.visibility = View.GONE
+        contentPanel.visibility = View.GONE
+        historyText.visibility = View.GONE
+        analyticsPdfPanel.visibility = View.GONE
+        gpsSettingsPanel.visibility = View.GONE
+        contentTitle.visibility = View.GONE
+    }
+
     private fun showTodayTab() {
         persistActiveTab("today")
         setActiveTab(tabToday)
-        clockDigital.visibility = View.VISIBLE
+        celestialHomePanel.visibility = View.GONE
+        sunIndicator.setSunVisible(false)
+        contentPanel.visibility = View.VISIBLE
+        contentTitle.visibility = View.VISIBLE
+        clockDigital.visibility = View.GONE
         statusCard.visibility = View.VISIBLE
         pointageButtons.visibility = View.VISIBLE
         historyText.visibility = View.VISIBLE
@@ -296,6 +335,10 @@ class MainActivity : Activity() {
     private fun showHistoryTab() {
         persistActiveTab("history")
         setActiveTab(tabHistory)
+        celestialHomePanel.visibility = View.GONE
+        sunIndicator.setSunVisible(false)
+        contentPanel.visibility = View.VISIBLE
+        contentTitle.visibility = View.VISIBLE
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
@@ -309,6 +352,10 @@ class MainActivity : Activity() {
     private fun showAnalyticsTab() {
         persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
+        celestialHomePanel.visibility = View.GONE
+        sunIndicator.setSunVisible(false)
+        contentPanel.visibility = View.VISIBLE
+        contentTitle.visibility = View.VISIBLE
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
@@ -323,6 +370,10 @@ class MainActivity : Activity() {
     private fun showSettingsTab() {
         persistActiveTab("settings")
         setActiveTab(tabSettings)
+        celestialHomePanel.visibility = View.GONE
+        sunIndicator.setSunVisible(false)
+        contentPanel.visibility = View.VISIBLE
+        contentTitle.visibility = View.VISIBLE
         clockDigital.visibility = View.GONE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
@@ -342,10 +393,15 @@ class MainActivity : Activity() {
         val theme = AppThemeCatalog.current(this)
         val activeColor = if (dark) theme.accentLight else theme.accent
         val inactiveColor = if (dark) theme.darkHint else theme.lightHint
+        tabHome.setTextColor(if (active == tabHome) activeColor else inactiveColor)
         tabToday.setTextColor(if (active == tabToday) activeColor else inactiveColor)
         tabHistory.setTextColor(if (active == tabHistory) activeColor else inactiveColor)
         tabAnalytics.setTextColor(if (active == tabAnalytics) activeColor else inactiveColor)
+        tabSalary.setTextColor(if (active == tabSalary) activeColor else inactiveColor)
         tabSettings.setTextColor(if (active == tabSettings) activeColor else inactiveColor)
+        listOf(tabHome, tabToday, tabHistory, tabAnalytics, tabSalary, tabSettings).forEach { tab ->
+            tab.isSelected = tab === active
+        }
     }
 
     private fun restoreSelectedReportMonth() {

@@ -34,6 +34,7 @@ targets:
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
         NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
+        NSMotionUsageDescription: HP Travail utilise l'orientation de l'iPhone pour afficher le ciel dans la bonne direction.
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
             CFBundleURLSchemes:
@@ -52,6 +53,12 @@ targets:
     deploymentTarget: "16.0"
     sources:
       - HPTravailTests
+      - HPTravailCelestialTests
+      - path: HPTravail/CelestialV2/Core/CelestialEngineV2.swift
+      - path: HPTravail/CelestialV2/Core/CelestialProjectionV2.swift
+      - path: HPTravail/CelestialV2/Core/CelestialQualityV2.swift
+      - path: HPTravail/CelestialV2/Core/AtmosphericRefractionV2.swift
+      - path: HPTravail/CelestialV2/Core/SolarEclipseGeometryV2.swift
       - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
       - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift

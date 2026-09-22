@@ -75,7 +75,7 @@ data class CelestialSnapshotV2(
     val moon: CelestialBodyV2,
     val moonPhase: LunarPhaseV2,
     val lunarEclipse: LunarEclipseV2,
-    /** Same civil sunrise/sunset convention used by the legacy UI: Sun centre below -0.833°. */
+    /** Standard apparent sunrise/sunset convention: Sun centre below -0.833 degrees. */
     val night: Boolean
 )
 
@@ -105,6 +105,11 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         val eclipticLatitudeDeg: Double
     )
 
+    private data class TopocentricMoonState(
+        val equatorial: Equatorial,
+        val distanceEarthRadii: Double
+    )
+
     override fun snapshot(
         latitudeDeg: Double,
         longitudeDeg: Double,
@@ -114,6 +119,9 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         require(latitudeDeg in -90.0..90.0) { "Latitude invalide" }
         require(longitudeDeg in -180.0..180.0) { "Longitude invalide" }
         require(timeMs > 0L) { "Horodatage invalide" }
+        require(observerAltitudeMeters.isFinite() && observerAltitudeMeters in -1_000.0..100_000.0) {
+            "Altitude observateur invalide"
+        }
 
         val jd = julianDay(timeMs)
         val sunGeo = sunGeocentric(jd)
@@ -133,7 +141,7 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
             jd
         )
         val moonHorizontal = horizontalFromEquatorial(
-            moonTopocentric,
+            moonTopocentric.equatorial,
             latitudeDeg,
             longitudeDeg,
             jd
@@ -166,7 +174,7 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         )
 
         val sunScale = (1.0 / sunGeo.distanceAu).coerceIn(0.97, 1.04)
-        val moonScale = (MEAN_MOON_DISTANCE_EARTH_RADII / moonGeo.distanceEarthRadii)
+        val moonScale = (MEAN_MOON_DISTANCE_EARTH_RADII / moonTopocentric.distanceEarthRadii)
             .coerceIn(0.88, 1.14)
 
         return CelestialSnapshotV2(
@@ -182,7 +190,7 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
             moon = CelestialBodyV2(
                 azimuthDeg = moonHorizontal.first,
                 altitudeDeg = moonHorizontal.second,
-                distanceKm = moonDistanceKm,
+                distanceKm = moonTopocentric.distanceEarthRadii * EARTH_EQUATORIAL_RADIUS_KM,
                 apparentScale = moonScale
             ),
             moonPhase = LunarPhaseV2(
@@ -193,7 +201,8 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
                 brightLimbPositionAngleDeg = brightLimbPosition
             ),
             lunarEclipse = eclipse,
-            night = sunHorizontal.second < -0.833
+            night = sunHorizontal.second <
+                AtmosphericRefractionV2.STANDARD_SOLAR_DISK_HORIZON_DEG
         )
     }
 
@@ -322,7 +331,7 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         longitudeDeg: Double,
         observerAltitudeMeters: Double,
         jd: Double
-    ): Equatorial {
+    ): TopocentricMoonState {
         val phi = Math.toRadians(latitudeDeg)
         val u = atan(0.99664719 * tan(phi))
         val altitudeEarthRadii = observerAltitudeMeters / (EARTH_EQUATORIAL_RADIUS_KM * 1000.0)
@@ -344,9 +353,12 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         val x = moonX - observerX
         val y = moonY - observerY
         val z = moonZ - observerZ
-        return Equatorial(
-            rightAscensionDeg = norm(Math.toDegrees(atan2(y, x))),
-            declinationDeg = Math.toDegrees(atan2(z, sqrt(x * x + y * y)))
+        return TopocentricMoonState(
+            equatorial = Equatorial(
+                rightAscensionDeg = norm(Math.toDegrees(atan2(y, x))),
+                declinationDeg = Math.toDegrees(atan2(z, sqrt(x * x + y * y)))
+            ),
+            distanceEarthRadii = sqrt(x * x + y * y + z * z)
         )
     }
 
@@ -379,13 +391,31 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
         moonDistanceKm: Double
     ): LunarEclipseV2 {
         val antiSolarSeparation = abs(PI - elongationRad)
-        val shadowAxisDistanceKm = moonDistanceKm * sin(antiSolarSeparation)
+        /*
+         * L'ombre terrestre est une demi-droite orientée à l'opposé du Soleil,
+         * pas une droite infinie. Avec la distance à la droite, une nouvelle
+         * Lune située côté Soleil pouvait être projetée sur le prolongement
+         * arrière de l'axe et devenir une fausse éclipse lunaire.
+         *
+         * Quand le produit scalaire avec l'axe anti-solaire est négatif, le
+         * point le plus proche de la demi-droite est donc le centre de la Terre.
+         */
+        val shadowAxialDistanceKm = moonDistanceKm * cos(antiSolarSeparation)
+        val moonIsBehindEarth = shadowAxialDistanceKm > 0.0
+        val shadowAxisDistanceKm = if (moonIsBehindEarth) {
+            moonDistanceKm * sin(antiSolarSeparation)
+        } else {
+            moonDistanceKm
+        }
+        val physicalShadowDistanceKm = shadowAxialDistanceKm.coerceAtLeast(0.0)
         val umbraRadiusKm = (
             EARTH_EQUATORIAL_RADIUS_KM -
-                moonDistanceKm * (SUN_RADIUS_KM - EARTH_EQUATORIAL_RADIUS_KM) / sunDistanceKm
+                physicalShadowDistanceKm *
+                (SUN_RADIUS_KM - EARTH_EQUATORIAL_RADIUS_KM) / sunDistanceKm
             ).coerceAtLeast(0.0)
         val penumbraRadiusKm = EARTH_EQUATORIAL_RADIUS_KM +
-            moonDistanceKm * (SUN_RADIUS_KM + EARTH_EQUATORIAL_RADIUS_KM) / sunDistanceKm
+            physicalShadowDistanceKm *
+            (SUN_RADIUS_KM + EARTH_EQUATORIAL_RADIUS_KM) / sunDistanceKm
 
         val umbralMagnitude = (
             umbraRadiusKm + MOON_RADIUS_KM - shadowAxisDistanceKm
