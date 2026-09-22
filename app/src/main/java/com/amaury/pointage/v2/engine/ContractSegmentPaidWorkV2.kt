@@ -1,6 +1,7 @@
 package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.ContractV2
+import com.amaury.pointage.v2.model.SessionStatusV2
 import com.amaury.pointage.v2.model.WorkSessionV2
 import java.time.LocalDate
 import java.time.ZoneId
@@ -55,7 +56,8 @@ object ContractSegmentPaidWorkAllocatorV2 {
         segments: List<EmploymentContractCoverageSegmentV2>,
         acceptedEmployerIds: Set<String>,
         sourceReliable: Boolean,
-        zoneId: ZoneId = ZoneId.systemDefault()
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        nowMs: Long = System.currentTimeMillis()
     ): ContractSegmentPaidWorkResultV2 {
         val normalizedIds = acceptedEmployerIds.map(String::trim).filter(String::isNotEmpty).toSet()
         if (segments.isEmpty() || normalizedIds.isEmpty() || !continuous(segments)) {
@@ -81,19 +83,21 @@ object ContractSegmentPaidWorkAllocatorV2 {
                 sessions = matchingSessions,
                 acceptedEmployerIds = normalizedIds,
                 rangeStartMs = startMs,
-                rangeEndMs = endExclusiveMs
+                rangeEndMs = endExclusiveMs,
+                openEndMs = nowMs
             )
             val unassignedEmployerSession = WorkSessionEmployerAssignmentV2.hasUnassignedSession(
                 sessions = sessions,
                 rangeStartMs = startMs,
-                rangeEndMs = endExclusiveMs
+                rangeEndMs = endExclusiveMs,
+                openEndMs = nowMs
             )
             if (overlappingSessions || unassignedEmployerSession) segmentReliable = false
 
             matchingSessions.asSequence()
                 .forEach { session ->
                     val overlap = PaidWorkAllocationV2.paidOverlapResult(session, startMs, endExclusiveMs)
-                    if (!overlap.reliable && potentiallyTouches(session, startMs, endExclusiveMs)) {
+                    if (!overlap.reliable && potentiallyTouches(session, startMs, endExclusiveMs, nowMs)) {
                         segmentReliable = false
                         touchedUnreliableSession = true
                     }
@@ -160,10 +164,18 @@ object ContractSegmentPaidWorkAllocatorV2 {
     private fun startOfDayMs(epochDay: Long, zoneId: ZoneId): Long =
         LocalDate.ofEpochDay(epochDay).atStartOfDay(zoneId).toInstant().toEpochMilli()
 
-    private fun potentiallyTouches(session: WorkSessionV2, rangeStartMs: Long, rangeEndMs: Long): Boolean {
+    private fun potentiallyTouches(
+        session: WorkSessionV2,
+        rangeStartMs: Long,
+        rangeEndMs: Long,
+        openEndMs: Long
+    ): Boolean {
         val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
         if (start >= rangeEndMs) return false
-        val end = session.countedExitMs ?: session.realExitMs ?: return start >= rangeStartMs || start < rangeEndMs
+        val end = session.countedExitMs
+            ?: session.realExitMs
+            ?: openEndMs.takeIf { session.status == SessionStatusV2.OPEN }
+        if (end == null || end <= start) return start >= rangeStartMs && start < rangeEndMs
         return end > rangeStartMs
     }
 }
