@@ -232,6 +232,9 @@ object GeofenceManager {
         prefs.edit()
             .putString("zones", restoredJson.toString())
             .remove("active_zones")
+            .remove("entry_resolution_pending")
+            .remove("entry_resolution_token")
+            .remove("pending_exit_zones")
             .apply()
 
         return restoredZones

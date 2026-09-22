@@ -245,9 +245,18 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                 .putString("address", addresses.distinctBy { it.lowercase(Locale.FRANCE) }.take(10).joinToString("\n"))
                 .putString("address_company_slots", companyMap.toString())
                 .putBoolean("enabled", true)
+                .remove("active_zones")
+                .remove("entry_resolution_pending")
+                .remove("entry_resolution_token")
+                .remove("pending_exit_zones")
                 .apply()
         } else {
-            gps.edit().putString("zones", zones.toString()).apply()
+            gps.edit().putString("zones", zones.toString())
+                .remove("active_zones")
+                .remove("entry_resolution_pending")
+                .remove("entry_resolution_token")
+                .remove("pending_exit_zones")
+                .apply()
         }
         registerStoredZones(context)
     }
@@ -260,7 +269,12 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val zone = old.optJSONObject(i) ?: continue
             if (zone.optString("id") != zoneId) kept.put(zone)
         }
-        gps.edit().putString("zones", kept.toString()).apply()
+        gps.edit().putString("zones", kept.toString())
+            .remove("active_zones")
+            .remove("entry_resolution_pending")
+            .remove("entry_resolution_token")
+            .remove("pending_exit_zones")
+            .apply()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("candidate_rejected_$zoneId", true)
             .remove("candidate_days_$zoneId")

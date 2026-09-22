@@ -1,8 +1,11 @@
 package com.amaury.pointage.v2.engine
 
 import android.content.Context
+import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.model.EventSourceV2
+import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.WorkSessionV2
 
 /**
  * Couche de décision distincte du capteur GPS.
@@ -51,17 +54,32 @@ object GpsWorkStateCoordinatorV2 {
             return Outcome(Action.IGNORED, false, decision.reason)
         }
 
-        val current = V2RuntimeStore.snapshot(context, event.atMs).session
+        val runtime = V2RuntimeReader.current(context, event.atMs)
+        if (!canRouteWithRuntime(runtime.reliable)) {
+            return Outcome(
+                Action.NO_CHANGE,
+                false,
+                "Runtime V2 non fiable : transition GPS bloquée"
+            )
+        }
+        val current = runtime.snapshot.session
+        var currentPending = pending(context)
+        if (shouldDiscardPending(currentPending, current)) {
+            clearPending(context)
+            currentPending = null
+        }
 
         if (event.pointType == GpsPointTypeV2.POSTE && event.transition == GpsTransitionV2.ENTER) {
-            val pending = pending(context)
-            if (isQuickReturnToPoste(pending, event)) {
+            if (canApplyQuickReturn(currentPending, event, current)) {
                 clearPending(context)
                 return Outcome(Action.RETURNED_TO_POSTE, false, "Retour rapide au poste : sortie GPS annulée")
             }
 
             if (current == null || current.realExitMs != null) {
                 val started = V2RuntimeStore.entry(context, event.atMs)
+                if (shouldDiscardPending(currentPending, current, entryStarted = started)) {
+                    clearPending(context)
+                }
                 return Outcome(
                     if (started) Action.ENTRY_STARTED else Action.NO_CHANGE,
                     false,
@@ -75,19 +93,83 @@ object GpsWorkStateCoordinatorV2 {
             if (current == null || current.realExitMs != null) {
                 return Outcome(Action.NO_CHANGE, false, "Aucune session V2 ouverte à terminer")
             }
+            if (!canQueuePending(currentPending, Pending.Kind.EXIT_WORKSITE)) {
+                return Outcome(
+                    Action.NO_CHANGE,
+                    true,
+                    "Une transition GPS attend déjà une confirmation"
+                )
+            }
             savePending(context, event, Pending.Kind.EXIT_WORKSITE)
             return Outcome(Action.EXIT_PENDING_CONFIRMATION, true, "Sortie du poste détectée : fin de journée à confirmer")
         }
 
+        if (!canQueueAmbiguous(current, event.transition)) {
+            return Outcome(
+                Action.NO_CHANGE,
+                false,
+                "État de travail incompatible avec cette transition GPS ambiguë"
+            )
+        }
+        if (!canQueuePending(currentPending, Pending.Kind.AMBIGUOUS)) {
+            return Outcome(
+                Action.NO_CHANGE,
+                true,
+                "Une transition GPS attend déjà une confirmation"
+            )
+        }
         savePending(context, event, Pending.Kind.AMBIGUOUS)
         return Outcome(Action.AMBIGUOUS_PENDING_CONFIRMATION, true, "Transition GPS ambiguë à qualifier")
     }
+
+    internal fun canQueueAmbiguous(
+        session: WorkSessionV2?,
+        transition: GpsTransitionV2
+    ): Boolean {
+        if (session?.status != SessionStatusV2.OPEN || session.realExitMs != null) return false
+        val hasOpenPause = session.pauses.any { it.endMs == null }
+        return when (transition) {
+            GpsTransitionV2.ENTER -> !hasOpenPause
+            GpsTransitionV2.EXIT -> hasOpenPause
+        }
+    }
+
+    internal fun canRouteWithRuntime(runtimeReliable: Boolean): Boolean = runtimeReliable
+
+    internal fun shouldDiscardPending(
+        pending: Pending?,
+        current: WorkSessionV2?,
+        entryStarted: Boolean = false
+    ): Boolean {
+        if (pending == null) return false
+        if (entryStarted) return true
+        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
+        val arrival = current.realArrivalMs ?: return false
+        return pending.atMs < arrival
+    }
+
+    internal fun canQueuePending(existing: Pending?, incomingKind: Pending.Kind): Boolean =
+        existing == null || (
+            incomingKind == Pending.Kind.EXIT_WORKSITE &&
+                existing.kind == Pending.Kind.AMBIGUOUS
+            )
 
     internal fun isQuickReturnToPoste(pending: Pending?, event: GpsEventV2): Boolean {
         if (pending?.kind != Pending.Kind.EXIT_WORKSITE) return false
         if (event.pointType != GpsPointTypeV2.POSTE || event.transition != GpsTransitionV2.ENTER) return false
         if (pending.placeId != event.placeId || event.atMs < pending.atMs) return false
         return event.atMs - pending.atMs <= RETURN_WINDOW_MS
+    }
+
+    internal fun canApplyQuickReturn(
+        pending: Pending?,
+        event: GpsEventV2,
+        current: WorkSessionV2?
+    ): Boolean {
+        if (current?.status != SessionStatusV2.OPEN || current.realExitMs != null) return false
+        val arrival = current.realArrivalMs ?: return false
+        if (pending == null || pending.atMs < arrival) return false
+        return isQuickReturnToPoste(pending, event)
     }
 
     fun pending(context: Context): Pending? {
@@ -123,8 +205,14 @@ object GpsWorkStateCoordinatorV2 {
         }
     }
 
-    fun confirmExit(context: Context, expectedEndMs: Long? = null): Boolean {
-        val pending = pending(context) ?: return false
+    fun confirmExit(
+        context: Context,
+        expectedPendingId: String,
+        expectedEndMs: Long? = null
+    ): Boolean {
+        val pending = pending(context)
+            ?.takeIf { matchesPendingId(it, expectedPendingId) }
+            ?: return false
         if (pending.kind != Pending.Kind.EXIT_WORKSITE) return false
         val ok = V2RuntimeStore.exit(context, pending.atMs, expectedEndMs)
         if (ok) clearPending(context)
@@ -137,8 +225,10 @@ object GpsWorkStateCoordinatorV2 {
      * Le statut payé/non payé est obligatoire : le GPS ne peut jamais l'inférer.
      * L'événement reste en attente si l'écriture runtime échoue.
      */
-    fun confirmPauseStart(context: Context, paid: Boolean): Boolean {
-        val pending = pending(context) ?: return false
+    fun confirmPauseStart(context: Context, expectedPendingId: String, paid: Boolean): Boolean {
+        val pending = pending(context)
+            ?.takeIf { matchesPendingId(it, expectedPendingId) }
+            ?: return false
         if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.ENTER) {
             return false
         }
@@ -161,8 +251,10 @@ object GpsWorkStateCoordinatorV2 {
      * Le statut payé mémorisé à l'ouverture reste la source canonique ; aucune nouvelle
      * classification n'est inventée à la fermeture.
      */
-    fun confirmPauseEnd(context: Context): Boolean {
-        val pending = pending(context) ?: return false
+    fun confirmPauseEnd(context: Context, expectedPendingId: String): Boolean {
+        val pending = pending(context)
+            ?.takeIf { matchesPendingId(it, expectedPendingId) }
+            ?: return false
         if (pending.kind != Pending.Kind.AMBIGUOUS || pending.transition != GpsTransitionV2.EXIT) {
             return false
         }
@@ -178,7 +270,15 @@ object GpsWorkStateCoordinatorV2 {
         return ok
     }
 
-    fun cancelPending(context: Context) = clearPending(context)
+    fun cancelPending(context: Context, expectedPendingId: String): Boolean {
+        val current = pending(context) ?: return false
+        if (!matchesPendingId(current, expectedPendingId)) return false
+        clearPending(context)
+        return true
+    }
+
+    internal fun matchesPendingId(pending: Pending?, expectedPendingId: String): Boolean =
+        pending != null && expectedPendingId.isNotBlank() && pending.id == expectedPendingId
 
     private fun savePending(context: Context, event: GpsEventV2, kind: Pending.Kind) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
