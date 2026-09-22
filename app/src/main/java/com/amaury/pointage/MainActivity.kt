@@ -127,7 +127,12 @@ class MainActivity : Activity() {
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
                 gpsSaveRequestId++
-                gpsPrefs.edit().remove("active_zones").apply()
+                gpsPrefs.edit()
+                    .remove("active_zones")
+                    .remove("entry_resolution_pending")
+                    .remove("entry_resolution_token")
+                    .remove("pending_exit_zones")
+                    .apply()
                 GeofenceManager.remove(this)
                 updateGpsStatus()
                 Toast.makeText(this, "Pointage automatique GPS désactivé", Toast.LENGTH_SHORT).show()
@@ -472,7 +477,9 @@ class MainActivity : Activity() {
                 }
 
                 gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
-                    .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString()).remove("active_zones").apply()
+                    .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString())
+                    .remove("active_zones").remove("entry_resolution_pending")
+                    .remove("entry_resolution_token").remove("pending_exit_zones").apply()
                 if (failedAddresses.isNotEmpty()) Toast.makeText(this, "${failedAddresses.size} adresse(s) n'ont pas pu être localisées.", Toast.LENGTH_LONG).show()
                 if (autoGpsSwitch.isChecked) {
                     if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
@@ -514,7 +521,9 @@ class MainActivity : Activity() {
     private fun disableAutomaticGps(message: String) {
         gpsSaveRequestId++
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
-        gpsPrefs.edit().putBoolean("enabled", false).remove("active_zones").apply()
+        gpsPrefs.edit().putBoolean("enabled", false)
+            .remove("active_zones").remove("entry_resolution_pending")
+            .remove("entry_resolution_token").remove("pending_exit_zones").apply()
         GeofenceManager.remove(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()

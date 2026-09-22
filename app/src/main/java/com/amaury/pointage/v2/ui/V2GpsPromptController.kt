@@ -29,9 +29,15 @@ object V2GpsPromptController {
                             "Ta réponse détermine si ce moment doit devenir une vraie fin de travail."
                     )
                     .setPositiveButton("OUI") { _, _ ->
-                        GpsWorkStateCoordinatorV2.confirmExit(activity, V2RuntimeStore.expectedEnd(activity))
+                        GpsWorkStateCoordinatorV2.confirmExit(
+                            activity,
+                            pending.id,
+                            V2RuntimeStore.expectedEnd(activity)
+                        )
                     }
-                    .setNegativeButton("NON") { _, _ -> GpsWorkStateCoordinatorV2.cancelPending(activity) }
+                    .setNegativeButton("NON") { _, _ ->
+                        GpsWorkStateCoordinatorV2.cancelPending(activity, pending.id)
+                    }
                     .setOnCancelListener {
                         GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                     }
@@ -50,7 +56,12 @@ object V2GpsPromptController {
                                 "Si c'est bien le début d'une pause, indique explicitement si elle est payée."
                         )
                         .setPositiveButton("PAUSE PAYÉE") { _, _ ->
-                            if (!GpsWorkStateCoordinatorV2.confirmPauseStart(activity, paid = true)) {
+                            if (!GpsWorkStateCoordinatorV2.confirmPauseStart(
+                                    activity,
+                                    pending.id,
+                                    paid = true
+                                )
+                            ) {
                                 GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                                 Toast.makeText(
                                     activity,
@@ -60,7 +71,12 @@ object V2GpsPromptController {
                             }
                         }
                         .setNegativeButton("PAUSE NON PAYÉE") { _, _ ->
-                            if (!GpsWorkStateCoordinatorV2.confirmPauseStart(activity, paid = false)) {
+                            if (!GpsWorkStateCoordinatorV2.confirmPauseStart(
+                                    activity,
+                                    pending.id,
+                                    paid = false
+                                )
+                            ) {
                                 GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                                 Toast.makeText(
                                     activity,
@@ -70,7 +86,7 @@ object V2GpsPromptController {
                             }
                         }
                         .setNeutralButton("PAS UNE PAUSE") { _, _ ->
-                            GpsWorkStateCoordinatorV2.cancelPending(activity)
+                            GpsWorkStateCoordinatorV2.cancelPending(activity, pending.id)
                         }
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
@@ -84,7 +100,7 @@ object V2GpsPromptController {
                             "HoraTrack a détecté ta sortie de cette zone. Confirme si ce déplacement correspond à la reprise du travail."
                         )
                         .setPositiveButton("OUI") { _, _ ->
-                            if (!GpsWorkStateCoordinatorV2.confirmPauseEnd(activity)) {
+                            if (!GpsWorkStateCoordinatorV2.confirmPauseEnd(activity, pending.id)) {
                                 GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)
                                 Toast.makeText(
                                     activity,
@@ -94,7 +110,7 @@ object V2GpsPromptController {
                             }
                         }
                         .setNegativeButton("NON") { _, _ ->
-                            GpsWorkStateCoordinatorV2.cancelPending(activity)
+                            GpsWorkStateCoordinatorV2.cancelPending(activity, pending.id)
                         }
                         .setOnCancelListener {
                             GpsWorkStateCoordinatorV2.allowPromptAgain(activity, pending)

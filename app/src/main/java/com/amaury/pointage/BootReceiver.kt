@@ -28,6 +28,9 @@ class BootReceiver : BroadcastReceiver() {
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)
                 .remove(KEY_RESTORE_STATUS)
                 .remove("active_zones")
+                .remove("entry_resolution_pending")
+                .remove("entry_resolution_token")
+                .remove("pending_exit_zones")
                 .apply()
             return
         }
@@ -42,6 +45,9 @@ class BootReceiver : BroadcastReceiver() {
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, true)
                 .putString(KEY_RESTORE_STATUS, "Autorisation GPS à réactiver")
                 .remove("active_zones")
+                .remove("entry_resolution_pending")
+                .remove("entry_resolution_token")
+                .remove("pending_exit_zones")
                 .apply()
             return
         }
@@ -50,6 +56,9 @@ class BootReceiver : BroadcastReceiver() {
             .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)
             .remove(KEY_RESTORE_STATUS)
             .remove("active_zones")
+            .remove("entry_resolution_pending")
+            .remove("entry_resolution_token")
+            .remove("pending_exit_zones")
             .apply()
 
         when (val stored = readPersistedGpsZones(prefs)) {
@@ -69,6 +78,9 @@ class BootReceiver : BroadcastReceiver() {
                 prefs.edit()
                     .putString(KEY_RESTORE_STATUS, "Configuration GPS invalide : reconfiguration nécessaire")
                     .remove("active_zones")
+                    .remove("entry_resolution_pending")
+                    .remove("entry_resolution_token")
+                    .remove("pending_exit_zones")
                     .apply()
             }
 

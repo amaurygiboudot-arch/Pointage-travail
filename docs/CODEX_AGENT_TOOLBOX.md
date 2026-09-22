@@ -93,3 +93,27 @@ Ne sont pas exposés :
 - déploiement.
 
 Toute extension future de ces permissions doit être explicitement validée avant fusion.
+
+
+## Codex Cloud — JDK 17
+
+Les tâches Codex Cloud doivent utiliser le script de configuration du dépôt :
+
+`bash scripts/codex-cloud-setup.sh`
+
+Ce script :
+- vérifie la présence réelle de JDK 17 ;
+- installe OpenJDK 17 sur les images Linux prises en charge si nécessaire ;
+- persiste `JAVA_HOME` et le `PATH` dans `~/.bashrc` avant son éventuel
+  garde-fou non interactif, ainsi que dans `~/.profile`, pour les shells de la
+  phase agent qui chargent l'un de ces fichiers ;
+- vérifie `./gradlew --version` ;
+- valide le câblage des agents avec `scripts/validate_codex_agents.py`.
+
+Le script est conçu pour être utilisé comme **setup script** de l'environnement Codex Cloud. Le setup s'exécute avant la phase agent.
+
+### iOS / macOS
+
+Le conteneur Codex Cloud Linux ne remplace pas le runner macOS. Les validations iOS restent exécutées par le workflow GitHub Actions `Build iOS`, sur un runner macOS avec Xcode.
+
+Une PR qui modifie `ios/**` ne doit pas être considérée prête tant que ce workflow n'est pas vert, même si les contrôles Android obligatoires sont déjà passés.

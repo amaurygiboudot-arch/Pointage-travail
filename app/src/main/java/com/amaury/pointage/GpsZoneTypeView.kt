@@ -104,7 +104,9 @@ class GpsZoneTypeView @JvmOverloads constructor(
                     }
                 }
                 if (changed) {
-                    prefs.edit().putString("zones", zones.toString()).remove("active_zones").apply()
+                    prefs.edit().putString("zones", zones.toString())
+                        .remove("active_zones").remove("entry_resolution_pending")
+                        .remove("entry_resolution_token").remove("pending_exit_zones").apply()
                     Toast.makeText(context, "Type GPS enregistré", Toast.LENGTH_SHORT).show()
                     rebuild()
                 }
