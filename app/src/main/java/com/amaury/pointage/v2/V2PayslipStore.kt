@@ -5,6 +5,8 @@ import android.net.Uri
 import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
+import com.amaury.pointage.V2SalaryNetBridgeV2
+import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
@@ -313,56 +315,85 @@ object V2PayslipStore {
 
  fun comparison(context:Context,record:Record):PayslipComparisonV2?{
   val source=readResult(context)
-  if(!source.reliable || source.records.none{it.id==record.id})return null
-  val stored=PayslipObservedValuesStoreV2.get(context,record.id).toMutableMap()
-  record.gross?.let{stored.putIfAbsent(PayslipDocumentParserV2.KEY_GROSS,it)}
+  val canonicalRecord=canonicalRecord(source,record.id)?:return null
+  val observedSource=PayslipObservedValuesStoreV2.readResult(context)
+  val stored=observedComparisonValues(observedSource,canonicalRecord)?.toMutableMap()?:return null
   if(stored.isEmpty())return null
 
-  if(record.companyId.isNotBlank()){
-   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),record.companyId)?:return null
+  if(canonicalRecord.companyId.isNotBlank()){
+   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),canonicalRecord.companyId)?:return null
    val prefs=SalaryCompanyStore.prefs(context,company.id)
    val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
    val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
-   val expected=runCatching{V2SalaryAdapter.calculateForCompany(context,company,record.year,record.month,convention)}.getOrNull()?:return null
-   if(!expected.monthlyGrossReliable)return null
-   if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null
-
-   val expectedValues=linkedMapOf<String,Double>()
-   expectedValues[PayslipDocumentParserV2.KEY_OVERTIME_GROSS]=expected.overtimeGross
-   expectedValues[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]=expected.premiumsGross
-   expected.mealBasketTotal?.let{expectedValues[PayslipDocumentParserV2.KEY_MEAL_BASKETS]=it}
-
-   val referenceDate=YearMonth.of(record.year,record.month+1).atEndOfMonth()
-   val overrides=CompanyPayrollOverridesV2.load(context,company.id,referenceDate)
-   val net=runCatching{
-    NetSalaryEngineV2.calculate(expected.monthlyEstimatedGross,record.year,overrides,expected.complementaryMinutes)
-   }.getOrNull()
-   net?.let{calculated->
-    NetSalaryReferencePolicyV2.socialGross(calculated)?.let{
-     expectedValues[PayslipDocumentParserV2.KEY_GROSS]=it
-    }
-    NetSalaryReferencePolicyV2.beforeIncomeTax(calculated)?.let{
-     expectedValues[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]=it
-    }
-    NetSalaryReferencePolicyV2.taxable(calculated)?.let{
-     expectedValues[PayslipDocumentParserV2.KEY_NET_TAXABLE]=it
-    }
-   }
-   overrides.mutualEmployeeAmount?.let{expectedValues[PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE]=it}
-   val providentExpected=overrides.providentEmployeeAmount ?: net?.conventionProvidentEmployee?.takeIf{it>0.0}
-   providentExpected?.let{expectedValues[PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE]=it}
+   val salaryNet=runCatching{
+    V2SalaryNetBridgeV2.calculateForCompany(
+     context=context,
+     company=company,
+     year=canonicalRecord.year,
+     month=canonicalRecord.month,
+     convention=convention
+    )
+   }.getOrNull()?:return null
+   val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
 
    // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
    // Elle n'est simplement pas transformée en anomalie tant qu'aucune valeur attendue sûre n'existe.
-   val comparableObserved=stored.filterKeys{it in expectedValues.keys}
-   if(comparableObserved.isEmpty())return null
-   val comparableExpected=expectedValues.filterKeys{it in comparableObserved.keys}
-   return PayslipEngineV2.compare(comparableExpected,comparableObserved,0.02)
+   return compareKnownPayslipValues(expectedValues,stored)
   }
 
   // Compatibilité des anciens bulletins sans entreprise stable : comparaison brut uniquement.
   val observedGross=stored[PayslipDocumentParserV2.KEY_GROSS]?:return null
-  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,record.year,record.month,rate,convention);if(!expected.monthlyGrossReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf(PayslipDocumentParserV2.KEY_GROSS to expected.monthlyEstimatedGross),mapOf(PayslipDocumentParserV2.KEY_GROSS to observedGross),0.02)
+  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,canonicalRecord.year,canonicalRecord.month,rate,convention);if(!expected.monthlyGrossReliable||!expected.paidTimeReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf(PayslipDocumentParserV2.KEY_GROSS to expected.monthlyEstimatedGross),mapOf(PayslipDocumentParserV2.KEY_GROSS to observedGross),0.02)
+ }
+
+ internal fun canonicalRecord(stored:ReadResult,recordId:String):Record?{
+  if(!stored.reliable||recordId.isBlank())return null
+  return stored.records.singleOrNull{it.id==recordId}
+ }
+
+ internal fun observedComparisonValues(
+  stored:PayslipObservedValuesStoreV2.ReadResult,
+  record:Record
+ ):Map<String,Double>?{
+  if(!stored.reliable)return null
+  return PayslipObservedValuesStoreV2.comparisonValues(stored,record.id).toMutableMap().apply{
+   if(record.confirmedByUser){
+    record.gross?.let{putIfAbsent(PayslipDocumentParserV2.KEY_GROSS,it)}
+   }
+  }
+ }
+
+ internal fun expectedCompanyComparisonValues(
+  salaryNet:V2SalaryNetBridgeV2.Result
+ ):Map<String,Double>?{
+  val salary=salaryNet.salary
+  if(!salary.monthlyGrossReliable||!salary.paidTimeReliable)return null
+  val presentation=V2SalaryNetPresentationV2.from(salaryNet)
+  val socialGross=NetSalaryReferencePolicyV2.socialGross(salaryNet.payroll)
+  return linkedMapOf<String,Double>().apply{
+   put(PayslipDocumentParserV2.KEY_OVERTIME_GROSS,salary.overtimeGross)
+   put(PayslipDocumentParserV2.KEY_PREMIUMS_GROSS,salary.premiumsGross)
+   salary.mealBasketTotal?.let{put(PayslipDocumentParserV2.KEY_MEAL_BASKETS,it)}
+   socialGross?.let{put(PayslipDocumentParserV2.KEY_GROSS,it)}
+   if(socialGross!=null&&presentation.state==V2SalaryNetPresentationV2.State.AVAILABLE){
+    presentation.primaryAmount?.let{put(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX,it)}
+    presentation.taxableAmount?.let{put(PayslipDocumentParserV2.KEY_NET_TAXABLE,it)}
+   }
+   salaryNet.mutualEmployeeAmount?.let{put(PayslipDocumentParserV2.KEY_MUTUAL_EMPLOYEE,it)}
+   val provident=salaryNet.providentEmployeeAmount
+    ?:salaryNet.payroll.conventionProvidentEmployee.takeIf{salaryNet.payroll.grossReliable&&it>0.0}
+   provident?.let{put(PayslipDocumentParserV2.KEY_PROVIDENT_EMPLOYEE,it)}
+  }
+ }
+
+ internal fun compareKnownPayslipValues(
+  expected:Map<String,Double>,
+  observed:Map<String,Double>
+ ):PayslipComparisonV2?{
+  val comparableObserved=observed.filterKeys{it in expected.keys}
+  if(comparableObserved.isEmpty())return null
+  val comparableExpected=expected.filterKeys{it in comparableObserved.keys}
+  return PayslipEngineV2.compare(comparableExpected,comparableObserved,0.02)
  }
 
  private fun saveRecords(context:Context,records:List<Record>):Boolean{
