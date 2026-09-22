@@ -23,6 +23,8 @@ COMMENT="$TMP/comment.md"
 
 python3 scripts/agent_router.py --base "$BASE_SHA" --head "$HEAD_SHA" --output "$ROUTE" --pretty >/dev/null
 
+export BASE_SHA HEAD_SHA
+
 PROMPT="$(cat scripts/agent-review-prompt.md)
 
 BASE_SHA=$BASE_SHA
