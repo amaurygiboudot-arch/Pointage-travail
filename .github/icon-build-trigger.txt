@@ -1,1 +1,2 @@
 Rebuild HoraTrack - Celeste final after PR #353 - 2026-09-22 CEST
+workmanager-startup-hotfix-2026-09-22
