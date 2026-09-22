@@ -143,6 +143,42 @@ class GpsZoneConfigStoreTest {
     }
 
     @Test
+    fun `un regeocodage conserve le type et les metadonnees existantes`() {
+        val refreshed = refreshedGpsZoneJson(
+            existing = org.json.JSONObject()
+                .put("id", "parking-a")
+                .put("pointType", "PARKING")
+                .put("companyId", "company-a")
+                .put("label", "Parking nord"),
+            id = "parking-a",
+            address = "2 rue Nouvelle",
+            latitude = 46.8,
+            longitude = -1.5,
+            radius = 220
+        )
+
+        assertEquals("PARKING", refreshed.getString("pointType"))
+        assertEquals("company-a", refreshed.getString("companyId"))
+        assertEquals("Parking nord", refreshed.getString("label"))
+        assertEquals("2 rue Nouvelle", refreshed.getString("address"))
+        assertEquals(220, refreshed.getInt("radius"))
+    }
+
+    @Test
+    fun `une nouvelle zone de travail recoit un type poste explicite`() {
+        val refreshed = refreshedGpsZoneJson(
+            existing = null,
+            id = "new-zone",
+            address = "1 rue Neuve",
+            latitude = 46.8,
+            longitude = -1.5,
+            radius = 150
+        )
+
+        assertEquals("POSTE", refreshed.getString("pointType"))
+    }
+
+    @Test
     fun `une configuration corrompue ne fournit jamais une liste editable vide`() {
         val result = parsePersistedGpsZones("{invalide}")
 

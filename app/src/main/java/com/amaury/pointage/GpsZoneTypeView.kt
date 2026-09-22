@@ -59,7 +59,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
                 text = "Configuration GPS illisible. Les types de lieux restent inchangés."
                 textSize = 13f
             })
-            GeofenceManager.removeRegisteredGeofences(context)
+            GeofenceManager.reconfigureStoredZones(context)
             return
         }
         if (zones.length() == 0) {
@@ -91,7 +91,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
             .setItems(labels) { _, which ->
                 val zones = readZones()
                 if (zones == null) {
-                    GeofenceManager.removeRegisteredGeofences(context)
+                    GeofenceManager.reconfigureStoredZones(context)
                     Toast.makeText(context, "Configuration GPS illisible : aucun type n'a été modifié", Toast.LENGTH_LONG).show()
                     return@setItems
                 }
@@ -104,10 +104,22 @@ class GpsZoneTypeView @JvmOverloads constructor(
                     }
                 }
                 if (changed) {
-                    prefs.edit().putString("zones", zones.toString())
+                    val saved = prefs.edit().putString("zones", zones.toString())
                         .remove("active_zones").remove("entry_resolution_pending")
-                        .remove("entry_resolution_token").remove("pending_exit_zones").apply()
-                    Toast.makeText(context, "Type GPS enregistré", Toast.LENGTH_SHORT).show()
+                        .remove("entry_resolution_token").remove("pending_exit_zones").commit()
+                    if (!saved) {
+                        Toast.makeText(context, "Impossible d'enregistrer le type GPS", Toast.LENGTH_LONG).show()
+                        return@setItems
+                    }
+                    GeofenceManager.reconfigureStoredZones(context) { success, message ->
+                        post {
+                            Toast.makeText(
+                                context,
+                                if (success) "Type GPS enregistré" else message,
+                                if (success) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                     rebuild()
                 }
             }

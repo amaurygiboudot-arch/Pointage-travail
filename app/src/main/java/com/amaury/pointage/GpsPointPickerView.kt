@@ -141,6 +141,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             .put("latitude", lat)
             .put("longitude", lon)
             .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+            .put("pointType", "POSTE")
             .put("pointSource", custom?.optString("source", "provisional") ?: "provisional")
     }
 
@@ -152,7 +153,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     private fun reapplyStoredOverrides() {
         val source = readPersistedGpsZones(prefs).toMutableJsonArrayOrNull()
         if (source == null) {
-            GeofenceManager.removeRegisteredGeofences(context)
+            GeofenceManager.reconfigureStoredZones(context)
             return
         }
         val custom = overrides()
@@ -188,6 +189,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("latitude", lat)
                     .put("longitude", lon)
                     .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+                    .put("pointType", "POSTE")
                     .put("pointSource", point.optString("source", "manual"))
             )
             changed = true
@@ -218,7 +220,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         val storedZones = zones()
         if (storedZones == null) {
-            GeofenceManager.removeRegisteredGeofences(context)
+            GeofenceManager.reconfigureStoredZones(context)
             return
         }
         val zone = findZone(pending, storedZones) ?: provisionalZone(pending)
@@ -237,7 +239,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         val list = zones()
         if (list == null) {
-            GeofenceManager.removeRegisteredGeofences(context)
+            GeofenceManager.reconfigureStoredZones(context)
             Toast.makeText(context, "Configuration GPS illisible : aucun point n'a été modifié", Toast.LENGTH_LONG).show()
             return
         }
@@ -483,7 +485,7 @@ class GpsPointPickerView @JvmOverloads constructor(
 
         val list = zones()
         if (list == null) {
-            GeofenceManager.removeRegisteredGeofences(context)
+            GeofenceManager.reconfigureStoredZones(context)
             Toast.makeText(context, "Configuration GPS illisible : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
             return
         }
@@ -499,6 +501,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                 item.put("radius", prefs.getInt("radius", item.optInt("radius", 150)).coerceIn(50, 1000))
                 item.put("pointSource", source)
                 if (item.optString("id").isBlank()) item.put("id", UUID.randomUUID().toString())
+                if (item.optString("pointType").isBlank()) item.put("pointType", "POSTE")
                 found = true
                 break
             }
@@ -511,6 +514,7 @@ class GpsPointPickerView @JvmOverloads constructor(
                     .put("latitude", latitude)
                     .put("longitude", longitude)
                     .put("radius", prefs.getInt("radius", 150).coerceIn(50, 1000))
+                    .put("pointType", "POSTE")
                     .put("pointSource", source)
             )
         }
@@ -536,19 +540,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     }
 
     private fun registerCurrentZones() {
-        if (!prefs.getBoolean("enabled", false)) return
-        if (!GeofenceManager.hasRequiredPermissions(context)) return
-        when (val stored = readPersistedGpsZones(prefs)) {
-            is GpsZonesReadResult.Valid -> {
-                if (stored.zones.isEmpty()) {
-                    GeofenceManager.removeRegisteredGeofences(context)
-                } else {
-                    GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() }) { _, _ -> }
-                }
-            }
-            GpsZonesReadResult.Missing,
-            is GpsZonesReadResult.Corrupt -> GeofenceManager.removeRegisteredGeofences(context)
-        }
+        GeofenceManager.reconfigureStoredZones(context)
     }
 
     /**

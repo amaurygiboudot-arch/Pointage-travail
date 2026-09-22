@@ -280,6 +280,16 @@ object GpsWorkStateCoordinatorV2 {
     internal fun matchesPendingId(pending: Pending?, expectedPendingId: String): Boolean =
         pending != null && expectedPendingId.isNotBlank() && pending.id == expectedPendingId
 
+    /**
+     * Une restauration ou une modification des zones invalide toute confirmation liée à
+     * l'ancienne configuration. L'effacement synchrone précède la réinscription des geofences.
+     */
+    fun clearForGpsConfigurationChange(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+
     private fun savePending(context: Context, event: GpsEventV2, kind: Pending.Kind) {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_PENDING_ID, event.id)

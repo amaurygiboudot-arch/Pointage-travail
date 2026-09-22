@@ -41,6 +41,25 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val triggeredIds = event.triggeringGeofences?.map { it.requestId }.orEmpty()
         if (triggeredIds.isEmpty()) return
 
+        val stored = readPersistedGpsZones(prefs)
+        val canonicalZones = (stored as? GpsZonesReadResult.Valid)?.zones
+        if (canonicalZones == null) {
+            // Absent/corrompu != vide. Aucun ancien geofence de la plateforme ne doit
+            // pouvoir fabriquer un événement métier à partir d'un état non prouvé.
+            finishAfterGpsReconciliation(context, configurationChanged = true)
+            return
+        }
+
+        if (!GeofenceManager.isStoredRegistrationCurrent(context)) {
+            // Le verrou d'empreinte protège aussi les zones candidates : une ancienne
+            // géométrie ne doit ni pointer ni alimenter un apprentissage de présence.
+            finishAfterGpsReconciliation(
+                context,
+                configurationChanged = canonicalZones.isEmpty()
+            )
+            return
+        }
+
         val candidateIds = triggeredIds.filter { SmartSetupManager.isCandidateZone(context, it) }
         val regularIds = triggeredIds.filterNot { it in candidateIds }
 
@@ -56,16 +75,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         if (regularIds.isEmpty()) return
 
-        val stored = readPersistedGpsZones(prefs)
-        val canonicalZones = (stored as? GpsZonesReadResult.Valid)?.zones
-        if (canonicalZones == null) {
-            // Absent/corrompu != vide. Aucun ancien geofence de la plateforme ne doit
-            // pouvoir fabriquer un événement métier à partir d'un état non prouvé.
-            clearZonePresenceState(prefs)
-            GeofenceManager.removeRegisteredGeofences(context)
-            return
-        }
-
         val zonesById = canonicalZones.associateBy { it.id }
         if (regularIds.any { it !in zonesById }) {
             // Un requestId inconnu est un geofence Android périmé, pas une zone de travail.
@@ -73,9 +82,9 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             // canonique actuelle afin que le stale geofence ne puisse plus se représenter.
             clearZonePresenceState(prefs)
             if (canonicalZones.isEmpty()) {
-                GeofenceManager.removeRegisteredGeofences(context)
+                finishAfterGpsReconciliation(context, configurationChanged = true)
             } else {
-                GeofenceManager.registerAll(context, canonicalZones.map { it.asWorkZone() })
+                finishAfterGpsReconciliation(context, configurationChanged = false)
             }
             return
         }
@@ -162,6 +171,16 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             }
         }
         updateWidgets(context)
+    }
+
+    private fun finishAfterGpsReconciliation(context: Context, configurationChanged: Boolean) {
+        val pendingResult = goAsync()
+        val callback: (Boolean, String) -> Unit = { _, _ -> pendingResult.finish() }
+        if (configurationChanged) {
+            GeofenceManager.reconfigureStoredZones(context, callback)
+        } else {
+            GeofenceManager.resyncStoredZones(context, callback)
+        }
     }
 
     private data class TriggeredZoneChoice(
