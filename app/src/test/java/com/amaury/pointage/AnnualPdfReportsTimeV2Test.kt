@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.engine.MonthlyPaidWorkScopeV2
 import com.amaury.pointage.v2.engine.TimeResultV2
 import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -107,6 +108,48 @@ class AnnualPdfReportsTimeV2Test {
     fun `un mois non fiable bloque le total annuel au lieu de creer un sous total`() {
         assertNull(resolveAnnualDurationTotalV2(listOf(10_000L, null, 12_000L)))
         assertEquals(22_000L, resolveAnnualDurationTotalV2(listOf(10_000L, 12_000L))!!)
+    }
+
+    @Test
+    fun `session a confirmer masque les heures payees du mois et le total annuel`() {
+        val toConfirm = session(
+            id = "to-confirm",
+            startMs = 10_000L,
+            endMs = 20_000L,
+            status = SessionStatusV2.TO_CONFIRM
+        )
+        val paidScope = MonthlyPaidWorkScopeV2.resolve(
+            sessions = listOf(toConfirm),
+            acceptedEmployerIds = setOf("company-a"),
+            rangeStartMs = 5_000L,
+            rangeEndMs = 25_000L,
+            nowMs = 25_000L
+        )
+        val timeResolution = resolveAnnualTimeV2(
+            results = listOf(time(10_000L, 10_000L, 0L, 0L)),
+            aggregateReliable = true
+        )
+
+        assertFalse(paidScope.reliable)
+        val paid = resolveAnnualPaidWorkV2(
+            paidWorkMs = timeResolution.paidWorkMs,
+            companyScoped = true,
+            paidTimeReliable = paidScope.reliable
+        )
+        assertNull(paid)
+        assertNull(resolveAnnualDurationTotalV2(listOf(12_000L, paid, 14_000L)))
+    }
+
+    @Test
+    fun `parcours sans entreprise conserve un temps paye fiable`() {
+        assertEquals(
+            10_000L,
+            resolveAnnualPaidWorkV2(
+                paidWorkMs = 10_000L,
+                companyScoped = false,
+                paidTimeReliable = null
+            )!!
+        )
     }
 
     @Test
