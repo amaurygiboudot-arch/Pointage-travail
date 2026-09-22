@@ -19,17 +19,21 @@ object V2SalaryNetPresentationV2 {
         val state: State,
         val primaryLabel: String,
         val primaryAmount: Double?,
+        val taxableAmount: Double?,
+        val incomeTaxAmount: Double?,
         val secondaryLabel: String?,
         val secondaryAmount: Double?,
         val detail: String
     )
 
     fun from(result: V2SalaryNetBridgeV2.Result): Result {
-        if (!result.salary.monthlyGrossReliable) {
+        if (!result.salary.monthlyGrossReliable || !result.salary.paidTimeReliable) {
             return Result(
                 state = State.UNRELIABLE_GROSS,
                 primaryLabel = "Net indisponible",
                 primaryAmount = null,
+                taxableAmount = null,
+                incomeTaxAmount = null,
                 secondaryLabel = null,
                 secondaryAmount = null,
                 detail = "Brut à confirmer : aucun net salarié n'est affiché."
@@ -41,6 +45,8 @@ object V2SalaryNetPresentationV2 {
                 state = State.INCOMPLETE,
                 primaryLabel = "Net incomplet",
                 primaryAmount = null,
+                taxableAmount = null,
+                incomeTaxAmount = null,
                 secondaryLabel = null,
                 secondaryAmount = null,
                 detail = "Cotisations ou paramètres de paie à confirmer : aucun net salarié final n'est affiché."
@@ -52,6 +58,8 @@ object V2SalaryNetPresentationV2 {
             state = State.AVAILABLE,
             primaryLabel = "Net avant impôt",
             primaryAmount = result.netBeforeIncomeTax,
+            taxableAmount = result.netTaxable,
+            incomeTaxAmount = result.incomeTax,
             secondaryLabel = afterTax?.let { "Net après impôt" },
             secondaryAmount = afterTax,
             detail = "Montants affichés uniquement à partir des données de paie confirmées."
