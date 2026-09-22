@@ -75,17 +75,7 @@ object WidgetVisualRenderer {
         val faceRadius = size * .40f
         val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { isFilterBitmap = true }
 
-        val faceRect = RectF(cx-faceRadius, cy-faceRadius, cx+faceRadius, cy+faceRadius)
-        val contrast = 1.20f
-        val translate = (-128f * contrast + 128f) + 4f
-        bitmapPaint.colorFilter = ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-            contrast,0f,0f,0f,translate,
-            0f,contrast,0f,0f,translate,
-            0f,0f,contrast,0f,translate,
-            0f,0f,0f,1f,0f
-        )))
-        c.drawBitmap(HpDesignAssets.clockFace, null, faceRect, bitmapPaint)
-        bitmapPaint.colorFilter = null
+        ClockDialRendererV2.draw(c, cx, cy, faceRadius)
 
         val now = Calendar.getInstance()
         val seconds = now.get(Calendar.SECOND) + now.get(Calendar.MILLISECOND) / 1000f
