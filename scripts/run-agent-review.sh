@@ -36,7 +36,7 @@ echo "=== Route agents ==="
 cat "$ROUTE"
 echo
 
-codex exec --full-auto   --output-schema scripts/agent-review.schema.json   -o "$REPORT"   "$PROMPT"
+codex exec --sandbox read-only   --output-schema scripts/agent-review.schema.json   -o "$REPORT"   "$PROMPT"
 
 python3 scripts/validate_agent_review.py   --route "$ROUTE"   --report "$REPORT"   --head "$HEAD_SHA"
 
