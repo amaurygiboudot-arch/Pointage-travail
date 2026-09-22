@@ -10,7 +10,6 @@ import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
-import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
@@ -276,12 +275,18 @@ object V2PayslipStore {
      ignoreAbsencesForTheoreticalBase=true
     )
     val net=runCatching{
-     NetSalaryEngineV2.calculate(contractualGross,ym.year,overrides,complementaryMinutes=0)
+     V2SalaryNetBridgeV2.projectKnownGross(
+      gross=contractualGross,
+      year=ym.year,
+      companyPayroll=overrides,
+      complementaryMinutes=0,
+      upstreamGrossReliable=true
+     )
     }.getOrNull()
     if(net==null){
      bridgeWarnings += "Base nette maladie : conversion brut/net impossible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
     }else{
-     val referenceNet=NetSalaryReferencePolicyV2.beforeIncomeTax(net)
+     val referenceNet=net.netBeforeIncomeTax
      if(referenceNet==null){
       bridgeWarnings += "Base nette maladie : net HoraTrack V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
      }else{
@@ -320,31 +325,29 @@ object V2PayslipStore {
   val stored=observedComparisonValues(observedSource,canonicalRecord)?.toMutableMap()?:return null
   if(stored.isEmpty())return null
 
-  if(canonicalRecord.companyId.isNotBlank()){
-   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),canonicalRecord.companyId)?:return null
-   val prefs=SalaryCompanyStore.prefs(context,company.id)
-   val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
-   val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
-   val salaryNet=runCatching{
-    V2SalaryNetBridgeV2.calculateForCompany(
-     context=context,
-     company=company,
-     year=canonicalRecord.year,
-     month=canonicalRecord.month,
-     convention=convention
-    )
-   }.getOrNull()?:return null
-   val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
+  val companyId=comparisonCompanyId(canonicalRecord)?:return null
+  val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
+  val prefs=SalaryCompanyStore.prefs(context,company.id)
+  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
+  val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
+  val salaryNet=runCatching{
+   V2SalaryNetBridgeV2.calculateForCompany(
+    context=context,
+    company=company,
+    year=canonicalRecord.year,
+    month=canonicalRecord.month,
+    convention=convention
+   )
+  }.getOrNull()?:return null
+  val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
 
-   // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
-   // Elle n'est simplement pas transformée en anomalie tant qu'aucune valeur attendue sûre n'existe.
-   return compareKnownPayslipValues(expectedValues,stored)
-  }
-
-  // Compatibilité des anciens bulletins sans entreprise stable : comparaison brut uniquement.
-  val observedGross=stored[PayslipDocumentParserV2.KEY_GROSS]?:return null
-  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,canonicalRecord.year,canonicalRecord.month,rate,convention);if(!expected.monthlyGrossReliable||!expected.paidTimeReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf(PayslipDocumentParserV2.KEY_GROSS to expected.monthlyEstimatedGross),mapOf(PayslipDocumentParserV2.KEY_GROSS to observedGross),0.02)
+  // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
+  // Elle n'est jamais comparée tant que le bulletin n'est pas rattaché à une entreprise V2 confirmée.
+  return compareKnownPayslipValues(expectedValues,stored)
  }
+
+ internal fun comparisonCompanyId(record:Record):String? =
+  record.companyId.trim().takeIf{it.isNotBlank()}
 
  internal fun canonicalRecord(stored:ReadResult,recordId:String):Record?{
   if(!stored.reliable||recordId.isBlank())return null
