@@ -203,3 +203,101 @@ jobs:
           ! grep -Fq '.update-files' "$manifest"
           ! grep -Fq 'UpdateDownloadReceiver' "$manifest"
           ! grep -Fq 'HpFirebaseMessagingService' "$manifest"
+
+  agent-review-gate:
+    name: Agent review gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Route PR to required agents
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          python3 scripts/agent_router.py             --base "$BASE_SHA"             --head "$HEAD_SHA"             --output .agent-route.json             --pretty
+          cat .agent-route.json
+
+      - name: Check existing agent review evidence
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" > .agent-comments.json
+          set +e
+          python3 scripts/validate_agent_review.py             --route .agent-route.json             --comments .agent-comments.json             --head "$HEAD_SHA"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Detect automatic Codex authentication
+        id: codex-auth
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -n "$OPENAI_API_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run required HoraTrack agents with Codex
+        id: codex-review
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          effort: high
+          output-schema-file: scripts/agent-review.schema.json
+          output-file: .agent-review.json
+          prompt: |
+            Read scripts/agent-review-prompt.md and follow it exactly.
+            This is a review-only task. Do not modify tracked files.
+            BASE_SHA=${{ github.event.pull_request.base.sha }}
+            HEAD_SHA=${{ github.event.pull_request.head.sha }}
+            Review only the diff BASE_SHA...HEAD_SHA and the context strictly required to assess it.
+            The final response must satisfy scripts/agent-review.schema.json.
+
+      - name: Validate automatic multi-agent report
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/validate_agent_review.py             --route .agent-route.json             --report .agent-review.json             --head "$HEAD_SHA"
+
+      - name: Publish automatic multi-agent report
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python3 scripts/format_agent_review_comment.py             --route .agent-route.json             --report .agent-review.json > .agent-review-comment.md
+          gh pr comment "$PR_NUMBER" --body-file .agent-review-comment.md
+
+      - name: Require authenticated agent review
+        if: steps.existing.outputs.valid != 'true' && steps.codex-auth.outputs.configured != 'true'
+        run: |
+          echo "::error::Aucune preuve multi-agents valide pour ce HEAD et OPENAI_API_KEY n'est pas configuré."
+          echo "::error::Dans le Codespace authentifié, exécuter: bash scripts/agent-toolbox.sh agent-review origin/main HEAD"
+          echo "::error::Puis relancer ce workflow. Un agent absent n'est jamais considéré PASS."
+          exit 1
+
