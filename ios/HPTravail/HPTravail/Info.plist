@@ -8,6 +8,8 @@
     <string>HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.</string>
+    <key>NSMotionUsageDescription</key>
+    <string>HP Travail utilise l'orientation de l'iPhone pour afficher le ciel dans la bonne direction.</string>
     <key>UILaunchScreen</key>
     <dict/>
 </dict>

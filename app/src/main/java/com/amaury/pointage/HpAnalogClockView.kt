@@ -3,21 +3,30 @@ package com.amaury.pointage
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
-import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
-import android.graphics.Shader
+import android.os.Handler
+import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
+import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
+import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import java.util.Calendar
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.roundToInt
 
-/** Horloge HP modulaire : cadran, aiguilles et Terre indépendants. */
+/**
+ * Horloge HP modulaire : cadran, aiguilles et Terre indépendants.
+ *
+ * La Terre centrale V2 est désormais un globe orthographique orienté par la
+ * position GPS : le point de l'utilisateur est placé au centre de la sphère.
+ */
 class HpAnalogClockView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -32,13 +41,27 @@ class HpAnalogClockView @JvmOverloads constructor(
         isFilterBitmap = true
         isDither = true
     }
-    private val earthShadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val earthGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
     private val faceBitmap: Bitmap by lazy { HpDesignAssets.clockFace }
     private val handBitmap: Bitmap by lazy { HpDesignAssets.hand }
     private val secondBitmap: Bitmap by lazy { HpDesignAssets.secondHand }
-    private val earthBitmap: Bitmap by lazy { EarthDesignAsset.bitmap }
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private val assetGeneration = AtomicLong(0L)
+    private val faceGeneration = AtomicLong(0L)
+    private var sharpHandBitmap: Bitmap? = null
+    private var sharpSecondBitmap: Bitmap? = null
+    private var sharpAssetsRequested = false
+    private val earthGlobeRenderer = EarthGlobeRendererV2 {
+        if (isAttachedToWindow) postInvalidateOnAnimation()
+    }
+
+    private var cachedFaceBitmap: Bitmap? = null
+    private var cachedFaceDiameter = 0
+    private var requestedFaceDiameter = 0
+
+    private var celestialSnapshot: CelestialSnapshotV2? = null
+    private var hostActivityVisible = false
+    private var trackerSubscribed = false
 
     init {
         setWillNotDraw(false)
@@ -47,13 +70,90 @@ class HpAnalogClockView @JvmOverloads constructor(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        maybeRequestSharpAssets()
+        updateTrackerSubscription()
+    }
+
+    /** Suspend aussi l'horloge quand la fenetre reste techniquement visible apres onPause. */
+    fun setHostActivityVisible(visible: Boolean) {
+        if (hostActivityVisible == visible) return
+        hostActivityVisible = visible
+        maybeRequestSharpAssets()
+        updateTrackerSubscription()
+        if (visible) {
+            invalidate()
+        } else {
+            celestialSnapshot = null
+            earthGlobeRenderer.clearCache()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        if (trackerSubscribed) {
+            CelestialTrackerV2.unsubscribe(this)
+            trackerSubscribed = false
+        }
+        earthGlobeRenderer.clearCache()
+        celestialSnapshot = null
+        assetGeneration.incrementAndGet()
+        faceGeneration.incrementAndGet()
+        sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
+        sharpSecondBitmap?.takeIf { it !== secondBitmap && !it.isRecycled }?.recycle()
+        sharpHandBitmap = null
+        sharpSecondBitmap = null
+        sharpAssetsRequested = false
+        cachedFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
+        cachedFaceBitmap = null
+        cachedFaceDiameter = 0
+        requestedFaceDiameter = 0
+        super.onDetachedFromWindow()
+    }
+
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (isAttachedToWindow) post {
+            maybeRequestSharpAssets()
+            updateTrackerSubscription()
+        }
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (isAttachedToWindow) post {
+            maybeRequestSharpAssets()
+            updateTrackerSubscription()
+        }
+    }
+
+    private fun updateTrackerSubscription() {
+        val shouldSubscribe = hostActivityVisible && isAttachedToWindow &&
+            alpha > 0f && isShown && windowVisibility == VISIBLE
+        if (shouldSubscribe && !trackerSubscribed) {
+            trackerSubscribed = true
+            CelestialTrackerV2.subscribe(context, this) { state ->
+                celestialSnapshot = state.snapshot
+                invalidate()
+            }
+        } else if (!shouldSubscribe && trackerSubscribed) {
+            CelestialTrackerV2.unsubscribe(this)
+            trackerSubscribed = false
+            celestialSnapshot = null
+        }
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (width <= 0 || height <= 0) return
+        if (alpha <= 0f || width <= 0 || height <= 0) return
 
         val cx = width * 0.50f
         val cy = height * 0.55f
-        val faceRadius = min(width, height) * 0.40f
+        val safeSpan = CelestialScreenGeometryV2.safeRenderSpan(
+            width.toDouble(),
+            height.toDouble()
+        ).toFloat()
+        val faceRadius = safeSpan * 0.40f
 
         drawFace(canvas, cx, cy, faceRadius)
 
@@ -62,20 +162,37 @@ class HpAnalogClockView @JvmOverloads constructor(
         val minutes = now.get(Calendar.MINUTE) + seconds / 60f
         val hours = (now.get(Calendar.HOUR) % 12) + minutes / 60f
 
-        drawHandPng(canvas, handBitmap, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
-        drawHandPng(canvas, handBitmap, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
-        drawHandPng(canvas, secondBitmap, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
+        // Même géométrie et mêmes PNG : seule leur résolution de travail est augmentée
+        // avant rotation afin d'éviter les marches d'escalier sur grand écran.
+        val renderedHand = sharpHandBitmap ?: handBitmap
+        val renderedSecond = sharpSecondBitmap ?: secondBitmap
+        drawHandPng(canvas, renderedHand, cx, cy, hours * 30f, faceRadius * 0.48f, 0.90f)
+        drawHandPng(canvas, renderedHand, cx, cy, minutes * 6f, faceRadius * 0.70f, 0.90f)
+        drawHandPng(canvas, renderedSecond, cx, cy, seconds * 6f, faceRadius * 0.78f, 0.88f)
 
-        drawEarthPng(canvas, earthBitmap, cx, cy, max(faceRadius * 0.16f, 13f))
+        val earthRadius = max(faceRadius * 0.16f, 13f)
+        drawEarthGlobe(canvas, cx, cy, earthRadius)
 
-        postInvalidateDelayed(50L)
+        // Les vues de compatibilité transparentes (alpha = 0) ne doivent pas
+        // entretenir une boucle de rendu à 20 FPS en arrière-plan.
+        if (hostActivityVisible && alpha > 0f && isShown && windowVisibility == VISIBLE) {
+            postInvalidateDelayed(50L)
+        }
     }
 
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+        val targetDiameter = max(2, (radius * 2f).roundToInt())
 
-        // Micro-contraste un peu plus marqué pour mieux détacher chiffres, graduations
-        // et contours sans changer le cadran d'origine ni sa géométrie.
+        if (cachedFaceBitmap == null || cachedFaceDiameter != targetDiameter) {
+            requestFaceScale(targetDiameter)
+        } else if (requestedFaceDiameter != targetDiameter) {
+            // Annule une ancienne taille encore en calcul : le bitmap deja en
+            // cache correspond exactement a la geometrie redevenue courante.
+            requestedFaceDiameter = targetDiameter
+            faceGeneration.incrementAndGet()
+        }
+
         val contrast = 1.20f
         val translate = (-128f * contrast + 128f) + 4f
         facePaint.colorFilter = ColorMatrixColorFilter(
@@ -89,11 +206,102 @@ class HpAnalogClockView @JvmOverloads constructor(
             )
         )
         facePaint.alpha = 255
-        canvas.drawBitmap(faceBitmap, null, rect, facePaint)
+        canvas.drawBitmap(cachedFaceBitmap ?: faceBitmap, null, rect, facePaint)
         facePaint.colorFilter = null
     }
 
-    private fun drawEarthPng(canvas: Canvas, bitmap: Bitmap, cx: Float, cy: Float, radius: Float) {
+    private fun requestSharpAssets() {
+        if (sharpAssetsRequested) return
+        sharpAssetsRequested = true
+        val generation = assetGeneration.incrementAndGet()
+        val handSource = handBitmap
+        val secondSource = secondBitmap
+        bitmapExecutor.execute {
+            val handResult = runCatching {
+                HighQualityBitmapScalerV2.upscale(handSource, factor = 4)
+            }.getOrNull()
+            val secondResult = runCatching {
+                HighQualityBitmapScalerV2.upscale(secondSource, factor = 4)
+            }.getOrNull()
+            uiHandler.post {
+                if (generation != assetGeneration.get() || !isAttachedToWindow) {
+                    handResult?.takeIf { it !== handSource && !it.isRecycled }?.recycle()
+                    secondResult?.takeIf { it !== secondSource && !it.isRecycled }?.recycle()
+                    return@post
+                }
+                sharpHandBitmap = handResult
+                sharpSecondBitmap = secondResult
+                invalidate()
+            }
+        }
+    }
+
+    private fun maybeRequestSharpAssets() {
+        if (!hostActivityVisible || !isAttachedToWindow || alpha <= 0f ||
+            !isShown || windowVisibility != VISIBLE
+        ) return
+        requestSharpAssets()
+    }
+
+    private fun requestFaceScale(targetDiameter: Int) {
+        if (requestedFaceDiameter == targetDiameter) return
+        requestedFaceDiameter = targetDiameter
+        val generation = faceGeneration.incrementAndGet()
+        val source = faceBitmap
+        bitmapExecutor.execute {
+            val result = runCatching {
+                HighQualityBitmapScalerV2.scale(source, targetDiameter, targetDiameter)
+            }.getOrNull()
+            uiHandler.post {
+                val stillWanted = generation == faceGeneration.get() &&
+                    requestedFaceDiameter == targetDiameter && isAttachedToWindow
+                if (!stillWanted) {
+                    result?.takeIf { it !== source && !it.isRecycled }?.recycle()
+                    return@post
+                }
+                if (result != null) {
+                    cachedFaceBitmap?.takeIf { it !== faceBitmap && !it.isRecycled }?.recycle()
+                    cachedFaceBitmap = result
+                    cachedFaceDiameter = targetDiameter
+                    invalidate()
+                }
+            }
+        }
+    }
+
+    /**
+     * Globe GPS V2.
+     *
+     * Quand une localisation qualifiée existe, sa latitude/longitude est la face
+     * avant du globe et le marqueur rouge est exactement au centre. Si aucune
+     * localisation fiable n'est disponible, on garde temporairement l'ancien
+     * symbole Terre plutôt que d'afficher un pays arbitraire comme position réelle.
+     */
+    private fun drawEarthGlobe(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        radius: Float
+    ) {
+        val rendered = earthGlobeRenderer.draw(
+            canvas = canvas,
+            cx = cx,
+            cy = cy,
+            radius = radius,
+            snapshot = celestialSnapshot
+        )
+        if (!rendered) {
+            drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
+        }
+    }
+
+    private fun drawFallbackEarthPng(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        cx: Float,
+        cy: Float,
+        radius: Float
+    ) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
         val aspect = bitmap.width.toFloat() / bitmap.height.toFloat()
@@ -107,46 +315,15 @@ class HpAnalogClockView @JvmOverloads constructor(
             dstWidth = diameter * aspect
         }
 
-        val rect = RectF(cx - dstWidth / 2f, cy - dstHeight / 2f, cx + dstWidth / 2f, cy + dstHeight / 2f)
-        bitmapPaint.alpha = 255
+        val rect = RectF(
+            cx - dstWidth / 2f,
+            cy - dstHeight / 2f,
+            cx + dstWidth / 2f,
+            cy + dstHeight / 2f
+        )
+        bitmapPaint.alpha = 190
         canvas.drawBitmap(bitmap, null, rect, bitmapPaint)
-
-        val dirX = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirX else 0f
-        val dirY = if (CelestialLightingState.hasSunDirection) CelestialLightingState.sunDirY else -1f
-        val visualRadius = max(dstWidth, dstHeight) * 0.5f
-
-        val sunSideX = cx + dirX * visualRadius
-        val sunSideY = cy + dirY * visualRadius
-        val nightSideX = cx - dirX * visualRadius
-        val nightSideY = cy - dirY * visualRadius
-
-        val earthClip = Path().apply { addOval(rect, Path.Direction.CW) }
-        canvas.save()
-        canvas.clipPath(earthClip)
-
-        earthShadePaint.shader = LinearGradient(
-            sunSideX, sunSideY, nightSideX, nightSideY,
-            intArrayOf(
-                Color.argb(0, 0, 0, 0),
-                Color.argb(35, 0, 0, 0),
-                Color.argb(185, 0, 0, 0)
-            ),
-            floatArrayOf(0f, 0.52f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(rect, earthShadePaint)
-
-        earthGlowPaint.shader = LinearGradient(
-            sunSideX, sunSideY, cx, cy,
-            intArrayOf(Color.argb(80, 255, 238, 188), Color.argb(0, 255, 238, 188)),
-            floatArrayOf(0f, 1f),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(rect, earthGlowPaint)
-
-        canvas.restore()
-        earthShadePaint.shader = null
-        earthGlowPaint.shader = null
+        bitmapPaint.alpha = 255
     }
 
     private fun drawHandPng(
@@ -177,5 +354,13 @@ class HpAnalogClockView @JvmOverloads constructor(
         bitmapPaint.alpha = 255
         canvas.drawBitmap(bitmap, null, dst, bitmapPaint)
         canvas.restore()
+    }
+
+    companion object {
+        private val bitmapExecutor: Executor = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "HoraTrack-ClockBitmaps").apply {
+                priority = Thread.NORM_PRIORITY - 1
+            }
+        }
     }
 }

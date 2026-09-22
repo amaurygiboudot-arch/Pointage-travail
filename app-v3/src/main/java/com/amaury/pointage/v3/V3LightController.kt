@@ -11,15 +11,19 @@ object V3LightController {
     private var manager: SensorManager? = null
     private var listener: SensorEventListener? = null
 
-    fun attach(activity: Activity, onAngle: (Float) -> Unit, onHeading: (Float) -> Unit = {}) {
+    /**
+     * Éclairage décoratif basé uniquement sur l'orientation de l'appareil.
+     *
+     * Ce contrôleur ne calcule aucune donnée astronomique. Le moteur Céleste
+     * canonique reste celui de l'application principale.
+     */
+    fun attach(activity: Activity, onAngle: (Float) -> Unit) {
         detach()
         val sm = activity.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return
         val rotation = FloatArray(9)
         val orientation = FloatArray(3)
         var smoothLight = -55f
-        var smoothHeading = 0f
-        var hasHeading = false
 
         val l = object : SensorEventListener {
             override fun onSensorChanged(event: SensorEvent) {
@@ -27,17 +31,12 @@ object V3LightController {
                 SensorManager.getOrientation(rotation, orientation)
 
                 val rawHeading = ((Math.toDegrees(orientation[0].toDouble()).toFloat() % 360f) + 360f) % 360f
-                if (!hasHeading) { smoothHeading = rawHeading; hasHeading = true }
-                val headingDelta = ((rawHeading - smoothHeading + 540f) % 360f) - 180f
-                smoothHeading = ((smoothHeading + headingDelta * .10f) % 360f + 360f) % 360f
-
                 val targetLight = ((-rawHeading - 55f) % 360f + 360f) % 360f
                 val lightDelta = ((targetLight - smoothLight + 540f) % 360f) - 180f
                 smoothLight = ((smoothLight + lightDelta * .12f) % 360f + 360f) % 360f
 
                 activity.runOnUiThread {
                     onAngle(smoothLight)
-                    onHeading(smoothHeading)
                 }
             }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit

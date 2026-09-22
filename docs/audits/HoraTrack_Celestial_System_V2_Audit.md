@@ -91,9 +91,12 @@ Le tracker :
 - préfère `TYPE_ROTATION_VECTOR` ;
 - utilise accéléromètre + magnétomètre en secours ;
 - stabilise l’azimut ;
-- rafraîchit le snapshot astronomique toutes les 30 secondes ;
+- rafraîchit le snapshot astronomique chaque seconde et ne relit les positions disponibles que toutes les 30 secondes ;
 - centralise la lecture de la dernière localisation connue ;
-- arrête les capteurs lorsqu’il n’y a plus d’abonné.
+- arrête les capteurs lorsqu'il n'y a plus d'abonné ;
+- reprend automatiquement l'acquisition après octroi de permission ;
+- bascule sur accéléromètre + magnétomètre si le capteur de rotation devient silencieux ou non fiable ;
+- n'effectue aucune lecture GPS synchrone depuis une méthode de dessin.
 
 ### ÉLEVÉ — qualité/fraîcheur GPS non contrôlée
 
@@ -103,7 +106,7 @@ L’ancien système utilisait n’importe quelle `lastKnownLocation()` disponibl
 
 - permission absente → `NO_PERMISSION` ;
 - aucune position → `UNAVAILABLE` ;
-- position de plus de 10 minutes → `STALE` ;
+- position de plus de 5 minutes → `STALE` ;
 - position sans précision connue ou précision > 2 km → `INACCURATE` ;
 - seule une position `VALID` peut produire un ciel réel.
 
@@ -116,10 +119,10 @@ Le système historique plaçait Soleil et Lune sur un anneau fixe : seul l’azi
 **Correction V2 terminée :** `CelestialScreenGeometryV2.projectOnWatchDome()` encode maintenant l’altitude réelle dans le rayon du cadran :
 
 - azimut réel → angle autour de la montre ;
-- horizon civil → bord externe du dôme ;
+- seuil standard du disque (-0,833°) → bord externe du dôme ;
 - astre montant → déplacement progressif vers le centre ;
 - zénith → rayon interne de 34 % du rayon d’horizon afin de préserver la Terre centrale et la lisibilité des aiguilles ;
-- astre sous l’horizon civil → aucun sprite affiché.
+- astre sous ce seuil apparent → aucun sprite affiché.
 
 Il s’agit volontairement d’un **compas céleste d’horloge**, pas d’un mode caméra/AR. Le rayon est comprimé près du zénith pour conserver le design de l’horloge, mais il est désormais monotone avec l’altitude réelle et le ciel sous l’horizon n’est plus représenté comme visible.
 
@@ -215,6 +218,12 @@ Références astronomiques utilisées pour choisir les cas astronomiques : U.S. 
 ## État actuel
 
 Le moteur astronomique, l’acquisition Android, la position altitude/azimut des astres et l’orientation physique de la lumière sur la Lune sont maintenant centralisés dans V2. La phase lunaire, la géométrie des éclipses et la qualité de la position ne reposent plus sur les approximations historiques.
+
+Le cycle de vie est désormais lié à la visibilité réelle de l'Activity et de
+l'Accueil : GPS, capteurs et boucles de rendu sont suspendus hors écran. Une
+action accessible permet de demander la localisation puis d'ouvrir les réglages
+après un refus permanent. Le prototype `app-v3` n'embarque plus de solveur
+astronomique concurrent ; l'application principale reste l'unique source Android.
 
 Avant de considérer le rendu principal définitivement validé, il reste une validation **sur appareil réel** : vérifier visuellement le déplacement radial Soleil/Lune sur une journée, le comportement près de l’horizon, la phase/ombre lunaire et le maintien de l’horloge canonique sur les différents onglets.
 
