@@ -48,6 +48,7 @@ class AnnualPdfReportsSalaryV2Test {
         val resolution = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = payroll(benefitsInKindReliable = false),
             socialGrossRequired = true,
@@ -63,6 +64,7 @@ class AnnualPdfReportsSalaryV2Test {
         val resolution = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = payroll(benefitsInKindReliable = true),
             socialGrossRequired = true,
@@ -78,6 +80,7 @@ class AnnualPdfReportsSalaryV2Test {
         val resolution = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
             socialGrossRequired = true,
@@ -93,6 +96,7 @@ class AnnualPdfReportsSalaryV2Test {
         val resolution = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
             socialGrossRequired = false,
@@ -101,5 +105,21 @@ class AnnualPdfReportsSalaryV2Test {
 
         assertEquals(2_500.0, resolution.amount!!, 0.001)
         assertEquals("OK", resolution.state)
+    }
+
+    @Test
+    fun `temps adapte non fiable masque aussi un brut social calculable`() {
+        val resolution = resolveAnnualSalaryGrossV2(
+            cashGross = 2_500.0,
+            cashGrossReliable = true,
+            paidTimeReliable = false,
+            salaryWarnings = emptyList(),
+            payroll = payroll(benefitsInKindReliable = true),
+            socialGrossRequired = true,
+            upstreamTimeReliable = true
+        )
+
+        assertNull(resolution.amount)
+        assertEquals("Temps payé à confirmer", resolution.state)
     }
 }

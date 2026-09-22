@@ -9,7 +9,6 @@ import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
-import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.WorkSessionRangeV2
 import com.amaury.pointage.v2.engine.TimeResultV2
@@ -21,7 +20,6 @@ import org.json.JSONArray
 import java.io.OutputStream
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
-import java.time.YearMonth
 import java.util.Calendar
 import java.util.Locale
 
@@ -33,12 +31,13 @@ internal data class AnnualSalaryGrossResolutionV2(
 internal fun resolveAnnualSalaryGrossV2(
     cashGross: Double,
     cashGrossReliable: Boolean,
+    paidTimeReliable: Boolean,
     salaryWarnings: List<String>,
     payroll: NetSalaryEngineV2.Result?,
     socialGrossRequired: Boolean,
     upstreamTimeReliable: Boolean
 ): AnnualSalaryGrossResolutionV2 {
-    if (!upstreamTimeReliable) {
+    if (!upstreamTimeReliable || !paidTimeReliable) {
         return AnnualSalaryGrossResolutionV2(null, "Temps payé à confirmer")
     }
     if (!cashGrossReliable) return AnnualSalaryGrossResolutionV2(null, "Brut à confirmer")
@@ -82,10 +81,19 @@ internal fun resolveAnnualTimeV2(
 
 internal fun resolveAnnualOvertimeV2(
     overtimeDurationsMs: List<Long>?,
-    salaryReliable: Boolean
+    monthlyGrossReliable: Boolean,
+    paidTimeReliable: Boolean,
+    upstreamTimeReliable: Boolean
 ): Long? = overtimeDurationsMs
-    ?.takeIf { salaryReliable }
+    ?.takeIf { monthlyGrossReliable && paidTimeReliable && upstreamTimeReliable }
     ?.sumOf { it.coerceAtLeast(0L) }
+
+internal fun resolveAnnualPaidWorkV2(
+    paidWorkMs: Long?,
+    companyScoped: Boolean,
+    paidTimeReliable: Boolean?
+): Long? = paidWorkMs
+    ?.takeIf { !companyScoped || paidTimeReliable == true }
 
 internal fun resolveAnnualDurationTotalV2(monthlyDurationsMs: List<Long?>): Long? =
     monthlyDurationsMs
@@ -447,47 +455,43 @@ object AnnualPdfReports {
                     !overlappingSessions &&
                     !unassignedEmployerSession
             )
-            val paid = timeResolution.paidWorkMs
 
-            val salary = when {
-                company != null && convention != null -> runCatching {
-                    V2SalaryAdapter.calculateForCompany(context, company, year, month, convention)
+            val salaryNet = if (company != null && convention != null) {
+                runCatching {
+                    V2SalaryNetBridgeV2.calculateForCompany(
+                        context = context,
+                        company = company,
+                        year = year,
+                        month = month,
+                        convention = convention
+                    )
                 }.getOrNull()
+            } else null
+            val salary = when {
+                company != null -> salaryNet?.salary
                 company == null && rate != null && rate > 0.0 && convention != null && legacyProfile?.contract != null -> runCatching {
                     V2SalaryAdapter.calculate(context, year, month, rate, convention)
                 }.getOrNull()
                 else -> null
             }
+            val paid = resolveAnnualPaidWorkV2(
+                paidWorkMs = timeResolution.paidWorkMs,
+                companyScoped = company != null,
+                paidTimeReliable = salary?.paidTimeReliable
+            )
             val overtime = resolveAnnualOvertimeV2(
                 overtimeDurationsMs = salary?.overtimeTiers?.map { it.durationMs },
-                salaryReliable = salary?.monthlyGrossReliable == true && timeResolution.reliable
+                monthlyGrossReliable = salary?.monthlyGrossReliable == true,
+                paidTimeReliable = salary?.paidTimeReliable == true,
+                upstreamTimeReliable = timeResolution.reliable
             )
-            val payroll = if (
-                salary != null &&
-                salary.monthlyGrossReliable &&
-                timeResolution.reliable &&
-                company != null
-            ) {
-                val overrides = CompanyPayrollOverridesV2.load(
-                    context,
-                    company.id,
-                    YearMonth.of(year, month + 1).atEndOfMonth()
-                )
-                runCatching {
-                    NetSalaryEngineV2.calculate(
-                        salary.monthlyEstimatedGross,
-                        year,
-                        overrides,
-                        salary.complementaryMinutes
-                    )
-                }.getOrNull()
-            } else null
             val grossResolution = salary?.let { reliable ->
                 resolveAnnualSalaryGrossV2(
                     cashGross = reliable.monthlyEstimatedGross,
                     cashGrossReliable = reliable.monthlyGrossReliable,
+                    paidTimeReliable = reliable.paidTimeReliable,
                     salaryWarnings = reliable.warnings,
-                    payroll = payroll,
+                    payroll = salaryNet?.payroll,
                     socialGrossRequired = company != null,
                     upstreamTimeReliable = timeResolution.reliable
                 )

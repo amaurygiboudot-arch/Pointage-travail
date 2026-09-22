@@ -1,5 +1,6 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.engine.MonthlyPaidWorkScopeV2
 import com.amaury.pointage.v2.engine.TimeResultV2
 import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -110,24 +111,98 @@ class AnnualPdfReportsTimeV2Test {
     }
 
     @Test
+    fun `session a confirmer masque les heures payees du mois et le total annuel`() {
+        val toConfirm = session(
+            id = "to-confirm",
+            startMs = 10_000L,
+            endMs = 20_000L,
+            status = SessionStatusV2.TO_CONFIRM
+        )
+        val paidScope = MonthlyPaidWorkScopeV2.resolve(
+            sessions = listOf(toConfirm),
+            acceptedEmployerIds = setOf("company-a"),
+            rangeStartMs = 5_000L,
+            rangeEndMs = 25_000L,
+            nowMs = 25_000L
+        )
+        val timeResolution = resolveAnnualTimeV2(
+            results = listOf(time(10_000L, 10_000L, 0L, 0L)),
+            aggregateReliable = true
+        )
+
+        assertFalse(paidScope.reliable)
+        val paid = resolveAnnualPaidWorkV2(
+            paidWorkMs = timeResolution.paidWorkMs,
+            companyScoped = true,
+            paidTimeReliable = paidScope.reliable
+        )
+        assertNull(paid)
+        assertNull(resolveAnnualDurationTotalV2(listOf(12_000L, paid, 14_000L)))
+    }
+
+    @Test
+    fun `parcours sans entreprise conserve un temps paye fiable`() {
+        assertEquals(
+            10_000L,
+            resolveAnnualPaidWorkV2(
+                paidWorkMs = 10_000L,
+                companyScoped = false,
+                paidTimeReliable = null
+            )!!
+        )
+    }
+
+    @Test
     fun `heures supplementaires fiables sont sommes`() {
         assertEquals(
             10_800_000L,
-            resolveAnnualOvertimeV2(listOf(3_600_000L, 7_200_000L), salaryReliable = true)!!
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L, 7_200_000L),
+                monthlyGrossReliable = true,
+                paidTimeReliable = true,
+                upstreamTimeReliable = true
+            )!!
         )
     }
 
     @Test
     fun `paliers techniques restent masques si le salaire nest pas fiable`() {
         assertNull(
-            resolveAnnualOvertimeV2(listOf(3_600_000L, 7_200_000L), salaryReliable = false)
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L, 7_200_000L),
+                monthlyGrossReliable = false,
+                paidTimeReliable = true,
+                upstreamTimeReliable = true
+            )
+        )
+    }
+
+    @Test
+    fun `temps adapte non fiable masque les heures supplementaires annuelles`() {
+        assertNull(
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L),
+                monthlyGrossReliable = true,
+                paidTimeReliable = false,
+                upstreamTimeReliable = true
+            )
         )
     }
 
     @Test
     fun `mois sans resultat salaire bloque le cumul annuel des heures supplementaires`() {
-        val reliableMonth = resolveAnnualOvertimeV2(listOf(3_600_000L), salaryReliable = true)
-        val missingSalaryMonth = resolveAnnualOvertimeV2(null, salaryReliable = false)
+        val reliableMonth = resolveAnnualOvertimeV2(
+            listOf(3_600_000L),
+            monthlyGrossReliable = true,
+            paidTimeReliable = true,
+            upstreamTimeReliable = true
+        )
+        val missingSalaryMonth = resolveAnnualOvertimeV2(
+            null,
+            monthlyGrossReliable = false,
+            paidTimeReliable = false,
+            upstreamTimeReliable = true
+        )
 
         assertNull(resolveAnnualDurationTotalV2(listOf(reliableMonth, missingSalaryMonth)))
     }
@@ -137,6 +212,7 @@ class AnnualPdfReportsTimeV2Test {
         val gross = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
             socialGrossRequired = false,
