@@ -12,6 +12,7 @@ expected = {
     "time_engine": "agents/time-engine.toml",
     "mobile_platforms": "agents/mobile-platforms.toml",
     "ui_ux": "agents/ui-ux.toml",
+    "celestial_system": "agents/celestial-system.toml",
     "team_lead": "agents/team-lead.toml",
     "qa_reviewer": "agents/qa-reviewer.toml",
     "control_gate": "agents/control-gate.toml",

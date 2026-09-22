@@ -28,6 +28,7 @@ Les commandes locales sont centralisées dans `scripts/agent-toolbox.sh`.
 | time_engine | oui | non par défaut | tests V2, code pointage/temps |
 | mobile_platforms | oui | oui | Android/iOS, Firebase, builds, CI |
 | ui_ux | oui | non par défaut | layouts, navigation, rendu |
+| celestial_system | oui | oui | astronomie, capteurs d’orientation, globe GPS, tests V2, builds Android/iOS, sources scientifiques |
 | team_lead | oui | non par défaut | diff, tests, builds, coordination |
 | qa_reviewer | non | non par défaut | lecture code, tests, rapports |
 | control_gate | non | non par défaut | PR, résultats CI, rapports QA |
@@ -51,6 +52,8 @@ Ce mode évite de dépendre du flux `codex mcp login github` lorsque le client i
 
 Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états CI sans leur donner de droits d'écriture.
 
+`celestial_system` l'utilise aussi pour relire l'historique du chantier céleste (notamment la PR #155 et ses audits) avant de modifier ou de reprendre une correction, afin de ne pas rejouer un travail déjà acquis.
+
 ## Services externes futurs
 
 À connecter seulement lorsqu'ils apportent une valeur réelle et avec permissions minimales :
@@ -63,6 +66,8 @@ Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états C
 - sources juridiques officielles par pays pour les équipes internationales.
 
 Un connecteur externe ne doit jamais recevoir plus de droits que nécessaire.
+
+Pour `celestial_system`, la recherche web live sert à vérifier les hypothèses scientifiques et les références astronomiques/géodésiques avec des sources reconnues et datées. Elle ne remplace jamais les tests numériques du moteur ni la validation réelle des capteurs sur appareil.
 
 
 ## Firebase MCP
