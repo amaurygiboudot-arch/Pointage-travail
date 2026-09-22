@@ -26,3 +26,9 @@
 # Réduire les informations utiles au reverse engineering dans les traces.
 -renamesourcefileattribute SourceFile
 -keepattributes *Annotation*
+
+# WorkManager ouvre sa base Room au démarrage via réflexion. En release minifiée,
+# le constructeur de WorkDatabase_Impl doit rester instanciable ; sinon
+# InitializationProvider fait planter l'application avant MainActivity.
+-keep class androidx.work.impl.WorkDatabase_Impl { *; }
+
