@@ -40,6 +40,7 @@ orchestration_files = [
     "scripts/validate_agent_review.py",
     "scripts/format_agent_review_comment.py",
     "scripts/run-agent-review.sh",
+    "scripts/test_agent_orchestration.py",
 ]
 for relative in orchestration_files:
     if not (root / relative).is_file():
