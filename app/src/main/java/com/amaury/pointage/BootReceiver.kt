@@ -12,6 +12,7 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED && intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) return
+        val pendingResult = goAsync()
 
         // Après un redémarrage ou une mise à jour, HoraTrack restaure uniquement
         // ses tâches de fond. Android reste maître de l'ouverture de l'interface :
@@ -24,14 +25,16 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("enabled", false)) {
-            prefs.edit()
+            val saved = prefs.edit()
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)
                 .remove(KEY_RESTORE_STATUS)
-                .remove("active_zones")
-                .remove("entry_resolution_pending")
-                .remove("entry_resolution_token")
-                .remove("pending_exit_zones")
-                .apply()
+                .commit()
+            if (!saved) {
+                GeofenceManager.removeRegisteredGeofences(context)
+                pendingResult.finish()
+                return
+            }
+            GeofenceManager.resyncStoredZones(context) { _, _ -> pendingResult.finish() }
             return
         }
 
@@ -41,65 +44,40 @@ class BootReceiver : BroadcastReceiver() {
             // et on mémorise pourquoi sa restauration est bloquée. À la prochaine
             // ouverture, l'écran GPS affiche déjà l'autorisation manquante et son bouton
             // permet de la réaccorder.
-            prefs.edit()
+            val saved = prefs.edit()
                 .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, true)
                 .putString(KEY_RESTORE_STATUS, "Autorisation GPS à réactiver")
-                .remove("active_zones")
-                .remove("entry_resolution_pending")
-                .remove("entry_resolution_token")
-                .remove("pending_exit_zones")
-                .apply()
+                .commit()
+            if (!saved) {
+                GeofenceManager.removeRegisteredGeofences(context)
+                pendingResult.finish()
+                return
+            }
+            GeofenceManager.resyncStoredZones(context) { _, message ->
+                prefs.edit().putString(KEY_RESTORE_STATUS, message).apply()
+                pendingResult.finish()
+            }
             return
         }
 
-        prefs.edit()
+        val saved = prefs.edit()
             .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, false)
             .remove(KEY_RESTORE_STATUS)
-            .remove("active_zones")
-            .remove("entry_resolution_pending")
-            .remove("entry_resolution_token")
-            .remove("pending_exit_zones")
-            .apply()
-
-        when (val stored = readPersistedGpsZones(prefs)) {
-            GpsZonesReadResult.Missing -> {
-                // Une absence réelle de configuration est valide, mais aucun ancien
-                // geofence Android ne doit survivre à cet état.
-                GeofenceManager.removeRegisteredGeofences(context)
-                prefs.edit()
-                    .putString(KEY_RESTORE_STATUS, "Aucune adresse GPS configurée")
-                    .apply()
-            }
-
-            is GpsZonesReadResult.Corrupt -> {
-                // Corrompu != vide : on retire les inscriptions Android potentiellement
-                // anciennes et on refuse toute restauration automatique.
-                GeofenceManager.removeRegisteredGeofences(context)
-                prefs.edit()
-                    .putString(KEY_RESTORE_STATUS, "Configuration GPS invalide : reconfiguration nécessaire")
-                    .remove("active_zones")
-                    .remove("entry_resolution_pending")
-                    .remove("entry_resolution_token")
-                    .remove("pending_exit_zones")
-                    .apply()
-            }
-
-            is GpsZonesReadResult.Valid -> {
-                if (stored.zones.isEmpty()) {
-                    GeofenceManager.removeRegisteredGeofences(context)
-                    prefs.edit()
-                        .putString(KEY_RESTORE_STATUS, "Aucune adresse GPS configurée")
-                        .apply()
-                    return
-                }
-
-                GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() }) { success, message ->
-                    prefs.edit()
-                        .putBoolean(KEY_RESTORE_NEEDS_PERMISSION, !success && !GeofenceManager.hasRequiredPermissions(context))
-                        .putString(KEY_RESTORE_STATUS, message)
-                        .apply()
-                }
-            }
+            .commit()
+        if (!saved) {
+            GeofenceManager.removeRegisteredGeofences(context)
+            pendingResult.finish()
+            return
+        }
+        GeofenceManager.resyncStoredZones(context) { success, message ->
+            prefs.edit()
+                .putBoolean(
+                    KEY_RESTORE_NEEDS_PERMISSION,
+                    !success && !GeofenceManager.hasRequiredPermissions(context)
+                )
+                .putString(KEY_RESTORE_STATUS, message)
+                .apply()
+            pendingResult.finish()
         }
     }
 }

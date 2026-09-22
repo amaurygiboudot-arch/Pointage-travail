@@ -224,7 +224,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         val gpsPrefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
                         val zones = readPersistedGpsZones(gpsPrefs).toMutableJsonArrayOrNull()
                         if (zones == null) {
-                            GeofenceManager.removeRegisteredGeofences(context)
+                            GeofenceManager.reconfigureStoredZones(context)
                             positiveButton.isEnabled = true
                             positiveButton.text = "Ajouter"
                             Toast.makeText(context, "Configuration GPS illisible : le lieu n'a pas été ajouté", Toast.LENGTH_LONG).show()
@@ -260,6 +260,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                                 .put("latitude", geocoded.latitude)
                                 .put("longitude", geocoded.longitude)
                                 .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
+                                .put("pointType", "POSTE")
                                 .put("pointSource", "geocoder")
                             selectedCompanyId?.let { zone.put("companyId", it) }
                             if (!useV2EmployerBinding && legacyCompanySlot != null) zone.put("companySlot", legacyCompanySlot)
@@ -277,6 +278,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             .putString("pending_point_address", formatted)
                         if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
                         editor.apply()
+                        GeofenceManager.reconfigureStoredZones(context)
 
                         if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -299,28 +301,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
     }
 }
 
-class SafeGpsSaveButton @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) : Button(context, attrs) {
-    override fun setOnClickListener(listener: View.OnClickListener?) {
-        super.setOnClickListener {
-            val enabledSwitch = rootView.findViewById<Switch>(R.id.autoGpsSwitch)
-            val addressList = rootView.findViewById<EditText>(R.id.workplaceAddress)
-            val radiusInput = rootView.findViewById<EditText>(R.id.geofenceRadius)
-            if (enabledSwitch?.isChecked == true && !GeofenceManager.hasRequiredPermissions(context)) {
-                val addresses = addressList?.text?.toString().orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinct().take(10)
-                if (addresses.isEmpty()) {
-                    Toast.makeText(context, "Ajoute au moins une adresse avec le bouton +", Toast.LENGTH_LONG).show()
-                    return@setOnClickListener
-                }
-                val radius = radiusInput?.text?.toString()?.toIntOrNull()?.coerceIn(50, 1000) ?: 150
-                context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE).edit()
-                    .putString("address", addresses.joinToString("\n"))
-                    .putInt("radius", radius)
-                    .putBoolean("enabled", true)
-                    .apply()
-                Toast.makeText(context, "Adresse enregistrée. Autorise maintenant la localisation pour activer le pointage automatique.", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            listener?.onClick(this)
-        }
-    }
-}
+class SafeGpsSaveButton @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : Button(context, attrs)

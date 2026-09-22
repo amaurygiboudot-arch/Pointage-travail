@@ -130,9 +130,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             .putBoolean("smart_setup_candidate_created", true)
             .apply()
 
-        if (gps.getBoolean("enabled", false) && GeofenceManager.hasRequiredPermissions(context)) {
-            registerStoredZones(context)
-        }
+        registerStoredZones(context)
     }
 
     fun isCandidateZone(context: Context, zoneId: String): Boolean {
@@ -228,6 +226,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val zone = zones.optJSONObject(i) ?: continue
             if (zone.optString("id") != zoneId) continue
             zone.put("smartCandidate", false)
+            zone.put("pointType", "POSTE")
             zone.put("pointSource", "smart_siret_confirmed")
             confirmedAddress = zone.optString("address")
             companySlot = zone.optInt("companySlot", 1).coerceIn(1, 2)
@@ -330,18 +329,7 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
     }
 
     private fun registerStoredZones(context: Context) {
-        val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        when (val stored = readPersistedGpsZones(gps)) {
-            is GpsZonesReadResult.Valid -> {
-                if (stored.zones.isEmpty()) {
-                    GeofenceManager.removeRegisteredGeofences(context)
-                } else {
-                    GeofenceManager.registerAll(context, stored.zones.map { it.asWorkZone() })
-                }
-            }
-            GpsZonesReadResult.Missing,
-            is GpsZonesReadResult.Corrupt -> GeofenceManager.removeRegisteredGeofences(context)
-        }
+        GeofenceManager.reconfigureStoredZones(context)
     }
 
     private fun learnPausesAsync(context: Context) {

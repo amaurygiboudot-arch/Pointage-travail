@@ -152,3 +152,24 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
 
     return GpsZonesReadResult.Valid(zones)
 }
+
+/** Met à jour la géométrie sans perdre le type, l'entreprise ou les métadonnées existantes. */
+internal fun refreshedGpsZoneJson(
+    existing: JSONObject?,
+    id: String,
+    address: String,
+    latitude: Double,
+    longitude: Double,
+    radius: Int
+): JSONObject {
+    val zone = existing?.let { JSONObject(it.toString()) } ?: JSONObject()
+    zone.put("id", id)
+        .put("address", address)
+        .put("latitude", latitude)
+        .put("longitude", longitude)
+        .put("radius", radius)
+    if (listOf("pointType", "zoneType", "type").none { zone.optString(it).isNotBlank() }) {
+        zone.put("pointType", "POSTE")
+    }
+    return zone
+}
