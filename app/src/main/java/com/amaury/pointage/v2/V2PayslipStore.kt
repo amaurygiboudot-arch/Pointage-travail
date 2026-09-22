@@ -10,7 +10,6 @@ import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionSicknessMaintenanceV2
-import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayslipComparisonV2
 import com.amaury.pointage.v2.engine.PayslipDocumentParserV2
 import com.amaury.pointage.v2.engine.PayslipEngineV2
@@ -276,12 +275,18 @@ object V2PayslipStore {
      ignoreAbsencesForTheoreticalBase=true
     )
     val net=runCatching{
-     NetSalaryEngineV2.calculate(contractualGross,ym.year,overrides,complementaryMinutes=0)
+     V2SalaryNetBridgeV2.projectKnownGross(
+      gross=contractualGross,
+      year=ym.year,
+      companyPayroll=overrides,
+      complementaryMinutes=0,
+      upstreamGrossReliable=true
+     )
     }.getOrNull()
     if(net==null){
      bridgeWarnings += "Base nette maladie : conversion brut/net impossible pour ${"%02d/%04d".format(ym.monthValue,ym.year)}."
     }else{
-     val referenceNet=NetSalaryReferencePolicyV2.beforeIncomeTax(net)
+     val referenceNet=net.netBeforeIncomeTax
      if(referenceNet==null){
       bridgeWarnings += "Base nette maladie : net HoraTrack V2 encore incomplet pour ${"%02d/%04d".format(ym.monthValue,ym.year)} ; aucune valeur partielle n'est utilisée comme référence."
      }else{
