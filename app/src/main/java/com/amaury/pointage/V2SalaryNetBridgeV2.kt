@@ -59,6 +59,25 @@ object V2SalaryNetBridgeV2 {
     }
 
     /**
+     * Point d'entrée canonique pour toute projection brut -> net déjà munie d'un brut final fiable.
+     * Sert aussi aux bases théoriques ciblées (par exemple maladie) qui ne doivent pas réinjecter
+     * les variables du pointage mais doivent conserver exactement les mêmes règles fail-closed.
+     */
+    internal fun projectKnownGross(
+        gross: Double,
+        year: Int,
+        companyPayroll: CompanyPayrollOverridesV2.Snapshot,
+        complementaryMinutes: Int? = 0,
+        upstreamGrossReliable: Boolean = true
+    ): EmployeeNetProjectionV2.Result = EmployeeNetProjectionV2.calculate(
+        gross = gross,
+        year = year,
+        company = companyPayroll,
+        complementaryMinutes = complementaryMinutes,
+        upstreamGrossReliable = upstreamGrossReliable
+    )
+
+    /**
      * Fonction pure testable : le moteur net reçoit toujours le brut FINAL de l'adapter, donc après
      * les ajustements déjà intégrés à `monthlyEstimatedGross` (primes, ancienneté, règles applicables).
      */
@@ -67,10 +86,10 @@ object V2SalaryNetBridgeV2 {
         year: Int,
         companyPayroll: CompanyPayrollOverridesV2.Snapshot
     ): Result {
-        val net = EmployeeNetProjectionV2.calculate(
+        val net = projectKnownGross(
             gross = salary.monthlyEstimatedGross,
             year = year,
-            company = companyPayroll,
+            companyPayroll = companyPayroll,
             complementaryMinutes = salary.complementaryMinutes,
             upstreamGrossReliable = salary.monthlyGrossReliable && salary.paidTimeReliable
         )
