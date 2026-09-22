@@ -80,6 +80,7 @@ run_ios_tests() {
 
 run_codex_config() {
   python3 scripts/validate_codex_agents.py
+  python3 scripts/test_agent_orchestration.py
 }
 
 case "${1:-}" in
