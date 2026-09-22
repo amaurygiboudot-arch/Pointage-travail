@@ -81,11 +81,30 @@ Pour une modification sensible :
 
 Le chef d'orchestre attend les résultats nécessaires avant de conclure.
 
+### PREUVE D'EXÉCUTION DES AGENTS
+
+Un rôle déclaré dans `.codex/config.toml` n'est jamais considéré comme exécuté par simple présence de son fichier.
+
+Pour toute PR produit :
+- `scripts/agent_router.py` détermine automatiquement les spécialistes requis depuis le diff ;
+- chaque spécialiste requis doit avoir une revue réelle au statut PASS ;
+- `team_lead`, puis `qa_reviewer`, puis `control_gate` doivent être exécutés dans cet ordre ;
+- la revue doit produire un rapport conforme à `scripts/agent-review.schema.json` et lié au SHA exact de la PR ;
+- un spécialiste `NOT_RUN`, un FAIL, une anomalie bloquante, ou une fusion non autorisée par `control_gate` interdit de considérer le lot validé ;
+- une nouvelle modification du HEAD rend automatiquement obsolète le rapport précédent.
+
+Commande de référence dans un Codespace authentifié :
+`bash scripts/agent-toolbox.sh agent-review origin/main HEAD`.
+
+GitHub peut exécuter la même orchestration avec l'action Codex officielle lorsqu'un secret `OPENAI_API_KEY` est configuré. Sans authentification automatique, le gate exige un rapport publié par la commande Codespace ; il ne simule jamais une exécution d'agent.
+
 ## ATELIER / OUTILLAGE
 
 Les agents techniques utilisent en priorité les commandes communes du dépôt afin d'exécuter les mêmes contrôles que la CI :
 
 - `bash scripts/agent-toolbox.sh codex-config` : valide le câblage des agents ;
+- `bash scripts/agent-toolbox.sh agent-route --base origin/main --head HEAD --pretty` : détermine les spécialistes requis ;
+- `bash scripts/agent-toolbox.sh agent-review origin/main HEAD` : exécute la chaîne multi-agents et publie la preuve sur la PR ;
 - `bash scripts/agent-toolbox.sh v2-tests` : tests unitaires Android V2 ;
 - `bash scripts/agent-toolbox.sh android-build` : compilation Android debug ;
 - `bash scripts/agent-toolbox.sh play-build` : compilation APK + AAB Google Play ;

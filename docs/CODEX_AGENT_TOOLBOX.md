@@ -11,6 +11,8 @@ Les commandes locales sont centralisées dans `scripts/agent-toolbox.sh`.
 | Commande | Usage |
 | --- | --- |
 | `bash scripts/agent-toolbox.sh codex-config` | Valider le câblage des agents |
+| `bash scripts/agent-toolbox.sh agent-route --base origin/main --head HEAD --pretty` | Router le diff vers les spécialistes requis |
+| `bash scripts/agent-toolbox.sh agent-review origin/main HEAD` | Exécuter spécialiste(s) → team_lead → QA → control_gate et publier le rapport PR |
 | `bash scripts/agent-toolbox.sh v2-tests` | Tests unitaires Android V2 |
 | `bash scripts/agent-toolbox.sh android-build` | Build Android debug |
 | `bash scripts/agent-toolbox.sh play-build` | APK + AAB Google Play |
@@ -19,6 +21,21 @@ Les commandes locales sont centralisées dans `scripts/agent-toolbox.sh`.
 | `bash scripts/agent-toolbox.sh ios-build` | Build iOS simulateur sur macOS |
 | `bash scripts/agent-toolbox.sh ios-tests` | Tests Swift sur macOS |
 | `bash scripts/agent-toolbox.sh technical` | Contrôle technique standard |
+
+## Orchestration vérifiable
+
+Le routeur `scripts/agent_router.py` inspecte les fichiers modifiés et sélectionne les spécialistes pertinents. Une PR Céleste qui touche par exemple le globe, une View et du lifecycle Android peut donc requérir simultanément `celestial_system`, `ui_ux`, `mobile_platforms` et `performance_battery`.
+
+La commande `agent-review` lance une session Codex non interactive, exige les sous-agents nommés, puis impose `team_lead → qa_reviewer → control_gate`. Le résultat est structuré par `scripts/agent-review.schema.json`, contrôlé par `scripts/validate_agent_review.py` et publié sur la PR avec le SHA du HEAD.
+
+Un rapport d'un ancien commit n'est jamais réutilisé après une nouvelle modification.
+
+En CI, le job `Agent review gate` :
+- réutilise un rapport PR valide s'il existe déjà pour le HEAD courant ;
+- sinon lance l'action officielle `openai/codex-action` si `OPENAI_API_KEY` est disponible ;
+- sinon échoue explicitement et demande l'exécution de `agent-review` dans le Codespace authentifié.
+
+Cette stratégie est volontairement fail-closed : un agent non exécuté reste `NOT_RUN`, jamais PASS.
 
 ## Répartition des outils
 

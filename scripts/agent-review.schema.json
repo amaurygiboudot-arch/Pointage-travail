@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "head_sha",
+    "required_specialists",
+    "specialist_reviews",
+    "team_lead",
+    "qa_reviewer",
+    "control_gate",
+    "tests",
+    "blocking_issues"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "head_sha": { "type": "string", "minLength": 7 },
+    "required_specialists": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "specialist_reviews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/review" }
+    },
+    "team_lead": { "$ref": "#/$defs/review" },
+    "qa_reviewer": { "$ref": "#/$defs/review" },
+    "control_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "decision", "fusion_authorisee", "summary"],
+      "properties": {
+        "agent": { "const": "control_gate" },
+        "decision": { "enum": ["PASS", "FAIL"] },
+        "fusion_authorisee": { "type": "boolean" },
+        "summary": { "type": "string" }
+      }
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "status", "details"],
+        "properties": {
+          "name": { "type": "string" },
+          "status": { "enum": ["PASS", "FAIL", "EXTERNAL", "NOT_RUN"] },
+          "details": { "type": "string" }
+        }
+      }
+    },
+    "blocking_issues": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "status", "summary"],
+      "properties": {
+        "agent": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "summary": { "type": "string" }
+      }
+    }
+  }
+}
