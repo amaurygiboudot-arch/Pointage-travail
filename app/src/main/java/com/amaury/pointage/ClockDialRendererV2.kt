@@ -54,6 +54,7 @@ object ClockDialRendererV2 {
         isDither = true
     }
 
+    @Synchronized
     fun draw(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         if (radius <= 2f) return
 
