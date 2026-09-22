@@ -9,6 +9,7 @@ object BackupSecurityPolicy {
         "app_check_status",
         "drive_backup",
         "firebase_device_registry",
+        "horatrack_v2_gps_state",
         "pointage",
         "recovery_state",
         "update_download",

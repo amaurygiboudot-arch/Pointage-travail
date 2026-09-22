@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.DriveBackupManager
+import com.amaury.pointage.GpsPresenceStateKeysV2
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -63,6 +64,7 @@ object V2BackupManager {
             saved
         }
         val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
+        clearEphemeralGpsPresenceState(context)
         var restored=0;var merged=0
         savedNames.forEach{name->
             val saved=payloads.getValue(name)
@@ -126,13 +128,15 @@ object V2BackupManager {
         return !hasRuntime&&!hasLegacy&&salary.all.isEmpty()&&salaryV2.all.isEmpty()
     }
     private fun configuredBackupUri(context:Context):Uri? = DriveBackupManager.withStorageAccess { val tree=DriveBackupManager.savedTreeUri(context)?:return@withStorageAccess null;val root=treeRootDocumentUri(tree);val folder=findChild(context,root,ROOT_FOLDER,DocumentsContract.Document.MIME_TYPE_DIR)?:return@withStorageAccess null;findChild(context,folder,FILE_NAME,"application/json")?:findChild(context,folder,LEGACY_FILE_NAME,"application/json") }
-    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
+    private fun encodePreferences(context:Context,name:String):JSONObject { val out=JSONObject();context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).all.forEach{(k,v)->if(GpsPresenceStateKeysV2.isTransferablePreferenceKey(name,k))when(v){is String->out.put(k,JSONObject().put("t","s").put("v",v));is Boolean->out.put(k,JSONObject().put("t","b").put("v",v));is Int->out.put(k,JSONObject().put("t","i").put("v",v));is Long->out.put(k,JSONObject().put("t","l").put("v",v));is Float->out.put(k,JSONObject().put("t","f").put("v",v.toDouble()));is Set<*>->out.put(k,JSONObject().put("t","set").put("v",JSONArray(v.filterIsInstance<String>())))}};return out }
     private fun mergePreferences(context:Context,name:String,saved:JSONObject){
         require(isValidTypedPreferencePayload(saved)){"Préférences $name invalides"}
         val editor=context.applicationContext.getSharedPreferences(name,Context.MODE_PRIVATE).edit()
+        if(name=="gps_settings")GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach{editor.remove(it)}
         val keys=saved.keys()
         while(keys.hasNext()){
             val key=keys.next();val item=saved.getJSONObject(key);val value=item.get("v")
+            if(!GpsPresenceStateKeysV2.isTransferablePreferenceKey(name,key))continue
             when(item.getString("t")){
                 "s"->editor.putString(key,value as String)
                 "b"->editor.putBoolean(key,value as Boolean)
@@ -143,6 +147,14 @@ object V2BackupManager {
             }
         }
         check(editor.commit()){ "Échec d'écriture de $name" }
+    }
+
+    private fun clearEphemeralGpsPresenceState(context: Context) {
+        val editor = context.applicationContext
+            .getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+            .edit()
+        GpsPresenceStateKeysV2.EPHEMERAL_KEYS.forEach { editor.remove(it) }
+        check(editor.commit()) { "Impossible de réinitialiser l'état de présence GPS" }
     }
 
     internal fun isValidTypedPreferencePayload(saved:JSONObject):Boolean {

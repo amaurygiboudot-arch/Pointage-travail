@@ -195,7 +195,9 @@ class GpsPointPickerView @JvmOverloads constructor(
 
         if (changed) {
             applyingOverride = true
-            prefs.edit().putString("zones", source.toString()).remove("active_zones").apply()
+            prefs.edit().putString("zones", source.toString())
+                .remove("active_zones").remove("entry_resolution_pending")
+                .remove("entry_resolution_token").remove("pending_exit_zones").apply()
             applyingOverride = false
             registerCurrentZones()
         }
@@ -518,6 +520,9 @@ class GpsPointPickerView @JvmOverloads constructor(
             .putString("zone_point_overrides", custom.toString())
             .putString("zones", list.toString())
             .remove("active_zones")
+            .remove("entry_resolution_pending")
+            .remove("entry_resolution_token")
+            .remove("pending_exit_zones")
             .apply()
         applyingOverride = false
         markConfirmed(address)
