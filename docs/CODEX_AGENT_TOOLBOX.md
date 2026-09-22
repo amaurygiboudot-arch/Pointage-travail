@@ -28,6 +28,11 @@ Les commandes locales sont centralisées dans `scripts/agent-toolbox.sh`.
 | time_engine | oui | non par défaut | tests V2, code pointage/temps |
 | mobile_platforms | oui | oui | Android/iOS, Firebase, builds, CI |
 | ui_ux | oui | non par défaut | layouts, navigation, rendu |
+| celestial_system | oui | oui | astronomie, capteurs d’orientation, globe GPS, tests V2, builds Android/iOS, sources scientifiques |
+| security_privacy | oui | oui | auth, stockage sensible, règles Firebase en lecture, dépendances, réseau, permissions, CodeQL/CI |
+| performance_battery | oui | oui | profilage, batterie, mémoire, réseau, GPS/capteurs, background, builds/tests |
+| release_store | oui | oui | versioning, APK/AAB, iOS, manifests, politiques stores, rollout/rollback sans publication autonome |
+| analytics_data | oui | oui | schémas d’événements, métriques, Crashlytics en lecture, qualité/minimisation des données |
 | team_lead | oui | non par défaut | diff, tests, builds, coordination |
 | qa_reviewer | non | non par défaut | lecture code, tests, rapports |
 | control_gate | non | non par défaut | PR, résultats CI, rapports QA |
@@ -51,6 +56,10 @@ Ce mode évite de dépendre du flux `codex mcp login github` lorsque le client i
 
 Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états CI sans leur donner de droits d'écriture.
 
+`celestial_system` l'utilise aussi pour relire l'historique du chantier céleste (notamment la PR #155 et ses audits) avant de modifier ou de reprendre une correction, afin de ne pas rejouer un travail déjà acquis.
+
+`security_privacy`, `performance_battery`, `release_store` et `analytics_data` utilisent GitHub MCP en lecture seule pour inspecter PR, historiques, CI et incidents techniques. Les mutations GitHub restent pilotées par le chef d'orchestre.
+
 ## Services externes futurs
 
 À connecter seulement lorsqu'ils apportent une valeur réelle et avec permissions minimales :
@@ -63,6 +72,14 @@ Le GitHub MCP permet aux agents de contrôle de consulter PR, issues et états C
 - sources juridiques officielles par pays pour les équipes internationales.
 
 Un connecteur externe ne doit jamais recevoir plus de droits que nécessaire.
+
+Les quatre nouveaux agents ne reçoivent aucun connecteur externe en écriture par défaut :
+- security_privacy peut consulter GitHub/Firebase en diagnostic et les sources officielles de sécurité ;
+- performance_battery travaille d'abord avec code, tests, mesures et documentation plateforme ;
+- release_store prépare les artefacts et vérifications mais ne publie ni sur Google Play ni sur l'App Store sans autorisation humaine explicite ;
+- analytics_data peut concevoir et auditer l'instrumentation, mais aucun accès à un fournisseur analytics réel n'est ajouté tant qu'il n'est pas nécessaire et explicitement autorisé.
+
+Pour `celestial_system`, la recherche web live sert à vérifier les hypothèses scientifiques et les références astronomiques/géodésiques avec des sources reconnues et datées. Elle ne remplace jamais les tests numériques du moteur ni la validation réelle des capteurs sur appareil.
 
 
 ## Firebase MCP

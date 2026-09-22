@@ -10,6 +10,11 @@ Agents disponibles :
 - time_engine
 - mobile_platforms
 - ui_ux
+- celestial_system
+- security_privacy
+- performance_battery
+- release_store
+- analytics_data
 - team_lead
 - qa_reviewer
 - control_gate
@@ -93,7 +98,7 @@ Les agents techniques utilisent en priorité les commandes communes du dépôt a
 Règles d'outillage :
 - ne jamais inventer une nouvelle commande si une commande officielle du dépôt existe déjà ;
 - aligner les commandes locales sur les workflows GitHub ;
-- les rôles juridiques, internationaux, commerciaux, marketing, finance, produit, SAV et incidents utilisent la recherche web en direct lorsqu'une information fraîche est nécessaire ;
+- les rôles celestial_system, security_privacy, performance_battery, release_store, analytics_data, juridiques, internationaux, commerciaux, marketing, finance, produit, SAV et incidents utilisent la recherche web en direct lorsqu'une information fraîche ou une vérification de source est nécessaire ;
 - QA et control_gate restent en lecture seule ;
 - les services externes nécessitant OAuth, clé ou secret ne sont activés qu'après authentification explicite ;
 - aucun secret n'est stocké dans le dépôt.
@@ -101,6 +106,12 @@ Règles d'outillage :
 Le GitHub MCP officiel est disponible en lecture seule via l'authentification GitHub du Codespace.
 
 Le Firebase MCP officiel est disponible en mode diagnostic restreint : état du projet, règles de sécurité, logs Functions, Crashlytics, App Hosting et documentation. Les outils d'écriture de données, gestion Auth, FCM, Remote Config, création/suppression de ressources et déploiement restent exclus.
+
+Responsabilités transverses supplémentaires :
+- security_privacy audite les changements sensibles, mais ne contourne jamais legal_compliance ni control_gate ;
+- performance_battery optimise uniquement avec des mesures reproductibles et ne dégrade jamais la fiabilité, la sécurité ou l'exactitude pour gagner des performances ;
+- release_store peut préparer une version, ses artefacts, sa checklist et son rollback, mais aucune publication store ou déploiement production n'est autorisé sans demande humaine explicite ;
+- analytics_data applique la minimisation des données : aucune collecte de localisation brute, salaire, horaires détaillés ou autre donnée sensible par défaut. Toute télémétrie sensible exige une justification explicite et coordination avec security_privacy et legal_compliance.
 
 ## SERVICES HORS CHAÎNE DE FUSION
 
