@@ -325,31 +325,29 @@ object V2PayslipStore {
   val stored=observedComparisonValues(observedSource,canonicalRecord)?.toMutableMap()?:return null
   if(stored.isEmpty())return null
 
-  if(canonicalRecord.companyId.isNotBlank()){
-   val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),canonicalRecord.companyId)?:return null
-   val prefs=SalaryCompanyStore.prefs(context,company.id)
-   val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
-   val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
-   val salaryNet=runCatching{
-    V2SalaryNetBridgeV2.calculateForCompany(
-     context=context,
-     company=company,
-     year=canonicalRecord.year,
-     month=canonicalRecord.month,
-     convention=convention
-    )
-   }.getOrNull()?:return null
-   val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
+  val companyId=comparisonCompanyId(canonicalRecord)?:return null
+  val company=confirmedCompany(SalaryCompanyStore.readConfirmed(context),companyId)?:return null
+  val prefs=SalaryCompanyStore.prefs(context,company.id)
+  val idcc=company.idcc.ifBlank{prefs.getString("company_idcc","").orEmpty()}.trim();if(idcc.isBlank())return null
+  val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null
+  val salaryNet=runCatching{
+   V2SalaryNetBridgeV2.calculateForCompany(
+    context=context,
+    company=company,
+    year=canonicalRecord.year,
+    month=canonicalRecord.month,
+    convention=convention
+   )
+  }.getOrNull()?:return null
+  val expectedValues=expectedCompanyComparisonValues(salaryNet)?:return null
 
-   // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
-   // Elle n'est simplement pas transformée en anomalie tant qu'aucune valeur attendue sûre n'existe.
-   return compareKnownPayslipValues(expectedValues,stored)
-  }
-
-  // Compatibilité des anciens bulletins sans entreprise stable : comparaison brut uniquement.
-  val observedGross=stored[PayslipDocumentParserV2.KEY_GROSS]?:return null
-  val profile=V2ProfileStore.load(context,1);val rate=profile.contract?.grossHourlyRate?:return null;val idcc=profile.employer?.collectiveAgreementId?.trim().orEmpty();if(idcc.isBlank())return null;val convention=ConventionCatalog.findByIdcc(context,idcc)?.takeIf{it.idcc.isNotBlank()}?:return null;val expected=V2SalaryAdapter.calculate(context,canonicalRecord.year,canonicalRecord.month,rate,convention);if(!expected.monthlyGrossReliable||!expected.paidTimeReliable)return null;if(expected.completedSessions==0&&expected.warnings.isNotEmpty())return null;return PayslipEngineV2.compare(mapOf(PayslipDocumentParserV2.KEY_GROSS to expected.monthlyEstimatedGross),mapOf(PayslipDocumentParserV2.KEY_GROSS to observedGross),0.02)
+  // Une valeur observée reste conservée même si le moteur ne sait pas encore la recalculer.
+  // Elle n'est jamais comparée tant que le bulletin n'est pas rattaché à une entreprise V2 confirmée.
+  return compareKnownPayslipValues(expectedValues,stored)
  }
+
+ internal fun comparisonCompanyId(record:Record):String? =
+  record.companyId.trim().takeIf{it.isNotBlank()}
 
  internal fun canonicalRecord(stored:ReadResult,recordId:String):Record?{
   if(!stored.reliable||recordId.isBlank())return null
