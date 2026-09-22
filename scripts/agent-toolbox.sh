@@ -20,6 +20,8 @@ Commandes:
   ios-build          Build simulateur iOS (macOS uniquement)
   ios-tests          Tests Swift iOS (macOS uniquement)
   codex-config       Validation configuration multi-agents Codex
+  agent-route        Déterminer les spécialistes requis pour un diff Git
+  agent-review       Lancer la revue multi-agents Codex et publier la preuve PR
   technical          codex-config + v2-tests + android-build + functions-tests
 EOF
 }
@@ -89,6 +91,14 @@ case "${1:-}" in
   ios-build) run_ios_build ;;
   ios-tests) run_ios_tests ;;
   codex-config) run_codex_config ;;
+  agent-route)
+    shift
+    python3 scripts/agent_router.py "$@"
+    ;;
+  agent-review)
+    shift
+    bash scripts/run-agent-review.sh "$@"
+    ;;
   technical)
     run_codex_config
     run_v2_tests
