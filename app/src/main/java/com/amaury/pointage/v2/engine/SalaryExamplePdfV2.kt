@@ -8,6 +8,8 @@ import com.amaury.pointage.ConventionCatalog
 import com.amaury.pointage.PdfVisualStyle
 import com.amaury.pointage.SalaryCompanyStore
 import com.amaury.pointage.V2SalaryAdapter
+import com.amaury.pointage.V2SalaryNetBridgeV2
+import com.amaury.pointage.V2SalaryNetPresentationV2
 import com.amaury.pointage.v2.BoccPayrollSourceStoreV2
 import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.LegalPayrollSourceStoreV2
@@ -170,28 +172,23 @@ object SalaryExamplePdfV2 {
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
 
-        val salary = when {
+        val salaryNet = when {
             !HoraTrackV2.ENABLED || convention == null -> null
             company != null -> runCatching {
-                V2SalaryAdapter.calculateForCompany(context, company, year, month, convention)
+                V2SalaryNetBridgeV2.calculateForCompany(context, company, year, month, convention)
             }.getOrNull()
+            else -> null
+        }
+        val salary = when {
+            salaryNet != null -> salaryNet.salary
+            company != null || !HoraTrackV2.ENABLED || convention == null -> null
             rate != null -> runCatching {
                 V2SalaryAdapter.calculate(context, year, month, rate, convention)
             }.getOrNull()
             else -> null
         }
         val payrollReferenceDate = PayrollPeriodV2.month(year, month).referenceDate
-        val payroll = if (company != null && salary?.monthlyGrossReliable == true) {
-            val overrides = CompanyPayrollOverridesV2.load(context, company.id, payrollReferenceDate)
-            runCatching {
-                NetSalaryEngineV2.calculate(
-                    salary.monthlyEstimatedGross,
-                    year,
-                    overrides,
-                    salary.complementaryMinutes
-                )
-            }.getOrNull()
-        } else null
+        val payroll = salaryNet?.payroll
 
         val timeSection = timeSectionValues(salary, salary?.unpaidPauseMs)
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
@@ -283,50 +280,7 @@ object SalaryExamplePdfV2 {
         }
 
         if (Field.ESTIMATED_GROSS in fields) {
-            val estimateLines = buildList {
-                add(
-                    "Brut social estimé HoraTrack hors paniers" to
-                        (payroll?.let(NetSalaryReferencePolicyV2::socialGross)?.let { String.format(Locale.FRANCE, "%.2f €", it) }
-                            ?: "À confirmer")
-                )
-                if ((payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
-                    add("Dont avantages en nature" to String.format(Locale.FRANCE, "%.2f €", payroll!!.benefitsInKindDeduction))
-                }
-                add("Majoration heures supplémentaires" to (salary?.takeIf { it.monthlyGrossReliable }?.overtimeGross?.let { String.format(Locale.FRANCE, "%.2f €", it) } ?: "À confirmer"))
-                if (salary?.paidTimeReliable != true) {
-                    add("Paniers hors brut" to "À confirmer")
-                } else {
-                    salary.mealBasketTotal?.let { total ->
-                        val count = salary.mealBasketCount
-                        val amount = salary.mealBasketAmount
-                        add("Paniers hors brut" to if (amount != null) "$count × ${String.format(Locale.FRANCE, "%.2f €", amount)} = ${String.format(Locale.FRANCE, "%.2f €", total)}" else String.format(Locale.FRANCE, "%.2f €", total))
-                    }
-                }
-                payroll?.let {
-                    if (it.benefitsInKindDeduction > 0.0) {
-                        add("Avantages en nature non versés en espèces" to "-${String.format(Locale.FRANCE, "%.2f €", it.benefitsInKindDeduction)}")
-                    }
-                    val reliableNet = NetSalaryReferencePolicyV2.beforeIncomeTax(it)
-                    if (reliableNet != null) {
-                        add("Net estimé avant impôt" to String.format(Locale.FRANCE, "%.2f €", reliableNet))
-                        NetSalaryReferencePolicyV2.taxable(it)?.let { value -> add("Net imposable estimé" to String.format(Locale.FRANCE, "%.2f €", value)) }
-                    } else {
-                        add("Net estimé avant impôt" to "À confirmer")
-                        add("Sous-total net sur retenues connues" to String.format(Locale.FRANCE, "%.2f €", it.netBeforeIncomeTax))
-                    }
-                    add(
-                        "Réductions / exonérations patronales" to
-                            (it.confirmedEmployerReductions?.let { value -> String.format(Locale.FRANCE, "%.2f €", value) }
-                                ?: "À confirmer")
-                    )
-                    add(
-                        "Sous-total patronal connu après réductions" to
-                            (it.knownEmployerContributionsAfterReductions?.let { value -> String.format(Locale.FRANCE, "%.2f €", value) }
-                                ?: "À confirmer")
-                    )
-                } ?: add("Cotisations / net" to "Affichés uniquement quand leurs sources applicables sont déterminées")
-            }
-            section("ESTIMATION DE RÉMUNÉRATION", estimateLines)
+            section("ESTIMATION DE RÉMUNÉRATION", estimatedGrossLines(salary, salaryNet))
         }
 
         if (Field.COUNTERS in fields) {
@@ -343,8 +297,8 @@ object SalaryExamplePdfV2 {
 
         if (Field.SOURCES in fields) {
             val warningSections = warningSections(
-                salaryWarnings = salary?.warnings.orEmpty(),
-                payrollWarnings = payroll?.warnings.orEmpty(),
+                salaryWarnings = salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                payrollWarnings = emptyList(),
                 employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
             )
             val legalRefs = legalSnapshot.records
@@ -404,6 +358,71 @@ object SalaryExamplePdfV2 {
         val unpaidPauses: String
     )
 
+    internal fun estimatedGrossLines(
+        salary: V2SalaryAdapter.Result?,
+        salaryNet: V2SalaryNetBridgeV2.Result?
+    ): List<Pair<String, String>> {
+        val resolvedSalary = salaryNet?.salary ?: salary
+        val payroll = salaryNet?.payroll
+        val reliableSalary = resolvedSalary?.monthlyGrossReliable == true && resolvedSalary.paidTimeReliable
+        val reliablePayrollGross = reliableSalary && payroll?.grossReliable == true
+        val presentation = salaryNet?.let(V2SalaryNetPresentationV2::from)
+        return buildList {
+            add(
+                "Brut social estimé HoraTrack hors paniers" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.let(NetSalaryReferencePolicyV2::socialGross)
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Dont avantages en nature" to money(payroll!!.benefitsInKindDeduction))
+            }
+            add(
+                "Majoration heures supplémentaires" to
+                    (resolvedSalary?.takeIf { reliableSalary }?.overtimeGross?.let(::money) ?: "À confirmer")
+            )
+            if (resolvedSalary?.paidTimeReliable != true) {
+                add("Paniers hors brut" to "À confirmer")
+            } else {
+                resolvedSalary.mealBasketTotal?.let { total ->
+                    val amount = resolvedSalary.mealBasketAmount
+                    add(
+                        "Paniers hors brut" to
+                            if (amount != null) "${resolvedSalary.mealBasketCount} × ${money(amount)} = ${money(total)}"
+                            else money(total)
+                    )
+                }
+            }
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Avantages en nature non versés en espèces" to "-${money(payroll!!.benefitsInKindDeduction)}")
+            }
+
+            add("Net estimé avant impôt" to (presentation?.primaryAmount?.let(::money) ?: "À confirmer"))
+            add("Net imposable estimé" to (presentation?.taxableAmount?.let(::money) ?: "À confirmer"))
+            add("Prélèvement à la source" to (presentation?.incomeTaxAmount?.let { "-${money(it)}" } ?: "À confirmer"))
+            add("Net estimé après PAS" to (presentation?.secondaryAmount?.let(::money) ?: "À confirmer"))
+
+            add(
+                "Réductions / exonérations patronales" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.confirmedEmployerReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+            add(
+                "Sous-total patronal connu après réductions" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.knownEmployerContributionsAfterReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+        }
+    }
+
     internal fun timeSectionValues(
         salary: V2SalaryAdapter.Result?,
         unpaidPauseMs: Long?
@@ -432,6 +451,8 @@ object SalaryExamplePdfV2 {
         val m = ms.coerceAtLeast(0L) / 60_000L
         return String.format(Locale.FRANCE, "%02dh%02d", m / 60L, m % 60L)
     }
+
+    private fun money(value: Double): String = String.format(Locale.FRANCE, "%.2f €", value)
 
     private fun fmt(v: Double): String = String.format(Locale.FRANCE, "%.2f", v)
 }
