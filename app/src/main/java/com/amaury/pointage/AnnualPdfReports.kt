@@ -11,6 +11,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
+import com.amaury.pointage.v2.engine.TimeResultV2
 import org.json.JSONArray
 import java.io.OutputStream
 import java.text.NumberFormat
@@ -29,8 +30,12 @@ internal fun resolveAnnualSalaryGrossV2(
     cashGrossReliable: Boolean,
     salaryWarnings: List<String>,
     payroll: NetSalaryEngineV2.Result?,
-    socialGrossRequired: Boolean
+    socialGrossRequired: Boolean,
+    upstreamTimeReliable: Boolean
 ): AnnualSalaryGrossResolutionV2 {
+    if (!upstreamTimeReliable) {
+        return AnnualSalaryGrossResolutionV2(null, "Temps payé à confirmer")
+    }
     if (!cashGrossReliable) return AnnualSalaryGrossResolutionV2(null, "Brut à confirmer")
 
     val amount = if (socialGrossRequired) {
@@ -45,6 +50,39 @@ internal fun resolveAnnualSalaryGrossV2(
     }
     return AnnualSalaryGrossResolutionV2(amount, state)
 }
+
+internal data class AnnualTimeResolutionV2(
+    val presenceMs: Long?,
+    val paidWorkMs: Long?,
+    val paidPauseMs: Long?,
+    val unpaidPauseMs: Long?,
+    val reliable: Boolean
+)
+
+internal fun resolveAnnualTimeV2(results: List<TimeResultV2>): AnnualTimeResolutionV2 {
+    if (results.any { !it.reliable }) {
+        return AnnualTimeResolutionV2(null, null, null, null, reliable = false)
+    }
+    return AnnualTimeResolutionV2(
+        presenceMs = results.sumOf { it.presenceMs },
+        paidWorkMs = results.sumOf { it.paidWorkMs },
+        paidPauseMs = results.sumOf { it.paidPauseMs },
+        unpaidPauseMs = results.sumOf { it.unpaidPauseMs },
+        reliable = true
+    )
+}
+
+internal fun resolveAnnualOvertimeV2(
+    overtimeDurationsMs: List<Long>?,
+    salaryReliable: Boolean
+): Long? = overtimeDurationsMs
+    ?.takeIf { salaryReliable }
+    ?.sumOf { it.coerceAtLeast(0L) }
+
+internal fun resolveAnnualDurationTotalV2(monthlyDurationsMs: List<Long?>): Long? =
+    monthlyDurationsMs
+        .takeIf { months -> months.all { it != null } }
+        ?.sumOf { it!! }
 
 object AnnualPdfReports {
 
@@ -73,6 +111,8 @@ object AnnualPdfReports {
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.YEAR) == year
         }
+        val calculatedSessions = sessions.map { it to HoraTrackV2.time.calculate(it) }
+        val annualTime = resolveAnnualTimeV2(calculatedSessions.map { it.second })
 
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -90,54 +130,52 @@ object AnnualPdfReports {
         y += 30f
 
         var totalDays = 0
-        var totalPresence = 0L
-        var totalPaid = 0L
-        var totalPaidPause = 0L
-        var totalUnpaidPause = 0L
         var totalSessions = 0
 
         for (month in 0..11) {
-            val monthSessions = sessions.filter { session ->
+            val monthSessions = calculatedSessions.filter { (session, _) ->
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
                 Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.MONTH) == month
             }
-            val results = monthSessions.map { HoraTrackV2.time.calculate(it) }
-            val days = monthSessions.mapNotNull { session ->
+            val monthTime = resolveAnnualTimeV2(monthSessions.map { it.second })
+            val days = monthSessions.mapNotNull { (session, _) ->
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@mapNotNull null
                 Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.let {
                     it.get(Calendar.YEAR) to it.get(Calendar.DAY_OF_YEAR)
                 }
             }.distinct().size
-            val presence = results.sumOf { it.presenceMs }
-            val paid = results.sumOf { it.paidWorkMs }
-            val paidPause = results.sumOf { it.paidPauseMs }
-            val unpaidPause = results.sumOf { it.unpaidPauseMs }
             val label = monthLabel(year, month)
             val values = arrayOf(
                 label,
                 days.toString(),
-                dur(presence),
-                dur(paid),
-                dur(paidPause),
-                dur(unpaidPause),
+                monthTime.presenceMs?.let(::dur) ?: "À confirmer",
+                monthTime.paidWorkMs?.let(::dur) ?: "À confirmer",
+                monthTime.paidPauseMs?.let(::dur) ?: "À confirmer",
+                monthTime.unpaidPauseMs?.let(::dur) ?: "À confirmer",
                 monthSessions.size.toString()
             )
             values.forEachIndexed { i, value -> canvas.drawText(value, xs[i], y + 13, normal) }
             y += 23f
 
             totalDays += days
-            totalPresence += presence
-            totalPaid += paid
-            totalPaidPause += paidPause
-            totalUnpaidPause += unpaidPause
             totalSessions += monthSessions.size
         }
 
         y += 8f
         canvas.drawRect(30f, y, 565f, y + 62, fill)
         canvas.drawText("TOTAL ANNÉE", 38f, y + 17, header)
-        canvas.drawText("$totalDays jours • présence ${dur(totalPresence)} • payé ${dur(totalPaid)}", 38f, y + 35, header)
-        canvas.drawText("pauses payées ${dur(totalPaidPause)} • pauses déduites ${dur(totalUnpaidPause)} • $totalSessions sessions", 38f, y + 52, header)
+        canvas.drawText(
+            "$totalDays jours • présence ${annualTime.presenceMs?.let(::dur) ?: "à confirmer"} • payé ${annualTime.paidWorkMs?.let(::dur) ?: "à confirmer"}",
+            38f,
+            y + 35,
+            header
+        )
+        canvas.drawText(
+            "pauses payées ${annualTime.paidPauseMs?.let(::dur) ?: "à confirmer"} • pauses déduites ${annualTime.unpaidPauseMs?.let(::dur) ?: "à confirmer"} • $totalSessions sessions",
+            38f,
+            y + 52,
+            header
+        )
         PdfVisualStyle.footer(canvas, 595, 842, 1)
         pdf.finishPage(page)
         pdf.writeTo(out)
@@ -228,12 +266,12 @@ object AnnualPdfReports {
         y += 3f
         canvas.drawRect(30f, y, 565f, y + 24, fill)
         val xs = floatArrayOf(34f, 150f, 255f, 350f, 455f)
-        arrayOf("Mois", "Heures payées", "Heures sup.", "Brut estimé", "État des règles")
+        arrayOf("Mois", "Heures payées", "HS / compl.", "Brut estimé", "État des règles")
             .forEachIndexed { i, value -> canvas.drawText(value, xs[i], y + 16, header) }
         y += 30f
 
-        var annualPaid = 0L
-        var annualOvertime = 0L
+        val monthlyPaid = mutableListOf<Long?>()
+        val monthlyOvertime = mutableListOf<Long?>()
         var annualGross = 0.0
         var grossMonths = 0
         var ruleWarnings = 0
@@ -245,7 +283,9 @@ object AnnualPdfReports {
                 val correctEmployer = acceptedEmployerIds.isEmpty() || session.employerId in acceptedEmployerIds
                 correctEmployer && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month && session.realExitMs != null
             }
-            val paid = monthSessions.sumOf { HoraTrackV2.time.calculate(it).paidWorkMs }
+            val timeResults = monthSessions.map { HoraTrackV2.time.calculate(it) }
+            val timeResolution = resolveAnnualTimeV2(timeResults)
+            val paid = timeResolution.paidWorkMs
 
             val salary = when {
                 company != null && convention != null -> runCatching {
@@ -256,8 +296,16 @@ object AnnualPdfReports {
                 }.getOrNull()
                 else -> null
             }
-            val overtime = salary?.overtimeTiers?.sumOf { it.durationMs } ?: 0L
-            val payroll = if (salary != null && salary.monthlyGrossReliable && company != null) {
+            val overtime = resolveAnnualOvertimeV2(
+                overtimeDurationsMs = salary?.overtimeTiers?.map { it.durationMs },
+                salaryReliable = salary?.monthlyGrossReliable == true && timeResolution.reliable
+            )
+            val payroll = if (
+                salary != null &&
+                salary.monthlyGrossReliable &&
+                timeResolution.reliable &&
+                company != null
+            ) {
                 val overrides = CompanyPayrollOverridesV2.load(
                     context,
                     company.id,
@@ -278,11 +326,13 @@ object AnnualPdfReports {
                     cashGrossReliable = reliable.monthlyGrossReliable,
                     salaryWarnings = reliable.warnings,
                     payroll = payroll,
-                    socialGrossRequired = company != null
+                    socialGrossRequired = company != null,
+                    upstreamTimeReliable = timeResolution.reliable
                 )
             }
             val gross = grossResolution?.amount
             val state = when {
+                !timeResolution.reliable -> "Temps payé à confirmer"
                 convention == null -> "Convention à confirmer"
                 salary == null -> "Contrat à compléter"
                 else -> grossResolution!!.state
@@ -291,16 +341,16 @@ object AnnualPdfReports {
 
             val values = arrayOf(
                 monthLabel(year, month),
-                dur(paid),
-                if (salary != null) dur(overtime) else "—",
+                paid?.let(::dur) ?: "À confirmer",
+                overtime?.let(::dur) ?: "À confirmer",
                 gross?.let(euro::format) ?: "—",
                 state
             )
             values.forEachIndexed { i, value -> canvas.drawText(value, xs[i], y + 13, if (i == 4) small else normal) }
             y += 23f
 
-            annualPaid += paid
-            annualOvertime += overtime
+            monthlyPaid += paid
+            monthlyOvertime += overtime
             if (gross != null) {
                 annualGross += gross
                 grossMonths++
@@ -308,9 +358,16 @@ object AnnualPdfReports {
         }
 
         y += 8f
+        val annualPaid = resolveAnnualDurationTotalV2(monthlyPaid)
+        val annualOvertime = resolveAnnualDurationTotalV2(monthlyOvertime)
         canvas.drawRect(30f, y, 565f, y + 64, fill)
         canvas.drawText("TOTAL ANNÉE", 38f, y + 17, header)
-        canvas.drawText("Temps payé : ${dur(annualPaid)} • heures sup. confirmées : ${dur(annualOvertime)}", 38f, y + 35, header)
+        canvas.drawText(
+            "Temps payé : ${annualPaid?.let(::dur) ?: "à confirmer"} • HS / compl. calculées : ${annualOvertime?.let(::dur) ?: "à confirmer"}",
+            38f,
+            y + 35,
+            header
+        )
         canvas.drawText(
             if (grossMonths > 0) "Brut social estimé cumulé sur $grossMonths mois calculables : ${euro.format(annualGross)}" else "Brut annuel non calculé : fiche Salaire ou règles à compléter",
             38f,
