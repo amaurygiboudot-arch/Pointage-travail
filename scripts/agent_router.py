@@ -45,6 +45,7 @@ ROLE_RULES = OrderedDict([
             "app/build.gradle.kts", "build.gradle.kts", "settings.gradle.kts",
             "gradle.properties", "gradle/wrapper/**", "app/src/main/AndroidManifest.xml",
             "*Application.kt", "*Activity.kt", "*Worker.kt", "*Receiver.kt",
+            "*CelestialTracker*", "*HpAnalogClock*", "*EarthGlobeRenderer*",
             "ios/**", "firebase.json", "google-services.json",
         ],
         "reason": "architecture Android/iOS, lifecycle, build, manifest, worker ou intégration plateforme",
