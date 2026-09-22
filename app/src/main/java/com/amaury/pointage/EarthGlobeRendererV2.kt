@@ -99,7 +99,15 @@ class EarthGlobeRendererV2(
         radius: Float,
         snapshot: CelestialSnapshotV2?
     ): Boolean {
-        if (snapshot == null || radius <= 1f) return false
+        if (radius <= 1f) return false
+
+        // Un snapshot peut devenir brièvement null lors d'une transition de
+        // lifecycle ou pendant le renouvellement des capteurs. Dans ce cas,
+        // conserver le dernier globe V2 valide au lieu de retomber sur le PNG
+        // historique clair. Aucune nouvelle acquisition n'est déclenchée ici.
+        if (snapshot == null) {
+            return drawCachedGlobe(canvas, cx, cy, radius)
+        }
 
         // Le globe est calculé à 2x sa taille affichée puis réduit par Canvas.
         // C'est du supersampling uniquement : taille, forme et couleurs restent identiques.
@@ -114,6 +122,15 @@ class EarthGlobeRendererV2(
         requestRenderIfNeeded(request)
 
         // Une reconstruction ne retire jamais le dernier résultat valide.
+        return drawCachedGlobe(canvas, cx, cy, radius)
+    }
+
+    private fun drawCachedGlobe(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        radius: Float
+    ): Boolean {
         val bitmap = cachedGlobe?.bitmap?.takeUnless { it.isRecycled } ?: return false
         destination.set(cx - radius, cy - radius, cx + radius, cy + radius)
         bitmapPaint.alpha = 255

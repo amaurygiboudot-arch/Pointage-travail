@@ -70,10 +70,10 @@ class HpAnalogClockView @JvmOverloads constructor(
         updateTrackerSubscription()
         if (visible) {
             invalidate()
-        } else {
-            celestialSnapshot = null
-            earthGlobeRenderer.clearCache()
         }
+        // En pause, on coupe uniquement l'acquisition. Le dernier snapshot et le
+        // dernier globe V2 restent en mémoire pour éviter tout flash du PNG legacy
+        // pendant la transition vers l'arrière-plan ou le retour à l'application.
     }
 
     override fun onDetachedFromWindow() {
@@ -120,7 +120,8 @@ class HpAnalogClockView @JvmOverloads constructor(
         } else if (!shouldSubscribe && trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
-            celestialSnapshot = null
+            // Conserver le dernier snapshot qualifié : il s'agit uniquement d'un
+            // état visuel figé, pas d'une acquisition GPS/capteurs en arrière-plan.
         }
     }
 
