@@ -1,5 +1,39 @@
+import Combine
 import CoreLocation
+import CoreMotion
 import Foundation
+import UIKit
+
+struct CelestialTrackingStateV2 {
+    let snapshot: CelestialSnapshotV2?
+    let locationQuality: CelestialLocationQualityV2
+    let locationAge: TimeInterval?
+    let locationAccuracyMeters: Double?
+    let trueHeadingDegrees: Double?
+    let headingQuality: CelestialHeadingQualityV2
+    let headingAge: TimeInterval?
+    let pitchDegrees: Double?
+    let rollDegrees: Double?
+
+    var hasRealDirectionalSky: Bool {
+        snapshot != nil
+            && locationQuality == .valid
+            && trueHeadingDegrees != nil
+            && CelestialHeadingPolicyV2.isUsable(headingQuality)
+    }
+
+    static let unavailable = CelestialTrackingStateV2(
+        snapshot: nil,
+        locationQuality: .unavailable,
+        locationAge: nil,
+        locationAccuracyMeters: nil,
+        trueHeadingDegrees: nil,
+        headingQuality: .unavailable,
+        headingAge: nil,
+        pitchDegrees: nil,
+        rollDegrees: nil
+    )
+}
 
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private static let registrationFingerprintKey = "horatrack_gps_registration_fingerprint_v2"
@@ -7,6 +41,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private static let regionPrefix = "horatrack.v2."
 
     private let manager: CLLocationManager
+    private let motionManager: CMMotionManager
     private let defaults: UserDefaults
     private var locationRequestPending = false
     private var registrationFingerprintInFlight: String?
@@ -14,6 +49,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var registrationExpectedIdentifiers: Set<String> = []
     private var registrationStartedIdentifiers: Set<String> = []
     private var registrationSuspended = false
+    private var refreshTimer: Timer?
+    private var latestHeading: CLHeading?
+    private var latestMotion: CMDeviceMotion?
+    private var latestMotionUptime: TimeInterval?
+    private var celestialTrackingActive = false
 
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
     @Published private(set) var location: CLLocation?
@@ -22,14 +62,27 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     @Published private(set) var automaticEnabled: Bool
     @Published private(set) var pendingEvent: GpsPendingEventV2?
     @Published private(set) var statusMessage = "Pointage GPS désactivé"
+    @Published private(set) var celestialState = CelestialTrackingStateV2.unavailable
 
     var hasFullAccuracy: Bool {
         manager.accuracyAuthorization == .fullAccuracy
     }
 
-    init(defaults: UserDefaults = .standard, manager: CLLocationManager = CLLocationManager()) {
+    deinit {
+        refreshTimer?.invalidate()
+        motionManager.stopDeviceMotionUpdates()
+        manager.stopUpdatingHeading()
+        manager.stopUpdatingLocation()
+    }
+
+    init(
+        defaults: UserDefaults = .standard,
+        manager: CLLocationManager = CLLocationManager(),
+        motionManager: CMMotionManager = CMMotionManager()
+    ) {
         self.defaults = defaults
         self.manager = manager
+        self.motionManager = motionManager
         authorizationStatus = manager.authorizationStatus
         automaticEnabled = defaults.bool(forKey: GpsZoneConfigurationV2.enabledKey)
         super.init()
@@ -50,6 +103,37 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             locationRequestPending = false
             statusMessage = "Autorisation de localisation requise"
         }
+    }
+
+    func requestWhenInUseIfNeeded() {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            startCelestialSensors()
+        default:
+            refreshCelestialState()
+        }
+    }
+
+    func startCelestialTracking() {
+        celestialTrackingActive = true
+        requestWhenInUseIfNeeded()
+    }
+
+    func stopCelestialTracking() {
+        celestialTrackingActive = false
+        manager.stopUpdatingHeading()
+        motionManager.stopDeviceMotionUpdates()
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        manager.stopUpdatingLocation()
+        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.distanceFilter = kCLDistanceFilterNone
+        latestHeading = nil
+        latestMotion = nil
+        latestMotionUptime = nil
+        refreshCelestialState()
     }
 
     func requestAlways() {
@@ -298,6 +382,21 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
            (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways) {
             manager.requestLocation()
         }
+        if celestialTrackingActive,
+           (authorizationStatus == .authorizedWhenInUse || authorizationStatus == .authorizedAlways) {
+            startCelestialSensors()
+        } else if authorizationStatus != .authorizedWhenInUse
+                    && authorizationStatus != .authorizedAlways {
+            manager.stopUpdatingLocation()
+            manager.stopUpdatingHeading()
+            motionManager.stopDeviceMotionUpdates()
+            refreshTimer?.invalidate()
+            refreshTimer = nil
+            latestHeading = nil
+            latestMotion = nil
+            latestMotionUptime = nil
+            refreshCelestialState()
+        }
         registrationSuspended = false
         reloadAndReconcile()
     }
@@ -307,6 +406,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         location = locations
             .filter { $0.horizontalAccuracy >= 0 }
             .max(by: { $0.timestamp < $1.timestamp })
+        refreshCelestialState()
     }
 
     func locationManager(_ manager: CLLocationManager, didEnterRegion region: CLRegion) {
@@ -328,6 +428,76 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         case .outside:
             handle(region: region, transition: .exit, occurredAt: Date())
         case .unknown:
+            break
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        guard celestialTrackingActive else { return }
+        latestHeading = newHeading
+        refreshCelestialState()
+    }
+
+    func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool {
+        celestialTrackingActive && (latestHeading?.headingAccuracy ?? -1) < 0
+    }
+
+    private func startCelestialSensors() {
+        guard celestialTrackingActive else { return }
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = 25
+        manager.headingFilter = 1
+        manager.startUpdatingLocation()
+        updateHeadingOrientation()
+        if CLLocationManager.headingAvailable() {
+            manager.startUpdatingHeading()
+        }
+        startMotionIfAvailable()
+        if refreshTimer == nil {
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                self?.refreshCelestialState()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            refreshTimer = timer
+        }
+        refreshCelestialState()
+    }
+
+    private func startMotionIfAvailable() {
+        guard motionManager.isDeviceMotionAvailable,
+              !motionManager.isDeviceMotionActive else { return }
+
+        let frames = CMMotionManager.availableAttitudeReferenceFrames()
+        let frame: CMAttitudeReferenceFrame
+        if frames.contains(.xTrueNorthZVertical) {
+            frame = .xTrueNorthZVertical
+        } else if frames.contains(.xMagneticNorthZVertical) {
+            frame = .xMagneticNorthZVertical
+        } else {
+            frame = .xArbitraryCorrectedZVertical
+        }
+
+        motionManager.deviceMotionUpdateInterval = 0.2
+        motionManager.startDeviceMotionUpdates(using: frame, to: .main) { [weak self] motion, _ in
+            guard let self, self.celestialTrackingActive, let motion else { return }
+            self.updateHeadingOrientation()
+            self.latestMotion = motion
+            self.latestMotionUptime = ProcessInfo.processInfo.systemUptime
+            self.refreshCelestialState()
+        }
+    }
+
+    private func updateHeadingOrientation() {
+        switch UIDevice.current.orientation {
+        case .portrait:
+            manager.headingOrientation = .portrait
+        case .portraitUpsideDown:
+            manager.headingOrientation = .portraitUpsideDown
+        case .landscapeLeft:
+            manager.headingOrientation = .landscapeLeft
+        case .landscapeRight:
+            manager.headingOrientation = .landscapeRight
+        default:
             break
         }
     }
@@ -702,5 +872,63 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         registrationIdInFlight = nil
         registrationExpectedIdentifiers = []
         registrationStartedIdentifiers = []
+    }
+
+    private func refreshCelestialState(at now: Date = Date()) {
+        let isAuthorized = authorizationStatus == .authorizedWhenInUse
+            || authorizationStatus == .authorizedAlways
+        let locationAge = location.map { now.timeIntervalSince($0.timestamp) }
+        let locationQuality = CelestialTrackingPolicyV2.classify(
+            hasPermission: isAuthorized,
+            hasLocation: location != nil,
+            locationAge: locationAge,
+            accuracyMeters: location?.horizontalAccuracy
+        )
+
+        let motionAge = latestMotionUptime.map {
+            ProcessInfo.processInfo.systemUptime - $0
+        }
+        let headingAge = latestHeading.map { now.timeIntervalSince($0.timestamp) }
+        let combinedHeadingAge: TimeInterval?
+        if let headingAge, let motionAge {
+            combinedHeadingAge = max(headingAge, motionAge)
+        } else {
+            combinedHeadingAge = nil
+        }
+
+        let trueHeading = latestHeading.flatMap { sample -> Double? in
+            guard sample.trueHeading.isFinite, sample.trueHeading >= 0 else { return nil }
+            return sample.trueHeading
+        }
+        let reportedUnreliable = latestHeading.map { $0.headingAccuracy < 0 } ?? true
+        let headingQuality = CelestialHeadingPolicyV2.classify(
+            hasOrientation: trueHeading != nil && latestMotion != nil,
+            headingAge: combinedHeadingAge,
+            sensorReportedUnreliable: reportedUnreliable,
+            headingAccuracyDegrees: latestHeading?.headingAccuracy
+        )
+
+        var snapshot: CelestialSnapshotV2?
+        if locationQuality == .valid, let location {
+            snapshot = try? DefaultCelestialEngineV2.snapshot(
+                latitudeDegrees: location.coordinate.latitude,
+                longitudeDegrees: location.coordinate.longitude,
+                date: now,
+                observerAltitudeMeters: location.verticalAccuracy >= 0 ? location.altitude : 0
+            )
+        }
+
+        let radiansToDegrees = 180.0 / Double.pi
+        celestialState = CelestialTrackingStateV2(
+            snapshot: snapshot,
+            locationQuality: locationQuality,
+            locationAge: locationAge,
+            locationAccuracyMeters: location?.horizontalAccuracy,
+            trueHeadingDegrees: CelestialHeadingPolicyV2.isUsable(headingQuality) ? trueHeading : nil,
+            headingQuality: headingQuality,
+            headingAge: combinedHeadingAge,
+            pitchDegrees: latestMotion.map { $0.attitude.pitch * radiansToDegrees },
+            rollDegrees: latestMotion.map { $0.attitude.roll * radiansToDegrees }
+        )
     }
 }

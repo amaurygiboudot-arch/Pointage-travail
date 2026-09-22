@@ -22,8 +22,6 @@ import com.amaury.pointage.v2.HoraTrackV2
 /** Branche le tutoriel et les composants V2 sur l'interface normale. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
     companion object {
-        private const val LIGHT_PREFS = "light_tracking_settings"
-        private const val LIGHT_ENABLED = "light_tracking_enabled"
         private const val LIGHT_BUTTON_TAG = "light_tracking_toggle"
     }
 
@@ -41,6 +39,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     override fun onActivityResumed(activity: Activity) {
+        LightDirectionController.setActivityVisible(activity, true)
         if (activity !is MainActivity) return
         CompanyNameUiBinder.bind(activity)
         PrimaryButtonIsolation.install(activity)
@@ -56,7 +55,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
             installSecuritySettings(activity)
-            installLightTracking(activity)
+            removeLegacyLightTrackingToggle(activity)
             installV2PdfExport(activity)
             installReplayButton(activity)
             removeLegacyGpsTestButton(activity)
@@ -68,41 +67,14 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         }
     }
 
-    private fun installLightTracking(activity: MainActivity) {
+    /**
+     * Supprime l'ancien interrupteur qui entretenait un abonnement céleste sans
+     * consommateur visuel. L'éclairage solaire reste piloté par son réglage
+     * d'apparence et par les vues réellement visibles.
+     */
+    private fun removeLegacyLightTrackingToggle(activity: MainActivity) {
         val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        val prefs = activity.getSharedPreferences(LIGHT_PREFS, Activity.MODE_PRIVATE)
-
-        fun isEnabled() = prefs.getBoolean(LIGHT_ENABLED, true)
-        fun updateButton(button: Button) {
-            button.text = if (isEnabled()) "☀ SUIVI DE LUMIÈRE : ACTIVÉ" else "☀ SUIVI DE LUMIÈRE : DÉSACTIVÉ"
-        }
-        fun applyState() {
-            if (isEnabled()) {
-                LightDirectionController.attach(activity) { }
-            } else {
-                LightDirectionController.detach(activity)
-            }
-        }
-
-        var button = panel.findViewWithTag<Button>(LIGHT_BUTTON_TAG)
-        if (button == null) {
-            button = Button(activity).apply {
-                tag = LIGHT_BUTTON_TAG
-                isAllCaps = false
-                setBackgroundResource(R.drawable.hp_panel)
-                setOnClickListener {
-                    val enabled = !isEnabled()
-                    prefs.edit().putBoolean(LIGHT_ENABLED, enabled).apply()
-                    updateButton(this)
-                    applyState()
-                }
-            }
-            updateButton(button)
-            panel.addView(button, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        } else {
-            updateButton(button)
-        }
-        applyState()
+        panel.findViewWithTag<View>(LIGHT_BUTTON_TAG)?.let(panel::removeView)
     }
 
     private fun installEmployerSelector(activity: MainActivity) {
@@ -211,11 +183,13 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) {
-        if (activity is MainActivity) LightDirectionController.detach(activity)
+        LightDirectionController.setActivityVisible(activity, false)
     }
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-    override fun onActivityDestroyed(activity: Activity) = Unit
+    override fun onActivityDestroyed(activity: Activity) {
+        LightDirectionController.detachAll(activity)
+    }
     override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? = null
     override fun getType(uri: Uri): String? = null
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null

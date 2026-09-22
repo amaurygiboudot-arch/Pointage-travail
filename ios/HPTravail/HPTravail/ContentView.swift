@@ -23,8 +23,10 @@ struct ContentView: View {
 
     var body: some View {
         TabView {
+            CelestialHomeView()
+                .tabItem { Label("Accueil", systemImage: "globe.europe.africa.fill") }
             todayView
-                .tabItem { Label("Aujourd'hui", systemImage: "clock") }
+                .tabItem { Label("Pointage", systemImage: "clock") }
             historyView
                 .tabItem { Label("Historique", systemImage: "list.bullet.rectangle") }
             SalaryV2View()

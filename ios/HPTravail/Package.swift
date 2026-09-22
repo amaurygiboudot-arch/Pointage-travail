@@ -8,9 +8,14 @@ let package = Package(
     ],
     products: [
         .library(name: "SalaryV2Contract", targets: ["SalaryV2Contract"]),
-        .library(name: "RuntimeV2Contract", targets: ["RuntimeV2Contract"])
+        .library(name: "RuntimeV2Contract", targets: ["RuntimeV2Contract"]),
+        .library(name: "CelestialV2Contract", targets: ["CelestialV2Contract"])
     ],
     targets: [
+        .target(
+            name: "CelestialV2Contract",
+            path: "HPTravail/CelestialV2/Core"
+        ),
         .target(
             name: "RuntimeV2Contract",
             path: "HPTravail/RuntimeV2"
@@ -29,6 +34,11 @@ let package = Package(
             name: "RuntimeV2ContractTests",
             dependencies: ["RuntimeV2Contract"],
             path: "HPTravailRuntimeTests"
+        ),
+        .testTarget(
+            name: "CelestialV2ContractTests",
+            dependencies: ["CelestialV2Contract"],
+            path: "HPTravailCelestialTests"
         )
     ]
 )
