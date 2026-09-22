@@ -51,13 +51,36 @@ struct CelestialGlobeViewV2: View {
         drawGraticule(context: &context, rect: rect, basis: basis)
 
         let sun = localSunVector
+
+        // Accent visuel solaire : la géométrie jour/nuit reste fournie par le
+        // vrai vecteur du Soleil. Ce halo ne change pas le terminateur ; il rend
+        // simplement la face éclairée lisible même lorsque le globe est petit.
+        let radius = diameter * 0.5
+        let sunlightCenter = CGPoint(
+            x: rect.midX + CGFloat(sun.x) * radius * 0.42,
+            y: rect.midY + CGFloat(sun.y) * radius * 0.42
+        )
+        context.fill(
+            sphere,
+            with: .radialGradient(
+                Gradient(colors: [
+                    Color(red: 1.00, green: 0.94, blue: 0.76).opacity(0.28),
+                    Color.white.opacity(0.11),
+                    Color.white.opacity(0.0)
+                ]),
+                center: sunlightCenter,
+                startRadius: 0,
+                endRadius: diameter * 0.58
+            )
+        )
+
         let night = CelestialSphereLightingV2.nightPath(in: rect, sun: sun)
-        context.fill(night, with: .color(Color.black.opacity(0.72)))
+        context.fill(night, with: .color(Color.black.opacity(0.80)))
 
         let terminator = CelestialSphereLightingV2.terminatorPath(in: rect, sun: sun)
         context.stroke(
             terminator,
-            with: .color(Color(red: 0.42, green: 0.66, blue: 0.88).opacity(0.28)),
+            with: .color(Color(red: 0.48, green: 0.72, blue: 0.94).opacity(0.38)),
             lineWidth: max(0.7, diameter * 0.005)
         )
 

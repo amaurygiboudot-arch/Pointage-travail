@@ -17,6 +17,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -33,6 +34,16 @@ import kotlin.math.sqrt
  * La projection par pixel est calculée hors du thread UI. Le dernier bitmap valide
  * reste affiché pendant la reconstruction puis est remplacé atomiquement sur main.
  */
+internal fun earthSunBrightnessV2(sunDot: Double, depth: Double): Double {
+    val direct = sunDot.coerceIn(-1.0, 1.0).coerceAtLeast(0.0)
+    // Renforce volontairement le contraste sur le petit globe : la zone directement
+    // éclairée gagne jusqu'à 12 %, tandis que la face nocturne reste lisible mais
+    // nettement plus sombre. La direction et le terminateur restent 100 % physiques.
+    val daylight = 0.18 + 0.94 * direct.pow(0.62)
+    val limb = 0.68 + 0.32 * depth.coerceIn(0.0, 1.0)
+    return (daylight * limb).coerceIn(0.14, 1.12)
+}
+
 class EarthGlobeRendererV2(
     private val onBitmapReady: () -> Unit = {}
 ) {
@@ -260,12 +271,11 @@ class EarthGlobeRendererV2(
                     ).roundToInt().coerceIn(0, textureHeight - 1)
                 val source = texture.pixels[ty * textureWidth + tx]
 
-                // Lambert simplifié avec le vrai Soleil local. La face nocturne
-                // reste volontairement lisible : ce globe est aussi un repère GPS.
+                // Lambert simplifié avec le vrai Soleil local. Le contraste est
+                // volontairement renforcé pour que l'éclairage reste visible sur le
+                // petit globe, sans déplacer ni élargir artificiellement la zone jour.
                 val sunDot = xEast * sunEast + yNorth * sunNorth + depth * sunUp
-                val daylight = 0.26 + 0.74 * sunDot.coerceAtLeast(0.0)
-                val limb = 0.68 + 0.32 * depth
-                val brightness = (daylight * limb).coerceIn(0.20, 1.0)
+                val brightness = earthSunBrightnessV2(sunDot, depth)
 
                 val edgePixels = (1.0 - sqrt(rho2)) * radius
                 val alpha = (255.0 * edgePixels.coerceIn(0.0, 1.0)).roundToInt()
