@@ -32,6 +32,22 @@ config_file = "./agents/ui-ux.toml"
 description = "Système céleste, astronomie, Soleil/Lune, globe GPS, cap/Nord vrai et Accueil céleste."
 config_file = "./agents/celestial-system.toml"
 
+[agents.security_privacy]
+description = "Sécurité applicative, confidentialité, authentification, données sensibles et durcissement."
+config_file = "./agents/security-privacy.toml"
+
+[agents.performance_battery]
+description = "Performance, batterie, mémoire, réseau, capteurs et exécution en arrière-plan."
+config_file = "./agents/performance-battery.toml"
+
+[agents.release_store]
+description = "Builds de distribution, versions, signatures, Play Store/App Store, rollout et rollback."
+config_file = "./agents/release-store.toml"
+
+[agents.analytics_data]
+description = "Instrumentation produit, qualité des données, métriques, funnels et observabilité respectueuse de la vie privée."
+config_file = "./agents/analytics-data.toml"
+
 [agents.team_lead]
 description = "Chef d'équipe technique, coordination, dépendances et pré-validation."
 config_file = "./agents/team-lead.toml"
