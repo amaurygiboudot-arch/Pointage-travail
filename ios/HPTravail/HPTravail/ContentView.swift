@@ -10,12 +10,16 @@ struct ContentView: View {
     @EnvironmentObject private var store: WorkStoreV2
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var authManager: AuthManager
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hp_theme") private var theme = "signature"
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
+    @State private var showGpsZoneEditor = false
+    @State private var showGpsConfirmation = false
     @State private var clockCompanies = SalaryCompanyStoreV2.readConfirmed()
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
+    @State private var gpsFeedback: String?
 
     var body: some View {
         TabView {
@@ -31,6 +35,50 @@ struct ContentView: View {
         .tint(accent)
         .sheet(isPresented: $showManualEntry) {
             ManualEntrySheetV2()
+        }
+        .sheet(isPresented: $showGpsZoneEditor) {
+            GpsZoneEditorSheetV2()
+        }
+        .confirmationDialog(
+            gpsConfirmationTitle,
+            isPresented: $showGpsConfirmation,
+            titleVisibility: .visible
+        ) {
+            if let event = locationManager.pendingEvent {
+                if event.kind == .arrival {
+                    ForEach(event.zoneIds, id: \.self) { zoneId in
+                        if let zone = locationManager.zone(id: zoneId) {
+                            Button("Confirmer l'entrée — \(zone.label)") {
+                                confirmGpsArrival(event: event, zone: zone)
+                            }
+                        }
+                    }
+                } else {
+                    Button("Confirmer la sortie", role: .destructive) {
+                        confirmGpsDeparture(event: event)
+                    }
+                }
+                Button("Ignorer cet événement", role: .destructive) {
+                    _ = locationManager.reconcileSession(
+                        openSessionId: store.currentSession?.id
+                    )
+                    locationManager.clearPendingEvent()
+                }
+            }
+            Button("Plus tard", role: .cancel) {}
+        } message: {
+            Text("La présence GPS reste un indice. HoraTrack n'enregistre aucun temps payé sans ta confirmation.")
+        }
+        .onAppear {
+            _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
+            showGpsConfirmation = locationManager.pendingEvent != nil
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
+        }
+        .onChange(of: locationManager.pendingEvent?.id) { pendingId in
+            showGpsConfirmation = pendingId != nil
         }
         .confirmationDialog(
             "Cette pause est-elle rémunérée ?",
@@ -108,7 +156,11 @@ struct ContentView: View {
                             if store.currentPauseNeedsQualification {
                                 showPausePaymentChoice = true
                             } else {
-                                store.clockOut()
+                                if store.clockOut() {
+                                    if !locationManager.reconcileSession(openSessionId: nil) {
+                                        gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
+                                    }
+                                }
                                 refreshClockEmployerSelection()
                             }
                         }
@@ -119,8 +171,22 @@ struct ContentView: View {
                             .font(.footnote)
                             .foregroundStyle(.orange)
                     }
+                    if let gpsFeedback {
+                        Text(gpsFeedback)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
 
                     statusCard
+                    if locationManager.pendingEvent != nil {
+                        Button {
+                            showGpsConfirmation = true
+                        } label: {
+                            Label("Événement GPS à confirmer", systemImage: "location.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                     Button {
                         showManualEntry = true
                     } label: {
@@ -316,12 +382,65 @@ struct ContentView: View {
 
                 Section("Localisation") {
                     Text(locationLabel)
-                    Button("Autoriser la localisation") {
-                        locationManager.requestWhenInUseIfNeeded()
+                    Text(locationManager.statusMessage)
+                        .foregroundStyle(.secondary)
+                    Toggle(
+                        "Pointage GPS automatique",
+                        isOn: Binding(
+                            get: { locationManager.automaticEnabled },
+                            set: { locationManager.setAutomaticEnabled($0) }
+                        )
+                    )
+                    Button("Obtenir ma position actuelle") {
+                        locationManager.requestCurrentLocation()
                     }
                     Button("Autoriser en arrière-plan") {
                         locationManager.requestAlways()
                     }
+                    .disabled(
+                        !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                    )
+                    Button("Réessayer l'activation GPS") {
+                        locationManager.retryRegistration()
+                    }
+                    .disabled(
+                        !locationManager.automaticEnabled || locationManager.zones.isEmpty
+                    )
+                    if !locationManager.configurationReliable {
+                        Button("Réinitialiser la configuration GPS", role: .destructive) {
+                            locationManager.resetGpsConfiguration()
+                        }
+                        Text("Cette action efface les zones et événements GPS illisibles, puis désactive l'automatisme.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(locationManager.zones) { zone in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(zone.label)
+                                Text("Poste • rayon \(Int(zone.radius)) m")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                locationManager.removeZone(id: zone.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
+                    }
+                    Button("Ajouter une zone Poste ici") {
+                        locationManager.requestCurrentLocation()
+                        showGpsZoneEditor = true
+                    }
+                    .disabled(
+                        !locationManager.configurationReliable
+                            || locationManager.zones.count >= GpsZoneConfigurationV2.maximumZoneCount
+                    )
+                    Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("À propos") {
@@ -380,6 +499,83 @@ struct ContentView: View {
         }
     }
 
+    private var gpsConfirmationTitle: String {
+        switch locationManager.pendingEvent?.kind {
+        case .arrival: return "Présence détectée dans une zone Poste"
+        case .departure: return "Sortie de toutes les zones Poste détectée"
+        case nil: return "Événement GPS"
+        }
+    }
+
+    private func confirmGpsArrival(event: GpsPendingEventV2, zone: GpsZoneV2) {
+        guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
+            gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
+            return
+        }
+        guard !store.isWorking else {
+            gpsFeedback = "Une entrée est déjà en cours : événement GPS ignoré."
+            locationManager.clearPendingEvent()
+            return
+        }
+        if store.clockIn(
+            at: event.occurredAt,
+            employerId: zone.employerId,
+            placeLabel: zone.label
+        ), let sessionId = store.currentSession?.id {
+            if locationManager.confirmArrival(eventId: event.id, sessionId: sessionId) {
+                gpsFeedback = nil
+            } else {
+                if store.rollbackClockIn(expectedSessionId: sessionId) {
+                    _ = locationManager.reconcileSession(openSessionId: nil)
+                    gpsFeedback = "Entrée annulée : l'état GPS n'a pas pu être confirmé."
+                } else {
+                    gpsFeedback = "Entrée enregistrée, mais les données sont à vérifier."
+                }
+            }
+            refreshClockEmployerSelection()
+        } else {
+            gpsFeedback = "Entrée GPS non enregistrée : entreprise ou historique à vérifier."
+        }
+    }
+
+    private func confirmGpsDeparture(event: GpsPendingEventV2) {
+        guard locationManager.reconcileSession(openSessionId: store.currentSession?.id) else {
+            gpsFeedback = "État GPS à vérifier avant de confirmer cet événement."
+            return
+        }
+        guard let currentSession = store.currentSession else {
+            gpsFeedback = "Aucune entrée en cours : sortie GPS ignorée."
+            locationManager.clearPendingEvent()
+            return
+        }
+        if store.currentPauseNeedsQualification {
+            gpsFeedback = "Qualifie d'abord la pause en cours avant de confirmer la sortie."
+            showPausePaymentChoice = true
+            return
+        }
+        guard event.expectedSessionId == currentSession.id else {
+            gpsFeedback = "Cette sortie GPS ne correspond pas au pointage en cours."
+            return
+        }
+        if store.clockOut(
+            at: event.occurredAt,
+            expectedSessionId: currentSession.id
+        ) {
+            if locationManager.confirmDeparture(
+                eventId: event.id,
+                sessionId: currentSession.id
+            ) {
+                gpsFeedback = nil
+            } else {
+                _ = locationManager.reconcileSession(openSessionId: nil)
+                gpsFeedback = "Sortie enregistrée, mais le suivi GPS est à vérifier."
+            }
+            refreshClockEmployerSelection()
+        } else {
+            gpsFeedback = "Sortie GPS non enregistrée : chronologie ou historique à vérifier."
+        }
+    }
+
     private func paidTimeLabel(for session: WorkSession, until endDate: Date) -> String {
         let assessment = store.paidTimeAssessment(for: session, until: endDate)
         guard assessment.reliable else { return "Temps payé : À confirmer" }
@@ -397,6 +593,110 @@ private func salaryCompanyLabel(_ company: SalaryCompanyV2) -> String {
     let siret = company.siret.trimmingCharacters(in: .whitespacesAndNewlines)
     let details = siret.isEmpty ? company.id : "SIRET \(siret) • \(company.id)"
     return name.isEmpty ? details : "\(name) — \(details)"
+}
+
+private struct GpsZoneEditorSheetV2: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var locationManager: LocationManager
+    @State private var label = ""
+    @State private var radius = 150.0
+    @State private var selectedCompanyId = ""
+    @State private var companies = SalaryCompanyStoreV2.readConfirmed()
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Zone Poste") {
+                    TextField("Nom du lieu", text: $label)
+                    Slider(value: $radius, in: 50 ... 1_000, step: 10)
+                    Text("Rayon : \(Int(radius)) m")
+                        .foregroundStyle(.secondary)
+                    if let location = locationManager.location {
+                        Text(
+                            String(
+                                format: "Position prête : %.5f, %.5f",
+                                location.coordinate.latitude,
+                                location.coordinate.longitude
+                            )
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        Text("Précision estimée : \(Int(location.horizontalAccuracy)) m")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label("Position actuelle en attente", systemImage: "location")
+                            .foregroundStyle(.orange)
+                    }
+                    if !locationManager.hasFullAccuracy {
+                        Label(
+                            "Active la localisation précise dans Réglages iOS pour créer la zone.",
+                            systemImage: "scope"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    }
+                }
+
+                Section("Entreprise") {
+                    if companies.reliable {
+                        Picker("Entreprise", selection: $selectedCompanyId) {
+                            Text("Sans entreprise / autre").tag("")
+                            ForEach(companies.companies) { company in
+                                Text(salaryCompanyLabel(company)).tag(company.id)
+                            }
+                        }
+                    } else {
+                        Label("Stockage entreprises à vérifier", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Nouvelle zone GPS")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                companies = SalaryCompanyStoreV2.readConfirmed()
+                locationManager.requestCurrentLocation()
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Annuler") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Ajouter") { add() }
+                        .disabled(
+                            label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                || locationManager.location == nil
+                                || !companies.reliable
+                        )
+                }
+            }
+        }
+    }
+
+    private func add() {
+        let employerId = selectedCompanyId.isEmpty ? nil : selectedCompanyId
+        guard employerId == nil || companies.companies.contains(where: { $0.id == employerId }) else {
+            errorMessage = "L'entreprise sélectionnée n'est plus disponible."
+            return
+        }
+        guard locationManager.addZoneAtCurrentLocation(
+            label: label,
+            radius: radius,
+            employerId: employerId
+        ) else {
+            errorMessage = "Zone non enregistrée : position ou configuration à vérifier."
+            return
+        }
+        dismiss()
+    }
 }
 
 private struct ManualEntrySheetV2: View {

@@ -28,7 +28,11 @@ final class WorkStoreV2: ObservableObject {
     }
 
     @discardableResult
-    func clockIn(employerId requestedEmployerId: String? = nil) -> Bool {
+    func clockIn(
+        at entryDate: Date = Date(),
+        employerId requestedEmployerId: String? = nil,
+        placeLabel: String? = nil
+    ) -> Bool {
         guard storageReliable, !isWorking else { return false }
         let companies = SalaryCompanyStoreV2.readConfirmed(defaults: defaults)
         switch ClockInEmployerResolverV2.resolve(
@@ -36,27 +40,51 @@ final class WorkStoreV2: ObservableObject {
             companies: companies
         ) {
         case .unassigned:
-            return appendClockIn(employerId: nil)
+            return appendClockIn(
+                entryDate: entryDate,
+                employerId: nil,
+                placeLabel: placeLabel
+            )
         case .employer(let employerId):
-            return appendClockIn(employerId: employerId)
+            return appendClockIn(
+                entryDate: entryDate,
+                employerId: employerId,
+                placeLabel: placeLabel
+            )
         case .rejected:
             return false
         }
     }
 
-    private func appendClockIn(employerId: String?) -> Bool {
-        sessions.append(
+    private func appendClockIn(
+        entryDate: Date,
+        employerId: String?,
+        placeLabel: String?
+    ) -> Bool {
+        guard entryDate <= Date().addingTimeInterval(300),
+              sessions.allSatisfy({ session in
+                  guard let exit = session.exit else { return false }
+                  return exit <= entryDate
+              }) else {
+            return false
+        }
+        var updated = sessions
+        updated.append(
             WorkSession(
                 id: UUID(),
-                entry: Date(),
+                entry: entryDate,
                 exit: nil,
                 pauses: [],
                 employerId: employerId,
-                placeLabel: nil
+                placeLabel: placeLabel
             )
         )
-        save()
-        return storageReliable
+        guard persistCanonical(updated) else {
+            storageReliable = false
+            return false
+        }
+        sessions = updated
+        return true
     }
 
     func togglePause(paid: Bool? = nil) {
@@ -75,15 +103,49 @@ final class WorkStoreV2: ObservableObject {
         save()
     }
 
-    func clockOut() {
-        guard storageReliable else { return }
-        guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return }
-        guard sessions[index].pauses.allSatisfy({ $0.paid != nil }) else { return }
-        if let pauseIndex = sessions[index].pauses.lastIndex(where: { $0.end == nil }) {
-            sessions[index].pauses[pauseIndex].end = Date()
+    @discardableResult
+    func clockOut(
+        at exitDate: Date = Date(),
+        expectedSessionId: UUID? = nil
+    ) -> Bool {
+        guard storageReliable else { return false }
+        guard let index = sessions.lastIndex(where: { $0.exit == nil }) else { return false }
+        guard expectedSessionId == nil || sessions[index].id == expectedSessionId,
+              exitDate <= Date().addingTimeInterval(300),
+              exitDate > sessions[index].entry,
+              sessions[index].pauses.allSatisfy({ $0.paid != nil }) else {
+            return false
         }
-        sessions[index].exit = Date()
-        save()
+        var updated = sessions
+        if let pauseIndex = updated[index].pauses.lastIndex(where: { $0.end == nil }) {
+            guard exitDate > updated[index].pauses[pauseIndex].start else { return false }
+            updated[index].pauses[pauseIndex].end = exitDate
+        }
+        updated[index].exit = exitDate
+        guard persistCanonical(updated) else {
+            storageReliable = false
+            return false
+        }
+        sessions = updated
+        return true
+    }
+
+    @discardableResult
+    func rollbackClockIn(expectedSessionId: UUID) -> Bool {
+        guard storageReliable,
+              let index = sessions.lastIndex(where: { $0.exit == nil }),
+              sessions[index].id == expectedSessionId,
+              sessions[index].pauses.isEmpty else {
+            return false
+        }
+        var updated = sessions
+        updated.remove(at: index)
+        guard persistCanonical(updated) else {
+            storageReliable = false
+            return false
+        }
+        sessions = updated
+        return true
     }
 
     @discardableResult

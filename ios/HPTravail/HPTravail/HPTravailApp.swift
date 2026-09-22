@@ -31,9 +31,6 @@ struct HPTravailApp: App {
                 .environmentObject(salaryStore)
                 .environmentObject(locationManager)
                 .environmentObject(authManager)
-                .onAppear {
-                    locationManager.requestWhenInUseIfNeeded()
-                }
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

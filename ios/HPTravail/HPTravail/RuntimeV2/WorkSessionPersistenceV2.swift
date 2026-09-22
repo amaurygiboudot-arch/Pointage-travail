@@ -133,6 +133,17 @@ enum WorkSessionPersistenceV2 {
                 }
             }
         }
+        for firstIndex in sessions.indices {
+            for secondIndex in sessions.indices where secondIndex > firstIndex {
+                let first = sessions[firstIndex]
+                let second = sessions[secondIndex]
+                let firstEnd = first.exit ?? .distantFuture
+                let secondEnd = second.exit ?? .distantFuture
+                if first.entry < secondEnd && second.entry < firstEnd {
+                    return false
+                }
+            }
+        }
         return true
     }
 }
