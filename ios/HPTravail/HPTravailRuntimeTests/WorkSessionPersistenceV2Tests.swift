@@ -5,6 +5,26 @@ import XCTest
 final class WorkSessionPersistenceV2Tests: XCTestCase {
     private let start = Date(timeIntervalSinceReferenceDate: 1_000)
 
+    func testOverlappingSessionsAreCorrupt() throws {
+        let first = WorkSession(
+            id: UUID(),
+            entry: start,
+            exit: start.addingTimeInterval(3_600),
+            pauses: []
+        )
+        let second = WorkSession(
+            id: UUID(),
+            entry: start.addingTimeInterval(1_800),
+            exit: start.addingTimeInterval(5_400),
+            pauses: []
+        )
+
+        XCTAssertEqual(
+            WorkSessionPersistenceV2.read(try JSONEncoder().encode([first, second])),
+            .corrupt
+        )
+    }
+
     func testMissingStorageIsReliableEmptyState() {
         XCTAssertEqual(WorkSessionPersistenceV2.read(nil), .missing)
     }
