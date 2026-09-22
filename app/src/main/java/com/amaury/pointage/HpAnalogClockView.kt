@@ -3,8 +3,6 @@ package com.amaury.pointage
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
@@ -19,7 +17,6 @@ import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
-import kotlin.math.roundToInt
 
 /**
  * Horloge HP modulaire : cadran, aiguilles et Terre indépendants.
@@ -37,27 +34,16 @@ class HpAnalogClockView @JvmOverloads constructor(
         isFilterBitmap = true
         isDither = true
     }
-    private val facePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-        isFilterBitmap = true
-        isDither = true
-    }
-
-    private val faceBitmap: Bitmap by lazy { HpDesignAssets.clockFace }
     private val handBitmap: Bitmap by lazy { HpDesignAssets.hand }
     private val secondBitmap: Bitmap by lazy { HpDesignAssets.secondHand }
     private val uiHandler = Handler(Looper.getMainLooper())
     private val assetGeneration = AtomicLong(0L)
-    private val faceGeneration = AtomicLong(0L)
     private var sharpHandBitmap: Bitmap? = null
     private var sharpSecondBitmap: Bitmap? = null
     private var sharpAssetsRequested = false
     private val earthGlobeRenderer = EarthGlobeRendererV2 {
         if (isAttachedToWindow) postInvalidateOnAnimation()
     }
-
-    private var cachedFaceBitmap: Bitmap? = null
-    private var cachedFaceDiameter = 0
-    private var requestedFaceDiameter = 0
 
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var hostActivityVisible = false
@@ -98,16 +84,11 @@ class HpAnalogClockView @JvmOverloads constructor(
         earthGlobeRenderer.clearCache()
         celestialSnapshot = null
         assetGeneration.incrementAndGet()
-        faceGeneration.incrementAndGet()
         sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
         sharpSecondBitmap?.takeIf { it !== secondBitmap && !it.isRecycled }?.recycle()
         sharpHandBitmap = null
         sharpSecondBitmap = null
         sharpAssetsRequested = false
-        cachedFaceBitmap?.takeIf { it !== faceBitmap }?.recycle()
-        cachedFaceBitmap = null
-        cachedFaceDiameter = 0
-        requestedFaceDiameter = 0
         super.onDetachedFromWindow()
     }
 
@@ -181,33 +162,7 @@ class HpAnalogClockView @JvmOverloads constructor(
     }
 
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        val rect = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-        val targetDiameter = max(2, (radius * 2f).roundToInt())
-
-        if (cachedFaceBitmap == null || cachedFaceDiameter != targetDiameter) {
-            requestFaceScale(targetDiameter)
-        } else if (requestedFaceDiameter != targetDiameter) {
-            // Annule une ancienne taille encore en calcul : le bitmap deja en
-            // cache correspond exactement a la geometrie redevenue courante.
-            requestedFaceDiameter = targetDiameter
-            faceGeneration.incrementAndGet()
-        }
-
-        val contrast = 1.20f
-        val translate = (-128f * contrast + 128f) + 4f
-        facePaint.colorFilter = ColorMatrixColorFilter(
-            ColorMatrix(
-                floatArrayOf(
-                    contrast, 0f, 0f, 0f, translate,
-                    0f, contrast, 0f, 0f, translate,
-                    0f, 0f, contrast, 0f, translate,
-                    0f, 0f, 0f, 1f, 0f
-                )
-            )
-        )
-        facePaint.alpha = 255
-        canvas.drawBitmap(cachedFaceBitmap ?: faceBitmap, null, rect, facePaint)
-        facePaint.colorFilter = null
+        ClockDialRendererV2.draw(canvas, cx, cy, radius)
     }
 
     private fun requestSharpAssets() {
@@ -243,31 +198,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         requestSharpAssets()
     }
 
-    private fun requestFaceScale(targetDiameter: Int) {
-        if (requestedFaceDiameter == targetDiameter) return
-        requestedFaceDiameter = targetDiameter
-        val generation = faceGeneration.incrementAndGet()
-        val source = faceBitmap
-        bitmapExecutor.execute {
-            val result = runCatching {
-                HighQualityBitmapScalerV2.scale(source, targetDiameter, targetDiameter)
-            }.getOrNull()
-            uiHandler.post {
-                val stillWanted = generation == faceGeneration.get() &&
-                    requestedFaceDiameter == targetDiameter && isAttachedToWindow
-                if (!stillWanted) {
-                    result?.takeIf { it !== source && !it.isRecycled }?.recycle()
-                    return@post
-                }
-                if (result != null) {
-                    cachedFaceBitmap?.takeIf { it !== faceBitmap && !it.isRecycled }?.recycle()
-                    cachedFaceBitmap = result
-                    cachedFaceDiameter = targetDiameter
-                    invalidate()
-                }
-            }
-        }
-    }
 
     /**
      * Globe GPS V2.
