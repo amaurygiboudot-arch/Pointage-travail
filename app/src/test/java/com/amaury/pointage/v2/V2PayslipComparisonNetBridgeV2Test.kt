@@ -14,7 +14,9 @@ import org.junit.Test
 class V2PayslipComparisonNetBridgeV2Test {
     private fun salary(
         grossReliable: Boolean = true,
-        paidTimeReliable: Boolean = true
+        paidTimeReliable: Boolean = true,
+        completedSessions: Int = 10,
+        warnings: List<String> = emptyList()
     ) = V2SalaryAdapter.Result(
         regularMs = 0L,
         overtimeTiers = emptyList(),
@@ -28,8 +30,8 @@ class V2PayslipComparisonNetBridgeV2Test {
         saturdayMs = 0L,
         sundayMs = 0L,
         complementaryMinutes = 0,
-        completedSessions = 10,
-        warnings = emptyList(),
+        completedSessions = completedSessions,
+        warnings = warnings,
         mealBasketCount = 10,
         mealBasketAmount = 5.38,
         mealBasketTotal = 53.80,
@@ -69,9 +71,11 @@ class V2PayslipComparisonNetBridgeV2Test {
         afterTax: Double? = 1_900.0,
         mutual: Double? = 60.0,
         provident: Double? = 40.0,
-        conventionProvident: Double = 0.0
+        conventionProvident: Double = 0.0,
+        completedSessions: Int = 10,
+        salaryWarnings: List<String> = emptyList()
     ) = V2SalaryNetBridgeV2.Result(
-        salary = salary(grossReliable, paidTimeReliable),
+        salary = salary(grossReliable, paidTimeReliable, completedSessions, salaryWarnings),
         payroll = payroll(payrollGrossReliable, conventionProvident),
         netBeforeIncomeTax = 2_000.0.takeIf { netComplete },
         netTaxable = taxable.takeIf { netComplete },
@@ -101,6 +105,18 @@ class V2PayslipComparisonNetBridgeV2Test {
     fun `temps ou brut non fiable bloque toute comparaison calculee`() {
         assertNull(V2PayslipStore.expectedCompanyComparisonValues(bridge(paidTimeReliable = false)))
         assertNull(V2PayslipStore.expectedCompanyComparisonValues(bridge(grossReliable = false)))
+    }
+
+    @Test
+    fun `zero session avec avertissement bloque les fausses anomalies`() {
+        assertNull(
+            V2PayslipStore.expectedCompanyComparisonValues(
+                bridge(
+                    completedSessions = 0,
+                    salaryWarnings = listOf("Aucune session exploitable")
+                )
+            )
+        )
     }
 
     @Test
