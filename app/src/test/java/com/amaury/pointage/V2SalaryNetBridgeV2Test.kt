@@ -16,6 +16,7 @@ class V2SalaryNetBridgeV2Test {
     private fun salary(
         gross: Double = 2500.0,
         reliable: Boolean = true,
+        paidTimeReliable: Boolean = reliable,
         warnings: List<String> = emptyList()
     ) = V2SalaryAdapter.Result(
         regularMs = 0L,
@@ -31,11 +32,15 @@ class V2SalaryNetBridgeV2Test {
         sundayMs = 0L,
         complementaryMinutes = 0,
         completedSessions = 0,
-        warnings = warnings
+        warnings = warnings,
+        paidTimeReliable = paidTimeReliable
     )
 
     private fun companyPayroll(
         mutualEmployeeAmount: Double? = 100.0,
+        employerProtectionTaxableAmount: Double? = 0.0,
+        employeeProvidentNonDeductibleAmount: Double? = 0.0,
+        incomeTaxRate: Double? = 0.05,
         warnings: List<String> = emptyList()
     ) = CompanyPayrollOverridesV2.Snapshot(
         companyId = "company",
@@ -51,9 +56,9 @@ class V2SalaryNetBridgeV2Test {
         mutualEmployeeAmount = mutualEmployeeAmount,
         providentEmployeeAmount = 0.0,
         transportEmployeeAmount = 0.0,
-        employerProtectionTaxableAmount = 0.0,
-        employeeProvidentNonDeductibleAmount = 0.0,
-        incomeTaxRate = 0.05,
+        employerProtectionTaxableAmount = employerProtectionTaxableAmount,
+        employeeProvidentNonDeductibleAmount = employeeProvidentNonDeductibleAmount,
+        incomeTaxRate = incomeTaxRate,
         professionalStatus = "NON_CADRE",
         protectionCategory = PlasturgieProtectionCategoryV2.classify(
             null,
@@ -87,7 +92,53 @@ class V2SalaryNetBridgeV2Test {
         assertEquals(expected.netTaxable, actual.netTaxable)
         assertEquals(expected.incomeTax, actual.incomeTax)
         assertEquals(expected.netAfterIncomeTax, actual.netAfterIncomeTax)
+        assertEquals(expected.payroll, actual.payroll)
         assertEquals(2500.0, actual.salary.monthlyEstimatedGross, 0.0)
+    }
+
+    @Test
+    fun unreliablePaidTimeNeverPublishesEmployeeNet() {
+        val actual = V2SalaryNetBridgeV2.project(
+            salary = salary(gross = 2500.0, reliable = true, paidTimeReliable = false),
+            year = 2026,
+            companyPayroll = companyPayroll()
+        )
+
+        assertFalse(actual.netBeforeIncomeTaxComplete)
+        assertNull(actual.netBeforeIncomeTax)
+        assertNull(actual.netTaxable)
+        assertNull(actual.incomeTax)
+        assertNull(actual.netAfterIncomeTax)
+    }
+
+    @Test
+    fun missingIncomeTaxRateKeepsBeforeTaxNetWithoutInventingAfterTaxNet() {
+        val actual = V2SalaryNetBridgeV2.project(
+            salary = salary(),
+            year = 2026,
+            companyPayroll = companyPayroll(incomeTaxRate = null)
+        )
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertTrue(actual.netBeforeIncomeTax != null)
+        assertTrue(actual.netTaxable != null)
+        assertNull(actual.incomeTax)
+        assertNull(actual.netAfterIncomeTax)
+    }
+
+    @Test
+    fun missingTaxSpecificInputsKeepBeforeTaxNetButHideFiscalAmounts() {
+        val actual = V2SalaryNetBridgeV2.project(
+            salary = salary(),
+            year = 2026,
+            companyPayroll = companyPayroll(employerProtectionTaxableAmount = null)
+        )
+
+        assertTrue(actual.netBeforeIncomeTaxComplete)
+        assertTrue(actual.netBeforeIncomeTax != null)
+        assertNull(actual.netTaxable)
+        assertNull(actual.incomeTax)
+        assertNull(actual.netAfterIncomeTax)
     }
 
     @Test
