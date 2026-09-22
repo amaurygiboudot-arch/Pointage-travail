@@ -10,6 +10,7 @@ Agents disponibles :
 - time_engine
 - mobile_platforms
 - ui_ux
+- celestial_system
 - team_lead
 - qa_reviewer
 - control_gate
@@ -93,7 +94,7 @@ Les agents techniques utilisent en priorité les commandes communes du dépôt a
 Règles d'outillage :
 - ne jamais inventer une nouvelle commande si une commande officielle du dépôt existe déjà ;
 - aligner les commandes locales sur les workflows GitHub ;
-- les rôles juridiques, internationaux, commerciaux, marketing, finance, produit, SAV et incidents utilisent la recherche web en direct lorsqu'une information fraîche est nécessaire ;
+- les rôles celestial_system, juridiques, internationaux, commerciaux, marketing, finance, produit, SAV et incidents utilisent la recherche web en direct lorsqu'une information fraîche ou une vérification de source est nécessaire ;
 - QA et control_gate restent en lecture seule ;
 - les services externes nécessitant OAuth, clé ou secret ne sont activés qu'après authentification explicite ;
 - aucun secret n'est stocké dans le dépôt.
