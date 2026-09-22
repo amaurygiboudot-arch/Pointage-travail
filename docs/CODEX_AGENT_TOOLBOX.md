@@ -104,7 +104,9 @@ Les tâches Codex Cloud doivent utiliser le script de configuration du dépôt :
 Ce script :
 - vérifie la présence réelle de JDK 17 ;
 - installe OpenJDK 17 sur les images Linux prises en charge si nécessaire ;
-- persiste `JAVA_HOME` et le `PATH` dans `~/.bashrc` pour la phase agent ;
+- persiste `JAVA_HOME` et le `PATH` dans `~/.bashrc` avant son éventuel
+  garde-fou non interactif, ainsi que dans `~/.profile`, pour les shells de la
+  phase agent qui chargent l'un de ces fichiers ;
 - vérifie `./gradlew --version` ;
 - valide le câblage des agents avec `scripts/validate_codex_agents.py`.
 
