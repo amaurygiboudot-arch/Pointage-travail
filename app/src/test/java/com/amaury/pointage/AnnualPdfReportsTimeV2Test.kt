@@ -113,21 +113,53 @@ class AnnualPdfReportsTimeV2Test {
     fun `heures supplementaires fiables sont sommes`() {
         assertEquals(
             10_800_000L,
-            resolveAnnualOvertimeV2(listOf(3_600_000L, 7_200_000L), salaryReliable = true)!!
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L, 7_200_000L),
+                monthlyGrossReliable = true,
+                paidTimeReliable = true,
+                upstreamTimeReliable = true
+            )!!
         )
     }
 
     @Test
     fun `paliers techniques restent masques si le salaire nest pas fiable`() {
         assertNull(
-            resolveAnnualOvertimeV2(listOf(3_600_000L, 7_200_000L), salaryReliable = false)
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L, 7_200_000L),
+                monthlyGrossReliable = false,
+                paidTimeReliable = true,
+                upstreamTimeReliable = true
+            )
+        )
+    }
+
+    @Test
+    fun `temps adapte non fiable masque les heures supplementaires annuelles`() {
+        assertNull(
+            resolveAnnualOvertimeV2(
+                listOf(3_600_000L),
+                monthlyGrossReliable = true,
+                paidTimeReliable = false,
+                upstreamTimeReliable = true
+            )
         )
     }
 
     @Test
     fun `mois sans resultat salaire bloque le cumul annuel des heures supplementaires`() {
-        val reliableMonth = resolveAnnualOvertimeV2(listOf(3_600_000L), salaryReliable = true)
-        val missingSalaryMonth = resolveAnnualOvertimeV2(null, salaryReliable = false)
+        val reliableMonth = resolveAnnualOvertimeV2(
+            listOf(3_600_000L),
+            monthlyGrossReliable = true,
+            paidTimeReliable = true,
+            upstreamTimeReliable = true
+        )
+        val missingSalaryMonth = resolveAnnualOvertimeV2(
+            null,
+            monthlyGrossReliable = false,
+            paidTimeReliable = false,
+            upstreamTimeReliable = true
+        )
 
         assertNull(resolveAnnualDurationTotalV2(listOf(reliableMonth, missingSalaryMonth)))
     }
@@ -137,6 +169,7 @@ class AnnualPdfReportsTimeV2Test {
         val gross = resolveAnnualSalaryGrossV2(
             cashGross = 2_500.0,
             cashGrossReliable = true,
+            paidTimeReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
             socialGrossRequired = false,
