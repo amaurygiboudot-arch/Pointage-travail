@@ -53,6 +53,10 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var latestHeading: CLHeading?
     private var latestMotion: CMDeviceMotion?
     private var latestMotionUptime: TimeInterval?
+    /// Dedicated qualified sample for the sky. The published `location`
+    /// remains the result of an explicit one-shot request used by pointage and
+    /// zone creation; continuous celestial tracking must not overwrite it.
+    private var celestialLocation: CLLocation?
     private var celestialTrackingActive = false
 
     @Published private(set) var authorizationStatus: CLAuthorizationStatus
@@ -133,6 +137,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         latestHeading = nil
         latestMotion = nil
         latestMotionUptime = nil
+        celestialLocation = nil
         refreshCelestialState()
     }
 
@@ -402,10 +407,25 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        locationRequestPending = false
-        location = locations
-            .filter { $0.horizontalAccuracy >= 0 }
-            .max(by: { $0.timestamp < $1.timestamp })
+        let usableForOneShot = locations.filter { $0.horizontalAccuracy >= 0 }
+        if locationRequestPending {
+            locationRequestPending = false
+            location = usableForOneShot.max(by: { $0.timestamp < $1.timestamp })
+        }
+
+        if celestialTrackingActive {
+            let candidateIndex = CelestialTrackingPolicyV2.preferredCandidateIndex(
+                currentTimestamp: celestialLocation?.timestamp,
+                currentAccuracyMeters: celestialLocation?.horizontalAccuracy,
+                candidates: locations.map {
+                    (timestamp: $0.timestamp, accuracyMeters: $0.horizontalAccuracy)
+                },
+                now: Date()
+            )
+            if let candidateIndex {
+                celestialLocation = locations[candidateIndex]
+            }
+        }
         refreshCelestialState()
     }
 
@@ -877,12 +897,12 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private func refreshCelestialState(at now: Date = Date()) {
         let isAuthorized = authorizationStatus == .authorizedWhenInUse
             || authorizationStatus == .authorizedAlways
-        let locationAge = location.map { now.timeIntervalSince($0.timestamp) }
+        let locationAge = celestialLocation.map { now.timeIntervalSince($0.timestamp) }
         let locationQuality = CelestialTrackingPolicyV2.classify(
             hasPermission: isAuthorized,
-            hasLocation: location != nil,
+            hasLocation: celestialLocation != nil,
             locationAge: locationAge,
-            accuracyMeters: location?.horizontalAccuracy
+            accuracyMeters: celestialLocation?.horizontalAccuracy
         )
 
         let motionAge = latestMotionUptime.map {
@@ -909,7 +929,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         )
 
         var snapshot: CelestialSnapshotV2?
-        if locationQuality == .valid, let location {
+        if locationQuality == .valid, let location = celestialLocation {
             snapshot = try? DefaultCelestialEngineV2.snapshot(
                 latitudeDegrees: location.coordinate.latitude,
                 longitudeDegrees: location.coordinate.longitude,
@@ -923,7 +943,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             snapshot: snapshot,
             locationQuality: locationQuality,
             locationAge: locationAge,
-            locationAccuracyMeters: location?.horizontalAccuracy,
+            locationAccuracyMeters: celestialLocation?.horizontalAccuracy,
             trueHeadingDegrees: CelestialHeadingPolicyV2.isUsable(headingQuality) ? trueHeading : nil,
             headingQuality: headingQuality,
             headingAge: combinedHeadingAge,

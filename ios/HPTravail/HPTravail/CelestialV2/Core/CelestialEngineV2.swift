@@ -64,6 +64,11 @@ enum DefaultCelestialEngineV2 {
         let eclipticLongitudeDegrees: Double
     }
 
+    private struct TopocentricMoonState {
+        let equatorial: Equatorial
+        let distanceEarthRadii: Double
+    }
+
     static func snapshot(
         latitudeDegrees: Double,
         longitudeDegrees: Double,
@@ -102,7 +107,7 @@ enum DefaultCelestialEngineV2 {
             julianDay: julianDay
         )
         let moonHorizontal = horizontal(
-            equatorial: moonTopocentric,
+            equatorial: moonTopocentric.equatorial,
             latitudeDegrees: latitudeDegrees,
             longitudeDegrees: longitudeDegrees,
             julianDay: julianDay
@@ -134,9 +139,9 @@ enum DefaultCelestialEngineV2 {
             moon: CelestialBodyV2(
                 azimuthDegrees: moonHorizontal.azimuth,
                 altitudeDegrees: moonHorizontal.altitude,
-                distanceKilometers: moonDistance,
+                distanceKilometers: moonTopocentric.distanceEarthRadii * earthEquatorialRadiusKilometers,
                 apparentScale: clamp(
-                    meanMoonDistanceEarthRadii / moonGeocentric.distanceEarthRadii,
+                    meanMoonDistanceEarthRadii / moonTopocentric.distanceEarthRadii,
                     minimum: 0.88,
                     maximum: 1.14
                 )
@@ -273,7 +278,7 @@ enum DefaultCelestialEngineV2 {
         longitudeDegrees: Double,
         observerAltitudeMeters: Double,
         julianDay: Double
-    ) -> Equatorial {
+    ) -> TopocentricMoonState {
         let latitude = degreesToRadians(latitudeDegrees)
         let reducedLatitude = atan(0.99664719 * tan(latitude))
         let altitudeEarthRadii = observerAltitudeMeters / (earthEquatorialRadiusKilometers * 1_000)
@@ -289,9 +294,12 @@ enum DefaultCelestialEngineV2 {
         let x = moonX - rhoCosLatitude * cos(localSidereal)
         let y = moonY - rhoCosLatitude * sin(localSidereal)
         let z = moonZ - rhoSinLatitude
-        return Equatorial(
-            rightAscensionDegrees: normalizedDegrees(radiansToDegrees(atan2(y, x))),
-            declinationDegrees: radiansToDegrees(atan2(z, sqrt(x * x + y * y)))
+        return TopocentricMoonState(
+            equatorial: Equatorial(
+                rightAscensionDegrees: normalizedDegrees(radiansToDegrees(atan2(y, x))),
+                declinationDegrees: radiansToDegrees(atan2(z, sqrt(x * x + y * y)))
+            ),
+            distanceEarthRadii: sqrt(x * x + y * y + z * z)
         )
     }
 

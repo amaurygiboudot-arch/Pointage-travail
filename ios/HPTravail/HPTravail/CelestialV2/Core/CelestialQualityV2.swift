@@ -78,6 +78,34 @@ enum CelestialTrackingPolicyV2 {
         return candidateAccuracy < currentAccuracy
     }
 
+    /// Selects the best location from a Core Location delivery without
+    /// depending on Core Location itself. `nil` means that the currently held
+    /// celestial sample remains preferable to every candidate.
+    static func preferredCandidateIndex(
+        currentTimestamp: Date?,
+        currentAccuracyMeters: Double?,
+        candidates: [(timestamp: Date, accuracyMeters: Double)],
+        now: Date
+    ) -> Int? {
+        var selectedTimestamp = currentTimestamp
+        var selectedAccuracy = currentAccuracyMeters
+        var selectedIndex: Int?
+
+        for (index, candidate) in candidates.enumerated() {
+            guard shouldReplaceLocation(
+                currentAge: selectedTimestamp.map { now.timeIntervalSince($0) },
+                currentAccuracyMeters: selectedAccuracy,
+                candidateAge: now.timeIntervalSince(candidate.timestamp),
+                candidateAccuracyMeters: candidate.accuracyMeters
+            ) else { continue }
+
+            selectedTimestamp = candidate.timestamp
+            selectedAccuracy = candidate.accuracyMeters
+            selectedIndex = index
+        }
+        return selectedIndex
+    }
+
     private static func usableAccuracy(_ value: Double?) -> Double {
         guard let value, value.isFinite, value >= 0 else { return .infinity }
         return value

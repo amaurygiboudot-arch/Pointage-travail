@@ -59,7 +59,7 @@ class HpAnalogClockView @JvmOverloads constructor(
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private val globeRefreshTask = object : Runnable {
         override fun run() {
-            if (!isAttachedToWindow || !isShown || windowVisibility != VISIBLE) return
+            if (!isAttachedToWindow || alpha <= 0f || !isShown || windowVisibility != VISIBLE) return
             refreshGlobeSnapshot()
             globeHandler.postDelayed(this, GLOBE_LOCATION_REFRESH_MS)
         }
@@ -99,7 +99,7 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     private fun updateGlobeRefreshLoop() {
         globeHandler.removeCallbacks(globeRefreshTask)
-        if (!isAttachedToWindow || !isShown || windowVisibility != VISIBLE) return
+        if (!isAttachedToWindow || alpha <= 0f || !isShown || windowVisibility != VISIBLE) return
         refreshGlobeSnapshot()
         globeHandler.postDelayed(globeRefreshTask, GLOBE_LOCATION_REFRESH_MS)
     }
@@ -132,7 +132,11 @@ class HpAnalogClockView @JvmOverloads constructor(
         val earthRadius = max(faceRadius * 0.16f, 13f)
         drawEarthGlobe(canvas, cx, cy, earthRadius)
 
-        if (isShown && windowVisibility == VISIBLE) postInvalidateDelayed(50L)
+        // Les vues de compatibilité transparentes (alpha = 0) ne doivent pas
+        // entretenir une boucle de rendu à 20 FPS en arrière-plan.
+        if (alpha > 0f && isShown && windowVisibility == VISIBLE) {
+            postInvalidateDelayed(50L)
+        }
     }
 
     private fun refreshGlobeSnapshot() {

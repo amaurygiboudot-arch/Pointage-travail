@@ -95,6 +95,28 @@ final class CelestialEngineV2Tests: XCTestCase {
         }
     }
 
+    func testMoonDistanceAndScaleAreTopocentric() throws {
+        let instant = date("2026-02-17T12:01:00Z")
+        let observer = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 51.509,
+            longitudeDegrees: -0.029,
+            date: instant
+        )
+        let antipode = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: -51.509,
+            longitudeDegrees: 179.971,
+            date: instant
+        )
+
+        XCTAssertGreaterThan(
+            abs(observer.moon.distanceKilometers - antipode.moon.distanceKilometers),
+            5_000
+        )
+        XCTAssertGreaterThan(observer.moon.altitudeDegrees, antipode.moon.altitudeDegrees)
+        XCTAssertLessThan(observer.moon.distanceKilometers, antipode.moon.distanceKilometers)
+        XCTAssertGreaterThan(observer.moon.apparentScale, antipode.moon.apparentScale)
+    }
+
     private func date(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
@@ -161,6 +183,39 @@ final class CelestialQualityV2Tests: XCTestCase {
             currentAccuracyMeters: 12,
             candidateAge: 0,
             candidateAccuracyMeters: 2_500
+        ))
+    }
+
+    func testBatchArbitrationKeepsQualifiedSampleAndSelectsBestCandidate() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let currentTimestamp = now.addingTimeInterval(-30)
+        let candidates = [
+            (timestamp: now.addingTimeInterval(-1), accuracyMeters: 2_500.0),
+            (timestamp: now.addingTimeInterval(-20), accuracyMeters: 8.0),
+            (timestamp: now.addingTimeInterval(-10), accuracyMeters: 25.0)
+        ]
+
+        XCTAssertEqual(
+            CelestialTrackingPolicyV2.preferredCandidateIndex(
+                currentTimestamp: currentTimestamp,
+                currentAccuracyMeters: 12,
+                candidates: candidates,
+                now: now
+            ),
+            2
+        )
+    }
+
+    func testBatchArbitrationRejectsOnlyUnqualifiedCandidates() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        XCTAssertNil(CelestialTrackingPolicyV2.preferredCandidateIndex(
+            currentTimestamp: now.addingTimeInterval(-30),
+            currentAccuracyMeters: 12,
+            candidates: [
+                (timestamp: now.addingTimeInterval(-1), accuracyMeters: 2_500),
+                (timestamp: now.addingTimeInterval(-600), accuracyMeters: 3)
+            ],
+            now: now
         ))
     }
 
