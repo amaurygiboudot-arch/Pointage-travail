@@ -153,7 +153,7 @@ struct CelestialMoonPhaseViewV2: View {
             eclipseDescription = eclipseAccessibility("Éclipse lunaire partielle")
         case .total:
             eclipseDescription = eclipseAccessibility("Éclipse lunaire totale")
-        case .none, nil:
+        case .some(.none), nil:
             eclipseDescription = ""
         }
         return "\(phaseName), éclairée à \(percentage) pour cent.\(eclipseDescription)"

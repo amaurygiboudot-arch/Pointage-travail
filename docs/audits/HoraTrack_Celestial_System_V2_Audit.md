@@ -106,7 +106,7 @@ L’ancien système utilisait n’importe quelle `lastKnownLocation()` disponibl
 
 - permission absente → `NO_PERMISSION` ;
 - aucune position → `UNAVAILABLE` ;
-- position de plus de 10 minutes → `STALE` ;
+- position de plus de 5 minutes → `STALE` ;
 - position sans précision connue ou précision > 2 km → `INACCURATE` ;
 - seule une position `VALID` peut produire un ciel réel.
 
