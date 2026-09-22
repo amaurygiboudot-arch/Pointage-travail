@@ -133,6 +133,16 @@ class V2PayslipStoreTest {
         assertFalse(stored.records.single().confirmedByUser)
         assertEquals("", stored.records.single().companyId)
         assertEquals(0L, stored.records.single().importedAtMs)
+        assertNull(V2PayslipStore.comparisonCompanyId(stored.records.single()))
+    }
+
+    @Test
+    fun `comparaison bulletin exige une entreprise stable`() {
+        val assigned = V2PayslipStore.decodeRecords(
+            JSONArray().put(recordJson(companyId = " company-a ")).toString()
+        ).records.single()
+
+        assertEquals("company-a", V2PayslipStore.comparisonCompanyId(assigned))
     }
 
     @Test
