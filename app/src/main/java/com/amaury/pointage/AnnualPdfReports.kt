@@ -12,6 +12,10 @@ import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.TimeResultV2
+import com.amaury.pointage.v2.engine.WorkSessionEmployerAssignmentV2
+import com.amaury.pointage.v2.engine.WorkSessionOverlapV2
+import com.amaury.pointage.v2.model.SessionStatusV2
+import com.amaury.pointage.v2.model.WorkSessionV2
 import org.json.JSONArray
 import java.io.OutputStream
 import java.text.NumberFormat
@@ -59,8 +63,11 @@ internal data class AnnualTimeResolutionV2(
     val reliable: Boolean
 )
 
-internal fun resolveAnnualTimeV2(results: List<TimeResultV2>): AnnualTimeResolutionV2 {
-    if (results.any { !it.reliable }) {
+internal fun resolveAnnualTimeV2(
+    results: List<TimeResultV2>,
+    aggregateReliable: Boolean
+): AnnualTimeResolutionV2 {
+    if (!aggregateReliable || results.any { !it.reliable }) {
         return AnnualTimeResolutionV2(null, null, null, null, reliable = false)
     }
     return AnnualTimeResolutionV2(
@@ -83,6 +90,41 @@ internal fun resolveAnnualDurationTotalV2(monthlyDurationsMs: List<Long?>): Long
     monthlyDurationsMs
         .takeIf { months -> months.all { it != null } }
         ?.sumOf { it!! }
+
+internal fun crossesAnnualReportBoundaryV2(
+    session: WorkSessionV2,
+    rangeStartMs: Long,
+    rangeEndMs: Long,
+    openEndMs: Long?
+): Boolean {
+    if (!touchesAnnualReportRangeV2(session, rangeStartMs, rangeEndMs, openEndMs)) return false
+    val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
+    val end = session.countedExitMs
+        ?: session.realExitMs
+        ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
+    if (end == null || end <= start) return true
+    return start < rangeStartMs || end > rangeEndMs
+}
+
+internal fun touchesAnnualReportRangeV2(
+    session: WorkSessionV2,
+    rangeStartMs: Long,
+    rangeEndMs: Long,
+    openEndMs: Long?
+): Boolean {
+    if (rangeEndMs <= rangeStartMs) return false
+    val start = session.countedEntryMs ?: session.realArrivalMs ?: return false
+    val end = session.countedExitMs
+        ?: session.realExitMs
+        ?: openEndMs?.takeIf { session.status == SessionStatusV2.OPEN }
+
+    if (end == null || end <= start) return start >= rangeStartMs && start < rangeEndMs
+    return start < rangeEndMs && end > rangeStartMs
+}
+
+internal fun annualWorkSessionEndpointsReliableV2(session: WorkSessionV2): Boolean =
+    session.realArrivalMs != null &&
+        (session.status == SessionStatusV2.OPEN || session.realExitMs != null)
 
 object AnnualPdfReports {
 
@@ -107,12 +149,52 @@ object AnnualPdfReports {
 
     private fun writeWorkV2(context: Context, year: Int, out: OutputStream) {
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
+        val reportNowMs = System.currentTimeMillis()
         val sessions = runtimeSessions.filter { session ->
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.YEAR) == year
         }
-        val calculatedSessions = sessions.map { it to HoraTrackV2.time.calculate(it) }
-        val annualTime = resolveAnnualTimeV2(calculatedSessions.map { it.second })
+        val calculatedSessions = sessions.map { it to HoraTrackV2.time.calculate(it, reportNowMs) }
+        val yearRange = yearRange(year)
+        val annualBoundaryCrossing = runtimeSessions.any { session ->
+            crossesAnnualReportBoundaryV2(
+                session = session,
+                rangeStartMs = yearRange.first,
+                rangeEndMs = yearRange.second,
+                openEndMs = reportNowMs
+            )
+        }
+        val annualEndpointsReliable = runtimeSessions.none { session ->
+            touchesAnnualReportRangeV2(
+                session = session,
+                rangeStartMs = yearRange.first,
+                rangeEndMs = yearRange.second,
+                openEndMs = reportNowMs
+            ) && !annualWorkSessionEndpointsReliableV2(session)
+        }
+        val monthlyBoundaryCrossing = (0..11).any { month ->
+            val periodRange = monthRange(year, month)
+            runtimeSessions.any { session ->
+                crossesAnnualReportBoundaryV2(
+                    session = session,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            }
+        }
+        val annualTime = resolveAnnualTimeV2(
+            results = calculatedSessions.map { it.second },
+            aggregateReliable = !annualBoundaryCrossing &&
+                annualEndpointsReliable &&
+                !monthlyBoundaryCrossing &&
+                !WorkSessionOverlapV2.hasSameEmployerOverlap(
+                    sessions = runtimeSessions,
+                    rangeStartMs = yearRange.first,
+                    rangeEndMs = yearRange.second,
+                    openEndMs = reportNowMs
+                )
+        )
 
         val pdf = PdfDocument()
         val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
@@ -137,7 +219,34 @@ object AnnualPdfReports {
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
                 Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.MONTH) == month
             }
-            val monthTime = resolveAnnualTimeV2(monthSessions.map { it.second })
+            val periodRange = monthRange(year, month)
+            val monthBoundaryCrossing = runtimeSessions.any { session ->
+                crossesAnnualReportBoundaryV2(
+                    session = session,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            }
+            val monthEndpointsReliable = runtimeSessions.none { session ->
+                touchesAnnualReportRangeV2(
+                    session = session,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                ) && !annualWorkSessionEndpointsReliableV2(session)
+            }
+            val monthTime = resolveAnnualTimeV2(
+                results = monthSessions.map { it.second },
+                aggregateReliable = !monthBoundaryCrossing &&
+                    monthEndpointsReliable &&
+                    !WorkSessionOverlapV2.hasSameEmployerOverlap(
+                    sessions = runtimeSessions,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            )
             val days = monthSessions.mapNotNull { (session, _) ->
                 val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@mapNotNull null
                 Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.let {
@@ -223,6 +332,7 @@ object AnnualPdfReports {
         company: SalaryCompanyStore.Company?
     ) {
         val runtimeSessions = V2RuntimeReader.allSessions(context).requireReliable()
+        val reportNowMs = System.currentTimeMillis()
         val legacyPrefs = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
         val legacyProfile = if (company == null) V2ProfileStore.load(context, 1) else null
         val companyPrefs = company?.let { SalaryCompanyStore.prefs(context, it.id) }
@@ -284,7 +394,69 @@ object AnnualPdfReports {
                 correctEmployer && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month && session.realExitMs != null
             }
             val timeResults = monthSessions.map { HoraTrackV2.time.calculate(it) }
-            val timeResolution = resolveAnnualTimeV2(timeResults)
+            val periodRange = monthRange(year, month)
+            val employerSessions = if (acceptedEmployerIds.isEmpty()) {
+                runtimeSessions
+            } else {
+                runtimeSessions.filter { it.employerId in acceptedEmployerIds }
+            }
+            val boundaryCrossingSession = employerSessions.any { session ->
+                crossesAnnualReportBoundaryV2(
+                    session = session,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            }
+            val openEmployerSession = employerSessions.any { session ->
+                session.status == SessionStatusV2.OPEN && touchesAnnualReportRangeV2(
+                    session = session,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            }
+            val closedSessionWithoutRealExit = employerSessions.any { session ->
+                session.status != SessionStatusV2.OPEN &&
+                    session.realExitMs == null &&
+                    touchesAnnualReportRangeV2(
+                        session = session,
+                        rangeStartMs = periodRange.first,
+                        rangeEndMs = periodRange.second,
+                        openEndMs = reportNowMs
+                    )
+            }
+            val overlappingSessions = if (acceptedEmployerIds.isEmpty()) {
+                WorkSessionOverlapV2.hasSameEmployerOverlap(
+                    sessions = monthSessions,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            } else {
+                WorkSessionOverlapV2.hasOverlapWithinEmployerGroup(
+                    sessions = runtimeSessions,
+                    acceptedEmployerIds = acceptedEmployerIds,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            }
+            val unassignedEmployerSession = acceptedEmployerIds.isNotEmpty() &&
+                WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                    sessions = runtimeSessions,
+                    rangeStartMs = periodRange.first,
+                    rangeEndMs = periodRange.second,
+                    openEndMs = reportNowMs
+                )
+            val timeResolution = resolveAnnualTimeV2(
+                results = timeResults,
+                aggregateReliable = !boundaryCrossingSession &&
+                    !openEmployerSession &&
+                    !closedSessionWithoutRealExit &&
+                    !overlappingSessions &&
+                    !unassignedEmployerSession
+            )
             val paid = timeResolution.paidWorkMs
 
             val salary = when {
@@ -443,6 +615,24 @@ object AnnualPdfReports {
     private fun monthLabel(year: Int, month: Int): String = SimpleDateFormat("MMMM", Locale.FRANCE)
         .format(Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time)
         .replaceFirstChar { it.uppercase() }
+
+    private fun monthRange(year: Int, month: Int): Pair<Long, Long> {
+        val start = Calendar.getInstance(Locale.FRANCE).apply {
+            clear()
+            set(year, month, 1, 0, 0, 0)
+        }
+        val end = (start.clone() as Calendar).apply { add(Calendar.MONTH, 1) }
+        return start.timeInMillis to end.timeInMillis
+    }
+
+    private fun yearRange(year: Int): Pair<Long, Long> {
+        val start = Calendar.getInstance(Locale.FRANCE).apply {
+            clear()
+            set(year, Calendar.JANUARY, 1, 0, 0, 0)
+        }
+        val end = (start.clone() as Calendar).apply { add(Calendar.YEAR, 1) }
+        return start.timeInMillis to end.timeInMillis
+    }
 
     private fun prefDouble(value: Any?): Double? = when (value) {
         is Number -> SalaryNumericInputV2.positiveDecimal(value.toDouble())
