@@ -267,7 +267,7 @@ jobs:
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          permission-profile: ":workspace"
+          permission-profile: ":read-only"
           effort: high
           output-schema-file: scripts/agent-review.schema.json
           output-file: .agent-review.json
