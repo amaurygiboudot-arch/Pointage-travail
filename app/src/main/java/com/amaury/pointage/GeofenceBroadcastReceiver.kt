@@ -105,7 +105,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
         when (val action = plan.action) {
             GpsActiveZoneTransitionV2.Action.None -> {
-                if (transition == GpsTransitionV2.ENTER && plan.entryResolutionPending) {
+                if (GpsActiveZoneTransitionV2.needsDeferredEntryResolution(plan)) {
                     // Replanifier aussi après redémarrage du processus : plusieurs callbacks
                     // renouvellent le jeton et invalident les temporisations plus anciennes.
                     scheduleEntryResolution(

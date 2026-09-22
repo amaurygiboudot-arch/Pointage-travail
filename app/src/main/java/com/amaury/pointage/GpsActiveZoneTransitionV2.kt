@@ -22,6 +22,9 @@ internal object GpsActiveZoneTransitionV2 {
         val action: Action
     )
 
+    fun needsDeferredEntryResolution(plan: Plan): Boolean =
+        plan.entryResolutionPending && plan.action == Action.None
+
     fun plan(
         activeZoneIds: Set<String>,
         triggeredZoneIds: List<String>,

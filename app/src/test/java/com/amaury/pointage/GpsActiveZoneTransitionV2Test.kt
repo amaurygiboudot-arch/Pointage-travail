@@ -253,6 +253,7 @@ class GpsActiveZoneTransitionV2Test {
         assertEquals(setOf("zone-old"), plan.pendingExitZoneIds)
         assertTrue(plan.entryResolutionPending)
         assertEquals(GpsActiveZoneTransitionV2.Action.None, plan.action)
+        assertTrue(GpsActiveZoneTransitionV2.needsDeferredEntryResolution(plan))
     }
 
     @Test
