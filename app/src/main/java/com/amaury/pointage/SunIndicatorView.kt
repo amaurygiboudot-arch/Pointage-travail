@@ -1,7 +1,9 @@
 package com.amaury.pointage
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -12,8 +14,11 @@ import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
+import android.net.Uri
+import android.provider.Settings
 import android.view.View
 import android.widget.TextView
+import androidx.core.app.ActivityCompat
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
@@ -59,6 +64,7 @@ class SunIndicatorView @JvmOverloads constructor(
     private val moonBitmap: Bitmap by lazy { HpDesignAssets.moon }
 
     private var visibleCelestial = false
+    private var hostActivityVisible = false
     private var trackerSubscribed = false
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
@@ -109,6 +115,13 @@ class SunIndicatorView @JvmOverloads constructor(
         invalidate()
     }
 
+    /** Lie explicitement l'acquisition au cycle de vie reel de l'Activity. */
+    fun setHostActivityVisible(visible: Boolean) {
+        if (hostActivityVisible == visible) return
+        hostActivityVisible = visible
+        updateTrackingSubscription()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         updateTrackingSubscription()
@@ -133,7 +146,8 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun updateTrackingSubscription() {
-        val shouldSubscribe = isAttachedToWindow && visibleCelestial && isShown && windowVisibility == VISIBLE
+        val shouldSubscribe = hostActivityVisible && isAttachedToWindow &&
+            visibleCelestial && isShown && windowVisibility == VISIBLE
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
@@ -174,7 +188,14 @@ class SunIndicatorView @JvmOverloads constructor(
                 CelestialHeadingQualityV2.VALID -> "Ciel réel · GPS et boussole fiables"
             }
         }
-        rootView.findViewById<TextView>(R.id.celestialStatusText)?.text = status
+        rootView.findViewById<TextView>(R.id.celestialStatusText)?.let { statusView ->
+            statusView.text = if (tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION) {
+                "$status · toucher pour autoriser"
+            } else {
+                status
+            }
+            configureLocationRecovery(statusView, tracking.locationQuality)
+        }
 
         val sky = tracking.snapshot
         val detail = if (tracking.hasRealSky && sky != null) {
@@ -185,6 +206,63 @@ class SunIndicatorView @JvmOverloads constructor(
         }
         rootView.findViewById<View>(R.id.celestialHomePanel)?.contentDescription =
             "Accueil céleste. $status. $detail."
+    }
+
+    private fun configureLocationRecovery(
+        statusView: TextView,
+        quality: CelestialLocationQualityV2
+    ) {
+        val activity = context as? Activity
+        val actionable = quality == CelestialLocationQualityV2.NO_PERMISSION && activity != null
+        statusView.isClickable = actionable
+        statusView.isFocusable = actionable
+        statusView.importantForAccessibility = if (actionable) {
+            IMPORTANT_FOR_ACCESSIBILITY_YES
+        } else {
+            IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        statusView.contentDescription = if (actionable) {
+            "Localisation refusee. Activer la localisation pour afficher le ciel reel."
+        } else {
+            null
+        }
+        if (actionable) {
+            val owner = requireNotNull(activity)
+            statusView.setOnClickListener { requestLocationRecovery(owner) }
+        } else {
+            statusView.setOnClickListener(null)
+        }
+    }
+
+    private fun requestLocationRecovery(activity: Activity) {
+        val preferences = activity.getSharedPreferences(
+            CELESTIAL_PERMISSION_PREFS,
+            Context.MODE_PRIVATE
+        )
+        val alreadyAttempted = preferences.getBoolean(KEY_PERMISSION_ATTEMPTED, false)
+        val canExplain = ActivityCompat.shouldShowRequestPermissionRationale(
+            activity,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        )
+        if (alreadyAttempted && !canExplain) {
+            activity.startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${activity.packageName}")
+                )
+            )
+            return
+        }
+
+        preferences.edit().putBoolean(KEY_PERMISSION_ATTEMPTED, true).apply()
+        ActivityCompat.requestPermissions(
+            activity,
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ),
+            CELESTIAL_LOCATION_PERMISSION_REQUEST
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -570,4 +648,10 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
+
+    companion object {
+        private const val CELESTIAL_PERMISSION_PREFS = "celestial_permission_recovery"
+        private const val KEY_PERMISSION_ATTEMPTED = "location_request_attempted"
+        private const val CELESTIAL_LOCATION_PERMISSION_REQUEST = 8_204
+    }
 }

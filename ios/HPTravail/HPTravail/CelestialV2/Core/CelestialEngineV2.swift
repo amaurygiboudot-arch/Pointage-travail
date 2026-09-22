@@ -19,6 +19,29 @@ struct LunarPhaseV2: Equatable, Sendable {
     let brightLimbPositionAngleDegrees: Double
 }
 
+enum LunarEclipseStageV2: Equatable, Sendable {
+    case none
+    case penumbral
+    case partial
+    case total
+}
+
+struct LunarEclipseV2: Equatable, Sendable {
+    let stage: LunarEclipseStageV2
+    /// Approximate NASA-style umbral magnitude; values above 1 indicate totality.
+    let umbralMagnitude: Double
+    /// Values above 0 indicate at least a penumbral eclipse.
+    let penumbralMagnitude: Double
+    /// Moon-centre distance from the Earth-shadow axis, in lunar radii.
+    let shadowAxisOffsetMoonRadii: Double
+    /// Physical Earth-umbra radius at the Moon's axial distance, in lunar radii.
+    let umbraRadiusMoonRadii: Double
+    /// Physical Earth-penumbra radius at the Moon's axial distance, in lunar radii.
+    let penumbraRadiusMoonRadii: Double
+    /// Direction from Moon centre toward the shadow axis, from celestial north through east.
+    let shadowPositionAngleDegrees: Double
+}
+
 struct CelestialSnapshotV2: Equatable, Sendable {
     let date: Date
     let latitudeDegrees: Double
@@ -26,6 +49,7 @@ struct CelestialSnapshotV2: Equatable, Sendable {
     let sun: CelestialBodyV2
     let moon: CelestialBodyV2
     let moonPhase: LunarPhaseV2
+    let lunarEclipse: LunarEclipseV2
     /// Civil sunrise/sunset convention: Sun centre below -0.833 degrees.
     let isNight: Bool
 }
@@ -45,6 +69,8 @@ enum CelestialEngineError: Error, Equatable {
 enum DefaultCelestialEngineV2 {
     private static let astronomicalUnitKilometers = 149_597_870.7
     private static let earthEquatorialRadiusKilometers = 6_378.137
+    private static let sunRadiusKilometers = 696_340.0
+    private static let moonRadiusKilometers = 1_737.4
     private static let meanMoonDistanceEarthRadii = 60.2666
 
     private struct Equatorial {
@@ -125,6 +151,13 @@ enum DefaultCelestialEngineV2 {
         let phaseCycle = normalizedDegrees(
             moonGeocentric.eclipticLongitudeDegrees - sunGeocentric.eclipticLongitudeDegrees
         )
+        let lunarEclipse = lunarEclipse(
+            sun: sunGeocentric,
+            moon: moonGeocentric,
+            elongationRadians: elongation,
+            sunDistanceKilometers: sunDistance,
+            moonDistanceKilometers: moonDistance
+        )
 
         return CelestialSnapshotV2(
             date: date,
@@ -156,7 +189,8 @@ enum DefaultCelestialEngineV2 {
                     to: sunGeocentric.equatorial
                 )
             ),
-            isNight: sunHorizontal.altitude < -0.833
+            lunarEclipse: lunarEclipse,
+            isNight: sunHorizontal.altitude < AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
         )
     }
 
@@ -325,6 +359,70 @@ enum DefaultCelestialEngineV2 {
         return (
             normalizedDegrees(radiansToDegrees(azimuth) + 180),
             radiansToDegrees(altitude)
+        )
+    }
+
+    private static func lunarEclipse(
+        sun: SunState,
+        moon: MoonState,
+        elongationRadians: Double,
+        sunDistanceKilometers: Double,
+        moonDistanceKilometers: Double
+    ) -> LunarEclipseV2 {
+        let antiSolarSeparation = abs(Double.pi - elongationRadians)
+
+        // Earth's shadow is an anti-solar half-ray, not an infinite line. A
+        // Moon on the Sun-facing side must never be projected onto the rear
+        // extension of that line and misclassified as a lunar eclipse.
+        let shadowAxialDistanceKilometers = moonDistanceKilometers * cos(antiSolarSeparation)
+        let moonIsBehindEarth = shadowAxialDistanceKilometers > 0
+        let shadowAxisDistanceKilometers = moonIsBehindEarth
+            ? moonDistanceKilometers * sin(antiSolarSeparation)
+            : moonDistanceKilometers
+        let physicalShadowDistanceKilometers = max(0, shadowAxialDistanceKilometers)
+
+        let umbraRadiusKilometers = max(
+            0,
+            earthEquatorialRadiusKilometers
+                - physicalShadowDistanceKilometers
+                * (sunRadiusKilometers - earthEquatorialRadiusKilometers)
+                / sunDistanceKilometers
+        )
+        let penumbraRadiusKilometers = earthEquatorialRadiusKilometers
+            + physicalShadowDistanceKilometers
+            * (sunRadiusKilometers + earthEquatorialRadiusKilometers)
+            / sunDistanceKilometers
+
+        let umbralMagnitude = (
+            umbraRadiusKilometers + moonRadiusKilometers - shadowAxisDistanceKilometers
+        ) / (2 * moonRadiusKilometers)
+        let penumbralMagnitude = (
+            penumbraRadiusKilometers + moonRadiusKilometers - shadowAxisDistanceKilometers
+        ) / (2 * moonRadiusKilometers)
+
+        let stage: LunarEclipseStageV2
+        if penumbralMagnitude <= 0 {
+            stage = .none
+        } else if umbralMagnitude <= 0 {
+            stage = .penumbral
+        } else if umbralMagnitude >= 1 {
+            stage = .total
+        } else {
+            stage = .partial
+        }
+
+        let antiSun = Equatorial(
+            rightAscensionDegrees: normalizedDegrees(sun.equatorial.rightAscensionDegrees + 180),
+            declinationDegrees: -sun.equatorial.declinationDegrees
+        )
+        return LunarEclipseV2(
+            stage: stage,
+            umbralMagnitude: umbralMagnitude,
+            penumbralMagnitude: penumbralMagnitude,
+            shadowAxisOffsetMoonRadii: shadowAxisDistanceKilometers / moonRadiusKilometers,
+            umbraRadiusMoonRadii: umbraRadiusKilometers / moonRadiusKilometers,
+            penumbraRadiusMoonRadii: penumbraRadiusKilometers / moonRadiusKilometers,
+            shadowPositionAngleDegrees: positionAngle(from: moon.equatorial, to: antiSun)
         )
     }
 

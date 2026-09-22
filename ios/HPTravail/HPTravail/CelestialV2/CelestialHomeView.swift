@@ -1,8 +1,11 @@
+import Foundation
 import SwiftUI
+import UIKit
 
 struct CelestialHomeView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
     @State private var isVisible = false
 
     var body: some View {
@@ -13,14 +16,7 @@ struct CelestialHomeView: View {
                         .font(.headline)
                         .multilineTextAlignment(.center)
 
-                    CelestialSkyDialV2(state: locationManager.celestialState)
-                        .aspectRatio(1, contentMode: .fit)
-                        .frame(maxWidth: 430)
-
-                    reliabilityCard
-                    if let snapshot = locationManager.celestialState.snapshot {
-                        ephemerisCard(snapshot)
-                    }
+                    dashboard
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
@@ -46,6 +42,41 @@ struct CelestialHomeView: View {
         }
     }
 
+    private var dashboard: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 20) {
+                skyPanel
+                    .frame(minWidth: 300, maxWidth: 470)
+                detailsPanel
+                    .frame(minWidth: 280, maxWidth: 410)
+            }
+            .frame(maxWidth: 900)
+
+            VStack(spacing: 18) {
+                skyPanel
+                    .frame(maxWidth: 470)
+                detailsPanel
+                    .frame(maxWidth: 600)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var skyPanel: some View {
+        CelestialSkyDialV2(state: locationManager.celestialState)
+            .aspectRatio(1, contentMode: .fit)
+            .frame(maxWidth: 470)
+    }
+
+    private var detailsPanel: some View {
+        VStack(spacing: 18) {
+            reliabilityCard
+            if let snapshot = locationManager.celestialState.snapshot {
+                ephemerisCard(snapshot)
+            }
+        }
+    }
+
     private var reliabilityCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label(statusTitle, systemImage: statusSymbol)
@@ -54,6 +85,17 @@ struct CelestialHomeView: View {
             Text(statusDetail)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            if locationManager.celestialState.locationQuality == .noPermission {
+                Button {
+                    if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(settingsURL)
+                    }
+                } label: {
+                    Label("Réglages", systemImage: "gearshape.fill")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint("Ouvre les réglages système pour autoriser la localisation")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
@@ -65,15 +107,57 @@ struct CelestialHomeView: View {
             Text(snapshot.isNight ? "NUIT LOCALE" : "JOUR LOCAL")
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
-            HStack {
-                bodyValue("Soleil", body: snapshot.sun, symbol: "sun.max.fill", color: .yellow)
-                Spacer()
-                bodyValue("Lune", body: snapshot.moon, symbol: "moon.fill", color: .indigo)
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
+                    bodyValue("Soleil", body: snapshot.sun, symbol: "sun.max.fill", color: .yellow)
+                    bodyValue("Lune", body: snapshot.moon, symbol: "moon.fill", color: .indigo)
+                }
+                Spacer(minLength: 8)
+                CelestialMoonPhaseViewV2(
+                    phase: snapshot.moonPhase,
+                    lunarEclipse: snapshot.lunarEclipse,
+                    isAboveHorizon: snapshot.moon.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
+                )
+                    .frame(width: 86, height: 86)
             }
             Divider()
             Text("Phase lunaire : \(phaseName(snapshot.moonPhase)) • \(Int((snapshot.moonPhase.illuminatedFraction * 100).rounded())) % éclairée")
                 .font(.footnote)
-            Text("Positions géométriques issues du modèle V2. La réfraction visuelle et la météo ne sont pas incluses.")
+            if snapshot.lunarEclipse.stage != .none {
+                Label(
+                    lunarEclipseDescription(
+                        snapshot.lunarEclipse,
+                        isAboveHorizon: snapshot.moon.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
+                    ),
+                    systemImage: "moon.circle.fill"
+                )
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.red)
+            }
+            if let solarEclipse = try? SolarEclipseGeometryV2.evaluate(
+                sun: snapshot.sun,
+                moon: snapshot.moon
+            ), solarEclipse.isEclipse {
+                HStack(spacing: 12) {
+                    CelestialSolarEclipseViewV2(
+                        eclipse: solarEclipse,
+                        moonDirectionRadians: solarEclipseDirection(snapshot),
+                        isAboveHorizon: snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
+                    )
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(solarEclipseDescription(
+                            solarEclipse,
+                            isAboveHorizon: snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
+                        ))
+                            .font(.footnote.weight(.semibold))
+                        Text("Occultation calculée avec les diamètres apparents réels")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text("Les angles affichés restent géométriques. La projection du cadran applique une réfraction atmosphérique moyenne ; la météo locale n’est pas incluse.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -152,6 +236,75 @@ struct CelestialHomeView: View {
         if phase.waxing { return fraction < 0.5 ? "croissant" : "gibbeuse croissante" }
         return fraction < 0.5 ? "dernier croissant" : "gibbeuse décroissante"
     }
+
+    private func lunarEclipseDescription(
+        _ eclipse: LunarEclipseV2,
+        isAboveHorizon: Bool
+    ) -> String {
+        let type: String
+        switch eclipse.stage {
+        case .none:
+            return "Aucune éclipse lunaire"
+        case .penumbral:
+            type = "Éclipse lunaire pénombrale"
+        case .partial:
+            type = "Éclipse lunaire partielle"
+        case .total:
+            type = "Éclipse lunaire totale"
+        }
+        let magnitude = String(format: "%.2f", eclipse.umbralMagnitude)
+        let visibility = isAboveHorizon ? "visible ici" : "Lune sous l’horizon, non visible ici"
+        return "\(type) • magnitude ombrale \(magnitude) • \(visibility)"
+    }
+
+    private func solarEclipseDescription(
+        _ eclipse: SolarEclipseV2,
+        isAboveHorizon: Bool
+    ) -> String {
+        let type: String
+        switch eclipse.stage {
+        case .none:
+            return "Aucune éclipse solaire"
+        case .partial:
+            type = "Éclipse solaire partielle"
+        case .annular:
+            type = "Éclipse solaire annulaire"
+        case .total:
+            type = "Éclipse solaire totale"
+        }
+        let percentage = Int((eclipse.obscuredFraction * 100).rounded())
+        let visibility = isAboveHorizon ? "visible ici" : "Soleil sous l’horizon, non visible ici"
+        return "\(type) • \(percentage) % du Soleil masqué • \(visibility)"
+    }
+
+    private func solarEclipseDirection(_ snapshot: CelestialSnapshotV2) -> Double {
+        if let sun = CelestialDialProjectionV2.project(
+            azimuthDegrees: snapshot.sun.azimuthDegrees,
+            altitudeDegrees: snapshot.sun.altitudeDegrees,
+            trueHeadingDegrees: 0
+        ), let moon = CelestialDialProjectionV2.project(
+            azimuthDegrees: snapshot.moon.azimuthDegrees,
+            altitudeDegrees: snapshot.moon.altitudeDegrees,
+            trueHeadingDegrees: 0
+        ) {
+            return atan2(moon.y - sun.y, moon.x - sun.x)
+        }
+
+        // The dial intentionally rejects bodies below its civil horizon. Keep
+        // the event card physically oriented there by comparing their local
+        // horizontal unit vectors instead of falling back to a fixed crescent.
+        func localProjection(_ body: CelestialBodyV2) -> (x: Double, y: Double) {
+            let azimuth = body.azimuthDegrees * .pi / 180
+            let altitude = body.altitudeDegrees * .pi / 180
+            return (
+                x: cos(altitude) * sin(azimuth),
+                y: -cos(altitude) * cos(azimuth)
+            )
+        }
+        let sun = localProjection(snapshot.sun)
+        let moon = localProjection(snapshot.moon)
+        return atan2(moon.y - sun.y, moon.x - sun.x)
+    }
 }
 
 private struct CelestialSkyDialV2: View {
@@ -175,28 +328,58 @@ private struct CelestialSkyDialV2: View {
                 cardinal("S", x: center.x, y: center.y + horizonRadius + 15)
                 cardinal("O", x: center.x - horizonRadius - 15, y: center.y)
 
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [.blue, .cyan.opacity(0.75), .green.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
-                    .frame(width: size * 0.19, height: size * 0.19)
-                    .position(center)
+                if let snapshot = state.snapshot {
+                    CelestialGlobeViewV2(snapshot: snapshot)
+                        .frame(width: size * 0.29, height: size * 0.29)
+                        .position(center)
+                } else {
+                    Circle()
+                        .fill(.blue.opacity(0.42))
+                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
+                        .frame(width: size * 0.22, height: size * 0.22)
+                        .position(center)
+                }
 
                 if state.hasRealDirectionalSky,
                    let snapshot = state.snapshot,
                    let heading = state.trueHeadingDegrees {
-                    if snapshot.sun.altitudeDegrees >= -0.833 {
-                        marker(symbol: "sun.max.fill", color: .yellow, size: size * 0.10)
-                            .position(point(for: snapshot.sun, heading: heading, center: center, radius: horizonRadius))
-                    }
-                    if snapshot.moon.altitudeDegrees >= -0.833 {
-                        marker(symbol: "moon.fill", color: .white, size: size * 0.085)
-                            .position(point(for: snapshot.moon, heading: heading, center: center, radius: horizonRadius))
+                    let solarEclipse = try? SolarEclipseGeometryV2.evaluate(
+                        sun: snapshot.sun,
+                        moon: snapshot.moon
+                    )
+                    if let solarEclipse, solarEclipse.isEclipse,
+                       snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                        let sunPoint = point(
+                            for: snapshot.sun,
+                            heading: heading,
+                            center: center,
+                            radius: horizonRadius
+                        )
+                        let moonPoint = point(
+                            for: snapshot.moon,
+                            heading: heading,
+                            center: center,
+                            radius: horizonRadius
+                        )
+                        let moonDirection = atan2(
+                            Double(moonPoint.y - sunPoint.y),
+                            Double(moonPoint.x - sunPoint.x)
+                        )
+                        CelestialSolarEclipseViewV2(
+                            eclipse: solarEclipse,
+                            moonDirectionRadians: moonDirection
+                        )
+                            .frame(width: size * 0.15, height: size * 0.15)
+                            .position(sunPoint)
+                    } else {
+                        if snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                            marker(symbol: "sun.max.fill", color: .yellow, size: size * 0.10)
+                                .position(point(for: snapshot.sun, heading: heading, center: center, radius: horizonRadius))
+                        }
+                        if snapshot.moon.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                            marker(symbol: "moon.fill", color: .white, size: size * 0.085)
+                                .position(point(for: snapshot.moon, heading: heading, center: center, radius: horizonRadius))
+                        }
                     }
                 }
             }
@@ -250,8 +433,9 @@ private struct CelestialSkyDialV2: View {
 
     private var accessibilityDescription: String {
         guard state.hasRealDirectionalSky, let snapshot = state.snapshot else {
-            return "Cadran céleste. Direction masquée car les capteurs ne sont pas assez fiables."
+            return "Cadran céleste. Globe local indisponible ou direction masquée car les capteurs ne sont pas assez fiables."
         }
-        return "Cadran céleste. Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
+        let daylight = snapshot.isNight ? "nuit locale" : "jour local"
+        return "Cadran céleste avec globe centré sur la position GPS, \(daylight). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
     }
 }

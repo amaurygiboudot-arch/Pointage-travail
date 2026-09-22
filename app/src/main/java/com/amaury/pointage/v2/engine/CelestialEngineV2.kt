@@ -75,7 +75,7 @@ data class CelestialSnapshotV2(
     val moon: CelestialBodyV2,
     val moonPhase: LunarPhaseV2,
     val lunarEclipse: LunarEclipseV2,
-    /** Same civil sunrise/sunset convention used by the legacy UI: Sun centre below -0.833°. */
+    /** Standard apparent sunrise/sunset convention: Sun centre below -0.833 degrees. */
     val night: Boolean
 )
 
@@ -201,7 +201,8 @@ object DefaultCelestialEngineV2 : CelestialEngineV2 {
                 brightLimbPositionAngleDeg = brightLimbPosition
             ),
             lunarEclipse = eclipse,
-            night = sunHorizontal.second < -0.833
+            night = sunHorizontal.second <
+                AtmosphericRefractionV2.STANDARD_SOLAR_DISK_HORIZON_DEG
         )
     }
 

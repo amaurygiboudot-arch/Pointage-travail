@@ -14,6 +14,14 @@ import kotlin.math.tan
  * horizon local réel peuvent déplacer légèrement la position apparente.
  */
 object AtmosphericRefractionV2 {
+    /**
+     * Centre du Soleil au lever/coucher standard : -34' de refraction moyenne
+     * et -16' de demi-diametre solaire. Cette convention unique est partagee
+     * par le moteur jour/nuit et par le rendu afin d'eviter une bascule visuelle
+     * differente de la bascule astronomique.
+     */
+    const val STANDARD_SOLAR_DISK_HORIZON_DEG = -50.0 / 60.0
+
     /** Réfraction moyenne adoptée à l'horizon : 34 minutes d'arc. */
     const val STANDARD_HORIZON_REFRACTION_DEG = 34.0 / 60.0
 

@@ -51,4 +51,39 @@ class PayslipEngineV2Test {
 
         assertTrue(result.conforming)
     }
+
+    @Test
+    fun `ecart exact de deux centimes reste conforme mais trois centimes est signale`() {
+        val key = PayslipDocumentParserV2.KEY_MEAL_BASKETS
+
+        val twoCents = PayslipEngineV2.compare(
+            expected = mapOf(key to 53.80),
+            observed = mapOf(key to 53.78),
+            tolerance = 0.02
+        )
+        val threeCents = PayslipEngineV2.compare(
+            expected = mapOf(key to 53.80),
+            observed = mapOf(key to 53.77),
+            tolerance = 0.02
+        )
+
+        assertTrue(twoCents.conforming)
+        assertFalse(threeCents.conforming)
+    }
+
+    @Test
+    fun `tolerance invalide est refusee`() {
+        val key = PayslipDocumentParserV2.KEY_GROSS
+
+        assertTrue(
+            runCatching {
+                PayslipEngineV2.compare(mapOf(key to 1.0), mapOf(key to 1.0), -0.01)
+            }.isFailure
+        )
+        assertTrue(
+            runCatching {
+                PayslipEngineV2.compare(mapOf(key to Double.NaN), mapOf(key to 1.0), 0.02)
+            }.isFailure
+        )
+    }
 }

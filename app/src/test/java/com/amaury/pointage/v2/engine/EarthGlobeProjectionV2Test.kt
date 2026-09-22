@@ -87,4 +87,40 @@ class EarthGlobeProjectionV2Test {
         assertEquals(originalLat, recovered!!.latitudeDeg, 1e-6)
         assertEquals(originalLon, recovered.longitudeDeg, 1e-6)
     }
+
+    @Test
+    fun `dateline reste continue sans saut de globe`() {
+        val east = EarthGlobeProjectionV2.project(
+            latitudeDeg = 0.0,
+            longitudeDeg = -179.9,
+            observerLatitudeDeg = 0.0,
+            observerLongitudeDeg = 179.9
+        )
+        val west = EarthGlobeProjectionV2.project(
+            latitudeDeg = 0.0,
+            longitudeDeg = 179.9,
+            observerLatitudeDeg = 0.0,
+            observerLongitudeDeg = -179.9
+        )
+
+        assertTrue(east.visible)
+        assertTrue(west.visible)
+        assertEquals(-east.x, west.x, 1e-9)
+        assertEquals(east.depth, west.depth, 1e-9)
+    }
+
+    @Test
+    fun `centre du globe reste defini aux deux poles`() {
+        listOf(-90.0, 90.0).forEach { pole ->
+            val point = EarthGlobeProjectionV2.project(
+                latitudeDeg = pole,
+                longitudeDeg = 180.0,
+                observerLatitudeDeg = pole,
+                observerLongitudeDeg = -180.0
+            )
+            assertEquals(0.0, point.x, 1e-9)
+            assertEquals(0.0, point.y, 1e-9)
+            assertEquals(1.0, point.depth, 1e-9)
+        }
+    }
 }

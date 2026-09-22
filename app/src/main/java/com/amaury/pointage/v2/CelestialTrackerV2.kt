@@ -23,6 +23,7 @@ import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
+import com.amaury.pointage.v2.engine.CelestialSensorFallbackPolicyV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.CelestialTrackingPolicyV2
 import kotlin.math.abs
@@ -77,6 +78,11 @@ object CelestialTrackerV2 {
     private var appContext: Context? = null
     private var sensorManager: SensorManager? = null
     private var sensorListener: SensorEventListener? = null
+    private var fallbackAccelerometer: Sensor? = null
+    private var fallbackMagnetometer: Sensor? = null
+    private var rotationVectorRegistered = false
+    private var fallbackSensorsRegistered = false
+    private var lastRotationVectorElapsedMs = Long.MIN_VALUE
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
 
@@ -88,6 +94,7 @@ object CelestialTrackerV2 {
     private var latestLiveLocation: Location? = null
     private var resolvedLocation: Location? = null
     private var lastLocationRecheckElapsedMs = Long.MIN_VALUE
+    private var lastLocationRegistrationAttemptElapsedMs = Long.MIN_VALUE
 
     private var deviceAzimuthDeg = 0f
     private var filteredAzimuthDeg = Float.NaN
@@ -116,6 +123,7 @@ object CelestialTrackerV2 {
     private const val LOCATION_RECHECK_MS = 30_000L
     private const val LOCATION_MIN_TIME_MS = 30_000L
     private const val LOCATION_MIN_DISTANCE_M = 25f
+    private const val LOCATION_REGISTRATION_RETRY_MS = 5_000L
     private const val MIN_RENDER_INTERVAL_MS = 90L
     private const val MIN_ORIENTATION_DELTA_DEG = 0.8f
     private const val AZIMUTH_DEAD_ZONE_DEG = 0.40f
@@ -128,7 +136,12 @@ object CelestialTrackerV2 {
             if (observers.isEmpty()) return
 
             val elapsedNow = SystemClock.elapsedRealtime()
-            if (lastLocationRecheckElapsedMs == Long.MIN_VALUE ||
+            val permissionGranted = appContext?.let(::hasLocationPermission) == true
+            val acquisitionStateChanged =
+                (permissionGranted && locationListener == null &&
+                    shouldRetryLocationRegistration(elapsedNow)) ||
+                    (!permissionGranted && locationListener != null)
+            if (acquisitionStateChanged || lastLocationRecheckElapsedMs == Long.MIN_VALUE ||
                 elapsedNow - lastLocationRecheckElapsedMs >= LOCATION_RECHECK_MS
             ) {
                 refreshLocationAndAstronomy(notify = true)
@@ -137,6 +150,32 @@ object CelestialTrackerV2 {
                 refreshAstronomyOnly(notify = true)
             }
             mainHandler.postDelayed(this, ASTRONOMY_REFRESH_MS)
+        }
+    }
+
+    /**
+     * Active le secours accelerometre + magnetometre si un constructeur accepte
+     * le capteur fusionne mais ne livre plus d'evenements. Le couple de secours
+     * est retire des que le rotation vector redevient fiable, pour la batterie.
+     */
+    private val sensorFallbackWatchdog = object : Runnable {
+        override fun run() {
+            if (observers.isEmpty()) return
+            val ageMs = lastRotationVectorElapsedMs
+                .takeIf { it != Long.MIN_VALUE }
+                ?.let { SystemClock.elapsedRealtime() - it }
+            if (CelestialSensorFallbackPolicyV2.shouldUseFallback(
+                    rotationVectorRegistered = rotationVectorRegistered,
+                    rotationVectorReportedUnreliable = headingSensorReportedUnreliable,
+                    lastRotationVectorAgeMs = ageMs
+                )
+            ) {
+                ensureFallbackSensorsRegistered()
+            }
+            mainHandler.postDelayed(
+                this,
+                CelestialSensorFallbackPolicyV2.ROTATION_VECTOR_TIMEOUT_MS
+            )
         }
     }
 
@@ -161,13 +200,12 @@ object CelestialTrackerV2 {
     }
 
     /**
-     * Lecture synchrone utile au thème jour/nuit. Elle peut calculer le ciel à
-     * partir de la position disponible, mais ne prétend pas avoir une attitude
-     * écran réelle tant que les capteurs ne sont pas abonnés.
+     * Lecture strictement non bloquante du dernier etat publie. Elle ne consulte
+     * jamais LocationManager : les vues visibles doivent s'abonner, et aucun draw
+     * ne doit provoquer une lecture last-known synchrone sur le thread principal.
      */
     fun currentState(context: Context): State {
         ensureContext(context)
-        if (observers.isEmpty()) refreshLocationAndAstronomy(notify = false)
         return currentStateInternal()
     }
 
@@ -192,8 +230,16 @@ object CelestialTrackerV2 {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ROTATION_VECTOR -> {
-                        headingSensorReportedUnreliable =
+                        val unreliable =
                             event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                        headingSensorReportedUnreliable = unreliable
+                        if (unreliable) {
+                            headingAccuracyDeg = null
+                            ensureFallbackSensorsRegistered()
+                            return
+                        }
+                        lastRotationVectorElapsedMs = SystemClock.elapsedRealtime()
+                        stopFallbackSensors()
                         headingAccuracyDeg = event.values.getOrNull(4)
                             ?.takeIf { it.isFinite() && it >= 0f }
                             ?.let { Math.toDegrees(it.toDouble()).toFloat() }
@@ -230,6 +276,9 @@ object CelestialTrackerV2 {
                         // On conserve séparément le diagnostic d'Android : null peut
                         // aussi vouloir dire « précision numérique non fournie ».
                         headingAccuracyDeg = null
+                        if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+                            ensureFallbackSensorsRegistered()
+                        }
                     }
                     notifyObservers()
                 }
@@ -237,33 +286,59 @@ object CelestialTrackerV2 {
         }
         sensorListener = listener
 
-        val rotationRegistered = rotationSensor != null &&
+        fallbackAccelerometer = accelSensor
+        fallbackMagnetometer = magneticSensor
+        rotationVectorRegistered = rotationSensor != null &&
             manager.registerListener(listener, rotationSensor, SensorManager.SENSOR_DELAY_UI)
-        if (!rotationRegistered && accelSensor != null && magneticSensor != null) {
-            // Secours pour les appareils sans capteur de rotation fusionné.
-            headingAccuracyDeg = null
-            val accelRegistered = manager.registerListener(
-                listener,
-                accelSensor,
-                SensorManager.SENSOR_DELAY_UI
-            )
-            val magneticRegistered = manager.registerListener(
-                listener,
-                magneticSensor,
-                SensorManager.SENSOR_DELAY_UI
-            )
-            if (!accelRegistered || !magneticRegistered) {
-                manager.unregisterListener(listener)
-            }
+        if (!rotationVectorRegistered) ensureFallbackSensorsRegistered()
+        mainHandler.removeCallbacks(sensorFallbackWatchdog)
+        mainHandler.postDelayed(
+            sensorFallbackWatchdog,
+            CelestialSensorFallbackPolicyV2.ROTATION_VECTOR_TIMEOUT_MS
+        )
+    }
+
+    private fun ensureFallbackSensorsRegistered() {
+        if (fallbackSensorsRegistered) return
+        val manager = sensorManager ?: return
+        val listener = sensorListener ?: return
+        val accelerometer = fallbackAccelerometer ?: return
+        val magnetometer = fallbackMagnetometer ?: return
+        headingAccuracyDeg = null
+        val accelRegistered = manager.registerListener(
+            listener,
+            accelerometer,
+            SensorManager.SENSOR_DELAY_UI
+        )
+        val magneticRegistered = manager.registerListener(
+            listener,
+            magnetometer,
+            SensorManager.SENSOR_DELAY_UI
+        )
+        fallbackSensorsRegistered = accelRegistered && magneticRegistered
+        if (!fallbackSensorsRegistered) {
+            if (accelRegistered) manager.unregisterListener(listener, accelerometer)
+            if (magneticRegistered) manager.unregisterListener(listener, magnetometer)
         }
+    }
+
+    private fun stopFallbackSensors() {
+        if (!fallbackSensorsRegistered) return
+        val manager = sensorManager ?: return
+        val listener = sensorListener ?: return
+        fallbackAccelerometer?.let { manager.unregisterListener(listener, it) }
+        fallbackMagnetometer?.let { manager.unregisterListener(listener, it) }
+        fallbackSensorsRegistered = false
+        accelValues = null
+        magneticValues = null
     }
 
     private fun startLocationUpdates() {
         val context = appContext ?: return
         if (!hasLocationPermission(context)) return
+        lastLocationRegistrationAttemptElapsedMs = SystemClock.elapsedRealtime()
 
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        locationManager = manager
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 val now = System.currentTimeMillis()
@@ -276,20 +351,23 @@ object CelestialTrackerV2 {
             }
 
             override fun onProviderEnabled(provider: String) = Unit
-            override fun onProviderDisabled(provider: String) = Unit
+            override fun onProviderDisabled(provider: String) {
+                stopLocationUpdatesOnly()
+                lastLocationRegistrationAttemptElapsedMs = Long.MIN_VALUE
+            }
 
             @Deprecated("Deprecated in Android framework")
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
         }
-        locationListener = listener
 
         // Un provider défaillant ne doit pas empêcher les autres de s'enregistrer.
+        var atLeastOneProviderRegistered = false
         runCatching { manager.getProviders(true) }
             .getOrDefault(emptyList())
             .filter { it != LocationManager.PASSIVE_PROVIDER }
             .distinct()
             .forEach { provider ->
-                runCatching {
+                val registered = runCatching {
                     manager.requestLocationUpdates(
                         provider,
                         LOCATION_MIN_TIME_MS,
@@ -297,9 +375,19 @@ object CelestialTrackerV2 {
                         listener,
                         Looper.getMainLooper()
                     )
-                }
+                }.isSuccess
+                atLeastOneProviderRegistered = atLeastOneProviderRegistered || registered
             }
+        if (atLeastOneProviderRegistered) {
+            locationManager = manager
+            locationListener = listener
+        }
     }
+
+    private fun shouldRetryLocationRegistration(nowElapsedMs: Long): Boolean =
+        lastLocationRegistrationAttemptElapsedMs == Long.MIN_VALUE ||
+            nowElapsedMs - lastLocationRegistrationAttemptElapsedMs >=
+            LOCATION_REGISTRATION_RETRY_MS
 
     private fun updateFallbackOrientation(
         rawRotationMatrix: FloatArray,
@@ -460,8 +548,17 @@ object CelestialTrackerV2 {
         val now = System.currentTimeMillis()
         val hasPermission = hasLocationPermission(context)
         if (!hasPermission) {
+            stopLocationUpdatesOnly()
             applyLocation(null, now, notify)
             return
+        }
+
+        // L'abonnement peut avoir commence avant l'octroi de permission. Le
+        // ticker detecte alors l'autorisation sans exiger de changer d'onglet.
+        if (locationListener == null && observers.isNotEmpty() &&
+            shouldRetryLocationRegistration(SystemClock.elapsedRealtime())
+        ) {
+            startLocationUpdates()
         }
 
         val lastKnown = bestLastKnownLocation(context, now)
@@ -519,7 +616,7 @@ object CelestialTrackerV2 {
 
         locationQuality = CelestialTrackingPolicyV2.classifyAge(
             hasPermission = hasPermission,
-            hasLocation = location != null,
+            hasLocation = location?.let(::hasValidCoordinates) == true,
             locationAgeMs = ageMs,
             accuracyMeters = accuracy
         )
@@ -554,7 +651,7 @@ object CelestialTrackerV2 {
         nowWallMs: Long
     ): Location? {
         var selected: Location? = null
-        locations.forEach { candidate ->
+        locations.filter(::hasValidCoordinates).forEach { candidate ->
             val current = selected
             if (current == null) {
                 selected = candidate
@@ -570,6 +667,13 @@ object CelestialTrackerV2 {
         }
         return selected
     }
+
+    private fun hasValidCoordinates(location: Location): Boolean =
+        CelestialTrackingPolicyV2.hasValidCoordinates(
+            latitudeDeg = location.latitude,
+            longitudeDeg = location.longitude,
+            altitudeMeters = location.takeIf { it.hasAltitude() }?.altitude
+        )
 
     private fun buildSnapshot(location: Location?, now: Long): CelestialSnapshotV2? {
         if (locationQuality != CelestialLocationQualityV2.VALID ||
@@ -637,9 +741,15 @@ object CelestialTrackerV2 {
     }
 
     private fun stopAcquisitionAndTicker() {
+        mainHandler.removeCallbacks(sensorFallbackWatchdog)
         sensorListener?.let { listener -> sensorManager?.unregisterListener(listener) }
         sensorListener = null
         sensorManager = null
+        fallbackAccelerometer = null
+        fallbackMagnetometer = null
+        rotationVectorRegistered = false
+        fallbackSensorsRegistered = false
+        lastRotationVectorElapsedMs = Long.MIN_VALUE
         accelValues = null
         magneticValues = null
         lastDisplayRotationMatrix = null
@@ -656,13 +766,7 @@ object CelestialTrackerV2 {
         lastEmittedPitch = Float.NaN
         lastEmittedRoll = Float.NaN
 
-        val manager = locationManager
-        val listener = locationListener
-        if (manager != null && listener != null) {
-            runCatching { manager.removeUpdates(listener) }
-        }
-        locationListener = null
-        locationManager = null
+        stopLocationUpdatesOnly()
         latestLiveLocation = null
         resolvedLocation = null
         snapshot = null
@@ -673,6 +777,18 @@ object CelestialTrackerV2 {
         magneticDeclinationDeg = 0f
         lastLocationRecheckElapsedMs = Long.MIN_VALUE
         mainHandler.removeCallbacks(refreshTask)
+    }
+
+    private fun stopLocationUpdatesOnly() {
+        val manager = locationManager
+        val listener = locationListener
+        if (manager != null && listener != null) {
+            runCatching { manager.removeUpdates(listener) }
+        }
+        locationListener = null
+        locationManager = null
+        latestLiveLocation = null
+        lastLocationRegistrationAttemptElapsedMs = Long.MIN_VALUE
     }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f

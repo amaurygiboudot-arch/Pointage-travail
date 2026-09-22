@@ -57,6 +57,8 @@ targets:
       - path: HPTravail/CelestialV2/Core/CelestialEngineV2.swift
       - path: HPTravail/CelestialV2/Core/CelestialProjectionV2.swift
       - path: HPTravail/CelestialV2/Core/CelestialQualityV2.swift
+      - path: HPTravail/CelestialV2/Core/AtmosphericRefractionV2.swift
+      - path: HPTravail/CelestialV2/Core/SolarEclipseGeometryV2.swift
       - path: HPTravail/RuntimeV2/WorkSessionPersistenceV2.swift
       - path: HPTravail/SalaryV2/SalaryReferenceContractV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkspaceStateV2.swift

@@ -130,4 +130,19 @@ class CelestialTrackingPolicyV2Test {
         )
         assertEquals(CelestialLocationQualityV2.STALE, quality)
     }
+
+    @Test
+    fun `coordonnees non finies ou hors globe sont refusees`() {
+        assertFalse(CelestialTrackingPolicyV2.hasValidCoordinates(Double.NaN, 0.0))
+        assertFalse(CelestialTrackingPolicyV2.hasValidCoordinates(0.0, Double.POSITIVE_INFINITY))
+        assertFalse(CelestialTrackingPolicyV2.hasValidCoordinates(90.0001, 0.0))
+        assertFalse(CelestialTrackingPolicyV2.hasValidCoordinates(0.0, 180.0001))
+        assertFalse(CelestialTrackingPolicyV2.hasValidCoordinates(0.0, 0.0, 200_000.0))
+    }
+
+    @Test
+    fun `poles dateline et altitude terrestre restent valides`() {
+        assertTrue(CelestialTrackingPolicyV2.hasValidCoordinates(90.0, 180.0, 0.0))
+        assertTrue(CelestialTrackingPolicyV2.hasValidCoordinates(-90.0, -180.0, -430.0))
+    }
 }

@@ -41,6 +41,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityResumed(activity: Activity) {
         LightDirectionController.setActivityVisible(activity, true)
         if (activity !is MainActivity) return
+        activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
+            ?.setHostActivityVisible(true)
+        activity.findViewById<HpAnalogClockView>(R.id.heroClockPermanent)
+            ?.setHostActivityVisible(true)
+        activity.findViewById<HpAnalogClockView>(R.id.heroClockHands)
+            ?.setHostActivityVisible(true)
         CompanyNameUiBinder.bind(activity)
         PrimaryButtonIsolation.install(activity)
         if (CustomBackgroundStore.isEnabled(activity)) {
@@ -183,6 +189,14 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
     override fun onActivityStarted(activity: Activity) = Unit
     override fun onActivityPaused(activity: Activity) {
+        if (activity is MainActivity) {
+            activity.findViewById<SunIndicatorView>(R.id.sunIndicator)
+                ?.setHostActivityVisible(false)
+            activity.findViewById<HpAnalogClockView>(R.id.heroClockPermanent)
+                ?.setHostActivityVisible(false)
+            activity.findViewById<HpAnalogClockView>(R.id.heroClockHands)
+                ?.setHostActivityVisible(false)
+        }
         LightDirectionController.setActivityVisible(activity, false)
     }
     override fun onActivityStopped(activity: Activity) = Unit

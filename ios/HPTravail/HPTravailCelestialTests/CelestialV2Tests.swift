@@ -16,6 +16,9 @@ final class CelestialEngineV2Tests: XCTestCase {
         XCTAssertLessThan(snapshot.moonPhase.elongationDegrees, 2)
         XCTAssertLessThan(angularDelta(snapshot.sun.azimuthDegrees, snapshot.moon.azimuthDegrees), 3)
         XCTAssertLessThan(abs(snapshot.sun.altitudeDegrees - snapshot.moon.altitudeDegrees), 4)
+        XCTAssertEqual(snapshot.lunarEclipse.stage, .none)
+        XCTAssertLessThanOrEqual(snapshot.lunarEclipse.umbralMagnitude, 0)
+        XCTAssertLessThanOrEqual(snapshot.lunarEclipse.penumbralMagnitude, 0)
     }
 
     func testFullMoonIsNearlyFullyIlluminated() throws {
@@ -27,6 +30,30 @@ final class CelestialEngineV2Tests: XCTestCase {
 
         XCTAssertGreaterThan(snapshot.moonPhase.illuminatedFraction, 0.995)
         XCTAssertGreaterThan(snapshot.moonPhase.elongationDegrees, 178)
+    }
+
+    func testMarch2026TotalLunarEclipseMatchesAndroidClassification() throws {
+        let snapshot = try snapshot("2026-03-03T11:34:52Z")
+
+        XCTAssertEqual(snapshot.lunarEclipse.stage, .total)
+        XCTAssertGreaterThan(snapshot.lunarEclipse.umbralMagnitude, 1)
+        XCTAssertLessThan(snapshot.lunarEclipse.umbralMagnitude, 1.30)
+        XCTAssertGreaterThan(snapshot.lunarEclipse.umbraRadiusMoonRadii, 2.4)
+    }
+
+    func testAugust2026PartialLunarEclipseMatchesAndroidClassification() throws {
+        let snapshot = try snapshot("2026-08-28T04:14:04Z")
+
+        XCTAssertEqual(snapshot.lunarEclipse.stage, .partial)
+        XCTAssertTrue((0.70...0.99).contains(snapshot.lunarEclipse.umbralMagnitude))
+    }
+
+    func testFebruary2027PenumbralEclipseDoesNotBecomePartial() throws {
+        let snapshot = try snapshot("2027-02-20T23:14:06Z")
+
+        XCTAssertEqual(snapshot.lunarEclipse.stage, .penumbral)
+        XCTAssertLessThanOrEqual(snapshot.lunarEclipse.umbralMagnitude, 0)
+        XCTAssertGreaterThan(snapshot.lunarEclipse.penumbralMagnitude, 0)
     }
 
     func testIndependentReferencePositionInVendee() throws {
@@ -95,6 +122,27 @@ final class CelestialEngineV2Tests: XCTestCase {
         }
     }
 
+    func testOutOfRangeObserverAltitudeFailsClosed() {
+        XCTAssertThrowsError(try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.67,
+            longitudeDegrees: -1.43,
+            date: date("2026-03-03T11:38:00Z"),
+            observerAltitudeMeters: 100_001
+        )) { error in
+            XCTAssertEqual(error as? CelestialEngineError, .invalidObserverAltitude)
+        }
+    }
+
+    func testNonFiniteLongitudeFailsClosed() {
+        XCTAssertThrowsError(try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.67,
+            longitudeDegrees: .infinity,
+            date: date("2026-03-03T11:38:00Z")
+        )) { error in
+            XCTAssertEqual(error as? CelestialEngineError, .invalidLongitude)
+        }
+    }
+
     func testMoonDistanceAndScaleAreTopocentric() throws {
         let instant = date("2026-02-17T12:01:00Z")
         let observer = try DefaultCelestialEngineV2.snapshot(
@@ -117,8 +165,75 @@ final class CelestialEngineV2Tests: XCTestCase {
         XCTAssertGreaterThan(observer.moon.apparentScale, antipode.moon.apparentScale)
     }
 
+    func testPolesAndDatelineCombinationsRemainFiniteAndPhysicallyValid() throws {
+        let instant = date("2026-09-10T12:00:00Z")
+        let boundaries: [(latitude: Double, longitude: Double)] = [
+            (90, 180),
+            (90, -180),
+            (-90, 180),
+            (-90, -180)
+        ]
+
+        for boundary in boundaries {
+            let snapshot = try DefaultCelestialEngineV2.snapshot(
+                latitudeDegrees: boundary.latitude,
+                longitudeDegrees: boundary.longitude,
+                date: instant
+            )
+            let solarEclipse = try SolarEclipseGeometryV2.evaluate(
+                sun: snapshot.sun,
+                moon: snapshot.moon
+            )
+
+            for body in [snapshot.sun, snapshot.moon] {
+                XCTAssertTrue(body.azimuthDegrees.isFinite)
+                XCTAssertTrue(body.altitudeDegrees.isFinite)
+                XCTAssertTrue(body.distanceKilometers.isFinite)
+                XCTAssertGreaterThan(body.distanceKilometers, 0)
+                XCTAssertTrue(body.apparentScale.isFinite)
+                XCTAssertGreaterThan(body.apparentScale, 0)
+            }
+            XCTAssertTrue(solarEclipse.sunAngularRadiusDegrees.isFinite)
+            XCTAssertGreaterThan(solarEclipse.sunAngularRadiusDegrees, 0)
+            XCTAssertTrue(solarEclipse.moonAngularRadiusDegrees.isFinite)
+            XCTAssertGreaterThan(solarEclipse.moonAngularRadiusDegrees, 0)
+            XCTAssertTrue(snapshot.lunarEclipse.umbraRadiusMoonRadii.isFinite)
+            XCTAssertGreaterThanOrEqual(snapshot.lunarEclipse.umbraRadiusMoonRadii, 0)
+            XCTAssertTrue(snapshot.lunarEclipse.penumbraRadiusMoonRadii.isFinite)
+            XCTAssertGreaterThan(snapshot.lunarEclipse.penumbraRadiusMoonRadii, 0)
+        }
+    }
+
+    func testPositiveAndNegativeDatelineAreTheSameMeridian() throws {
+        let instant = date("2026-09-10T12:00:00Z")
+        let east = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 23.5,
+            longitudeDegrees: 180,
+            date: instant
+        )
+        let west = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 23.5,
+            longitudeDegrees: -180,
+            date: instant
+        )
+
+        XCTAssertLessThan(angularDelta(east.sun.azimuthDegrees, west.sun.azimuthDegrees), 1e-9)
+        XCTAssertEqual(east.sun.altitudeDegrees, west.sun.altitudeDegrees, accuracy: 1e-9)
+        XCTAssertLessThan(angularDelta(east.moon.azimuthDegrees, west.moon.azimuthDegrees), 1e-9)
+        XCTAssertEqual(east.moon.altitudeDegrees, west.moon.altitudeDegrees, accuracy: 1e-9)
+        XCTAssertEqual(east.moon.distanceKilometers, west.moon.distanceKilometers, accuracy: 1e-6)
+    }
+
     private func date(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
+    }
+
+    private func snapshot(_ instant: String) throws -> CelestialSnapshotV2 {
+        try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.67,
+            longitudeDegrees: -1.43,
+            date: date(instant)
+        )
     }
 
     private func assertPosition(
@@ -140,6 +255,167 @@ final class CelestialEngineV2Tests: XCTestCase {
 
     private func angularDelta(_ a: Double, _ b: Double) -> Double {
         abs((a - b + 540).truncatingRemainder(dividingBy: 360) - 180)
+    }
+}
+
+final class SolarEclipseGeometryV2Tests: XCTestCase {
+    func testRealAugust2026GreatestEclipseIsTotalAtNASAReferencePoint() throws {
+        // NASA/GSFC Five Millennium Catalog and eclipse map for 2026-08-12:
+        // greatest eclipse near 65°10.3′ N, 25°12.3′ W at 17:47:05.8 UTC,
+        // global eclipse magnitude 1.0386.
+        // https://eclipse.gsfc.nasa.gov/5MCSEmap/2001-2100/2026-08-12.gif
+        let snapshot = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 65.1717,
+            longitudeDegrees: -25.205,
+            date: ISO8601DateFormatter().date(from: "2026-08-12T17:47:06Z")!
+        )
+        let eclipse = try SolarEclipseGeometryV2.evaluate(
+            sun: snapshot.sun,
+            moon: snapshot.moon
+        )
+
+        XCTAssertEqual(eclipse.stage, .total)
+        XCTAssertEqual(eclipse.obscuredFraction, 1, accuracy: 1e-12)
+        XCTAssertLessThan(eclipse.angularSeparationDegrees, 0.02)
+        XCTAssertGreaterThan(eclipse.moonAngularRadiusDegrees, eclipse.sunAngularRadiusDegrees)
+        XCTAssertTrue((0.25...0.29).contains(eclipse.sunAngularRadiusDegrees))
+        XCTAssertTrue((0.25...0.29).contains(eclipse.moonAngularRadiusDegrees))
+    }
+
+    func testSeparatedDisksAreNotAnEclipse() throws {
+        let eclipse = try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: 0.70,
+            sunAngularRadiusDegrees: 0.266,
+            moonAngularRadiusDegrees: 0.272
+        )
+
+        XCTAssertEqual(eclipse.stage, .none)
+        XCTAssertEqual(eclipse.obscuredFraction, 0, accuracy: 1e-12)
+    }
+
+    func testPartialOverlapIsClassifiedAsPartial() throws {
+        let eclipse = try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: 0.30,
+            sunAngularRadiusDegrees: 0.266,
+            moonAngularRadiusDegrees: 0.272
+        )
+
+        XCTAssertEqual(eclipse.stage, .partial)
+        XCTAssertEqual(eclipse.obscuredFraction, 0.3361669328757645, accuracy: 1e-12)
+    }
+
+    func testCentredLargerMoonProducesTotality() throws {
+        let eclipse = try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: 0,
+            sunAngularRadiusDegrees: 0.266,
+            moonAngularRadiusDegrees: 0.275
+        )
+
+        XCTAssertEqual(eclipse.stage, .total)
+        XCTAssertEqual(eclipse.obscuredFraction, 1, accuracy: 1e-12)
+    }
+
+    func testCentredSmallerMoonProducesAnnularity() throws {
+        let eclipse = try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: 0,
+            sunAngularRadiusDegrees: 0.266,
+            moonAngularRadiusDegrees: 0.250
+        )
+
+        XCTAssertEqual(eclipse.stage, .annular)
+        XCTAssertEqual(eclipse.obscuredFraction, 0.883317315846006, accuracy: 1e-12)
+    }
+
+    func testNewMoonOutsideEclipseBandIsNotFalseEclipse() throws {
+        let snapshot = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 51.509,
+            longitudeDegrees: -0.029,
+            date: ISO8601DateFormatter().date(from: "2026-02-17T12:16:00Z")!
+        )
+        let eclipse = try SolarEclipseGeometryV2.evaluate(
+            sun: snapshot.sun,
+            moon: snapshot.moon
+        )
+
+        XCTAssertFalse(eclipse.isEclipse)
+        XCTAssertEqual(eclipse.stage, .none)
+        XCTAssertGreaterThan(
+            eclipse.angularSeparationDegrees,
+            eclipse.sunAngularRadiusDegrees + eclipse.moonAngularRadiusDegrees
+        )
+    }
+
+    func testInvalidDiskInputsFailClosed() {
+        XCTAssertThrowsError(try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: .nan,
+            sunAngularRadiusDegrees: 0.266,
+            moonAngularRadiusDegrees: 0.272
+        )) { error in
+            XCTAssertEqual(error as? SolarEclipseGeometryErrorV2, .invalidAngularSeparation)
+        }
+        XCTAssertThrowsError(try SolarEclipseGeometryV2.evaluateDisks(
+            angularSeparationDegrees: 0,
+            sunAngularRadiusDegrees: 0,
+            moonAngularRadiusDegrees: 0.272
+        )) { error in
+            XCTAssertEqual(error as? SolarEclipseGeometryErrorV2, .invalidSunAngularRadius)
+        }
+    }
+}
+
+final class AtmosphericRefractionV2Tests: XCTestCase {
+    func testStandardAtmosphereRaisesHorizon() {
+        let correction = AtmosphericRefractionV2.correctionDegrees(
+            geometricAltitudeDegrees: 0
+        )
+
+        XCTAssertEqual(correction, 0.48194444444444445, accuracy: 1e-12)
+        XCTAssertGreaterThan(
+            AtmosphericRefractionV2.apparentAltitudeDegrees(geometricAltitudeDegrees: 0),
+            0.45
+        )
+    }
+
+    func testRefractionDecreasesAsBodyRises() {
+        let horizon = AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: 0)
+        let tenDegrees = AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: 10)
+        let fortyFiveDegrees = AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: 45)
+
+        XCTAssertGreaterThan(horizon, tenDegrees)
+        XCTAssertGreaterThan(tenDegrees, fortyFiveDegrees)
+        XCTAssertLessThan(fortyFiveDegrees, 0.03)
+    }
+
+    func testBodyJustBelowHorizonCanAppearAboveIt() {
+        XCTAssertGreaterThan(
+            AtmosphericRefractionV2.apparentAltitudeDegrees(geometricAltitudeDegrees: -0.5),
+            0
+        )
+    }
+
+    func testZenithAndFarBelowHorizonAreNotCorrected() {
+        XCTAssertEqual(
+            AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: 90),
+            0,
+            accuracy: 1e-12
+        )
+        XCTAssertEqual(
+            AtmosphericRefractionV2.apparentAltitudeDegrees(geometricAltitudeDegrees: 90),
+            90,
+            accuracy: 1e-12
+        )
+        XCTAssertEqual(
+            AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: -5),
+            0,
+            accuracy: 1e-12
+        )
+    }
+
+    func testNonFiniteAltitudeDoesNotCreateCorrection() {
+        XCTAssertEqual(
+            AtmosphericRefractionV2.correctionDegrees(geometricAltitudeDegrees: .nan),
+            0
+        )
     }
 }
 
@@ -271,13 +547,19 @@ final class CelestialDialProjectionV2Tests: XCTestCase {
             trueHeadingDegrees: 0
         ))
 
+        let apparentHorizon = AtmosphericRefractionV2.apparentAltitudeDegrees(
+            geometricAltitudeDegrees: 0
+        )
+        let horizonRadius = 1 - (1 - CelestialDialProjectionV2.protectedZenithRadiusFraction)
+            * apparentHorizon / 90
+
         XCTAssertEqual(north.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(north.y, -1, accuracy: 1e-12)
-        XCTAssertEqual(east.x, 1, accuracy: 1e-12)
+        XCTAssertEqual(north.y, -horizonRadius, accuracy: 1e-12)
+        XCTAssertEqual(east.x, horizonRadius, accuracy: 1e-12)
         XCTAssertEqual(east.y, 0, accuracy: 1e-12)
         XCTAssertEqual(south.x, 0, accuracy: 1e-12)
-        XCTAssertEqual(south.y, 1, accuracy: 1e-12)
-        XCTAssertEqual(west.x, -1, accuracy: 1e-12)
+        XCTAssertEqual(south.y, horizonRadius, accuracy: 1e-12)
+        XCTAssertEqual(west.x, -horizonRadius, accuracy: 1e-12)
         XCTAssertEqual(west.y, 0, accuracy: 1e-12)
     }
 
@@ -302,7 +584,8 @@ final class CelestialDialProjectionV2Tests: XCTestCase {
             trueHeadingDegrees: 0
         ))
 
-        XCTAssertEqual(abs(horizon.y), 1, accuracy: 1e-12)
+        XCTAssertLessThan(abs(horizon.y), 1)
+        XCTAssertGreaterThan(abs(horizon.y), 0.99)
         XCTAssertEqual(
             abs(zenith.y),
             CelestialDialProjectionV2.protectedZenithRadiusFraction,

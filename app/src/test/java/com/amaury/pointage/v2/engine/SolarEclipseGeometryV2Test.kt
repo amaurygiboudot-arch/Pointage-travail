@@ -74,4 +74,26 @@ class SolarEclipseGeometryV2Test {
                 eclipse.sunAngularRadiusDeg + eclipse.moonAngularRadiusDeg
         )
     }
+
+    @Test
+    fun `eclipse totale reelle du 12 aout 2026 est detectee sur axe central`() {
+        /*
+         * Reference NASA/GSFC (Fred Espenak), maximum global :
+         * 2026-08-12 17:47:05.8 UTC, 65 deg 10.3 min N, 25 deg 12.3 min W,
+         * magnitude 1.0386. La tolerance reste volontairement robuste car le
+         * moteur mobile emploie une ephemeride lunaire allegee.
+         * https://eclipse.gsfc.nasa.gov/SEsearch/SEsearchmap.php?Ecl=20260812
+         */
+        val snapshot = DefaultCelestialEngineV2.snapshot(
+            latitudeDeg = 65.1717,
+            longitudeDeg = -25.205,
+            timeMs = Instant.parse("2026-08-12T17:47:06Z").toEpochMilli()
+        )
+        val eclipse = SolarEclipseGeometryV2.evaluate(snapshot.sun, snapshot.moon)
+
+        assertTrue(eclipse.isEclipse)
+        assertTrue(eclipse.stage != SolarEclipseStageV2.NONE)
+        assertTrue(eclipse.angularSeparationDeg < 0.25)
+        assertTrue(eclipse.obscuredFraction > 0.70)
+    }
 }

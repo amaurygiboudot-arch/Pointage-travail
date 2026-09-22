@@ -164,6 +164,39 @@ class CelestialEngineV2Test {
         )
     }
 
+    @Test
+    fun `convention jour nuit reste identique au seuil de rendu solaire`() {
+        val start = Instant.parse("2026-09-22T04:00:00Z").toEpochMilli()
+        repeat(49) { quarterHour ->
+            val result = engine.snapshot(
+                latitudeDeg = 46.67,
+                longitudeDeg = -1.43,
+                timeMs = start + quarterHour * 15L * 60_000L
+            )
+            assertEquals(
+                result.sun.altitudeDeg < CelestialScreenGeometryV2.STANDARD_DISK_HORIZON_DEG,
+                result.night
+            )
+        }
+    }
+
+    @Test
+    fun `poles et dateline produisent toujours des valeurs finies`() {
+        val at = Instant.parse("2026-06-21T12:00:00Z").toEpochMilli()
+        listOf(
+            90.0 to 180.0,
+            90.0 to -180.0,
+            -90.0 to 180.0,
+            -90.0 to -180.0
+        ).forEach { (latitude, longitude) ->
+            val result = engine.snapshot(latitude, longitude, at)
+            assertTrue(result.sun.azimuthDeg.isFinite())
+            assertTrue(result.sun.altitudeDeg.isFinite())
+            assertTrue(result.moon.azimuthDeg.isFinite())
+            assertTrue(result.moon.altitudeDeg.isFinite())
+        }
+    }
+
     private fun snapshot(instant: String): CelestialSnapshotV2 = engine.snapshot(
         latitudeDeg = 46.67,
         longitudeDeg = -1.43,

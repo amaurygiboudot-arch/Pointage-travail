@@ -56,7 +56,8 @@ object CelestialScreenGeometryV2 {
      * Ce n'est pas un « horizon civil » : le crépuscule civil est une notion
      * différente. Le seuil lunaire exact varie légèrement avec son diamètre.
      */
-    const val STANDARD_DISK_HORIZON_DEG = -50.0 / 60.0
+    const val STANDARD_DISK_HORIZON_DEG =
+        AtmosphericRefractionV2.STANDARD_SOLAR_DISK_HORIZON_DEG
 
     /** Ancien nom conservé temporairement pour compatibilité des appelants/tests. */
     @Deprecated("Use STANDARD_DISK_HORIZON_DEG")

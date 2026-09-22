@@ -25,7 +25,10 @@ enum CelestialDialProjectionV2 {
         }
 
         let relativeAzimuth = (azimuthDegrees - trueHeadingDegrees) * .pi / 180
-        let visibleAltitude = min(90, max(0, altitudeDegrees))
+        let apparentAltitude = AtmosphericRefractionV2.apparentAltitudeDegrees(
+            geometricAltitudeDegrees: altitudeDegrees
+        )
+        let visibleAltitude = min(90, max(0, apparentAltitude))
         let altitudeFraction = visibleAltitude / 90
         let radius = 1 - (1 - protectedZenithRadiusFraction) * altitudeFraction
         return CelestialDialPointV2(

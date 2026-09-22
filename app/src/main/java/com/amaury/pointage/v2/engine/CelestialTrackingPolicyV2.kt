@@ -32,6 +32,21 @@ object CelestialTrackingPolicyV2 {
     const val MAX_FUTURE_SKEW_MS = 2L * 60_000L
 
     /**
+     * Valide les donnees physiques avant toute qualification de fraicheur.
+     * Android peut livrer une Location construite ou restauree avec NaN/Infini ;
+     * elle ne doit jamais etre annoncee VALID puis echouer silencieusement lors
+     * du calcul de l'ephemeride.
+     */
+    fun hasValidCoordinates(
+        latitudeDeg: Double,
+        longitudeDeg: Double,
+        altitudeMeters: Double? = null
+    ): Boolean = latitudeDeg.isFinite() && latitudeDeg in -90.0..90.0 &&
+        longitudeDeg.isFinite() && longitudeDeg in -180.0..180.0 &&
+        (altitudeMeters == null ||
+            altitudeMeters.isFinite() && altitudeMeters in -1_000.0..100_000.0)
+
+    /**
      * API canonique quand l'appelant connaît déjà l'âge de la position.
      *
      * Sur Android, cet âge doit de préférence venir de Location.elapsedRealtimeNanos
