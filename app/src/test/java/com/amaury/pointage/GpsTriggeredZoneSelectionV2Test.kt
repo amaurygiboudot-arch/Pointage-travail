@@ -9,6 +9,54 @@ import java.util.Locale
 
 class GpsTriggeredZoneSelectionV2Test {
     @Test
+    fun `une zone historique uuid sans type reste un poste de travail`() {
+        val legacy = StoredGpsZone(
+            id = "ae250835-5652-4f1b-ad5f-2cad92d80c09",
+            latitude = 46.7,
+            longitude = -1.4,
+            radius = 150f,
+            address = "12 rue de l'Atelier",
+            companyId = null,
+            companySlot = null,
+            pointTypeToken = null,
+            label = null,
+            sourceJson = "{}"
+        )
+
+        assertEquals(GpsPointTypeV2.POSTE, GpsTriggeredZoneSelectionV2.pointType(legacy))
+    }
+
+    @Test
+    fun `une zone historique sans type ne deduit rien de son identifiant`() {
+        val legacy = StoredGpsZone(
+            id = "parking-other-legacy",
+            latitude = 46.7,
+            longitude = -1.4,
+            radius = 150f,
+            address = "Ancien atelier",
+            companyId = null,
+            companySlot = null,
+            pointTypeToken = null,
+            label = null,
+            sourceJson = "{}"
+        )
+
+        assertEquals(GpsPointTypeV2.POSTE, GpsTriggeredZoneSelectionV2.pointType(legacy))
+    }
+
+    @Test
+    fun `un type explicite inconnu reste ambigu`() {
+        val unknown = zone(
+            id = "ae250835-5652-4f1b-ad5f-2cad92d80c09",
+            address = "12 rue de l'Atelier",
+            label = null,
+            pointType = "VISITE_CLIENT"
+        )
+
+        assertEquals(GpsPointTypeV2.OTHER, GpsTriggeredZoneSelectionV2.pointType(unknown))
+    }
+
+    @Test
     fun `une seule zone est selectionnee`() {
         val result = GpsTriggeredZoneSelectionV2.select(
             listOf(candidate("zone-a"))

@@ -150,7 +150,9 @@ internal object GpsTriggeredZoneSelectionV2 {
     }
 
     internal fun pointType(zone: StoredGpsZone): GpsPointTypeV2 {
-        val raw = (zone.pointTypeToken ?: zone.id).uppercase(Locale.ROOT)
+        val explicit = zone.pointTypeToken?.trim()?.takeIf { it.isNotBlank() }
+            ?: return GpsPointTypeV2.POSTE
+        val raw = explicit.uppercase(Locale.ROOT)
         return when {
             raw.contains("PARK") -> GpsPointTypeV2.PARKING
             raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER

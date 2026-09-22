@@ -114,11 +114,15 @@ internal object GpsPresenceStateKeysV2 {
     const val ENTRY_RESOLUTION_PENDING = "entry_resolution_pending"
     const val ENTRY_RESOLUTION_TOKEN = "entry_resolution_token"
     const val PENDING_EXIT_ZONES = "pending_exit_zones"
+    const val REGISTRATION_VALID = "geofence_registration_valid"
+    const val REGISTRATION_FINGERPRINT = "geofence_registration_fingerprint"
     val EPHEMERAL_KEYS = setOf(
         ACTIVE_ZONES,
         ENTRY_RESOLUTION_PENDING,
         ENTRY_RESOLUTION_TOKEN,
-        PENDING_EXIT_ZONES
+        PENDING_EXIT_ZONES,
+        REGISTRATION_VALID,
+        REGISTRATION_FINGERPRINT
     )
 
     fun isTransferablePreferenceKey(preferenceFileName: String, key: String): Boolean =

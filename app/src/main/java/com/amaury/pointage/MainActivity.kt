@@ -127,13 +127,7 @@ class MainActivity : Activity() {
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
                 gpsSaveRequestId++
-                gpsPrefs.edit()
-                    .remove("active_zones")
-                    .remove("entry_resolution_pending")
-                    .remove("entry_resolution_token")
-                    .remove("pending_exit_zones")
-                    .apply()
-                GeofenceManager.remove(this)
+                GeofenceManager.reconfigureStoredZones(this)
                 updateGpsStatus()
                 Toast.makeText(this, "Pointage automatique GPS désactivé", Toast.LENGTH_SHORT).show()
             } else if (!GeofenceManager.hasRequiredPermissions(this)) {
@@ -415,10 +409,12 @@ class MainActivity : Activity() {
             is GpsZonesReadResult.Corrupt -> if (allowCorruptRepair) JSONArray() else null
         }
 
-    private fun existingZoneIdForAddress(address: String, existingZones: JSONArray): String? {
+    private fun existingZoneForAddress(address: String, existingZones: JSONArray): JSONObject? {
         for (i in 0 until existingZones.length()) {
             val zone = existingZones.optJSONObject(i) ?: continue
-            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return zone.optString("id").takeIf { it.isNotBlank() }
+            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) {
+                return JSONObject(zone.toString())
+            }
         }
         return null
     }
@@ -432,7 +428,7 @@ class MainActivity : Activity() {
         geofenceRadius.setText(radius.toString())
         val existingZones = loadSavedZoneObjects(allowCorruptRepair)
         if (existingZones == null) {
-            GeofenceManager.removeRegisteredGeofences(this)
+            GeofenceManager.reconfigureStoredZones(this)
             gpsStatusText.text = "Configuration GPS illisible — automatisation suspendue"
             AlertDialog.Builder(this)
                 .setTitle("Configuration GPS à réparer")
@@ -458,8 +454,18 @@ class MainActivity : Activity() {
             addresses.forEach { address ->
                 val result = runCatching { geocoder.getFromLocationName(address, 1) }.getOrNull()?.firstOrNull()
                 if (result != null) {
-                    val id = existingZoneIdForAddress(address, existingZones) ?: UUID.randomUUID().toString()
-                    zones.put(JSONObject().put("id", id).put("address", address).put("latitude", result.latitude).put("longitude", result.longitude).put("radius", radius))
+                    val existing = existingZoneForAddress(address, existingZones)
+                    val id = existing?.optString("id")?.takeIf { it.isNotBlank() }
+                        ?: UUID.randomUUID().toString()
+                    val zone = refreshedGpsZoneJson(
+                        existing = existing,
+                        id = id,
+                        address = address,
+                        latitude = result.latitude,
+                        longitude = result.longitude,
+                        radius = radius
+                    )
+                    zones.put(zone)
                     workZones += WorkZone(id, result.latitude, result.longitude, radius.toFloat())
                 } else failedAddresses += address
             }
@@ -476,21 +482,28 @@ class MainActivity : Activity() {
                     return@finishGeocoding
                 }
 
-                gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
+                val saved = gpsPrefs.edit().putString("address", addresses.joinToString("\n")).putInt("radius", radius)
                     .putBoolean("enabled", autoGpsSwitch.isChecked).putString("zones", zones.toString())
                     .remove("active_zones").remove("entry_resolution_pending")
-                    .remove("entry_resolution_token").remove("pending_exit_zones").apply()
+                    .remove("entry_resolution_token").remove("pending_exit_zones").commit()
+                if (!saved) {
+                    disableAutomaticGps("Impossible d'enregistrer la configuration GPS")
+                    return@finishGeocoding
+                }
                 if (failedAddresses.isNotEmpty()) Toast.makeText(this, "${failedAddresses.size} adresse(s) n'ont pas pu être localisées.", Toast.LENGTH_LONG).show()
                 if (autoGpsSwitch.isChecked) {
                     if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
                     else if (GeofenceManager.hasRequiredPermissions(this)) {
-                        GeofenceManager.registerAll(this, workZones) { success, message -> runOnUiThread {
+                        GeofenceManager.reconfigureStoredZones(this) { success, message -> runOnUiThread {
                             gpsStatusText.text = if (success) "GPS automatique actif" else message
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                         } }
-                    } else requestLocationAccess()
+                    } else {
+                        GeofenceManager.reconfigureStoredZones(this)
+                        requestLocationAccess()
+                    }
                 } else {
-                    GeofenceManager.remove(this)
+                    GeofenceManager.reconfigureStoredZones(this)
                     Toast.makeText(this, "Réglages enregistrés", Toast.LENGTH_SHORT).show()
                 }
                 updateGpsStatus()
@@ -524,7 +537,7 @@ class MainActivity : Activity() {
         gpsPrefs.edit().putBoolean("enabled", false)
             .remove("active_zones").remove("entry_resolution_pending")
             .remove("entry_resolution_token").remove("pending_exit_zones").apply()
-        GeofenceManager.remove(this)
+        GeofenceManager.reconfigureStoredZones(this)
         gpsStatusText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
@@ -545,7 +558,9 @@ class MainActivity : Activity() {
                     disableAutomaticGps("Aucune zone GPS valide enregistrée")
                     return
                 }
-                GeofenceManager.registerAll(this, stored.zones.map { it.asWorkZone() }) { success, message ->
+                // Reopening the app only reconciles Android's registrations. It must
+                // not discard a business event (for example an EXIT awaiting confirmation).
+                GeofenceManager.resyncStoredZones(this) { success, message ->
                     runOnUiThread {
                         gpsStatusText.text = if (success) "GPS automatique actif" else message
                     }

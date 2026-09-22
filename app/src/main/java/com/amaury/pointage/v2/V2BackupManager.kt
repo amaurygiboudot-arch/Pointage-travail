@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.DriveBackupManager
 import com.amaury.pointage.GpsPresenceStateKeysV2
+import com.amaury.pointage.GeofenceManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -74,7 +75,10 @@ object V2BackupManager {
             }else mergePreferences(context,name,saved)
             restored++
         }
-        V2ProfileStore.bind(context);V2MigrationManager.ensureMigrated(context);RestoreResult(restored,merged)
+        V2ProfileStore.bind(context)
+        V2MigrationManager.ensureMigrated(context)
+        GeofenceManager.reconfigureStoredZones(context)
+        RestoreResult(restored,merged)
     }
 
     /** Importe un ancien cloud directement dans le moteur actuel, sans toucher au stockage legacy local. */
