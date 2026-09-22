@@ -88,6 +88,13 @@ internal fun resolveAnnualOvertimeV2(
     ?.takeIf { monthlyGrossReliable && paidTimeReliable && upstreamTimeReliable }
     ?.sumOf { it.coerceAtLeast(0L) }
 
+internal fun resolveAnnualPaidWorkV2(
+    paidWorkMs: Long?,
+    companyScoped: Boolean,
+    paidTimeReliable: Boolean?
+): Long? = paidWorkMs
+    ?.takeIf { !companyScoped || paidTimeReliable == true }
+
 internal fun resolveAnnualDurationTotalV2(monthlyDurationsMs: List<Long?>): Long? =
     monthlyDurationsMs
         .takeIf { months -> months.all { it != null } }
@@ -448,7 +455,6 @@ object AnnualPdfReports {
                     !overlappingSessions &&
                     !unassignedEmployerSession
             )
-            val paid = timeResolution.paidWorkMs
 
             val salaryNet = if (company != null && convention != null) {
                 runCatching {
@@ -468,6 +474,11 @@ object AnnualPdfReports {
                 }.getOrNull()
                 else -> null
             }
+            val paid = resolveAnnualPaidWorkV2(
+                paidWorkMs = timeResolution.paidWorkMs,
+                companyScoped = company != null,
+                paidTimeReliable = salary?.paidTimeReliable
+            )
             val overtime = resolveAnnualOvertimeV2(
                 overtimeDurationsMs = salary?.overtimeTiers?.map { it.durationMs },
                 monthlyGrossReliable = salary?.monthlyGrossReliable == true,
