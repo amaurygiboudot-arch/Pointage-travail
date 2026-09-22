@@ -4,6 +4,7 @@ import android.content.Context
 import com.amaury.pointage.v2.engine.CompanyPayrollOverridesV2
 import com.amaury.pointage.v2.engine.ConventionRuleHistoryV2
 import com.amaury.pointage.v2.engine.EmployeeNetProjectionV2
+import com.amaury.pointage.v2.engine.NetSalaryEngineV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
 
 /**
@@ -16,6 +17,7 @@ import com.amaury.pointage.v2.engine.PayrollPeriodV2
 object V2SalaryNetBridgeV2 {
     data class Result(
         val salary: V2SalaryAdapter.Result,
+        val payroll: NetSalaryEngineV2.Result,
         val netBeforeIncomeTax: Double?,
         val netTaxable: Double?,
         val incomeTax: Double?,
@@ -67,10 +69,11 @@ object V2SalaryNetBridgeV2 {
             year = year,
             company = companyPayroll,
             complementaryMinutes = salary.complementaryMinutes,
-            upstreamGrossReliable = salary.monthlyGrossReliable
+            upstreamGrossReliable = salary.monthlyGrossReliable && salary.paidTimeReliable
         )
         return Result(
             salary = salary,
+            payroll = net.payroll,
             netBeforeIncomeTax = net.netBeforeIncomeTax,
             netTaxable = net.netTaxable,
             incomeTax = net.incomeTax,
