@@ -75,6 +75,25 @@ chef d'orchestre → spécialiste(s) → team_lead → qa_reviewer → control_g
 
 Le passage du sas `control_gate` ne remplace pas les contrôles GitHub requis.
 
+### Preuve et orchestration
+
+La présence d'un fichier de rôle ne constitue pas une preuve d'exécution.
+
+Chaque rapport multi-agents est :
+- routé depuis le diff de la PR ;
+- lié au SHA exact du HEAD ;
+- structuré selon un schéma JSON contrôlé ;
+- publié sur la PR avec un marqueur machine lisible ;
+- invalidé automatiquement dès que le HEAD change.
+
+Le gate accepte soit :
+1. une revue exécutée automatiquement par l'action Codex officielle avec un secret GitHub `OPENAI_API_KEY` ;
+2. une revue exécutée depuis un Codespace où Codex est déjà authentifié, puis publiée sur la PR.
+
+Si aucune authentification Codex n'est disponible et qu'aucune preuve valide n'existe, le gate doit échouer. Il est interdit de remplacer l'absence d'agent par un faux PASS.
+
+Les secrets OpenAI restent hors du dépôt. Pour GitHub Actions, ils sont fournis uniquement via GitHub Secrets. Une évolution vers une identité de charge de travail/OIDC pourra remplacer la clé longue durée lorsqu'elle sera configurée côté OpenAI.
+
 ### Incidents de gouvernance
 
 Sont bloquants :
