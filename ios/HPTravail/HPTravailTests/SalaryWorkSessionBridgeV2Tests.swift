@@ -100,9 +100,10 @@ final class SalaryWorkSessionBridgeV2Tests: XCTestCase {
         XCTAssertNil(source.sessions[0].employerId)
         XCTAssertEqual(source.sessions[1].employerId, "company-b")
         XCTAssertEqual(source.sessions[2].employerId, "company-a")
-        XCTAssertTrue(result.reliable)
+        XCTAssertFalse(result.reliable)
         XCTAssertEqual(result.completedSessionCount, 1)
         XCTAssertEqual(result.totalPaidMinutes, 60)
+        XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.unassignedEmployerWarning))
     }
 
     func testBridgePropagatesUnreliableRuntimeStorageWithoutHidingFacts() {
