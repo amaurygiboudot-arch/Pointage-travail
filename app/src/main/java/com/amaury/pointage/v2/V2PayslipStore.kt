@@ -368,6 +368,7 @@ object V2PayslipStore {
  ):Map<String,Double>?{
   val salary=salaryNet.salary
   if(!salary.monthlyGrossReliable||!salary.paidTimeReliable)return null
+  if(salary.completedSessions==0&&salary.warnings.isNotEmpty())return null
   val presentation=V2SalaryNetPresentationV2.from(salaryNet)
   val socialGross=NetSalaryReferencePolicyV2.socialGross(salaryNet.payroll)
   return linkedMapOf<String,Double>().apply{
