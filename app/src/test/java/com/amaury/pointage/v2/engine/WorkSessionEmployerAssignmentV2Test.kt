@@ -53,10 +53,54 @@ class WorkSessionEmployerAssignmentV2Test {
         )
     }
 
+    @Test
+    fun `une session fermee sans fin ne contamine pas les periodes futures`() {
+        val broken = session(null, 8 * 60 * minute, null, SessionStatusV2.CLOSED)
+
+        assertTrue(
+            WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                sessions = listOf(broken),
+                rangeStartMs = 0L,
+                rangeEndMs = 24 * 60 * minute
+            )
+        )
+        assertFalse(
+            WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                sessions = listOf(broken),
+                rangeStartMs = 24 * 60 * minute,
+                rangeEndMs = 48 * 60 * minute
+            )
+        )
+    }
+
+    @Test
+    fun `une session ouverte est bornee a maintenant`() {
+        val open = session(null, 8 * 60 * minute, null, SessionStatusV2.OPEN)
+        val nowMs = 12 * 60 * minute
+
+        assertTrue(
+            WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                sessions = listOf(open),
+                rangeStartMs = 0L,
+                rangeEndMs = 24 * 60 * minute,
+                openEndMs = nowMs
+            )
+        )
+        assertFalse(
+            WorkSessionEmployerAssignmentV2.hasUnassignedSession(
+                sessions = listOf(open),
+                rangeStartMs = 24 * 60 * minute,
+                rangeEndMs = 48 * 60 * minute,
+                openEndMs = nowMs
+            )
+        )
+    }
+
     private fun session(
         employerId: String?,
         start: Long,
-        end: Long
+        end: Long?,
+        status: SessionStatusV2 = SessionStatusV2.CLOSED
     ) = WorkSessionV2(
         id = "session-$start",
         employerId = employerId,
@@ -64,6 +108,6 @@ class WorkSessionEmployerAssignmentV2Test {
         countedEntryMs = start,
         countedExitMs = end,
         realExitMs = end,
-        status = SessionStatusV2.CLOSED
+        status = status
     )
 }
