@@ -228,7 +228,8 @@ object V2SalaryAdapter {
   val unassignedEmployerSession=WorkSessionEmployerAssignmentV2.hasUnassignedSession(
    sessions=sessions,
    rangeStartMs=monthStart,
-   rangeEndMs=monthEnd
+   rangeEndMs=monthEnd,
+   openEndMs=System.currentTimeMillis()
   )
   val paidTimeReliable=individualPaidTimeReliable&&!overlappingPaidSessions&&!unassignedEmployerSession
   if(!individualPaidTimeReliable)warnings+="Pause à confirmer ou statut payé/non payé inconnu : le temps payé et le brut restent à confirmer."
