@@ -2,6 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.*
 import kotlin.math.abs
+import kotlin.math.roundToLong
 
 data class RightsSnapshotV2(val counters:List<CounterV2>,val warnings:List<String>)
 object RightsEngineV2 {
@@ -14,11 +15,18 @@ object RightsEngineV2 {
 data class PayslipComparisonV2(val discrepancies:List<DiscrepancyV2>,val conforming:Boolean)
 object PayslipEngineV2 {
     fun compare(expected:Map<String,Double>, observed:Map<String,Double>, tolerance:Double=0.02):PayslipComparisonV2 {
+        require(tolerance.isFinite() && tolerance >= 0.0) { "Tolérance de comparaison invalide" }
+        require((expected.values + observed.values).all { it.isFinite() && it >= 0.0 }) {
+            "Montant de comparaison invalide"
+        }
+        val toleranceCents=(tolerance*100.0).roundToLong()
         val keys=(expected.keys+observed.keys).toSortedSet()
         val out=keys.mapNotNull { key ->
             val e=expected[key]
             val o=observed[key]
-            if(e==null || o==null || abs(e-o)>tolerance) DiscrepancyV2(
+            val exceedsTolerance=e!=null&&o!=null&&
+                abs((e*100.0).roundToLong()-(o*100.0).roundToLong())>toleranceCents
+            if(e==null || o==null || exceedsTolerance) DiscrepancyV2(
                 id="$key:${e ?: "missing"}:${o ?: "missing"}",category=key,expected=e,observed=o,
                 explanation=when { e==null -> "Valeur inattendue sur le bulletin"; o==null -> "Valeur attendue absente ou non lue"; o<e -> "Écart négatif à vérifier"; else -> "Écart positif à vérifier" }
             ) else null

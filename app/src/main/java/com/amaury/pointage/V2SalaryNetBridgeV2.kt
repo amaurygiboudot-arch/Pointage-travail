@@ -23,7 +23,10 @@ object V2SalaryNetBridgeV2 {
         val incomeTax: Double?,
         val netAfterIncomeTax: Double?,
         val netBeforeIncomeTaxComplete: Boolean,
-        val warnings: List<String>
+        val warnings: List<String>,
+        /** Retenues réelles confirmées ayant alimenté ce calcul, sans seconde lecture du store. */
+        val mutualEmployeeAmount: Double? = null,
+        val providentEmployeeAmount: Double? = null
     )
 
     fun calculateForCompany(
@@ -79,7 +82,9 @@ object V2SalaryNetBridgeV2 {
             incomeTax = net.incomeTax,
             netAfterIncomeTax = net.netAfterIncomeTax,
             netBeforeIncomeTaxComplete = net.netBeforeIncomeTaxComplete,
-            warnings = (salary.warnings + companyPayroll.warnings + net.warnings).distinct()
+            warnings = (salary.warnings + companyPayroll.warnings + net.warnings).distinct(),
+            mutualEmployeeAmount = companyPayroll.mutualEmployeeAmount,
+            providentEmployeeAmount = companyPayroll.providentEmployeeAmount
         )
     }
 }

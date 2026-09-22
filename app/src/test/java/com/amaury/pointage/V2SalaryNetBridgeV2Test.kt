@@ -93,6 +93,8 @@ class V2SalaryNetBridgeV2Test {
         assertEquals(expected.incomeTax, actual.incomeTax)
         assertEquals(expected.netAfterIncomeTax, actual.netAfterIncomeTax)
         assertEquals(expected.payroll, actual.payroll)
+        assertEquals(100.0, actual.mutualEmployeeAmount!!, 0.0)
+        assertEquals(0.0, actual.providentEmployeeAmount!!, 0.0)
         assertEquals(2500.0, actual.salary.monthlyEstimatedGross, 0.0)
     }
 
