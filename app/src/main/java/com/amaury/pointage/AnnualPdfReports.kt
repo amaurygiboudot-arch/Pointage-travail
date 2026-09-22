@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2ProfileStore
@@ -17,6 +18,33 @@ import java.text.SimpleDateFormat
 import java.time.YearMonth
 import java.util.Calendar
 import java.util.Locale
+
+internal data class AnnualSalaryGrossResolutionV2(
+    val amount: Double?,
+    val state: String
+)
+
+internal fun resolveAnnualSalaryGrossV2(
+    cashGross: Double,
+    cashGrossReliable: Boolean,
+    salaryWarnings: List<String>,
+    payroll: NetSalaryEngineV2.Result?,
+    socialGrossRequired: Boolean
+): AnnualSalaryGrossResolutionV2 {
+    if (!cashGrossReliable) return AnnualSalaryGrossResolutionV2(null, "Brut à confirmer")
+
+    val amount = if (socialGrossRequired) {
+        payroll?.let(NetSalaryReferencePolicyV2::socialGross)
+    } else {
+        cashGross.takeIf { it.isFinite() && it >= 0.0 }
+    }
+    val state = when {
+        amount == null -> "Brut social à confirmer"
+        salaryWarnings.isNotEmpty() -> "À confirmer"
+        else -> "OK"
+    }
+    return AnnualSalaryGrossResolutionV2(amount, state)
+}
 
 object AnnualPdfReports {
 
@@ -229,31 +257,35 @@ object AnnualPdfReports {
                 else -> null
             }
             val overtime = salary?.overtimeTiers?.sumOf { it.durationMs } ?: 0L
-            val gross = salary?.takeIf { it.monthlyGrossReliable }?.let { reliable ->
-                if (company == null) {
-                    reliable.monthlyEstimatedGross
-                } else {
-                    val overrides = CompanyPayrollOverridesV2.load(
-                        context,
-                        company.id,
-                        YearMonth.of(year, month + 1).atEndOfMonth()
+            val payroll = if (salary != null && salary.monthlyGrossReliable && company != null) {
+                val overrides = CompanyPayrollOverridesV2.load(
+                    context,
+                    company.id,
+                    YearMonth.of(year, month + 1).atEndOfMonth()
+                )
+                runCatching {
+                    NetSalaryEngineV2.calculate(
+                        salary.monthlyEstimatedGross,
+                        year,
+                        overrides,
+                        salary.complementaryMinutes
                     )
-                    runCatching {
-                        NetSalaryEngineV2.calculate(
-                            reliable.monthlyEstimatedGross,
-                            year,
-                            overrides,
-                            reliable.complementaryMinutes
-                        ).gross
-                    }.getOrNull() ?: reliable.monthlyEstimatedGross
-                }
+                }.getOrNull()
+            } else null
+            val grossResolution = salary?.let { reliable ->
+                resolveAnnualSalaryGrossV2(
+                    cashGross = reliable.monthlyEstimatedGross,
+                    cashGrossReliable = reliable.monthlyGrossReliable,
+                    salaryWarnings = reliable.warnings,
+                    payroll = payroll,
+                    socialGrossRequired = company != null
+                )
             }
+            val gross = grossResolution?.amount
             val state = when {
                 convention == null -> "Convention à confirmer"
                 salary == null -> "Contrat à compléter"
-                salary.monthlyGrossReliable == false -> "Brut à confirmer"
-                salary.warnings.isNotEmpty() -> "À confirmer"
-                else -> "OK"
+                else -> grossResolution!!.state
             }
             if (state != "OK") ruleWarnings++
 
