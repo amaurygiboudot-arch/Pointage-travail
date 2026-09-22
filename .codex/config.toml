@@ -28,6 +28,10 @@ config_file = "./agents/mobile-platforms.toml"
 description = "UI/UX, navigation, affichages, accessibilité et rendu multi-écrans."
 config_file = "./agents/ui-ux.toml"
 
+[agents.celestial_system]
+description = "Système céleste, astronomie, Soleil/Lune, globe GPS, cap/Nord vrai et Accueil céleste."
+config_file = "./agents/celestial-system.toml"
+
 [agents.team_lead]
 description = "Chef d'équipe technique, coordination, dépendances et pré-validation."
 config_file = "./agents/team-lead.toml"
