@@ -50,7 +50,8 @@ class AnnualPdfReportsSalaryV2Test {
             cashGrossReliable = true,
             salaryWarnings = emptyList(),
             payroll = payroll(benefitsInKindReliable = false),
-            socialGrossRequired = true
+            socialGrossRequired = true,
+            upstreamTimeReliable = true
         )
 
         assertNull(resolution.amount)
@@ -64,7 +65,8 @@ class AnnualPdfReportsSalaryV2Test {
             cashGrossReliable = true,
             salaryWarnings = emptyList(),
             payroll = payroll(benefitsInKindReliable = true),
-            socialGrossRequired = true
+            socialGrossRequired = true,
+            upstreamTimeReliable = true
         )
 
         assertEquals(2_500.0, resolution.amount!!, 0.001)
@@ -78,7 +80,8 @@ class AnnualPdfReportsSalaryV2Test {
             cashGrossReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
-            socialGrossRequired = true
+            socialGrossRequired = true,
+            upstreamTimeReliable = true
         )
 
         assertNull(resolution.amount)
@@ -92,7 +95,8 @@ class AnnualPdfReportsSalaryV2Test {
             cashGrossReliable = true,
             salaryWarnings = emptyList(),
             payroll = null,
-            socialGrossRequired = false
+            socialGrossRequired = false,
+            upstreamTimeReliable = true
         )
 
         assertEquals(2_500.0, resolution.amount!!, 0.001)
