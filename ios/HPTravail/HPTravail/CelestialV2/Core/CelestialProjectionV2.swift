@@ -142,3 +142,52 @@ enum CelestialGlobeProjectionV2 {
         return normalized
     }
 }
+
+
+enum CelestialHorizonTransitionV2 {
+    static let civilTwilightStartDegrees = -6.0
+    static let diskFullyVisibleDegrees = 2.0
+    static let sunGlowEndDegrees = 4.0
+
+    static var diskHorizonDegrees: Double {
+        AtmosphericRefractionV2.standardSolarDiskHorizonDegrees
+    }
+
+    static func diskOpacity(altitudeDegrees: Double) -> Double {
+        guard altitudeDegrees.isFinite else { return 0 }
+        return smoothStep(
+            from: diskHorizonDegrees,
+            to: diskFullyVisibleDegrees,
+            value: altitudeDegrees
+        )
+    }
+
+    static func diskScale(altitudeDegrees: Double) -> Double {
+        0.82 + 0.18 * diskOpacity(altitudeDegrees: altitudeDegrees)
+    }
+
+    static func sunGlowOpacity(altitudeDegrees: Double) -> Double {
+        guard altitudeDegrees.isFinite else { return 0 }
+        let beforeRise = smoothStep(
+            from: civilTwilightStartDegrees,
+            to: diskHorizonDegrees,
+            value: altitudeDegrees
+        )
+        let afterRise = 1 - smoothStep(
+            from: diskHorizonDegrees,
+            to: sunGlowEndDegrees,
+            value: altitudeDegrees
+        )
+        return min(1, max(0, beforeRise * afterRise))
+    }
+
+    static func altitudeForHorizonGlow(_ altitudeDegrees: Double) -> Double {
+        max(altitudeDegrees, diskHorizonDegrees)
+    }
+
+    private static func smoothStep(from: Double, to: Double, value: Double) -> Double {
+        guard to > from else { return value >= to ? 1 : 0 }
+        let t = min(1, max(0, (value - from) / (to - from)))
+        return t * t * (3 - 2 * t)
+    }
+}
