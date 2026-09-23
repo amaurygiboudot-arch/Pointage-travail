@@ -64,9 +64,9 @@ struct CelestialStarFieldViewV2: View {
 
     var body: some View {
         Canvas { context, size in
-            guard state.hasRealDirectionalSky,
+            guard state.hasPhysicalStarSky,
                   let snapshot = state.snapshot,
-                  let heading = state.trueHeadingDegrees,
+                  let frame = state.deviceFrame,
                   let sky = model.prepared else {
                 return
             }
@@ -77,7 +77,7 @@ struct CelestialStarFieldViewV2: View {
             guard opacity > 0.01 else { return }
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = min(size.width, size.height) * 0.46
+            let radius = min(size.width, size.height) * 0.50
             var points: [Int: CGPoint] = [:]
             points.reserveCapacity(sky.stars.count / 2)
             var visible: [(PreparedStarSkyStarV2, CGPoint)] = []
@@ -85,10 +85,9 @@ struct CelestialStarFieldViewV2: View {
 
             for star in sky.stars {
                 guard star.position.isAboveApparentHorizon,
-                      let projected = CelestialDialProjectionV2.project(
-                        azimuthDegrees: star.position.azimuthDegrees,
-                        altitudeDegrees: star.position.geometricAltitudeDegrees,
-                        trueHeadingDegrees: heading
+                      let projected = StarSkyProjectionV2.projectToDevice(
+                        position: star.position,
+                        frame: frame
                       ) else {
                     continue
                 }
