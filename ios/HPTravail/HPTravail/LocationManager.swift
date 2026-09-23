@@ -59,6 +59,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var latestHeading: CLHeading?
     private var latestMotion: CMDeviceMotion?
     private var latestMotionUptime: TimeInterval?
+    private var celestialDeviceOrientation: UIDeviceOrientation = .portrait
     /// Dedicated qualified sample for the sky. The published `location`
     /// remains the result of an explicit one-shot request used by pointage and
     /// zone creation; continuous celestial tracking must not overwrite it.
@@ -514,16 +515,21 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func updateHeadingOrientation() {
-        switch UIDevice.current.orientation {
+        switch celestialDeviceOrientation {
         case .portrait:
+            celestialDeviceOrientation = .portrait
             manager.headingOrientation = .portrait
         case .portraitUpsideDown:
+            celestialDeviceOrientation = .portraitUpsideDown
             manager.headingOrientation = .portraitUpsideDown
         case .landscapeLeft:
+            celestialDeviceOrientation = .landscapeLeft
             manager.headingOrientation = .landscapeLeft
         case .landscapeRight:
+            celestialDeviceOrientation = .landscapeRight
             manager.headingOrientation = .landscapeRight
         default:
+            // faceUp/faceDown/unknown conservent le dernier repère écran fiable.
             break
         }
     }
