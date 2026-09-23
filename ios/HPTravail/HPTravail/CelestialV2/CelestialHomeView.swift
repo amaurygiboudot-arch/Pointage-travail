@@ -3,11 +3,17 @@ import SwiftUI
 import UIKit
 
 struct CelestialHomeView: View {
+    @Binding private var tabBarVisible: Bool
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @AppStorage(CelestialGlobeModeV2.preferenceKey) private var globeModeRaw = CelestialGlobeModeV2.local.rawValue
     @State private var isVisible = false
+    @State private var tabBarHideTask: Task<Void, Never>?
+
+    init(tabBarVisible: Binding<Bool> = .constant(true)) {
+        _tabBarVisible = tabBarVisible
+    }
 
     var body: some View {
         NavigationStack {
@@ -23,14 +29,25 @@ struct CelestialHomeView: View {
                 .padding()
             }
             .navigationTitle("Accueil")
+            .toolbar(tabBarVisible ? .visible : .hidden, for: .tabBar)
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        revealTabBarAndScheduleHide()
+                    }
+            )
             .onAppear {
                 isVisible = true
+                revealTabBarAndScheduleHide()
                 if scenePhase == .active {
                     locationManager.startCelestialTracking()
                 }
             }
             .onDisappear {
                 isVisible = false
+                tabBarHideTask?.cancel()
+                tabBarHideTask = nil
+                tabBarVisible = true
                 locationManager.stopCelestialTracking()
             }
             .onChange(of: scenePhase) { phase in
@@ -39,6 +56,22 @@ struct CelestialHomeView: View {
                 } else {
                     locationManager.stopCelestialTracking()
                 }
+            }
+        }
+    }
+
+    private func revealTabBarAndScheduleHide() {
+        tabBarHideTask?.cancel()
+        if !tabBarVisible {
+            withAnimation(.easeOut(duration: 0.16)) {
+                tabBarVisible = true
+            }
+        }
+        tabBarHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: HomeTabBarVisibilityPolicyV2.inactivityTimeoutNanoseconds)
+            guard !Task.isCancelled, isVisible else { return }
+            withAnimation(.easeInOut(duration: 0.22)) {
+                tabBarVisible = false
             }
         }
     }
