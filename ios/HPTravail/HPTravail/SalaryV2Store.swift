@@ -46,6 +46,16 @@ final class SalaryV2Store: ObservableObject {
     @Published var socialSourceText = ""
     @Published private(set) var socialProfileFeedback: String?
 
+    // Classification conventionnelle exacte : champs indépendants, aucun rapprochement approximatif.
+    @Published var classificationCoefficientText = ""
+    @Published var classificationLevelText = ""
+    @Published var classificationEchelonText = ""
+    @Published var classificationPositionText = ""
+    @Published var classificationGroupText = ""
+    @Published var classificationCategoryText = ""
+    @Published var classificationEmploymentText = ""
+    @Published private(set) var classificationFeedback: String?
+
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
     private let conventionRulesProvider: ConventionRulesProvider
@@ -154,6 +164,7 @@ final class SalaryV2Store: ObservableObject {
         self.incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         self.incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
+        hydrateConventionClassification()
     }
 
     var selectedCompany: SalaryCompanyV2? {
@@ -226,6 +237,7 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxFeedback = nil
         contractFeedback = nil
         socialProfileFeedback = nil
+        classificationFeedback = nil
         recompute()
         return true
     }
@@ -390,6 +402,63 @@ final class SalaryV2Store: ObservableObject {
     }
 
     @discardableResult
+    func confirmConventionClassification() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            classificationFeedback = "Classification : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        let coefficientRaw = classificationCoefficientText
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let coefficient: Int?
+        if coefficientRaw.isEmpty {
+            coefficient = nil
+        } else if let value = Int(coefficientRaw), value > 0 {
+            coefficient = value
+        } else {
+            classificationFeedback = "Classification : coefficient invalide."
+            return false
+        }
+
+        func value(_ raw: String) -> String? {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let classification = ConventionClassificationV2(
+            coefficient: coefficient,
+            level: value(classificationLevelText),
+            echelon: value(classificationEchelonText),
+            position: value(classificationPositionText),
+            group: value(classificationGroupText),
+            category: value(classificationCategoryText),
+            employment: value(classificationEmploymentText)
+        )
+        guard !classification.isEmpty else {
+            classificationFeedback = "Classification : renseignez au moins un critère exact."
+            return false
+        }
+
+        guard SalaryConventionClassificationStoreV2.save(
+            companyId: companyId,
+            value: classification
+        ) else {
+            classificationFeedback = "Classification : enregistrement refusé ou stockage non fiable."
+            return false
+        }
+
+        classificationFeedback = "Classification conventionnelle enregistrée pour cette entreprise."
+        refresh()
+        return true
+    }
+
+    @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
@@ -527,6 +596,28 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxRateText = taxRate?.ratePercent.map { String(format: "%.2f", $0) } ?? ""
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
+        hydrateConventionClassification()
+    }
+
+    private func hydrateConventionClassification() {
+        guard let companyId = selectedCompanyId else {
+            classificationCoefficientText = ""
+            classificationLevelText = ""
+            classificationEchelonText = ""
+            classificationPositionText = ""
+            classificationGroupText = ""
+            classificationCategoryText = ""
+            classificationEmploymentText = ""
+            return
+        }
+        let value = SalaryConventionClassificationStoreV2.load(companyId: companyId)
+        classificationCoefficientText = value.coefficient.map(String.init) ?? ""
+        classificationLevelText = value.level ?? ""
+        classificationEchelonText = value.echelon ?? ""
+        classificationPositionText = value.position ?? ""
+        classificationGroupText = value.group ?? ""
+        classificationCategoryText = value.category ?? ""
+        classificationEmploymentText = value.employment ?? ""
     }
 
     private func hydrateContractForm(from stored: SalaryEmploymentContractSnapshotV2?) {
