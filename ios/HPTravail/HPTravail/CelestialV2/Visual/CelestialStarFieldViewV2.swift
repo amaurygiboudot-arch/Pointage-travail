@@ -37,16 +37,18 @@ private final class CelestialStarFieldModelV2: ObservableObject {
                 guard let catalog = StarSkyCatalogLoaderV2.load() else {
                     return Optional<PreparedStarSkyV2>.none
                 }
-                let stars = catalog.stars.map { item in
-                    PreparedStarSkyStarV2(
+                let stars = catalog.stars.compactMap { item -> PreparedStarSkyStarV2? in
+                    let position = StarSkyProjectionV2.horizontal(
+                        star: item.star,
+                        latitudeDegrees: latitude,
+                        longitudeDegrees: longitude,
+                        date: date
+                    )
+                    guard position.isAboveApparentHorizon else { return nil }
+                    return PreparedStarSkyStarV2(
                         hr: item.hr,
                         magnitude: item.star.visualMagnitude,
-                        position: StarSkyProjectionV2.horizontal(
-                            star: item.star,
-                            latitudeDegrees: latitude,
-                            longitudeDegrees: longitude,
-                            date: date
-                        )
+                        position: position
                     )
                 }
                 return PreparedStarSkyV2(key: key, stars: stars, paths: catalog.constellationPaths)
@@ -84,8 +86,7 @@ struct CelestialStarFieldViewV2: View {
             visible.reserveCapacity(sky.stars.count / 2)
 
             for star in sky.stars {
-                guard star.position.isAboveApparentHorizon,
-                      let projected = StarSkyProjectionV2.projectToDevice(
+                guard let projected = StarSkyProjectionV2.projectToDevice(
                         position: star.position,
                         frame: frame
                       ) else {
