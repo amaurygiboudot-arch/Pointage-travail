@@ -23,6 +23,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
     @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
+    @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
@@ -55,6 +56,15 @@ final class SalaryV2Store: ObservableObject {
     @Published var classificationCategoryText = ""
     @Published var classificationEmploymentText = ""
     @Published private(set) var classificationFeedback: String?
+
+    // Absences V2 : saisie factuelle + confirmation d'exhaustivité du mois.
+    @Published var absenceTypeSelection = SalaryAbsencePayrollImpactV2.typeUnpaid
+    @Published var absenceStartDateText = ""
+    @Published var absenceEndDateText = ""
+    @Published var absenceTreatmentSelection = SalaryAbsenceTreatmentV2.unpaid.rawValue
+    @Published var absenceFullDay = true
+    @Published var absenceMonthSourceText = ""
+    @Published private(set) var absenceFeedback: String?
 
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
@@ -124,6 +134,9 @@ final class SalaryV2Store: ObservableObject {
                 period: period
             )
         }
+        let absenceSource = companyId.map { companyId in
+            SalaryAbsenceStoreV2.resolve(companyId: companyId, period: period)
+        }
         let contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? = {
             guard let companyId,
                   let source = workSource,
@@ -156,6 +169,7 @@ final class SalaryV2Store: ObservableObject {
         self.conventionCoverage = conventionCoverage
         self.contractResolution = contractResolution
         self.socialProfile = socialProfile
+        self.absenceSource = absenceSource
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             reference: reference,
@@ -181,6 +195,7 @@ final class SalaryV2Store: ObservableObject {
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
         let socialProfileWarnings = socialProfile?.warnings ?? []
+        let absenceWarnings = absenceSource?.warnings ?? []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -193,6 +208,7 @@ final class SalaryV2Store: ObservableObject {
             + conventionWarnings
             + contractWarnings
             + socialProfileWarnings
+            + absenceWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -238,6 +254,7 @@ final class SalaryV2Store: ObservableObject {
         contractFeedback = nil
         socialProfileFeedback = nil
         classificationFeedback = nil
+        absenceFeedback = nil
         recompute()
         return true
     }
@@ -459,6 +476,98 @@ final class SalaryV2Store: ObservableObject {
     }
 
     @discardableResult
+    func saveAbsence() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            absenceFeedback = "Absence : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        guard let start = localCivilDate(from: absenceStartDateText),
+              let endInclusive = localCivilDate(from: absenceEndDateText),
+              let endExclusive = calendar.date(byAdding: .day, value: 1, to: endInclusive),
+              endExclusive > start else {
+            absenceFeedback = "Absence : vérifiez les dates de début et de fin — JJ/MM/AAAA."
+            return false
+        }
+        guard let treatment = SalaryAbsenceTreatmentV2(
+            rawValue: absenceTreatmentSelection
+        ) else {
+            absenceFeedback = "Absence : traitement salarial à confirmer."
+            return false
+        }
+        let type = absenceTypeSelection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !type.isEmpty else {
+            absenceFeedback = "Absence : type à confirmer."
+            return false
+        }
+
+        let absence = SalaryAbsenceFactV2(
+            id: UUID().uuidString,
+            employerId: companyId,
+            type: type,
+            start: start,
+            end: endExclusive,
+            salaryTreatment: treatment,
+            fullDay: absenceFullDay,
+            status: .confirmed
+        )
+        guard SalaryAbsenceStoreV2.save(
+            companyId: companyId,
+            absence: absence
+        ) else {
+            absenceFeedback = "Absence : enregistrement refusé ou stockage non fiable."
+            return false
+        }
+
+        absenceStartDateText = ""
+        absenceEndDateText = ""
+        absenceFeedback = "Absence enregistrée. Reconfirmez ensuite l’exhaustivité du mois."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func removeAbsence(_ id: String) -> Bool {
+        guard let companyId = selectedCompanyId,
+              SalaryAbsenceStoreV2.remove(
+                companyId: companyId,
+                absenceId: id
+              ) else {
+            absenceFeedback = "Absence : suppression impossible."
+            return false
+        }
+        absenceFeedback = "Absence supprimée. Reconfirmez l’exhaustivité du mois."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func confirmAbsenceMonthCoverage() -> Bool {
+        let source = absenceMonthSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let companyId = selectedCompanyId, !source.isEmpty else {
+            absenceFeedback = "Absences : indiquez la source de confirmation du mois."
+            return false
+        }
+        guard SalaryAbsenceStoreV2.confirmMonth(
+            companyId: companyId,
+            period: selectedPeriod,
+            source: source
+        ) else {
+            absenceFeedback = "Absences : confirmation mensuelle impossible."
+            return false
+        }
+        absenceFeedback = "Liste des absences confirmée exhaustive pour ce mois."
+        refresh()
+        return true
+    }
+
+    @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
@@ -521,6 +630,7 @@ final class SalaryV2Store: ObservableObject {
         selectedPeriod = next
         contractFeedback = nil
         socialProfileFeedback = nil
+        absenceFeedback = nil
         refresh()
     }
 
@@ -568,6 +678,10 @@ final class SalaryV2Store: ObservableObject {
                 companyId: companyId,
                 period: selectedPeriod
             )
+            absenceSource = SalaryAbsenceStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
             if let segments = contractResolution?.resolution?.calculationSegments, !segments.isEmpty {
                 contractSegmentPaidWork = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
                     sessions: source.sessions,
@@ -586,6 +700,7 @@ final class SalaryV2Store: ObservableObject {
             conventionCoverage = nil
             contractResolution = nil
             socialProfile = nil
+            absenceSource = nil
         }
 
         snapshot = SalaryWorkspaceResolverV2.resolve(
@@ -597,6 +712,29 @@ final class SalaryV2Store: ObservableObject {
         incomeTaxSource = taxRate?.source ?? ""
         hydrateContractForm(from: contractResolution?.resolution?.coverage?.singleSnapshotForWholePeriod)
         hydrateConventionClassification()
+    }
+
+    private func localCivilDate(from raw: String) -> Date? {
+        let parts = raw.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let day = Int(parts[0]),
+              let month = Int(parts[1]),
+              let year = Int(parts[2]),
+              let civil = PayrollCivilDateV2(year: year, month: month, day: day) else {
+            return nil
+        }
+        return calendar.date(
+            from: DateComponents(
+                calendar: calendar,
+                timeZone: calendar.timeZone,
+                year: civil.year,
+                month: civil.month,
+                day: civil.day,
+                hour: 0,
+                minute: 0,
+                second: 0
+            )
+        )
     }
 
     private func hydrateConventionClassification() {
