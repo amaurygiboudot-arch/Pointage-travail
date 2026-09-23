@@ -541,7 +541,8 @@ enum SalaryConventionNightRuleStoreV2 {
     private static func jsonValue<T>(
         _ value: T?
     ) -> Any {
-        value ?? NSNull()
+        if let value { return value }
+        return NSNull()
     }
 
     private static func writeVerified(
