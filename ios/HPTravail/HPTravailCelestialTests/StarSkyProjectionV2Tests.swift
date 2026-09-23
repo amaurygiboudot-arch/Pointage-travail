@@ -23,6 +23,40 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         XCTAssertGreaterThan(position.geometricAltitudeDegrees, 89.5)
     }
 
+    func testPhysicalProjectionCentersStarAlongDisplayNormal() {
+        let frame = StarDeviceFrameV2(
+            rightEast: 1, rightNorth: 0, rightUp: 0,
+            topEast: 0, topNorth: 1, topUp: 0,
+            normalEast: 0, normalNorth: 0, normalUp: 1
+        )
+        let zenith = LocalStarPositionV2(
+            azimuthDegrees: 0,
+            geometricAltitudeDegrees: 90,
+            apparentAltitudeDegrees: 90
+        )
+
+        let projected = StarSkyProjectionV2.projectToDevice(position: zenith, frame: frame)
+        XCTAssertNotNil(projected)
+        XCTAssertEqual(projected?.x ?? 1, 0, accuracy: 1e-12)
+        XCTAssertEqual(projected?.y ?? 1, 0, accuracy: 1e-12)
+        XCTAssertEqual(projected?.depth ?? 0, 1, accuracy: 1e-12)
+    }
+
+    func testPhysicalProjectionRejectsStarBehindPhone() {
+        let frame = StarDeviceFrameV2(
+            rightEast: 1, rightNorth: 0, rightUp: 0,
+            topEast: 0, topNorth: 1, topUp: 0,
+            normalEast: 0, normalNorth: 0, normalUp: 1
+        )
+        let nadir = LocalStarPositionV2(
+            azimuthDegrees: 0,
+            geometricAltitudeDegrees: -90,
+            apparentAltitudeDegrees: -90
+        )
+
+        XCTAssertNil(StarSkyProjectionV2.projectToDevice(position: nadir, frame: frame))
+    }
+
     func testNightSkyOpacityFollowsSolarAltitude() {
         XCTAssertEqual(
             StarSkyProjectionV2.nightSkyOpacity(sunGeometricAltitudeDegrees: -3),
