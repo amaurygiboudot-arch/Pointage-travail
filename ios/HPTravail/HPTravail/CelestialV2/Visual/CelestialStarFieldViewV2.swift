@@ -32,28 +32,28 @@ private final class CelestialStarFieldModelV2: ObservableObject {
         let longitude = snapshot.longitudeDegrees
         let date = snapshot.date
 
-        Task.detached(priority: .utility) {
-            guard let catalog = StarSkyCatalogLoaderV2.load() else { return nil }
-            let stars = catalog.stars.map { item in
-                PreparedStar(
-                    hr: item.hr,
-                    magnitude: item.star.visualMagnitude,
-                    position: StarSkyProjectionV2.horizontal(
-                        star: item.star,
-                        latitudeDegrees: latitude,
-                        longitudeDegrees: longitude,
-                        date: date
+        Task {
+            let result = await Task.detached(priority: .utility) {
+                guard let catalog = StarSkyCatalogLoaderV2.load() else {
+                    return Optional<PreparedSky>.none
+                }
+                let stars = catalog.stars.map { item in
+                    PreparedStar(
+                        hr: item.hr,
+                        magnitude: item.star.visualMagnitude,
+                        position: StarSkyProjectionV2.horizontal(
+                            star: item.star,
+                            latitudeDegrees: latitude,
+                            longitudeDegrees: longitude,
+                            date: date
+                        )
                     )
-                )
-            }
-            return PreparedSky(key: key, stars: stars, paths: catalog.constellationPaths)
-        }
-        .value
-        .map { result in
-            Task { @MainActor in
-                guard self.requestedKey == result.key else { return }
-                self.prepared = result
-            }
+                }
+                return PreparedSky(key: key, stars: stars, paths: catalog.constellationPaths)
+            }.value
+
+            guard let result, requestedKey == result.key else { return }
+            prepared = result
         }
     }
 }
@@ -166,8 +166,3 @@ struct CelestialStarFieldViewV2: View {
     }
 }
 
-private extension Optional {
-    func map(_ transform: (Wrapped) -> Void) {
-        if let value = self { transform(value) }
-    }
-}
