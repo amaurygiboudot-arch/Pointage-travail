@@ -58,22 +58,15 @@ enum SalaryPayrollWeekEvidenceBuilderV2 {
 
         let nightRequired = rules.nightMultiplier != nil
         if nightRequired {
-            guard let nightRule else {
+            if let nightRule {
+                if let multiplier = rules.nightMultiplier,
+                   abs(multiplier - nightRule.multiplier) > 0.000_001 {
+                    premiumReliable = false
+                    warnings.append(nightRuleMismatchWarning)
+                }
+            } else {
                 premiumReliable = false
                 warnings.append(missingNightRuleWarning)
-                return result(
-                    from: paidWork,
-                    premiumByWeek: [:],
-                    paidTimeReliable: paidWork.reliable,
-                    premiumReliable: premiumReliable,
-                    payrollRulesReliable: payrollRulesReliable,
-                    warnings: warnings
-                )
-            }
-            if let multiplier = rules.nightMultiplier,
-               abs(multiplier - nightRule.multiplier) > 0.000_001 {
-                premiumReliable = false
-                warnings.append(nightRuleMismatchWarning)
             }
         }
 
