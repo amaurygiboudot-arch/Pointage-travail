@@ -16,6 +16,7 @@ struct SalaryV2View: View {
                     conventionCoverageCard
                     reliabilityCard
                     paidWorkCard
+                    absenceCard
                     referenceCard
                     incomeTaxCard
                     warningsCard
@@ -450,6 +451,111 @@ struct SalaryV2View: View {
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 
+    private var absenceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ABSENCES DU MOIS")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Text("Une liste vide n'est considérée comme « aucune absence » qu'après confirmation explicite de l'exhaustivité du mois.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Picker("Type", selection: $salaryStore.absenceTypeSelection) {
+                Text("Absence non rémunérée").tag(SalaryAbsencePayrollImpactV2.typeUnpaid)
+                Text("Arrêt maladie").tag(SalaryAbsencePayrollImpactV2.typeSickness)
+                Text("Congé payé").tag(SalaryAbsencePayrollImpactV2.typePaidLeave)
+                Text("Accident du travail").tag(SalaryAbsencePayrollImpactV2.typeWorkAccident)
+                Text("Accident de trajet").tag(SalaryAbsencePayrollImpactV2.typeCommutingAccident)
+                Text("Maladie professionnelle").tag(SalaryAbsencePayrollImpactV2.typeOccupationalDisease)
+                Text("Maternité / paternité").tag(SalaryAbsencePayrollImpactV2.typeParental)
+                Text("Autre").tag(SalaryAbsencePayrollImpactV2.typeOther)
+            }
+            .pickerStyle(.menu)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            Picker("Traitement salarial", selection: $salaryStore.absenceTreatmentSelection) {
+                Text("Non rémunérée").tag(SalaryAbsenceTreatmentV2.unpaid.rawValue)
+                Text("Maintien total").tag(SalaryAbsenceTreatmentV2.fullyMaintained.rawValue)
+                Text("Maintien partiel").tag(SalaryAbsenceTreatmentV2.partiallyMaintained.rawValue)
+                Text("À confirmer").tag(SalaryAbsenceTreatmentV2.toConfirm.rawValue)
+            }
+            .pickerStyle(.menu)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            Toggle("Journée(s) complète(s)", isOn: $salaryStore.absenceFullDay)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            TextField("Début — JJ/MM/AAAA", text: $salaryStore.absenceStartDateText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Fin incluse — JJ/MM/AAAA", text: $salaryStore.absenceEndDateText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            Button("Ajouter cette absence") {
+                _ = salaryStore.saveAbsence()
+            }
+            .buttonStyle(.bordered)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            if let companyId = salaryStore.selectedCompanyId {
+                let stored = SalaryAbsenceStoreV2.read(companyId: companyId)
+                let visible = stored.absences.filter(absenceTouchesSelectedMonth)
+                if !visible.isEmpty {
+                    Divider()
+                    ForEach(visible, id: \.id) { absence in
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(SalaryAbsencePayrollImpactV2.label(absence.type))
+                                    .font(.footnote.bold())
+                                Text("\(dateLabel(absence.start)) → \(dateLabel(absence.end.addingTimeInterval(-1)))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                _ = salaryStore.removeAbsence(absence.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Divider()
+            TextField(
+                "Source de confirmation du mois — planning, bulletin, vérification personnelle…",
+                text: $salaryStore.absenceMonthSourceText
+            )
+            .textFieldStyle(.roundedBorder)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            Button("Confirmer la liste exhaustive pour ce mois") {
+                _ = salaryStore.confirmAbsenceMonthCoverage()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            if salaryStore.absenceSource?.reliable == true {
+                Label("Liste des absences du mois confirmée exhaustive", systemImage: "checkmark.shield.fill")
+                    .font(.footnote)
+            } else if salaryStore.selectedCompanyId != nil {
+                Label("Liste des absences du mois à confirmer", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+            }
+
+            if let feedback = salaryStore.absenceFeedback {
+                Text(feedback)
+                    .font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
     private var referenceCard: some View {
         VStack(spacing: 12) {
             amountRow("Brut social estimé", amount: salaryStore.snapshot.socialGross)
@@ -537,6 +643,30 @@ struct SalaryV2View: View {
             .padding()
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
         }
+    }
+
+    private func absenceTouchesSelectedMonth(_ absence: SalaryAbsenceFactV2) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let period = salaryStore.selectedPeriod
+        let nextYear = period.month == 12 ? period.year + 1 : period.year
+        let nextMonth = period.month == 12 ? 1 : period.month + 1
+        guard let start = calendar.date(
+            from: DateComponents(year: period.year, month: period.month, day: 1)
+        ),
+        let end = calendar.date(
+            from: DateComponents(year: nextYear, month: nextMonth, day: 1)
+        ) else {
+            return false
+        }
+        return absence.start < end && absence.end > start
+    }
+
+    private func dateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter.string(from: date)
     }
 
     private func amountRow(_ title: String, amount: Double?) -> some View {
