@@ -637,3 +637,40 @@ final class CelestialDialProjectionV2Tests: XCTestCase {
         ))
     }
 }
+
+
+final class CelestialHorizonTransitionV2Tests: XCTestCase {
+    func testSunGlowStartsDuringCivilTwilight() {
+        XCTAssertEqual(
+            CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -6.1),
+            0,
+            accuracy: 1e-12
+        )
+        let early = CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -5)
+        let late = CelestialHorizonTransitionV2.sunGlowOpacity(altitudeDegrees: -2)
+        XCTAssertGreaterThan(early, 0)
+        XCTAssertGreaterThan(late, early)
+    }
+
+    func testDisksFadeInsteadOfPoppingAtHorizon() {
+        let horizon = CelestialHorizonTransitionV2.diskHorizonDegrees
+        XCTAssertEqual(
+            CelestialHorizonTransitionV2.diskOpacity(altitudeDegrees: horizon),
+            0,
+            accuracy: 1e-12
+        )
+        let midpoint = (horizon + CelestialHorizonTransitionV2.diskFullyVisibleDegrees) / 2
+        XCTAssertEqual(
+            CelestialHorizonTransitionV2.diskOpacity(altitudeDegrees: midpoint),
+            0.5,
+            accuracy: 0.05
+        )
+        XCTAssertEqual(
+            CelestialHorizonTransitionV2.diskOpacity(
+                altitudeDegrees: CelestialHorizonTransitionV2.diskFullyVisibleDegrees
+            ),
+            1,
+            accuracy: 1e-12
+        )
+    }
+}
