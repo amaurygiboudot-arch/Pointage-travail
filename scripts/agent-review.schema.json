@@ -14,12 +14,11 @@
     "blocking_issues"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "type": "integer", "const": 1 },
     "head_sha": { "type": "string", "minLength": 7 },
     "required_specialists": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "uniqueItems": true
+      "items": { "type": "string", "minLength": 1 }
     },
     "specialist_reviews": {
       "type": "array",
@@ -32,8 +31,8 @@
       "additionalProperties": false,
       "required": ["agent", "decision", "fusion_authorisee", "summary"],
       "properties": {
-        "agent": { "const": "control_gate" },
-        "decision": { "enum": ["PASS", "FAIL"] },
+        "agent": { "type": "string", "const": "control_gate" },
+        "decision": { "type": "string", "enum": ["PASS", "FAIL"] },
         "fusion_authorisee": { "type": "boolean" },
         "summary": { "type": "string" }
       }
@@ -46,7 +45,7 @@
         "required": ["name", "status", "details"],
         "properties": {
           "name": { "type": "string" },
-          "status": { "enum": ["PASS", "FAIL", "EXTERNAL", "NOT_RUN"] },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "EXTERNAL", "NOT_RUN"] },
           "details": { "type": "string" }
         }
       }
@@ -63,7 +62,7 @@
       "required": ["agent", "status", "summary"],
       "properties": {
         "agent": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["PASS", "FAIL", "NOT_RUN"] },
+        "status": { "type": "string", "enum": ["PASS", "FAIL", "NOT_RUN"] },
         "summary": { "type": "string" }
       }
     }
