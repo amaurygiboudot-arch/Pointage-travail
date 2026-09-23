@@ -411,15 +411,17 @@ private struct CelestialSkyDialV2: View {
                             moonDirectionRadians: moonDirection
                         )
                             .frame(width: size * 0.15, height: size * 0.15)
-                            .scaleEffect(0.82 + 0.18 * min(sunOpacity, moonOpacity))
+                            .scaleEffect(CGFloat(0.82 + 0.18 * min(sunOpacity, moonOpacity)))
                             .opacity(min(sunOpacity, moonOpacity))
                             .position(sunPoint)
                     } else {
                         if sunOpacity > 0 {
                             marker(symbol: "sun.max.fill", color: .yellow, size: size * 0.10)
                                 .scaleEffect(
-                                    CelestialHorizonTransitionV2.diskScale(
-                                        altitudeDegrees: snapshot.sun.altitudeDegrees
+                                    CGFloat(
+                                        CelestialHorizonTransitionV2.diskScale(
+                                            altitudeDegrees: snapshot.sun.altitudeDegrees
+                                        )
                                     )
                                 )
                                 .opacity(sunOpacity)
@@ -435,8 +437,10 @@ private struct CelestialSkyDialV2: View {
                         if moonOpacity > 0 {
                             marker(symbol: "moon.fill", color: .white, size: size * 0.085)
                                 .scaleEffect(
-                                    CelestialHorizonTransitionV2.diskScale(
-                                        altitudeDegrees: snapshot.moon.altitudeDegrees
+                                    CGFloat(
+                                        CelestialHorizonTransitionV2.diskScale(
+                                            altitudeDegrees: snapshot.moon.altitudeDegrees
+                                        )
                                     )
                                 )
                                 .opacity(moonOpacity)
