@@ -515,7 +515,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func updateHeadingOrientation() {
-        switch celestialDeviceOrientation {
+        switch UIDevice.current.orientation {
         case .portrait:
             celestialDeviceOrientation = .portrait
             manager.headingOrientation = .portrait
@@ -984,7 +984,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         let right: EnuVector
         let top: EnuVector
-        switch UIDevice.current.orientation {
+        switch celestialDeviceOrientation {
         case .portraitUpsideDown:
             right = deviceAxes.x.negated
             top = deviceAxes.y.negated
