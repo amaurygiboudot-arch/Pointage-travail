@@ -87,12 +87,13 @@ class CelestialStarLayerRendererV2(
                     )
                 }.getOrNull()
             }
-            localSky = LocalSky(
+            val result = LocalSky(
                 key = key,
                 stars = prepared,
                 paths = catalog.constellationPaths
             )
             if (requestGeneration == generation.get()) {
+                localSky = result
                 onInvalidated()
             }
         }
