@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 /// Cache local iOS des règles ANI dont les preuves KALI et, le cas échéant, APEC
