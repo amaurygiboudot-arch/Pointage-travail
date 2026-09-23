@@ -70,6 +70,7 @@ targets:
       - path: HPTravail/SalaryV2/SocialSecurityCeilingV2.swift
       - path: HPTravail/SalaryV2/FrenchPublicHolidayCalendarV2.swift
       - path: HPTravail/SalaryV2/SalaryPremiumTimePolicyV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayrollWeekEvidenceBuilderV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryStoreV2.swift
