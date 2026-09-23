@@ -78,6 +78,60 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         XCTAssertNil(StarSkyProjectionV2.projectToDevice(position: nadir, frame: frame))
     }
 
+    func testTrueNorthDeviceFrameMapsPortraitAndLandscapeAxes() {
+        let identity = StarAttitudeMatrixV2(
+            m11: 1, m12: 0, m13: 0,
+            m21: 0, m22: 1, m23: 0,
+            m31: 0, m32: 0, m33: 1
+        )
+
+        let portrait = StarDeviceFrameFactoryV2.trueNorthFrame(
+            matrix: identity,
+            gravityX: 0,
+            gravityY: 0,
+            gravityZ: -1,
+            orientation: .portrait
+        )
+        XCTAssertEqual(portrait?.rightEast ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(portrait?.rightNorth ?? 9, 1, accuracy: 1e-12)
+        XCTAssertEqual(portrait?.topEast ?? 9, -1, accuracy: 1e-12)
+        XCTAssertEqual(portrait?.topNorth ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(portrait?.normalUp ?? 9, 1, accuracy: 1e-12)
+
+        let landscape = StarDeviceFrameFactoryV2.trueNorthFrame(
+            matrix: identity,
+            gravityX: 0,
+            gravityY: 0,
+            gravityZ: -1,
+            orientation: .landscapeLeft
+        )
+        XCTAssertEqual(landscape?.rightEast ?? 9, -1, accuracy: 1e-12)
+        XCTAssertEqual(landscape?.rightNorth ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(landscape?.topEast ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(landscape?.topNorth ?? 9, -1, accuracy: 1e-12)
+        XCTAssertEqual(landscape?.normalUp ?? 9, 1, accuracy: 1e-12)
+    }
+
+    func testGravitySelectsCorrectDirectionCosineMatrixConvention() {
+        let matrix = StarAttitudeMatrixV2(
+            m11: 1, m12: 0, m13: 0,
+            m21: 0, m22: 0, m23: -1,
+            m31: 0, m32: 1, m33: 0
+        )
+        let frame = StarDeviceFrameFactoryV2.trueNorthFrame(
+            matrix: matrix,
+            gravityX: 0,
+            gravityY: -1,
+            gravityZ: 0,
+            orientation: .portrait
+        )
+
+        // The gravity sample says device +Y points upward. The column
+        // convention therefore wins; a row interpretation would invert it.
+        XCTAssertEqual(frame?.topUp ?? 9, 1, accuracy: 1e-12)
+        XCTAssertEqual(frame?.rightNorth ?? 9, 1, accuracy: 1e-12)
+    }
+
     func testNightSkyOpacityFollowsSolarAltitude() {
         XCTAssertEqual(
             StarSkyProjectionV2.nightSkyOpacity(sunGeometricAltitudeDegrees: -3),
