@@ -66,6 +66,8 @@ targets:
       - path: HPTravail/SalaryV2/SalaryCompanySelectionV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionRuleStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionCoverageV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionSegmentPayrollCompatibilityV2.swift
+      - path: HPTravail/SalaryV2/SalaryConventionPayrollBridgeV2.swift
       - path: HPTravail/SalaryV2/SalaryEmployeeSocialProfileV2.swift
       - path: HPTravail/SalaryV2/SocialSecurityCeilingV2.swift
       - path: HPTravail/SalaryV2/FrenchPublicHolidayCalendarV2.swift

@@ -23,13 +23,15 @@ struct HPTravailApp: App {
                         return nil
                     }
 
-                    let conventionCoverage = SalaryConventionCoverageResolverV2.resolve(
+                    let conventionPayroll = SalaryConventionPayrollBridgeV2.resolve(
                         companyId: companyId,
                         period: period,
                         companies: companies,
-                        rules: SalaryConventionRuleStoreV2.readConfirmed()
+                        storedRules: SalaryConventionRuleStoreV2.readConfirmed()
                     )
-                    guard let convention = conventionCoverage.singleSnapshotForWholePeriod else {
+                    let conventionCoverage = conventionPayroll.coverage
+                    guard conventionPayroll.readyForSingleRulesCalculation,
+                          let conventionRules = conventionPayroll.rules else {
                         return nil
                     }
 
@@ -139,7 +141,7 @@ struct HPTravailApp: App {
                             companyAddress: company.address,
                             period: period,
                             contract: contract,
-                            rules: convention.rules,
+                            rules: conventionRules,
                             payrollRulesReliable: conventionCoverage.sourceReliable
                                 && conventionCoverage.fullyCovered,
                             sessions: workSource.sessions,
