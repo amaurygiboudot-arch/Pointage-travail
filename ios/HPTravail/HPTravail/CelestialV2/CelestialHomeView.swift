@@ -361,6 +361,9 @@ private struct CelestialSkyDialV2: View {
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)
 
+                CelestialStarFieldViewV2(state: state)
+                    .clipShape(Circle())
+
                 cardinal("N", x: center.x, y: center.y - horizonRadius - 15)
                 cardinal("E", x: center.x + horizonRadius + 15, y: center.y)
                 cardinal("S", x: center.x, y: center.y + horizonRadius + 15)
