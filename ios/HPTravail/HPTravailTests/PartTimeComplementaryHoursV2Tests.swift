@@ -20,6 +20,8 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
             contract: partTimeContract(),
             weeks: [PayrollWeekV2(paidMinutes: 20 * 60)],
             rules: PayrollRulesV2(weeklyRegularMinutes: 20 * 60)
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.complementaryMinutes, 0)
@@ -32,6 +34,8 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
             contract: partTimeContract(),
             weeks: [PayrollWeekV2(paidMinutes: 22 * 60)],
             rules: PayrollRulesV2(weeklyRegularMinutes: 20 * 60)
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.complementaryMinutes, 120)
@@ -45,6 +49,8 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
             contract: partTimeContract(),
             weeks: [PayrollWeekV2(paidMinutes: 24 * 60)],
             rules: PayrollRulesV2(weeklyRegularMinutes: 20 * 60)
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.complementaryMinutes, 240)
@@ -70,6 +76,8 @@ final class PartTimeComplementaryHoursV2Tests: XCTestCase {
             contract: partTimeContract(),
             weeks: [PayrollWeekV2(paidMinutes: 22 * 60)],
             rules: PayrollRulesV2(weeklyRegularMinutes: 20 * 60)
+        ,
+            evidence: .fullyConfirmed
         )
         let benefits = CompanyBenefitInKindContractV2.Snapshot(
             applied: [],
