@@ -51,8 +51,9 @@ Les moteurs purs introduits dans ce lot font :
 3. ascension droite / déclinaison -> azimut / altitude locale ;
 4. réfraction atmosphérique uniquement pour la position graphique ;
 5. rejet des objets sous l'horizon apparent ;
-6. Android : projection orthographique dans le repère physique de l'écran, avec rejet des étoiles derrière le téléphone ;
-7. extinction progressive du fond stellaire en fonction de l'altitude réelle du Soleil.
+6. Android et iOS : projection dans le repère physique réel de l'écran, avec prise en compte de l'inclinaison/roulis et rejet des étoiles derrière le téléphone ;
+7. iOS n'active cette couche physique que lorsque Core Motion fournit un repère vrai nord + vertical qualifié ; aucun repère magnétique/arbitraire n'est promu silencieusement en nord vrai ;
+8. extinction progressive du fond stellaire en fonction de l'altitude réelle du Soleil.
 
 Aucune position d'étoile ne doit être inventée ou ajustée visuellement pour « faire joli ».
 
