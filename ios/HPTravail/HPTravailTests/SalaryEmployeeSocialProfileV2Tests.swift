@@ -198,6 +198,58 @@ final class SalaryEmployeeSocialProfileV2Tests: XCTestCase {
         )
     }
 
+    func testEffectiveUpsertClosesPreviousVersionWithoutInventingMonthlySegmentation() {
+        XCTAssertTrue(
+            SalaryEmployeeSocialProfileStoreV2.upsertEffectiveVersion(
+                defaults: defaults,
+                companyId: companyId,
+                effectiveFromEpochDay: epochDay(2026, 1, 1),
+                professionalStatus: .nonCadre,
+                alsaceMoselleLocalRegime: false,
+                sourceId: "contrat-initial",
+                checkedAtMs: 1
+            )
+        )
+        XCTAssertTrue(
+            SalaryEmployeeSocialProfileStoreV2.upsertEffectiveVersion(
+                defaults: defaults,
+                companyId: companyId,
+                effectiveFromEpochDay: epochDay(2026, 9, 16),
+                professionalStatus: .cadre,
+                alsaceMoselleLocalRegime: false,
+                sourceId: "avenant",
+                checkedAtMs: 2
+            )
+        )
+
+        let august = SalaryEmployeeSocialProfileStoreV2.resolve(
+            defaults: defaults,
+            companyId: companyId,
+            period: period(2026, 8)
+        )
+        let september = SalaryEmployeeSocialProfileStoreV2.resolve(
+            defaults: defaults,
+            companyId: companyId,
+            period: period(2026, 9)
+        )
+        let october = SalaryEmployeeSocialProfileStoreV2.resolve(
+            defaults: defaults,
+            companyId: companyId,
+            period: period(2026, 10)
+        )
+
+        XCTAssertTrue(august.reliable)
+        XCTAssertEqual(august.professionalStatus, .nonCadre)
+        XCTAssertFalse(september.reliable)
+        XCTAssertTrue(
+            september.warnings.contains(
+                SalaryEmployeeSocialProfileStoreV2.changedDuringPeriodWarning
+            )
+        )
+        XCTAssertTrue(october.reliable)
+        XCTAssertEqual(october.professionalStatus, .cadre)
+    }
+
     private func snapshot(
         version: String,
         from: Int64,
