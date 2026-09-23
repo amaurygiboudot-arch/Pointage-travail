@@ -6,6 +6,7 @@ struct CelestialHomeView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    @AppStorage(CelestialGlobeModeV2.preferenceKey) private var globeModeRaw = CelestialGlobeModeV2.local.rawValue
     @State private var isVisible = false
 
     var body: some View {
@@ -63,7 +64,10 @@ struct CelestialHomeView: View {
     }
 
     private var skyPanel: some View {
-        CelestialSkyDialV2(state: locationManager.celestialState)
+        CelestialSkyDialV2(
+            state: locationManager.celestialState,
+            globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local
+        )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
     }
@@ -309,6 +313,7 @@ struct CelestialHomeView: View {
 
 private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
+    let globeMode: CelestialGlobeModeV2
 
     var body: some View {
         GeometryReader { geometry in
@@ -329,7 +334,7 @@ private struct CelestialSkyDialV2: View {
                 cardinal("O", x: center.x - horizonRadius - 15, y: center.y)
 
                 if let snapshot = state.snapshot {
-                    CelestialGlobeViewV2(snapshot: snapshot)
+                    CelestialGlobeViewV2(snapshot: snapshot, mode: globeMode)
                         .frame(width: size * 0.29, height: size * 0.29)
                         .position(center)
                 } else {
@@ -436,6 +441,9 @@ private struct CelestialSkyDialV2: View {
             return "Cadran céleste. Globe local indisponible ou direction masquée car les capteurs ne sont pas assez fiables."
         }
         let daylight = snapshot.isNight ? "nuit locale" : "jour local"
-        return "Cadran céleste avec globe centré sur la position GPS, \(daylight). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
+        let globeDescription = globeMode == .local
+            ? "globe centré sur la position GPS"
+            : "globe monde montrant le terminateur jour nuit"
+        return "Cadran céleste avec \(globeDescription), \(daylight). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
     }
 }
