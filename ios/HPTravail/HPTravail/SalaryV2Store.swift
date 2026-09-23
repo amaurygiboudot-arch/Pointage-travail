@@ -22,6 +22,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2?
     @Published private(set) var conventionCoverage: SalaryConventionCoverageV2?
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
+    @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
@@ -37,6 +38,13 @@ final class SalaryV2Store: ObservableObject {
     @Published var contractHourlyRateText = ""
     @Published var contractSourceText = ""
     @Published private(set) var contractFeedback: String?
+
+    // Profil social salarié daté : aucune valeur n'est présumée.
+    @Published var socialProfessionalStatusSelection = ""
+    @Published var socialAlsaceMoselleSelection = ""
+    @Published var socialEffectiveDateText = ""
+    @Published var socialSourceText = ""
+    @Published private(set) var socialProfileFeedback: String?
 
     private let referenceProvider: ReferenceProvider
     private let companiesProvider: CompaniesProvider
@@ -100,6 +108,12 @@ final class SalaryV2Store: ObservableObject {
                 stored: contractHistoryProvider()
             )
         }
+        let socialProfile = companyId.map { companyId in
+            SalaryEmployeeSocialProfileStoreV2.resolve(
+                companyId: companyId,
+                period: period
+            )
+        }
         let contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? = {
             guard let companyId,
                   let source = workSource,
@@ -131,6 +145,7 @@ final class SalaryV2Store: ObservableObject {
         self.contractSegmentPaidWork = contractSegmentPaidWork
         self.conventionCoverage = conventionCoverage
         self.contractResolution = contractResolution
+        self.socialProfile = socialProfile
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             reference: reference,
@@ -154,6 +169,7 @@ final class SalaryV2Store: ObservableObject {
         let companyWarnings = companies.warnings
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
+        let socialProfileWarnings = socialProfile?.warnings ?? []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -165,6 +181,7 @@ final class SalaryV2Store: ObservableObject {
             companyWarnings
             + conventionWarnings
             + contractWarnings
+            + socialProfileWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -187,6 +204,7 @@ final class SalaryV2Store: ObservableObject {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
             contractFeedback = nil
+            socialProfileFeedback = nil
             recompute()
             return true
         }
@@ -198,6 +216,7 @@ final class SalaryV2Store: ObservableObject {
             selectedCompanyId = nil
             selectedCompanyWasExplicit = false
             contractFeedback = nil
+            socialProfileFeedback = nil
             recompute()
             return false
         }
@@ -206,6 +225,7 @@ final class SalaryV2Store: ObservableObject {
         selectedCompanyWasExplicit = companies.companies.count > 1
         incomeTaxFeedback = nil
         contractFeedback = nil
+        socialProfileFeedback = nil
         recompute()
         return true
     }
@@ -307,6 +327,69 @@ final class SalaryV2Store: ObservableObject {
     }
 
     @discardableResult
+    func confirmSocialProfile() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            socialProfileFeedback = "Confirmation impossible : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+
+        guard let status = SalaryProfessionalStatusV2(
+            rawValue: socialProfessionalStatusSelection
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .uppercased()
+        ) else {
+            socialProfileFeedback = "Profil social : choisissez explicitement Cadre ou Non-cadre."
+            return false
+        }
+
+        let localRegime: Bool
+        switch socialAlsaceMoselleSelection
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased() {
+        case "YES":
+            localRegime = true
+        case "NO":
+            localRegime = false
+        default:
+            socialProfileFeedback = "Profil social : confirmez explicitement l’affiliation au régime local Alsace-Moselle."
+            return false
+        }
+
+        guard let effectiveDate = epochDay(from: socialEffectiveDateText) else {
+            socialProfileFeedback = "Profil social : date d’effet invalide — JJ/MM/AAAA."
+            return false
+        }
+        let source = socialSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            socialProfileFeedback = "Profil social : indiquez la source qui confirme cette version."
+            return false
+        }
+
+        let saved = SalaryEmployeeSocialProfileStoreV2.upsertEffectiveVersion(
+            companyId: companyId,
+            effectiveFromEpochDay: effectiveDate,
+            professionalStatus: status,
+            alsaceMoselleLocalRegime: localRegime,
+            sourceId: source,
+            checkedAtMs: Int64((Date().timeIntervalSince1970 * 1_000).rounded())
+        )
+        guard saved else {
+            socialProfileFeedback = "Profil social : enregistrement refusé ; vérifiez l’historique et les données confirmées."
+            return false
+        }
+
+        socialProfileFeedback = "Version sociale datée confirmée pour cette entreprise."
+        refresh()
+        return true
+    }
+
+    @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
         let targetBeforeReconciliation = selectedCompanyId
@@ -368,6 +451,7 @@ final class SalaryV2Store: ObservableObject {
         guard let next else { return }
         selectedPeriod = next
         contractFeedback = nil
+        socialProfileFeedback = nil
         refresh()
     }
 
@@ -411,6 +495,10 @@ final class SalaryV2Store: ObservableObject {
                 period: selectedPeriod,
                 stored: contractHistoryProvider()
             )
+            socialProfile = SalaryEmployeeSocialProfileStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
             if let segments = contractResolution?.resolution?.calculationSegments, !segments.isEmpty {
                 contractSegmentPaidWork = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
                     sessions: source.sessions,
@@ -428,6 +516,7 @@ final class SalaryV2Store: ObservableObject {
             contractSegmentPaidWork = nil
             conventionCoverage = nil
             contractResolution = nil
+            socialProfile = nil
         }
 
         snapshot = SalaryWorkspaceResolverV2.resolve(
