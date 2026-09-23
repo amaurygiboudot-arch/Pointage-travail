@@ -2,7 +2,7 @@ package com.amaury.pointage.v2.engine
 
 import com.amaury.pointage.v2.model.DecisionStatusV2
 
-enum class GpsPointTypeV2 { POSTE, PARKING, OTHER }
+enum class GpsPointTypeV2 { POSTE, PAUSE, PARKING, OTHER }
 enum class GpsTransitionV2 { ENTER, EXIT }
 
 data class GpsEventV2(
@@ -35,7 +35,7 @@ class GpsEngineV2(private val debounceMs:Long = 30_000L) {
         }
         // La transition opposée prouve un nouveau franchissement et réarme l'anti-rebond.
         lastByKey[key] = LastAccepted(event.atMs, event.transition)
-        val ambiguous = event.pointType == GpsPointTypeV2.PARKING || event.pointType == GpsPointTypeV2.OTHER
+        val ambiguous = event.pointType != GpsPointTypeV2.POSTE
         return GpsDecisionV2(true,false,ambiguous,if(ambiguous) "Événement à qualifier" else "Événement GPS valide")
     }
 
