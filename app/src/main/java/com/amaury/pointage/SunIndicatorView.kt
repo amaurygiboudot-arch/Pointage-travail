@@ -23,6 +23,7 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
+import com.amaury.pointage.v2.engine.CelestialHorizonTransitionV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
@@ -60,6 +61,7 @@ class SunIndicatorView @JvmOverloads constructor(
         color = Color.argb(248, 2, 3, 5)
         style = Paint.Style.FILL
     }
+    private val sunTwilightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sunBitmap: Bitmap by lazy { HpDesignAssets.sun }
     private val moonBitmap: Bitmap by lazy { HpDesignAssets.moon }
 
@@ -286,48 +288,95 @@ class SunIndicatorView @JvmOverloads constructor(
         val moon = snapshot.moon
         val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
         val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
-        val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) * sun.apparentScale.toFloat()
+        val sunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat()
+        val moonDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(moon.altitudeDeg).toFloat()
+        val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat()
+        val sunScale = CelestialHorizonTransitionV2.diskScale(sun.altitudeDeg).toFloat()
+        val moonScale = CelestialHorizonTransitionV2.diskScale(moon.altitudeDeg).toFloat()
+        val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) *
+            sun.apparentScale.toFloat() * sunScale
         val moonRadius = (
             if (nightMode) activeRadius * 0.94f else inactiveRadius * 0.94f
-            ) * moon.apparentScale.toFloat()
+            ) * moon.apparentScale.toFloat() * moonScale
         val solarEclipse = SolarEclipseGeometryV2.evaluate(sun, moon)
 
-        if (sunScreen != null) {
-            CelestialLightingState.updateSunDirection(sunScreen.first - earthX, sunScreen.second - earthY)
+        val sunGlowScreen = if (sunGlowAlpha > 0f) {
+            mapToDeviceSky(
+                sun.copy(
+                    altitudeDeg = CelestialHorizonTransitionV2.altitudeForHorizonGlow(sun.altitudeDeg)
+                ),
+                frame,
+                earthX,
+                earthY,
+                horizonRadius
+            )
+        } else {
+            null
+        }
+        if (sunGlowScreen != null) {
+            drawSunTwilightGlow(
+                canvas = canvas,
+                cx = sunGlowScreen.first,
+                cy = sunGlowScreen.second,
+                radius = activeRadius * 2.8f,
+                alpha = sunGlowAlpha
+            )
+        }
+
+        (sunScreen ?: sunGlowScreen)?.let {
+            CelestialLightingState.updateSunDirection(it.first - earthX, it.second - earthY)
         }
 
         if (solarEclipse.isEclipse && sunScreen != null && moonScreen != null) {
-            // Une vraie éclipse est dessinée avec les rayons angulaires physiques.
-            // Le gros PNG de la Lune n'est pas utilisé comme masque solaire.
-            drawCelestialPng(
-                canvas,
-                sunBitmap,
-                sunScreen.first,
-                sunScreen.second,
-                sunRadius,
-                !nightMode
-            )
-            val moonDirectionFromSun = CelestialScreenGeometryV2.directionToward(
-                from = sun,
-                to = moon,
-                frame = frame
-            )
-            drawPhysicalSolarOccultation(
-                canvas = canvas,
-                sunX = sunScreen.first,
-                sunY = sunScreen.second,
-                renderedSunRadius = sunRadius,
-                moonDirX = moonDirectionFromSun?.x?.toFloat() ?: 1f,
-                moonDirY = moonDirectionFromSun?.y?.toFloat() ?: 0f,
-                eclipse = solarEclipse
-            )
+            // Une vraie éclipse reste physique, mais son apparition au ras de
+            // l'horizon suit la même transition que les deux disques.
+            val eclipseAlpha = minOf(sunDiskAlpha, moonDiskAlpha)
+            if (eclipseAlpha > 0f) {
+                val layer = canvas.saveLayerAlpha(
+                    sunScreen.first - sunRadius * 1.6f,
+                    sunScreen.second - sunRadius * 1.6f,
+                    sunScreen.first + sunRadius * 1.6f,
+                    sunScreen.second + sunRadius * 1.6f,
+                    (255f * eclipseAlpha).toInt().coerceIn(0, 255)
+                )
+                drawCelestialPng(
+                    canvas,
+                    sunBitmap,
+                    sunScreen.first,
+                    sunScreen.second,
+                    sunRadius,
+                    !nightMode
+                )
+                val moonDirectionFromSun = CelestialScreenGeometryV2.directionToward(
+                    from = sun,
+                    to = moon,
+                    frame = frame
+                )
+                drawPhysicalSolarOccultation(
+                    canvas = canvas,
+                    sunX = sunScreen.first,
+                    sunY = sunScreen.second,
+                    renderedSunRadius = sunRadius,
+                    moonDirX = moonDirectionFromSun?.x?.toFloat() ?: 1f,
+                    moonDirY = moonDirectionFromSun?.y?.toFloat() ?: 0f,
+                    eclipse = solarEclipse
+                )
+                canvas.restoreToCount(layer)
+            }
             return
         }
 
         // Hors éclipse physique, la Lune est dessinée avant le Soleil. Ainsi les
         // symboles surdimensionnés peuvent se toucher sans créer une fausse
         // occultation noire du disque solaire.
-        if (moonScreen != null) {
+        if (moonScreen != null && moonDiskAlpha > 0f) {
+            val moonLayer = canvas.saveLayerAlpha(
+                moonScreen.first - moonRadius * 1.5f,
+                moonScreen.second - moonRadius * 1.5f,
+                moonScreen.first + moonRadius * 1.5f,
+                moonScreen.second + moonRadius * 1.5f,
+                (255f * moonDiskAlpha).toInt().coerceIn(0, 255)
+            )
             drawCelestialPng(canvas, moonBitmap, moonScreen.first, moonScreen.second, moonRadius, nightMode)
 
             val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
@@ -359,16 +408,18 @@ class SunIndicatorView @JvmOverloads constructor(
                 shadowDirY = eclipseDirection?.y?.toFloat() ?: 0f,
                 eclipse = snapshot.lunarEclipse
             )
+            canvas.restoreToCount(moonLayer)
         }
 
-        if (sunScreen != null) {
+        if (sunScreen != null && sunDiskAlpha > 0f) {
             drawCelestialPng(
                 canvas,
                 sunBitmap,
                 sunScreen.first,
                 sunScreen.second,
                 sunRadius,
-                !nightMode
+                !nightMode,
+                opacity = sunDiskAlpha
             )
         }
     }
@@ -409,13 +460,39 @@ class SunIndicatorView @JvmOverloads constructor(
         )
     }
 
+    private fun drawSunTwilightGlow(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        radius: Float,
+        alpha: Float
+    ) {
+        if (alpha <= 0f || radius <= 0f) return
+        val safeAlpha = alpha.coerceIn(0f, 1f)
+        sunTwilightPaint.shader = RadialGradient(
+            cx,
+            cy,
+            radius,
+            intArrayOf(
+                Color.argb((135f * safeAlpha).toInt(), 255, 183, 82),
+                Color.argb((72f * safeAlpha).toInt(), 255, 220, 148),
+                Color.argb(0, 255, 220, 148)
+            ),
+            floatArrayOf(0f, 0.42f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawCircle(cx, cy, radius, sunTwilightPaint)
+        sunTwilightPaint.shader = null
+    }
+
     private fun drawCelestialPng(
         canvas: Canvas,
         bitmap: Bitmap,
         cx: Float,
         cy: Float,
         radius: Float,
-        active: Boolean
+        active: Boolean,
+        opacity: Float = 1f
     ) {
         if (bitmap.width <= 0 || bitmap.height <= 0) return
         val diameter = radius * 2f
@@ -429,7 +506,8 @@ class SunIndicatorView @JvmOverloads constructor(
             dstHeight = diameter
             dstWidth = diameter * aspect
         }
-        bitmapPaint.alpha = if (active) 255 else 215
+        val baseAlpha = if (active) 255 else 215
+        bitmapPaint.alpha = (baseAlpha * opacity.coerceIn(0f, 1f)).toInt().coerceIn(0, 255)
         bitmapPaint.colorFilter = null
         val dst = RectF(
             cx - dstWidth / 2f,
