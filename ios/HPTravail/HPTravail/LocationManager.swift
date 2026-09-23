@@ -14,12 +14,17 @@ struct CelestialTrackingStateV2 {
     let headingAge: TimeInterval?
     let pitchDegrees: Double?
     let rollDegrees: Double?
+    let deviceFrame: StarDeviceFrameV2?
 
     var hasRealDirectionalSky: Bool {
         snapshot != nil
             && locationQuality == .valid
             && trueHeadingDegrees != nil
             && CelestialHeadingPolicyV2.isUsable(headingQuality)
+    }
+
+    var hasPhysicalStarSky: Bool {
+        hasRealDirectionalSky && deviceFrame != nil
     }
 
     static let unavailable = CelestialTrackingStateV2(
@@ -31,7 +36,8 @@ struct CelestialTrackingStateV2 {
         headingQuality: .unavailable,
         headingAge: nil,
         pitchDegrees: nil,
-        rollDegrees: nil
+        rollDegrees: nil,
+        deviceFrame: nil
     )
 }
 
@@ -894,6 +900,121 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         registrationStartedIdentifiers = []
     }
 
+    private struct EnuVector {
+        let east: Double
+        let north: Double
+        let up: Double
+
+        var negated: EnuVector {
+            EnuVector(east: -east, north: -north, up: -up)
+        }
+
+        var isFinite: Bool {
+            east.isFinite && north.isFinite && up.isFinite
+        }
+    }
+
+    /**
+     * Convertit l'attitude Core Motion en axes physiques de l'écran exprimés
+     * dans le repère terrestre Est / Nord vrai / Haut.
+     *
+     * Le rendu d'étoiles exige xTrueNorthZVertical. Sur un appareil qui ne
+     * fournit pas ce repère, on masque la couche directionnelle au lieu
+     * d'assimiler un nord magnétique/arbitraire au nord vrai.
+     *
+     * Core Motion expose une matrice DCM ; selon la convention de lecture,
+     * lignes ou colonnes peuvent être interprétées comme axes appareil.
+     * La direction de gravité, exprimée dans le repère appareil, permet de
+     * sélectionner sans ambiguïté la convention cohérente avec l'échantillon.
+     */
+    private func buildPhysicalStarDeviceFrame(motion: CMDeviceMotion) -> StarDeviceFrameV2? {
+        guard motionManager.attitudeReferenceFrame == .xTrueNorthZVertical else {
+            return nil
+        }
+
+        let matrix = motion.attitude.rotationMatrix
+        let gravity = motion.gravity
+        let expectedUp = (
+            x: -gravity.x,
+            y: -gravity.y,
+            z: -gravity.z
+        )
+
+        func enu(referenceX: Double, referenceY: Double, referenceZ: Double) -> EnuVector {
+            // xTrueNorthZVertical : X = Nord vrai, Y = Ouest, Z = Haut.
+            EnuVector(
+                east: -referenceY,
+                north: referenceX,
+                up: referenceZ
+            )
+        }
+
+        let columnAxes = (
+            x: enu(referenceX: matrix.m11, referenceY: matrix.m21, referenceZ: matrix.m31),
+            y: enu(referenceX: matrix.m12, referenceY: matrix.m22, referenceZ: matrix.m32),
+            z: enu(referenceX: matrix.m13, referenceY: matrix.m23, referenceZ: matrix.m33)
+        )
+        let rowAxes = (
+            x: enu(referenceX: matrix.m11, referenceY: matrix.m12, referenceZ: matrix.m13),
+            y: enu(referenceX: matrix.m21, referenceY: matrix.m22, referenceZ: matrix.m23),
+            z: enu(referenceX: matrix.m31, referenceY: matrix.m32, referenceZ: matrix.m33)
+        )
+
+        func gravityError(
+            _ axes: (x: EnuVector, y: EnuVector, z: EnuVector)
+        ) -> Double {
+            abs(axes.x.up - expectedUp.x)
+                + abs(axes.y.up - expectedUp.y)
+                + abs(axes.z.up - expectedUp.z)
+        }
+
+        let deviceAxes = gravityError(columnAxes) <= gravityError(rowAxes)
+            ? columnAxes
+            : rowAxes
+
+        guard deviceAxes.x.isFinite, deviceAxes.y.isFinite, deviceAxes.z.isFinite else {
+            return nil
+        }
+
+        let right: EnuVector
+        let top: EnuVector
+        switch currentInterfaceOrientation() {
+        case .portraitUpsideDown:
+            right = deviceAxes.x.negated
+            top = deviceAxes.y.negated
+        case .landscapeLeft:
+            right = deviceAxes.y
+            top = deviceAxes.x.negated
+        case .landscapeRight:
+            right = deviceAxes.y.negated
+            top = deviceAxes.x
+        default:
+            right = deviceAxes.x
+            top = deviceAxes.y
+        }
+        let normal = deviceAxes.z
+
+        return StarDeviceFrameV2(
+            rightEast: right.east,
+            rightNorth: right.north,
+            rightUp: right.up,
+            topEast: top.east,
+            topNorth: top.north,
+            topUp: top.up,
+            normalEast: normal.east,
+            normalNorth: normal.north,
+            normalUp: normal.up
+        )
+    }
+
+    private func currentInterfaceOrientation() -> UIInterfaceOrientation {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }?
+            .interfaceOrientation
+            ?? .portrait
+    }
+
     private func refreshCelestialState(at now: Date = Date()) {
         let isAuthorized = authorizationStatus == .authorizedWhenInUse
             || authorizationStatus == .authorizedAlways
@@ -939,16 +1060,26 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
 
         let radiansToDegrees = 180.0 / Double.pi
+        let usableTrueHeading = CelestialHeadingPolicyV2.isUsable(headingQuality)
+            ? trueHeading
+            : nil
+        let physicalFrame = latestMotion.flatMap { motion in
+            usableTrueHeading.flatMap { _ in
+                buildPhysicalStarDeviceFrame(motion: motion)
+            }
+        }
+
         celestialState = CelestialTrackingStateV2(
             snapshot: snapshot,
             locationQuality: locationQuality,
             locationAge: locationAge,
             locationAccuracyMeters: celestialLocation?.horizontalAccuracy,
-            trueHeadingDegrees: CelestialHeadingPolicyV2.isUsable(headingQuality) ? trueHeading : nil,
+            trueHeadingDegrees: usableTrueHeading,
             headingQuality: headingQuality,
             headingAge: combinedHeadingAge,
             pitchDegrees: latestMotion.map { $0.attitude.pitch * radiansToDegrees },
-            rollDegrees: latestMotion.map { $0.attitude.roll * radiansToDegrees }
+            rollDegrees: latestMotion.map { $0.attitude.roll * radiansToDegrees },
+            deviceFrame: physicalFrame
         )
     }
 }
