@@ -94,16 +94,49 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             Geofence.GEOFENCE_TRANSITION_EXIT -> GpsTransitionV2.EXIT
             else -> return
         }
+
+        // Les zones PAUSE ont un état de présence indépendant. Elles peuvent recouvrir une
+        // zone POSTE sans jamais entrer dans le planificateur d'entrée/sortie de journée.
+        val pauseIds = regularIds.filter {
+            GpsTriggeredZoneSelectionV2.pointType(checkNotNull(zonesById[it])) ==
+                GpsPointTypeV2.PAUSE
+        }
+        val workIds = regularIds.filterNot { it in pauseIds }
+
+        if (pauseIds.isNotEmpty()) {
+            val configuredPauseIds = zonesById.values
+                .filter { GpsTriggeredZoneSelectionV2.pointType(it) == GpsPointTypeV2.PAUSE }
+                .mapTo(mutableSetOf()) { it.id }
+            val activePauseZones = prefs
+                .getStringSet(GpsPresenceStateKeysV2.ACTIVE_PAUSE_ZONES, emptySet())
+                ?.filterTo(mutableSetOf()) { it in configuredPauseIds }
+                ?: mutableSetOf()
+            val pausePlan = GpsPauseZoneTransitionV2.plan(
+                activePauseZoneIds = activePauseZones,
+                triggeredZoneIds = pauseIds,
+                transition = transition
+            )
+            if (!persistPauseZonePresenceState(prefs, pausePlan.activePauseZoneIds)) return
+        }
+
+        if (workIds.isEmpty()) {
+            updateWidgets(context)
+            return
+        }
+
+        val configuredWorkIds = zonesById.values
+            .filter { GpsTriggeredZoneSelectionV2.pointType(it) != GpsPointTypeV2.PAUSE }
+            .mapTo(mutableSetOf()) { it.id }
         val activeZones = prefs.getStringSet(GpsPresenceStateKeysV2.ACTIVE_ZONES, emptySet())
-            ?.filterTo(mutableSetOf()) { it in zonesById }
+            ?.filterTo(mutableSetOf()) { it in configuredWorkIds }
             ?: mutableSetOf()
         val pendingExitZones = prefs
             .getStringSet(GpsPresenceStateKeysV2.PENDING_EXIT_ZONES, emptySet())
-            ?.filterTo(mutableSetOf()) { it in zonesById }
+            ?.filterTo(mutableSetOf()) { it in configuredWorkIds }
             ?: mutableSetOf()
         val plan = GpsActiveZoneTransitionV2.plan(
             activeZoneIds = activeZones,
-            triggeredZoneIds = regularIds,
+            triggeredZoneIds = workIds,
             transition = transition,
             entryResolutionPending = prefs.getBoolean(
                 GpsPresenceStateKeysV2.ENTRY_RESOLUTION_PENDING,
@@ -401,6 +434,22 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         // La sortie GPS crée une demande de confirmation ; elle ne clôt pas la session ici.
         // Le lieu courant est donc conservé jusqu'à la confirmation ou au prochain pointage.
         GpsWorkStateCoordinatorV2.route(context, event, decision)
+    }
+
+    private fun persistPauseZonePresenceState(
+        prefs: android.content.SharedPreferences,
+        activePauseZoneIds: Set<String>
+    ): Boolean {
+        val editor = prefs.edit()
+        if (activePauseZoneIds.isEmpty()) {
+            editor.remove(GpsPresenceStateKeysV2.ACTIVE_PAUSE_ZONES)
+        } else {
+            editor.putStringSet(
+                GpsPresenceStateKeysV2.ACTIVE_PAUSE_ZONES,
+                activePauseZoneIds.toSet()
+            )
+        }
+        return editor.commit()
     }
 
     private fun persistZonePresenceState(
