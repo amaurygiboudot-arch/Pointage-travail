@@ -125,6 +125,95 @@ enum SalaryEmployeeSocialProfileStoreV2 {
         return reloaded.reliable && reloaded.snapshots.contains(candidate)
     }
 
+    /// Confirme une version à une date d'effet précise et ferme automatiquement la version
+    /// précédente à J-1. Une version future déjà connue borne la nouvelle version à J-1.
+    @discardableResult
+    static func upsertEffectiveVersion(
+        defaults: UserDefaults = .standard,
+        companyId rawCompanyId: String,
+        effectiveFromEpochDay: Int64,
+        professionalStatus: SalaryProfessionalStatusV2,
+        alsaceMoselleLocalRegime: Bool,
+        sourceId rawSourceId: String,
+        checkedAtMs: Int64
+    ) -> Bool {
+        let companyId = normalized(rawCompanyId)
+        let sourceId = rawSourceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !companyId.isEmpty,
+              !sourceId.isEmpty,
+              checkedAtMs >= 0,
+              confirmedCompany(defaults: defaults, companyId: companyId) else {
+            return false
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+
+        let stored = readConfirmed(defaults: defaults, companyId: companyId)
+        guard stored.reliable else { return false }
+
+        let sorted = stored.snapshots.sorted { $0.effectiveFromEpochDay < $1.effectiveFromEpochDay }
+        let sameStart = sorted.first { $0.effectiveFromEpochDay == effectiveFromEpochDay }
+        let next = sorted.first { $0.effectiveFromEpochDay > effectiveFromEpochDay }
+
+        let candidateEnd: Int64?
+        if let sameEnd = sameStart?.effectiveToEpochDay {
+            candidateEnd = sameEnd
+        } else if let next {
+            guard next.effectiveFromEpochDay > Int64.min else { return false }
+            candidateEnd = next.effectiveFromEpochDay - 1
+        } else {
+            candidateEnd = nil
+        }
+
+        let versionId = sameStart?.versionId ?? "effective-\(effectiveFromEpochDay)"
+        let candidate = SalaryEmployeeSocialProfileSnapshotV2(
+            companyId: companyId,
+            versionId: versionId,
+            sourceId: sourceId,
+            effectiveFromEpochDay: effectiveFromEpochDay,
+            effectiveToEpochDay: candidateEnd,
+            professionalStatus: professionalStatus,
+            alsaceMoselleLocalRegime: alsaceMoselleLocalRegime,
+            checkedAtMs: checkedAtMs
+        )
+
+        var updated: [SalaryEmployeeSocialProfileSnapshotV2] = []
+        for snapshot in sorted {
+            if snapshot.effectiveFromEpochDay == effectiveFromEpochDay {
+                continue
+            }
+            if snapshot.effectiveFromEpochDay < effectiveFromEpochDay,
+               snapshot.effectiveToEpochDay == nil || snapshot.effectiveToEpochDay! >= effectiveFromEpochDay {
+                guard effectiveFromEpochDay > Int64.min else { return false }
+                updated.append(
+                    SalaryEmployeeSocialProfileSnapshotV2(
+                        companyId: snapshot.companyId,
+                        versionId: snapshot.versionId,
+                        sourceId: snapshot.sourceId,
+                        effectiveFromEpochDay: snapshot.effectiveFromEpochDay,
+                        effectiveToEpochDay: effectiveFromEpochDay - 1,
+                        professionalStatus: snapshot.professionalStatus,
+                        alsaceMoselleLocalRegime: snapshot.alsaceMoselleLocalRegime,
+                        checkedAtMs: snapshot.checkedAtMs
+                    )
+                )
+            } else {
+                updated.append(snapshot)
+            }
+        }
+        updated.append(candidate)
+
+        guard historyIsStructurallyValid(updated),
+              let raw = encode(updated) else {
+            return false
+        }
+        defaults.set(raw, forKey: storageKey(companyId))
+        guard defaults.string(forKey: storageKey(companyId)) == raw else { return false }
+        let reloaded = readConfirmed(defaults: defaults, companyId: companyId)
+        return reloaded.reliable && reloaded.snapshots.contains(candidate)
+    }
+
     static func resolve(
         defaults: UserDefaults = .standard,
         companyId: String,
