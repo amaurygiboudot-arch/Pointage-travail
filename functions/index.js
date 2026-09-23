@@ -324,7 +324,9 @@ exports.legalUpdateWatch = onSchedule(
       dispatchFinal,
     });
   }
-);exports.resendTestEmail = onCall(
+);
+
+exports.resendTestEmail = onCall(
   {
     secrets: [resendApiKey],
     timeoutSeconds: 15,
