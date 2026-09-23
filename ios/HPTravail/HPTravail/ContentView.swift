@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject private var authManager: AuthManager
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hp_theme") private var theme = "signature"
+    @AppStorage(CelestialGlobeModeV2.preferenceKey) private var celestialGlobeMode = CelestialGlobeModeV2.local.rawValue
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
     @State private var showGpsZoneEditor = false
@@ -373,6 +374,21 @@ struct ContentView: View {
                             }
                         }
                     }
+                }
+
+                Section("Système céleste") {
+                    Picker("Mode du globe", selection: $celestialGlobeMode) {
+                        Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
+                        Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(
+                        celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
+                            ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
+                            : "Local : le globe reste centré sur votre position GPS."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 Section("Apparence") {

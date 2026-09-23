@@ -6,6 +6,7 @@ import SwiftUI
 /// texture, and Canvas renders asynchronously without a display link.
 struct CelestialGlobeViewV2: View {
     let snapshot: CelestialSnapshotV2
+    var mode: CelestialGlobeModeV2 = .local
     var showsObserverMarker = true
 
     var body: some View {
@@ -14,7 +15,7 @@ struct CelestialGlobeViewV2: View {
         }
         .aspectRatio(1, contentMode: .fit)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Globe terrestre centré sur la position GPS")
+        .accessibilityLabel(mode == .local ? "Globe terrestre centré sur la position GPS" : "Globe terrestre montrant la répartition jour nuit")
         .accessibilityValue(accessibilityValue)
     }
 
@@ -28,9 +29,10 @@ struct CelestialGlobeViewV2: View {
             height: diameter
         )
         let sphere = Path(ellipseIn: rect)
+        let scene = CelestialGlobeProjectionV2.scene(snapshot: snapshot, mode: mode)
         let basis = EarthBasis(
-            latitudeDegrees: snapshot.latitudeDegrees,
-            longitudeDegrees: snapshot.longitudeDegrees
+            latitudeDegrees: scene.viewLatitudeDegrees,
+            longitudeDegrees: scene.viewLongitudeDegrees
         )
 
         context.clip(to: sphere)
@@ -50,7 +52,17 @@ struct CelestialGlobeViewV2: View {
         drawLand(context: &context, rect: rect, basis: basis)
         drawGraticule(context: &context, rect: rect, basis: basis)
 
-        let sun = localSunVector
+        let sunProjection = basis.project(
+            EarthCoordinate(
+                latitude: scene.sunLatitudeDegrees,
+                longitude: scene.sunLongitudeDegrees
+            )
+        )
+        let sun = CelestialSphereVectorV2(
+            x: sunProjection.x,
+            y: sunProjection.y,
+            z: sunProjection.z
+        )
 
         // Accent visuel solaire : la géométrie jour/nuit reste fournie par le
         // vrai vecteur du Soleil. Ce halo ne change pas le terminateur ; il rend
@@ -78,6 +90,14 @@ struct CelestialGlobeViewV2: View {
         context.fill(night, with: .color(Color.black.opacity(0.80)))
 
         let terminator = CelestialSphereLightingV2.terminatorPath(in: rect, sun: sun)
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: max(1, diameter * 0.035)))
+            layer.stroke(
+                terminator,
+                with: .color(Color(red: 1.00, green: 0.72, blue: 0.42).opacity(0.20)),
+                lineWidth: max(4, diameter * 0.08)
+            )
+        }
         context.stroke(
             terminator,
             with: .color(Color(red: 0.48, green: 0.72, blue: 0.94).opacity(0.38)),
@@ -91,16 +111,29 @@ struct CelestialGlobeViewV2: View {
         )
 
         if showsObserverMarker {
-            let markerDiameter = max(7, diameter * 0.065)
-            let markerRect = CGRect(
-                x: rect.midX - markerDiameter * 0.5,
-                y: rect.midY - markerDiameter * 0.5,
-                width: markerDiameter,
-                height: markerDiameter
+            let observer = basis.project(
+                EarthCoordinate(
+                    latitude: snapshot.latitudeDegrees,
+                    longitude: snapshot.longitudeDegrees
+                )
             )
-            context.fill(Path(ellipseIn: markerRect.insetBy(dx: -3, dy: -3)), with: .color(.white.opacity(0.22)))
-            context.fill(Path(ellipseIn: markerRect), with: .color(.red))
-            context.stroke(Path(ellipseIn: markerRect), with: .color(.white), lineWidth: 1.5)
+            if observer.z >= 0 {
+                let radius = diameter * 0.5
+                let markerCenter = CGPoint(
+                    x: rect.midX + CGFloat(observer.x) * radius,
+                    y: rect.midY + CGFloat(observer.y) * radius
+                )
+                let markerDiameter = max(7, diameter * 0.065)
+                let markerRect = CGRect(
+                    x: markerCenter.x - markerDiameter * 0.5,
+                    y: markerCenter.y - markerDiameter * 0.5,
+                    width: markerDiameter,
+                    height: markerDiameter
+                )
+                context.fill(Path(ellipseIn: markerRect.insetBy(dx: -3, dy: -3)), with: .color(.white.opacity(0.22)))
+                context.fill(Path(ellipseIn: markerRect), with: .color(.red))
+                context.stroke(Path(ellipseIn: markerRect), with: .color(.white), lineWidth: 1.5)
+            }
         }
     }
 
@@ -191,30 +224,23 @@ struct CelestialGlobeViewV2: View {
         return result
     }
 
-    private var localSunVector: CelestialSphereVectorV2 {
-        let azimuth = snapshot.sun.azimuthDegrees * .pi / 180
-        let altitude = snapshot.sun.altitudeDegrees * .pi / 180
-        let horizontal = cos(altitude)
-        return CelestialSphereVectorV2(
-            x: sin(azimuth) * horizontal,
-            y: -cos(azimuth) * horizontal,
-            z: sin(altitude)
-        )
-    }
-
     private var accessibilityValue: String {
         let latitude = abs(snapshot.latitudeDegrees)
         let longitude = abs(snapshot.longitudeDegrees)
         let northSouth = snapshot.latitudeDegrees >= 0 ? "nord" : "sud"
         let eastWest = snapshot.longitudeDegrees >= 0 ? "est" : "ouest"
         let daylight = snapshot.isNight ? "position actuellement du côté nuit" : "position actuellement du côté jour"
+        let modeDescription = mode == .local
+            ? "globe local centré sur cette position"
+            : "globe monde centré sur le terminateur réel"
         return String(
-            format: "Latitude %.2f degrés %@, longitude %.2f degrés %@, %@.",
+            format: "Latitude %.2f degrés %@, longitude %.2f degrés %@, %@, %@.",
             latitude,
             northSouth,
             longitude,
             eastWest,
-            daylight
+            daylight,
+            modeDescription
         )
     }
 }

@@ -16,6 +16,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextClock
 import android.widget.TextView
@@ -26,6 +27,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
+import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
@@ -56,6 +58,7 @@ class MainActivity : Activity() {
     private lateinit var sunIndicator: SunIndicatorView
     private lateinit var pointageButtons: LinearLayout
     private lateinit var gpsSettingsPanel: LinearLayout
+    private lateinit var celestialGlobeModeGroup: RadioGroup
     private lateinit var analyticsPdfPanel: LinearLayout
     private lateinit var workplaceAddress: EditText
     private lateinit var geofenceRadius: EditText
@@ -71,6 +74,7 @@ class MainActivity : Activity() {
 
     private var activeTab = "home"
     private var updatingGpsSwitch = false
+    private var updatingCelestialGlobeMode = false
     private var gpsSaveRequestId = 0
 
     private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
@@ -88,6 +92,9 @@ class MainActivity : Activity() {
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy { getSharedPreferences("gps_settings", Context.MODE_PRIVATE) }
+    private val celestialPrefs by lazy {
+        getSharedPreferences(CelestialGlobeModeV2.PREFS, Context.MODE_PRIVATE)
+    }
     private val navigationPrefs by lazy { getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE) }
 
     private inline fun <reified T : View> requiredView(id: Int, name: String): T =
@@ -107,6 +114,7 @@ class MainActivity : Activity() {
         sunIndicator = requiredView(R.id.sunIndicator, "sunIndicator")
         pointageButtons = requiredView(R.id.pointageButtons, "pointageButtons")
         gpsSettingsPanel = requiredView(R.id.gpsSettingsPanel, "gpsSettingsPanel")
+        celestialGlobeModeGroup = requiredView(R.id.celestialGlobeModeGroup, "celestialGlobeModeGroup")
         analyticsPdfPanel = requiredView(R.id.analyticsPdfPanel, "analyticsPdfPanel")
         workplaceAddress = requiredView(R.id.workplaceAddress, "workplaceAddress")
         geofenceRadius = requiredView(R.id.geofenceRadius, "geofenceRadius")
@@ -129,8 +137,20 @@ class MainActivity : Activity() {
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
 
         loadGpsSettings()
+        loadCelestialSettings()
         restoreSelectedReportMonth()
         updateSelectedReportMonthText()
+
+        celestialGlobeModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            if (updatingCelestialGlobeMode) return@setOnCheckedChangeListener
+            val mode = when (checkedId) {
+                R.id.celestialGlobeModeWorld -> CelestialGlobeModeV2.WORLD
+                else -> CelestialGlobeModeV2.LOCAL
+            }
+            celestialPrefs.edit()
+                .putString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, mode.name)
+                .apply()
+        }
 
         autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
             if (updatingGpsSwitch) return@setOnCheckedChangeListener
@@ -380,7 +400,8 @@ class MainActivity : Activity() {
         historyText.visibility = View.GONE
         analyticsPdfPanel.visibility = View.GONE
         gpsSettingsPanel.visibility = View.VISIBLE
-        contentTitle.text = "LIEUX DE TRAVAIL GPS"
+        contentTitle.text = "PARAMÈTRES"
+        loadCelestialSettings()
         loadGpsSettings()
         updateGpsStatus()
     }
@@ -445,6 +466,21 @@ class MainActivity : Activity() {
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "HoraTrack_$monthFile.pdf")
         }, REQUEST_CREATE_MONTHLY_PDF)
+    }
+
+    private fun loadCelestialSettings() {
+        val mode = CelestialGlobeModeV2.fromStored(
+            celestialPrefs.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
+        )
+        updatingCelestialGlobeMode = true
+        celestialGlobeModeGroup.check(
+            if (mode == CelestialGlobeModeV2.WORLD) {
+                R.id.celestialGlobeModeWorld
+            } else {
+                R.id.celestialGlobeModeLocal
+            }
+        )
+        updatingCelestialGlobeMode = false
     }
 
     private fun loadGpsSettings() {

@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -10,6 +11,7 @@ import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import java.util.Calendar
@@ -44,6 +46,21 @@ class HpAnalogClockView @JvmOverloads constructor(
     private val earthGlobeRenderer = EarthGlobeRendererV2 {
         if (isAttachedToWindow) postInvalidateOnAnimation()
     }
+    private val celestialPreferences = context.applicationContext.getSharedPreferences(
+        CelestialGlobeModeV2.PREFS,
+        Context.MODE_PRIVATE
+    )
+    private var globeMode = CelestialGlobeModeV2.fromStored(
+        celestialPreferences.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
+    )
+    private val celestialPreferenceListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
+            if (key == CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE) {
+                globeMode = CelestialGlobeModeV2.fromStored(preferences.getString(key, null))
+                earthGlobeRenderer.clearCache()
+                postInvalidateOnAnimation()
+            }
+        }
 
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var hostActivityVisible = false
@@ -58,6 +75,10 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        celestialPreferences.registerOnSharedPreferenceChangeListener(celestialPreferenceListener)
+        globeMode = CelestialGlobeModeV2.fromStored(
+            celestialPreferences.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
+        )
         maybeRequestSharpAssets()
         updateTrackerSubscription()
     }
@@ -77,6 +98,7 @@ class HpAnalogClockView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        celestialPreferences.unregisterOnSharedPreferenceChangeListener(celestialPreferenceListener)
         if (trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
@@ -219,7 +241,8 @@ class HpAnalogClockView @JvmOverloads constructor(
             cx = cx,
             cy = cy,
             radius = radius,
-            snapshot = celestialSnapshot
+            snapshot = celestialSnapshot,
+            mode = globeMode
         )
         if (!rendered) {
             drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
