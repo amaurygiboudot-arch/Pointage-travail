@@ -371,7 +371,7 @@ final class SalaryConventionNightRuleStoreV2Tests: XCTestCase {
           "versionId":"\(version)",
           "sourceId":"legifrance:KALI:\(version)",
           "effectiveFromEpochDay":\(from),
-          "effectiveToEpochDay":\(to.map(String.init) ?? "null"),
+          "effectiveToEpochDay":\(to.map { String($0) } ?? "null"),
           "checkedAtMs":1,
           "note":null,
           "rule":{
