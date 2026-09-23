@@ -67,7 +67,7 @@ enum SocialSecurityCeilingV2 {
             complementaryMinutes: Int? = nil,
             entryDate: PayrollCivilDateV2?,
             exitDate: PayrollCivilDateV2? = nil,
-            unpaidAbsenceDays: Int? = 0,
+            unpaidAbsenceDays: Int?,
             forfaitAnnualDays: Double? = nil
         ) {
             self.period = period

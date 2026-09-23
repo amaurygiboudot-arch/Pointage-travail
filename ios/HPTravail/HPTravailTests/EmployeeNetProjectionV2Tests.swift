@@ -20,7 +20,8 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
                 period: salaryPeriod(year, 4),
                 contractType: .fullTime,
                 contractualWeeklyMinutes: 35 * 60,
-                entryDate: PayrollCivilDateV2(year: 2020, month: 1, day: 1)!
+                entryDate: PayrollCivilDateV2(year: 2020, month: 1, day: 1)!,
+                unpaidAbsenceDays: 0
             )
         )
     }
