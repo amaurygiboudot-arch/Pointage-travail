@@ -120,10 +120,13 @@ struct CelestialStarFieldViewV2: View {
                 if visiblePoints.count >= 3 {
                     let x = visiblePoints.reduce(0) { $0 + $1.x } / CGFloat(visiblePoints.count)
                     let y = visiblePoints.reduce(0) { $0 + $1.y } / CGFloat(visiblePoints.count)
-                    context.draw(
+                    var label = context.resolve(
                         Text(constellation.abbreviation)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.44 * opacity)),
+                    )
+                    label.shading = .color(.white.opacity(0.44 * opacity))
+                    context.draw(
+                        label,
                         at: CGPoint(x: x, y: y),
                         anchor: .center
                     )
@@ -155,7 +158,7 @@ struct CelestialStarFieldViewV2: View {
         .accessibilityHidden(true)
         .task(id: preparationKey) {
             guard let snapshot = state.snapshot, state.locationQuality == .valid else { return }
-            await model.prepare(snapshot: snapshot)
+            model.prepare(snapshot: snapshot)
         }
     }
 
