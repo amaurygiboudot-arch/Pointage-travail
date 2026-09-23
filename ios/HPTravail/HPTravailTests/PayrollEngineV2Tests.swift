@@ -227,4 +227,26 @@ final class PayrollEngineV2Tests: XCTestCase {
         XCTAssertTrue(result.traces.contains { $0.contains("ambigus ou invalides") })
         XCTAssertTrue(result.traces.contains { $0.contains("brut reste à confirmer") })
     }
+
+    func testMissingUpstreamEvidenceKeepsKnownGrossButMarksItUnreliable() throws {
+        let confirmed = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
+            rules: PayrollRulesV2(),
+            evidence: .fullyConfirmed
+        )
+        let unknown = try PayrollEngineV2.calculate(
+            contract: hourlyContract(),
+            weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
+            rules: PayrollRulesV2()
+        )
+
+        XCTAssertEqual(unknown.grossEstimate, confirmed.grossEstimate, accuracy: 0.001)
+        XCTAssertTrue(confirmed.grossReliable)
+        XCTAssertFalse(unknown.grossReliable)
+        XCTAssertTrue(unknown.traces.contains { $0.contains("temps payé amont non fiable") })
+        XCTAssertTrue(unknown.traces.contains { $0.contains("ventilation nuit") })
+        XCTAssertTrue(unknown.traces.contains { $0.contains("règles de majoration") })
+    }
+
 }
