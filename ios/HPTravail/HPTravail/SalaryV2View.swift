@@ -3,6 +3,8 @@ import SwiftUI
 struct SalaryV2View: View {
     @EnvironmentObject private var salaryStore: SalaryV2Store
     @EnvironmentObject private var workStore: WorkStoreV2
+    @State private var salaryPdfURL: URL?
+    @State private var salaryPdfFeedback: String?
 
     var body: some View {
         NavigationStack {
@@ -575,11 +577,40 @@ struct SalaryV2View: View {
                 Text("À confirmer")
                     .fontWeight(.semibold)
             }
-            HStack {
-                Text("PDF paie")
-                Spacer()
-                Text("À confirmer")
-                    .fontWeight(.semibold)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("PDF paie")
+                    Spacer()
+                    Button("Préparer le PDF") {
+                        do {
+                            salaryPdfURL = try SalaryV2PdfExporter.export(
+                                snapshot: salaryStore.snapshot,
+                                company: salaryStore.selectedCompany
+                            )
+                            salaryPdfFeedback = "PDF généré depuis le snapshot canonique affiché."
+                        } catch {
+                            salaryPdfURL = nil
+                            salaryPdfFeedback = "Impossible de générer le PDF."
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if let salaryPdfURL {
+                    ShareLink(
+                        item: salaryPdfURL,
+                        subject: Text("HoraTrack — estimation de salaire"),
+                        message: Text("Export Salaire V2 HoraTrack")
+                    ) {
+                        Label("Partager le PDF", systemImage: "square.and.arrow.up")
+                    }
+                }
+
+                if let salaryPdfFeedback {
+                    Text(salaryPdfFeedback)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding()
