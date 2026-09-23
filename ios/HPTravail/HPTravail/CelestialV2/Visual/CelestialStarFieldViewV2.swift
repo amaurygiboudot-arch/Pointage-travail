@@ -1,20 +1,20 @@
 import SwiftUI
 
+private struct PreparedStarSkyStarV2: Sendable {
+    let hr: Int
+    let magnitude: Double
+    let position: LocalStarPositionV2
+}
+
+private struct PreparedStarSkyV2: Sendable {
+    let key: String
+    let stars: [PreparedStarSkyStarV2]
+    let paths: [ConstellationPathV2]
+}
+
 @MainActor
 private final class CelestialStarFieldModelV2: ObservableObject {
-    struct PreparedStar: Sendable {
-        let hr: Int
-        let magnitude: Double
-        let position: LocalStarPositionV2
-    }
-
-    struct PreparedSky: Sendable {
-        let key: String
-        let stars: [PreparedStar]
-        let paths: [ConstellationPathV2]
-    }
-
-    @Published private(set) var prepared: PreparedSky?
+    @Published private(set) var prepared: PreparedStarSkyV2?
     private var requestedKey: String?
 
     func prepare(snapshot: CelestialSnapshotV2) {
@@ -35,10 +35,10 @@ private final class CelestialStarFieldModelV2: ObservableObject {
         Task {
             let result = await Task.detached(priority: .utility) {
                 guard let catalog = StarSkyCatalogLoaderV2.load() else {
-                    return Optional<PreparedSky>.none
+                    return Optional<PreparedStarSkyV2>.none
                 }
                 let stars = catalog.stars.map { item in
-                    PreparedStar(
+                    PreparedStarSkyStarV2(
                         hr: item.hr,
                         magnitude: item.star.visualMagnitude,
                         position: StarSkyProjectionV2.horizontal(
@@ -49,7 +49,7 @@ private final class CelestialStarFieldModelV2: ObservableObject {
                         )
                     )
                 }
-                return PreparedSky(key: key, stars: stars, paths: catalog.constellationPaths)
+                return PreparedStarSkyV2(key: key, stars: stars, paths: catalog.constellationPaths)
             }.value
 
             guard let result, requestedKey == result.key else { return }
@@ -80,7 +80,7 @@ struct CelestialStarFieldViewV2: View {
             let radius = min(size.width, size.height) * 0.46
             var points: [Int: CGPoint] = [:]
             points.reserveCapacity(sky.stars.count / 2)
-            var visible: [(CelestialStarFieldModelV2.PreparedStar, CGPoint)] = []
+            var visible: [(PreparedStarSkyStarV2, CGPoint)] = []
             visible.reserveCapacity(sky.stars.count / 2)
 
             for star in sky.stars {
