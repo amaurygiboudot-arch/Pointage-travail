@@ -299,6 +299,7 @@ class MainActivity : Activity() {
     }
 
     internal fun onSalaryTabShown() {
+        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("salary")
         setActiveTab(tabSalary)
     }
