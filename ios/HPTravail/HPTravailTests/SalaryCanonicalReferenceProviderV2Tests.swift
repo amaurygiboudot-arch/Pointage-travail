@@ -44,7 +44,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
             SalaryCanonicalReferenceProviderV2.build(
                 input(
                     workSourceReliable: false,
-                    protectionCategory: .noConventionOverride(),
+                    protectionCategory: ProtectionCategoryV2.noConventionOverride(),
                     deductions: deductions(complete: true),
                     unpaidAbsenceDays: 0
                 )
@@ -60,7 +60,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         let reference = try XCTUnwrap(
             SalaryCanonicalReferenceProviderV2.build(
                 input(
-                    protectionCategory: .noConventionOverride(),
+                    protectionCategory: ProtectionCategoryV2.noConventionOverride(),
                     deductions: deductions(complete: true),
                     unpaidAbsenceDays: 0
                 )
@@ -87,7 +87,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         let result = SalaryCanonicalReferenceProviderV2.build(
             input(
                 contract: wrongContract,
-                protectionCategory: .noConventionOverride(),
+                protectionCategory: ProtectionCategoryV2.noConventionOverride(),
                 deductions: deductions(complete: true),
                 unpaidAbsenceDays: 0
             )
