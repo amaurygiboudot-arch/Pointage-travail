@@ -120,18 +120,20 @@ class CelestialStarBackgroundViewV2 @JvmOverloads constructor(
             val catalog = runCatching { StarSkyCatalogLoaderV2.load(appContext) }.getOrNull() ?: return@execute
             val prepared = catalog.stars.mapNotNull { (hr, star) ->
                 runCatching {
+                    val position = StarSkyProjectionV2.horizontal(
+                        star = star,
+                        latitudeDeg = snapshot.latitudeDeg,
+                        longitudeDeg = snapshot.longitudeDeg,
+                        timeMs = snapshot.atMs
+                    )
+                    if (!position.aboveApparentHorizon) return@runCatching null
                     LocalStar(
                         hr = hr,
                         magnitude = star.visualMagnitude,
-                        position = StarSkyProjectionV2.horizontal(
-                            star = star,
-                            latitudeDeg = snapshot.latitudeDeg,
-                            longitudeDeg = snapshot.longitudeDeg,
-                            timeMs = snapshot.atMs
-                        )
+                        position = position
                     )
                 }.getOrNull()
-            }
+            }.filterNotNull()
             val result = LocalSky(
                 latitude = snapshot.latitudeDeg,
                 longitude = snapshot.longitudeDeg,
@@ -167,7 +169,6 @@ class CelestialStarBackgroundViewV2 @JvmOverloads constructor(
         val projected = HashMap<Int, PointF>(sky.stars.size / 2)
         val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size / 2)
         for (star in sky.stars) {
-            if (!star.position.aboveApparentHorizon) continue
             val point = StarSkyProjectionV2.projectToDevice(star.position, frame) ?: continue
             val screen = PointF(
                 cx + (point.x * radius).toFloat(),
