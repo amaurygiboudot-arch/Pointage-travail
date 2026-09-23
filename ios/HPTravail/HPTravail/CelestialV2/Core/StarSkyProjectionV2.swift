@@ -17,6 +17,27 @@ struct LocalStarPositionV2: Equatable, Sendable {
     var isAboveApparentHorizon: Bool { apparentAltitudeDegrees >= 0 }
 }
 
+struct StarDeviceFrameV2: Equatable, Sendable {
+    let rightEast: Double
+    let rightNorth: Double
+    let rightUp: Double
+    let topEast: Double
+    let topNorth: Double
+    let topUp: Double
+    let normalEast: Double
+    let normalNorth: Double
+    let normalUp: Double
+}
+
+struct StarDeviceProjectionV2: Equatable, Sendable {
+    /// Normalized horizontal offset; +X is screen-right.
+    let x: Double
+    /// Normalized vertical offset; +Y is screen-down.
+    let y: Double
+    /// Positive values are in front of the display normal.
+    let depth: Double
+}
+
 enum StarSkyProjectionV2 {
     private static let j2000 = 2_451_545.0
 
@@ -73,6 +94,34 @@ enum StarSkyProjectionV2 {
             apparentAltitudeDegrees: AtmosphericRefractionV2.apparentAltitudeDegrees(
                 geometricAltitudeDegrees: altitudeDegrees
             )
+        )
+    }
+
+    static func projectToDevice(
+        position: LocalStarPositionV2,
+        frame: StarDeviceFrameV2
+    ) -> StarDeviceProjectionV2? {
+        let altitude = degreesToRadians(position.apparentAltitudeDegrees)
+        let azimuth = degreesToRadians(position.azimuthDegrees)
+        let east = cos(altitude) * sin(azimuth)
+        let north = cos(altitude) * cos(azimuth)
+        let up = sin(altitude)
+
+        let right = east * frame.rightEast
+            + north * frame.rightNorth
+            + up * frame.rightUp
+        let top = east * frame.topEast
+            + north * frame.topNorth
+            + up * frame.topUp
+        let depth = east * frame.normalEast
+            + north * frame.normalNorth
+            + up * frame.normalUp
+
+        guard depth > 0 else { return nil }
+        return StarDeviceProjectionV2(
+            x: clamp(right, minimum: -1, maximum: 1),
+            y: clamp(-top, minimum: -1, maximum: 1),
+            depth: clamp(depth, minimum: 0, maximum: 1)
         )
     }
 
