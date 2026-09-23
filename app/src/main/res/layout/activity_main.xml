@@ -418,6 +418,73 @@
                 android:visibility="gone"
                 android:paddingTop="12dp">
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="SYSTÈME CÉLESTE"
+                    android:textColor="@color/hp_gold_light"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:fontFamily="serif" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Mode du globe terrestre"
+                    android:textColor="@color/hp_white"
+                    android:textSize="14sp" />
+
+                <RadioGroup
+                    android:id="@+id/celestialGlobeModeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal"
+                    android:background="@drawable/hp_panel"
+                    android:padding="8dp">
+
+                    <RadioButton
+                        android:id="@+id/celestialGlobeModeLocal"
+                        android:layout_width="0dp"
+                        android:layout_height="56dp"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:text="Local"
+                        android:textColor="@color/hp_white"
+                        android:textSize="14sp"
+                        android:contentDescription="Globe local centré sur votre position" />
+
+                    <RadioButton
+                        android:id="@+id/celestialGlobeModeWorld"
+                        android:layout_width="0dp"
+                        android:layout_height="56dp"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:text="Monde"
+                        android:textColor="@color/hp_white"
+                        android:textSize="14sp"
+                        android:contentDescription="Globe monde montrant la répartition jour nuit" />
+                </RadioGroup>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Local : centre le globe sur votre GPS. Monde : garde le terminateur réel au centre pour montrer ensemble la partie éclairée et la partie nocturne."
+                    android:textColor="@color/hp_grey"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:text="POINTAGE GPS"
+                    android:textColor="@color/hp_gold_light"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:fontFamily="serif" />
+
                 <com.amaury.pointage.LocationManagementView
                     android:id="@+id/locationManagementView"
                     android:layout_width="match_parent"
