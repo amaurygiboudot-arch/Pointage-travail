@@ -116,8 +116,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [PayrollWeekV2(paidMinutes: 41 * 60)],
-            rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60, overtimeTiers: legalTiers)
-        ,
+            rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60, overtimeTiers: legalTiers),
             evidence: .fullyConfirmed
         )
 
@@ -131,8 +130,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [],
-            rules: PayrollRulesV2(overtimeTiers: legalTiers)
-        ,
+            rules: PayrollRulesV2(overtimeTiers: legalTiers),
             evidence: .fullyConfirmed
         )
 
@@ -149,8 +147,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             weeks: [],
             rules: PayrollRulesV2(
                 overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -165,8 +162,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [],
-            rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
-        ,
+            rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
             evidence: .fullyConfirmed
         )
 
@@ -184,8 +180,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 weeklyRegularMinutes: 35 * 60,
                 overtimeTiers: [OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -200,8 +195,7 @@ final class FullTimeStructuralOvertimeV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: fullTimeContract(),
             weeks: [],
-            rules: PayrollRulesV2()
-        ,
+            rules: PayrollRulesV2(),
             evidence: .fullyConfirmed
         )
 
