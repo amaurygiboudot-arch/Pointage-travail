@@ -674,3 +674,24 @@ final class CelestialHorizonTransitionV2Tests: XCTestCase {
         )
     }
 }
+
+
+final class HomeTabBarVisibilityPolicyV2Tests: XCTestCase {
+    func testHomeTabBarStaysVisibleBeforeTenSeconds() {
+        XCTAssertFalse(
+            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: true, inactiveFor: 9.999)
+        )
+    }
+
+    func testHomeTabBarHidesAtTenSeconds() {
+        XCTAssertTrue(
+            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: true, inactiveFor: 10)
+        )
+    }
+
+    func testOtherTabsNeverUseHomeAutoHide() {
+        XCTAssertFalse(
+            HomeTabBarVisibilityPolicyV2.shouldHide(isHome: false, inactiveFor: 60)
+        )
+    }
+}
