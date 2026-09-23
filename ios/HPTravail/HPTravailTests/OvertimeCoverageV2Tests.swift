@@ -123,8 +123,7 @@ final class OvertimeCoverageV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: genericContract(),
             weeks: [PayrollWeekV2(paidMinutes: limit)],
-            rules: PayrollRulesV2(weeklyRegularMinutes: limit)
-        ,
+            rules: PayrollRulesV2(weeklyRegularMinutes: limit),
             evidence: .fullyConfirmed
         )
 
@@ -136,8 +135,7 @@ final class OvertimeCoverageV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: genericContract(),
             weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
-            rules: PayrollRulesV2(weeklyRegularMinutes: limit)
-        ,
+            rules: PayrollRulesV2(weeklyRegularMinutes: limit),
             evidence: .fullyConfirmed
         )
 
@@ -153,8 +151,7 @@ final class OvertimeCoverageV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 weeklyRegularMinutes: limit,
                 overtimeTiers: [OvertimeTierV2(fromMinutes: limit, toMinutes: nil, multiplier: 1.25)]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -169,8 +166,7 @@ final class OvertimeCoverageV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 weeklyRegularMinutes: limit,
                 overtimeTiers: [OvertimeTierV2(fromMinutes: limit, toMinutes: 40 * 60, multiplier: 1.25)]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
