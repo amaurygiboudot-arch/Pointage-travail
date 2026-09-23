@@ -32,6 +32,7 @@ const { refreshDueLegalWatches } = require("./legalUpdateWatch");
 
 const pisteClientId = defineSecret("PISTE_CLIENT_ID");
 const pisteClientSecret = defineSecret("PISTE_CLIENT_SECRET");
+const resendApiKey = defineSecret("RESEND_API_KEY");
 
 const TOKEN_URL = "https://oauth.piste.gouv.fr/api/oauth/token";
 const LEGIFRANCE_BASE_URL = "https://api.piste.gouv.fr/dila/legifrance/lf-engine-app";
@@ -322,5 +323,78 @@ exports.legalUpdateWatch = onSchedule(
       reconcileFinal,
       dispatchFinal,
     });
+  }
+);
+
+exports.resendTestEmail = onCall(
+  {
+    secrets: [resendApiKey],
+    timeoutSeconds: 15,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Connexion HoraTrack requise."
+      );
+    }
+
+    const email = String(request.auth.token.email || "").trim();
+
+    if (!email) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Aucune adresse e-mail associée au compte."
+      );
+    }
+
+    try {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendApiKey.value()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: "HoraTrack <onboarding@resend.dev>",
+          to: [email],
+          subject: "Test e-mail HoraTrack",
+          html: "<p>Firebase → Resend fonctionne correctement ✅</p>",
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        console.error("Resend email failed", {
+          status: response.status,
+          code: data?.name || data?.code || "unknown",
+        });
+
+        throw new HttpsError(
+          "unavailable",
+          "Envoi de l’e-mail momentanément indisponible."
+        );
+      }
+
+      return {
+        ok: true,
+        id: typeof data?.id === "string" ? data.id : null,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+
+      console.error("Resend request failed", {
+        error: String(error?.message || error || "unknown"),
+      });
+
+      throw new HttpsError(
+        "unavailable",
+        "Envoi de l’e-mail momentanément indisponible."
+      );
+    }
   }
 );

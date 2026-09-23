@@ -14,12 +14,11 @@
     "blocking_issues"
   ],
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": { "type": "integer", "const": 1 },
     "head_sha": { "type": "string", "minLength": 7 },
     "required_specialists": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "uniqueItems": true
+      "items": { "type": "string", "minLength": 1 }
     },
     "specialist_reviews": {
       "type": "array",
@@ -32,7 +31,7 @@
       "additionalProperties": false,
       "required": ["agent", "decision", "fusion_authorisee", "summary"],
       "properties": {
-        "agent": { "const": "control_gate" },
+        "agent": { "type": "string", "const": "control_gate" },
         "decision": { "enum": ["PASS", "FAIL"] },
         "fusion_authorisee": { "type": "boolean" },
         "summary": { "type": "string" }
