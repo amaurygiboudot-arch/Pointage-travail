@@ -38,6 +38,122 @@ struct StarDeviceProjectionV2: Equatable, Sendable {
     let depth: Double
 }
 
+enum StarScreenOrientationV2: Sendable {
+    case portrait
+    case portraitUpsideDown
+    case landscapeLeft
+    case landscapeRight
+}
+
+struct StarAttitudeMatrixV2: Equatable, Sendable {
+    let m11: Double
+    let m12: Double
+    let m13: Double
+    let m21: Double
+    let m22: Double
+    let m23: Double
+    let m31: Double
+    let m32: Double
+    let m33: Double
+}
+
+enum StarDeviceFrameFactoryV2 {
+    private struct EnuVector {
+        let east: Double
+        let north: Double
+        let up: Double
+
+        var negated: EnuVector {
+            EnuVector(east: -east, north: -north, up: -up)
+        }
+
+        var isFinite: Bool {
+            east.isFinite && north.isFinite && up.isFinite
+        }
+    }
+
+    /**
+     * Builds physical screen axes in Earth East / true-North / Up coordinates.
+     *
+     * The input matrix must come from a true-North + vertical attitude reference
+     * frame. Gravity is expressed in device coordinates and is used to resolve
+     * the direction-cosine-matrix row/column convention defensively.
+     */
+    static func trueNorthFrame(
+        matrix: StarAttitudeMatrixV2,
+        gravityX: Double,
+        gravityY: Double,
+        gravityZ: Double,
+        orientation: StarScreenOrientationV2
+    ) -> StarDeviceFrameV2? {
+        guard gravityX.isFinite, gravityY.isFinite, gravityZ.isFinite else {
+            return nil
+        }
+
+        func enu(referenceX: Double, referenceY: Double, referenceZ: Double) -> EnuVector {
+            // xTrueNorthZVertical: X = true North, Y = West, Z = Up.
+            EnuVector(east: -referenceY, north: referenceX, up: referenceZ)
+        }
+
+        let columnAxes = (
+            x: enu(referenceX: matrix.m11, referenceY: matrix.m21, referenceZ: matrix.m31),
+            y: enu(referenceX: matrix.m12, referenceY: matrix.m22, referenceZ: matrix.m32),
+            z: enu(referenceX: matrix.m13, referenceY: matrix.m23, referenceZ: matrix.m33)
+        )
+        let rowAxes = (
+            x: enu(referenceX: matrix.m11, referenceY: matrix.m12, referenceZ: matrix.m13),
+            y: enu(referenceX: matrix.m21, referenceY: matrix.m22, referenceZ: matrix.m23),
+            z: enu(referenceX: matrix.m31, referenceY: matrix.m32, referenceZ: matrix.m33)
+        )
+        let expectedUp = (x: -gravityX, y: -gravityY, z: -gravityZ)
+
+        func gravityError(
+            _ axes: (x: EnuVector, y: EnuVector, z: EnuVector)
+        ) -> Double {
+            abs(axes.x.up - expectedUp.x)
+                + abs(axes.y.up - expectedUp.y)
+                + abs(axes.z.up - expectedUp.z)
+        }
+
+        let deviceAxes = gravityError(columnAxes) <= gravityError(rowAxes)
+            ? columnAxes
+            : rowAxes
+        guard deviceAxes.x.isFinite, deviceAxes.y.isFinite, deviceAxes.z.isFinite else {
+            return nil
+        }
+
+        let right: EnuVector
+        let top: EnuVector
+        switch orientation {
+        case .portrait:
+            right = deviceAxes.x
+            top = deviceAxes.y
+        case .portraitUpsideDown:
+            right = deviceAxes.x.negated
+            top = deviceAxes.y.negated
+        case .landscapeLeft:
+            right = deviceAxes.y
+            top = deviceAxes.x.negated
+        case .landscapeRight:
+            right = deviceAxes.y.negated
+            top = deviceAxes.x
+        }
+        let normal = deviceAxes.z
+
+        return StarDeviceFrameV2(
+            rightEast: right.east,
+            rightNorth: right.north,
+            rightUp: right.up,
+            topEast: top.east,
+            topNorth: top.north,
+            topUp: top.up,
+            normalEast: normal.east,
+            normalNorth: normal.north,
+            normalUp: normal.up
+        )
+    }
+}
+
 enum StarSkyProjectionV2 {
     private static let j2000 = 2_451_545.0
 
