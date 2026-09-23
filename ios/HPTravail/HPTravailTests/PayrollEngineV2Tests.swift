@@ -20,6 +20,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
             rules: PayrollRulesV2()
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
@@ -37,6 +39,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 1.25)
                 ]
             )
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
@@ -58,6 +62,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
             )
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.premiumsGross, 22.5, accuracy: 0.001)
@@ -78,6 +84,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
             )
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.premiumsGross, 12.5, accuracy: 0.001)
@@ -89,6 +97,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: -1)],
                 rules: PayrollRulesV2()
+            ,
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -101,6 +111,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, nightMinutes: -1)],
                 rules: PayrollRulesV2(nightMultiplier: 1.25)
+            ,
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -113,6 +125,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, publicHolidayMinutes: 61)],
                 rules: PayrollRulesV2(publicHolidayMultiplier: 1.5)
+            ,
+                evidence: .fullyConfirmed
             )
         ) { error in
             XCTAssertEqual(error as? PayrollEngineErrorV2, .invalidPaidMinutes)
@@ -125,6 +139,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
             baskets: [BasketV2(id: "meal", label: "Panier", amount: 6)]
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.grossEstimate, 350, accuracy: 0.001)
@@ -138,6 +154,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
             deductions: [DeductionV2(id: "known", label: "Retenue connue", amount: 50, recurring: true)]
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.grossEstimate, 350, accuracy: 0.001)
@@ -165,6 +183,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             premiums: [PremiumV2(id: "fixed", label: "Prime", amount: 100, periodicity: .monthly)],
             baskets: [BasketV2(id: "meal", label: "Panier", amount: 20)],
             deductions: [DeductionV2(id: "known", label: "Retenue", amount: 50, recurring: true)]
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 2_500, accuracy: 0.001)
@@ -190,6 +210,8 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: contract,
             weeks: [],
             rules: PayrollRulesV2()
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 3_000, accuracy: 0.001)
@@ -206,6 +228,8 @@ final class PayrollEngineV2Tests: XCTestCase {
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)
                 ]
             )
+        ,
+            evidence: .fullyConfirmed
         )
 
         XCTAssertEqual(result.regularGross, 350, accuracy: 0.001)
