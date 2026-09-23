@@ -224,6 +224,45 @@ final class CelestialEngineV2Tests: XCTestCase {
         XCTAssertEqual(east.moon.distanceKilometers, west.moon.distanceKilometers, accuracy: 1e-6)
     }
 
+    func testLocalGlobeSceneCentresObserver() throws {
+        let snapshot = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.67,
+            longitudeDegrees: -1.43,
+            date: date("2026-09-10T12:00:00Z")
+        )
+        let scene = CelestialGlobeProjectionV2.scene(snapshot: snapshot, mode: .local)
+
+        XCTAssertEqual(scene.viewLatitudeDegrees, snapshot.latitudeDegrees, accuracy: 1e-12)
+        XCTAssertEqual(scene.viewLongitudeDegrees, snapshot.longitudeDegrees, accuracy: 1e-12)
+        let observer = CelestialGlobeProjectionV2.project(
+            latitudeDegrees: snapshot.latitudeDegrees,
+            longitudeDegrees: snapshot.longitudeDegrees,
+            viewLatitudeDegrees: scene.viewLatitudeDegrees,
+            viewLongitudeDegrees: scene.viewLongitudeDegrees
+        )
+        XCTAssertEqual(observer.x, 0, accuracy: 1e-12)
+        XCTAssertEqual(observer.y, 0, accuracy: 1e-12)
+        XCTAssertEqual(observer.depth, 1, accuracy: 1e-12)
+    }
+
+    func testWorldGlobeSceneCentresRealTerminator() throws {
+        let snapshot = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.67,
+            longitudeDegrees: -1.43,
+            date: date("2026-09-10T12:00:00Z")
+        )
+        let scene = CelestialGlobeProjectionV2.scene(snapshot: snapshot, mode: .world)
+        let subsolar = CelestialGlobeProjectionV2.project(
+            latitudeDegrees: scene.sunLatitudeDegrees,
+            longitudeDegrees: scene.sunLongitudeDegrees,
+            viewLatitudeDegrees: scene.viewLatitudeDegrees,
+            viewLongitudeDegrees: scene.viewLongitudeDegrees
+        )
+
+        XCTAssertEqual(scene.viewLatitudeDegrees, 0, accuracy: 1e-12)
+        XCTAssertEqual(subsolar.depth, 0, accuracy: 1e-9)
+    }
+
     private func date(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
     }
