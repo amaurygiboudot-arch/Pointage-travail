@@ -21,10 +21,11 @@ struct ContentView: View {
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
+    @State private var homeTabBarVisible = true
 
     var body: some View {
         TabView {
-            CelestialHomeView()
+            CelestialHomeView(tabBarVisible: $homeTabBarVisible)
                 .tabItem { Label("Accueil", systemImage: "globe.europe.africa.fill") }
             todayView
                 .tabItem { Label("Pointage", systemImage: "clock") }
