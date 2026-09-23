@@ -352,8 +352,44 @@ private struct CelestialSkyDialV2: View {
                         sun: snapshot.sun,
                         moon: snapshot.moon
                     )
+                    let sunOpacity = CelestialHorizonTransitionV2.diskOpacity(
+                        altitudeDegrees: snapshot.sun.altitudeDegrees
+                    )
+                    let moonOpacity = CelestialHorizonTransitionV2.diskOpacity(
+                        altitudeDegrees: snapshot.moon.altitudeDegrees
+                    )
+                    let sunGlowOpacity = CelestialHorizonTransitionV2.sunGlowOpacity(
+                        altitudeDegrees: snapshot.sun.altitudeDegrees
+                    )
+
+                    if sunGlowOpacity > 0 {
+                        Circle()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        .orange.opacity(0.52 * sunGlowOpacity),
+                                        .yellow.opacity(0.24 * sunGlowOpacity),
+                                        .clear
+                                    ],
+                                    center: .center,
+                                    startRadius: 0,
+                                    endRadius: size * 0.12
+                                )
+                            )
+                            .frame(width: size * 0.24, height: size * 0.24)
+                            .position(
+                                horizonPoint(
+                                    for: snapshot.sun,
+                                    heading: heading,
+                                    center: center,
+                                    radius: horizonRadius
+                                )
+                            )
+                    }
+
                     if let solarEclipse, solarEclipse.isEclipse,
-                       snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                       sunOpacity > 0,
+                       moonOpacity > 0 {
                         let sunPoint = point(
                             for: snapshot.sun,
                             heading: heading,
@@ -375,15 +411,43 @@ private struct CelestialSkyDialV2: View {
                             moonDirectionRadians: moonDirection
                         )
                             .frame(width: size * 0.15, height: size * 0.15)
+                            .scaleEffect(0.82 + 0.18 * min(sunOpacity, moonOpacity))
+                            .opacity(min(sunOpacity, moonOpacity))
                             .position(sunPoint)
                     } else {
-                        if snapshot.sun.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                        if sunOpacity > 0 {
                             marker(symbol: "sun.max.fill", color: .yellow, size: size * 0.10)
-                                .position(point(for: snapshot.sun, heading: heading, center: center, radius: horizonRadius))
+                                .scaleEffect(
+                                    CelestialHorizonTransitionV2.diskScale(
+                                        altitudeDegrees: snapshot.sun.altitudeDegrees
+                                    )
+                                )
+                                .opacity(sunOpacity)
+                                .position(
+                                    point(
+                                        for: snapshot.sun,
+                                        heading: heading,
+                                        center: center,
+                                        radius: horizonRadius
+                                    )
+                                )
                         }
-                        if snapshot.moon.altitudeDegrees >= AtmosphericRefractionV2.standardSolarDiskHorizonDegrees {
+                        if moonOpacity > 0 {
                             marker(symbol: "moon.fill", color: .white, size: size * 0.085)
-                                .position(point(for: snapshot.moon, heading: heading, center: center, radius: horizonRadius))
+                                .scaleEffect(
+                                    CelestialHorizonTransitionV2.diskScale(
+                                        altitudeDegrees: snapshot.moon.altitudeDegrees
+                                    )
+                                )
+                                .opacity(moonOpacity)
+                                .position(
+                                    point(
+                                        for: snapshot.moon,
+                                        heading: heading,
+                                        center: center,
+                                        radius: horizonRadius
+                                    )
+                                )
                         }
                     }
                 }
@@ -426,6 +490,28 @@ private struct CelestialSkyDialV2: View {
         guard let projected = CelestialDialProjectionV2.project(
             azimuthDegrees: body.azimuthDegrees,
             altitudeDegrees: body.altitudeDegrees,
+            trueHeadingDegrees: heading
+        ) else {
+            return center
+        }
+        return CGPoint(
+            x: center.x + CGFloat(projected.x) * radius,
+            y: center.y + CGFloat(projected.y) * radius
+        )
+    }
+
+    private func horizonPoint(
+        for body: CelestialBodyV2,
+        heading: Double,
+        center: CGPoint,
+        radius: CGFloat
+    ) -> CGPoint {
+        let projectedAltitude = CelestialHorizonTransitionV2.altitudeForHorizonGlow(
+            body.altitudeDegrees
+        )
+        guard let projected = CelestialDialProjectionV2.project(
+            azimuthDegrees: body.azimuthDegrees,
+            altitudeDegrees: projectedAltitude,
             trueHeadingDegrees: heading
         ) else {
             return center
