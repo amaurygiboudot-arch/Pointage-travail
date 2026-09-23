@@ -978,7 +978,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         let right: EnuVector
         let top: EnuVector
-        switch currentInterfaceOrientation() {
+        switch UIDevice.current.orientation {
         case .portraitUpsideDown:
             right = deviceAxes.x.negated
             top = deviceAxes.y.negated
@@ -1005,14 +1005,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             normalNorth: normal.north,
             normalUp: normal.up
         )
-    }
-
-    private func currentInterfaceOrientation() -> UIInterfaceOrientation {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive }?
-            .interfaceOrientation
-            ?? .portrait
     }
 
     private func refreshCelestialState(at now: Date = Date()) {
