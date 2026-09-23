@@ -133,7 +133,7 @@ class CelestialStarBackgroundViewV2 @JvmOverloads constructor(
                         position = position
                     )
                 }.getOrNull()
-            }.filterNotNull()
+            }
             val result = LocalSky(
                 latitude = snapshot.latitudeDeg,
                 longitude = snapshot.longitudeDeg,
