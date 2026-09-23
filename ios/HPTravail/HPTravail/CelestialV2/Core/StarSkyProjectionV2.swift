@@ -58,6 +58,8 @@ struct StarAttitudeMatrixV2: Equatable, Sendable {
 }
 
 enum StarDeviceFrameFactoryV2 {
+    private static let gravityConsistencyTolerance = 0.35
+
     private struct EnuVector {
         let east: Double
         let north: Double
@@ -75,9 +77,16 @@ enum StarDeviceFrameFactoryV2 {
     /**
      * Builds physical screen axes in Earth East / true-North / Up coordinates.
      *
-     * The input matrix must come from a true-North + vertical attitude reference
-     * frame. Gravity is expressed in device coordinates and is used to resolve
-     * the direction-cosine-matrix row/column convention defensively.
+     * Core Motion exposes a direction-cosine matrix. Its columns are the
+     * physical device axes expressed in the selected reference frame (the
+     * transpose is therefore used when transforming device vectors back to the
+     * reference/world frame). For xTrueNorthZVertical the reference axes are
+     * X = true North, Y = West, Z = Up.
+     *
+     * Gravity is not used to guess a matrix convention. It is an independent
+     * consistency check: if the matrix and gravity sample disagree materially,
+     * the physical star layer fails closed instead of displaying a mirrored or
+     * rotated sky.
      */
     static func trueNorthFrame(
         matrix: StarAttitudeMatrixV2,
@@ -91,34 +100,24 @@ enum StarDeviceFrameFactoryV2 {
         }
 
         func enu(referenceX: Double, referenceY: Double, referenceZ: Double) -> EnuVector {
-            // xTrueNorthZVertical: X = true North, Y = West, Z = Up.
             EnuVector(east: -referenceY, north: referenceX, up: referenceZ)
         }
 
-        let columnAxes = (
+        let deviceAxes = (
             x: enu(referenceX: matrix.m11, referenceY: matrix.m21, referenceZ: matrix.m31),
             y: enu(referenceX: matrix.m12, referenceY: matrix.m22, referenceZ: matrix.m32),
             z: enu(referenceX: matrix.m13, referenceY: matrix.m23, referenceZ: matrix.m33)
         )
-        let rowAxes = (
-            x: enu(referenceX: matrix.m11, referenceY: matrix.m12, referenceZ: matrix.m13),
-            y: enu(referenceX: matrix.m21, referenceY: matrix.m22, referenceZ: matrix.m23),
-            z: enu(referenceX: matrix.m31, referenceY: matrix.m32, referenceZ: matrix.m33)
-        )
-        let expectedUp = (x: -gravityX, y: -gravityY, z: -gravityZ)
-
-        func gravityError(
-            _ axes: (x: EnuVector, y: EnuVector, z: EnuVector)
-        ) -> Double {
-            abs(axes.x.up - expectedUp.x)
-                + abs(axes.y.up - expectedUp.y)
-                + abs(axes.z.up - expectedUp.z)
+        guard deviceAxes.x.isFinite, deviceAxes.y.isFinite, deviceAxes.z.isFinite else {
+            return nil
         }
 
-        let deviceAxes = gravityError(columnAxes) <= gravityError(rowAxes)
-            ? columnAxes
-            : rowAxes
-        guard deviceAxes.x.isFinite, deviceAxes.y.isFinite, deviceAxes.z.isFinite else {
+        let expectedUp = (x: -gravityX, y: -gravityY, z: -gravityZ)
+        let gravityError =
+            abs(deviceAxes.x.up - expectedUp.x)
+            + abs(deviceAxes.y.up - expectedUp.y)
+            + abs(deviceAxes.z.up - expectedUp.z)
+        guard gravityError <= gravityConsistencyTolerance else {
             return nil
         }
 
