@@ -154,6 +154,7 @@ internal object GpsTriggeredZoneSelectionV2 {
             ?: return GpsPointTypeV2.POSTE
         val raw = explicit.uppercase(Locale.ROOT)
         return when {
+            raw.contains("PAUSE") || raw.contains("BREAK") -> GpsPointTypeV2.PAUSE
             raw.contains("PARK") -> GpsPointTypeV2.PARKING
             raw.contains("OTHER") || raw.contains("AUTRE") -> GpsPointTypeV2.OTHER
             raw.contains("POSTE") || raw.contains("WORKPLACE") || raw.contains("WORK") -> GpsPointTypeV2.POSTE
