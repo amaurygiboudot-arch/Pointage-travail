@@ -308,7 +308,7 @@ enum SalaryEmployeeSocialProfileStoreV2 {
                 "versionId": snapshot.versionId,
                 "sourceId": snapshot.sourceId,
                 "effectiveFromEpochDay": snapshot.effectiveFromEpochDay,
-                "effectiveToEpochDay": snapshot.effectiveToEpochDay.map { $0 } ?? NSNull(),
+                "effectiveToEpochDay": snapshot.effectiveToEpochDay.map { $0 as Any } ?? NSNull(),
                 "professionalStatus": snapshot.professionalStatus.rawValue,
                 "alsaceMoselleLocalRegime": snapshot.alsaceMoselleLocalRegime,
                 "checkedAtMs": snapshot.checkedAtMs
