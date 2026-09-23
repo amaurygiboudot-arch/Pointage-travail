@@ -112,7 +112,7 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         XCTAssertEqual(landscape?.normalUp ?? 9, 1, accuracy: 1e-12)
     }
 
-    func testGravitySelectsCorrectDirectionCosineMatrixConvention() {
+    func testTrueNorthFrameUsesCoreMotionColumnConvention() {
         let matrix = StarAttitudeMatrixV2(
             m11: 1, m12: 0, m13: 0,
             m21: 0, m22: 0, m23: -1,
@@ -126,10 +126,27 @@ final class StarSkyProjectionV2Tests: XCTestCase {
             orientation: .portrait
         )
 
-        // The gravity sample says device +Y points upward. The column
-        // convention therefore wins; a row interpretation would invert it.
         XCTAssertEqual(frame?.topUp ?? 9, 1, accuracy: 1e-12)
         XCTAssertEqual(frame?.rightNorth ?? 9, 1, accuracy: 1e-12)
+        XCTAssertEqual(frame?.normalEast ?? 9, 1, accuracy: 1e-12)
+    }
+
+    func testPhysicalFrameFailsClosedWhenGravityDisagreesWithAttitude() {
+        let matrix = StarAttitudeMatrixV2(
+            m11: 1, m12: 0, m13: 0,
+            m21: 0, m22: 0, m23: -1,
+            m31: 0, m32: 1, m33: 0
+        )
+
+        XCTAssertNil(
+            StarDeviceFrameFactoryV2.trueNorthFrame(
+                matrix: matrix,
+                gravityX: 0,
+                gravityY: 1,
+                gravityZ: 0,
+                orientation: .portrait
+            )
+        )
     }
 
     func testNightSkyOpacityFollowsSolarAltitude() {
