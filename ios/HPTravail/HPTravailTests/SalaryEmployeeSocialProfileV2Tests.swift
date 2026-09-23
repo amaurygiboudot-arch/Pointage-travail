@@ -5,13 +5,14 @@ import XCTest
 
 final class SalaryEmployeeSocialProfileV2Tests: XCTestCase {
     private var defaults: UserDefaults!
+    private var suiteName: String!
     private let companyId = "company-social"
 
     override func setUp() {
         super.setUp()
-        let suite = "SalaryEmployeeSocialProfileV2Tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
+        suiteName = "SalaryEmployeeSocialProfileV2Tests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
         XCTAssertTrue(
             SalaryCompanyStoreV2.createOrUpdate(
                 SalaryCompanyV2(
@@ -25,10 +26,11 @@ final class SalaryEmployeeSocialProfileV2Tests: XCTestCase {
     }
 
     override func tearDown() {
-        if let suite = defaults?.suiteNameForTests {
-            defaults.removePersistentDomain(forName: suite)
+        if let suiteName {
+            defaults.removePersistentDomain(forName: suiteName)
         }
         defaults = nil
+        suiteName = nil
         super.tearDown()
     }
 
@@ -229,8 +231,3 @@ final class SalaryEmployeeSocialProfileV2Tests: XCTestCase {
     }
 }
 
-private extension UserDefaults {
-    var suiteNameForTests: String? {
-        volatileDomainNames.first { $0.hasPrefix("SalaryEmployeeSocialProfileV2Tests.") }
-    }
-}
