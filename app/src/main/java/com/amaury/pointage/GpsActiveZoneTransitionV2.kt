@@ -111,6 +111,7 @@ internal object GpsActiveZoneTransitionV2 {
 
 internal object GpsPresenceStateKeysV2 {
     const val ACTIVE_ZONES = "active_zones"
+    const val ACTIVE_PAUSE_ZONES = "active_pause_zones"
     const val ENTRY_RESOLUTION_PENDING = "entry_resolution_pending"
     const val ENTRY_RESOLUTION_TOKEN = "entry_resolution_token"
     const val PENDING_EXIT_ZONES = "pending_exit_zones"
@@ -118,6 +119,7 @@ internal object GpsPresenceStateKeysV2 {
     const val REGISTRATION_FINGERPRINT = "geofence_registration_fingerprint"
     val EPHEMERAL_KEYS = setOf(
         ACTIVE_ZONES,
+        ACTIVE_PAUSE_ZONES,
         ENTRY_RESOLUTION_PENDING,
         ENTRY_RESOLUTION_TOKEN,
         PENDING_EXIT_ZONES,
