@@ -73,17 +73,61 @@ struct HPTravailApp: App {
                         for: period
                     )
 
-                    // La catégorie ANI reste bloquée tant que son provider KALI/APEC iOS
-                    // n'est pas porté. Même principe pour la source d'absences : une liste
-                    // vide ne vaut jamais preuve d'absence tant que le store iOS n'existe pas.
-                    let protectionCategory = ProtectionCategoryV2.Result(
-                        aniCategory: .toConfirm,
-                        confirmed: false,
-                        source: nil,
-                        warnings: [
-                            "Catégorie ANI : source iOS datée non raccordée ; net salarié à confirmer."
-                        ]
+                    guard let lastDay = PayrollCivilDateV2.daysInMonth(
+                        year: period.year,
+                        month: period.month
+                    ),
+                    let protectionReferenceDate = PayrollCivilDateV2(
+                        year: period.year,
+                        month: period.month,
+                        day: lastDay
+                    ) else {
+                        return nil
+                    }
+                    let professionalStatus = socialProfile.reliable
+                        ? socialProfile.professionalStatus?.rawValue
+                        : nil
+                    let classification = SalaryConventionClassificationStoreV2.load(
+                        companyId: companyId
                     )
+                    let legalProfile = SalaryConventionLegalProfileV2(
+                        companyId: companyId,
+                        idcc: company.idcc,
+                        professionalStatus: professionalStatus,
+                        classification: classification
+                    )
+                    let protectionRules = SalaryConventionProtectionCategoryStoreV2.rules(
+                        idcc: company.idcc
+                    )
+                    let protectionCoverage = SalaryConventionMatterCoverageStoreV2.resolve(
+                        idcc: company.idcc,
+                        matter: .providentCategory,
+                        date: protectionReferenceDate,
+                        classification: classification,
+                        professionalStatus: professionalStatus
+                    )
+                    let verifiedProtection: SalaryVerifiedProtectionCategoryProviderV2.Snapshot
+                    if protectionRules.reliable {
+                        verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.resolve(
+                            profile: legalProfile,
+                            referenceDate: protectionReferenceDate,
+                            rules: protectionRules.rules,
+                            coverage: protectionCoverage
+                        )
+                    } else {
+                        let warning = protectionRules.warnings.isEmpty
+                            ? "Catégorie ANI vérifiée : cache KALI/APEC local incohérent ; aucun classement n'est déduit."
+                            : protectionRules.warnings.joined(separator: " ; ")
+                        verifiedProtection = SalaryVerifiedProtectionCategoryProviderV2.Snapshot(
+                            category: ProtectionCategoryV2.Result(
+                                aniCategory: .toConfirm,
+                                confirmed: false,
+                                warnings: [warning]
+                            ),
+                            reliable: false,
+                            warnings: [warning]
+                        )
+                    }
 
                     return SalaryCanonicalReferenceProviderV2.build(
                         .init(
@@ -101,7 +145,7 @@ struct HPTravailApp: App {
                             nightRule: nightResolution.reliable ? nightResolution.rule : nil,
                             benefits: benefits,
                             socialProfile: socialProfile,
-                            protectionCategory: protectionCategory,
+                            protectionCategory: verifiedProtection.category,
                             companyDeductions: deductions,
                             incomeTaxRate: incomeTax
                         )

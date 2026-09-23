@@ -12,6 +12,7 @@ struct SalaryV2View: View {
                     companySelectorCard
                     contractCard
                     socialProfileCard
+                    classificationCard
                     conventionCoverageCard
                     reliabilityCard
                     paidWorkCard
@@ -275,6 +276,66 @@ struct SalaryV2View: View {
             } else if salaryStore.selectedCompanyId != nil {
                 Label("Profil social à confirmer pour toute la période", systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private var classificationCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("CLASSIFICATION CONVENTIONNELLE")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Text("Renseignez uniquement les critères écrits sur votre classification réelle. Selon la convention, un coefficient, un niveau, un échelon, une position, un groupe, une catégorie ou un emploi peut être utilisé.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            TextField("Coefficient — ex. 910", text: $salaryStore.classificationCoefficientText)
+                .keyboardType(.numberPad)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Niveau", text: $salaryStore.classificationLevelText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Échelon", text: $salaryStore.classificationEchelonText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Position", text: $salaryStore.classificationPositionText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Groupe", text: $salaryStore.classificationGroupText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Catégorie", text: $salaryStore.classificationCategoryText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+            TextField("Emploi / emploi repère", text: $salaryStore.classificationEmploymentText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            Button("Enregistrer cette classification") {
+                _ = salaryStore.confirmConventionClassification()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            if let feedback = salaryStore.classificationFeedback {
+                Text(feedback)
+                    .font(.footnote)
+            }
+
+            if let companyId = salaryStore.selectedCompanyId {
+                let classification = SalaryConventionClassificationStoreV2.load(companyId: companyId)
+                if classification.isEmpty {
+                    Label("Classification à confirmer", systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                } else {
+                    Label(classification.label, systemImage: "checkmark.shield.fill")
+                        .font(.footnote)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
