@@ -11,6 +11,7 @@ struct SalaryV2View: View {
                     periodSelector
                     companySelectorCard
                     contractCard
+                    socialProfileCard
                     conventionCoverageCard
                     reliabilityCard
                     paidWorkCard
@@ -216,6 +217,69 @@ struct SalaryV2View: View {
 
     private var hourlyContractSelected: Bool {
         ["FULL_TIME", "PART_TIME", "OTHER"].contains(salaryStore.contractTypeSelection)
+    }
+
+    private var socialProfileCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("PROFIL SOCIAL DATÉ")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            Text("Le statut professionnel et le régime local peuvent modifier les cotisations. HoraTrack ne les déduit jamais du métier, de l’adresse ou de la convention.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+
+            Picker("Statut professionnel", selection: $salaryStore.socialProfessionalStatusSelection) {
+                Text("À confirmer").tag("")
+                Text("Non-cadre").tag("NON_CADRE")
+                Text("Cadre").tag("CADRE")
+            }
+            .pickerStyle(.menu)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            Picker("Régime local Alsace-Moselle", selection: $salaryStore.socialAlsaceMoselleSelection) {
+                Text("À confirmer").tag("")
+                Text("Oui, affilié").tag("YES")
+                Text("Non, non affilié").tag("NO")
+            }
+            .pickerStyle(.menu)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            TextField("Date d’effet — JJ/MM/AAAA", text: $salaryStore.socialEffectiveDateText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            TextField("Source — bulletin, contrat, attestation…", text: $salaryStore.socialSourceText)
+                .textFieldStyle(.roundedBorder)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+            Button("Confirmer ce profil daté") {
+                _ = salaryStore.confirmSocialProfile()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(salaryStore.selectedCompanyId == nil)
+
+            if let feedback = salaryStore.socialProfileFeedback {
+                Text(feedback)
+                    .font(.footnote)
+            }
+
+            if salaryStore.socialProfile?.reliable == true,
+               let status = salaryStore.socialProfile?.professionalStatus,
+               let local = salaryStore.socialProfile?.alsaceMoselleLocalRegime {
+                Label("Profil confirmé pour tout le mois", systemImage: "checkmark.shield.fill")
+                    .font(.footnote)
+                Text("\(status == .cadre ? "Cadre" : "Non-cadre") — régime local Alsace-Moselle : \(local ? "oui" : "non")")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if salaryStore.selectedCompanyId != nil {
+                Label("Profil social à confirmer pour toute la période", systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private var conventionCoverageCard: some View {
