@@ -114,12 +114,12 @@ final class SalaryV2Store: ObservableObject {
             )
         }()
         let conventionCoverage = companyId.map { companyId in
-            SalaryConventionCoverageResolverV2.resolve(
+            SalaryConventionPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: period,
                 companies: storedCompanies,
-                rules: conventionRulesProvider()
-            )
+                storedRules: conventionRulesProvider()
+            ).coverage
         }
         let contractResolution = companyId.map { companyId in
             SalaryEmploymentContractPayrollBridgeV2.resolve(
@@ -663,12 +663,12 @@ final class SalaryV2Store: ObservableObject {
                 sourceReliable: source.reliable,
                 calendar: calendar
             )
-            conventionCoverage = SalaryConventionCoverageResolverV2.resolve(
+            conventionCoverage = SalaryConventionPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: selectedPeriod,
                 companies: companies,
-                rules: conventionRulesProvider()
-            )
+                storedRules: conventionRulesProvider()
+            ).coverage
             contractResolution = SalaryEmploymentContractPayrollBridgeV2.resolve(
                 companyId: companyId,
                 period: selectedPeriod,
