@@ -19,8 +19,7 @@ final class PayrollEngineV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 40 * 60)],
-            rules: PayrollRulesV2()
-        ,
+            rules: PayrollRulesV2(),
             evidence: .fullyConfirmed
         )
 
@@ -38,8 +37,7 @@ final class PayrollEngineV2Tests: XCTestCase {
                 overtimeTiers: [
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 1.25)
                 ]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -61,8 +59,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -83,8 +80,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(
                 nightMultiplier: 1.25,
                 sundayMultiplier: 2.0
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
@@ -96,8 +92,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: -1)],
-                rules: PayrollRulesV2()
-            ,
+                rules: PayrollRulesV2(),
                 evidence: .fullyConfirmed
             )
         ) { error in
@@ -110,8 +105,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, nightMinutes: -1)],
-                rules: PayrollRulesV2(nightMultiplier: 1.25)
-            ,
+                rules: PayrollRulesV2(nightMultiplier: 1.25),
                 evidence: .fullyConfirmed
             )
         ) { error in
@@ -124,8 +118,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             try PayrollEngineV2.calculate(
                 contract: hourlyContract(),
                 weeks: [PayrollWeekV2(paidMinutes: 60, publicHolidayMinutes: 61)],
-                rules: PayrollRulesV2(publicHolidayMultiplier: 1.5)
-            ,
+                rules: PayrollRulesV2(publicHolidayMultiplier: 1.5),
                 evidence: .fullyConfirmed
             )
         ) { error in
@@ -138,8 +131,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
-            baskets: [BasketV2(id: "meal", label: "Panier", amount: 6)]
-        ,
+            baskets: [BasketV2(id: "meal", label: "Panier", amount: 6)],
             evidence: .fullyConfirmed
         )
 
@@ -153,8 +145,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             contract: hourlyContract(),
             weeks: [PayrollWeekV2(paidMinutes: 35 * 60)],
             rules: PayrollRulesV2(),
-            deductions: [DeductionV2(id: "known", label: "Retenue connue", amount: 50, recurring: true)]
-        ,
+            deductions: [DeductionV2(id: "known", label: "Retenue connue", amount: 50, recurring: true)],
             evidence: .fullyConfirmed
         )
 
@@ -182,8 +173,7 @@ final class PayrollEngineV2Tests: XCTestCase {
             rules: PayrollRulesV2(),
             premiums: [PremiumV2(id: "fixed", label: "Prime", amount: 100, periodicity: .monthly)],
             baskets: [BasketV2(id: "meal", label: "Panier", amount: 20)],
-            deductions: [DeductionV2(id: "known", label: "Retenue", amount: 50, recurring: true)]
-        ,
+            deductions: [DeductionV2(id: "known", label: "Retenue", amount: 50, recurring: true)],
             evidence: .fullyConfirmed
         )
 
@@ -209,8 +199,7 @@ final class PayrollEngineV2Tests: XCTestCase {
         let result = try PayrollEngineV2.calculate(
             contract: contract,
             weeks: [],
-            rules: PayrollRulesV2()
-        ,
+            rules: PayrollRulesV2(),
             evidence: .fullyConfirmed
         )
 
@@ -227,8 +216,7 @@ final class PayrollEngineV2Tests: XCTestCase {
                 overtimeTiers: [
                     OvertimeTierV2(fromMinutes: 35 * 60, toMinutes: nil, multiplier: 0.5)
                 ]
-            )
-        ,
+            ),
             evidence: .fullyConfirmed
         )
 
