@@ -11,7 +11,10 @@ import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -27,6 +30,7 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
+import com.amaury.pointage.v2.ui.HomeTabVisibilityPolicyV2
 import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -54,6 +58,7 @@ class MainActivity : Activity() {
     private lateinit var contentTitle: TextView
     private lateinit var clockDigital: TextClock
     private lateinit var contentPanel: LinearLayout
+    private lateinit var navigationTabs: LinearLayout
     private lateinit var celestialHomePanel: View
     private lateinit var sunIndicator: SunIndicatorView
     private lateinit var pointageButtons: LinearLayout
@@ -76,6 +81,22 @@ class MainActivity : Activity() {
     private var updatingGpsSwitch = false
     private var updatingCelestialGlobeMode = false
     private var gpsSaveRequestId = 0
+    private val homeTabsHandler = Handler(Looper.getMainLooper())
+    private val hideHomeTabsRunnable = Runnable {
+        if (HomeTabVisibilityPolicyV2.shouldHide(activeTab == "home", HomeTabVisibilityPolicyV2.INACTIVITY_TIMEOUT_MS)) {
+            navigationTabs.animate().cancel()
+            navigationTabs.animate()
+                .alpha(0f)
+                .setDuration(220L)
+                .withEndAction {
+                    if (activeTab == "home") {
+                        navigationTabs.visibility = View.GONE
+                        navigationTabs.alpha = 1f
+                    }
+                }
+                .start()
+        }
+    }
 
     private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
         set(Calendar.DAY_OF_MONTH, 1)
@@ -110,6 +131,7 @@ class MainActivity : Activity() {
         contentTitle = requiredView(R.id.contentTitle, "contentTitle")
         clockDigital = requiredView(R.id.clockDigital, "clockDigital")
         contentPanel = requiredView(R.id.contentPanel, "contentPanel")
+        navigationTabs = requiredView(R.id.navigationTabs, "navigationTabs")
         celestialHomePanel = requiredView(R.id.celestialHomePanel, "celestialHomePanel")
         sunIndicator = requiredView(R.id.sunIndicator, "sunIndicator")
         pointageButtons = requiredView(R.id.pointageButtons, "pointageButtons")
@@ -221,6 +243,13 @@ class MainActivity : Activity() {
         openRequestedTab(intent)
     }
 
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (activeTab == "home" && event.actionMasked == MotionEvent.ACTION_DOWN) {
+            revealHomeTabsAndScheduleHide()
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         if (intent != null) {
@@ -246,6 +275,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         gpsSaveRequestId++
+        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
+        navigationTabs.animate().cancel()
         super.onDestroy()
     }
 
@@ -323,6 +354,7 @@ class MainActivity : Activity() {
     private fun showHomeTab() {
         persistActiveTab("home")
         setActiveTab(tabHome)
+        revealHomeTabsAndScheduleHide()
         celestialHomePanel.visibility = View.VISIBLE
         sunIndicator.setSunVisible(true)
         clockDigital.visibility = View.VISIBLE
@@ -336,6 +368,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
+        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("today")
         setActiveTab(tabToday)
         celestialHomePanel.visibility = View.GONE
@@ -353,6 +386,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
+        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("history")
         setActiveTab(tabHistory)
         celestialHomePanel.visibility = View.GONE
@@ -370,6 +404,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
+        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
         celestialHomePanel.visibility = View.GONE
@@ -388,6 +423,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
+        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("settings")
         setActiveTab(tabSettings)
         celestialHomePanel.visibility = View.GONE
@@ -404,6 +440,30 @@ class MainActivity : Activity() {
         loadCelestialSettings()
         loadGpsSettings()
         updateGpsStatus()
+    }
+
+    private fun revealHomeTabsAndScheduleHide() {
+        if (activeTab != "home") return
+        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
+        navigationTabs.animate().cancel()
+        if (navigationTabs.visibility != View.VISIBLE) {
+            navigationTabs.alpha = 0f
+            navigationTabs.visibility = View.VISIBLE
+            navigationTabs.animate().alpha(1f).setDuration(160L).start()
+        } else {
+            navigationTabs.alpha = 1f
+        }
+        homeTabsHandler.postDelayed(
+            hideHomeTabsRunnable,
+            HomeTabVisibilityPolicyV2.INACTIVITY_TIMEOUT_MS
+        )
+    }
+
+    private fun cancelHomeTabAutoHideAndShowTabs() {
+        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
+        navigationTabs.animate().cancel()
+        navigationTabs.alpha = 1f
+        navigationTabs.visibility = View.VISIBLE
     }
 
     private fun setActiveTab(active: TextView) {
