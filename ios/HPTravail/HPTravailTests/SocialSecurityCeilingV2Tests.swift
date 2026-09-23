@@ -13,7 +13,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 period: january2026,
                 contractType: .fullTime,
                 contractualWeeklyMinutes: 35 * 60,
-                entryDate: oldEntry
+                entryDate: oldEntry,
+                unpaidAbsenceDays: 0
             )
         )
 
@@ -31,7 +32,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 contractType: .partTime,
                 contractualWeeklyMinutes: 17 * 60 + 30,
                 complementaryMinutes: nil,
-                entryDate: oldEntry
+                entryDate: oldEntry,
+                unpaidAbsenceDays: 0
             )
         )
         XCTAssertFalse(incomplete.complete)
@@ -44,7 +46,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 contractType: .partTime,
                 contractualWeeklyMinutes: 17 * 60 + 30,
                 complementaryMinutes: 0,
-                entryDate: oldEntry
+                entryDate: oldEntry,
+                unpaidAbsenceDays: 0
             )
         )
         XCTAssertTrue(confirmedZero.complete)
@@ -59,7 +62,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 contractType: .partTime,
                 contractualWeeklyMinutes: 28 * 60,
                 complementaryMinutes: -60,
-                entryDate: oldEntry
+                entryDate: oldEntry,
+                unpaidAbsenceDays: 0
             )
         )
 
@@ -77,6 +81,7 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                     contractType: .forfaitDays,
                     contractualWeeklyMinutes: nil,
                     entryDate: oldEntry,
+                    unpaidAbsenceDays: 0,
                     forfaitAnnualDays: invalidDays
                 )
             )
@@ -96,7 +101,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 period: march,
                 contractType: .fullTime,
                 contractualWeeklyMinutes: 35 * 60,
-                entryDate: entry
+                entryDate: entry,
+                unpaidAbsenceDays: 0
             )
         )
 
@@ -139,7 +145,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 period: january2026,
                 contractType: .fullTime,
                 contractualWeeklyMinutes: 35 * 60,
-                entryDate: nil
+                entryDate: nil,
+                unpaidAbsenceDays: 0
             )
         )
 
@@ -154,7 +161,8 @@ final class SocialSecurityCeilingV2Tests: XCTestCase {
                 period: YearMonthV2(year: 2027, month: 1)!,
                 contractType: .fullTime,
                 contractualWeeklyMinutes: 35 * 60,
-                entryDate: oldEntry
+                entryDate: oldEntry,
+                unpaidAbsenceDays: 0
             )
         )
 
