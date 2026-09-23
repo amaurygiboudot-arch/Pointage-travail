@@ -23,6 +23,27 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         XCTAssertGreaterThan(position.geometricAltitudeDegrees, 89.5)
     }
 
+    func testSixSiderealHoursWestPlacesEquatorialStarOnWesternHorizon() {
+        let lst = StarSkyProjectionV2.localSiderealDegrees(date: date, longitudeDegrees: 0)
+        let star = BrightStarV2(
+            id: "test",
+            rightAscensionJ2000Degrees: lst - 90,
+            declinationJ2000Degrees: 0,
+            visualMagnitude: 1,
+            constellation: nil,
+            commonName: nil
+        )
+        let position = StarSkyProjectionV2.horizontal(
+            star: star,
+            latitudeDegrees: 0,
+            longitudeDegrees: 0,
+            date: date
+        )
+        XCTAssertLessThan(abs(position.geometricAltitudeDegrees), 0.6)
+        XCTAssertGreaterThan(position.azimuthDegrees, 260)
+        XCTAssertLessThan(position.azimuthDegrees, 280)
+    }
+
     func testPhysicalProjectionCentersStarAlongDisplayNormal() {
         let frame = StarDeviceFrameV2(
             rightEast: 1, rightNorth: 0, rightUp: 0,
