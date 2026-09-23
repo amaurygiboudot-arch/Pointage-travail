@@ -5,6 +5,13 @@ struct SalaryV2View: View {
     @EnvironmentObject private var workStore: WorkStoreV2
     @State private var salaryPdfURL: URL?
     @State private var salaryPdfFeedback: String?
+    @State private var payslipGrossText = ""
+    @State private var payslipNetBeforeTaxText = ""
+    @State private var payslipNetTaxableText = ""
+    @State private var payslipIncomeTaxText = ""
+    @State private var payslipNetAfterTaxText = ""
+    @State private var payslipComparisonResult: SalaryPayslipComparisonResultV2?
+    @State private var payslipComparisonFeedback: String?
 
     var body: some View {
         NavigationStack {
@@ -31,9 +38,17 @@ struct SalaryV2View: View {
             }
             .onChange(of: workStore.sessions) { _ in
                 salaryStore.refresh()
+                clearPayslipComparisonResult()
             }
             .onChange(of: workStore.storageReliable) { _ in
                 salaryStore.refresh()
+                clearPayslipComparisonResult()
+            }
+            .onChange(of: salaryStore.selectedPeriod) { _ in
+                resetPayslipComparison()
+            }
+            .onChange(of: salaryStore.selectedCompanyId) { _ in
+                resetPayslipComparison()
             }
         }
     }
@@ -571,11 +586,65 @@ struct SalaryV2View: View {
             amountRow("Net après impôt", amount: salaryStore.snapshot.netAfterIncomeTax)
 
             Divider()
-            HStack {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Comparaison bulletin")
-                Spacer()
-                Text("À confirmer")
                     .fontWeight(.semibold)
+
+                Text("Renseignez uniquement les montants réellement lus sur le bulletin. Un champ vide est ignoré ; HoraTrack compare seulement les valeurs que la référence canonique sait aussi produire.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                TextField("Brut social observé", text: $payslipGrossText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Net avant impôt observé", text: $payslipNetBeforeTaxText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Net imposable observé", text: $payslipNetTaxableText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Prélèvement à la source observé", text: $payslipIncomeTaxText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Net après impôt observé", text: $payslipNetAfterTaxText)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+
+                Button("Comparer avec HoraTrack") {
+                    comparePayslip()
+                }
+                .buttonStyle(.bordered)
+                .disabled(salaryStore.selectedCompanyId == nil)
+
+                if let result = payslipComparisonResult {
+                    if result.conforming {
+                        Label(
+                            "Aucun écart supérieur à 0,02 € sur les champs comparables.",
+                            systemImage: "checkmark.shield.fill"
+                        )
+                        .font(.footnote)
+                    } else {
+                        ForEach(result.discrepancies) { discrepancy in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(discrepancy.field.label)
+                                    .font(.footnote.bold())
+                                Text(
+                                    "HoraTrack : \(euros(discrepancy.expected)) — Bulletin : \(euros(discrepancy.observed))"
+                                )
+                                .font(.footnote)
+                                Text(discrepancy.explanation)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+
+                if let payslipComparisonFeedback {
+                    Text(payslipComparisonFeedback)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -698,6 +767,67 @@ struct SalaryV2View: View {
         formatter.locale = Locale(identifier: "fr_FR")
         formatter.dateFormat = "dd/MM/yyyy"
         return formatter.string(from: date)
+    }
+
+    private func comparePayslip() {
+        let parsed = [
+            parseObservedAmount(payslipGrossText),
+            parseObservedAmount(payslipNetBeforeTaxText),
+            parseObservedAmount(payslipNetTaxableText),
+            parseObservedAmount(payslipIncomeTaxText),
+            parseObservedAmount(payslipNetAfterTaxText)
+        ]
+        guard parsed.allSatisfy(\.valid) else {
+            payslipComparisonResult = nil
+            payslipComparisonFeedback =
+                "Bulletin : vérifiez les montants saisis. Seuls les nombres positifs ou nuls sont acceptés."
+            return
+        }
+
+        let observed = SalaryPayslipObservedValuesV2(
+            socialGross: parsed[0].value,
+            netBeforeIncomeTax: parsed[1].value,
+            netTaxable: parsed[2].value,
+            incomeTax: parsed[3].value,
+            netAfterIncomeTax: parsed[4].value
+        )
+        guard let result = SalaryPayslipComparisonEngineV2.compare(
+            snapshot: salaryStore.snapshot,
+            observed: observed
+        ) else {
+            payslipComparisonResult = nil
+            payslipComparisonFeedback =
+                "Comparaison impossible : aucun champ saisi n'est actuellement comparable à une valeur canonique fiable."
+            return
+        }
+
+        payslipComparisonResult = result
+        payslipComparisonFeedback =
+            "\(result.comparedFields.count) champ(s) comparé(s) avec une tolérance de 0,02 €."
+    }
+
+    private func parseObservedAmount(_ raw: String) -> (valid: Bool, value: Double?) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return (true, nil) }
+        let normalized = trimmed.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value.isFinite, value >= 0 else {
+            return (false, nil)
+        }
+        return (true, value)
+    }
+
+    private func clearPayslipComparisonResult() {
+        payslipComparisonResult = nil
+        payslipComparisonFeedback = nil
+    }
+
+    private func resetPayslipComparison() {
+        payslipGrossText = ""
+        payslipNetBeforeTaxText = ""
+        payslipNetTaxableText = ""
+        payslipIncomeTaxText = ""
+        payslipNetAfterTaxText = ""
+        clearPayslipComparisonResult()
     }
 
     private func amountRow(_ title: String, amount: Double?) -> some View {

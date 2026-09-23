@@ -79,6 +79,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryConventionProtectionCategoryStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionMatterCoverageStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryCanonicalReferenceProviderV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayslipComparisonV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryV2.swift
       - path: HPTravail/SalaryV2/SalaryEmploymentContractHistoryStoreV2.swift
