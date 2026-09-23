@@ -46,6 +46,10 @@ struct HPTravailApp: App {
                         from: workStore.sessions,
                         storageReliable: workStore.storageReliable
                     )
+                    let absenceSource = SalaryAbsenceStoreV2.resolve(
+                        companyId: companyId,
+                        period: period
+                    )
                     let socialProfile = SalaryEmployeeSocialProfileStoreV2.resolve(
                         companyId: companyId,
                         period: period
@@ -140,8 +144,8 @@ struct HPTravailApp: App {
                                 && conventionCoverage.fullyCovered,
                             sessions: workSource.sessions,
                             workSourceReliable: workSource.reliable,
-                            absences: [],
-                            absenceSourceReliable: false,
+                            absences: absenceSource.absences,
+                            absenceSourceReliable: absenceSource.reliable,
                             nightRule: nightResolution.reliable ? nightResolution.rule : nil,
                             benefits: benefits,
                             socialProfile: socialProfile,
