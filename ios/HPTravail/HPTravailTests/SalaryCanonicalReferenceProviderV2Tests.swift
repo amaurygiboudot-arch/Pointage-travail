@@ -27,8 +27,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
                         source: nil,
                         warnings: ["Catégorie ANI à confirmer"]
                     ),
-                    deductions: deductions(complete: false),
-                    unpaidAbsenceDays: nil
+                    deductions: deductions(complete: false)
                 )
             )
         )
@@ -39,14 +38,29 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         XCTAssertNil(SalaryReferenceContractV2.beforeIncomeTax(reference))
     }
 
+    func testMissingAbsenceSourceNeverTurnsEmptyListIntoReliableZero() throws {
+        let reference = try XCTUnwrap(
+            SalaryCanonicalReferenceProviderV2.build(
+                input(
+                    absenceSourceReliable: false,
+                    protectionCategory: ProtectionCategoryV2.noConventionOverride(),
+                    deductions: deductions(complete: true)
+                )
+            )
+        )
+
+        XCTAssertFalse(reference.grossReliable)
+        XCTAssertNil(SalaryReferenceContractV2.socialGross(reference))
+        XCTAssertFalse(reference.complete)
+    }
+
     func testUnreliablePointageNeverPublishesReliableGross() throws {
         let reference = try XCTUnwrap(
             SalaryCanonicalReferenceProviderV2.build(
                 input(
                     workSourceReliable: false,
                     protectionCategory: ProtectionCategoryV2.noConventionOverride(),
-                    deductions: deductions(complete: true),
-                    unpaidAbsenceDays: 0
+                    deductions: deductions(complete: true)
                 )
             )
         )
@@ -61,8 +75,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
             SalaryCanonicalReferenceProviderV2.build(
                 input(
                     protectionCategory: ProtectionCategoryV2.noConventionOverride(),
-                    deductions: deductions(complete: true),
-                    unpaidAbsenceDays: 0
+                    deductions: deductions(complete: true)
                 )
             )
         )
@@ -73,23 +86,46 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         XCTAssertNotNil(SalaryReferenceContractV2.beforeIncomeTax(reference))
     }
 
+    func testUnpaidAbsenceBlocksGrossUntilSalaryImpactIsImplemented() throws {
+        let absence = SalaryAbsenceFactV2(
+            id: "absence-1",
+            employerId: companyId,
+            type: SalaryAbsencePayrollImpactV2.typeUnpaid,
+            start: localDate(2026, 9, 8, 0, 0),
+            end: localDate(2026, 9, 9, 0, 0),
+            salaryTreatment: .unpaid,
+            fullDay: true
+        )
+        let reference = try XCTUnwrap(
+            SalaryCanonicalReferenceProviderV2.build(
+                input(
+                    absences: [absence],
+                    protectionCategory: ProtectionCategoryV2.noConventionOverride(),
+                    deductions: deductions(complete: true)
+                )
+            )
+        )
+
+        XCTAssertFalse(reference.grossReliable)
+        XCTAssertNil(SalaryReferenceContractV2.socialGross(reference))
+    }
+
     func testEmployerMismatchIsRejectedBeforeCalculation() {
-        var wrongContract = contract()
-        wrongContract = ContractV2(
-            id: wrongContract.id,
+        let base = contract()
+        let wrongContract = ContractV2(
+            id: base.id,
             employerId: "other-company",
-            type: wrongContract.type,
-            contractualWeeklyMinutes: wrongContract.contractualWeeklyMinutes,
-            grossHourlyRate: wrongContract.grossHourlyRate,
-            hireDateEpochDay: wrongContract.hireDateEpochDay
+            type: base.type,
+            contractualWeeklyMinutes: base.contractualWeeklyMinutes,
+            grossHourlyRate: base.grossHourlyRate,
+            hireDateEpochDay: base.hireDateEpochDay
         )
 
         let result = SalaryCanonicalReferenceProviderV2.build(
             input(
                 contract: wrongContract,
                 protectionCategory: ProtectionCategoryV2.noConventionOverride(),
-                deductions: deductions(complete: true),
-                unpaidAbsenceDays: 0
+                deductions: deductions(complete: true)
             )
         )
 
@@ -99,9 +135,10 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
     private func input(
         contract: ContractV2? = nil,
         workSourceReliable: Bool = true,
+        absences: [SalaryAbsenceFactV2] = [],
+        absenceSourceReliable: Bool = true,
         protectionCategory: ProtectionCategoryV2.Result,
-        deductions: CompanyEmployeeDeductionResolverV2.Snapshot,
-        unpaidAbsenceDays: Int?
+        deductions: CompanyEmployeeDeductionResolverV2.Snapshot
     ) -> SalaryCanonicalReferenceProviderV2.Input {
         .init(
             companyId: companyId,
@@ -134,6 +171,8 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
                 )
             ],
             workSourceReliable: workSourceReliable,
+            absences: absences,
+            absenceSourceReliable: absenceSourceReliable,
             nightRule: nil,
             benefits: CompanyBenefitInKindContractV2.Snapshot(
                 applied: [],
@@ -150,7 +189,6 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
             protectionCategory: protectionCategory,
             companyDeductions: deductions,
             incomeTaxRate: nil,
-            unpaidAbsenceDays: unpaidAbsenceDays,
             calendar: calendar
         )
     }

@@ -19,14 +19,14 @@ enum SalaryCanonicalReferenceProviderV2 {
         let payrollRulesReliable: Bool
         let sessions: [SalarySessionFactV2]
         let workSourceReliable: Bool
+        let absences: [SalaryAbsenceFactV2]
+        let absenceSourceReliable: Bool
         let nightRule: NightPremiumRuleV2?
         let benefits: CompanyBenefitInKindContractV2.Snapshot
         let socialProfile: SalaryEmployeeSocialProfileResolutionV2
         let protectionCategory: ProtectionCategoryV2.Result
         let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
         let incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?
-        /// nil = information non prouvée. Le plafond SS reste alors fail-closed.
-        let unpaidAbsenceDays: Int?
         let calendar: Calendar
 
         init(
@@ -38,13 +38,14 @@ enum SalaryCanonicalReferenceProviderV2 {
             payrollRulesReliable: Bool,
             sessions: [SalarySessionFactV2],
             workSourceReliable: Bool,
+            absences: [SalaryAbsenceFactV2],
+            absenceSourceReliable: Bool,
             nightRule: NightPremiumRuleV2?,
             benefits: CompanyBenefitInKindContractV2.Snapshot,
             socialProfile: SalaryEmployeeSocialProfileResolutionV2,
             protectionCategory: ProtectionCategoryV2.Result,
             companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot,
             incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?,
-            unpaidAbsenceDays: Int?,
             calendar: Calendar = .current
         ) {
             self.companyId = companyId
@@ -55,13 +56,14 @@ enum SalaryCanonicalReferenceProviderV2 {
             self.payrollRulesReliable = payrollRulesReliable
             self.sessions = sessions
             self.workSourceReliable = workSourceReliable
+            self.absences = absences
+            self.absenceSourceReliable = absenceSourceReliable
             self.nightRule = nightRule
             self.benefits = benefits
             self.socialProfile = socialProfile
             self.protectionCategory = protectionCategory
             self.companyDeductions = companyDeductions
             self.incomeTaxRate = incomeTaxRate
-            self.unpaidAbsenceDays = unpaidAbsenceDays
             self.calendar = calendar
         }
     }
@@ -74,13 +76,25 @@ enum SalaryCanonicalReferenceProviderV2 {
             return nil
         }
 
+        let absenceImpact = SalaryAbsencePayrollImpactV2.forMonth(
+            absences: input.absences,
+            period: input.period,
+            acceptedEmployerIds: [companyId],
+            workSessions: input.sessions,
+            absenceSourceReliable: input.absenceSourceReliable,
+            workSourceReliable: input.workSourceReliable,
+            calendar: input.calendar
+        )
+
         let holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(input.companyAddress)
         let payrollWeeks = SalaryPayrollWeekEvidenceBuilderV2.build(
             sessions: input.sessions,
             employerId: companyId,
             period: input.period,
             rules: input.rules,
-            payrollRulesReliable: input.payrollRulesReliable,
+            payrollRulesReliable: input.payrollRulesReliable
+                && absenceImpact.unpaidFullCalendarDays != nil
+                && !absenceImpact.requiresPayrollReview,
             nightRule: input.nightRule,
             publicHolidayScope: holidayScope,
             sourceReliable: input.workSourceReliable,
@@ -107,7 +121,7 @@ enum SalaryCanonicalReferenceProviderV2 {
                 complementaryMinutes: payroll.complementaryMinutes,
                 entryDate: civilDate(epochDay: input.contract.hireDateEpochDay),
                 exitDate: nil,
-                unpaidAbsenceDays: input.unpaidAbsenceDays,
+                unpaidAbsenceDays: absenceImpact.unpaidFullCalendarDays,
                 forfaitAnnualDays: input.contract.forfaitAnnualDays
             )
         )

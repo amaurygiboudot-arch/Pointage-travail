@@ -73,10 +73,9 @@ struct HPTravailApp: App {
                         for: period
                     )
 
-                    // Tant qu'aucune source iOS explicite n'existe pour la catégorie ANI et les
-                    // absences non rémunérées, ces deux entrées restent volontairement inconnues.
-                    // Le provider peut publier un brut prouvé, mais jamais promouvoir un net
-                    // incomplet comme référence fiable.
+                    // La catégorie ANI reste bloquée tant que son provider KALI/APEC iOS
+                    // n'est pas porté. Même principe pour la source d'absences : une liste
+                    // vide ne vaut jamais preuve d'absence tant que le store iOS n'existe pas.
                     let protectionCategory = ProtectionCategoryV2.Result(
                         aniCategory: .toConfirm,
                         confirmed: false,
@@ -97,13 +96,14 @@ struct HPTravailApp: App {
                                 && conventionCoverage.fullyCovered,
                             sessions: workSource.sessions,
                             workSourceReliable: workSource.reliable,
+                            absences: [],
+                            absenceSourceReliable: false,
                             nightRule: nightResolution.reliable ? nightResolution.rule : nil,
                             benefits: benefits,
                             socialProfile: socialProfile,
                             protectionCategory: protectionCategory,
                             companyDeductions: deductions,
-                            incomeTaxRate: incomeTax,
-                            unpaidAbsenceDays: nil
+                            incomeTaxRate: incomeTax
                         )
                     )
                 },
