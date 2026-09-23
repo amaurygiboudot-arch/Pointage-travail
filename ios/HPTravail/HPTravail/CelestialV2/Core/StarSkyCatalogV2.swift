@@ -12,7 +12,7 @@ struct StarSkyCatalogV2: Sendable {
 
 enum StarSkyCatalogLoaderV2 {
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var cached: StarSkyCatalogV2?
+    private static var cached: StarSkyCatalogV2?
 
     static func load(bundle: Bundle = .main) -> StarSkyCatalogV2? {
         lock.lock()
