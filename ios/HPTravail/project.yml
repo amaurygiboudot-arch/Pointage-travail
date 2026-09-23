@@ -73,6 +73,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryPayrollWeekEvidenceBuilderV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionNightRuleStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryAbsencePayrollImpactV2.swift
+      - path: HPTravail/SalaryV2/SalaryAbsenceStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryVerifiedProtectionCategoryV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionClassificationStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryConventionProtectionCategoryStoreV2.swift
