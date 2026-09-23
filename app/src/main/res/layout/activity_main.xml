@@ -121,12 +121,6 @@
             android:importantForAccessibility="yes"
             android:visibility="gone">
 
-            <com.amaury.pointage.CelestialStarBackgroundViewV2
-                android:id="@+id/celestialStarBackground"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:importantForAccessibility="no" />
-
             <com.amaury.pointage.HpAnalogClockView
                 android:id="@+id/heroClockPermanent"
                 android:layout_width="match_parent"
