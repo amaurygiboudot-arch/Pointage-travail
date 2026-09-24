@@ -40,7 +40,23 @@ enum SalarySegmentedPayrollBoundaryV2 {
         }
 
         let sorted = timeline.slices.sorted { $0.startEpochDay < $1.startEpochDay }
-        let transitions = Array(sorted.dropFirst().map(\.startEpochDay))
+        var transitions: [Int64] = []
+        if sorted.count > 1 {
+            for index in 1..<sorted.count {
+                let previous = sorted[index - 1]
+                let current = sorted[index]
+                let contractChanged = !SalaryContractSegmentPayrollCompatibilityV2
+                    .changedPayrollFields(
+                        previous.contractSnapshot.contract,
+                        current.contractSnapshot.contract
+                    )
+                    .isEmpty
+                let rulesChanged = previous.ruleSnapshot.rules != current.ruleSnapshot.rules
+                if contractChanged || rulesChanged {
+                    transitions.append(current.startEpochDay)
+                }
+            }
+        }
         let midweek = transitions.filter { !isMondayEpochDay($0) }
 
         return SalarySegmentedPayrollBoundaryAssessmentV2(
