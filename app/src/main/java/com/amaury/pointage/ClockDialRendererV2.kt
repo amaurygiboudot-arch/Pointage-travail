@@ -64,13 +64,14 @@ object ClockDialRendererV2 {
         cx: Float,
         cy: Float,
         radius: Float,
-        centerLayer: CenterLayer? = null
+        centerLayer: CenterLayer? = null,
+        backgroundAlpha: Int = 255
     ) {
         if (radius <= 2f) return
 
         // Fond : noir profond, indépendant du thème pour conserver le contraste.
         fill.shader = null
-        fill.color = Color.rgb(2, 4, 8)
+        fill.color = Color.argb(backgroundAlpha.coerceIn(0, 255), 2, 4, 8)
         canvas.drawCircle(cx, cy, radius * 0.985f, fill)
 
         // Couche astronomique optionnelle : dessinée après le fond opaque mais
