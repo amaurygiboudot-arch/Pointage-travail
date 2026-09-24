@@ -69,7 +69,7 @@ struct CelestialCloudLayerV2: View {
             return
         }
 
-        if !flags.stormy && !flags.rainy && cover < 0.58 {
+        if !flags.stormy && !flags.rainy && cover < 0.50 {
             drawCirrus(
                 context: &context,
                 size: size,
@@ -81,54 +81,162 @@ struct CelestialCloudLayerV2: View {
             )
         }
 
-        let bankCount = cloudBankCount(
-            cover: cover,
-            flags: flags,
-            quality: quality
+        let maximumLayers: Int
+        switch quality {
+        case .reduced:
+            maximumLayers = 2
+        case .balanced:
+            maximumLayers = 3
+        case .high:
+            maximumLayers = 4
+        }
+        let visibleLayers = min(
+            maximumLayers,
+            max(1, Int(1 + cover * Double(maximumLayers - 1)))
         )
-        let drift = cloudDrift(date: date, width: size.width)
-        let weatherSeed = stableWeatherSeed(renderState.weatherType)
 
-        for index in 0..<bankCount {
-            let geometry = cloudBankGeometry(
-                index: index,
-                count: bankCount,
-                cover: cover,
-                size: size,
-                drift: drift,
-                weatherSeed: weatherSeed,
-                flags: flags
+        for index in 0..<visibleLayers {
+            let seed = 31.0 + Double(index) * 19.37 +
+                stableWeatherSeed(renderState.weatherType)
+            let phase = date.timeIntervalSince1970
+                .truncatingRemainder(dividingBy: 5_400) / 5_400
+            let xShift = size.width * CGFloat(
+                phase * (0.035 + Double(index) * 0.012) +
+                    (noise(seed + 3.1) - 0.5) * 0.08
             )
-            let alpha = cloudBankAlpha(
-                cover: cover,
-                seed: geometry.seed,
-                flags: flags
+            let centerY = size.height * CGFloat(
+                0.10 + Double(index) * 0.105 + noise(seed + 7.7) * 0.055
+            )
+            let sheetHeight = size.height * CGFloat(
+                0.075 + cover * 0.045 + noise(seed + 9.2) * 0.025
+            )
+            let baseAlpha: Double
+            if flags.stormy {
+                baseAlpha = 0.26 + cover * 0.13
+            } else if flags.rainy {
+                baseAlpha = 0.20 + cover * 0.12
+            } else {
+                baseAlpha = 0.11 + cover * 0.11
+            }
+            let alpha = min(
+                0.40,
+                max(0.07, baseAlpha * (0.92 - Double(index) * 0.08))
             )
 
-            drawBank(
+            drawAtmosphericSheet(
                 context: &context,
-                center: geometry.center,
-                width: geometry.width,
-                height: geometry.height,
-                seed: geometry.seed,
+                size: size,
+                centerY: centerY,
+                sheetHeight: sheetHeight,
+                xShift: xShift,
+                seed: seed,
                 palette: palette,
                 night: night,
                 alpha: alpha,
-                dense: flags.stormy || flags.rainy || flags.overcast,
-                blur: max(
-                    3,
-                    size.width * 0.008 * quality.cloudBlurScale
-                )
+                blur: max(5, size.width * 0.010 * quality.cloudBlurScale)
             )
         }
 
-        if cover > 0.72 {
+        if cover > 0.78 {
             drawHighCoverageVeil(
                 context: &context,
                 size: size,
                 palette: palette,
                 night: night,
                 cover: cover
+            )
+        }
+    }
+
+    private func drawAtmosphericSheet(
+        context: inout GraphicsContext,
+        size: CGSize,
+        centerY: CGFloat,
+        sheetHeight: CGFloat,
+        xShift: CGFloat,
+        seed: Double,
+        palette: Palette,
+        night: Double,
+        alpha: Double,
+        blur: CGFloat
+    ) {
+        let left = -size.width * 0.18 + xShift
+        let right = size.width * 1.18 + xShift
+        let span = right - left
+        let segments = 8
+        var top: [CGPoint] = []
+        var bottom: [CGPoint] = []
+        top.reserveCapacity(segments + 1)
+        bottom.reserveCapacity(segments + 1)
+
+        for index in 0...segments {
+            let t = CGFloat(index) / CGFloat(segments)
+            let x = left + span * t
+            let wave = CGFloat(sin(Double(t) * Double.pi * 2 + seed))
+            let topNoise = CGFloat(noise(seed + Double(index) * 4.17) - 0.5)
+            let bottomNoise = CGFloat(noise(seed + Double(index) * 6.83) - 0.5)
+            top.append(CGPoint(
+                x: x,
+                y: centerY - sheetHeight * (0.46 + wave * 0.08 + topNoise * 0.16)
+            ))
+            bottom.append(CGPoint(
+                x: x,
+                y: centerY + sheetHeight * (0.38 + wave * 0.04 + bottomNoise * 0.12)
+            ))
+        }
+
+        var path = Path()
+        guard let first = top.first else { return }
+        path.move(to: first)
+        for index in 1..<top.count {
+            let previous = top[index - 1]
+            let current = top[index]
+            let midX = (previous.x + current.x) * 0.5
+            path.addCurve(
+                to: current,
+                control1: CGPoint(x: midX, y: previous.y),
+                control2: CGPoint(x: midX, y: current.y)
+            )
+        }
+        for index in bottom.indices.reversed() {
+            let current = bottom[index]
+            if index == bottom.index(before: bottom.endIndex) {
+                path.addLine(to: current)
+            } else {
+                let previous = bottom[index + 1]
+                let midX = (previous.x + current.x) * 0.5
+                path.addCurve(
+                    to: current,
+                    control1: CGPoint(x: midX, y: previous.y),
+                    control2: CGPoint(x: midX, y: current.y)
+                )
+            }
+        }
+        path.closeSubpath()
+
+        context.drawLayer { layer in
+            layer.addFilter(.blur(radius: blur))
+            layer.fill(
+                path,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        palette.dayTop.opacity(alpha * (1 - night)),
+                        palette.dayBottom.opacity(alpha * 0.66 * (1 - night))
+                    ]),
+                    startPoint: CGPoint(x: 0, y: centerY - sheetHeight),
+                    endPoint: CGPoint(x: 0, y: centerY + sheetHeight)
+                )
+            )
+            layer.fill(
+                path,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        palette.nightTop.opacity(alpha * night),
+                        palette.nightBottom.opacity(alpha * 0.66 * night)
+                    ]),
+                    startPoint: CGPoint(x: 0, y: centerY - sheetHeight),
+                    endPoint: CGPoint(x: 0, y: centerY + sheetHeight)
+                )
             )
         }
     }
