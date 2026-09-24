@@ -93,8 +93,8 @@ struct CelestialHomeView: View {
             )
             LinearGradient(
                 colors: [
-                    Color(red: 0.03, green: 0.11, blue: 0.22),
-                    Color(red: 0.01, green: 0.04, blue: 0.10)
+                    Color(red: 0.21, green: 0.55, blue: 0.88),
+                    Color(red: 0.69, green: 0.87, blue: 0.97)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
