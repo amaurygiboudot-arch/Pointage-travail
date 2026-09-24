@@ -6,6 +6,7 @@ import XCTest
 final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
     func testProvenBaseAndVariablesProduceWorkedGross() throws {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 0, 14, 120),
@@ -22,6 +23,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
     func testExplicitReliableZeroVariableIsAccepted() throws {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 0, 14, 0),
@@ -36,6 +38,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
     func testMissingVariablePieceNeverBecomesImplicitZero() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 0, 14, 120)
@@ -53,6 +56,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
     func testUnreliableVariablePieceBlocksAssembly() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 0, 14, 120),
@@ -80,6 +84,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
     func testDuplicateVariableKeyBlocksAssembly() {
         let duplicate = variable("v1", 0, 14, 10)
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 duplicate,
@@ -107,6 +112,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         )
 
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: inconsistent,
             variables: [
                 variable("v1", 0, 14, 0),
@@ -153,6 +159,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         )
 
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: tampered,
             variables: [
                 variable("v1", 0, 14, 0),
@@ -171,6 +178,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
     func testInvertedVariableBoundsBlockAssembly() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 14, 0, 0),
@@ -189,6 +197,7 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
     func testInvalidVariableAmountBlocksAssembly() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v1", 0, 14, -1),
@@ -205,8 +214,28 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         )
     }
 
+    func testVariableFromAnotherCompanyBlocksAssembly() {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variables: [
+                variable("v1", 0, 14, 0, companyId: "other-company"),
+                variable("v2", 15, 30, 0)
+            ]
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(
+            result.warnings.contains(
+                SalarySegmentedWorkedGrossAssemblerV2.coverageWarning
+            )
+        )
+    }
+
     func testVariableOrderDoesNotChangeResult() throws {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
             base: base(),
             variables: [
                 variable("v2", 15, 30, 80),
@@ -216,6 +245,56 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
 
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
+    }
+
+    private func contracts() -> SalaryEmploymentContractPeriodResolutionV2 {
+        let segments = [
+            contractSegment("v1", start: 0, end: 14, rate: 10),
+            contractSegment("v2", start: 15, end: 30, rate: 20)
+        ]
+        return SalaryEmploymentContractPeriodResolutionV2(
+            companyId: "company",
+            periodStartEpochDay: 0,
+            periodEndEpochDay: 30,
+            sourceReliable: true,
+            coverage: SalaryEmploymentContractCoverageV2(
+                companyId: "company",
+                periodStartEpochDay: 0,
+                periodEndEpochDay: 30,
+                segments: segments,
+                fullyCovered: true
+            ),
+            contract: nil,
+            warnings: []
+        )
+    }
+
+    private func contractSegment(
+        _ versionId: String,
+        start: Int64,
+        end: Int64,
+        rate: Double
+    ) -> SalaryEmploymentContractCoverageSegmentV2 {
+        SalaryEmploymentContractCoverageSegmentV2(
+            startEpochDay: start,
+            endEpochDay: end,
+            snapshot: SalaryEmploymentContractSnapshotV2(
+                versionId: versionId,
+                sourceId: "test",
+                effectiveFromEpochDay: start,
+                effectiveToEpochDay: end,
+                contract: ContractV2(
+                    id: versionId,
+                    employerId: "company",
+                    type: .fullTime,
+                    contractualWeeklyMinutes: 35 * 60,
+                    grossHourlyRate: rate,
+                    hireDateEpochDay: 0
+                ),
+                checkedAtMs: 1,
+                note: nil
+            )
+        )
     }
 
     private func base() -> SegmentedMonthlyBaseResultV2 {
@@ -252,9 +331,11 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         _ end: Int64,
         _ amount: Double,
         reliable: Bool = true,
-        warnings: [String] = []
+        warnings: [String] = [],
+        companyId: String = "company"
     ) -> SalarySegmentedWorkedVariableGrossPieceV2 {
         SalarySegmentedWorkedVariableGrossPieceV2(
+            companyId: companyId,
             versionId: versionId,
             startEpochDay: start,
             endEpochDay: end,
