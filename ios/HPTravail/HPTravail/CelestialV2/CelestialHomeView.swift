@@ -27,16 +27,32 @@ struct CelestialHomeView: View {
                 )
                 .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 18) {
-                        Text(Date.now.formatted(date: .complete, time: .shortened))
-                            .font(.headline)
-                            .multilineTextAlignment(.center)
+                GeometryReader { viewport in
+                    ScrollView {
+                        VStack(spacing: 18) {
+                            VStack(spacing: 14) {
+                                Text(Date.now.formatted(date: .complete, time: .shortened))
+                                    .font(.headline)
+                                    .multilineTextAlignment(.center)
 
-                        dashboard
+                                Spacer(minLength: 8)
+
+                                skyPanel
+                                    .frame(maxWidth: 470)
+
+                                Spacer(minLength: 8)
+                            }
+                            .frame(
+                                maxWidth: .infinity,
+                                minHeight: max(520, viewport.size.height - 24)
+                            )
+
+                            detailsPanel
+                                .frame(maxWidth: 600)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
                 }
             }
             .navigationTitle("Accueil")
@@ -117,26 +133,6 @@ struct CelestialHomeView: View {
                 tabBarVisible = false
             }
         }
-    }
-
-    private var dashboard: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 20) {
-                skyPanel
-                    .frame(minWidth: 300, maxWidth: 470)
-                detailsPanel
-                    .frame(minWidth: 280, maxWidth: 410)
-            }
-            .frame(maxWidth: 900)
-
-            VStack(spacing: 18) {
-                skyPanel
-                    .frame(maxWidth: 470)
-                detailsPanel
-                    .frame(maxWidth: 600)
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private var skyPanel: some View {
