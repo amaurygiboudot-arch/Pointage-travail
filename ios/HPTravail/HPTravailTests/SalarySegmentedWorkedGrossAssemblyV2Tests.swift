@@ -123,6 +123,60 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         )
     }
 
+    func testTamperedBasePieceFactorBlocksAssembly() {
+        let original = base()
+        let first = original.pieces[0]
+        let badPiece = SegmentedMonthlyBasePieceV2(
+            versionId: first.versionId,
+            startEpochDay: first.startEpochDay,
+            endEpochDay: first.endEpochDay,
+            scheduledMinutes: first.scheduledMinutes,
+            factor: 0.6,
+            fullMonthBaseGross: first.fullMonthBaseGross,
+            proratedBaseGross: 1_200
+        )
+        let tampered = SegmentedMonthlyBaseResultV2(
+            pieces: [badPiece, original.pieces[1]],
+            baseGross: 1_700,
+            reliable: true,
+            warnings: []
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            base: tampered,
+            variables: [
+                variable("v1", 0, 14, 0),
+                variable("v2", 15, 30, 0)
+            ]
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(
+            result.warnings.contains(
+                SalarySegmentedWorkedGrossAssemblerV2.baseWarning
+            )
+        )
+    }
+
+    func testInvertedVariableBoundsBlockAssembly() {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            base: base(),
+            variables: [
+                variable("v1", 14, 0, 0),
+                variable("v2", 15, 30, 0)
+            ]
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(
+            result.warnings.contains(
+                SalarySegmentedWorkedGrossAssemblerV2.coverageWarning
+            )
+        )
+    }
+
     func testInvalidVariableAmountBlocksAssembly() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             base: base(),
