@@ -530,18 +530,18 @@ private struct CelestialSkyDialV2: View {
                         CelestialHorizonTransitionV2.diskOpacity(
                             altitudeDegrees: snapshot.moon.altitudeDegrees
                         )
-                    let environmentFactor: Double
-                    if baseSunOpacity > 0.001, let renderState {
-                        environmentFactor = min(
-                            1,
-                            max(0, renderState.sunVisibility / baseSunOpacity)
-                        )
-                    } else {
-                        environmentFactor = min(
+                    let environmentFactor: Double = {
+                        if baseSunOpacity > 0.001, let renderState {
+                            return min(
+                                1,
+                                max(0, renderState.sunVisibility / baseSunOpacity)
+                            )
+                        }
+                        return min(
                             1,
                             max(0, 1 - (renderState?.atmosphereOpacity ?? 0))
                         )
-                    }
+                    }()
                     let sunGlowOpacity = CelestialHorizonTransitionV2.sunGlowOpacity(
                         altitudeDegrees: snapshot.sun.altitudeDegrees
                     ) * (0.45 + 0.55 * environmentFactor)
