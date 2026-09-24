@@ -8,6 +8,7 @@ package com.amaury.pointage.v2.engine
  * mensuelle segmentée. Un zéro fiable est distinct d'une pièce absente ou non fiable.
  */
 data class SegmentedWorkedVariableGrossPieceV2(
+    val employerId: String,
     val versionId: String,
     val startEpochDay: Long,
     val endEpochDay: Long,
@@ -40,6 +41,8 @@ data class SegmentedWorkedGrossAssemblyResultV2(
  * - NaN/infini/négatif => blocage.
  */
 object SegmentedWorkedGrossAssemblerV2 {
+    const val CONTRACT_WARNING =
+        "Brut segmenté : la couverture contractuelle sélectionnée est absente, non fiable ou ne correspond pas aux segments monétaires."
     const val BASE_WARNING =
         "Brut segmenté : base mensuelle segmentée absente, incohérente ou non fiable ; assemblage bloqué."
     const val COVERAGE_WARNING =
@@ -52,9 +55,20 @@ object SegmentedWorkedGrossAssemblerV2 {
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
 
     fun assemble(
+        contracts: EmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,
         variables: List<SegmentedWorkedVariableGrossPieceV2>
     ): SegmentedWorkedGrossAssemblyResultV2 {
+        val employerId = contracts.employerId.trim()
+        val contractSegments = contracts.calculationSegments
+        if (!contracts.sourceReliable ||
+            employerId.isBlank() ||
+            contractSegments.isEmpty() ||
+            contractSegments.any { it.snapshot.contract.employerId.trim() != employerId }
+        ) {
+            return blocked(contracts.warnings + base.warnings + CONTRACT_WARNING)
+        }
+        val upstreamWarnings = contracts.warnings + base.warnings
         val baseAmount = base.baseGross
         if (!base.reliable ||
             baseAmount == null ||
@@ -62,17 +76,26 @@ object SegmentedWorkedGrossAssemblerV2 {
             baseAmount < 0.0 ||
             base.pieces.isEmpty()
         ) {
-            return blocked(base.warnings + BASE_WARNING)
+            return blocked(upstreamWarnings + BASE_WARNING)
         }
 
         val baseKeys = base.pieces.map {
             key(it.versionId, it.startEpochDay, it.endEpochDay)
         }
+        val contractKeys = contractSegments.map {
+            key(it.snapshot.versionId, it.startEpochDay, it.endEpochDay)
+        }
         if (baseKeys.any { it.first.isBlank() } ||
             baseKeys.distinct().size != baseKeys.size ||
             base.pieces.any { it.endEpochDay < it.startEpochDay }
         ) {
-            return blocked(base.warnings + BASE_WARNING)
+            return blocked(upstreamWarnings + BASE_WARNING)
+        }
+        if (contractKeys.any { it.first.isBlank() } ||
+            contractKeys.distinct().size != contractKeys.size ||
+            contractKeys.toSet() != baseKeys.toSet()
+        ) {
+            return blocked(upstreamWarnings + CONTRACT_WARNING)
         }
 
         var recomputedBase = 0.0
@@ -88,43 +111,43 @@ object SegmentedWorkedGrossAssemblerV2 {
                 !piece.proratedBaseGross.isFinite() ||
                 piece.proratedBaseGross < 0.0
             ) {
-                return blocked(base.warnings + AMOUNT_WARNING)
+                return blocked(upstreamWarnings + AMOUNT_WARNING)
             }
 
             val expectedPiece = piece.fullMonthBaseGross * piece.factor
             if (!expectedPiece.isFinite() ||
                 kotlin.math.abs(expectedPiece - piece.proratedBaseGross) > CURRENCY_TOLERANCE
             ) {
-                return blocked(base.warnings + BASE_WARNING)
+                return blocked(upstreamWarnings + BASE_WARNING)
             }
 
             recomputedBase += piece.proratedBaseGross
             factorTotal += piece.factor
             val scheduledValue = piece.scheduledMinutes.toLong()
             if (scheduledTotal > Long.MAX_VALUE - scheduledValue) {
-                return blocked(base.warnings + OVERFLOW_WARNING)
+                return blocked(upstreamWarnings + OVERFLOW_WARNING)
             }
             scheduledTotal += scheduledValue
 
             if (!recomputedBase.isFinite() || !factorTotal.isFinite()) {
-                return blocked(base.warnings + OVERFLOW_WARNING)
+                return blocked(upstreamWarnings + OVERFLOW_WARNING)
             }
         }
         if (scheduledTotal <= 0L ||
             kotlin.math.abs(factorTotal - 1.0) > FACTOR_TOLERANCE
         ) {
-            return blocked(base.warnings + BASE_WARNING)
+            return blocked(upstreamWarnings + BASE_WARNING)
         }
         for (piece in base.pieces) {
             val expectedFactor = piece.scheduledMinutes.toDouble() / scheduledTotal.toDouble()
             if (!expectedFactor.isFinite() ||
                 kotlin.math.abs(expectedFactor - piece.factor) > FACTOR_TOLERANCE
             ) {
-                return blocked(base.warnings + BASE_WARNING)
+                return blocked(upstreamWarnings + BASE_WARNING)
             }
         }
         if (kotlin.math.abs(recomputedBase - baseAmount) > CURRENCY_TOLERANCE) {
-            return blocked(base.warnings + BASE_WARNING)
+            return blocked(upstreamWarnings + BASE_WARNING)
         }
 
         val variableKeys = variables.map {
@@ -132,30 +155,33 @@ object SegmentedWorkedGrossAssemblerV2 {
         }
         if (variableKeys.any { it.first.isBlank() } ||
             variableKeys.distinct().size != variableKeys.size ||
-            variables.any { it.endEpochDay < it.startEpochDay } ||
+            variables.any {
+                it.employerId.trim() != employerId ||
+                    it.endEpochDay < it.startEpochDay
+            } ||
             variableKeys.toSet() != baseKeys.toSet()
         ) {
-            return blocked(base.warnings + variables.flatMap { it.warnings } + COVERAGE_WARNING)
+            return blocked(upstreamWarnings + variables.flatMap { it.warnings } + COVERAGE_WARNING)
         }
 
         if (variables.any { !it.reliable }) {
-            return blocked(base.warnings + variables.flatMap { it.warnings } + VARIABLE_RELIABILITY_WARNING)
+            return blocked(upstreamWarnings + variables.flatMap { it.warnings } + VARIABLE_RELIABILITY_WARNING)
         }
 
         var variableTotal = 0.0
         for (piece in variables) {
             if (!piece.variableGross.isFinite() || piece.variableGross < 0.0) {
-                return blocked(base.warnings + variables.flatMap { it.warnings } + AMOUNT_WARNING)
+                return blocked(upstreamWarnings + variables.flatMap { it.warnings } + AMOUNT_WARNING)
             }
             variableTotal += piece.variableGross
             if (!variableTotal.isFinite()) {
-                return blocked(base.warnings + variables.flatMap { it.warnings } + OVERFLOW_WARNING)
+                return blocked(upstreamWarnings + variables.flatMap { it.warnings } + OVERFLOW_WARNING)
             }
         }
 
         val workedGross = baseAmount + variableTotal
         if (!workedGross.isFinite()) {
-            return blocked(base.warnings + variables.flatMap { it.warnings } + OVERFLOW_WARNING)
+            return blocked(upstreamWarnings + variables.flatMap { it.warnings } + OVERFLOW_WARNING)
         }
 
         return SegmentedWorkedGrossAssemblyResultV2(
@@ -163,7 +189,7 @@ object SegmentedWorkedGrossAssemblerV2 {
             variableGross = variableTotal,
             workedGross = workedGross,
             reliable = true,
-            warnings = (base.warnings + variables.flatMap { it.warnings }).distinct()
+            warnings = (upstreamWarnings + variables.flatMap { it.warnings }).distinct()
         )
     }
 
