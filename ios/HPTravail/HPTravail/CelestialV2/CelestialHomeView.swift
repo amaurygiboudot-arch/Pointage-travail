@@ -148,11 +148,19 @@ struct CelestialHomeView: View {
 
     private var detailsPanel: some View {
         VStack(spacing: 18) {
-            reliabilityCard
+            if shouldShowReliabilityCard {
+                reliabilityCard
+            }
             if let snapshot = locationManager.celestialState.snapshot {
                 ephemerisCard(snapshot)
             }
         }
+    }
+
+    private var shouldShowReliabilityCard: Bool {
+        let state = locationManager.celestialState
+        guard state.locationQuality == .valid, state.snapshot != nil else { return true }
+        return !CelestialHeadingPolicyV2.isUsable(state.headingQuality)
     }
 
     private var reliabilityCard: some View {
