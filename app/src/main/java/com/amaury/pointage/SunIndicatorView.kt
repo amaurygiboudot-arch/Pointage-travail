@@ -192,12 +192,25 @@ class SunIndicatorView @JvmOverloads constructor(
             }
         }
         rootView.findViewById<TextView>(R.id.celestialStatusText)?.let { statusView ->
-            statusView.text = if (tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION) {
-                "$status · toucher pour autoriser"
+            val healthy = tracking.locationQuality == CelestialLocationQualityV2.VALID &&
+                CelestialHeadingPolicyV2.isUsable(tracking.headingQuality)
+
+            if (healthy) {
+                // Accueil propre : aucun bandeau quand GPS + boussole sont exploitables.
+                statusView.visibility = GONE
+                statusView.text = ""
+                configureLocationRecovery(statusView, tracking.locationQuality)
             } else {
-                status
+                statusView.visibility = VISIBLE
+                statusView.text = if (
+                    tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION
+                ) {
+                    "$status · toucher pour autoriser"
+                } else {
+                    status
+                }
+                configureLocationRecovery(statusView, tracking.locationQuality)
             }
-            configureLocationRecovery(statusView, tracking.locationQuality)
         }
 
         val sky = tracking.snapshot
