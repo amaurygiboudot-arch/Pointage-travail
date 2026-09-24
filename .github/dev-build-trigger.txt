@@ -1,2 +1,1 @@
-Build HoraTrack DEV Celeste 360 panorama - 2026-09-24
-SOURCE_HEAD=6b2999ae27ef40eab56acba90051bc6e18e0c653
+Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
