@@ -1,5 +1,10 @@
 import SwiftUI
 
+enum CelestialStarFieldPresentationV2 {
+    case dial
+    case fullScreen
+}
+
 private struct PreparedStarSkyStarV2: Sendable {
     let hr: Int
     let magnitude: Double
@@ -62,7 +67,16 @@ private final class CelestialStarFieldModelV2: ObservableObject {
 
 struct CelestialStarFieldViewV2: View {
     let state: CelestialTrackingStateV2
+    let presentation: CelestialStarFieldPresentationV2
     @StateObject private var model = CelestialStarFieldModelV2()
+
+    init(
+        state: CelestialTrackingStateV2,
+        presentation: CelestialStarFieldPresentationV2 = .dial
+    ) {
+        self.state = state
+        self.presentation = presentation
+    }
 
     var body: some View {
         Canvas { context, size in
@@ -72,13 +86,20 @@ struct CelestialStarFieldViewV2: View {
                 return
             }
 
-            let opacity = StarSkyProjectionV2.nightSkyOpacity(
+            let nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
                 sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
             )
-            let constellationOpacity = 0.42 + 0.58 * opacity
+            let starOpacity = presentation == .fullScreen
+                ? 0.20 + 0.80 * nightOpacity
+                : nightOpacity
+            let constellationOpacity = presentation == .fullScreen
+                ? 0.10 + 0.16 * nightOpacity
+                : 0.08 + 0.14 * nightOpacity
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) * 0.50
+            let scaleX = presentation == .fullScreen ? size.width * 0.52 : radius
+            let scaleY = presentation == .fullScreen ? size.height * 0.52 : radius
             var points: [Int: CGPoint] = [:]
             points.reserveCapacity(sky.stars.count / 2)
             var visible: [(PreparedStarSkyStarV2, CGPoint)] = []
@@ -98,9 +119,13 @@ struct CelestialStarFieldViewV2: View {
                 }
                 guard let projected else { continue }
                 let point = CGPoint(
-                    x: center.x + CGFloat(projected.x) * radius,
-                    y: center.y + CGFloat(projected.y) * radius
+                    x: center.x + CGFloat(projected.x) * scaleX,
+                    y: center.y + CGFloat(projected.y) * scaleY
                 )
+                if point.x < -24 || point.x > size.width + 24 ||
+                    point.y < -24 || point.y > size.height + 24 {
+                    continue
+                }
                 points[star.hr] = point
                 visible.append((star, point))
             }
@@ -122,32 +147,20 @@ struct CelestialStarFieldViewV2: View {
                     visiblePoints.append(point)
                 }
 
-                if visiblePoints.count >= 3 {
-                    let x = visiblePoints.reduce(0) { $0 + $1.x } / CGFloat(visiblePoints.count)
-                    let y = visiblePoints.reduce(0) { $0 + $1.y } / CGFloat(visiblePoints.count)
-                    var label = context.resolve(
-                        Text(constellation.abbreviation)
-                            .font(.system(size: 9, weight: .medium))
-                    )
-                    label.shading = .color(.white.opacity(0.46 + 0.24 * constellationOpacity))
-                    context.draw(
-                        label,
-                        at: CGPoint(x: x, y: y),
-                        anchor: .center
-                    )
-                }
             }
 
             context.stroke(
                 linePath,
-                with: .color(.white.opacity(0.38 + 0.24 * constellationOpacity)),
-                lineWidth: 0.7
+                with: .color(.white.opacity(constellationOpacity)),
+                lineWidth: presentation == .fullScreen ? 0.55 : 0.65
             )
 
-            if opacity > 0.01 {
+            if starOpacity > 0.01 {
                 for (star, point) in visible {
                     let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
-                    let starRadius = CGFloat(0.45 + brightness * 1.9)
+                    let starRadius = presentation == .fullScreen
+                        ? CGFloat(0.65 + brightness * 2.25)
+                        : CGFloat(0.55 + brightness * 2.0)
                     let rect = CGRect(
                         x: point.x - starRadius,
                         y: point.y - starRadius,
@@ -156,7 +169,7 @@ struct CelestialStarFieldViewV2: View {
                     )
                     context.fill(
                         Path(ellipseIn: rect),
-                        with: .color(.white.opacity(opacity * (0.33 + 0.67 * brightness)))
+                        with: .color(.white.opacity(starOpacity * (0.34 + 0.66 * brightness)))
                     )
                 }
             }
