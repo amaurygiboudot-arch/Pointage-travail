@@ -84,6 +84,19 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             return blocked(timeline.warnings + [timelineWarning])
         }
 
+        let boundary = SalarySegmentedPayrollBoundaryV2.assess(
+            contracts: contracts,
+            rules: rules
+        )
+        guard boundary.timelineReliable,
+              boundary.safeForIndependentWeeklyVariableCalculation else {
+            return blocked(
+                timeline.warnings
+                    + boundary.warnings
+                    + [weekContextWarning]
+            )
+        }
+
         let expectedKeys = timeline.slices.map(sliceKey)
         let providedKeys = sliceEvidence.map {
             SliceKey(
