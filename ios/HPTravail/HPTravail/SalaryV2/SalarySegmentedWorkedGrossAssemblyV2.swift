@@ -187,7 +187,7 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
             guard piece.variableGross.isFinite,
                   piece.variableGross >= 0 else {
                 return blocked(
-                    base.warnings
+                    upstreamWarnings
                         + variableWarnings
                         + [amountWarning]
                 )
@@ -195,7 +195,7 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
             variableTotal += piece.variableGross
             guard variableTotal.isFinite else {
                 return blocked(
-                    base.warnings
+                    upstreamWarnings
                         + variableWarnings
                         + [overflowWarning]
                 )
