@@ -37,7 +37,7 @@ object CelestialWeatherContextV2 {
             priority = Thread.NORM_PRIORITY - 1
         }
     }
-    private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     @Volatile private var current: State? = null
     @Volatile private var inFlightKey: String? = null
