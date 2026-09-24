@@ -80,21 +80,27 @@ struct CelestialHomeView: View {
         } else {
             nightOpacity = 1
         }
+        let night = nightOpacity.isFinite ? min(1, max(0, nightOpacity)) : 1
 
-        let dayTop = Color(red: 0.03, green: 0.11, blue: 0.22)
-        let dayBottom = Color(red: 0.01, green: 0.04, blue: 0.10)
-        let nightTop = Color(red: 0.004, green: 0.02, blue: 0.055)
-        let nightBottom = Color(red: 0.0, green: 0.004, blue: 0.025)
-        let amount = nightOpacity.clamped(to: 0...1)
-
-        return LinearGradient(
-            colors: [
-                dayTop.mixed(with: nightTop, amount: amount),
-                dayBottom.mixed(with: nightBottom, amount: amount)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+        return ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.004, green: 0.02, blue: 0.055),
+                    Color(red: 0.0, green: 0.004, blue: 0.025)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            LinearGradient(
+                colors: [
+                    Color(red: 0.03, green: 0.11, blue: 0.22),
+                    Color(red: 0.01, green: 0.04, blue: 0.10)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .opacity(1 - night)
+        }
     }
 
     private func revealTabBarAndScheduleHide() {
@@ -378,36 +384,6 @@ struct CelestialHomeView: View {
         let sun = localProjection(snapshot.sun)
         let moon = localProjection(snapshot.moon)
         return atan2(moon.y - sun.y, moon.x - sun.x)
-    }
-}
-
-private extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        Swift.min(range.upperBound, Swift.max(range.lowerBound, self))
-    }
-}
-
-private extension Color {
-    func mixed(with other: Color, amount: Double) -> Color {
-        let t = amount.clamped(to: 0...1)
-        let uiA = UIColor(self)
-        let uiB = UIColor(other)
-        var ar: CGFloat = 0
-        var ag: CGFloat = 0
-        var ab: CGFloat = 0
-        var aa: CGFloat = 0
-        var br: CGFloat = 0
-        var bg: CGFloat = 0
-        var bb: CGFloat = 0
-        var ba: CGFloat = 0
-        uiA.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
-        uiB.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
-        return Color(
-            red: Double(ar + (br - ar) * t),
-            green: Double(ag + (bg - ag) * t),
-            blue: Double(ab + (bb - ab) * t),
-            opacity: Double(aa + (ba - aa) * t)
-        )
     }
 }
 
