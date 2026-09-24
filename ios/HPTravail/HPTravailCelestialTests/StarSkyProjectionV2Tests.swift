@@ -149,6 +149,38 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         )
     }
 
+    func testZenithMapFallbackKeepsNorthUpAndEastRight() {
+        let zenith = StarSkyProjectionV2.projectToZenithMap(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 0,
+                geometricAltitudeDegrees: 90,
+                apparentAltitudeDegrees: 90
+            )
+        )
+        XCTAssertEqual(zenith?.x ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(zenith?.y ?? 9, 0, accuracy: 1e-12)
+
+        let north = StarSkyProjectionV2.projectToZenithMap(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 0,
+                geometricAltitudeDegrees: 0,
+                apparentAltitudeDegrees: 0
+            )
+        )
+        XCTAssertEqual(north?.x ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(north?.y ?? 9, -1, accuracy: 1e-12)
+
+        let east = StarSkyProjectionV2.projectToZenithMap(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 90,
+                geometricAltitudeDegrees: 0,
+                apparentAltitudeDegrees: 0
+            )
+        )
+        XCTAssertEqual(east?.x ?? 9, 1, accuracy: 1e-12)
+        XCTAssertEqual(east?.y ?? 9, 0, accuracy: 1e-12)
+    }
+
     func testNightSkyOpacityFollowsSolarAltitude() {
         XCTAssertEqual(
             StarSkyProjectionV2.nightSkyOpacity(sunGeometricAltitudeDegrees: -3),
