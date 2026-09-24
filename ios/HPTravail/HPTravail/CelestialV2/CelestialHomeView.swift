@@ -25,13 +25,12 @@ struct CelestialHomeView: View {
                 CelestialStarFieldViewV2(
                     state: locationManager.celestialState,
                     presentation: .fullScreen,
-                    cloudCover: qualifiedWeather?.cloudCover
+                    renderState: celestialRenderState
                 )
                 .ignoresSafeArea()
 
                 CelestialCloudLayerV2(
-                    weather: qualifiedWeather,
-                    nightOpacity: currentNightOpacity
+                    renderState: celestialRenderState
                 )
                 .ignoresSafeArea()
 
@@ -48,6 +47,14 @@ struct CelestialHomeView: View {
 
                                 Text(Date.now.formatted(date: .complete, time: .shortened))
                                     .font(.headline)
+                                    .foregroundStyle(homeForegroundColor)
+                                    .shadow(
+                                        color: homeForegroundColor == .white
+                                            ? .black.opacity(0.65)
+                                            : .white.opacity(0.55),
+                                        radius: 2,
+                                        y: 1
+                                    )
                                     .multilineTextAlignment(.center)
                                     .frame(maxWidth: .infinity, alignment: .top)
                                     .padding(.top, 8)
@@ -115,15 +122,25 @@ struct CelestialHomeView: View {
         return fresh
     }
 
-    private var currentNightOpacity: Double {
+    private var celestialRenderState: CelestialRenderStateV2? {
         let state = locationManager.celestialState
         guard state.locationQuality == .valid,
               let snapshot = state.snapshot else {
-            return 0
+            return nil
         }
-        return StarSkyProjectionV2.nightSkyOpacity(
-            sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
+        return CelestialRenderStateFactoryV2.build(
+            snapshot: snapshot,
+            weather: qualifiedWeather,
+            ambient: CelestialAmbientLightV2.currentState,
+            orientationQuality: state.headingQuality
         )
+    }
+
+    private var homeForegroundColor: Color {
+        guard let render = celestialRenderState else { return .primary }
+        return render.solarLightLevel >= 0.58 && render.nightLevel < 0.20
+            ? Color.black.opacity(0.84)
+            : .white
     }
 
     private var weatherRequestKey: String {
@@ -139,13 +156,7 @@ struct CelestialHomeView: View {
 
     @ViewBuilder
     private var homeSkyBase: some View {
-        let state = locationManager.celestialState
-        if state.locationQuality == .valid, let snapshot = state.snapshot {
-            let nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
-                sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
-            )
-            let night = nightOpacity.isFinite ? min(1, max(0, nightOpacity)) : 0
-
+        if let render = celestialRenderState {
             ZStack {
                 LinearGradient(
                     colors: [
@@ -155,6 +166,18 @@ struct CelestialHomeView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
+                .opacity(render.nightLevel)
+
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.20, green: 0.25, blue: 0.45),
+                        Color(red: 0.92, green: 0.54, blue: 0.36)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(render.twilightLevel)
+
                 LinearGradient(
                     colors: [
                         Color(red: 0.21, green: 0.55, blue: 0.88),
@@ -163,7 +186,7 @@ struct CelestialHomeView: View {
                     startPoint: .top,
                     endPoint: .bottom
                 )
-                .opacity(1 - night)
+                .opacity(render.solarLightLevel)
             }
         } else {
             // Fail-closed : sans position/éphéméride qualifiée, ne pas afficher
@@ -192,7 +215,7 @@ struct CelestialHomeView: View {
         CelestialSkyDialV2(
             state: locationManager.celestialState,
             globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
-            weatherCloudCover: qualifiedWeather?.cloudCover
+            renderState: celestialRenderState
         )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
@@ -452,7 +475,7 @@ struct CelestialHomeView: View {
 private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
     let globeMode: CelestialGlobeModeV2
-    let weatherCloudCover: Double?
+    let renderState: CelestialRenderStateV2?
 
     var body: some View {
         GeometryReader { geometry in
@@ -492,19 +515,29 @@ private struct CelestialSkyDialV2: View {
                         sun: snapshot.sun,
                         moon: snapshot.moon
                     )
-                    let cloudCover = min(1, max(0, weatherCloudCover ?? 0))
-                    let sunTransmission = max(0.18, 1 - cloudCover * 0.72)
-                    let moonTransmission = max(0.08, 1 - cloudCover * 0.88)
-
-                    let sunOpacity = CelestialHorizonTransitionV2.diskOpacity(
+                    let baseSunOpacity = CelestialHorizonTransitionV2.diskOpacity(
                         altitudeDegrees: snapshot.sun.altitudeDegrees
-                    ) * sunTransmission
-                    let moonOpacity = CelestialHorizonTransitionV2.diskOpacity(
-                        altitudeDegrees: snapshot.moon.altitudeDegrees
-                    ) * moonTransmission
+                    )
+                    let sunOpacity = renderState?.sunVisibility ?? baseSunOpacity
+                    let moonOpacity = renderState?.moonVisibility ??
+                        CelestialHorizonTransitionV2.diskOpacity(
+                            altitudeDegrees: snapshot.moon.altitudeDegrees
+                        )
+                    let environmentFactor: Double
+                    if baseSunOpacity > 0.001, let renderState {
+                        environmentFactor = min(
+                            1,
+                            max(0, renderState.sunVisibility / baseSunOpacity)
+                        )
+                    } else {
+                        environmentFactor = min(
+                            1,
+                            max(0, 1 - (renderState?.atmosphereOpacity ?? 0))
+                        )
+                    }
                     let sunGlowOpacity = CelestialHorizonTransitionV2.sunGlowOpacity(
                         altitudeDegrees: snapshot.sun.altitudeDegrees
-                    ) * (0.45 + 0.55 * sunTransmission)
+                    ) * (0.45 + 0.55 * environmentFactor)
 
                     if sunGlowOpacity > 0 {
                         Circle()
