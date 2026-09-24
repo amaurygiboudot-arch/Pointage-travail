@@ -115,6 +115,14 @@ object SegmentedWorkedGrossAssemblerV2 {
         ) {
             return blocked(base.warnings + BASE_WARNING)
         }
+        for (piece in base.pieces) {
+            val expectedFactor = piece.scheduledMinutes.toDouble() / scheduledTotal.toDouble()
+            if (!expectedFactor.isFinite() ||
+                kotlin.math.abs(expectedFactor - piece.factor) > FACTOR_TOLERANCE
+            ) {
+                return blocked(base.warnings + BASE_WARNING)
+            }
+        }
         if (kotlin.math.abs(recomputedBase - baseAmount) > CURRENCY_TOLERANCE) {
             return blocked(base.warnings + BASE_WARNING)
         }
