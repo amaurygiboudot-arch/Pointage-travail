@@ -226,62 +226,147 @@ class CelestialHomeSkyBackgroundRendererV2(
         val cover = cloudCover.coerceIn(0.0, 1.0).toFloat()
         if (cover < 0.03f) return
 
-        val clusters = (3 + cover * 13f).toInt().coerceIn(3, 16)
         val now = System.currentTimeMillis()
         val drift = ((now % 3_600_000L).toFloat() / 3_600_000f) * width
-        val rainy = (precipitationMm ?: 0.0) > 0.05 ||
-            (weatherCode != null && weatherCode in 51..99)
+        val code = weatherCode ?: -1
+        val rainy = (precipitationMm ?: 0.0) > 0.05 || code in 51..67 || code in 80..82
+        val foggy = code in 45..48
+        val snowy = code in 71..77 || code in 85..86
+        val stormy = code in 95..99
 
-        val dayColor = if (rainy) Color.rgb(150, 158, 166) else Color.rgb(238, 244, 248)
-        val nightColor = if (rainy) Color.rgb(58, 64, 74) else Color.rgb(96, 104, 118)
-        cloudPaint.color = blend(dayColor, nightColor, nightOpacity.toFloat().coerceIn(0f, 1f))
-        cloudPaint.alpha = (42f + cover * if (rainy) 125f else 95f).toInt().coerceIn(0, 190)
+        val dayColor = when {
+            stormy -> Color.rgb(118, 126, 138)
+            rainy -> Color.rgb(154, 164, 174)
+            snowy -> Color.rgb(226, 232, 236)
+            foggy -> Color.rgb(210, 216, 220)
+            else -> Color.rgb(240, 244, 247)
+        }
+        val nightColor = when {
+            stormy -> Color.rgb(48, 54, 66)
+            rainy -> Color.rgb(62, 70, 82)
+            else -> Color.rgb(92, 100, 114)
+        }
+        cloudPaint.color = blend(
+            dayColor,
+            nightColor,
+            nightOpacity.toFloat().coerceIn(0f, 1f)
+        )
+
+        // Nuages d'Accueil : bandes irrégulières, larges et douces, concentrées
+        // dans le ciel supérieur. On évite volontairement les "boules" régulières
+        // de type cartoon et on garde le bas de l'écran dégagé autour de l'horloge.
+        val clusters = (2 + cover * 9f).toInt().coerceIn(2, 11)
+        val baseAlpha = (
+            18f + cover * when {
+                stormy -> 74f
+                rainy -> 62f
+                else -> 50f
+            }
+        ).toInt().coerceIn(16, 104)
 
         for (index in 0 until clusters) {
-            val seed = index * 1.731f + cover * 2.17f
-            val baseX = ((index.toFloat() / clusters) * width + drift * (0.20f + (index % 4) * 0.06f)) % (width * 1.22f)
-            val x = baseX - width * 0.11f
-            val y = height * (0.12f + ((sin(seed.toDouble()) + 1.0) * 0.5 * 0.66).toFloat())
-            val clusterWidth = width * (0.13f + cover * 0.10f + (index % 3) * 0.018f)
-            val clusterHeight = clusterWidth * (0.20f + (index % 2) * 0.04f)
+            val seed = index * 1.931f + 0.37f
+            val wave = ((sin(seed.toDouble()) + 1.0) * 0.5).toFloat()
+            val baseX = (
+                (index.toFloat() / clusters) * width +
+                    drift * (0.13f + (index % 5) * 0.035f)
+                ) % (width * 1.32f)
+            val x = baseX - width * 0.16f
+            val y = height * (0.075f + wave * 0.27f + (index % 3) * 0.018f)
+            val clusterWidth = width * (
+                0.18f + cover * 0.09f + (index % 4) * 0.025f
+                )
+            val clusterHeight = clusterWidth * (
+                0.16f + (index % 3) * 0.025f
+                )
 
-            drawCloudCluster(canvas, x, y, clusterWidth, clusterHeight)
+            cloudPaint.alpha = (
+                baseAlpha * (0.72f + 0.08f * (index % 4))
+                ).toInt().coerceIn(0, 118)
+            drawCloudWisp(canvas, x, y, clusterWidth, clusterHeight, seed)
         }
 
-        if (cover > 0.82f) {
-            cloudPaint.alpha = ((cover - 0.82f) / 0.18f * 72f).toInt().coerceIn(0, 72)
+        // Brouillard et ciel totalement couvert agissent comme un voile
+        // atmosphérique, pas comme une rangée de nuages dessinés.
+        if (foggy) {
+            cloudPaint.alpha = (24f + cover * 40f).toInt().coerceIn(0, 70)
+            canvas.drawRect(0f, 0f, width, height, cloudPaint)
+        } else if (cover > 0.82f) {
+            cloudPaint.alpha = (
+                (cover - 0.82f) / 0.18f * if (stormy || rainy) 68f else 52f
+                ).toInt().coerceIn(0, 72)
             canvas.drawRect(0f, 0f, width, height, cloudPaint)
         }
+        cloudPaint.alpha = 255
     }
 
-    private fun drawCloudCluster(
+    private fun drawCloudWisp(
         canvas: Canvas,
         cx: Float,
         cy: Float,
         width: Float,
-        height: Float
+        height: Float,
+        seed: Float
     ) {
-        val left = cx - width * 0.5f
-        val top = cy - height * 0.5f
-        canvas.drawOval(RectF(left, top, left + width, top + height), cloudPaint)
-        canvas.drawOval(
-            RectF(
-                cx - width * 0.22f,
-                cy - height * 0.95f,
-                cx + width * 0.18f,
-                cy + height * 0.18f
-            ),
-            cloudPaint
+        val alpha = cloudPaint.alpha
+        fun oval(
+            centerX: Float,
+            centerY: Float,
+            w: Float,
+            h: Float,
+            alphaFactor: Float
+        ) {
+            cloudPaint.alpha = (alpha * alphaFactor).toInt().coerceIn(0, 128)
+            canvas.drawOval(
+                RectF(
+                    centerX - w * 0.5f,
+                    centerY - h * 0.5f,
+                    centerX + w * 0.5f,
+                    centerY + h * 0.5f
+                ),
+                cloudPaint
+            )
+        }
+
+        // Base très aplatie + volumes asymétriques : le contour n'est jamais
+        // une répétition de trois cercles identiques.
+        oval(cx, cy, width, height * 0.78f, 0.42f)
+        oval(
+            cx - width * 0.27f,
+            cy - height * (0.10f + 0.05f * cos(seed.toDouble()).toFloat()),
+            width * 0.48f,
+            height * 0.82f,
+            0.56f
         )
-        canvas.drawOval(
-            RectF(
-                cx - width * 0.02f,
-                cy - height * 0.82f,
-                cx + width * 0.38f,
-                cy + height * 0.24f
-            ),
-            cloudPaint
+        oval(
+            cx - width * 0.06f,
+            cy - height * 0.24f,
+            width * 0.45f,
+            height * 1.02f,
+            0.68f
         )
+        oval(
+            cx + width * 0.20f,
+            cy - height * (0.17f + 0.05f * sin(seed.toDouble()).toFloat()),
+            width * 0.53f,
+            height * 0.92f,
+            0.62f
+        )
+        oval(
+            cx + width * 0.39f,
+            cy + height * 0.02f,
+            width * 0.36f,
+            height * 0.62f,
+            0.38f
+        )
+        oval(
+            cx - width * 0.38f,
+            cy + height * 0.08f,
+            width * 0.32f,
+            height * 0.52f,
+            0.30f
+        )
+        cloudPaint.alpha = alpha
     }
 
     private fun drawAtmosphericBase(

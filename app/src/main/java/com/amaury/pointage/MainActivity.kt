@@ -365,6 +365,9 @@ class MainActivity : Activity() {
         revealHomeTabsAndScheduleHide()
         celestialHomePanel.visibility = View.VISIBLE
         sunIndicator.setSunVisible(true)
+        // Le Soleil et la Lune sont des objets célestes du premier plan :
+        // ils ne doivent jamais être masqués par le cadran central.
+        sunIndicator.bringToFront()
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
