@@ -9,6 +9,8 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
+import android.os.Handler
+import android.os.Looper
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
@@ -59,6 +61,7 @@ class CelestialHomeSkyBackgroundRendererV2(
 
     private val appContext = context.applicationContext
     private val density = context.resources.displayMetrics.density
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0)
     @Volatile private var localSky: LocalSky? = null
     @Volatile private var panoramaCache: PanoramaCache? = null
@@ -120,7 +123,7 @@ class CelestialHomeSkyBackgroundRendererV2(
             )
             if (requestGeneration == generation.get()) {
                 localSky = result
-                panoramaCache = null
+                replacePanoramaCache(null)
                 panoramaRequestedKey = null
                 onInvalidated()
             }
@@ -299,11 +302,13 @@ class CelestialHomeSkyBackgroundRendererV2(
                 localSky?.key == sky.key &&
                 panoramaRequestedKey == cacheKey
             ) {
-                panoramaCache = PanoramaCache(
-                    key = cacheKey,
-                    renderWidth = renderW,
-                    renderHeight = renderH,
-                    bitmap = bitmap
+                replacePanoramaCache(
+                    PanoramaCache(
+                        key = cacheKey,
+                        renderWidth = renderW,
+                        renderHeight = renderH,
+                        bitmap = bitmap
+                    )
                 )
                 panoramaRequestedKey = null
                 onInvalidated()
@@ -311,6 +316,27 @@ class CelestialHomeSkyBackgroundRendererV2(
                 bitmap.recycle()
                 if (panoramaRequestedKey == cacheKey) panoramaRequestedKey = null
             }
+        }
+    }
+
+    /**
+     * Remplace atomiquement le bitmap visible puis recycle l'ancien avec un délai
+     * sur le thread UI. Cela évite à la fois l'accumulation de bitmaps 360° et
+     * le risque de recycler une texture pendant qu'un frame Canvas la dessine.
+     */
+    private fun replacePanoramaCache(next: PanoramaCache?) {
+        val previous = panoramaCache
+        panoramaCache = next
+        if (previous != null && previous.bitmap !== next?.bitmap) {
+            val oldBitmap = previous.bitmap
+            mainHandler.postDelayed(
+                {
+                    if (panoramaCache?.bitmap !== oldBitmap && !oldBitmap.isRecycled) {
+                        oldBitmap.recycle()
+                    }
+                },
+                CACHE_RECYCLE_DELAY_MS
+            )
         }
     }
 
@@ -595,8 +621,7 @@ class CelestialHomeSkyBackgroundRendererV2(
         generation.incrementAndGet()
         requestedKey = null
         localSky = null
-        panoramaCache?.bitmap?.takeIf { !it.isRecycled }?.recycle()
-        panoramaCache = null
+        replacePanoramaCache(null)
         panoramaRequestedKey = null
     }
 
@@ -605,6 +630,7 @@ class CelestialHomeSkyBackgroundRendererV2(
         private const val MAX_CACHE_WIDTH_PX = 1080
         private const val MAX_CACHE_HEIGHT_PX = 1920
         private const val CONSTELLATION_BASE_ALPHA = 46
+        private const val CACHE_RECYCLE_DELAY_MS = 1_000L
         private val executor = Executors.newSingleThreadExecutor { task ->
             Thread(task, "HoraTrack-HomeSky").apply {
                 priority = Thread.NORM_PRIORITY - 1
