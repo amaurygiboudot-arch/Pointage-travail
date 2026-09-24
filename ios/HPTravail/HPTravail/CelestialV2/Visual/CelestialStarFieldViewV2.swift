@@ -132,7 +132,8 @@ struct CelestialStarFieldViewV2: View {
     }
 
     var body: some View {
-        Canvas { context, size in
+        let quality = CelestialRenderQualityProviderV2.current
+        Canvas(rendersAsynchronously: quality != .high) { context, size in
             guard state.locationQuality == .valid,
                   state.snapshot != nil,
                   let renderState,
