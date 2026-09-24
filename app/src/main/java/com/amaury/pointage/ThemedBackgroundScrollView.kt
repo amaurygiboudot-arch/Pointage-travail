@@ -93,14 +93,21 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
-        if (celestialHomeActive) {
+        val celestialState = celestialHomeState
+        val hasQualifiedSky = celestialHomeActive &&
+            celestialState?.snapshot != null &&
+            celestialState.locationQuality == com.amaury.pointage.v2.engine.CelestialLocationQualityV2.VALID
+
+        if (hasQualifiedSky) {
             celestialHomeSky.draw(
                 canvas = canvas,
                 width = width.toFloat(),
                 height = height.toFloat(),
-                state = celestialHomeState
+                state = celestialState
             )
         } else {
+            // Fail-closed : sans position/éphéméride qualifiée, ne jamais inventer
+            // un ciel de jour ou de nuit. On conserve simplement le fond normal.
             drawHpBackground(canvas)
         }
         canvas.restore()
