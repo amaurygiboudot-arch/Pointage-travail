@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
+import com.amaury.pointage.v2.engine.CelestialHeadingSensorAccuracyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSensorFallbackPolicyV2
@@ -102,6 +103,7 @@ object CelestialTrackerV2 {
     private var deviceRollDeg = 0f
     private var magneticDeclinationDeg = 0f
     private var headingAccuracyDeg: Float? = null
+    private var headingSensorAccuracy = CelestialHeadingSensorAccuracyV2.UNKNOWN
     private var headingSensorReportedUnreliable = false
     private var lastOrientationElapsedMs = Long.MIN_VALUE
     private var deviceFrame: CelestialDeviceFrameV2? = null
@@ -230,8 +232,9 @@ object CelestialTrackerV2 {
             override fun onSensorChanged(event: SensorEvent) {
                 when (event.sensor.type) {
                     Sensor.TYPE_ROTATION_VECTOR -> {
+                        headingSensorAccuracy = mapSensorAccuracy(event.accuracy)
                         val unreliable =
-                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                            headingSensorAccuracy == CelestialHeadingSensorAccuracyV2.UNRELIABLE
                         headingSensorReportedUnreliable = unreliable
                         if (unreliable) {
                             headingAccuracyDeg = null
@@ -257,8 +260,9 @@ object CelestialTrackerV2 {
                     }
 
                     Sensor.TYPE_MAGNETIC_FIELD -> {
+                        headingSensorAccuracy = mapSensorAccuracy(event.accuracy)
                         headingSensorReportedUnreliable =
-                            event.accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                            headingSensorAccuracy == CelestialHeadingSensorAccuracyV2.UNRELIABLE
                         headingAccuracyDeg = null
                         magneticValues = event.values.copyOf()
                         updateFallbackOrientation(rawRotationMatrix, displayRotationMatrix, orientation)
@@ -270,8 +274,9 @@ object CelestialTrackerV2 {
                 if (sensor?.type == Sensor.TYPE_ROTATION_VECTOR ||
                     sensor?.type == Sensor.TYPE_MAGNETIC_FIELD
                 ) {
+                    headingSensorAccuracy = mapSensorAccuracy(accuracy)
                     headingSensorReportedUnreliable =
-                        accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+                        headingSensorAccuracy == CelestialHeadingSensorAccuracyV2.UNRELIABLE
                     if (headingSensorReportedUnreliable) {
                         // On conserve séparément le diagnostic d'Android : null peut
                         // aussi vouloir dire « précision numérique non fournie ».
@@ -715,7 +720,8 @@ object CelestialTrackerV2 {
             hasOrientation = deviceFrame != null,
             headingAgeMs = headingAgeMs,
             sensorReportedUnreliable = headingSensorReportedUnreliable,
-            headingAccuracyDeg = headingAccuracyDeg
+            headingAccuracyDeg = headingAccuracyDeg,
+            sensorAccuracy = headingSensorAccuracy
         )
 
         return State(
@@ -755,6 +761,7 @@ object CelestialTrackerV2 {
         lastDisplayRotationMatrix = null
         deviceFrame = null
         headingAccuracyDeg = null
+        headingSensorAccuracy = CelestialHeadingSensorAccuracyV2.UNKNOWN
         headingSensorReportedUnreliable = false
         lastOrientationElapsedMs = Long.MIN_VALUE
         filteredAzimuthDeg = Float.NaN
@@ -790,6 +797,15 @@ object CelestialTrackerV2 {
         latestLiveLocation = null
         lastLocationRegistrationAttemptElapsedMs = Long.MIN_VALUE
     }
+
+    private fun mapSensorAccuracy(accuracy: Int): CelestialHeadingSensorAccuracyV2 =
+        when (accuracy) {
+            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> CelestialHeadingSensorAccuracyV2.HIGH
+            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> CelestialHeadingSensorAccuracyV2.MEDIUM
+            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> CelestialHeadingSensorAccuracyV2.LOW
+            SensorManager.SENSOR_STATUS_UNRELIABLE -> CelestialHeadingSensorAccuracyV2.UNRELIABLE
+            else -> CelestialHeadingSensorAccuracyV2.UNKNOWN
+        }
 
     private fun normalize(value: Float): Float = ((value % 360f) + 360f) % 360f
 
