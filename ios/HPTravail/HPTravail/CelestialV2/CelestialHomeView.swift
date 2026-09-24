@@ -488,7 +488,11 @@ private struct CelestialSkyDialV2: View {
 
             ZStack {
                 Circle()
-                    .fill(backgroundGradient)
+                    .fill(Color.clear)
+                    .overlay {
+                        dialAtmosphereBackground
+                            .clipShape(Circle())
+                    }
                     .opacity(0.58)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
@@ -642,13 +646,37 @@ private struct CelestialSkyDialV2: View {
         .accessibilityLabel(accessibilityDescription)
     }
 
-    private var backgroundGradient: LinearGradient {
-        let night = state.locationQuality == .valid && (state.snapshot?.isNight ?? false)
-        return LinearGradient(
-            colors: night ? [.black, .indigo] : [.blue.opacity(0.85), .cyan.opacity(0.5)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
+    @ViewBuilder
+    private var dialAtmosphereBackground: some View {
+        if let renderState {
+            ZStack {
+                LinearGradient(
+                    colors: [.black, .indigo],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(renderState.nightLevel)
+
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.20, green: 0.25, blue: 0.45),
+                        Color(red: 0.92, green: 0.54, blue: 0.36)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(renderState.twilightLevel)
+
+                LinearGradient(
+                    colors: [.blue.opacity(0.85), .cyan.opacity(0.5)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(renderState.solarLightLevel)
+            }
+        } else {
+            Color.clear
+        }
     }
 
     private func cardinal(_ value: String, x: CGFloat, y: CGFloat) -> some View {

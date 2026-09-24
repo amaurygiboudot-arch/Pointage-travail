@@ -63,4 +63,33 @@ class CelestialAtmosphereV2Test {
         assertEquals(CelestialWeatherTypeV2.THUNDERSTORM, CelestialAtmosphereV2.weatherType(95))
         assertEquals(CelestialWeatherTypeV2.UNKNOWN, CelestialAtmosphereV2.weatherType(null))
     }
+    @Test
+    fun twilightAndNightLevelsRemainContinuous() {
+        val altitudes = listOf(-20.0, -18.0, -12.0, -6.0, 0.0, 8.0, 15.0)
+        val states = altitudes.map { altitude ->
+            val base = DefaultCelestialEngineV2.snapshot(
+                latitudeDeg = 0.0,
+                longitudeDeg = 0.0,
+                timeMs = 1_700_000_000_000L
+            )
+            val snapshot = base.copy(
+                sun = base.sun.copy(altitudeDeg = altitude),
+                night = altitude < -0.833
+            )
+            CelestialAtmosphereV2.resolve(snapshot, null, ambient())
+        }
+
+        states.forEach {
+            assertTrue(it.solarLightLevel in 0.0..1.0)
+            assertTrue(it.twilightLevel in 0.0..1.0)
+            assertTrue(it.nightLevel in 0.0..1.0)
+            assertTrue(it.starsVisibility in 0.0..1.0)
+        }
+        for (index in 1 until states.size) {
+            assertTrue(states[index].solarLightLevel >= states[index - 1].solarLightLevel)
+            assertTrue(states[index].nightLevel <= states[index - 1].nightLevel)
+            assertTrue(states[index].starsVisibility <= states[index - 1].starsVisibility)
+        }
+    }
+
 }
