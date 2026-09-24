@@ -1,1 +1,2 @@
-Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
+Build HoraTrack DEV Celeste compass fix - 2026-09-24
+SOURCE_HEAD=deb5df817fb4f33de9a5a2de265eb66099121c05
