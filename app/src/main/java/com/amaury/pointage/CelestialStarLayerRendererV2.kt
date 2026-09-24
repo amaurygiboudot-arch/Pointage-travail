@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PointF
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
 import com.amaury.pointage.v2.engine.StarSkyProjectionV2
 import com.amaury.pointage.v2.ui.ConstellationPathV2
@@ -61,7 +62,7 @@ class CelestialStarLayerRendererV2(
 
     fun update(state: CelestialTrackerV2.State) {
         val snapshot = state.snapshot ?: return
-        if (!state.hasRealSky) return
+        if (state.locationQuality != CelestialLocationQualityV2.VALID) return
         val bucket = snapshot.atMs / LOCAL_SKY_REFRESH_MS
         val key = "%.4f:%.4f:%d".format(snapshot.latitudeDeg, snapshot.longitudeDeg, bucket)
         if (key == requestedKey) return
@@ -108,17 +109,23 @@ class CelestialStarLayerRendererV2(
     ) {
         val current = state ?: return
         val snapshot = current.snapshot ?: return
-        val frame = current.deviceFrame ?: return
-        if (!current.hasRealSky || radius <= 1f) return
+        if (current.locationQuality != CelestialLocationQualityV2.VALID || radius <= 1f) return
 
-        val opacity = StarSkyProjectionV2.nightSkyOpacity(snapshot.sun.altitudeDeg)
-        if (opacity <= 0.01) return
+        val starOpacity = StarSkyProjectionV2.nightSkyOpacity(snapshot.sun.altitudeDeg)
+        // Constellation lines are a positional overlay, not a claim that the
+        // connecting lines exist physically in the sky. Keep them readable in
+        // daylight while stars themselves still follow real solar visibility.
+        val constellationOpacity = 0.42 + 0.58 * starOpacity
         val sky = localSky ?: return
 
         val projected = HashMap<Int, PointF>(sky.stars.size)
         val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
         for (star in sky.stars) {
-            val point = StarSkyProjectionV2.projectToDevice(star.position, frame) ?: continue
+            val point = if (current.hasRealSky && current.deviceFrame != null) {
+                StarSkyProjectionV2.projectToDevice(star.position, current.deviceFrame)
+            } else {
+                StarSkyProjectionV2.projectToZenithMap(star.position)
+            } ?: continue
             val screen = PointF(
                 cx + (point.x * radius).toFloat(),
                 cy + (point.y * radius).toFloat()
@@ -127,8 +134,8 @@ class CelestialStarLayerRendererV2(
             visibleStars += star to screen
         }
 
-        linePaint.alpha = (opacity * 72.0).toInt().coerceIn(0, 255)
-        labelPaint.alpha = (opacity * 112.0).toInt().coerceIn(0, 255)
+        linePaint.alpha = (90.0 + 80.0 * constellationOpacity).toInt().coerceIn(0, 255)
+        labelPaint.alpha = (120.0 + 80.0 * constellationOpacity).toInt().coerceIn(0, 255)
         for (path in sky.paths) {
             var visibleCount = 0
             var sumX = 0f
@@ -156,11 +163,13 @@ class CelestialStarLayerRendererV2(
             }
         }
 
-        for ((star, point) in visibleStars) {
-            val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
-            starPaint.alpha = (opacity * (85.0 + 170.0 * brightness)).toInt().coerceIn(0, 255)
-            val starRadius = (0.45 + brightness * 1.9).toFloat() * density
-            canvas.drawCircle(point.x, point.y, starRadius, starPaint)
+        if (starOpacity > 0.01) {
+            for ((star, point) in visibleStars) {
+                val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
+                starPaint.alpha = (starOpacity * (85.0 + 170.0 * brightness)).toInt().coerceIn(0, 255)
+                val starRadius = (0.45 + brightness * 1.9).toFloat() * density
+                canvas.drawCircle(point.x, point.y, starRadius, starPaint)
+            }
         }
     }
 
