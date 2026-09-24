@@ -152,13 +152,10 @@ class CelestialHomeSkyBackgroundRendererV2(
         val quality = CelestialRenderQualityProviderV2.current(appContext)
         val sky = localSky
 
-        val centerAzimuthDeg = if (
-            CelestialHeadingPolicyV2.isUsable(current.headingQuality)
-        ) {
-            current.deviceAzimuthDeg.toDouble()
-        } else {
-            0.0
-        }
+        val centerAzimuthDeg = CelestialHeadingPolicyV2.renderingHeadingDeg(
+            headingDeg = current.deviceAzimuthDeg.toDouble(),
+            quality = current.headingQuality
+        )
 
         if (sky != null) {
             ensurePanoramaCache(

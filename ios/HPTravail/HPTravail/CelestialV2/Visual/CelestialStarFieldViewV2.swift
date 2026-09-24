@@ -147,9 +147,10 @@ struct CelestialStarFieldViewV2: View {
             ) * renderState.constellationsVisibility
 
             if presentation == .fullScreen {
-                let centerAzimuth = CelestialHeadingPolicyV2.isUsable(state.headingQuality)
-                    ? (state.trueHeadingDegrees ?? 0)
-                    : 0
+                let centerAzimuth = CelestialHeadingPolicyV2.renderingHeadingDegrees(
+                    headingDegrees: state.trueHeadingDegrees,
+                    quality: state.headingQuality
+                )
                 let heading = CelestialPanoramaGeometryV2.headingFraction(
                     centerAzimuthDegrees: centerAzimuth
                 )

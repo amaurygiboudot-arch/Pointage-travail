@@ -379,15 +379,15 @@ struct CelestialHomeView: View {
         case .valid:
             return "Position GPS et cap vrai sont suffisamment récents pour orienter le cadran."
         case .unknownAccuracy:
-            return "Le cap ne fournit pas d’incertitude numérique ; les astres directionnels restent masqués."
+            return "Le cap ne fournit pas d’incertitude numérique ; Céleste utilise un mode Nord stable."
         case .inaccurate:
-            return "Le cap dépasse le seuil de qualité de 15° ; les astres directionnels restent masqués."
+            return "Le cap dépasse le seuil de qualité de 15° ; Céleste utilise un mode Nord stable."
         case .unreliable:
-            return "Le capteur signale un cap non fiable ; les astres directionnels restent masqués."
+            return "Le capteur signale un cap non fiable ; Céleste utilise un mode Nord stable."
         case .stale:
-            return "Le cap n’a pas été rafraîchi depuis plus de cinq secondes."
+            return "Le cap est trop ancien ; Céleste utilise un mode Nord stable."
         case .unavailable:
-            return "Le cap vrai ou l’attitude Core Motion ne sont pas disponibles sur cet appareil."
+            return "Le cap vrai ou Core Motion sont indisponibles ; Céleste utilise un mode Nord stable."
         }
     }
 
@@ -519,9 +519,12 @@ private struct CelestialSkyDialV2: View {
                         .position(center)
                 }
 
-                if state.hasRealDirectionalSky,
-                   let snapshot = state.snapshot,
-                   let heading = state.trueHeadingDegrees {
+                if state.locationQuality == .valid,
+                   let snapshot = state.snapshot {
+                    let heading = CelestialHeadingPolicyV2.renderingHeadingDegrees(
+                        headingDegrees: state.trueHeadingDegrees,
+                        quality: state.headingQuality
+                    )
                     let solarEclipse = try? SolarEclipseGeometryV2.evaluate(
                         sun: snapshot.sun,
                         moon: snapshot.moon
@@ -739,13 +742,16 @@ private struct CelestialSkyDialV2: View {
     }
 
     private var accessibilityDescription: String {
-        guard state.hasRealDirectionalSky, let snapshot = state.snapshot else {
-            return "Cadran céleste. Globe local indisponible ou direction masquée car les capteurs ne sont pas assez fiables."
+        guard state.locationQuality == .valid, let snapshot = state.snapshot else {
+            return "Cadran céleste. Le ciel local précis nécessite une localisation qualifiée."
         }
         let daylight = snapshot.isNight ? "nuit locale" : "jour local"
         let globeDescription = globeMode == .local
             ? "globe centré sur la position GPS"
             : "globe monde montrant le terminateur jour nuit"
-        return "Cadran céleste avec \(globeDescription), \(daylight). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
+        let orientationDescription = CelestialHeadingPolicyV2.isUsable(state.headingQuality)
+            ? "point de vue orienté au cap vrai"
+            : "point de vue Nord stable"
+        return "Cadran céleste avec \(globeDescription), \(daylight), \(orientationDescription). Soleil azimut \(Int(snapshot.sun.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.sun.altitudeDegrees.rounded())) degrés. Lune azimut \(Int(snapshot.moon.azimuthDegrees.rounded())) degrés, altitude \(Int(snapshot.moon.altitudeDegrees.rounded())) degrés."
     }
 }

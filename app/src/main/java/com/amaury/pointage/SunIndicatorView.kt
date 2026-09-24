@@ -25,7 +25,6 @@ import com.amaury.pointage.v2.CelestialAmbientLightStateV2
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
-import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialHorizonTransitionV2
@@ -78,7 +77,6 @@ class SunIndicatorView @JvmOverloads constructor(
     private var ambientState: CelestialAmbientLightStateV2 = CelestialAmbientLightV2.currentState()
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
-    private var deviceFrame: CelestialDeviceFrameV2? = null
     private var orientationQuality: CelestialHeadingQualityV2 = CelestialHeadingQualityV2.UNAVAILABLE
     private var trackingLocationQuality: CelestialLocationQualityV2 =
         CelestialLocationQualityV2.UNAVAILABLE
@@ -175,7 +173,6 @@ class SunIndicatorView @JvmOverloads constructor(
                 val localSkyUsable = tracking.snapshot != null &&
                     tracking.locationQuality == CelestialLocationQualityV2.VALID
                 celestialSnapshot = tracking.snapshot?.takeIf { localSkyUsable }
-                deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
                 orientationQuality = tracking.headingQuality
                 trackingLocationQuality = tracking.locationQuality
                 trackingLocationAgeMs = tracking.locationAgeMs
@@ -196,7 +193,6 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
             celestialSnapshot = null
-            deviceFrame = null
             orientationQuality = CelestialHeadingQualityV2.UNAVAILABLE
             trackingLocationQuality = CelestialLocationQualityV2.UNAVAILABLE
             trackingLocationAgeMs = null
