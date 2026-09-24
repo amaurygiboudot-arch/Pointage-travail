@@ -1,2 +1,1 @@
-Build HoraTrack DEV Celeste stable screen center - 2026-09-24
-SOURCE_HEAD=343367ed3903081f8792d52938d8fda3d42f218e
+Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
