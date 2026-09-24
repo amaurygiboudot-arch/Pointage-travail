@@ -299,6 +299,7 @@ class MainActivity : Activity() {
     }
 
     internal fun onSalaryTabShown() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("salary")
         setActiveTab(tabSalary)
@@ -352,12 +353,21 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun setCelestialHomeBackground(active: Boolean) {
+        findViewById<ThemedBackgroundScrollView>(R.id.appRootScroll)
+            ?.setCelestialHomeActive(active)
+    }
+
     private fun showHomeTab() {
+        setCelestialHomeBackground(true)
         persistActiveTab("home")
         setActiveTab(tabHome)
         revealHomeTabsAndScheduleHide()
         celestialHomePanel.visibility = View.VISIBLE
         sunIndicator.setSunVisible(true)
+        // Le Soleil et la Lune sont des objets célestes du premier plan :
+        // ils ne doivent jamais être masqués par le cadran central.
+        sunIndicator.bringToFront()
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
@@ -369,6 +379,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("today")
         setActiveTab(tabToday)
@@ -387,6 +398,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("history")
         setActiveTab(tabHistory)
@@ -405,6 +417,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
@@ -424,6 +437,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("settings")
         setActiveTab(tabSettings)
@@ -542,6 +556,15 @@ class MainActivity : Activity() {
             }
         )
         updatingCelestialGlobeMode = false
+
+        findViewById<TextView>(R.id.celestialWeatherAttribution)?.apply {
+            val endpoint = BuildConfig.CELESTIAL_WEATHER_ENDPOINT
+            visibility = if (endpoint.contains("open-meteo.com", ignoreCase = true)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+        }
     }
 
     private fun loadGpsSettings() {

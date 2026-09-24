@@ -69,8 +69,15 @@ jobs:
             PUBLIC_VERSION="1.9"
             VERSION_CODE="9"
           fi
+          DEV_VERSION="$(gh release view dev-latest --json body --jq '.body' 2>/dev/null | sed -n 's/^DEV_VERSION=//p' | head -1 || true)"
+          EXISTING_DEV_CODE="$(printf '%s' "$DEV_VERSION" | sed -n 's/^1\.\([0-9][0-9]*\).*/\1/p')"
+          if [[ "$EXISTING_DEV_CODE" =~ ^[0-9]+$ ]] && [ "$EXISTING_DEV_CODE" -ge "$VERSION_CODE" ]; then
+            VERSION_CODE=$((EXISTING_DEV_CODE + 1))
+          else
+            VERSION_CODE=$((VERSION_CODE + 1))
+          fi
           DEV_REVISION="$(date +%s)"
-          VERSION_NAME="${PUBLIC_VERSION}-dev-${DEV_REVISION}"
+          VERSION_NAME="1.${VERSION_CODE}-dev-${DEV_REVISION}"
           echo "PUBLIC_VERSION=$PUBLIC_VERSION" >> "$GITHUB_ENV"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
@@ -89,9 +96,10 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
+          CELESTIAL_WEATHER_ENDPOINT: https://api.open-meteo.com/v1/forecast
         run: |
           set +e
-          gradle :app:assembleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
@@ -115,13 +123,17 @@ jobs:
           test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer l APK DEV unique
+      - name: Preparer APK et AAB DEV uniques
         run: |
           cp app/build/outputs/apk/release/app-release.apk HoraTrack-dev.apk
+          cp app/build/outputs/bundle/release/app-release.aab HoraTrack-dev.aab
           sha256sum HoraTrack-dev.apk > SHA256-dev.txt
+          sha256sum HoraTrack-dev.aab > SHA256-AAB-dev.txt
           printf '%s\n' "$VERSION_NAME" > HoraTrack-dev-version.txt
           test -s HoraTrack-dev.apk
+          test -s HoraTrack-dev.aab
           test -s SHA256-dev.txt
+          test -s SHA256-AAB-dev.txt
           test -s HoraTrack-dev-version.txt
 
       - name: Publier au seul emplacement DEV
@@ -130,7 +142,8 @@ jobs:
         run: |
           NOTES="DEV_VERSION=$VERSION_NAME
           CHANNEL=development
-          BUILD_KIND=tested
+          BUILD_KIND=tested-signed-apk-aab
+          CELESTE_REAL_SKY=true
           SOURCE_SHA=$GITHUB_SHA"
 
           if gh release view dev-latest >/dev/null 2>&1; then
@@ -140,13 +153,17 @@ jobs:
               --prerelease
             gh release upload dev-latest \
               HoraTrack-dev.apk \
+              HoraTrack-dev.aab \
               SHA256-dev.txt \
+              SHA256-AAB-dev.txt \
               HoraTrack-dev-version.txt \
               --clobber
           else
             gh release create dev-latest \
               HoraTrack-dev.apk \
+              HoraTrack-dev.aab \
               SHA256-dev.txt \
+              SHA256-AAB-dev.txt \
               HoraTrack-dev-version.txt \
               --target "$GITHUB_SHA" \
               --title "HoraTrack DEV - derniere APK" \

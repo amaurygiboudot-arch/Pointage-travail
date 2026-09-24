@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.widget.FrameLayout
+import kotlin.math.max
 import kotlin.math.min
 
 /**
@@ -39,10 +40,13 @@ class CelestialHomePanel @JvmOverloads constructor(
 
         val density = resources.displayMetrics.density
         val screenHeight = resources.displayMetrics.heightPixels
-        val minHeight = (280f * density).toInt()
-        val maxHeight = min((540f * density).toInt(), (screenHeight * 0.64f).toInt())
-        val desiredHeight = (availableWidth * 1.14f).toInt()
-        val targetHeight = desiredHeight.coerceIn(minHeight, maxHeight.coerceAtLeast(minHeight))
+        val minHeight = max((320f * density).toInt(), (availableWidth * 1.10f).toInt())
+        // Accueil Céleste est un écran immersif : le panneau doit occuper presque
+        // toute la hauteur utile, même lorsque les onglets se masquent.
+        val viewportHeight = (screenHeight * 0.88f).toInt()
+        val tabletSafetyCap = (900f * density).toInt()
+        val targetHeight = min(viewportHeight, tabletSafetyCap)
+            .coerceAtLeast(minHeight)
 
         super.onMeasure(
             widthMeasureSpec,
