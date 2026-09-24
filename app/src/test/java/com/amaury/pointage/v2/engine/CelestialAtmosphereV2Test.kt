@@ -92,4 +92,30 @@ class CelestialAtmosphereV2Test {
         }
     }
 
+    @Test
+    fun brightAmbientLightReducesStarsAndMoonWithoutChangingNightState() {
+        val base = DefaultCelestialEngineV2.snapshot(
+            latitudeDeg = 0.0,
+            longitudeDeg = 0.0,
+            timeMs = 1_700_000_000_000L
+        )
+        val night = base.copy(
+            sun = base.sun.copy(altitudeDeg = -20.0),
+            moon = base.moon.copy(altitudeDeg = 35.0),
+            night = true
+        )
+        val dark = CelestialAtmosphereV2.resolve(
+            night, null, ambient(0.2, CelestialAmbientLightQualityV2.VALID)
+        )
+        val bright = CelestialAtmosphereV2.resolve(
+            night, null, ambient(100_000.0, CelestialAmbientLightQualityV2.VALID)
+        )
+
+        assertEquals(dark.nightLevel, bright.nightLevel, 0.0)
+        assertTrue(bright.starsVisibility < dark.starsVisibility)
+        assertTrue(bright.moonVisibility < dark.moonVisibility)
+        assertTrue(bright.starsVisibility >= 0.0)
+        assertTrue(bright.moonVisibility > 0.0)
+    }
+
 }
