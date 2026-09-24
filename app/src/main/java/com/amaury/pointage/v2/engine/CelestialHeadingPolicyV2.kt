@@ -75,4 +75,23 @@ object CelestialHeadingPolicyV2 {
     fun isUsable(quality: CelestialHeadingQualityV2): Boolean =
         quality == CelestialHeadingQualityV2.VALID ||
             quality == CelestialHeadingQualityV2.UNKNOWN_ACCURACY
+
+    /**
+     * Cap de rendu universel.
+     *
+     * Une orientation qualifiée pilote le point de vue. Sinon Céleste revient
+     * explicitement à un mode Nord stable (0°) au lieu d'inventer une direction.
+     */
+    fun renderingHeadingDeg(
+        headingDeg: Double?,
+        quality: CelestialHeadingQualityV2
+    ): Double {
+        if (!isUsable(quality) || headingDeg == null || !headingDeg.isFinite()) {
+            return 0.0
+        }
+        return ((headingDeg % 360.0) + 360.0) % 360.0
+    }
+
+    fun usesNeutralNorthMode(quality: CelestialHeadingQualityV2): Boolean =
+        !isUsable(quality)
 }
