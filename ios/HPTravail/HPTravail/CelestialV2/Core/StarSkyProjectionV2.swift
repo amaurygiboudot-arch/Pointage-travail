@@ -240,6 +240,29 @@ enum StarSkyProjectionV2 {
         )
     }
 
+    /// Sensor-independent real-sky fallback: zenith in the centre, true North
+    /// at the top, East on the right. It is only used when no trustworthy
+    /// physical device frame is available.
+    static func projectToZenithMap(
+        position: LocalStarPositionV2
+    ) -> StarDeviceProjectionV2? {
+        guard position.apparentAltitudeDegrees.isFinite,
+              position.apparentAltitudeDegrees >= 0 else {
+            return nil
+        }
+        let radius = clamp(
+            (90 - position.apparentAltitudeDegrees) / 90,
+            minimum: 0,
+            maximum: 1
+        )
+        let azimuth = degreesToRadians(position.azimuthDegrees)
+        return StarDeviceProjectionV2(
+            x: radius * sin(azimuth),
+            y: -radius * cos(azimuth),
+            depth: 1
+        )
+    }
+
     static func nightSkyOpacity(sunGeometricAltitudeDegrees: Double) -> Double {
         guard sunGeometricAltitudeDegrees.isFinite else { return 0 }
         let t = clamp(
