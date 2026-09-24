@@ -12,6 +12,7 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
 import com.amaury.pointage.v2.engine.StarSkyProjectionV2
 import com.amaury.pointage.v2.ui.ConstellationPathV2
@@ -124,7 +125,7 @@ class CelestialHomeSkyBackgroundRendererV2(
 
         val current = state ?: return
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
-        val qualifiedSnapshot = current.snapshot ?: return
+        val qualifiedSnapshot: CelestialSnapshotV2 = current.snapshot ?: return
 
         val weather = CelestialWeatherContextV2.currentStateFor(qualifiedSnapshot)
         val cloudTransmission = weather?.cloudTransmission ?: 1.0
