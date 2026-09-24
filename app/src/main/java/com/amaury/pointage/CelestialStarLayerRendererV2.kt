@@ -134,8 +134,8 @@ class CelestialStarLayerRendererV2(
             visibleStars += star to screen
         }
 
-        linePaint.alpha = (90.0 + 80.0 * constellationOpacity).toInt().coerceIn(0, 255)
-        labelPaint.alpha = (120.0 + 80.0 * constellationOpacity).toInt().coerceIn(0, 255)
+        linePaint.alpha = (22.0 + 34.0 * constellationOpacity).toInt().coerceIn(0, 255)
+        labelPaint.alpha = 0
         for (path in sky.paths) {
             var visibleCount = 0
             var sumX = 0f
@@ -153,21 +153,15 @@ class CelestialStarLayerRendererV2(
                 sumX += point.x
                 sumY += point.y
             }
-            if (visibleCount >= 3) {
-                canvas.drawText(
-                    path.abbreviation,
-                    sumX / visibleCount,
-                    sumY / visibleCount,
-                    labelPaint
-                )
-            }
+            // Aucun nom permanent : l'Accueil privilégie le ciel étoilé.
+            // Les abréviations restent disponibles dans les données, pas dans le fond visuel.
         }
 
         if (starOpacity > 0.01) {
             for ((star, point) in visibleStars) {
                 val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
-                starPaint.alpha = (starOpacity * (85.0 + 170.0 * brightness)).toInt().coerceIn(0, 255)
-                val starRadius = (0.45 + brightness * 1.9).toFloat() * density
+                starPaint.alpha = (starOpacity * (110.0 + 145.0 * brightness)).toInt().coerceIn(0, 255)
+                val starRadius = (0.60 + brightness * 2.15).toFloat() * density
                 canvas.drawCircle(point.x, point.y, starRadius, starPaint)
             }
         }
