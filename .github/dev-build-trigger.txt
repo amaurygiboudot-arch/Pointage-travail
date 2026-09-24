@@ -1,2 +1,1 @@
-Build HoraTrack DEV Celeste weather final - 2026-09-24
-SOURCE_HEAD=5cfb6fd5a0a693739562de716353e18554524029
+Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
