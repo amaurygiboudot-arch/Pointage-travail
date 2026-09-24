@@ -39,6 +39,7 @@ object CelestialAmbientLightV2 {
     private var filteredLux: Double? = null
     private var lastPublishedLux: Double? = null
     private var lastPublishedElapsedMs: Long = Long.MIN_VALUE
+    @Volatile private var lastSampleElapsedMs: Long = Long.MIN_VALUE
     private var rawState = CelestialAmbientLightStateV2(
         lux = null,
         quality = CelestialAmbientLightQualityV2.UNAVAILABLE,
@@ -68,10 +69,14 @@ object CelestialAmbientLightV2 {
     ): CelestialAmbientLightStateV2 {
         val state = rawState
         if (state.quality == CelestialAmbientLightQualityV2.VALID) {
-            val age = state.ageMs(nowElapsedMs)
+            val sampleAt = lastSampleElapsedMs.takeIf { it != Long.MIN_VALUE }
+                ?: state.measuredAtElapsedMs
+            val effective = state.copy(measuredAtElapsedMs = sampleAt)
+            val age = effective.ageMs(nowElapsedMs)
             if (age != null && age > MAX_SAMPLE_AGE_MS) {
-                return state.copy(quality = CelestialAmbientLightQualityV2.STALE)
+                return effective.copy(quality = CelestialAmbientLightQualityV2.STALE)
             }
+            return effective
         }
         return state
     }
@@ -117,6 +122,10 @@ object CelestialAmbientLightV2 {
                 }
                 filteredLux = filtered
                 val now = SystemClock.elapsedRealtime()
+                // La fraîcheur reflète le dernier échantillon réellement reçu,
+                // pas seulement le dernier échantillon assez différent pour
+                // déclencher un redraw.
+                lastSampleElapsedMs = now
                 val previousPublished = lastPublishedLux
                 val absoluteDelta = previousPublished?.let { abs(filtered - it) } ?: Double.POSITIVE_INFINITY
                 val relativeDelta = previousPublished?.let {
@@ -178,6 +187,7 @@ object CelestialAmbientLightV2 {
         filteredLux = null
         lastPublishedLux = null
         lastPublishedElapsedMs = Long.MIN_VALUE
+        lastSampleElapsedMs = Long.MIN_VALUE
         rawState = CelestialAmbientLightStateV2(
             lux = null,
             quality = CelestialAmbientLightQualityV2.UNAVAILABLE,
