@@ -1,29 +1,30 @@
-name: HoraTrack DEV - APK unique
+name: HoraTrack DEV - Celeste APK AAB
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - release/celeste-dev-latest
     paths:
       - ".github/dev-build-trigger.txt"
 
 concurrency:
-  group: horatrack-apk-dev
+  group: horatrack-celeste-dev-release
   cancel-in-progress: true
 
 jobs:
   dev-build:
-    name: Tester puis compiler l APK DEV unique
+    name: Tester compiler et publier Celeste DEV
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Recuperer le projet
+      - name: Recuperer exactement la branche Celeste
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          ref: ${{ github.sha }}
 
       - name: Installer Java 17
         uses: actions/setup-java@v5
@@ -58,26 +59,27 @@ jobs:
           test -n "$KEY_PASSWORD" || (echo "Secret POINTAGE_KEY_PASSWORD manquant" && exit 1)
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/pointage-release.keystore"
 
-      - name: Preparer la version de developpement
+      - name: Preparer une version installable superieure a la publique
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
           PUBLIC_VERSION="${TAG#v}"
-          VERSION_CODE="${PUBLIC_VERSION##*.}"
-          if [ -z "$PUBLIC_VERSION" ] || ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || [ "$VERSION_CODE" -le 0 ]; then
-            PUBLIC_VERSION="1.9"
-            VERSION_CODE="9"
+          PUBLIC_CODE="${PUBLIC_VERSION##*.}"
+          VERSION_PREFIX="${PUBLIC_VERSION%.*}"
+          if [ -z "$PUBLIC_VERSION" ] || ! [[ "$PUBLIC_CODE" =~ ^[0-9]+$ ]] || [ "$PUBLIC_CODE" -le 0 ]; then
+            PUBLIC_CODE="1450"
+            VERSION_PREFIX="1"
           fi
+          VERSION_CODE="$((PUBLIC_CODE + 1))"
           DEV_REVISION="$(date +%s)"
-          VERSION_NAME="${PUBLIC_VERSION}-dev-${DEV_REVISION}"
-          echo "PUBLIC_VERSION=$PUBLIC_VERSION" >> "$GITHUB_ENV"
+          VERSION_NAME="${VERSION_PREFIX}.${VERSION_CODE}-celeste-dev-${DEV_REVISION}"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
           echo "DEV_REVISION=$DEV_REVISION" >> "$GITHUB_ENV"
-          echo "Build DEV unique: $VERSION_NAME (code Android $VERSION_CODE)."
+          echo "Build Celeste DEV: $VERSION_NAME (code Android $VERSION_CODE)."
 
-      - name: Compiler APK release signe
+      - name: Compiler APK et AAB release signes
         id: gradle_build
         env:
           POINTAGE_KEYSTORE_PATH: ${{ runner.temp }}/pointage-release.keystore
@@ -91,7 +93,7 @@ jobs:
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
         run: |
           set +e
-          gradle :app:assembleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
+          gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
           STATUS=${PIPESTATUS[0]}
           echo "exit_code=$STATUS" >> "$GITHUB_OUTPUT"
           exit 0
@@ -100,7 +102,7 @@ jobs:
         if: steps.gradle_build.outputs.exit_code != '0'
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostic-build-dev-${{ github.run_number }}
+          name: diagnostic-celeste-dev-${{ github.run_number }}
           path: build-error.log
           if-no-files-found: error
           retention-days: 7
@@ -115,43 +117,61 @@ jobs:
           test -n "$APKSIGNER" || (echo "apksigner introuvable" && exit 1)
           "$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
 
-      - name: Preparer l APK DEV unique
+      - name: Preparer APK AAB et empreintes
         run: |
           cp app/build/outputs/apk/release/app-release.apk HoraTrack-dev.apk
+          cp app/build/outputs/bundle/release/app-release.aab HoraTrack-dev.aab
           sha256sum HoraTrack-dev.apk > SHA256-dev.txt
+          sha256sum HoraTrack-dev.aab > SHA256-AAB-dev.txt
           printf '%s\n' "$VERSION_NAME" > HoraTrack-dev-version.txt
           test -s HoraTrack-dev.apk
+          test -s HoraTrack-dev.aab
           test -s SHA256-dev.txt
+          test -s SHA256-AAB-dev.txt
           test -s HoraTrack-dev-version.txt
 
-      - name: Publier au seul emplacement DEV
+      - name: Conserver aussi les artefacts du workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoraTrack-Celeste-DEV-APK-AAB
+          path: |
+            HoraTrack-dev.apk
+            HoraTrack-dev.aab
+            SHA256-dev.txt
+            SHA256-AAB-dev.txt
+            HoraTrack-dev-version.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publier la prerelease dev-latest
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           NOTES="DEV_VERSION=$VERSION_NAME
           CHANNEL=development
-          BUILD_KIND=tested
+          BUILD_KIND=tested-signed-apk-aab
+          CELESTE_REAL_SKY=true
           SOURCE_SHA=$GITHUB_SHA"
+          gh release delete dev-latest --cleanup-tag -y 2>/dev/null || true
+          gh release create dev-latest \
+            HoraTrack-dev.apk \
+            HoraTrack-dev.aab \
+            SHA256-dev.txt \
+            SHA256-AAB-dev.txt \
+            HoraTrack-dev-version.txt \
+            --target "$GITHUB_SHA" \
+            --title "HoraTrack DEV Celeste - APK + AAB" \
+            --notes "$NOTES" \
+            --prerelease
 
-          if gh release view dev-latest >/dev/null 2>&1; then
-            gh release edit dev-latest \
-              --title "HoraTrack DEV - derniere APK" \
-              --notes "$NOTES" \
-              --prerelease
-            gh release upload dev-latest \
-              HoraTrack-dev.apk \
-              SHA256-dev.txt \
-              HoraTrack-dev-version.txt \
-              --clobber
-          else
-            gh release create dev-latest \
-              HoraTrack-dev.apk \
-              SHA256-dev.txt \
-              HoraTrack-dev-version.txt \
-              --target "$GITHUB_SHA" \
-              --title "HoraTrack DEV - derniere APK" \
-              --notes "$NOTES" \
-              --prerelease
-          fi
-
-          echo "APK DEV unique: https://github.com/$GITHUB_REPOSITORY/releases/tag/dev-latest"
+      - name: Verifier que la mise a jour est disponible
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view dev-latest --json tagName,isDraft,isPrerelease,assets,url,targetCommitish
+          mkdir -p "$RUNNER_TEMP/dev-release-check"
+          gh release download dev-latest -p "HoraTrack-dev.apk" -p "HoraTrack-dev.aab" -p "SHA256-dev.txt" -D "$RUNNER_TEMP/dev-release-check"
+          test -s "$RUNNER_TEMP/dev-release-check/HoraTrack-dev.apk"
+          test -s "$RUNNER_TEMP/dev-release-check/HoraTrack-dev.aab"
+          test -s "$RUNNER_TEMP/dev-release-check/SHA256-dev.txt"
+          echo "HoraTrack Celeste DEV disponible: https://github.com/$GITHUB_REPOSITORY/releases/tag/dev-latest"
