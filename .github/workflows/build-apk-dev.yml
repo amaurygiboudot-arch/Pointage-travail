@@ -5,7 +5,6 @@ on:
   push:
     branches:
       - main
-      - feat/celestial-constellations-v2
     paths:
       - ".github/dev-build-trigger.txt"
 
