@@ -91,6 +91,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryEmploymentContractPayrollBridgeV2.swift
       - path: HPTravail/SalaryV2/SalaryContractSegmentPayrollCompatibilityV2.swift
       - path: HPTravail/SalaryV2/ConfirmedSegmentedMonthlyProrationV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedProrationStoreV2.swift
       - path: HPTravail/SalaryV2/SalaryPayrollCalculationTimelineV2.swift
       - path: HPTravail/SalaryV2/CompanyBenefitInKindStoreV2.swift
       - path: HPTravail/SalaryV2/EmployerHealthFamilyV2.swift
