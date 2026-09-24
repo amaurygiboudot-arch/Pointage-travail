@@ -38,6 +38,22 @@ class AgentRouterTest(unittest.TestCase):
         self.assertIn("salary_v2", result["specialists"])
         self.assertNotIn("celestial_system", result["specialists"])
 
+    def test_mobile_change_requires_release_store_and_both_platform_builds(self):
+        for files in (
+            ["app/src/main/java/com/amaury/pointage/MainActivity.kt"],
+            ["ios/HPTravail/HPTravail/ContentView.swift"],
+        ):
+            result = router.route(files, "base", "head")
+            self.assertIn("release_store", result["specialists"])
+            for expected in (
+                "v2-tests",
+                "android-build",
+                "play-build",
+                "ios-tests",
+                "ios-build",
+            ):
+                self.assertIn(expected, result["recommended_tests"])
+
     def test_governance_change_requires_security_and_people_ops(self):
         files = [".github/workflows/security.yml", "AGENTS.md"]
         result = router.route(files, "base", "head")

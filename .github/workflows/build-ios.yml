@@ -4,11 +4,20 @@ on:
   push:
     branches: [ main ]
     paths:
+      - 'app/**'
       - 'ios/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
       - '.github/workflows/build-ios.yml'
   pull_request:
+    branches: [ main ]
     paths:
+      - 'app/**'
       - 'ios/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
       - '.github/workflows/build-ios.yml'
   workflow_dispatch:
 

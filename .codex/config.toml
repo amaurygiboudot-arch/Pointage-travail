@@ -41,7 +41,7 @@ description = "Performance, batterie, mémoire, réseau, capteurs et exécution 
 config_file = "./agents/performance-battery.toml"
 
 [agents.release_store]
-description = "Builds de distribution, versions, signatures, Play Store/App Store, rollout et rollback."
+description = "Gardien publication multi-plateforme : Android/iOS, APK/AAB, builds, signatures, compatibilité, checks, rollout et rollback."
 config_file = "./agents/release-store.toml"
 
 [agents.analytics_data]

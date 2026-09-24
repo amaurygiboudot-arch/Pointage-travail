@@ -181,7 +181,7 @@ jobs:
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Require successful iOS build when iOS changes
+      - name: Require successful iOS build for mobile release readiness
         if: github.event_name == 'pull_request'
         shell: bash
         env:
@@ -194,12 +194,12 @@ jobs:
           git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
           changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
 
-          if ! printf '%s\n' "$changed" | grep -Eq '^(ios/|\.github/workflows/build-ios\.yml$)'; then
-            echo "No iOS change detected; iOS build gate is not applicable."
+          if ! printf '%s\n' "$changed" | grep -Eq '^(app/|ios/|build\.gradle\.kts$|settings\.gradle\.kts$|gradle/|\.github/workflows/build-ios\.yml$)'; then
+            echo "No mobile/release change detected; cross-platform build gate is not applicable."
             exit 0
           fi
 
-          echo "iOS changes detected; waiting for the build-ios check on $HEAD_SHA."
+          echo "Mobile/release change detected; waiting for the exact-HEAD iOS build before release readiness."
 
           for attempt in $(seq 1 80); do
             checks="$(gh api -H 'Accept: application/vnd.github+json' "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100")"
