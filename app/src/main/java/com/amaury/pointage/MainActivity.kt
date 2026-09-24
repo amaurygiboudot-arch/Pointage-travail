@@ -299,6 +299,7 @@ class MainActivity : Activity() {
     }
 
     internal fun onSalaryTabShown() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("salary")
         setActiveTab(tabSalary)
@@ -352,7 +353,13 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    private fun setCelestialHomeBackground(active: Boolean) {
+        findViewById<ThemedBackgroundScrollView>(R.id.appRootScroll)
+            ?.setCelestialHomeActive(active)
+    }
+
     private fun showHomeTab() {
+        setCelestialHomeBackground(true)
         persistActiveTab("home")
         setActiveTab(tabHome)
         revealHomeTabsAndScheduleHide()
@@ -369,6 +376,7 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("today")
         setActiveTab(tabToday)
@@ -387,6 +395,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("history")
         setActiveTab(tabHistory)
@@ -405,6 +414,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
@@ -424,6 +434,7 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
+        setCelestialHomeBackground(false)
         cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("settings")
         setActiveTab(tabSettings)
