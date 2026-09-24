@@ -123,4 +123,48 @@ final class CelestialAtmosphereV2Tests: XCTestCase {
         }
     }
 
+    func testBrightAmbientLightReducesStarsAndMoonWithoutChangingNightState() throws {
+        let base = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 0,
+            longitudeDegrees: 0,
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let night = CelestialSnapshotV2(
+            date: base.date,
+            latitudeDegrees: base.latitudeDegrees,
+            longitudeDegrees: base.longitudeDegrees,
+            sun: CelestialBodyV2(
+                azimuthDegrees: base.sun.azimuthDegrees,
+                altitudeDegrees: -20,
+                distanceKilometers: base.sun.distanceKilometers,
+                apparentScale: base.sun.apparentScale
+            ),
+            moon: CelestialBodyV2(
+                azimuthDegrees: base.moon.azimuthDegrees,
+                altitudeDegrees: 35,
+                distanceKilometers: base.moon.distanceKilometers,
+                apparentScale: base.moon.apparentScale
+            ),
+            moonPhase: base.moonPhase,
+            lunarEclipse: base.lunarEclipse,
+            isNight: true
+        )
+        let dark = CelestialAtmosphereV2.resolve(
+            snapshot: night,
+            weather: nil,
+            ambient: ambient(0.2, quality: .valid)
+        )
+        let bright = CelestialAtmosphereV2.resolve(
+            snapshot: night,
+            weather: nil,
+            ambient: ambient(100_000, quality: .valid)
+        )
+
+        XCTAssertEqual(dark.nightLevel, bright.nightLevel, accuracy: 0)
+        XCTAssertLessThan(bright.starsVisibility, dark.starsVisibility)
+        XCTAssertLessThan(bright.moonVisibility, dark.moonVisibility)
+        XCTAssertGreaterThanOrEqual(bright.starsVisibility, 0)
+        XCTAssertGreaterThan(bright.moonVisibility, 0)
+    }
+
 }
