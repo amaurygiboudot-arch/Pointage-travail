@@ -77,7 +77,7 @@ jobs:
             VERSION_CODE=$((VERSION_CODE + 1))
           fi
           DEV_REVISION="$(date +%s)"
-          VERSION_NAME="1.${VERSION_CODE}-celeste-dev-${DEV_REVISION}"
+          VERSION_NAME="1.${VERSION_CODE}-dev-${DEV_REVISION}"
           echo "PUBLIC_VERSION=$PUBLIC_VERSION" >> "$GITHUB_ENV"
           echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
