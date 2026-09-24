@@ -439,33 +439,30 @@ class CelestialHomeSkyBackgroundRendererV2(
         val rainy = weatherType == CelestialWeatherTypeV2.DRIZZLE ||
             weatherType == CelestialWeatherTypeV2.RAIN
         val foggy = weatherType == CelestialWeatherTypeV2.FOG
-        val snowy = weatherType == CelestialWeatherTypeV2.SNOW
         val stormy = weatherType == CelestialWeatherTypeV2.THUNDERSTORM
-        val overcast = weatherType == CelestialWeatherTypeV2.OVERCAST
+        val snowy = weatherType == CelestialWeatherTypeV2.SNOW
 
         val dayTop = when {
-            stormy -> Color.rgb(106, 116, 130)
-            rainy -> Color.rgb(166, 176, 187)
-            snowy -> Color.rgb(248, 249, 250)
-            overcast -> Color.rgb(214, 219, 224)
-            else -> Color.rgb(250, 252, 253)
+            stormy -> Color.rgb(124, 132, 146)
+            rainy -> Color.rgb(174, 182, 192)
+            snowy -> Color.rgb(242, 245, 247)
+            else -> Color.rgb(238, 242, 246)
         }
         val dayBottom = when {
-            stormy -> Color.rgb(63, 72, 86)
-            rainy -> Color.rgb(116, 128, 142)
-            snowy -> Color.rgb(206, 214, 222)
-            overcast -> Color.rgb(168, 177, 187)
-            else -> Color.rgb(196, 206, 216)
+            stormy -> Color.rgb(82, 90, 104)
+            rainy -> Color.rgb(132, 143, 156)
+            snowy -> Color.rgb(210, 218, 225)
+            else -> Color.rgb(190, 201, 212)
         }
         val nightTop = when {
-            stormy -> Color.rgb(52, 58, 72)
-            rainy -> Color.rgb(70, 78, 92)
-            else -> Color.rgb(104, 113, 129)
+            stormy -> Color.rgb(66, 73, 87)
+            rainy -> Color.rgb(78, 87, 101)
+            else -> Color.rgb(102, 112, 128)
         }
         val nightBottom = when {
-            stormy -> Color.rgb(28, 34, 45)
-            rainy -> Color.rgb(43, 51, 64)
-            else -> Color.rgb(68, 76, 91)
+            stormy -> Color.rgb(37, 43, 54)
+            rainy -> Color.rgb(48, 56, 68)
+            else -> Color.rgb(69, 78, 92)
         }
 
         val topColor = blend(dayTop, nightTop, night)
@@ -476,9 +473,7 @@ class CelestialHomeSkyBackgroundRendererV2(
             return
         }
 
-        // Nuages fins / cirrus : très étirés, peu opaques, jamais composés de
-        // "boules". Ils servent surtout pour clair/partiellement nuageux.
-        if (!stormy && !rainy && cover < 0.58f) {
+        if (!rainy && !stormy && cover < 0.50f) {
             drawCirrusLayer(
                 canvas = canvas,
                 width = width,
@@ -489,95 +484,151 @@ class CelestialHomeSkyBackgroundRendererV2(
             )
         }
 
-        // Quelques grandes masses valent mieux qu'une répétition de petites
-        // formes. Le nombre reste volontairement faible, même en qualité HIGH.
-        val maxBanks = when (quality) {
-            CelestialRenderQualityV2.REDUCED -> 3
-            CelestialRenderQualityV2.BALANCED -> 4
-            CelestialRenderQualityV2.HIGH -> 5
+        // Open-Meteo donne une couverture, pas la géométrie exacte des nuages.
+        // On préfère donc de larges nappes atmosphériques semi-transparentes
+        // à de faux nuages isolés qui ressemblent à des autocollants.
+        val layerCount = when (quality) {
+            CelestialRenderQualityV2.REDUCED -> 2
+            CelestialRenderQualityV2.BALANCED -> 3
+            CelestialRenderQualityV2.HIGH -> 4
         }
-        val bankCount = when {
-            stormy -> minOf(maxBanks, 3)
-            rainy -> minOf(maxBanks, 4)
-            overcast -> minOf(maxBanks, 5)
-            else -> (1 + cover * 4f).toInt().coerceIn(1, maxBanks)
-        }
-
+        val visibleLayers = (1 + cover * (layerCount - 1)).toInt().coerceIn(1, layerCount)
         val now = System.currentTimeMillis()
-        val driftPhase = (now % CLOUD_DRIFT_PERIOD_MS).toFloat() / CLOUD_DRIFT_PERIOD_MS.toFloat()
-        val drift = driftPhase * width
 
-        for (index in 0 until bankCount) {
-            val seed = 17.0 + index * 11.731 + weatherType.ordinal * 3.17
-            val lane = (index + 0.35f) / bankCount.toFloat()
-            val speed = 0.07f + (index % 3) * 0.025f
-            val x = (
-                lane * width * 1.40f +
-                    drift * speed
-                ) % (width * 1.55f) - width * 0.27f
-
-            val yNoise = cloudNoise(seed + 2.1)
-            val y = height * (
-                if (stormy) 0.11f + yNoise * 0.28f
-                else 0.08f + yNoise * 0.34f
+        repeat(visibleLayers) { index ->
+            val seed = 31.0 + index * 19.37 + weatherType.ordinal * 2.71
+            val phase = (
+                (now % CLOUD_DRIFT_PERIOD_MS).toFloat() /
+                    CLOUD_DRIFT_PERIOD_MS.toFloat()
                 )
-
-            val widthNoise = cloudNoise(seed + 6.4)
-            val bankWidth = width * (
-                when {
-                    stormy -> 0.52f + widthNoise * 0.22f
-                    overcast -> 0.45f + widthNoise * 0.22f
-                    rainy -> 0.40f + widthNoise * 0.20f
-                    else -> 0.30f + cover * 0.16f + widthNoise * 0.13f
-                }
+            val xShift = width * (
+                phase * (0.035f + index * 0.012f) +
+                    (cloudNoise(seed + 3.1) - 0.5f) * 0.08f
                 )
-
-            val bankHeight = bankWidth * (
-                when {
-                    stormy -> 0.28f + cloudNoise(seed + 8.7) * 0.16f
-                    rainy -> 0.20f + cloudNoise(seed + 8.7) * 0.11f
-                    snowy -> 0.19f + cloudNoise(seed + 8.7) * 0.10f
-                    else -> 0.15f + cloudNoise(seed + 8.7) * 0.09f
-                }
+            val centerY = height * (
+                0.10f +
+                    index * 0.105f +
+                    cloudNoise(seed + 7.7) * 0.055f
                 )
-
+            val sheetHeight = height * (
+                0.075f +
+                    cover * 0.045f +
+                    cloudNoise(seed + 9.2) * 0.025f
+                )
             val alpha = (
                 when {
-                    stormy -> 0.42f + cover * 0.20f
-                    rainy -> 0.32f + cover * 0.18f
-                    overcast -> 0.28f + cover * 0.16f
-                    snowy -> 0.24f + cover * 0.13f
-                    else -> 0.16f + cover * 0.16f
-                } * (0.90f + cloudNoise(seed + 12.3) * 0.10f)
-                ).coerceIn(0.12f, 0.64f)
+                    stormy -> 0.26f + cover * 0.13f
+                    rainy -> 0.20f + cover * 0.12f
+                    else -> 0.11f + cover * 0.11f
+                } * (0.92f - index * 0.08f)
+                ).coerceIn(0.07f, 0.40f)
 
-            drawCloudBank(
+            drawAtmosphericCloudSheet(
                 canvas = canvas,
-                cx = x,
-                cy = y,
-                width = bankWidth,
-                height = bankHeight,
+                width = width,
+                centerY = centerY,
+                sheetHeight = sheetHeight,
+                xShift = xShift,
                 seed = seed,
                 topColor = topColor,
                 bottomColor = bottomColor,
-                alpha = alpha,
-                dense = stormy || rainy || overcast
+                alpha = alpha
             )
         }
 
-        // Couverture forte : un voile très léger relie les grandes masses sans
-        // transformer l'écran en aplats opaques.
-        if (cover > 0.72f) {
-            val veil = ((cover - 0.72f) / 0.28f).coerceIn(0f, 1f)
+        if (cover > 0.78f) {
+            val veil = ((cover - 0.78f) / 0.22f).coerceIn(0f, 1f)
             cloudPaint.shader = LinearGradient(
-                0f, 0f, 0f, height * 0.72f,
-                Color.argb((veil * 42f).toInt(), Color.red(topColor), Color.green(topColor), Color.blue(topColor)),
-                Color.argb((veil * 22f).toInt(), Color.red(bottomColor), Color.green(bottomColor), Color.blue(bottomColor)),
+                0f, 0f, 0f, height * 0.68f,
+                Color.argb(
+                    (veil * if (stormy || rainy) 42f else 30f).toInt(),
+                    Color.red(topColor),
+                    Color.green(topColor),
+                    Color.blue(topColor)
+                ),
+                Color.TRANSPARENT,
                 Shader.TileMode.CLAMP
             )
-            canvas.drawRect(0f, 0f, width, height * 0.72f, cloudPaint)
+            canvas.drawRect(0f, 0f, width, height * 0.68f, cloudPaint)
             cloudPaint.shader = null
         }
+    }
+
+    private fun drawAtmosphericCloudSheet(
+        canvas: Canvas,
+        width: Float,
+        centerY: Float,
+        sheetHeight: Float,
+        xShift: Float,
+        seed: Double,
+        topColor: Int,
+        bottomColor: Int,
+        alpha: Float
+    ) {
+        val left = -width * 0.18f + xShift
+        val right = width * 1.18f + xShift
+        val span = right - left
+        val segments = 8
+        val top = ArrayList<PointF>(segments + 1)
+        val bottom = ArrayList<PointF>(segments + 1)
+
+        for (i in 0..segments) {
+            val t = i.toFloat() / segments.toFloat()
+            val x = left + span * t
+            val wave = sin((t * Math.PI * 2.0 + seed).toDouble()).toFloat()
+            val topNoise = cloudNoise(seed + i * 4.17) - 0.5f
+            val bottomNoise = cloudNoise(seed + i * 6.83) - 0.5f
+            top += PointF(
+                x,
+                centerY - sheetHeight * (0.46f + wave * 0.08f + topNoise * 0.16f)
+            )
+            bottom += PointF(
+                x,
+                centerY + sheetHeight * (0.38f + wave * 0.04f + bottomNoise * 0.12f)
+            )
+        }
+
+        val path = Path()
+        path.moveTo(top.first().x, top.first().y)
+        for (i in 1 until top.size) {
+            val p0 = top[i - 1]
+            val p1 = top[i]
+            val midX = (p0.x + p1.x) * 0.5f
+            path.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
+        }
+        for (i in bottom.indices.reversed()) {
+            val p = bottom[i]
+            if (i == bottom.lastIndex) {
+                path.lineTo(p.x, p.y)
+            } else {
+                val prev = bottom[i + 1]
+                val midX = (prev.x + p.x) * 0.5f
+                path.cubicTo(midX, prev.y, midX, p.y, p.x, p.y)
+            }
+        }
+        path.close()
+
+        cloudPaint.shader = LinearGradient(
+            0f,
+            centerY - sheetHeight,
+            0f,
+            centerY + sheetHeight,
+            Color.argb(
+                (alpha * 255f).toInt().coerceIn(0, 122),
+                Color.red(topColor),
+                Color.green(topColor),
+                Color.blue(topColor)
+            ),
+            Color.argb(
+                (alpha * 165f).toInt().coerceIn(0, 98),
+                Color.red(bottomColor),
+                Color.green(bottomColor),
+                Color.blue(bottomColor)
+            ),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawPath(path, cloudPaint)
+        cloudPaint.shader = null
     }
 
     private fun drawCloudBank(
