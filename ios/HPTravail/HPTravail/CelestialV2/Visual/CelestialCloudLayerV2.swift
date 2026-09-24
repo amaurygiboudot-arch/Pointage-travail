@@ -5,7 +5,11 @@ struct CelestialCloudLayerV2: View {
     let renderState: CelestialRenderStateV2?
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 5)) { timeline in
+        let quality = CelestialRenderQualityProviderV2.current
+        TimelineView(.periodic(
+            from: .now,
+            by: quality.cloudAnimationInterval
+        )) { timeline in
             Canvas { context, size in
                 guard let renderState,
                       let cloudCoverage = renderState.cloudCoverage else {
@@ -33,7 +37,10 @@ struct CelestialCloudLayerV2: View {
                     : Color(red: 0.36, green: 0.40, blue: 0.47)
                 let night = min(1, max(0, renderState.nightLevel))
 
-                let clusterCount = min(11, max(2, Int(2 + cover * 9)))
+                let clusterCount = min(
+                    quality.maxCloudClusters,
+                    max(2, Int(2 + cover * 9))
+                )
                 let driftPhase = timeline.date.timeIntervalSince1970
                     .truncatingRemainder(dividingBy: 3_600) / 3_600
                 let drift = CGFloat(driftPhase) * size.width
@@ -41,7 +48,10 @@ struct CelestialCloudLayerV2: View {
                     0.41,
                     0.07 + cover * (stormy ? 0.29 : (rainy ? 0.24 : 0.19))
                 )
-                let blurRadius = max(4, size.width * 0.012)
+                let blurRadius = max(
+                    2,
+                    size.width * 0.012 * quality.cloudBlurScale
+                )
 
                 // Nuages larges, irréguliers et doux, concentrés dans le ciel
                 // supérieur. Le centre/bas de l'écran reste volontairement calme
