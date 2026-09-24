@@ -10,6 +10,7 @@ struct CelestialHomeView: View {
     @AppStorage(CelestialGlobeModeV2.preferenceKey) private var globeModeRaw = CelestialGlobeModeV2.local.rawValue
     @State private var isVisible = false
     @State private var tabBarHideTask: Task<Void, Never>?
+    @StateObject private var weather = CelestialWeatherClientV2()
 
     init(tabBarVisible: Binding<Bool> = .constant(true)) {
         _tabBarVisible = tabBarVisible
@@ -23,7 +24,14 @@ struct CelestialHomeView: View {
 
                 CelestialStarFieldViewV2(
                     state: locationManager.celestialState,
-                    presentation: .fullScreen
+                    presentation: .fullScreen,
+                    cloudCover: weather.freshState?.cloudCover
+                )
+                .ignoresSafeArea()
+
+                CelestialCloudLayerV2(
+                    weather: weather.freshState,
+                    nightOpacity: currentNightOpacity
                 )
                 .ignoresSafeArea()
 
@@ -86,7 +94,32 @@ struct CelestialHomeView: View {
                     locationManager.stopCelestialTracking()
                 }
             }
+            .task(id: weatherRequestKey) {
+                guard isVisible,
+                      let snapshot = locationManager.celestialState.snapshot else {
+                    return
+                }
+                await weather.refreshIfNeeded(snapshot: snapshot)
+            }
         }
+    }
+
+    private var currentNightOpacity: Double {
+        guard let snapshot = locationManager.celestialState.snapshot else { return 1 }
+        return StarSkyProjectionV2.nightSkyOpacity(
+            sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
+        )
+    }
+
+    private var weatherRequestKey: String {
+        guard let snapshot = locationManager.celestialState.snapshot else { return "none" }
+        let bucket = Int(snapshot.date.timeIntervalSince1970 / (15 * 60))
+        return String(
+            format: "%.2f:%.2f:%d",
+            snapshot.latitudeDegrees,
+            snapshot.longitudeDegrees,
+            bucket
+        )
     }
 
     private var homeSkyBase: some View {
@@ -140,7 +173,8 @@ struct CelestialHomeView: View {
     private var skyPanel: some View {
         CelestialSkyDialV2(
             state: locationManager.celestialState,
-            globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local
+            globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
+            weatherCloudCover: weather.freshState?.cloudCover
         )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
@@ -243,7 +277,11 @@ struct CelestialHomeView: View {
                     }
                 }
             }
-            Text("Les angles affichés restent géométriques. La projection du cadran applique une réfraction atmosphérique moyenne ; la météo locale n’est pas incluse.")
+            Text(
+                weather.freshState == nil
+                    ? "La météo locale est indisponible : Céleste conserve uniquement le ciel astronomique."
+                    : "La météo locale module les nuages et la visibilité sans modifier les positions astronomiques."
+            )
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -396,6 +434,7 @@ struct CelestialHomeView: View {
 private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
     let globeMode: CelestialGlobeModeV2
+    let weatherCloudCover: Double?
 
     var body: some View {
         GeometryReader { geometry in
@@ -435,15 +474,19 @@ private struct CelestialSkyDialV2: View {
                         sun: snapshot.sun,
                         moon: snapshot.moon
                     )
+                    let cloudCover = min(1, max(0, weatherCloudCover ?? 0))
+                    let sunTransmission = max(0.18, 1 - cloudCover * 0.72)
+                    let moonTransmission = max(0.08, 1 - cloudCover * 0.88)
+
                     let sunOpacity = CelestialHorizonTransitionV2.diskOpacity(
                         altitudeDegrees: snapshot.sun.altitudeDegrees
-                    )
+                    ) * sunTransmission
                     let moonOpacity = CelestialHorizonTransitionV2.diskOpacity(
                         altitudeDegrees: snapshot.moon.altitudeDegrees
-                    )
+                    ) * moonTransmission
                     let sunGlowOpacity = CelestialHorizonTransitionV2.sunGlowOpacity(
                         altitudeDegrees: snapshot.sun.altitudeDegrees
-                    )
+                    ) * (0.45 + 0.55 * sunTransmission)
 
                     if sunGlowOpacity > 0 {
                         Circle()
