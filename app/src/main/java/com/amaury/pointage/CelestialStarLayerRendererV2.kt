@@ -159,6 +159,7 @@ class CelestialStarLayerRendererV2(
 
         if (starOpacity > 0.01) {
             for ((star, point) in visibleStars) {
+                if (star.magnitude > DIAL_MAX_VISUAL_MAGNITUDE) continue
                 val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
                 starPaint.alpha = (starOpacity * (110.0 + 145.0 * brightness)).toInt().coerceIn(0, 255)
                 val starRadius = (0.60 + brightness * 2.15).toFloat() * density
@@ -175,6 +176,7 @@ class CelestialStarLayerRendererV2(
 
     companion object {
         private const val LOCAL_SKY_REFRESH_MS = 30_000L
+        private const val DIAL_MAX_VISUAL_MAGNITUDE = 4.5
         private val executor = Executors.newSingleThreadExecutor { task ->
             Thread(task, "HoraTrack-StarSky").apply {
                 priority = Thread.NORM_PRIORITY - 1
