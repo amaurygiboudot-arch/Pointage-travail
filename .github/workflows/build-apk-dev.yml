@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - build/celeste-clouds-v3-device-test
     paths:
       - ".github/dev-build-trigger.txt"
 
