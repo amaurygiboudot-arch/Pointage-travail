@@ -36,6 +36,12 @@ enum EmployeeNetProjectionV2 {
         let netAfterIncomeTax: Double?
         let netBeforeIncomeTaxComplete: Bool
         let netTaxableComplete: Bool
+        let statutoryEmployerContributions: Double?
+        let complementaryRetirementEmployer: Double?
+        let knownEmployerContributions: Double?
+        let knownEmployerCost: Double?
+        let employerCostComplete: Bool
+        let employerCostWarnings: [String]
         let warnings: [String]
         let traces: [String]
     }
@@ -79,6 +85,14 @@ enum EmployeeNetProjectionV2 {
         let statutoryTotal = statutory.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
         let retirementTotal = retirement.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
         let directTotal = direct.deductions.reduce(0) { $0 + roundedCurrency($1.amount) }
+
+        let rawStatutoryEmployerTotal = statutory.lines.reduce(0) {
+            $0 + roundedCurrency($1.employerAmount)
+        }
+        let rawRetirementEmployerTotal = retirement.lines.reduce(0) {
+            $0 + roundedCurrency($1.employerAmount)
+        }
+
         let rawBeforeTax = safeCashGross - statutoryTotal - retirementTotal - directTotal
         let knownBeforeTax = max(0, rawBeforeTax)
 
@@ -91,6 +105,41 @@ enum EmployeeNetProjectionV2 {
             !SocialContributionCatalogV2.employeeRules(year: input.year).isEmpty
         let statutoryInputsComplete = input.alsaceMoselleLocalRegime != nil &&
             employerProtectionCsgCrdsBase != nil
+
+        // Un zéro patronal technique n'est jamais assimilé à une preuve d'absence.
+        // Le sous-total n'est publié que si les entrées nécessaires aux lignes connues
+        // (plafond + statut/catégorie APEC) sont elles-mêmes qualifiées.
+        let employerKnownInputsComplete = supportedNationalTables &&
+            input.ceiling.complete &&
+            statusComplete &&
+            aniComplete
+        let statutoryEmployerTotal = employerKnownInputsComplete
+            ? roundedCurrency(rawStatutoryEmployerTotal)
+            : nil
+        let retirementEmployerTotal = employerKnownInputsComplete
+            ? roundedCurrency(rawRetirementEmployerTotal)
+            : nil
+        let knownEmployerContributions: Double? = {
+            guard let statutoryEmployerTotal, let retirementEmployerTotal else {
+                return nil
+            }
+            return roundedCurrency(statutoryEmployerTotal + retirementEmployerTotal)
+        }()
+        let knownEmployerCost: Double? = {
+            guard grossReliable, let knownEmployerContributions else { return nil }
+            return roundedCurrency(contributionGross + knownEmployerContributions)
+        }()
+        var employerCostWarnings = [
+            "Coût employeur total : seules les cotisations patronales nationales déjà intégrées et la retraite complémentaire sont incluses dans ce sous-total ; AT/MP, mobilité, chômage/AGS, FNAL, formation, maladie/famille, apprentissage, prévoyance et réductions restent à raccorder avant tout total complet."
+        ]
+        if !employerKnownInputsComplete {
+            employerCostWarnings.append(
+                "Coût employeur connu : plafond social, statut professionnel ou catégorie ANI/APEC insuffisamment confirmés ; aucun faux sous-total patronal n'est publié."
+            )
+        }
+        employerCostWarnings = unique(
+            employerCostWarnings + statutory.warnings + retirement.warnings
+        )
 
         var blockers: [String] = []
         if !supportedNationalTables { blockers.append("barèmes nationaux non intégrés pour \(input.year)") }
@@ -230,6 +279,12 @@ enum EmployeeNetProjectionV2 {
             netAfterIncomeTax: netAfterIncomeTax,
             netBeforeIncomeTaxComplete: beforeTaxComplete,
             netTaxableComplete: beforeTaxComplete && taxInputsComplete,
+            statutoryEmployerContributions: statutoryEmployerTotal,
+            complementaryRetirementEmployer: retirementEmployerTotal,
+            knownEmployerContributions: knownEmployerContributions,
+            knownEmployerCost: knownEmployerCost,
+            employerCostComplete: false,
+            employerCostWarnings: employerCostWarnings,
             warnings: unique(warnings),
             traces: traces
         )

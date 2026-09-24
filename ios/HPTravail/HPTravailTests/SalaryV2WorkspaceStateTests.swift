@@ -84,4 +84,34 @@ final class SalaryV2WorkspaceStateTests: XCTestCase {
         XCTAssertNil(snapshot.netTaxable)
         XCTAssertTrue(snapshot.warnings.contains("Cotisation salariale à confirmer"))
     }
+    func testWorkspaceExposesKnownEmployerCostWithoutPromotingItToComplete() {
+        let reference = SalaryReferenceContractV2(
+            gross: 2_500,
+            grossReliable: true,
+            netBeforeIncomeTax: 2_000,
+            netTaxable: 2_050,
+            complete: true,
+            warnings: [],
+            benefitsInKindDeduction: 0,
+            knownEmployerContributions: 420,
+            knownEmployerCost: 2_920,
+            employerCostComplete: false,
+            employerCostWarnings: ["Coût employeur total incomplet"]
+        )
+
+        let snapshot = SalaryWorkspaceResolverV2.resolve(
+            period: month,
+            reference: reference
+        )
+
+        XCTAssertEqual(snapshot.knownEmployerContributions ?? -1, 420, accuracy: 0.001)
+        XCTAssertEqual(snapshot.knownEmployerCost ?? -1, 2_920, accuracy: 0.001)
+        XCTAssertFalse(snapshot.employerCostComplete)
+        XCTAssertEqual(
+            snapshot.employerCostWarnings,
+            ["Coût employeur total incomplet"]
+        )
+        XCTAssertNotNil(snapshot.netBeforeIncomeTax)
+    }
+
 }

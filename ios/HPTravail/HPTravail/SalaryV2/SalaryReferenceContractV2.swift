@@ -319,6 +319,36 @@ struct SalaryReferenceContractV2 {
     let complete: Bool
     let warnings: [String]
     let benefitsInKindDeduction: Double
+    let knownEmployerContributions: Double?
+    let knownEmployerCost: Double?
+    let employerCostComplete: Bool
+    let employerCostWarnings: [String]
+
+    init(
+        gross: Double,
+        grossReliable: Bool,
+        netBeforeIncomeTax: Double,
+        netTaxable: Double?,
+        complete: Bool,
+        warnings: [String],
+        benefitsInKindDeduction: Double,
+        knownEmployerContributions: Double? = nil,
+        knownEmployerCost: Double? = nil,
+        employerCostComplete: Bool = false,
+        employerCostWarnings: [String] = []
+    ) {
+        self.gross = gross
+        self.grossReliable = grossReliable
+        self.netBeforeIncomeTax = netBeforeIncomeTax
+        self.netTaxable = netTaxable
+        self.complete = complete
+        self.warnings = warnings
+        self.benefitsInKindDeduction = benefitsInKindDeduction
+        self.knownEmployerContributions = knownEmployerContributions
+        self.knownEmployerCost = knownEmployerCost
+        self.employerCostComplete = employerCostComplete
+        self.employerCostWarnings = employerCostWarnings
+    }
 
     static func build(
         cashGross: Double,
@@ -369,7 +399,11 @@ struct SalaryReferenceContractV2 {
             netTaxable: normalizedNetTaxable,
             complete: warnings.isEmpty,
             warnings: warnings,
-            benefitsInKindDeduction: normalizedBenefits
+            benefitsInKindDeduction: normalizedBenefits,
+            knownEmployerContributions: nil,
+            knownEmployerCost: nil,
+            employerCostComplete: false,
+            employerCostWarnings: []
         )
     }
 

@@ -437,4 +437,94 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         XCTAssertTrue(reference.warnings.contains { $0.contains("projection canonique incomplète") })
     }
 
+    func testKnownEmployerCostPublishesOnlyQualifiedPartialSubtotal() {
+        let result = EmployeeNetProjectionV2.calculate(input())
+        let expectedStatutory = result.statutory.lines.reduce(0.0) {
+            $0 + (($1.employerAmount * 100).rounded() / 100)
+        }
+        let expectedRetirement = result.complementaryRetirement.lines.reduce(0.0) {
+            $0 + (($1.employerAmount * 100).rounded() / 100)
+        }
+        let expectedContributions = (
+            (expectedStatutory + expectedRetirement) * 100
+        ).rounded() / 100
+
+        XCTAssertEqual(
+            result.statutoryEmployerContributions ?? -1,
+            expectedStatutory,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            result.complementaryRetirementEmployer ?? -1,
+            expectedRetirement,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            result.knownEmployerContributions ?? -1,
+            expectedContributions,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            result.knownEmployerCost ?? -1,
+            result.contributionGross + expectedContributions,
+            accuracy: 0.0001
+        )
+        XCTAssertFalse(result.employerCostComplete)
+        XCTAssertTrue(
+            result.employerCostWarnings.contains {
+                $0.contains("AT/MP") && $0.contains("réductions")
+            }
+        )
+    }
+
+    func testUnknownEmployerInputsNeverBecomeZeroEmployerCost() {
+        let result = EmployeeNetProjectionV2.calculate(
+            input(professionalStatus: nil)
+        )
+
+        XCTAssertNil(result.statutoryEmployerContributions)
+        XCTAssertNil(result.complementaryRetirementEmployer)
+        XCTAssertNil(result.knownEmployerContributions)
+        XCTAssertNil(result.knownEmployerCost)
+        XCTAssertFalse(result.employerCostComplete)
+        XCTAssertTrue(
+            result.employerCostWarnings.contains {
+                $0.contains("aucun faux sous-total patronal")
+            }
+        )
+    }
+
+    func testCanonicalReferenceCarriesEmployerSubtotalWithoutBlockingEmployeeNet() throws {
+        let payroll = try confirmedForfaitPayroll()
+        let monthBenefits = benefits()
+        let projection = EmployeeNetProjectionV2.calculate(
+            input(
+                cashGross: payroll.grossEstimate,
+                upstreamReliable: payroll.grossReliable,
+                benefits: monthBenefits
+            )
+        )
+
+        let reference = SalaryReferenceContractV2.buildFromPayroll(
+            payroll: payroll,
+            benefits: monthBenefits,
+            projection: projection
+        )
+
+        XCTAssertTrue(reference.complete)
+        XCTAssertNotNil(SalaryReferenceContractV2.beforeIncomeTax(reference))
+        XCTAssertEqual(
+            reference.knownEmployerContributions ?? -1,
+            projection.knownEmployerContributions ?? -2,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            reference.knownEmployerCost ?? -1,
+            projection.knownEmployerCost ?? -2,
+            accuracy: 0.0001
+        )
+        XCTAssertFalse(reference.employerCostComplete)
+        XCTAssertFalse(reference.employerCostWarnings.isEmpty)
+    }
+
 }

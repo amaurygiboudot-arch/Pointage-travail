@@ -723,6 +723,33 @@ struct SalaryV2View: View {
 
             Divider()
             VStack(alignment: .leading, spacing: 8) {
+                Text("COÛT EMPLOYEUR")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                amountRow(
+                    "Cotisations patronales connues",
+                    amount: salaryStore.snapshot.knownEmployerContributions
+                )
+                amountRow(
+                    salaryStore.snapshot.employerCostComplete
+                        ? "Coût employeur total"
+                        : "Coût employeur connu (partiel)",
+                    amount: salaryStore.snapshot.knownEmployerCost
+                )
+                if !salaryStore.snapshot.employerCostWarnings.isEmpty {
+                    ForEach(
+                        Array(salaryStore.snapshot.employerCostWarnings.enumerated()),
+                        id: \.offset
+                    ) { _, warning in
+                        Text("• \(warning)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Comparaison bulletin")
                     .fontWeight(.semibold)
 
