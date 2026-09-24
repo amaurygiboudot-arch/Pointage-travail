@@ -6,6 +6,42 @@ import Foundation
 /// Toute donnée de salaire est résolue pour une entreprise sélectionnée sans ambiguïté.
 /// Une seule entreprise confirmée peut être sélectionnée automatiquement ; dès qu'il existe
 /// plusieurs entreprises, seul un choix utilisateur explicitement tracé peut être conservé.
+struct SalarySegmentedProrationDraftSegmentV2: Identifiable, Equatable {
+    let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
+    var scheduledMinutesText: String
+
+    var id: String {
+        "\(versionId)|\(startEpochDay)|\(endEpochDay)"
+    }
+}
+
+private enum SalarySegmentedProrationDraftBuilderV2 {
+    static func make(
+        segments: [SalaryEmploymentContractCoverageSegmentV2],
+        stored: ConfirmedSegmentedMonthlyProrationV2?
+    ) -> [SalarySegmentedProrationDraftSegmentV2] {
+        let storedById = Dictionary(
+            uniqueKeysWithValues: (stored?.segments ?? []).map {
+                ("\($0.versionId.trimmingCharacters(in: .whitespacesAndNewlines))|\($0.startEpochDay)|\($0.endEpochDay)", $0.scheduledMinutes)
+            }
+        )
+        return segments
+            .sorted { $0.startEpochDay < $1.startEpochDay }
+            .map { segment in
+                let versionId = segment.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                let id = "\(versionId)|\(segment.startEpochDay)|\(segment.endEpochDay)"
+                return SalarySegmentedProrationDraftSegmentV2(
+                    versionId: versionId,
+                    startEpochDay: segment.startEpochDay,
+                    endEpochDay: segment.endEpochDay,
+                    scheduledMinutesText: storedById[id].map(String.init) ?? ""
+                )
+            }
+    }
+}
+
 @MainActor
 final class SalaryV2Store: ObservableObject {
     typealias ReferenceProvider = (_ companyId: String, _ period: YearMonthV2) -> SalaryReferenceContractV2?
@@ -24,6 +60,10 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var contractResolution: SalaryEmploymentContractPayrollSnapshotV2?
     @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
     @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
+    @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
+    @Published var segmentedProrationSourceText = ""
+    @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
+    @Published private(set) var segmentedProrationFeedback: String?
     @Published var incomeTaxRateText = ""
     @Published var incomeTaxSource = ""
     @Published private(set) var incomeTaxFeedback: String?
@@ -137,6 +177,13 @@ final class SalaryV2Store: ObservableObject {
         let absenceSource = companyId.map { companyId in
             SalaryAbsenceStoreV2.resolve(companyId: companyId, period: period)
         }
+        let segmentedProrationSource = companyId.map { companyId in
+            SalarySegmentedProrationStoreV2.resolve(companyId: companyId, period: period)
+        }
+        let segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
+            segments: contractResolution?.resolution?.calculationSegments ?? [],
+            stored: segmentedProrationSource?.proration
+        )
         let contractSegmentPaidWork: SalaryContractSegmentPaidWorkResultV2? = {
             guard let companyId,
                   let source = workSource,
@@ -170,6 +217,9 @@ final class SalaryV2Store: ObservableObject {
         self.contractResolution = contractResolution
         self.socialProfile = socialProfile
         self.absenceSource = absenceSource
+        self.segmentedProrationSource = segmentedProrationSource
+        self.segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
+        self.segmentedProrationDraftSegments = segmentedProrationDraftSegments
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
             period: period,
             reference: reference,
@@ -190,12 +240,20 @@ final class SalaryV2Store: ObservableObject {
         companies.reliable && companies.companies.count > 1 && selectedCompanyId == nil
     }
 
+    var requiresSegmentedProration: Bool {
+        let segments = contractResolution?.resolution?.calculationSegments ?? []
+        return segments.count > 1 && contractResolution?.readyForSingleContractCalculation != true
+    }
+
     var displayWarnings: [String] {
         let companyWarnings = companies.warnings
         let conventionWarnings = conventionCoverage?.warnings ?? []
         let contractWarnings = contractResolution?.warnings ?? []
         let socialProfileWarnings = socialProfile?.warnings ?? []
         let absenceWarnings = absenceSource?.warnings ?? []
+        let segmentedProrationWarnings = requiresSegmentedProration
+            ? (segmentedProrationSource?.warnings ?? [])
+            : []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -209,6 +267,7 @@ final class SalaryV2Store: ObservableObject {
             + contractWarnings
             + socialProfileWarnings
             + absenceWarnings
+            + segmentedProrationWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -255,6 +314,7 @@ final class SalaryV2Store: ObservableObject {
         socialProfileFeedback = nil
         classificationFeedback = nil
         absenceFeedback = nil
+        segmentedProrationFeedback = nil
         recompute()
         return true
     }
@@ -567,6 +627,102 @@ final class SalaryV2Store: ObservableObject {
         return true
     }
 
+    func updateSegmentedProrationMinutes(segmentId: String, text: String) {
+        guard let index = segmentedProrationDraftSegments.firstIndex(where: { $0.id == segmentId }) else {
+            return
+        }
+        segmentedProrationDraftSegments[index].scheduledMinutesText = text
+        segmentedProrationFeedback = nil
+    }
+
+    @discardableResult
+    func confirmSegmentedProration() -> Bool {
+        let targetBeforeReconciliation = selectedCompanyId
+        synchronizeCompanySelectionWithLatestStore()
+        guard let companyId = SalaryCompanySelectionV2.stableMutationTarget(
+            beforeReconciliation: targetBeforeReconciliation,
+            afterReconciliation: selectedCompanyId
+        ) else {
+            recompute()
+            segmentedProrationFeedback = "Proratisation : l’entreprise analysée a changé. Vérifiez la sélection."
+            return false
+        }
+        guard requiresSegmentedProration,
+              let segments = contractResolution?.resolution?.calculationSegments,
+              segments.count > 1 else {
+            segmentedProrationFeedback = "Proratisation : aucune segmentation contractuelle bloquante n’est à confirmer pour ce mois."
+            return false
+        }
+
+        let source = segmentedProrationSourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else {
+            segmentedProrationFeedback = "Proratisation : indiquez la source qui confirme les minutes planifiées."
+            return false
+        }
+
+        let expectedIds = Set(
+            segments.map {
+                let versionId = $0.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
+                return "\(versionId)|\($0.startEpochDay)|\($0.endEpochDay)"
+            }
+        )
+        guard expectedIds.count == segments.count,
+              Set(segmentedProrationDraftSegments.map(\.id)) == expectedIds else {
+            segmentedProrationFeedback = "Proratisation : les segments affichés ne correspondent plus au contrat résolu. Actualisez avant de confirmer."
+            return false
+        }
+
+        var confirmedSegments: [ConfirmedProrationSegmentV2] = []
+        for draft in segmentedProrationDraftSegments {
+            let raw = draft.scheduledMinutesText.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let minutes = Int(raw), minutes >= 0 else {
+                segmentedProrationFeedback = "Proratisation : chaque segment doit avoir un nombre entier de minutes planifiées, positif ou nul."
+                return false
+            }
+            confirmedSegments.append(
+                ConfirmedProrationSegmentV2(
+                    versionId: draft.versionId,
+                    startEpochDay: draft.startEpochDay,
+                    endEpochDay: draft.endEpochDay,
+                    scheduledMinutes: minutes
+                )
+            )
+        }
+
+        let proration = ConfirmedSegmentedMonthlyProrationV2(
+            sourceId: source,
+            checkedAtMs: Int64((Date().timeIntervalSince1970 * 1_000).rounded()),
+            segments: confirmedSegments
+        )
+        guard SalarySegmentedProrationStoreV2.save(
+            companyId: companyId,
+            period: selectedPeriod,
+            proration: proration
+        ) else {
+            segmentedProrationFeedback = "Proratisation : confirmation refusée. Vérifiez les segments et le total de minutes."
+            return false
+        }
+
+        segmentedProrationFeedback = "Minutes planifiées confirmées pour les segments de ce mois. Aucun montant n’est encore calculé par cette confirmation."
+        refresh()
+        return true
+    }
+
+    @discardableResult
+    func removeSegmentedProration() -> Bool {
+        guard let companyId = selectedCompanyId,
+              SalarySegmentedProrationStoreV2.remove(
+                companyId: companyId,
+                period: selectedPeriod
+              ) else {
+            segmentedProrationFeedback = "Proratisation : suppression impossible."
+            return false
+        }
+        segmentedProrationFeedback = "Proratisation retirée : le mois redevient inconnu tant qu’une nouvelle base n’est pas confirmée."
+        refresh()
+        return true
+    }
+
     @discardableResult
     func confirmIncomeTaxRate() -> Bool {
         let normalized = incomeTaxRateText.replacingOccurrences(of: ",", with: ".")
@@ -631,6 +787,7 @@ final class SalaryV2Store: ObservableObject {
         contractFeedback = nil
         socialProfileFeedback = nil
         absenceFeedback = nil
+        segmentedProrationFeedback = nil
         refresh()
     }
 
@@ -682,6 +839,15 @@ final class SalaryV2Store: ObservableObject {
                 companyId: companyId,
                 period: selectedPeriod
             )
+            segmentedProrationSource = SalarySegmentedProrationStoreV2.resolve(
+                companyId: companyId,
+                period: selectedPeriod
+            )
+            segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
+            segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
+                segments: contractResolution?.resolution?.calculationSegments ?? [],
+                stored: segmentedProrationSource?.proration
+            )
             if let segments = contractResolution?.resolution?.calculationSegments, !segments.isEmpty {
                 contractSegmentPaidWork = SalaryContractSegmentPaidWorkAllocatorV2.allocate(
                     sessions: source.sessions,
@@ -701,6 +867,9 @@ final class SalaryV2Store: ObservableObject {
             contractResolution = nil
             socialProfile = nil
             absenceSource = nil
+            segmentedProrationSource = nil
+            segmentedProrationSourceText = ""
+            segmentedProrationDraftSegments = []
         }
 
         snapshot = SalaryWorkspaceResolverV2.resolve(
