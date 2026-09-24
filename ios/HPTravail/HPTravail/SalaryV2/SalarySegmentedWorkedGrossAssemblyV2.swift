@@ -114,6 +114,13 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
               abs(factorTotal - 1.0) <= factorTolerance else {
             return blocked(base.warnings + [baseWarning])
         }
+        for piece in base.pieces {
+            let expectedFactor = Double(piece.scheduledMinutes) / Double(scheduledTotal)
+            guard expectedFactor.isFinite,
+                  abs(expectedFactor - piece.factor) <= factorTolerance else {
+                return blocked(base.warnings + [baseWarning])
+            }
+        }
         guard abs(recomputedBase - baseAmount) <= currencyTolerance else {
             return blocked(base.warnings + [baseWarning])
         }
