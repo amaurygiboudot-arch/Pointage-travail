@@ -72,6 +72,40 @@ class StarSkyProjectionV2Test {
     }
 
     @Test
+    fun `panorama maps full azimuth and altitude without dome distortion`() {
+        val northHorizon = StarSkyProjectionV2.projectToPanorama(
+            LocalStarPositionV2(0.0, 0.0, 0.0),
+            centerAzimuthDeg = 0.0
+        )
+        assertNotNull(northHorizon)
+        assertEquals(0.0, northHorizon!!.x, 1e-12)
+        assertEquals(1.0, northHorizon.y, 1e-12)
+
+        val eastHorizon = StarSkyProjectionV2.projectToPanorama(
+            LocalStarPositionV2(90.0, 0.0, 0.0),
+            centerAzimuthDeg = 0.0
+        )
+        assertNotNull(eastHorizon)
+        assertEquals(0.5, eastHorizon!!.x, 1e-12)
+        assertEquals(1.0, eastHorizon.y, 1e-12)
+
+        val zenith = StarSkyProjectionV2.projectToPanorama(
+            LocalStarPositionV2(180.0, 90.0, 90.0),
+            centerAzimuthDeg = 0.0
+        )
+        assertNotNull(zenith)
+        assertEquals(-1.0, zenith!!.y, 1e-12)
+
+        val wrapped = StarSkyProjectionV2.projectToPanorama(
+            LocalStarPositionV2(350.0, 45.0, 45.0),
+            centerAzimuthDeg = 10.0
+        )
+        assertNotNull(wrapped)
+        assertEquals(-20.0 / 180.0, wrapped!!.x, 1e-12)
+        assertEquals(0.0, wrapped.y, 1e-12)
+    }
+
+    @Test
     fun `star background fades with real solar altitude`() {
         assertEquals(0.0, StarSkyProjectionV2.nightSkyOpacity(-3.0), 1e-12)
         assertTrue(StarSkyProjectionV2.nightSkyOpacity(-8.0) in 0.45..0.55)
