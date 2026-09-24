@@ -17,16 +17,27 @@ struct CelestialHomeView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    Text(Date.now.formatted(date: .complete, time: .shortened))
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
+            ZStack {
+                homeSkyBase
+                    .ignoresSafeArea()
 
-                    dashboard
+                CelestialStarFieldViewV2(
+                    state: locationManager.celestialState,
+                    presentation: .fullScreen
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 18) {
+                        Text(Date.now.formatted(date: .complete, time: .shortened))
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+
+                        dashboard
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
             }
             .navigationTitle("Accueil")
             .toolbar(tabBarVisible ? .visible : .hidden, for: .tabBar)
@@ -58,6 +69,32 @@ struct CelestialHomeView: View {
                 }
             }
         }
+    }
+
+    private var homeSkyBase: some View {
+        let nightOpacity: Double
+        if let snapshot = locationManager.celestialState.snapshot {
+            nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
+                sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
+            )
+        } else {
+            nightOpacity = 1
+        }
+
+        let dayTop = Color(red: 0.03, green: 0.11, blue: 0.22)
+        let dayBottom = Color(red: 0.01, green: 0.04, blue: 0.10)
+        let nightTop = Color(red: 0.004, green: 0.02, blue: 0.055)
+        let nightBottom = Color(red: 0.0, green: 0.004, blue: 0.025)
+        let amount = nightOpacity.clamped(to: 0...1)
+
+        return LinearGradient(
+            colors: [
+                dayTop.mixed(with: nightTop, amount: amount),
+                dayBottom.mixed(with: nightBottom, amount: amount)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
     }
 
     private func revealTabBarAndScheduleHide() {
@@ -344,6 +381,36 @@ struct CelestialHomeView: View {
     }
 }
 
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(range.upperBound, Swift.max(range.lowerBound, self))
+    }
+}
+
+private extension Color {
+    func mixed(with other: Color, amount: Double) -> Color {
+        let t = amount.clamped(to: 0...1)
+        let uiA = UIColor(self)
+        let uiB = UIColor(other)
+        var ar: CGFloat = 0
+        var ag: CGFloat = 0
+        var ab: CGFloat = 0
+        var aa: CGFloat = 0
+        var br: CGFloat = 0
+        var bg: CGFloat = 0
+        var bb: CGFloat = 0
+        var ba: CGFloat = 0
+        uiA.getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        uiB.getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+        return Color(
+            red: Double(ar + (br - ar) * t),
+            green: Double(ag + (bg - ag) * t),
+            blue: Double(ab + (bb - ab) * t),
+            opacity: Double(aa + (ba - aa) * t)
+        )
+    }
+}
+
 private struct CelestialSkyDialV2: View {
     let state: CelestialTrackingStateV2
     let globeMode: CelestialGlobeModeV2
@@ -357,12 +424,10 @@ private struct CelestialSkyDialV2: View {
             ZStack {
                 Circle()
                     .fill(backgroundGradient)
+                    .opacity(0.58)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)
-
-                CelestialStarFieldViewV2(state: state)
-                    .clipShape(Circle())
 
                 cardinal("N", x: center.x, y: center.y - horizonRadius - 15)
                 cardinal("E", x: center.x + horizonRadius + 15, y: center.y)
