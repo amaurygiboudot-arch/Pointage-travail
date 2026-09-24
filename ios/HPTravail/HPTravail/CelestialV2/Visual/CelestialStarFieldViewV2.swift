@@ -100,8 +100,10 @@ struct CelestialStarFieldViewV2: View {
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) * 0.50
-            let scaleX = presentation == .fullScreen ? size.width * 0.52 : radius
-            let scaleY = presentation == .fullScreen ? size.height * 0.52 : radius
+            // En plein écran, la projection 360° doit utiliser exactement le
+            // viewport : ±180° aux bords gauche/droit, horizon en bas et zénith en haut.
+            let scaleX = presentation == .fullScreen ? size.width * 0.50 : radius
+            let scaleY = presentation == .fullScreen ? size.height * 0.50 : radius
             var points: [Int: CGPoint] = [:]
             points.reserveCapacity(sky.stars.count / 2)
             var visible: [(PreparedStarSkyStarV2, CGPoint)] = []
