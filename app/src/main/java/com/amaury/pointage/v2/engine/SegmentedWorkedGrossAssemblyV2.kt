@@ -100,11 +100,11 @@ object SegmentedWorkedGrossAssemblerV2 {
 
             recomputedBase += piece.proratedBaseGross
             factorTotal += piece.factor
-            val scheduledAddition = scheduledTotal.addingReportingOverflow(piece.scheduledMinutes.toLong())
-            if (scheduledAddition.overflow) {
+            val scheduledValue = piece.scheduledMinutes.toLong()
+            if (scheduledTotal > Long.MAX_VALUE - scheduledValue) {
                 return blocked(base.warnings + OVERFLOW_WARNING)
             }
-            scheduledTotal = scheduledAddition.value
+            scheduledTotal += scheduledValue
 
             if (!recomputedBase.isFinite() || !factorTotal.isFinite()) {
                 return blocked(base.warnings + OVERFLOW_WARNING)
