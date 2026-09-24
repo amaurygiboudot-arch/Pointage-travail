@@ -20,6 +20,7 @@ struct SalaryV2View: View {
                     periodSelector
                     companySelectorCard
                     contractCard
+                    segmentedProrationCard
                     socialProfileCard
                     classificationCard
                     conventionCoverageCard
@@ -232,6 +233,83 @@ struct SalaryV2View: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private var segmentedProrationCard: some View {
+        if salaryStore.requiresSegmentedProration {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("PRORATISATION DU MOIS")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                Text("Un changement réel de contrat en cours de mois exige une base planifiée confirmée. HoraTrack n’invente ni répartition calendaire ni planning.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                ForEach(salaryStore.segmentedProrationDraftSegments) { segment in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Version \(segment.versionId)")
+                            .font(.footnote.bold())
+                        Text("\(epochDayLabel(segment.startEpochDay)) → \(epochDayLabel(segment.endEpochDay))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField(
+                            "Minutes planifiées confirmées pour ce segment",
+                            text: Binding(
+                                get: { segment.scheduledMinutesText },
+                                set: {
+                                    salaryStore.updateSegmentedProrationMinutes(
+                                        segmentId: segment.id,
+                                        text: $0
+                                    )
+                                }
+                            )
+                        )
+                        .keyboardType(.numberPad)
+                        .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                TextField(
+                    "Source — planning signé, avenant, relevé employeur…",
+                    text: $salaryStore.segmentedProrationSourceText
+                )
+                .textFieldStyle(.roundedBorder)
+
+                Button("Confirmer les minutes planifiées du mois") {
+                    _ = salaryStore.confirmSegmentedProration()
+                }
+                .buttonStyle(.borderedProminent)
+
+                if salaryStore.segmentedProrationSource?.reliable == true {
+                    Label(
+                        "Base planifiée confirmée et stockée pour ce mois",
+                        systemImage: "checkmark.shield.fill"
+                    )
+                    .font(.footnote)
+
+                    Button("Retirer cette confirmation", role: .destructive) {
+                        _ = salaryStore.removeSegmentedProration()
+                    }
+                    .font(.footnote)
+                } else {
+                    Label(
+                        "Base planifiée à confirmer — aucun prorata n’est calculé",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+                }
+
+                if let feedback = salaryStore.segmentedProrationFeedback {
+                    Text(feedback)
+                        .font(.footnote)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
     }
 
     private var hourlyContractSelected: Bool {
@@ -765,6 +843,16 @@ struct SalaryV2View: View {
     private func dateLabel(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter.string(from: date)
+    }
+
+    private func epochDayLabel(_ epochDay: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(epochDay) * 86_400.0)
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.dateFormat = "dd/MM/yyyy"
         return formatter.string(from: date)
     }
