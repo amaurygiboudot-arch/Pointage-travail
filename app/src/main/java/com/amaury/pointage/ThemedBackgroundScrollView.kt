@@ -36,8 +36,11 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         if (isAttachedToWindow) postInvalidateOnAnimation()
     }
     private var celestialHomeState: com.amaury.pointage.v2.CelestialTrackerV2.State? = null
+    private var celestialAmbientState = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState()
+    private var celestialRenderState: com.amaury.pointage.v2.engine.CelestialRenderStateV2? = null
     private var celestialHomeActive = false
     private var celestialTrackerSubscribed = false
+    private var celestialAmbientSubscribed = false
     private var cachedImage: Bitmap? = null
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
@@ -49,6 +52,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
         updateCelestialSubscription()
         if (!active) {
             celestialHomeState = null
+            celestialRenderState = null
             celestialHomeSky.clear()
         }
         postInvalidateOnAnimation()
@@ -64,7 +68,12 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
             celestialTrackerSubscribed = false
         }
+        if (celestialAmbientSubscribed) {
+            com.amaury.pointage.v2.CelestialAmbientLightV2.unsubscribe(this)
+            celestialAmbientSubscribed = false
+        }
         celestialHomeState = null
+        celestialRenderState = null
         celestialHomeSky.clear()
         super.onDetachedFromWindow()
     }
@@ -88,6 +97,18 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
             celestialTrackerSubscribed = false
         }
+
+        if (shouldSubscribe && !celestialAmbientSubscribed) {
+            celestialAmbientSubscribed = true
+            com.amaury.pointage.v2.CelestialAmbientLightV2.subscribe(context, this) { state ->
+                celestialAmbientState = state
+                postInvalidateOnAnimation()
+            }
+        } else if (!shouldSubscribe && celestialAmbientSubscribed) {
+            com.amaury.pointage.v2.CelestialAmbientLightV2.unsubscribe(this)
+            celestialAmbientSubscribed = false
+            celestialAmbientState = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState()
+        }
     }
 
     override fun dispatchDraw(canvas: Canvas) {
@@ -99,13 +120,26 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             celestialState.locationQuality == com.amaury.pointage.v2.engine.CelestialLocationQualityV2.VALID
 
         if (hasQualifiedSky) {
+            val snapshot = celestialState.snapshot!!
+            val weather = com.amaury.pointage.v2.CelestialWeatherContextV2
+                .currentStateFor(snapshot)
+            val renderState = com.amaury.pointage.v2.engine.CelestialRenderStateFactoryV2.build(
+                snapshot = snapshot,
+                weather = weather,
+                ambient = celestialAmbientState,
+                orientationQuality = celestialState.headingQuality,
+                nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+            )
+            celestialRenderState = renderState
             celestialHomeSky.draw(
                 canvas = canvas,
                 width = width.toFloat(),
                 height = height.toFloat(),
-                state = celestialState
+                state = celestialState,
+                renderState = renderState
             )
         } else {
+            celestialRenderState = null
             // Fail-closed : sans position/éphéméride qualifiée, ne jamais inventer
             // un ciel de jour ou de nuit. On conserve simplement le fond normal.
             drawHpBackground(canvas)
@@ -178,7 +212,16 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
 
         val textColor: Int
         val shadowColor: Int
-        if (hasImage) {
+        val celestial = celestialRenderState
+        if (celestialHomeActive && celestial != null) {
+            val useDark = celestial.solarLightLevel >= 0.58 && celestial.nightLevel < 0.20
+            textColor = if (useDark) Color.rgb(12, 18, 24) else Color.WHITE
+            shadowColor = if (useDark) {
+                Color.argb(200, 255, 255, 255)
+            } else {
+                Color.argb(225, 0, 0, 0)
+            }
+        } else if (hasImage) {
             if (cachedTextColor == null || cachedShadowColor == null) {
                 cachedImage?.let {
                     val useDark = chooseDarkText(globalBackgroundStats(it))

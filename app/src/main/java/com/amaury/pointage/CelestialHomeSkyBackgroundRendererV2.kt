@@ -12,6 +12,8 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialRenderStateV2
+import com.amaury.pointage.v2.engine.CelestialWeatherTypeV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
 import com.amaury.pointage.v2.engine.StarSkyProjectionV2
 import com.amaury.pointage.v2.ui.ConstellationPathV2
@@ -112,26 +114,20 @@ class CelestialHomeSkyBackgroundRendererV2(
         canvas: Canvas,
         width: Float,
         height: Float,
-        state: CelestialTrackerV2.State?
+        state: CelestialTrackerV2.State?,
+        renderState: CelestialRenderStateV2
     ) {
         if (width <= 1f || height <= 1f) return
-        val snapshot = state?.snapshot
-        val nightOpacity = snapshot?.let {
-            StarSkyProjectionV2.nightSkyOpacity(it.sun.altitudeDeg)
-        } ?: 1.0
 
-        drawAtmosphericBase(canvas, width, height, nightOpacity)
+        drawAtmosphericBase(canvas, width, height, renderState)
 
         val current = state ?: return
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
 
-        val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
-        val cloudTransmission = weather?.cloudTransmission ?: 1.0
-
-        // Jour réel : aucune étoile ni constellation artificiellement visible.
-        // La couverture nuageuse réelle atténue ensuite le ciel nocturne.
-        val starOpacity = nightOpacity * cloudTransmission
-        val constellationOpacity = 0.18 * nightOpacity * cloudTransmission
+        // Les coefficients de visibilité proviennent exclusivement de
+        // CelestialRenderStateV2 : le renderer n'invente plus sa propre météo.
+        val starOpacity = renderState.starsVisibility
+        val constellationOpacity = 0.18 * renderState.constellationsVisibility
         val sky = localSky
 
         val centerAzimuthDeg = if (
@@ -193,15 +189,14 @@ class CelestialHomeSkyBackgroundRendererV2(
             }
         }
 
-        weather?.let {
+        renderState.cloudCoverage?.let { cover ->
             drawCloudLayer(
                 canvas = canvas,
                 width = width,
                 height = height,
-                cloudCover = it.cloudCover,
-                nightOpacity = nightOpacity,
-                weatherCode = it.weatherCode,
-                precipitationMm = it.precipitationMm
+                cloudCover = cover,
+                nightOpacity = renderState.nightLevel,
+                weatherType = renderState.weatherType
             )
         }
     }
@@ -220,19 +215,18 @@ class CelestialHomeSkyBackgroundRendererV2(
         height: Float,
         cloudCover: Double,
         nightOpacity: Double,
-        weatherCode: Int?,
-        precipitationMm: Double?
+        weatherType: CelestialWeatherTypeV2
     ) {
         val cover = cloudCover.coerceIn(0.0, 1.0).toFloat()
         if (cover < 0.03f) return
 
         val now = System.currentTimeMillis()
         val drift = ((now % 3_600_000L).toFloat() / 3_600_000f) * width
-        val code = weatherCode ?: -1
-        val rainy = (precipitationMm ?: 0.0) > 0.05 || code in 51..67 || code in 80..82
-        val foggy = code in 45..48
-        val snowy = code in 71..77 || code in 85..86
-        val stormy = code in 95..99
+        val rainy = weatherType == CelestialWeatherTypeV2.DRIZZLE ||
+            weatherType == CelestialWeatherTypeV2.RAIN
+        val foggy = weatherType == CelestialWeatherTypeV2.FOG
+        val snowy = weatherType == CelestialWeatherTypeV2.SNOW
+        val stormy = weatherType == CelestialWeatherTypeV2.THUNDERSTORM
 
         val dayColor = when {
             stormy -> Color.rgb(118, 126, 138)
@@ -373,11 +367,37 @@ class CelestialHomeSkyBackgroundRendererV2(
         canvas: Canvas,
         width: Float,
         height: Float,
-        nightOpacity: Double
+        renderState: CelestialRenderStateV2
     ) {
-        val night = nightOpacity.toFloat().coerceIn(0f, 1f)
-        val top = blend(Color.rgb(54, 139, 224), Color.rgb(1, 5, 14), night)
-        val bottom = blend(Color.rgb(176, 222, 248), Color.rgb(0, 1, 7), night)
+        val day = renderState.solarLightLevel.toFloat().coerceIn(0f, 1f)
+        val twilight = renderState.twilightLevel.toFloat().coerceIn(0f, 1f)
+        val night = renderState.nightLevel.toFloat().coerceIn(0f, 1f)
+
+        val dayTop = Color.rgb(54, 139, 224)
+        val dayBottom = Color.rgb(176, 222, 248)
+        val twilightTop = Color.rgb(52, 65, 116)
+        val twilightBottom = Color.rgb(235, 137, 92)
+        val nightTop = Color.rgb(1, 5, 14)
+        val nightBottom = Color.rgb(0, 1, 7)
+
+        fun weighted(dayColor: Int, twilightColor: Int, nightColor: Int): Int {
+            val total = (day + twilight + night).coerceAtLeast(0.0001f)
+            val d = day / total
+            val t = twilight / total
+            val n = night / total
+            fun channel(color: Int, shift: Int) = (color shr shift) and 0xff
+            return Color.rgb(
+                (channel(dayColor, 16) * d + channel(twilightColor, 16) * t +
+                    channel(nightColor, 16) * n).toInt().coerceIn(0, 255),
+                (channel(dayColor, 8) * d + channel(twilightColor, 8) * t +
+                    channel(nightColor, 8) * n).toInt().coerceIn(0, 255),
+                (channel(dayColor, 0) * d + channel(twilightColor, 0) * t +
+                    channel(nightColor, 0) * n).toInt().coerceIn(0, 255)
+            )
+        }
+
+        val top = weighted(dayTop, twilightTop, nightTop)
+        val bottom = weighted(dayBottom, twilightBottom, nightBottom)
         backgroundPaint.shader = LinearGradient(
             0f, 0f, 0f, height,
             top, bottom, Shader.TileMode.CLAMP
