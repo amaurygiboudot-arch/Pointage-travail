@@ -1,6 +1,7 @@
 package com.amaury.pointage
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -48,10 +49,19 @@ class CelestialHomeSkyBackgroundRendererV2(
         val paths: List<ConstellationPathV2>
     )
 
+    private data class PanoramaCache(
+        val key: String,
+        val renderWidth: Int,
+        val renderHeight: Int,
+        val bitmap: Bitmap
+    )
+
     private val appContext = context.applicationContext
     private val density = context.resources.displayMetrics.density
     private val generation = AtomicLong(0)
     @Volatile private var localSky: LocalSky? = null
+    @Volatile private var panoramaCache: PanoramaCache? = null
+    @Volatile private var panoramaRequestedKey: String? = null
     private var requestedKey: String? = null
 
     private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -67,6 +77,10 @@ class CelestialHomeSkyBackgroundRendererV2(
     }
     private val cloudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
+    }
+    private val panoramaPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        isFilterBitmap = true
+        isDither = true
     }
 
     fun update(state: CelestialTrackerV2.State) {
@@ -105,6 +119,8 @@ class CelestialHomeSkyBackgroundRendererV2(
             )
             if (requestGeneration == generation.get()) {
                 localSky = result
+                panoramaCache = null
+                panoramaRequestedKey = null
                 onInvalidated()
             }
         }
@@ -126,8 +142,7 @@ class CelestialHomeSkyBackgroundRendererV2(
 
         // Les coefficients de visibilité proviennent exclusivement de
         // CelestialRenderStateV2 : le renderer n'invente plus sa propre météo.
-        val starOpacity = renderState.starsVisibility
-        val constellationOpacity = 0.18 * renderState.constellationsVisibility
+        val starOpacity = renderState.starsVisibility.coerceIn(0.0, 1.0)
         val sky = localSky
 
         val centerAzimuthDeg = if (
@@ -138,54 +153,27 @@ class CelestialHomeSkyBackgroundRendererV2(
             0.0
         }
 
-        val centerX = width * 0.5f
-        val centerY = height * 0.5f
-        val scaleX = width * 0.5f
-        val scaleY = height * 0.5f
-
         if (sky != null) {
-            val projected = HashMap<Int, PointF>(sky.stars.size)
-            val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
-            for (star in sky.stars) {
-            val p = StarSkyProjectionV2.projectToPanorama(
-                position = star.position,
-                centerAzimuthDeg = centerAzimuthDeg
-            ) ?: continue
-            val point = PointF(
-                centerX + (p.x * scaleX).toFloat(),
-                centerY + (p.y * scaleY).toFloat()
+            ensurePanoramaCache(
+                sky = sky,
+                viewportWidth = width,
+                viewportHeight = height
             )
-            if (point.x < -24f || point.x > width + 24f ||
-                point.y < -24f || point.y > height + 24f
-            ) continue
-            projected[star.hr] = point
-            visibleStars += star to point
-        }
 
-            linePaint.alpha = (255.0 * constellationOpacity).toInt().coerceIn(0, 255)
-            for (path in sky.paths) {
-            var previous: PointF? = null
-            for (hr in path.hrNumbers) {
-                val point = projected[hr]
-                if (point == null) {
-                    previous = null
-                    continue
-                }
-                previous?.let {
-                    if (kotlin.math.abs(it.x - point.x) <= width * 0.50f) {
-                        canvas.drawLine(it.x, it.y, point.x, point.y, linePaint)
-                    }
-                }
-                previous = point
-            }
-        }
-
-            for ((star, point) in visibleStars) {
-                val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
-                starPaint.alpha = (255.0 * starOpacity * (0.34 + 0.66 * brightness))
-                    .toInt().coerceIn(0, 255)
-                val radius = (0.65 + brightness * 2.25).toFloat() * density
-                canvas.drawCircle(point.x, point.y, radius, starPaint)
+            val cache = panoramaCache
+            if (cache != null &&
+                cache.key == panoramaCacheKey(sky.key, width, height) &&
+                starOpacity > 0.005
+            ) {
+                panoramaPaint.alpha = (255.0 * starOpacity).toInt().coerceIn(0, 255)
+                drawWrappedPanorama(
+                    canvas = canvas,
+                    cache = cache,
+                    viewportWidth = width,
+                    viewportHeight = height,
+                    centerAzimuthDeg = centerAzimuthDeg
+                )
+                panoramaPaint.alpha = 255
             }
         }
 
@@ -200,6 +188,192 @@ class CelestialHomeSkyBackgroundRendererV2(
             )
         }
     }
+
+    /**
+     * Construit hors thread UI une texture 360° préprojetée.
+     *
+     * Le déplacement du téléphone ne reprojette plus ~4 500 étoiles à chaque
+     * événement capteur : le bitmap est simplement décalé horizontalement.
+     * Le cache n'est reconstruit que lorsque le ciel local (30 s) ou la taille
+     * du viewport change.
+     */
+    private fun ensurePanoramaCache(
+        sky: LocalSky,
+        viewportWidth: Float,
+        viewportHeight: Float
+    ) {
+        val cacheKey = panoramaCacheKey(sky.key, viewportWidth, viewportHeight)
+        if (panoramaCache?.key == cacheKey || panoramaRequestedKey == cacheKey) return
+
+        panoramaRequestedKey = cacheKey
+        val requestGeneration = generation.get()
+        val viewportW = viewportWidth.toInt().coerceAtLeast(1)
+        val viewportH = viewportHeight.toInt().coerceAtLeast(1)
+        val scale = minOf(
+            1f,
+            MAX_CACHE_WIDTH_PX.toFloat() / viewportW.toFloat(),
+            MAX_CACHE_HEIGHT_PX.toFloat() / viewportH.toFloat()
+        )
+        val renderW = (viewportW * scale).toInt().coerceAtLeast(1)
+        val renderH = (viewportH * scale).toInt().coerceAtLeast(1)
+        val renderDensityScale = scale.coerceAtLeast(0.01f)
+
+        executor.execute {
+            val bitmap = runCatching {
+                Bitmap.createBitmap(renderW, renderH, Bitmap.Config.ARGB_8888)
+            }.getOrNull() ?: run {
+                if (panoramaRequestedKey == cacheKey) panoramaRequestedKey = null
+                return@execute
+            }
+            val bitmapCanvas = Canvas(bitmap)
+            val points = HashMap<Int, PointF>(sky.stars.size)
+
+            // Le bitmap de référence est Nord=0° au bord gauche, 360° au bord
+            // droit. Le centrage sur le cap se fait ensuite par translation/wrap.
+            for (star in sky.stars) {
+                val altitude = star.position.apparentAltitudeDeg
+                if (!altitude.isFinite() || altitude !in 0.0..90.0) continue
+                val azimuth = normalizeDegrees(star.position.azimuthDeg)
+                val x = (azimuth / 360.0 * renderW).toFloat()
+                val y = ((1.0 - altitude / 90.0) * renderH).toFloat()
+                points[star.hr] = PointF(x, y)
+            }
+
+            val cacheLinePaint = Paint(linePaint).apply {
+                strokeWidth = max(0.45f * density * renderDensityScale, 0.55f)
+                alpha = CONSTELLATION_BASE_ALPHA
+            }
+            for (path in sky.paths) {
+                var previous: PointF? = null
+                for (hr in path.hrNumbers) {
+                    val point = points[hr]
+                    if (point == null) {
+                        previous = null
+                        continue
+                    }
+                    previous?.let {
+                        drawWrappedLine(
+                            canvas = bitmapCanvas,
+                            x1 = it.x,
+                            y1 = it.y,
+                            x2 = point.x,
+                            y2 = point.y,
+                            width = renderW.toFloat(),
+                            paint = cacheLinePaint
+                        )
+                    }
+                    previous = point
+                }
+            }
+
+            val cacheStarPaint = Paint(starPaint)
+            for (star in sky.stars) {
+                val point = points[star.hr] ?: continue
+                val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
+                cacheStarPaint.alpha = (
+                    255.0 * (0.34 + 0.66 * brightness)
+                    ).toInt().coerceIn(0, 255)
+                val radius = (
+                    (0.65 + brightness * 2.25).toFloat() *
+                        density * renderDensityScale
+                    ).coerceAtLeast(0.45f)
+
+                // Dupliquer aux deux bords afin qu'une étoile proche de 0° reste
+                // entière lorsque le panorama est recollé à 360°.
+                bitmapCanvas.drawCircle(point.x, point.y, radius, cacheStarPaint)
+                bitmapCanvas.drawCircle(
+                    point.x - renderW.toFloat(),
+                    point.y,
+                    radius,
+                    cacheStarPaint
+                )
+                bitmapCanvas.drawCircle(
+                    point.x + renderW.toFloat(),
+                    point.y,
+                    radius,
+                    cacheStarPaint
+                )
+            }
+
+            if (requestGeneration == generation.get() &&
+                localSky?.key == sky.key &&
+                panoramaRequestedKey == cacheKey
+            ) {
+                panoramaCache = PanoramaCache(
+                    key = cacheKey,
+                    renderWidth = renderW,
+                    renderHeight = renderH,
+                    bitmap = bitmap
+                )
+                panoramaRequestedKey = null
+                onInvalidated()
+            } else {
+                bitmap.recycle()
+                if (panoramaRequestedKey == cacheKey) panoramaRequestedKey = null
+            }
+        }
+    }
+
+    private fun drawWrappedPanorama(
+        canvas: Canvas,
+        cache: PanoramaCache,
+        viewportWidth: Float,
+        viewportHeight: Float,
+        centerAzimuthDeg: Double
+    ) {
+        val normalizedHeading = normalizeDegrees(centerAzimuthDeg)
+        val baseLeft = viewportWidth * 0.5f -
+            (normalizedHeading / 360.0 * viewportWidth).toFloat()
+
+        fun drawAt(left: Float) {
+            val dst = RectF(
+                left,
+                0f,
+                left + viewportWidth,
+                viewportHeight
+            )
+            canvas.drawBitmap(cache.bitmap, null, dst, panoramaPaint)
+        }
+
+        // Trois copies suffisent toujours à couvrir le viewport après wrap.
+        drawAt(baseLeft - viewportWidth)
+        drawAt(baseLeft)
+        drawAt(baseLeft + viewportWidth)
+    }
+
+    private fun drawWrappedLine(
+        canvas: Canvas,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        width: Float,
+        paint: Paint
+    ) {
+        var adjustedX2 = x2
+        val delta = adjustedX2 - x1
+        if (delta > width * 0.5f) adjustedX2 -= width
+        if (delta < -width * 0.5f) adjustedX2 += width
+
+        canvas.drawLine(x1, y1, adjustedX2, y2, paint)
+        canvas.drawLine(x1 - width, y1, adjustedX2 - width, y2, paint)
+        canvas.drawLine(x1 + width, y1, adjustedX2 + width, y2, paint)
+    }
+
+    private fun panoramaCacheKey(
+        skyKey: String,
+        viewportWidth: Float,
+        viewportHeight: Float
+    ): String = buildString {
+        append(skyKey)
+        append(':')
+        append(viewportWidth.toInt().coerceAtLeast(1))
+        append('x')
+        append(viewportHeight.toInt().coerceAtLeast(1))
+    }
+
+    private fun normalizeDegrees(value: Double): Double =
+        ((value % 360.0) + 360.0) % 360.0
 
     /**
      * Représentation atmosphérique de la couverture réelle.
@@ -419,10 +593,16 @@ class CelestialHomeSkyBackgroundRendererV2(
         generation.incrementAndGet()
         requestedKey = null
         localSky = null
+        panoramaCache?.bitmap?.takeIf { !it.isRecycled }?.recycle()
+        panoramaCache = null
+        panoramaRequestedKey = null
     }
 
     companion object {
         private const val LOCAL_SKY_REFRESH_MS = 30_000L
+        private const val MAX_CACHE_WIDTH_PX = 1080
+        private const val MAX_CACHE_HEIGHT_PX = 1920
+        private const val CONSTELLATION_BASE_ALPHA = 46
         private val executor = Executors.newSingleThreadExecutor { task ->
             Thread(task, "HoraTrack-HomeSky").apply {
                 priority = Thread.NORM_PRIORITY - 1
