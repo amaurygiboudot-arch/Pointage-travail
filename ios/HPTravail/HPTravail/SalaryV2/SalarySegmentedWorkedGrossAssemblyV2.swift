@@ -70,20 +70,49 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
             key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay)
         }
         guard baseKeys.allSatisfy({ !$0.versionId.isEmpty }),
-              Set(baseKeys).count == baseKeys.count else {
+              Set(baseKeys).count == baseKeys.count,
+              base.pieces.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }) else {
             return blocked(base.warnings + [baseWarning])
         }
 
         var recomputedBase = 0.0
+        var factorTotal = 0.0
+        var scheduledTotal: Int64 = 0
         for piece in base.pieces {
-            guard piece.proratedBaseGross.isFinite,
+            guard piece.scheduledMinutes >= 0,
+                  piece.factor.isFinite,
+                  piece.factor >= 0,
+                  piece.factor <= 1.0 + factorTolerance,
+                  piece.fullMonthBaseGross.isFinite,
+                  piece.fullMonthBaseGross >= 0,
+                  piece.proratedBaseGross.isFinite,
                   piece.proratedBaseGross >= 0 else {
                 return blocked(base.warnings + [amountWarning])
             }
+
+            let expectedPiece = piece.fullMonthBaseGross * piece.factor
+            guard expectedPiece.isFinite,
+                  abs(expectedPiece - piece.proratedBaseGross) <= currencyTolerance else {
+                return blocked(base.warnings + [baseWarning])
+            }
+
             recomputedBase += piece.proratedBaseGross
-            guard recomputedBase.isFinite else {
+            factorTotal += piece.factor
+            let scheduledAddition = scheduledTotal.addingReportingOverflow(
+                Int64(piece.scheduledMinutes)
+            )
+            guard !scheduledAddition.overflow else {
                 return blocked(base.warnings + [overflowWarning])
             }
+            scheduledTotal = scheduledAddition.partialValue
+
+            guard recomputedBase.isFinite, factorTotal.isFinite else {
+                return blocked(base.warnings + [overflowWarning])
+            }
+        }
+        guard scheduledTotal > 0,
+              abs(factorTotal - 1.0) <= factorTolerance else {
+            return blocked(base.warnings + [baseWarning])
         }
         guard abs(recomputedBase - baseAmount) <= currencyTolerance else {
             return blocked(base.warnings + [baseWarning])
@@ -95,6 +124,7 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         let variableWarnings = variables.flatMap(\.warnings)
         guard variableKeys.allSatisfy({ !$0.versionId.isEmpty }),
               Set(variableKeys).count == variableKeys.count,
+              variables.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }),
               Set(variableKeys) == Set(baseKeys) else {
             return blocked(base.warnings + variableWarnings + [coverageWarning])
         }
@@ -181,4 +211,5 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
     }
 
     private static let currencyTolerance = 0.005
+    private static let factorTolerance = 0.000_000_001
 }
