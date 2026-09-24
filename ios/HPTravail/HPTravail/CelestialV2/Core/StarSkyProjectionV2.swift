@@ -263,6 +263,32 @@ enum StarSkyProjectionV2 {
         )
     }
 
+    /// Flat 360-degree panorama used by the Home background.
+    /// Horizontal axis unwraps azimuth around the current true heading
+    /// (or North when heading is unavailable); vertical axis maps horizon
+    /// to the bottom and zenith to the top.
+    static func projectToPanorama(
+        position: LocalStarPositionV2,
+        centerAzimuthDegrees: Double
+    ) -> StarDeviceProjectionV2? {
+        guard position.apparentAltitudeDegrees.isFinite,
+              (0...90).contains(position.apparentAltitudeDegrees),
+              centerAzimuthDegrees.isFinite else {
+            return nil
+        }
+
+        let horizontalDelta = signedDegrees(
+            position.azimuthDegrees - centerAzimuthDegrees
+        )
+        let x = clamp(horizontalDelta / 180, minimum: -1, maximum: 1)
+        let y = clamp(
+            1 - 2 * (position.apparentAltitudeDegrees / 90),
+            minimum: -1,
+            maximum: 1
+        )
+        return StarDeviceProjectionV2(x: x, y: y, depth: 1)
+    }
+
     static func nightSkyOpacity(sunGeometricAltitudeDegrees: Double) -> Double {
         guard sunGeometricAltitudeDegrees.isFinite else { return 0 }
         let t = clamp(
