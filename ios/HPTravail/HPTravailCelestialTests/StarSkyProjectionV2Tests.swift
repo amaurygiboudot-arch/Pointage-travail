@@ -181,6 +181,50 @@ final class StarSkyProjectionV2Tests: XCTestCase {
         XCTAssertEqual(east?.y ?? 9, 0, accuracy: 1e-12)
     }
 
+    func testPanoramaMapsFullAzimuthWithoutDomeDistortion() {
+        let north = StarSkyProjectionV2.projectToPanorama(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 0,
+                geometricAltitudeDegrees: 0,
+                apparentAltitudeDegrees: 0
+            ),
+            centerAzimuthDegrees: 0
+        )
+        XCTAssertEqual(north?.x ?? 9, 0, accuracy: 1e-12)
+        XCTAssertEqual(north?.y ?? 9, 1, accuracy: 1e-12)
+
+        let east = StarSkyProjectionV2.projectToPanorama(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 90,
+                geometricAltitudeDegrees: 0,
+                apparentAltitudeDegrees: 0
+            ),
+            centerAzimuthDegrees: 0
+        )
+        XCTAssertEqual(east?.x ?? 9, 0.5, accuracy: 1e-12)
+
+        let zenith = StarSkyProjectionV2.projectToPanorama(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 180,
+                geometricAltitudeDegrees: 90,
+                apparentAltitudeDegrees: 90
+            ),
+            centerAzimuthDegrees: 0
+        )
+        XCTAssertEqual(zenith?.y ?? 9, -1, accuracy: 1e-12)
+
+        let wrapped = StarSkyProjectionV2.projectToPanorama(
+            position: LocalStarPositionV2(
+                azimuthDegrees: 350,
+                geometricAltitudeDegrees: 45,
+                apparentAltitudeDegrees: 45
+            ),
+            centerAzimuthDegrees: 10
+        )
+        XCTAssertEqual(wrapped?.x ?? 9, -20.0 / 180.0, accuracy: 1e-12)
+        XCTAssertEqual(wrapped?.y ?? 9, 0, accuracy: 1e-12)
+    }
+
     func testNightSkyOpacityFollowsSolarAltitude() {
         XCTAssertEqual(
             StarSkyProjectionV2.nightSkyOpacity(sunGeometricAltitudeDegrees: -3),
