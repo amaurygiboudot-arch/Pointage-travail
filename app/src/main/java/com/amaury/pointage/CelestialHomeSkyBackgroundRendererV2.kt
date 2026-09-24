@@ -13,6 +13,7 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialPanoramaGeometryV2
 import com.amaury.pointage.v2.engine.CelestialRenderStateV2
 import com.amaury.pointage.v2.engine.CelestialWeatherTypeV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
@@ -231,11 +232,10 @@ class CelestialHomeSkyBackgroundRendererV2(
             // Le bitmap de référence est Nord=0° au bord gauche, 360° au bord
             // droit. Le centrage sur le cap se fait ensuite par translation/wrap.
             for (star in sky.stars) {
-                val altitude = star.position.apparentAltitudeDeg
-                if (!altitude.isFinite() || altitude !in 0.0..90.0) continue
-                val azimuth = normalizeDegrees(star.position.azimuthDeg)
-                val x = (azimuth / 360.0 * renderW).toFloat()
-                val y = ((1.0 - altitude / 90.0) * renderH).toFloat()
+                val coordinate = CelestialPanoramaGeometryV2.normalized(star.position)
+                    ?: continue
+                val x = (coordinate.x01 * renderW).toFloat()
+                val y = (coordinate.y01 * renderH).toFloat()
                 points[star.hr] = PointF(x, y)
             }
 
@@ -321,9 +321,10 @@ class CelestialHomeSkyBackgroundRendererV2(
         viewportHeight: Float,
         centerAzimuthDeg: Double
     ) {
-        val normalizedHeading = normalizeDegrees(centerAzimuthDeg)
-        val baseLeft = viewportWidth * 0.5f -
-            (normalizedHeading / 360.0 * viewportWidth).toFloat()
+        val baseLeft = (
+            CelestialPanoramaGeometryV2.baseLeftFraction(centerAzimuthDeg) *
+                viewportWidth
+            ).toFloat()
 
         fun drawAt(left: Float) {
             val dst = RectF(
@@ -375,9 +376,6 @@ class CelestialHomeSkyBackgroundRendererV2(
         append('x')
         append(viewportHeight.toInt().coerceAtLeast(1))
     }
-
-    private fun normalizeDegrees(value: Double): Double =
-        ((value % 360.0) + 360.0) % 360.0
 
     /**
      * Représentation atmosphérique de la couverture réelle.
