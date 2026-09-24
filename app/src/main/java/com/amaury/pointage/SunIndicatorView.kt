@@ -21,6 +21,7 @@ import android.view.View
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
@@ -305,9 +306,17 @@ class SunIndicatorView @JvmOverloads constructor(
         val moon = snapshot.moon
         val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
         val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
-        val sunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat()
-        val moonDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(moon.altitudeDeg).toFloat()
-        val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat()
+        val weather = CelestialWeatherContextV2.currentState()
+        val cloudCover = weather?.cloudCover?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
+        val sunCloudTransmission = (1f - cloudCover * 0.72f).coerceIn(0.18f, 1f)
+        val moonCloudTransmission = (1f - cloudCover * 0.88f).coerceIn(0.08f, 1f)
+
+        val sunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat() *
+            sunCloudTransmission
+        val moonDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(moon.altitudeDeg).toFloat() *
+            moonCloudTransmission
+        val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat() *
+            (0.45f + 0.55f * sunCloudTransmission)
         val sunScale = CelestialHorizonTransitionV2.diskScale(sun.altitudeDeg).toFloat()
         val moonScale = CelestialHorizonTransitionV2.diskScale(moon.altitudeDeg).toFloat()
         val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) *
