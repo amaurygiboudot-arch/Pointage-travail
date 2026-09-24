@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 struct CelestialCloudLayerV2: View {
@@ -22,14 +23,9 @@ struct CelestialCloudLayerV2: View {
                 let rainy = (weather.precipitationMillimeters ?? 0) > 0.05 ||
                     ((weather.weatherCode ?? 0) >= 51 && (weather.weatherCode ?? 0) <= 99)
 
-                let day = rainy
-                    ? Color(red: 0.59, green: 0.62, blue: 0.65)
-                    : Color(red: 0.93, green: 0.96, blue: 0.98)
-                let night = rainy
-                    ? Color(red: 0.23, green: 0.25, blue: 0.29)
-                    : Color(red: 0.38, green: 0.41, blue: 0.46)
-                let cloudColor = day.opacity(1 - min(1, max(0, nightOpacity)))
-                    .blendMode(.normal)
+                let cloudTint = rainy
+                    ? Color(red: 0.54, green: 0.57, blue: 0.61)
+                    : Color.white
                 let alpha = min(0.75, 0.16 + cover * (rainy ? 0.50 : 0.38))
 
                 for index in 0..<clusterCount {
@@ -71,17 +67,19 @@ struct CelestialCloudLayerV2: View {
                     context.fill(
                         path,
                         with: .color(
-                            Color.white.opacity(alpha * (1 - nightOpacity * 0.45))
+                            cloudTint.opacity(alpha * (1 - nightOpacity * 0.42))
                         )
                     )
                 }
 
                 if cover > 0.82 {
                     let overcast = min(0.28, (cover - 0.82) / 0.18 * 0.28)
+                    var overcastPath = Path()
+                    overcastPath.addRect(CGRect(origin: .zero, size: size))
                     context.fill(
-                        Path(CGRect(origin: .zero, size: size)),
+                        overcastPath,
                         with: .color(
-                            (rainy ? night : cloudColor).opacity(overcast)
+                            (rainy ? Color.gray : Color.white).opacity(overcast)
                         )
                     )
                 }
