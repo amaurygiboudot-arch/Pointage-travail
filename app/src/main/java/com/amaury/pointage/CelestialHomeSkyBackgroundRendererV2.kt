@@ -493,8 +493,8 @@ class CelestialHomeSkyBackgroundRendererV2(
         repeat(visibleLayers) { index ->
             val seed = 31.0 + index * 19.37 + weatherType.ordinal * 2.71
             val phase = (
-                (now % CLOUD_DRIFT_PERIOD_MS).toDouble() /
-                    CLOUD_DRIFT_PERIOD_MS.toDouble()
+                (now % CLOUD_DRIFT_PERIOD_MS).toFloat() /
+                    CLOUD_DRIFT_PERIOD_MS.toFloat()
                 )
             val xShift = width * (
                 phase * (0.035f + index * 0.012f) +
