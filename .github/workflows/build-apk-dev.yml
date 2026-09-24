@@ -96,6 +96,7 @@ jobs:
           FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_SENDER_ID: ${{ secrets.FIREBASE_SENDER_ID }}
+          CELESTIAL_WEATHER_ENDPOINT: https://api.open-meteo.com/v1/forecast
         run: |
           set +e
           gradle :app:assembleRelease :app:bundleRelease --build-cache --parallel --stacktrace 2>&1 | tee build-error.log
