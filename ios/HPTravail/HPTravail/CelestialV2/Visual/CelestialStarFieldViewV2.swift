@@ -89,12 +89,10 @@ struct CelestialStarFieldViewV2: View {
             let nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
                 sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
             )
-            let starOpacity = presentation == .fullScreen
-                ? 0.20 + 0.80 * nightOpacity
-                : nightOpacity
+            let starOpacity = nightOpacity
             let constellationOpacity = presentation == .fullScreen
-                ? 0.10 + 0.16 * nightOpacity
-                : 0.08 + 0.14 * nightOpacity
+                ? 0.18 * nightOpacity
+                : 0.12 * nightOpacity
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) * 0.50
@@ -107,7 +105,15 @@ struct CelestialStarFieldViewV2: View {
 
             for star in sky.stars {
                 let projected: StarDeviceProjectionV2?
-                if state.hasPhysicalStarSky, let frame = state.deviceFrame {
+                if presentation == .fullScreen {
+                    let centerAzimuth = CelestialHeadingPolicyV2.isUsable(state.headingQuality)
+                        ? (state.trueHeadingDegrees ?? 0)
+                        : 0
+                    projected = StarSkyProjectionV2.projectToPanorama(
+                        position: star.position,
+                        centerAzimuthDegrees: centerAzimuth
+                    )
+                } else if state.hasPhysicalStarSky, let frame = state.deviceFrame {
                     projected = StarSkyProjectionV2.projectToDevice(
                         position: star.position,
                         frame: frame
@@ -139,7 +145,7 @@ struct CelestialStarFieldViewV2: View {
                         previous = nil
                         continue
                     }
-                    if let previous {
+                    if let previous, abs(previous.x - point.x) <= size.width * 0.50 {
                         linePath.move(to: previous)
                         linePath.addLine(to: point)
                     }
