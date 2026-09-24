@@ -66,9 +66,8 @@ struct CelestialStarFieldViewV2: View {
 
     var body: some View {
         Canvas { context, size in
-            guard state.hasPhysicalStarSky,
+            guard state.locationQuality == .valid,
                   let snapshot = state.snapshot,
-                  let frame = state.deviceFrame,
                   let sky = model.prepared else {
                 return
             }
@@ -76,7 +75,7 @@ struct CelestialStarFieldViewV2: View {
             let opacity = StarSkyProjectionV2.nightSkyOpacity(
                 sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
             )
-            guard opacity > 0.01 else { return }
+            let constellationOpacity = 0.42 + 0.58 * opacity
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) * 0.50
@@ -86,12 +85,18 @@ struct CelestialStarFieldViewV2: View {
             visible.reserveCapacity(sky.stars.count / 2)
 
             for star in sky.stars {
-                guard let projected = StarSkyProjectionV2.projectToDevice(
+                let projected: StarDeviceProjectionV2?
+                if state.hasPhysicalStarSky, let frame = state.deviceFrame {
+                    projected = StarSkyProjectionV2.projectToDevice(
                         position: star.position,
                         frame: frame
-                      ) else {
-                    continue
+                    )
+                } else {
+                    projected = StarSkyProjectionV2.projectToZenithMap(
+                        position: star.position
+                    )
                 }
+                guard let projected else { continue }
                 let point = CGPoint(
                     x: center.x + CGFloat(projected.x) * radius,
                     y: center.y + CGFloat(projected.y) * radius
@@ -124,7 +129,7 @@ struct CelestialStarFieldViewV2: View {
                         Text(constellation.abbreviation)
                             .font(.system(size: 9, weight: .medium))
                     )
-                    label.shading = .color(.white.opacity(0.44 * opacity))
+                    label.shading = .color(.white.opacity(0.46 + 0.24 * constellationOpacity))
                     context.draw(
                         label,
                         at: CGPoint(x: x, y: y),
@@ -135,23 +140,25 @@ struct CelestialStarFieldViewV2: View {
 
             context.stroke(
                 linePath,
-                with: .color(.white.opacity(0.28 * opacity)),
+                with: .color(.white.opacity(0.38 + 0.24 * constellationOpacity)),
                 lineWidth: 0.7
             )
 
-            for (star, point) in visible {
-                let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
-                let starRadius = CGFloat(0.45 + brightness * 1.9)
-                let rect = CGRect(
-                    x: point.x - starRadius,
-                    y: point.y - starRadius,
-                    width: starRadius * 2,
-                    height: starRadius * 2
-                )
-                context.fill(
-                    Path(ellipseIn: rect),
-                    with: .color(.white.opacity(opacity * (0.33 + 0.67 * brightness)))
-                )
+            if opacity > 0.01 {
+                for (star, point) in visible {
+                    let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
+                    let starRadius = CGFloat(0.45 + brightness * 1.9)
+                    let rect = CGRect(
+                        x: point.x - starRadius,
+                        y: point.y - starRadius,
+                        width: starRadius * 2,
+                        height: starRadius * 2
+                    )
+                    context.fill(
+                        Path(ellipseIn: rect),
+                        with: .color(.white.opacity(opacity * (0.33 + 0.67 * brightness)))
+                    )
+                }
             }
         }
         .allowsHitTesting(false)
