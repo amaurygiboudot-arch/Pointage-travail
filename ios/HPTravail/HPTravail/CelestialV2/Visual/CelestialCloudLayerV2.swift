@@ -34,7 +34,6 @@ struct CelestialCloudLayerV2: View {
                     ? Color(red: 0.23, green: 0.27, blue: 0.33)
                     : Color(red: 0.36, green: 0.40, blue: 0.47)
                 let night = min(1, max(0, nightOpacity))
-                let cloudTint = dayTint.mix(with: nightTint, amount: night)
 
                 let clusterCount = min(11, max(2, Int(2 + cover * 9)))
                 let driftPhase = timeline.date.timeIntervalSince1970
@@ -96,13 +95,14 @@ struct CelestialCloudLayerV2: View {
 
                     context.drawLayer { layer in
                         layer.addFilter(.blur(radius: blurRadius))
+                        let opacity = baseAlpha * (0.82 + Double(index % 4) * 0.04)
                         layer.fill(
                             path,
-                            with: .color(
-                                cloudTint.opacity(
-                                    baseAlpha * (0.82 + Double(index % 4) * 0.04)
-                                )
-                            )
+                            with: .color(dayTint.opacity(opacity * (1 - night)))
+                        )
+                        layer.fill(
+                            path,
+                            with: .color(nightTint.opacity(opacity * night))
                         )
                     }
                 }
@@ -121,20 +121,18 @@ struct CelestialCloudLayerV2: View {
                     }
                     var veil = Path()
                     veil.addRect(CGRect(origin: .zero, size: size))
-                    context.fill(veil, with: .color(cloudTint.opacity(veilAlpha)))
+                    context.fill(
+                        veil,
+                        with: .color(dayTint.opacity(veilAlpha * (1 - night)))
+                    )
+                    context.fill(
+                        veil,
+                        with: .color(nightTint.opacity(veilAlpha * night))
+                    )
                 }
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-    }
-}
-
-private extension Color {
-    func mix(with other: Color, amount: Double) -> Color {
-        // SwiftUI ne fournit pas un mélange RGBA portable sur toutes les versions
-        // ciblées. L'opacité de nuit suffit à garder la couche sobre sans altérer
-        // les positions astronomiques ; on choisit donc le ton selon le contexte.
-        amount >= 0.55 ? other : self
     }
 }
