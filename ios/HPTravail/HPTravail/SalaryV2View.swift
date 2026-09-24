@@ -289,6 +289,26 @@ struct SalaryV2View: View {
                     )
                     .font(.footnote)
 
+                    if let base = salaryStore.segmentedMonthlyBase,
+                       base.reliable,
+                       let amount = base.baseGross {
+                        Label(
+                            "Base mensuelle segmentée calculée : \(euros(amount))",
+                            systemImage: "function"
+                        )
+                        .font(.footnote.bold())
+
+                        Text("Montant contractuel proratisé uniquement. Les heures supplémentaires/complémentaires, majorations, primes, absences, retenues et le net final restent traités séparément et ne sont pas inventés.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label(
+                            "Base confirmée, mais calcul monétaire encore bloqué par les contrats ou règles datées.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .font(.footnote)
+                    }
+
                     Button("Retirer cette confirmation", role: .destructive) {
                         _ = salaryStore.removeSegmentedProration()
                     }
