@@ -44,6 +44,7 @@ jobs:
             -sdk iphonesimulator \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
+            CELESTIAL_WEATHER_ENDPOINT=https://api.open-meteo.com/v1/forecast \
             build
 
       - name: Run SalaryV2 Swift contract tests
