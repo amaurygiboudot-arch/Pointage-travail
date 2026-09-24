@@ -462,7 +462,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard celestialTrackingActive else { return }
         latestHeading = newHeading
-        refreshCelestialState()
+
+        // Quand Core Motion tourne déjà à 5 Hz, il publiera le dernier cap au
+        // prochain tick. Éviter un second redraw sur chaque événement boussole
+        // réduit les reprojections du ciel sans ralentir visiblement le point de vue.
+        if !motionManager.isDeviceMotionActive {
+            refreshCelestialState()
+        }
     }
 
     func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool {
