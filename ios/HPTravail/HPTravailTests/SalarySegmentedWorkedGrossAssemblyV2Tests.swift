@@ -135,9 +135,19 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
             fullMonthBaseGross: first.fullMonthBaseGross,
             proratedBaseGross: 1_200
         )
+        let second = original.pieces[1]
+        let badSecond = SegmentedMonthlyBasePieceV2(
+            versionId: second.versionId,
+            startEpochDay: second.startEpochDay,
+            endEpochDay: second.endEpochDay,
+            scheduledMinutes: second.scheduledMinutes,
+            factor: 0.4,
+            fullMonthBaseGross: second.fullMonthBaseGross,
+            proratedBaseGross: 400
+        )
         let tampered = SegmentedMonthlyBaseResultV2(
-            pieces: [badPiece, original.pieces[1]],
-            baseGross: 1_700,
+            pieces: [badPiece, badSecond],
+            baseGross: 1_600,
             reliable: true,
             warnings: []
         )
