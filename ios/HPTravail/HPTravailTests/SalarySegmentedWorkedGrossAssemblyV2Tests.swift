@@ -214,6 +214,25 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         )
     }
 
+    func testBaseThatDoesNotMatchContractTimelineBlocksAssembly() {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(secondVersionId: "other-v2"),
+            base: base(),
+            variables: [
+                variable("v1", 0, 14, 0),
+                variable("v2", 15, 30, 0)
+            ]
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(
+            result.warnings.contains(
+                SalarySegmentedWorkedGrossAssemblerV2.contractWarning
+            )
+        )
+    }
+
     func testVariableFromAnotherCompanyBlocksAssembly() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             contracts: contracts(),
@@ -247,10 +266,12 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
     }
 
-    private func contracts() -> SalaryEmploymentContractPeriodResolutionV2 {
+    private func contracts(
+        secondVersionId: String = "v2"
+    ) -> SalaryEmploymentContractPeriodResolutionV2 {
         let segments = [
             contractSegment("v1", start: 0, end: 14, rate: 10),
-            contractSegment("v2", start: 15, end: 30, rate: 20)
+            contractSegment(secondVersionId, start: 15, end: 30, rate: 20)
         ]
         return SalaryEmploymentContractPeriodResolutionV2(
             companyId: "company",
