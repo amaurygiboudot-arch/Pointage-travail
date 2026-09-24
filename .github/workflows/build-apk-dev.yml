@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - build/celeste-clouds-v4-device-test
       - main
     paths:
       - ".github/dev-build-trigger.txt"
