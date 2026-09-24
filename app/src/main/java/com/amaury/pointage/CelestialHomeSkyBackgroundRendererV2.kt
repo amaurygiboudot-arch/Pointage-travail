@@ -124,8 +124,9 @@ class CelestialHomeSkyBackgroundRendererV2(
 
         val current = state ?: return
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
+        val qualifiedSnapshot = current.snapshot ?: return
 
-        val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
+        val weather = CelestialWeatherContextV2.currentStateFor(qualifiedSnapshot)
         val cloudTransmission = weather?.cloudTransmission ?: 1.0
 
         // Jour réel : aucune étoile ni constellation artificiellement visible.
