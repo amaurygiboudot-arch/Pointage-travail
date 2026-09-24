@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - build/celeste-real-device-validation-v2
     paths:
       - ".github/dev-build-trigger.txt"
 
