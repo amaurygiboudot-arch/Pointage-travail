@@ -1,2 +1,1 @@
-Build HoraTrack DEV Celeste clean status - 2026-09-24
-SOURCE_HEAD=d1b9a8c420a308eff7aecd699b45a26184044d93
+Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
