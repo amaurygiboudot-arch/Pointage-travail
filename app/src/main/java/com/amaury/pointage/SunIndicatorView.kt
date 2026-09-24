@@ -169,7 +169,6 @@ class SunIndicatorView @JvmOverloads constructor(
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
-                val directionalSkyUsable = tracking.hasRealSky
                 val localSkyUsable = tracking.snapshot != null &&
                     tracking.locationQuality == CelestialLocationQualityV2.VALID
                 celestialSnapshot = tracking.snapshot?.takeIf { localSkyUsable }
@@ -220,10 +219,14 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialLocationQualityV2.STALE -> "Localisation trop ancienne"
             CelestialLocationQualityV2.INACCURATE -> "Localisation imprécise"
             CelestialLocationQualityV2.VALID -> when (tracking.headingQuality) {
-                CelestialHeadingQualityV2.UNAVAILABLE -> "Boussole indisponible"
-                CelestialHeadingQualityV2.STALE -> "Boussole trop ancienne"
-                CelestialHeadingQualityV2.UNRELIABLE -> "Boussole perturbée · éloigner le téléphone du métal"
-                CelestialHeadingQualityV2.INACCURATE -> "Boussole à calibrer · faire un mouvement en 8"
+                CelestialHeadingQualityV2.UNAVAILABLE ->
+                    "Boussole indisponible · mode Nord stable"
+                CelestialHeadingQualityV2.STALE ->
+                    "Boussole trop ancienne · mode Nord stable"
+                CelestialHeadingQualityV2.UNRELIABLE ->
+                    "Boussole perturbée · mode Nord stable"
+                CelestialHeadingQualityV2.INACCURATE ->
+                    "Boussole imprécise · mode Nord stable"
                 CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> "Ciel réel · boussole active"
                 CelestialHeadingQualityV2.VALID -> "Ciel réel · GPS et boussole fiables"
             }
