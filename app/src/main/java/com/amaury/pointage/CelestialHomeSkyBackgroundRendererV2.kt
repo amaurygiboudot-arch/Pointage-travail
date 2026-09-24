@@ -16,6 +16,8 @@ import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.CelestialPanoramaGeometryV2
+import com.amaury.pointage.v2.engine.CelestialRenderQualityProviderV2
+import com.amaury.pointage.v2.engine.CelestialRenderQualityV2
 import com.amaury.pointage.v2.engine.CelestialRenderStateV2
 import com.amaury.pointage.v2.engine.CelestialWeatherTypeV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
@@ -147,6 +149,7 @@ class CelestialHomeSkyBackgroundRendererV2(
         // Les coefficients de visibilité proviennent exclusivement de
         // CelestialRenderStateV2 : le renderer n'invente plus sa propre météo.
         val starOpacity = renderState.starsVisibility.coerceIn(0.0, 1.0)
+        val quality = CelestialRenderQualityProviderV2.current(appContext)
         val sky = localSky
 
         val centerAzimuthDeg = if (
@@ -161,12 +164,13 @@ class CelestialHomeSkyBackgroundRendererV2(
             ensurePanoramaCache(
                 sky = sky,
                 viewportWidth = width,
-                viewportHeight = height
+                viewportHeight = height,
+                quality = quality
             )
 
             val cache = panoramaCache
             if (cache != null &&
-                cache.key == panoramaCacheKey(sky.key, width, height) &&
+                cache.key == panoramaCacheKey(sky.key, width, height, quality) &&
                 starOpacity > 0.005
             ) {
                 panoramaPaint.alpha = (255.0 * starOpacity).toInt().coerceIn(0, 255)
@@ -188,7 +192,8 @@ class CelestialHomeSkyBackgroundRendererV2(
                 height = height,
                 cloudCover = cover,
                 nightOpacity = renderState.nightLevel,
-                weatherType = renderState.weatherType
+                weatherType = renderState.weatherType,
+                quality = quality
             )
         }
     }
@@ -204,9 +209,10 @@ class CelestialHomeSkyBackgroundRendererV2(
     private fun ensurePanoramaCache(
         sky: LocalSky,
         viewportWidth: Float,
-        viewportHeight: Float
+        viewportHeight: Float,
+        quality: CelestialRenderQualityV2
     ) {
-        val cacheKey = panoramaCacheKey(sky.key, viewportWidth, viewportHeight)
+        val cacheKey = panoramaCacheKey(sky.key, viewportWidth, viewportHeight, quality)
         if (panoramaCache?.key == cacheKey || panoramaRequestedKey == cacheKey) return
 
         panoramaRequestedKey = cacheKey
@@ -215,8 +221,8 @@ class CelestialHomeSkyBackgroundRendererV2(
         val viewportH = viewportHeight.toInt().coerceAtLeast(1)
         val scale = minOf(
             1f,
-            MAX_CACHE_WIDTH_PX.toFloat() / viewportW.toFloat(),
-            MAX_CACHE_HEIGHT_PX.toFloat() / viewportH.toFloat()
+            quality.maxPanoramaWidthPx.toFloat() / viewportW.toFloat(),
+            quality.maxPanoramaHeightPx.toFloat() / viewportH.toFloat()
         )
         val renderW = (viewportW * scale).toInt().coerceAtLeast(1)
         val renderH = (viewportH * scale).toInt().coerceAtLeast(1)
@@ -394,13 +400,16 @@ class CelestialHomeSkyBackgroundRendererV2(
     private fun panoramaCacheKey(
         skyKey: String,
         viewportWidth: Float,
-        viewportHeight: Float
+        viewportHeight: Float,
+        quality: CelestialRenderQualityV2
     ): String = buildString {
         append(skyKey)
         append(':')
         append(viewportWidth.toInt().coerceAtLeast(1))
         append('x')
         append(viewportHeight.toInt().coerceAtLeast(1))
+        append(':')
+        append(quality.name)
     }
 
     /**
@@ -417,7 +426,8 @@ class CelestialHomeSkyBackgroundRendererV2(
         height: Float,
         cloudCover: Double,
         nightOpacity: Double,
-        weatherType: CelestialWeatherTypeV2
+        weatherType: CelestialWeatherTypeV2,
+        quality: CelestialRenderQualityV2
     ) {
         val cover = cloudCover.coerceIn(0.0, 1.0).toFloat()
         if (cover < 0.03f) return
@@ -451,7 +461,10 @@ class CelestialHomeSkyBackgroundRendererV2(
         // Nuages d'Accueil : bandes irrégulières, larges et douces, concentrées
         // dans le ciel supérieur. On évite volontairement les "boules" régulières
         // de type cartoon et on garde le bas de l'écran dégagé autour de l'horloge.
-        val clusters = (2 + cover * 9f).toInt().coerceIn(2, 11)
+        val clusters = (2 + cover * 9f).toInt().coerceIn(
+            2,
+            quality.maxCloudClusters
+        )
         val baseAlpha = (
             18f + cover * when {
                 stormy -> 74f
@@ -627,8 +640,6 @@ class CelestialHomeSkyBackgroundRendererV2(
 
     companion object {
         private const val LOCAL_SKY_REFRESH_MS = 30_000L
-        private const val MAX_CACHE_WIDTH_PX = 1080
-        private const val MAX_CACHE_HEIGHT_PX = 1920
         private const val CONSTELLATION_BASE_ALPHA = 46
         private const val CACHE_RECYCLE_DELAY_MS = 1_000L
         private val executor = Executors.newSingleThreadExecutor { task ->
