@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.model.ContractTypeV2
+import com.amaury.pointage.v2.model.ContractV2
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -10,6 +12,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun provenBaseAndVariablesProduceWorkedGross() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 0, 14, 120.0),
@@ -27,6 +30,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun explicitReliableZeroVariableIsAccepted() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 0, 14, 0.0),
@@ -42,6 +46,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun missingVariablePieceNeverBecomesImplicitZero() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 0, 14, 120.0)
@@ -60,6 +65,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun unreliableVariablePieceBlocksAssembly() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 0, 14, 120.0),
@@ -88,6 +94,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     fun duplicateVariableKeyBlocksAssembly() {
         val duplicate = variable("v1", 0, 14, 10.0)
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 duplicate,
@@ -109,6 +116,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     fun inconsistentBaseTotalBlocksAssembly() {
         val inconsistent = base().copy(baseGross = 1_499.0)
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = inconsistent,
             variables = listOf(
                 variable("v1", 0, 14, 0.0),
@@ -142,6 +150,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
         )
 
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = tampered,
             variables = listOf(
                 variable("v1", 0, 14, 0.0),
@@ -161,6 +170,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun invertedVariableBoundsBlockAssembly() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 14, 0, 0.0),
@@ -180,6 +190,7 @@ class SegmentedWorkedGrossAssemblyV2Test {
     @Test
     fun invalidVariableAmountBlocksAssembly() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v1", 0, 14, -1.0),
@@ -197,8 +208,29 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun variableFromAnotherEmployerBlocksAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variables = listOf(
+                variable("v1", 0, 14, 0.0, employerId = "other-company"),
+                variable("v2", 15, 30, 0.0)
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(
+            result.warnings.contains(
+                SegmentedWorkedGrossAssemblerV2.COVERAGE_WARNING
+            )
+        )
+    }
+
+    @Test
     fun variableOrderDoesNotChangeResult() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
             base = base(),
             variables = listOf(
                 variable("v2", 15, 30, 80.0),
@@ -209,6 +241,54 @@ class SegmentedWorkedGrossAssemblyV2Test {
         assertTrue(result.reliable)
         assertEquals(1_700.0, result.workedGross!!, 0.0001)
     }
+
+    private fun contracts(): EmploymentContractPeriodResolutionV2 {
+        val segments = listOf(
+            contractSegment("v1", 0, 14, 10.0),
+            contractSegment("v2", 15, 30, 20.0)
+        )
+        return EmploymentContractPeriodResolutionV2(
+            employerId = "company",
+            periodStartEpochDay = 0,
+            periodEndEpochDay = 30,
+            sourceReliable = true,
+            coverage = EmploymentContractCoverageV2(
+                employerId = "company",
+                periodStartEpochDay = 0,
+                periodEndEpochDay = 30,
+                segments = segments,
+                fullyCovered = true
+            ),
+            contract = null,
+            warnings = emptyList()
+        )
+    }
+
+    private fun contractSegment(
+        versionId: String,
+        start: Long,
+        end: Long,
+        rate: Double
+    ) = EmploymentContractCoverageSegmentV2(
+        startEpochDay = start,
+        endEpochDay = end,
+        snapshot = EmploymentContractSnapshotV2(
+            versionId = versionId,
+            sourceId = "test",
+            effectiveFromEpochDay = start,
+            effectiveToEpochDay = end,
+            contract = ContractV2(
+                id = versionId,
+                employerId = "company",
+                type = ContractTypeV2.FULL_TIME,
+                contractualWeeklyMinutes = 35 * 60,
+                grossHourlyRate = rate,
+                hireDateEpochDay = 0L
+            ),
+            checkedAtMs = 1L,
+            note = null
+        )
+    )
 
     private fun base(): SegmentedMonthlyBaseResultV2 =
         SegmentedMonthlyBaseResultV2(
@@ -243,8 +323,10 @@ class SegmentedWorkedGrossAssemblyV2Test {
         end: Long,
         amount: Double,
         reliable: Boolean = true,
-        warnings: List<String> = emptyList()
+        warnings: List<String> = emptyList(),
+        employerId: String = "company"
     ) = SegmentedWorkedVariableGrossPieceV2(
+        employerId = employerId,
         versionId = versionId,
         startEpochDay = start,
         endEpochDay = end,
