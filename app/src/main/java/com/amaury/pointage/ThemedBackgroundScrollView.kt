@@ -126,7 +126,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
             val renderState = com.amaury.pointage.v2.engine.CelestialRenderStateFactoryV2.build(
                 snapshot = snapshot,
                 weather = weather,
-                ambient = celestialAmbientState,
+                ambient = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState(),
                 orientationQuality = celestialState.headingQuality,
                 nowElapsedMs = android.os.SystemClock.elapsedRealtime()
             )

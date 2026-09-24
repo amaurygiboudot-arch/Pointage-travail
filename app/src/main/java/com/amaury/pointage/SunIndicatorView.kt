@@ -335,7 +335,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val renderState = CelestialRenderStateFactoryV2.build(
             snapshot = snapshot,
             weather = weather,
-            ambient = ambientState,
+            ambient = CelestialAmbientLightV2.currentState(),
             orientationQuality = orientationQuality,
             nowElapsedMs = android.os.SystemClock.elapsedRealtime()
         )

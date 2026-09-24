@@ -6,6 +6,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
+import kotlin.math.abs
+import kotlin.math.max
 
 enum class CelestialAmbientLightQualityV2 {
     VALID,
@@ -35,6 +37,8 @@ object CelestialAmbientLightV2 {
     private var sensor: Sensor? = null
     private var listener: SensorEventListener? = null
     private var filteredLux: Double? = null
+    private var lastPublishedLux: Double? = null
+    private var lastPublishedElapsedMs: Long = Long.MIN_VALUE
     private var rawState = CelestialAmbientLightStateV2(
         lux = null,
         quality = CelestialAmbientLightQualityV2.UNAVAILABLE,
@@ -112,13 +116,28 @@ object CelestialAmbientLightV2 {
                     previous + FILTER_ALPHA * (bounded - previous)
                 }
                 filteredLux = filtered
-                publish(
-                    CelestialAmbientLightStateV2(
-                        lux = filtered,
-                        quality = CelestialAmbientLightQualityV2.VALID,
-                        measuredAtElapsedMs = SystemClock.elapsedRealtime()
+                val now = SystemClock.elapsedRealtime()
+                val previousPublished = lastPublishedLux
+                val absoluteDelta = previousPublished?.let { abs(filtered - it) } ?: Double.POSITIVE_INFINITY
+                val relativeDelta = previousPublished?.let {
+                    absoluteDelta / max(abs(it), 1.0)
+                } ?: Double.POSITIVE_INFINITY
+                val enoughTime = lastPublishedElapsedMs == Long.MIN_VALUE ||
+                    now - lastPublishedElapsedMs >= MIN_PUBLISH_INTERVAL_MS
+                val meaningfulChange = absoluteDelta >= MIN_ABSOLUTE_LUX_DELTA ||
+                    relativeDelta >= MIN_RELATIVE_LUX_DELTA
+
+                if (enoughTime || meaningfulChange) {
+                    lastPublishedLux = filtered
+                    lastPublishedElapsedMs = now
+                    publish(
+                        CelestialAmbientLightStateV2(
+                            lux = filtered,
+                            quality = CelestialAmbientLightQualityV2.VALID,
+                            measuredAtElapsedMs = now
+                        )
                     )
-                )
+                }
             }
 
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
@@ -157,6 +176,8 @@ object CelestialAmbientLightV2 {
         sensor = null
         sensorManager = null
         filteredLux = null
+        lastPublishedLux = null
+        lastPublishedElapsedMs = Long.MIN_VALUE
         rawState = CelestialAmbientLightStateV2(
             lux = null,
             quality = CelestialAmbientLightQualityV2.UNAVAILABLE,
@@ -174,4 +195,7 @@ object CelestialAmbientLightV2 {
     private const val MAX_SAMPLE_AGE_MS = 10_000L
     private const val MAX_REASONABLE_LUX = 200_000.0
     private const val FILTER_ALPHA = 0.18
+    private const val MIN_PUBLISH_INTERVAL_MS = 1_000L
+    private const val MIN_ABSOLUTE_LUX_DELTA = 2.0
+    private const val MIN_RELATIVE_LUX_DELTA = 0.08
 }
