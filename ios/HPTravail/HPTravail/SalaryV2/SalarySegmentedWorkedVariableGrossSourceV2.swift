@@ -311,11 +311,11 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
 
         do {
             let premium = try weeks.reduce(0.0) {
-                $0 + SalaryPayrollPremiumGrossV2.calculate(
+                $0 + (try SalaryPayrollPremiumGrossV2.calculate(
                     week: $1,
                     grossHourlyRate: rate,
                     rules: rules
-                )
+                ))
             }
             guard evidence.grossInputsReliable,
                   premium.isFinite,
