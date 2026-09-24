@@ -25,12 +25,12 @@ struct CelestialHomeView: View {
                 CelestialStarFieldViewV2(
                     state: locationManager.celestialState,
                     presentation: .fullScreen,
-                    cloudCover: weather.freshState?.cloudCover
+                    cloudCover: qualifiedWeather?.cloudCover
                 )
                 .ignoresSafeArea()
 
                 CelestialCloudLayerV2(
-                    weather: weather.freshState,
+                    weather: qualifiedWeather,
                     nightOpacity: currentNightOpacity
                 )
                 .ignoresSafeArea()
@@ -104,8 +104,20 @@ struct CelestialHomeView: View {
         }
     }
 
+    private var qualifiedWeather: CelestialWeatherStateV2? {
+        let state = locationManager.celestialState
+        guard state.locationQuality == .valid, state.snapshot != nil else {
+            return nil
+        }
+        return weather.freshState
+    }
+
     private var currentNightOpacity: Double {
-        guard let snapshot = locationManager.celestialState.snapshot else { return 1 }
+        let state = locationManager.celestialState
+        guard state.locationQuality == .valid,
+              let snapshot = state.snapshot else {
+            return 0
+        }
         return StarSkyProjectionV2.nightSkyOpacity(
             sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
         )
@@ -122,35 +134,38 @@ struct CelestialHomeView: View {
         )
     }
 
+    @ViewBuilder
     private var homeSkyBase: some View {
-        let nightOpacity: Double
-        if let snapshot = locationManager.celestialState.snapshot {
-            nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
+        let state = locationManager.celestialState
+        if state.locationQuality == .valid, let snapshot = state.snapshot {
+            let nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
                 sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
             )
-        } else {
-            nightOpacity = 1
-        }
-        let night = nightOpacity.isFinite ? min(1, max(0, nightOpacity)) : 1
+            let night = nightOpacity.isFinite ? min(1, max(0, nightOpacity)) : 0
 
-        return ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.004, green: 0.02, blue: 0.055),
-                    Color(red: 0.0, green: 0.004, blue: 0.025)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            LinearGradient(
-                colors: [
-                    Color(red: 0.21, green: 0.55, blue: 0.88),
-                    Color(red: 0.69, green: 0.87, blue: 0.97)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .opacity(1 - night)
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.004, green: 0.02, blue: 0.055),
+                        Color(red: 0.0, green: 0.004, blue: 0.025)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.21, green: 0.55, blue: 0.88),
+                        Color(red: 0.69, green: 0.87, blue: 0.97)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .opacity(1 - night)
+            }
+        } else {
+            // Fail-closed : sans position/éphéméride qualifiée, ne pas afficher
+            // un faux ciel de jour ou de nuit.
+            Color(uiColor: .systemBackground)
         }
     }
 
@@ -174,7 +189,7 @@ struct CelestialHomeView: View {
         CelestialSkyDialV2(
             state: locationManager.celestialState,
             globeMode: CelestialGlobeModeV2(rawValue: globeModeRaw) ?? .local,
-            weatherCloudCover: weather.freshState?.cloudCover
+            weatherCloudCover: qualifiedWeather?.cloudCover
         )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: 470)
@@ -278,7 +293,7 @@ struct CelestialHomeView: View {
                 }
             }
             Text(
-                weather.freshState == nil
+                qualifiedWeather == nil
                     ? "La météo locale est indisponible : Céleste conserve uniquement le ciel astronomique."
                     : "La météo locale module les nuages et la visibilité sans modifier les positions astronomiques."
             )
