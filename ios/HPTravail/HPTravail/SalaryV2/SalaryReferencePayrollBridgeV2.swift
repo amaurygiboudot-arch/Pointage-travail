@@ -39,12 +39,25 @@ extension SalaryReferenceContractV2 {
             )
         }
 
-        let base = build(
+        let baseContract = build(
             cashGross: payroll.grossEstimate,
             benefits: benefits,
             netBeforeIncomeTax: projection.netBeforeIncomeTax ?? projection.knownNetBeforeIncomeTax,
             netTaxable: projection.netTaxableComplete ? projection.netTaxable : nil,
             additionalWarnings: uniqueReferenceWarnings(warnings)
+        )
+        let base = SalaryReferenceContractV2(
+            gross: baseContract.gross,
+            grossReliable: baseContract.grossReliable,
+            netBeforeIncomeTax: baseContract.netBeforeIncomeTax,
+            netTaxable: baseContract.netTaxable,
+            complete: baseContract.complete,
+            warnings: baseContract.warnings,
+            benefitsInKindDeduction: baseContract.benefitsInKindDeduction,
+            knownEmployerContributions: projection.knownEmployerContributions,
+            knownEmployerCost: projection.knownEmployerCost,
+            employerCostComplete: projection.employerCostComplete,
+            employerCostWarnings: projection.employerCostWarnings
         )
 
         let grossChainReliable = payroll.grossReliable
@@ -64,7 +77,11 @@ extension SalaryReferenceContractV2 {
                 netTaxable: base.netTaxable,
                 complete: false,
                 warnings: blockedWarnings,
-                benefitsInKindDeduction: base.benefitsInKindDeduction
+                benefitsInKindDeduction: base.benefitsInKindDeduction,
+                knownEmployerContributions: base.knownEmployerContributions,
+                knownEmployerCost: nil,
+                employerCostComplete: false,
+                employerCostWarnings: base.employerCostWarnings
             )
         }
 

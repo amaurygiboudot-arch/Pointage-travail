@@ -36,6 +36,12 @@ enum EmployeeNetProjectionV2 {
         let netAfterIncomeTax: Double?
         let netBeforeIncomeTaxComplete: Bool
         let netTaxableComplete: Bool
+        let statutoryEmployerContributions: Double
+        let complementaryRetirementEmployer: Double
+        let knownEmployerContributions: Double
+        let knownEmployerCost: Double?
+        let employerCostComplete: Bool
+        let employerCostWarnings: [String]
         let warnings: [String]
         let traces: [String]
     }
@@ -79,6 +85,25 @@ enum EmployeeNetProjectionV2 {
         let statutoryTotal = statutory.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
         let retirementTotal = retirement.lines.reduce(0) { $0 + roundedCurrency($1.employeeAmount) }
         let directTotal = direct.deductions.reduce(0) { $0 + roundedCurrency($1.amount) }
+
+        // Parité Android : ces montants patronaux sont des sous-totaux connus,
+        // jamais un coût employeur complet. On arrondit ligne par ligne au centime.
+        let statutoryEmployerTotal = statutory.lines.reduce(0) {
+            $0 + roundedCurrency($1.employerAmount)
+        }
+        let retirementEmployerTotal = retirement.lines.reduce(0) {
+            $0 + roundedCurrency($1.employerAmount)
+        }
+        let knownEmployerContributions = roundedCurrency(
+            statutoryEmployerTotal + retirementEmployerTotal
+        )
+        let knownEmployerCost = grossReliable
+            ? roundedCurrency(contributionGross + knownEmployerContributions)
+            : nil
+        let employerCostWarnings = unique([
+            "Coût employeur total : seules les cotisations patronales nationales déjà intégrées et la retraite complémentaire sont incluses dans ce sous-total ; AT/MP, mobilité, chômage/AGS, FNAL, formation, maladie/famille, apprentissage, prévoyance et réductions restent à raccorder avant tout total complet."
+        ] + statutory.warnings + retirement.warnings)
+
         let rawBeforeTax = safeCashGross - statutoryTotal - retirementTotal - directTotal
         let knownBeforeTax = max(0, rawBeforeTax)
 
@@ -230,6 +255,12 @@ enum EmployeeNetProjectionV2 {
             netAfterIncomeTax: netAfterIncomeTax,
             netBeforeIncomeTaxComplete: beforeTaxComplete,
             netTaxableComplete: beforeTaxComplete && taxInputsComplete,
+            statutoryEmployerContributions: statutoryEmployerTotal,
+            complementaryRetirementEmployer: retirementEmployerTotal,
+            knownEmployerContributions: knownEmployerContributions,
+            knownEmployerCost: knownEmployerCost,
+            employerCostComplete: false,
+            employerCostWarnings: employerCostWarnings,
             warnings: unique(warnings),
             traces: traces
         )

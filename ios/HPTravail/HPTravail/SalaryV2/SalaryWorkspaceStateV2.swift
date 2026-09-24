@@ -13,6 +13,10 @@ struct SalaryWorkspaceSnapshotV2: Equatable {
     let netTaxable: Double?
     let incomeTax: Double?
     let netAfterIncomeTax: Double?
+    let knownEmployerContributions: Double?
+    let knownEmployerCost: Double?
+    let employerCostComplete: Bool
+    let employerCostWarnings: [String]
     let warnings: [String]
 
     var hasReliableGross: Bool { socialGross != nil }
@@ -37,6 +41,10 @@ enum SalaryWorkspaceResolverV2 {
                 netTaxable: nil,
                 incomeTax: nil,
                 netAfterIncomeTax: nil,
+                knownEmployerContributions: nil,
+                knownEmployerCost: nil,
+                employerCostComplete: false,
+                employerCostWarnings: [],
                 warnings: [upstreamUnavailableWarning]
             )
         }
@@ -85,6 +93,10 @@ enum SalaryWorkspaceResolverV2 {
             netTaxable: netTaxable,
             incomeTax: incomeTax,
             netAfterIncomeTax: netAfterIncomeTax,
+            knownEmployerContributions: reference.knownEmployerContributions,
+            knownEmployerCost: reference.knownEmployerCost,
+            employerCostComplete: reference.employerCostComplete,
+            employerCostWarnings: unique(reference.employerCostWarnings),
             warnings: unique(warnings)
         )
     }

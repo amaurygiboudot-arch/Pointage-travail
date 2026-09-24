@@ -114,6 +114,42 @@ enum SalaryV2PdfExporter {
             )
             row("Net après impôt", money(snapshot.netAfterIncomeTax))
 
+            section("COÛT EMPLOYEUR")
+            row(
+                "Cotisations patronales connues",
+                money(snapshot.knownEmployerContributions)
+            )
+            row(
+                snapshot.employerCostComplete
+                    ? "Coût employeur total"
+                    : "Coût employeur connu (partiel)",
+                money(snapshot.knownEmployerCost)
+            )
+            row(
+                "Coût employeur complet",
+                snapshot.employerCostComplete ? "Oui" : "Non"
+            )
+
+            if !snapshot.employerCostWarnings.isEmpty {
+                section("COÛT EMPLOYEUR — À VÉRIFIER")
+                for warning in snapshot.employerCostWarnings {
+                    let height = textHeight(
+                        "• \(warning)",
+                        width: 531,
+                        font: .systemFont(ofSize: 9)
+                    ) + 8
+                    ensure(height)
+                    draw(
+                        "• \(warning)",
+                        x: 32,
+                        y: y,
+                        width: 531,
+                        font: .systemFont(ofSize: 9)
+                    )
+                    y += height
+                }
+            }
+
             section("FIABILITÉ")
             row(
                 "Sources canoniques",
