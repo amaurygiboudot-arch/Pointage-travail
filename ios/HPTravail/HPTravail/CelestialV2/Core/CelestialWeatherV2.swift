@@ -21,6 +21,13 @@ struct CelestialWeatherStateV2: Equatable, Sendable {
         let age = date.timeIntervalSince(fetchedAt)
         return age >= 0 && age <= 45 * 60
     }
+
+    func matches(snapshot: CelestialSnapshotV2) -> Bool {
+        let latitude = (snapshot.latitudeDegrees * 100).rounded() / 100
+        let longitude = (snapshot.longitudeDegrees * 100).rounded() / 100
+        return roundedLatitudeDegrees == latitude &&
+            roundedLongitudeDegrees == longitude
+    }
 }
 
 enum CelestialWeatherParserV2 {

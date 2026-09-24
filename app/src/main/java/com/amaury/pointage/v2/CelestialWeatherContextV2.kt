@@ -46,6 +46,19 @@ object CelestialWeatherContextV2 {
     fun currentState(nowMs: Long = System.currentTimeMillis()): State? =
         current?.takeIf { it.isFresh(nowMs) }
 
+    fun currentStateFor(
+        snapshot: CelestialSnapshotV2,
+        nowMs: Long = System.currentTimeMillis()
+    ): State? {
+        val latitude = roundedCoordinate(snapshot.latitudeDeg)
+        val longitude = roundedCoordinate(snapshot.longitudeDeg)
+        return current?.takeIf {
+            it.isFresh(nowMs) &&
+                it.roundedLatitude == latitude &&
+                it.roundedLongitude == longitude
+        }
+    }
+
     fun refreshIfNeeded(
         snapshot: CelestialSnapshotV2,
         onChanged: (() -> Unit)? = null

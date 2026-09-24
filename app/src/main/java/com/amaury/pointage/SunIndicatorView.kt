@@ -307,7 +307,7 @@ class SunIndicatorView @JvmOverloads constructor(
         val moon = snapshot.moon
         val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
         val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
-        val weather = CelestialWeatherContextV2.currentState()
+        val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
         val cloudCover = weather?.cloudCover?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
         val sunCloudTransmission = (1f - cloudCover * 0.72f).coerceIn(0.18f, 1f)
         val moonCloudTransmission = (1f - cloudCover * 0.88f).coerceIn(0.08f, 1f)

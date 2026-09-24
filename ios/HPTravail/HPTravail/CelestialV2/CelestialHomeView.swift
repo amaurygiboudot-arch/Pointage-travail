@@ -106,10 +106,13 @@ struct CelestialHomeView: View {
 
     private var qualifiedWeather: CelestialWeatherStateV2? {
         let state = locationManager.celestialState
-        guard state.locationQuality == .valid, state.snapshot != nil else {
+        guard state.locationQuality == .valid,
+              let snapshot = state.snapshot,
+              let fresh = weather.freshState,
+              fresh.matches(snapshot: snapshot) else {
             return nil
         }
-        return weather.freshState
+        return fresh
     }
 
     private var currentNightOpacity: Double {
