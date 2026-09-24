@@ -116,6 +116,97 @@ final class SalarySegmentedMonthlyBaseBridgeV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains(SalarySegmentedMonthlyBaseBridgeV2.timelineWarning))
     }
 
+    func testProductionResolverUsesSegmentedBaseWhenSingleCalculationIsBlocked() throws {
+        let snapshot = SalaryEmploymentContractPayrollSnapshotV2(
+            resolution: contractResolution(),
+            warnings: []
+        )
+
+        let result = SalarySegmentedMonthlyBaseProductionV2.resolve(
+            contractSnapshot: snapshot,
+            conventionCoverage: ruleCoverage([
+                ruleSegment(
+                    "rule-a",
+                    start: 0,
+                    end: 14,
+                    rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+                ),
+                ruleSegment(
+                    "rule-b",
+                    start: 15,
+                    end: 30,
+                    rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+                )
+            ]),
+            prorationSource: confirmedProration()
+        )
+
+        XCTAssertTrue(result?.reliable == true)
+        XCTAssertEqual(try XCTUnwrap(result?.baseGross), 2_275.0, accuracy: 0.0001)
+    }
+
+    func testProductionResolverKeepsMissingProrationFailClosed() {
+        let snapshot = SalaryEmploymentContractPayrollSnapshotV2(
+            resolution: contractResolution(),
+            warnings: []
+        )
+
+        let result = SalarySegmentedMonthlyBaseProductionV2.resolve(
+            contractSnapshot: snapshot,
+            conventionCoverage: ruleCoverage([
+                ruleSegment(
+                    "rule-a",
+                    start: 0,
+                    end: 14,
+                    rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+                ),
+                ruleSegment(
+                    "rule-b",
+                    start: 15,
+                    end: 30,
+                    rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+                )
+            ]),
+            prorationSource: nil
+        )
+
+        XCTAssertFalse(result?.reliable ?? true)
+        XCTAssertNil(result?.baseGross)
+        XCTAssertEqual(result?.warnings, [SalarySegmentedProrationStoreV2.missingWarning])
+    }
+
+    func testProductionResolverDoesNotCompeteWithSingleContractPath() {
+        let base = contractResolution()
+        let promoted = SalaryEmploymentContractPeriodResolutionV2(
+            companyId: base.companyId,
+            periodStartEpochDay: base.periodStartEpochDay,
+            periodEndEpochDay: base.periodEndEpochDay,
+            sourceReliable: base.sourceReliable,
+            coverage: base.coverage,
+            contract: base.calculationSegments.first?.snapshot.contract,
+            warnings: []
+        )
+        let snapshot = SalaryEmploymentContractPayrollSnapshotV2(
+            resolution: promoted,
+            warnings: []
+        )
+
+        let result = SalarySegmentedMonthlyBaseProductionV2.resolve(
+            contractSnapshot: snapshot,
+            conventionCoverage: ruleCoverage([
+                ruleSegment(
+                    "rule-a",
+                    start: 0,
+                    end: 30,
+                    rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60)
+                )
+            ]),
+            prorationSource: confirmedProration()
+        )
+
+        XCTAssertNil(result)
+    }
+
     private func contractResolution() -> SalaryEmploymentContractPeriodResolutionV2 {
         let segments = [
             contractSegment("contract-a", start: 0, end: 14, rate: 10),

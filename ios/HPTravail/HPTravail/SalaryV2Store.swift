@@ -61,6 +61,7 @@ final class SalaryV2Store: ObservableObject {
     @Published private(set) var socialProfile: SalaryEmployeeSocialProfileResolutionV2?
     @Published private(set) var absenceSource: SalaryAbsenceSourceV2?
     @Published private(set) var segmentedProrationSource: SalarySegmentedProrationSourceV2?
+    @Published private(set) var segmentedMonthlyBase: SegmentedMonthlyBaseResultV2?
     @Published var segmentedProrationSourceText = ""
     @Published private(set) var segmentedProrationDraftSegments: [SalarySegmentedProrationDraftSegmentV2] = []
     @Published private(set) var segmentedProrationFeedback: String?
@@ -180,6 +181,11 @@ final class SalaryV2Store: ObservableObject {
         let segmentedProrationSource = companyId.map { companyId in
             SalarySegmentedProrationStoreV2.resolve(companyId: companyId, period: period)
         }
+        let segmentedMonthlyBase = SalarySegmentedMonthlyBaseProductionV2.resolve(
+            contractSnapshot: contractResolution,
+            conventionCoverage: conventionCoverage,
+            prorationSource: segmentedProrationSource
+        )
         let segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
             segments: contractResolution?.resolution?.calculationSegments ?? [],
             stored: segmentedProrationSource?.proration
@@ -218,6 +224,7 @@ final class SalaryV2Store: ObservableObject {
         self.socialProfile = socialProfile
         self.absenceSource = absenceSource
         self.segmentedProrationSource = segmentedProrationSource
+        self.segmentedMonthlyBase = segmentedMonthlyBase
         self.segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
         self.segmentedProrationDraftSegments = segmentedProrationDraftSegments
         self.snapshot = SalaryWorkspaceResolverV2.resolve(
@@ -254,6 +261,9 @@ final class SalaryV2Store: ObservableObject {
         let segmentedProrationWarnings = requiresSegmentedProration
             ? (segmentedProrationSource?.warnings ?? [])
             : []
+        let segmentedBaseWarnings = requiresSegmentedProration
+            ? (segmentedMonthlyBase?.warnings ?? [])
+            : []
         let segmentedWorkWarnings = contractSegmentPaidWork?.warnings ?? []
         let workspaceWarnings = snapshot.warnings
         let workWarnings = paidWork?.warnings ?? []
@@ -268,6 +278,7 @@ final class SalaryV2Store: ObservableObject {
             + socialProfileWarnings
             + absenceWarnings
             + segmentedProrationWarnings
+            + segmentedBaseWarnings
             + segmentedWorkWarnings
             + workspaceWarnings
             + workWarnings
@@ -843,6 +854,11 @@ final class SalaryV2Store: ObservableObject {
                 companyId: companyId,
                 period: selectedPeriod
             )
+            segmentedMonthlyBase = SalarySegmentedMonthlyBaseProductionV2.resolve(
+                contractSnapshot: contractResolution,
+                conventionCoverage: conventionCoverage,
+                prorationSource: segmentedProrationSource
+            )
             segmentedProrationSourceText = segmentedProrationSource?.proration?.sourceId ?? ""
             segmentedProrationDraftSegments = SalarySegmentedProrationDraftBuilderV2.make(
                 segments: contractResolution?.resolution?.calculationSegments ?? [],
@@ -868,6 +884,7 @@ final class SalaryV2Store: ObservableObject {
             socialProfile = nil
             absenceSource = nil
             segmentedProrationSource = nil
+            segmentedMonthlyBase = nil
             segmentedProrationSourceText = ""
             segmentedProrationDraftSegments = []
         }
