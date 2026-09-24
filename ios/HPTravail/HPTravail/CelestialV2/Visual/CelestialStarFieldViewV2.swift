@@ -63,15 +63,17 @@ private final class CelestialStarFieldModelV2: ObservableObject {
                           position.apparentAltitudeDegrees <= 90 else {
                         return nil
                     }
-                    let azimuth = position.azimuthDegrees
-                        .truncatingRemainder(dividingBy: 360)
-                    let normalizedAzimuth = azimuth >= 0 ? azimuth : azimuth + 360
+                    guard let panorama = CelestialPanoramaGeometryV2.normalized(
+                        position: position
+                    ) else {
+                        return nil
+                    }
                     return PreparedStarSkyStarV2(
                         hr: item.hr,
                         magnitude: item.star.visualMagnitude,
                         position: position,
-                        panoramaX01: normalizedAzimuth / 360,
-                        panoramaY01: 1 - position.apparentAltitudeDegrees / 90
+                        panoramaX01: panorama.x01,
+                        panoramaY01: panorama.y01
                     )
                 }
 
@@ -147,12 +149,14 @@ struct CelestialStarFieldViewV2: View {
                 let centerAzimuth = CelestialHeadingPolicyV2.isUsable(state.headingQuality)
                     ? (state.trueHeadingDegrees ?? 0)
                     : 0
-                let heading = normalizedFraction(centerAzimuth / 360)
+                let heading = CelestialPanoramaGeometryV2.headingFraction(
+                    centerAzimuthDegrees: centerAzimuth
+                )
 
                 var linePath = Path()
                 for segment in sky.panoramaSegments {
-                    let x1 = CGFloat(screenFraction(segment.x1, heading: heading)) * size.width
-                    let x2Base = CGFloat(screenFraction(segment.x2, heading: heading)) * size.width
+                    let x1 = CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: segment.x1, heading: heading)) * size.width
+                    let x2Base = CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: segment.x2, heading: heading)) * size.width
                     let y1 = CGFloat(segment.y1) * size.height
                     let y2 = CGFloat(segment.y2) * size.height
                     var x2 = x2Base
@@ -177,7 +181,7 @@ struct CelestialStarFieldViewV2: View {
                 if starOpacity > 0.01 {
                     for star in sky.stars {
                         let point = CGPoint(
-                            x: CGFloat(screenFraction(star.panoramaX01, heading: heading)) * size.width,
+                            x: CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: star.panoramaX01, heading: heading)) * size.width,
                             y: CGFloat(star.panoramaY01) * size.height
                         )
                         let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
@@ -277,19 +281,6 @@ struct CelestialStarFieldViewV2: View {
             guard let snapshot = state.snapshot, state.locationQuality == .valid else { return }
             model.prepare(snapshot: snapshot)
         }
-    }
-
-    private func normalizedFraction(_ value: Double) -> Double {
-        let remainder = value.truncatingRemainder(dividingBy: 1)
-        return remainder >= 0 ? remainder : remainder + 1
-    }
-
-    private func screenFraction(_ skyX01: Double, heading: Double) -> Double {
-        var delta = skyX01 - heading
-        delta = delta.truncatingRemainder(dividingBy: 1)
-        if delta >= 0.5 { delta -= 1 }
-        if delta < -0.5 { delta += 1 }
-        return 0.5 + delta
     }
 
     private var preparationKey: String {
