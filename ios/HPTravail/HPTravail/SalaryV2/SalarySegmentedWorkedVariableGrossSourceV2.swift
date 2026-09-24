@@ -143,7 +143,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             }
 
             guard supplied.evidence.grossInputsReliable,
-                  supplied.weeks.allSatisfy(.fullWeekContextReliable) else {
+                  supplied.weeks.allSatisfy { item in item.fullWeekContextReliable } else {
                 return blocked(
                     warnings
                         + supplied.warnings
@@ -170,7 +170,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                 return blocked(warnings + [amountWarning])
             }
 
-            let payrollWeeks = supplied.weeks.map(.week)
+            let payrollWeeks = supplied.weeks.map { item in item.week }
             let variable: Double
             switch contract.type {
             case .fullTime:
@@ -297,7 +297,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         let overtime = FullTimeStructuralOvertimeV2.calculate(
             contractualWeeklyMinutes: contractual,
             regularWeeklyLimit: regularLimit,
-            paidWeeks: weeks.map(.paidMinutes),
+            paidWeeks: weeks.map { week in week.paidMinutes },
             grossHourlyRate: rate,
             overtimeTiers: rules.overtimeTiers
         )
@@ -360,12 +360,12 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         }
 
         do {
-            let premium = try weeks.reduce(0.0) {
-                $0 + SalaryPayrollPremiumGrossV2.calculate(
-                    week: $1,
+            let premium = try weeks.reduce(0.0) { partial, week in
+                partial + (try SalaryPayrollPremiumGrossV2.calculate(
+                    week: week,
                     grossHourlyRate: rate,
                     rules: rules
-                )
+                ))
             }
             return premium.isFinite && premium >= 0 ? premium : nil
         } catch {
