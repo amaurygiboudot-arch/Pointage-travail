@@ -21,6 +21,7 @@ struct SalaryV2View: View {
                     companySelectorCard
                     contractCard
                     segmentedProrationCard
+                    segmentedVariableStatusCard
                     socialProfileCard
                     classificationCard
                     conventionCoverageCard
@@ -324,6 +325,43 @@ struct SalaryV2View: View {
                 if let feedback = salaryStore.segmentedProrationFeedback {
                     Text(feedback)
                         .font(.footnote)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        }
+    }
+
+    @ViewBuilder
+    private var segmentedVariableStatusCard: some View {
+        if salaryStore.hasMaterialSegmentedPayrollTransition,
+           let assessment = salaryStore.segmentedPayrollBoundary {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("ÉLÉMENTS VARIABLES SEGMENTÉS")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+
+                if assessment.safeForIndependentWeeklyVariableCalculation {
+                    Label(
+                        "Les changements de paie commencent en début de semaine : aucun seuil hebdomadaire n’est coupé.",
+                        systemImage: "checkmark.shield.fill"
+                    )
+                    .font(.footnote)
+
+                    Text("Cette preuve prépare le calcul segmenté des heures supplémentaires/complémentaires et majorations. Aucun montant variable n’est encore publié tant que ce calcul dédié n’est pas raccordé.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label(
+                        "Un changement intervient en cours de semaine : les variables hebdomadaires restent bloquées.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+
+                    Text("HoraTrack ne découpe pas artificiellement une semaine pour inventer des heures supplémentaires, complémentaires ou majorations.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
