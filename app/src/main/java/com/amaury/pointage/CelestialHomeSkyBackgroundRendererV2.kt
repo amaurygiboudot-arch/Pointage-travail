@@ -6,8 +6,10 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
 import android.graphics.Shader
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
@@ -16,7 +18,9 @@ import com.amaury.pointage.v2.ui.ConstellationPathV2
 import com.amaury.pointage.v2.ui.StarSkyCatalogLoaderV2
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
  * Ciel réel plein écran réservé à l'onglet Accueil.
@@ -59,10 +63,18 @@ class CelestialHomeSkyBackgroundRendererV2(
         strokeCap = Paint.Cap.ROUND
         color = Color.WHITE
     }
+    private val cloudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
 
     fun update(state: CelestialTrackerV2.State) {
         val snapshot = state.snapshot ?: return
         if (state.locationQuality != CelestialLocationQualityV2.VALID) return
+
+        CelestialWeatherContextV2.refreshIfNeeded(snapshot) {
+            onInvalidated()
+        }
+
         val bucket = snapshot.atMs / LOCAL_SKY_REFRESH_MS
         val key = "%.4f:%.4f:%d".format(snapshot.latitudeDeg, snapshot.longitudeDeg, bucket)
         if (key == requestedKey) return
@@ -114,10 +126,13 @@ class CelestialHomeSkyBackgroundRendererV2(
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
         val sky = localSky ?: return
 
+        val weather = CelestialWeatherContextV2.currentState()
+        val cloudTransmission = weather?.cloudTransmission ?: 1.0
+
         // Jour réel : aucune étoile ni constellation artificiellement visible.
-        // Elles apparaissent progressivement uniquement quand le Soleil descend.
-        val starOpacity = nightOpacity
-        val constellationOpacity = 0.18 * nightOpacity
+        // La couverture nuageuse réelle atténue ensuite le ciel nocturne.
+        val starOpacity = nightOpacity * cloudTransmission
+        val constellationOpacity = 0.18 * nightOpacity * cloudTransmission
 
         val centerAzimuthDeg = if (
             CelestialHeadingPolicyV2.isUsable(current.headingQuality)
@@ -175,6 +190,96 @@ class CelestialHomeSkyBackgroundRendererV2(
             val radius = (0.65 + brightness * 2.25).toFloat() * density
             canvas.drawCircle(point.x, point.y, radius, starPaint)
         }
+
+        weather?.let {
+            drawCloudLayer(
+                canvas = canvas,
+                width = width,
+                height = height,
+                cloudCover = it.cloudCover,
+                nightOpacity = nightOpacity,
+                weatherCode = it.weatherCode,
+                precipitationMm = it.precipitationMm
+            )
+        }
+    }
+
+    /**
+     * Représentation atmosphérique de la couverture réelle.
+     *
+     * Le fournisseur donne un pourcentage de couverture, pas la géométrie exacte
+     * des nuages au-dessus du téléphone. Les formes sont donc une visualisation
+     * stable de cette couverture et ne sont jamais présentées comme une image
+     * satellite ou la position exacte des nuages.
+     */
+    private fun drawCloudLayer(
+        canvas: Canvas,
+        width: Float,
+        height: Float,
+        cloudCover: Double,
+        nightOpacity: Double,
+        weatherCode: Int?,
+        precipitationMm: Double?
+    ) {
+        val cover = cloudCover.coerceIn(0.0, 1.0).toFloat()
+        if (cover < 0.03f) return
+
+        val clusters = (3 + cover * 13f).toInt().coerceIn(3, 16)
+        val now = System.currentTimeMillis()
+        val drift = ((now % 3_600_000L).toFloat() / 3_600_000f) * width
+        val rainy = (precipitationMm ?: 0.0) > 0.05 ||
+            (weatherCode != null && weatherCode in 51..99)
+
+        val dayColor = if (rainy) Color.rgb(150, 158, 166) else Color.rgb(238, 244, 248)
+        val nightColor = if (rainy) Color.rgb(58, 64, 74) else Color.rgb(96, 104, 118)
+        cloudPaint.color = blend(dayColor, nightColor, nightOpacity.toFloat().coerceIn(0f, 1f))
+        cloudPaint.alpha = (42f + cover * if (rainy) 125f else 95f).toInt().coerceIn(0, 190)
+
+        for (index in 0 until clusters) {
+            val seed = index * 1.731f + cover * 2.17f
+            val baseX = ((index.toFloat() / clusters) * width + drift * (0.20f + (index % 4) * 0.06f)) % (width * 1.22f)
+            val x = baseX - width * 0.11f
+            val y = height * (0.12f + ((sin(seed.toDouble()) + 1.0) * 0.5 * 0.66).toFloat())
+            val clusterWidth = width * (0.13f + cover * 0.10f + (index % 3) * 0.018f)
+            val clusterHeight = clusterWidth * (0.20f + (index % 2) * 0.04f)
+
+            drawCloudCluster(canvas, x, y, clusterWidth, clusterHeight)
+        }
+
+        if (cover > 0.82f) {
+            cloudPaint.alpha = ((cover - 0.82f) / 0.18f * 72f).toInt().coerceIn(0, 72)
+            canvas.drawRect(0f, 0f, width, height, cloudPaint)
+        }
+    }
+
+    private fun drawCloudCluster(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        width: Float,
+        height: Float
+    ) {
+        val left = cx - width * 0.5f
+        val top = cy - height * 0.5f
+        canvas.drawOval(RectF(left, top, left + width, top + height), cloudPaint)
+        canvas.drawOval(
+            RectF(
+                cx - width * 0.22f,
+                cy - height * 0.95f,
+                cx + width * 0.18f,
+                cy + height * 0.18f
+            ),
+            cloudPaint
+        )
+        canvas.drawOval(
+            RectF(
+                cx - width * 0.02f,
+                cy - height * 0.82f,
+                cx + width * 0.38f,
+                cy + height * 0.24f
+            ),
+            cloudPaint
+        )
     }
 
     private fun drawAtmosphericBase(
