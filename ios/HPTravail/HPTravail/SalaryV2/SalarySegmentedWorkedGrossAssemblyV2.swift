@@ -1,6 +1,7 @@
 import Foundation
 
 struct SalarySegmentedWorkedVariableGrossPieceV2: Equatable {
+    let companyId: String
     let versionId: String
     let startEpochDay: Int64
     let endEpochDay: Int64
@@ -9,6 +10,7 @@ struct SalarySegmentedWorkedVariableGrossPieceV2: Equatable {
     let warnings: [String]
 
     init(
+        companyId: String,
         versionId: String,
         startEpochDay: Int64,
         endEpochDay: Int64,
@@ -16,6 +18,7 @@ struct SalarySegmentedWorkedVariableGrossPieceV2: Equatable {
         reliable: Bool,
         warnings: [String] = []
     ) {
+        self.companyId = companyId
         self.versionId = versionId
         self.startEpochDay = startEpochDay
         self.endEpochDay = endEpochDay
@@ -43,6 +46,8 @@ struct SalarySegmentedWorkedGrossAssemblyResultV2: Equatable {
 /// Invariant fail-closed : une pièce variable absente n'est jamais assimilée à zéro. Un zéro n'est
 /// accepté que s'il est porté par une pièce explicite, fiable et correspondant exactement au segment.
 enum SalarySegmentedWorkedGrossAssemblerV2 {
+    static let contractWarning =
+        "Brut segmenté : la couverture contractuelle sélectionnée est absente, non fiable ou ne correspond pas aux segments monétaires."
     static let baseWarning =
         "Brut segmenté : base mensuelle segmentée absente, incohérente ou non fiable ; assemblage bloqué."
     static let coverageWarning =
@@ -55,24 +60,54 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
 
     static func assemble(
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,
         variables: [SalarySegmentedWorkedVariableGrossPieceV2]
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        let companyId = contracts.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contractSegments = contracts.calculationSegments
+        guard contracts.sourceReliable,
+              !companyId.isEmpty,
+              !contractSegments.isEmpty,
+              contractSegments.allSatisfy({
+                  $0.snapshot.contract.employerId
+                      .trimmingCharacters(in: .whitespacesAndNewlines) == companyId
+              }) else {
+            return blocked(
+                contracts.warnings
+                    + base.warnings
+                    + [contractWarning]
+            )
+        }
+        let upstreamWarnings = contracts.warnings + base.warnings
+
         guard base.reliable,
               let baseAmount = base.baseGross,
               baseAmount.isFinite,
               baseAmount >= 0,
               !base.pieces.isEmpty else {
-            return blocked(base.warnings + [baseWarning])
+            return blocked(upstreamWarnings + [baseWarning])
         }
 
         let baseKeys = base.pieces.map {
             key($0.versionId, start: $0.startEpochDay, end: $0.endEpochDay)
         }
+        let contractKeys = contractSegments.map {
+            key(
+                $0.snapshot.versionId,
+                start: $0.startEpochDay,
+                end: $0.endEpochDay
+            )
+        }
         guard baseKeys.allSatisfy({ !$0.versionId.isEmpty }),
               Set(baseKeys).count == baseKeys.count,
               base.pieces.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }) else {
-            return blocked(base.warnings + [baseWarning])
+            return blocked(upstreamWarnings + [baseWarning])
+        }
+        guard contractKeys.allSatisfy({ !$0.versionId.isEmpty }),
+              Set(contractKeys).count == contractKeys.count,
+              Set(contractKeys) == Set(baseKeys) else {
+            return blocked(upstreamWarnings + [contractWarning])
         }
 
         var recomputedBase = 0.0
@@ -87,13 +122,13 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
                   piece.fullMonthBaseGross >= 0,
                   piece.proratedBaseGross.isFinite,
                   piece.proratedBaseGross >= 0 else {
-                return blocked(base.warnings + [amountWarning])
+                return blocked(upstreamWarnings + [amountWarning])
             }
 
             let expectedPiece = piece.fullMonthBaseGross * piece.factor
             guard expectedPiece.isFinite,
                   abs(expectedPiece - piece.proratedBaseGross) <= currencyTolerance else {
-                return blocked(base.warnings + [baseWarning])
+                return blocked(upstreamWarnings + [baseWarning])
             }
 
             recomputedBase += piece.proratedBaseGross
@@ -102,27 +137,27 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
                 Int64(piece.scheduledMinutes)
             )
             guard !scheduledAddition.overflow else {
-                return blocked(base.warnings + [overflowWarning])
+                return blocked(upstreamWarnings + [overflowWarning])
             }
             scheduledTotal = scheduledAddition.partialValue
 
             guard recomputedBase.isFinite, factorTotal.isFinite else {
-                return blocked(base.warnings + [overflowWarning])
+                return blocked(upstreamWarnings + [overflowWarning])
             }
         }
         guard scheduledTotal > 0,
               abs(factorTotal - 1.0) <= factorTolerance else {
-            return blocked(base.warnings + [baseWarning])
+            return blocked(upstreamWarnings + [baseWarning])
         }
         for piece in base.pieces {
             let expectedFactor = Double(piece.scheduledMinutes) / Double(scheduledTotal)
             guard expectedFactor.isFinite,
                   abs(expectedFactor - piece.factor) <= factorTolerance else {
-                return blocked(base.warnings + [baseWarning])
+                return blocked(upstreamWarnings + [baseWarning])
             }
         }
         guard abs(recomputedBase - baseAmount) <= currencyTolerance else {
-            return blocked(base.warnings + [baseWarning])
+            return blocked(upstreamWarnings + [baseWarning])
         }
 
         let variableKeys = variables.map {
@@ -131,14 +166,17 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         let variableWarnings = variables.flatMap(\.warnings)
         guard variableKeys.allSatisfy({ !$0.versionId.isEmpty }),
               Set(variableKeys).count == variableKeys.count,
-              variables.allSatisfy({ $0.endEpochDay >= $0.startEpochDay }),
+              variables.allSatisfy({
+                  $0.companyId.trimmingCharacters(in: .whitespacesAndNewlines) == companyId
+                      && $0.endEpochDay >= $0.startEpochDay
+              }),
               Set(variableKeys) == Set(baseKeys) else {
-            return blocked(base.warnings + variableWarnings + [coverageWarning])
+            return blocked(upstreamWarnings + variableWarnings + [coverageWarning])
         }
 
         guard variables.allSatisfy(\.reliable) else {
             return blocked(
-                base.warnings
+                upstreamWarnings
                     + variableWarnings
                     + [variableReliabilityWarning]
             )
@@ -167,7 +205,7 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         let workedGross = baseAmount + variableTotal
         guard workedGross.isFinite else {
             return blocked(
-                base.warnings
+                upstreamWarnings
                     + variableWarnings
                     + [overflowWarning]
             )
@@ -178,7 +216,7 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
             variableGross: variableTotal,
             workedGross: workedGross,
             reliable: true,
-            warnings: unique(base.warnings + variableWarnings)
+            warnings: unique(upstreamWarnings + variableWarnings)
         )
     }
 
