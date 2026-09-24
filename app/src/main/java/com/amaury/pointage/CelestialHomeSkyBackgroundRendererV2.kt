@@ -275,6 +275,11 @@ class CelestialHomeSkyBackgroundRendererV2(
 
             val cacheStarPaint = Paint(starPaint)
             for (star in sky.stars) {
+                // Le catalogue BSC5P reste complet pour la géométrie des
+                // constellations, mais le fond n'affiche que les étoiles
+                // suffisamment brillantes pour éviter un ciel artificiellement
+                // saturé sur un écran de téléphone.
+                if (star.magnitude > HOME_MAX_VISUAL_MAGNITUDE) continue
                 val point = points[star.hr] ?: continue
                 val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
                 cacheStarPaint.alpha = (
@@ -830,6 +835,7 @@ class CelestialHomeSkyBackgroundRendererV2(
     companion object {
         private const val LOCAL_SKY_REFRESH_MS = 30_000L
         private const val CONSTELLATION_BASE_ALPHA = 46
+        private const val HOME_MAX_VISUAL_MAGNITUDE = 4.2
         private const val CACHE_RECYCLE_DELAY_MS = 1_000L
         private const val CLOUD_DRIFT_PERIOD_MS = 5_400_000L
         private val executor = Executors.newSingleThreadExecutor { task ->

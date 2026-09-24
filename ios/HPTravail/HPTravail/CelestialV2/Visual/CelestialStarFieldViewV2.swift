@@ -181,7 +181,7 @@ struct CelestialStarFieldViewV2: View {
                 )
 
                 if starOpacity > 0.01 {
-                    for star in sky.stars {
+                    for star in sky.stars where star.magnitude <= Self.fullScreenMaxVisualMagnitude {
                         let point = CGPoint(
                             x: CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: star.panoramaX01, heading: heading)) * size.width,
                             y: CGFloat(star.panoramaY01) * size.height
@@ -258,7 +258,7 @@ struct CelestialStarFieldViewV2: View {
                 )
 
                 if starOpacity > 0.01 {
-                    for (star, point) in visible {
+                    for (star, point) in visible where star.magnitude <= Self.dialMaxVisualMagnitude {
                         let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
                         let starRadius = CGFloat(0.55 + brightness * 2.0)
                         let rect = CGRect(
@@ -284,6 +284,12 @@ struct CelestialStarFieldViewV2: View {
             model.prepare(snapshot: snapshot)
         }
     }
+
+    // Le catalogue reste complet pour les constellations. On limite seulement
+    // les points effectivement dessinés afin d'éviter plusieurs milliers
+    // d'étoiles simultanées sur l'écran.
+    private static let fullScreenMaxVisualMagnitude = 4.2
+    private static let dialMaxVisualMagnitude = 4.5
 
     private var preparationKey: String {
         guard let snapshot = state.snapshot else { return "none" }
