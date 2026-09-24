@@ -184,9 +184,9 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialLocationQualityV2.VALID -> when (tracking.headingQuality) {
                 CelestialHeadingQualityV2.UNAVAILABLE -> "Boussole indisponible"
                 CelestialHeadingQualityV2.STALE -> "Boussole trop ancienne"
-                CelestialHeadingQualityV2.UNRELIABLE -> "Boussole perturbée"
-                CelestialHeadingQualityV2.INACCURATE -> "Boussole imprécise"
-                CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> "Ciel réel · précision boussole inconnue"
+                CelestialHeadingQualityV2.UNRELIABLE -> "Boussole perturbée · éloigner le téléphone du métal"
+                CelestialHeadingQualityV2.INACCURATE -> "Boussole à calibrer · faire un mouvement en 8"
+                CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> "Ciel réel · boussole active"
                 CelestialHeadingQualityV2.VALID -> "Ciel réel · GPS et boussole fiables"
             }
         }
