@@ -2,26 +2,24 @@ import Foundation
 import SwiftUI
 
 struct CelestialCloudLayerV2: View {
-    let weather: CelestialWeatherStateV2?
-    let nightOpacity: Double
+    let renderState: CelestialRenderStateV2?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 5)) { timeline in
             Canvas { context, size in
-                guard let weather,
-                      weather.isFresh(at: timeline.date) else {
+                guard let renderState,
+                      let cloudCoverage = renderState.cloudCoverage else {
                     return
                 }
 
-                let cover = min(1, max(0, weather.cloudCover))
+                let cover = min(1, max(0, cloudCoverage))
                 guard cover >= 0.03 else { return }
 
-                let code = weather.weatherCode ?? -1
-                let rainy = (weather.precipitationMillimeters ?? 0) > 0.05 ||
-                    (51...67).contains(code) || (80...82).contains(code)
-                let foggy = (45...48).contains(code)
-                let snowy = (71...77).contains(code) || (85...86).contains(code)
-                let stormy = (95...99).contains(code)
+                let rainy = renderState.weatherType == .drizzle ||
+                    renderState.weatherType == .rain
+                let foggy = renderState.weatherType == .fog
+                let snowy = renderState.weatherType == .snow
+                let stormy = renderState.weatherType == .thunderstorm
 
                 let dayTint: Color = {
                     if stormy { return Color(red: 0.46, green: 0.49, blue: 0.54) }
@@ -33,7 +31,7 @@ struct CelestialCloudLayerV2: View {
                 let nightTint: Color = stormy || rainy
                     ? Color(red: 0.23, green: 0.27, blue: 0.33)
                     : Color(red: 0.36, green: 0.40, blue: 0.47)
-                let night = min(1, max(0, nightOpacity))
+                let night = min(1, max(0, renderState.nightLevel))
 
                 let clusterCount = min(11, max(2, Int(2 + cover * 9)))
                 let driftPhase = timeline.date.timeIntervalSince1970
