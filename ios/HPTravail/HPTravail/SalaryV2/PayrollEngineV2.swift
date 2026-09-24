@@ -568,32 +568,11 @@ enum PayrollEngineV2 {
         rate: Double,
         rules: PayrollRulesV2
     ) throws -> Double {
-        var extras = 0.0
-        if let multiplier = rules.nightMultiplier {
-            try validateMultiplier(multiplier)
-            if week.nightMinutes > 0 {
-                extras += Double(week.nightMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.saturdayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.saturdayMinutes > 0 {
-                extras += Double(week.saturdayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.sundayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.sundayMinutes > 0 {
-                extras += Double(week.sundayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        if let multiplier = rules.publicHolidayMultiplier {
-            try validateMultiplier(multiplier)
-            if week.publicHolidayMinutes > 0 {
-                extras += Double(week.publicHolidayMinutes) / 60.0 * rate * (multiplier - 1.0)
-            }
-        }
-        return extras
+        try SalaryPayrollPremiumGrossV2.calculate(
+            week: week,
+            grossHourlyRate: rate,
+            rules: rules
+        )
     }
 
     private static func validateWeek(_ week: PayrollWeekV2) throws {
