@@ -172,7 +172,9 @@ class SunIndicatorView @JvmOverloads constructor(
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
                 val directionalSkyUsable = tracking.hasRealSky
-                celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
+                val localSkyUsable = tracking.snapshot != null &&
+                    tracking.locationQuality == CelestialLocationQualityV2.VALID
+                celestialSnapshot = tracking.snapshot?.takeIf { localSkyUsable }
                 deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
                 orientationQuality = tracking.headingQuality
                 trackingLocationQuality = tracking.locationQuality
@@ -181,7 +183,7 @@ class SunIndicatorView @JvmOverloads constructor(
                 trackingHeadingAgeMs = tracking.headingAgeMs
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
-                if (!directionalSkyUsable) {
+                if (!localSkyUsable) {
                     CelestialLightingState.clearSunDirection()
                 }
                 // Le jour/nuit dépend de l'éphéméride et du GPS, pas de la qualité
@@ -253,11 +255,19 @@ class SunIndicatorView @JvmOverloads constructor(
         }
 
         val sky = tracking.snapshot
-        val detail = if (tracking.hasRealSky && sky != null) {
+        val detail = if (
+            tracking.locationQuality == CelestialLocationQualityV2.VALID &&
+            sky != null
+        ) {
             val moment = if (sky.night) "nuit" else "jour"
-            "$moment, Soleil ${sky.sun.altitudeDeg.toInt()} degrés, Lune ${sky.moon.altitudeDeg.toInt()} degrés"
+            val orientation = if (CelestialHeadingPolicyV2.isUsable(tracking.headingQuality)) {
+                "point de vue orienté"
+            } else {
+                "mode Nord stable"
+            }
+            "$moment, $orientation, Soleil ${sky.sun.altitudeDeg.toInt()} degrés, Lune ${sky.moon.altitudeDeg.toInt()} degrés"
         } else {
-            "position exacte du Soleil et de la Lune masquée"
+            "ciel local précis indisponible"
         }
         rootView.findViewById<View>(R.id.celestialHomePanel)?.contentDescription =
             "Accueil céleste. $status. $detail."
@@ -324,7 +334,10 @@ class SunIndicatorView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (!visibleCelestial || width <= 0 || height <= 0) return
         val snapshot = celestialSnapshot ?: return
-        val frame = deviceFrame ?: return
+        val renderHeading = CelestialHeadingPolicyV2.renderingHeadingDeg(
+            headingDeg = deviceAzimuth.toDouble(),
+            quality = orientationQuality
+        ).toFloat()
 
         // Le facteur vertical réserve la marge des disques Soleil/Lune sur les
         // écrans larges. Il évite tout rognage en paysage, tablette et multi-fenêtre.
@@ -342,8 +355,8 @@ class SunIndicatorView @JvmOverloads constructor(
         val inactiveRadius = activeRadius * 0.82f
         val sun = snapshot.sun
         val moon = snapshot.moon
-        val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
-        val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
+        val sunScreen = mapToEarthCenteredSky(sun, renderHeading, earthX, earthY, horizonRadius)
+        val moonScreen = mapToEarthCenteredSky(moon, renderHeading, earthX, earthY, horizonRadius)
         val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
         val renderState = CelestialRenderStateFactoryV2.build(
             snapshot = snapshot,
@@ -377,11 +390,11 @@ class SunIndicatorView @JvmOverloads constructor(
         val solarEclipse = SolarEclipseGeometryV2.evaluate(sun, moon)
 
         val sunGlowScreen = if (sunGlowAlpha > 0f) {
-            mapToDeviceSky(
+            mapToEarthCenteredSky(
                 sun.copy(
                     altitudeDeg = CelestialHorizonTransitionV2.altitudeForHorizonGlow(sun.altitudeDeg)
                 ),
-                frame,
+                renderHeading,
                 earthX,
                 earthY,
                 horizonRadius
@@ -426,7 +439,7 @@ class SunIndicatorView @JvmOverloads constructor(
                 val moonDirectionFromSun = CelestialScreenGeometryV2.directionToward(
                     from = sun,
                     to = moon,
-                    frame = frame
+                    deviceAzimuthDeg = renderHeading
                 )
                 drawPhysicalSolarOccultation(
                     canvas = canvas,
@@ -458,7 +471,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
                 from = moon,
                 to = sun,
-                frame = frame
+                deviceAzimuthDeg = renderHeading
             )
             drawMoonSunlight(
                 canvas = canvas,
@@ -473,7 +486,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
                 moon = moon,
                 sun = sun,
-                frame = frame
+                deviceAzimuthDeg = renderHeading
             )
             drawEarthShadowOnMoon(
                 canvas = canvas,
@@ -805,14 +818,17 @@ class SunIndicatorView @JvmOverloads constructor(
         earthUmbraPaint.shader = null
     }
 
-    private fun mapToDeviceSky(
+    private fun mapToEarthCenteredSky(
         position: CelestialBodyV2,
-        frame: CelestialDeviceFrameV2,
+        renderingHeadingDeg: Float,
         cx: Float,
         cy: Float,
         horizonRadius: Float
     ): Pair<Float, Float>? {
-        val projected = CelestialScreenGeometryV2.projectInDeviceSky(position, frame) ?: return null
+        val projected = CelestialScreenGeometryV2.projectEarthCenteredSky(
+            body = position,
+            deviceAzimuthDeg = renderingHeadingDeg
+        ) ?: return null
         val x = cx + projected.xRadiusFraction.toFloat() * horizonRadius
         val y = cy + projected.yRadiusFraction.toFloat() * horizonRadius
         return x to y
