@@ -68,19 +68,52 @@ object SegmentedWorkedGrossAssemblerV2 {
         val baseKeys = base.pieces.map {
             key(it.versionId, it.startEpochDay, it.endEpochDay)
         }
-        if (baseKeys.any { it.first.isBlank() } || baseKeys.distinct().size != baseKeys.size) {
+        if (baseKeys.any { it.first.isBlank() } ||
+            baseKeys.distinct().size != baseKeys.size ||
+            base.pieces.any { it.endEpochDay < it.startEpochDay }
+        ) {
             return blocked(base.warnings + BASE_WARNING)
         }
 
         var recomputedBase = 0.0
+        var factorTotal = 0.0
+        var scheduledTotal = 0L
         for (piece in base.pieces) {
-            if (!piece.proratedBaseGross.isFinite() || piece.proratedBaseGross < 0.0) {
+            if (piece.scheduledMinutes < 0 ||
+                !piece.factor.isFinite() ||
+                piece.factor < 0.0 ||
+                piece.factor > 1.0 + FACTOR_TOLERANCE ||
+                !piece.fullMonthBaseGross.isFinite() ||
+                piece.fullMonthBaseGross < 0.0 ||
+                !piece.proratedBaseGross.isFinite() ||
+                piece.proratedBaseGross < 0.0
+            ) {
                 return blocked(base.warnings + AMOUNT_WARNING)
             }
+
+            val expectedPiece = piece.fullMonthBaseGross * piece.factor
+            if (!expectedPiece.isFinite() ||
+                kotlin.math.abs(expectedPiece - piece.proratedBaseGross) > CURRENCY_TOLERANCE
+            ) {
+                return blocked(base.warnings + BASE_WARNING)
+            }
+
             recomputedBase += piece.proratedBaseGross
-            if (!recomputedBase.isFinite()) {
+            factorTotal += piece.factor
+            val scheduledAddition = scheduledTotal.addingReportingOverflow(piece.scheduledMinutes.toLong())
+            if (scheduledAddition.overflow) {
                 return blocked(base.warnings + OVERFLOW_WARNING)
             }
+            scheduledTotal = scheduledAddition.value
+
+            if (!recomputedBase.isFinite() || !factorTotal.isFinite()) {
+                return blocked(base.warnings + OVERFLOW_WARNING)
+            }
+        }
+        if (scheduledTotal <= 0L ||
+            kotlin.math.abs(factorTotal - 1.0) > FACTOR_TOLERANCE
+        ) {
+            return blocked(base.warnings + BASE_WARNING)
         }
         if (kotlin.math.abs(recomputedBase - baseAmount) > CURRENCY_TOLERANCE) {
             return blocked(base.warnings + BASE_WARNING)
@@ -91,6 +124,7 @@ object SegmentedWorkedGrossAssemblerV2 {
         }
         if (variableKeys.any { it.first.isBlank() } ||
             variableKeys.distinct().size != variableKeys.size ||
+            variables.any { it.endEpochDay < it.startEpochDay } ||
             variableKeys.toSet() != baseKeys.toSet()
         ) {
             return blocked(base.warnings + variables.flatMap { it.warnings } + COVERAGE_WARNING)
@@ -142,4 +176,5 @@ object SegmentedWorkedGrossAssemblerV2 {
         )
 
     private const val CURRENCY_TOLERANCE = 0.005
+    private const val FACTOR_TOLERANCE = 0.000_000_001
 }
