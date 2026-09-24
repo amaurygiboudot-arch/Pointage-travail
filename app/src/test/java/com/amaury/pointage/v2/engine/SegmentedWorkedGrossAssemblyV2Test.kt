@@ -208,6 +208,26 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun baseThatDoesNotMatchContractTimelineBlocksAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(secondVersionId = "other-v2"),
+            base = base(),
+            variables = listOf(
+                variable("v1", 0, 14, 0.0),
+                variable("v2", 15, 30, 0.0)
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(
+            result.warnings.contains(
+                SegmentedWorkedGrossAssemblerV2.CONTRACT_WARNING
+            )
+        )
+    }
+
+    @Test
     fun variableFromAnotherEmployerBlocksAssembly() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
             contracts = contracts(),
@@ -242,10 +262,12 @@ class SegmentedWorkedGrossAssemblyV2Test {
         assertEquals(1_700.0, result.workedGross!!, 0.0001)
     }
 
-    private fun contracts(): EmploymentContractPeriodResolutionV2 {
+    private fun contracts(
+        secondVersionId: String = "v2"
+    ): EmploymentContractPeriodResolutionV2 {
         val segments = listOf(
             contractSegment("v1", 0, 14, 10.0),
-            contractSegment("v2", 15, 30, 20.0)
+            contractSegment(secondVersionId, 15, 30, 20.0)
         )
         return EmploymentContractPeriodResolutionV2(
             employerId = "company",
