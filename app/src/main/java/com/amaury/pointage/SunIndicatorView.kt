@@ -11,6 +11,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
@@ -280,8 +281,11 @@ class SunIndicatorView @JvmOverloads constructor(
             height.toDouble()
         ).toFloat()
         val earthX = width * 0.50f
-        val earthY = height * 0.55f
-        val horizonRadius = base * 0.43f
+        val earthY = screenAnchoredCenterY()
+        val clockFaceRadius = base * 0.40f
+        // Soleil et Lune sont centrés sur le même repère que l'horloge.
+        // Le centre des disques suit le bord extérieur du cadran, sans décalage.
+        val horizonRadius = clockFaceRadius
         val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.82f
         val sun = snapshot.sun
@@ -422,6 +426,23 @@ class SunIndicatorView @JvmOverloads constructor(
                 opacity = sunDiskAlpha
             )
         }
+    }
+
+    /**
+     * Même ancrage vertical que HpAnalogClockView : la présence ou l'absence
+     * des onglets Accueil ne change jamais le centre du système céleste.
+     */
+    private fun screenAnchoredCenterY(): Float {
+        if (!isAttachedToWindow || height <= 0) return height * 0.50f
+
+        val visibleFrame = Rect()
+        getWindowVisibleDisplayFrame(visibleFrame)
+        val location = IntArray(2)
+        getLocationInWindow(location)
+
+        val targetWindowY = visibleFrame.exactCenterY()
+        val localY = targetWindowY - location[1]
+        return localY.coerceIn(height * 0.32f, height * 0.68f)
     }
 
     private fun drawPhysicalSolarOccultation(
