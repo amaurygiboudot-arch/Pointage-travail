@@ -25,6 +25,7 @@ struct CelestialAtmosphereStateV2: Equatable, Sendable {
     let weatherType: CelestialWeatherTypeV2
     let weatherTransmission: Double
     let ambientStarFactor: Double
+    let ambientMoonFactor: Double
 }
 
 enum CelestialAtmosphereV2 {
@@ -42,6 +43,7 @@ enum CelestialAtmosphereV2 {
         let type = weatherType(weather?.weatherCode)
         let transmission = weatherTransmission(weather, type)
         let ambientFactor = ambientStarFactor(ambient)
+        let ambientMoonFactor = ambientMoonFactor(ambient)
         let stars = min(
             1,
             max(0, astronomicalStarLevel * transmission * ambientFactor)
@@ -69,7 +71,8 @@ enum CelestialAtmosphereV2 {
                 0,
                 CelestialHorizonTransitionV2.diskOpacity(
                     altitudeDegrees: snapshot.moon.altitudeDegrees
-                ) * moonCloudTransmission * phenomenonTransmission(type)
+                ) * moonCloudTransmission * phenomenonTransmission(type) *
+                    ambientMoonFactor
             )
         )
 
@@ -85,7 +88,8 @@ enum CelestialAtmosphereV2 {
             cloudCoverage: weather?.cloudCover,
             weatherType: type,
             weatherTransmission: transmission,
-            ambientStarFactor: ambientFactor
+            ambientStarFactor: ambientFactor,
+            ambientMoonFactor: ambientMoonFactor
         )
     }
 
@@ -145,11 +149,38 @@ enum CelestialAtmosphereV2 {
         } else if lux <= 50 {
             factor = lerp(1.08, 1, (lux - 1) / 49)
         } else if lux <= 1_000 {
-            factor = lerp(1, 0.80, (lux - 50) / 950)
+            factor = lerp(1, 0.75, (lux - 50) / 950)
+        } else if lux <= 10_000 {
+            factor = lerp(0.75, 0.35, (lux - 1_000) / 9_000)
+        } else if lux <= 100_000 {
+            factor = lerp(0.35, 0.12, (lux - 10_000) / 90_000)
         } else {
-            factor = 0.65
+            factor = 0.12
         }
-        return min(1.08, max(0.65, factor))
+        return min(1.08, max(0.12, factor))
+    }
+
+    private static func ambientMoonFactor(_ ambient: CelestialAmbientLightStateV2) -> Double {
+        guard ambient.quality == .valid,
+              let lux = ambient.lux,
+              lux.isFinite,
+              lux >= 0 else {
+            return 1
+        }
+
+        let factor: Double
+        if lux <= 50 {
+            factor = 1
+        } else if lux <= 1_000 {
+            factor = lerp(1, 0.92, (lux - 50) / 950)
+        } else if lux <= 10_000 {
+            factor = lerp(0.92, 0.75, (lux - 1_000) / 9_000)
+        } else if lux <= 100_000 {
+            factor = lerp(0.75, 0.60, (lux - 10_000) / 90_000)
+        } else {
+            factor = 0.60
+        }
+        return min(1, max(0.60, factor))
     }
 
     private static func smoothStep(_ edge0: Double, _ edge1: Double, _ value: Double) -> Double {
