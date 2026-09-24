@@ -4,6 +4,28 @@ import com.amaury.pointage.v2.CelestialAmbientLightQualityV2
 import com.amaury.pointage.v2.CelestialAmbientLightStateV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 
+enum class CelestialDataStatusV2 {
+    FRESH,
+    STALE,
+    UNAVAILABLE,
+    INVALID
+}
+
+data class CelestialDataFreshnessV2(
+    val astronomyAgeMs: Long,
+    val locationAgeMs: Long?,
+    val headingAgeMs: Long?,
+    val weatherAgeMs: Long?,
+    val ambientAgeMs: Long?,
+    val locationSource: String?,
+    val weatherSource: String?,
+    val astronomyStatus: CelestialDataStatusV2,
+    val locationStatus: CelestialDataStatusV2,
+    val headingStatus: CelestialDataStatusV2,
+    val weatherStatus: CelestialDataStatusV2,
+    val ambientStatus: CelestialDataStatusV2
+)
+
 data class CelestialRenderStateV2(
     val timestampMs: Long,
     val latitudeDeg: Double,
@@ -28,14 +50,18 @@ data class CelestialRenderStateV2(
     val moonVisibility: Double,
     val atmosphereOpacity: Double,
     val orientationQuality: CelestialHeadingQualityV2,
+    val dataFreshness: CelestialDataFreshnessV2,
     val warnings: Set<CelestialRenderWarningV2>
 )
 
 enum class CelestialRenderWarningV2 {
     WEATHER_UNAVAILABLE,
+    WEATHER_STALE,
     AMBIENT_LIGHT_UNAVAILABLE,
     AMBIENT_LIGHT_STALE,
-    ORIENTATION_UNQUALIFIED
+    LOCATION_STALE,
+    ORIENTATION_UNQUALIFIED,
+    ASTRONOMY_STALE
 }
 
 /**
@@ -50,13 +76,50 @@ object CelestialRenderStateFactoryV2 {
         weather: CelestialWeatherContextV2.State?,
         ambient: CelestialAmbientLightStateV2,
         orientationQuality: CelestialHeadingQualityV2,
+        locationQuality: CelestialLocationQualityV2 = CelestialLocationQualityV2.UNAVAILABLE,
+        locationAgeMs: Long? = null,
+        locationProvider: String? = null,
+        headingAgeMs: Long? = null,
         nowMs: Long = System.currentTimeMillis(),
         nowElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
     ): CelestialRenderStateV2 {
         val atmosphere = CelestialAtmosphereV2.resolve(snapshot, weather, ambient)
-        val warnings = linkedSetOf<CelestialRenderWarningV2>()
+        val astronomyAgeMs = (nowMs - snapshot.atMs).coerceAtLeast(0L)
+        val weatherAgeMs = weather?.let { (nowMs - it.fetchedAtMs).coerceAtLeast(0L) }
+        val ambientAgeMs = ambient.ageMs(nowElapsedMs)
 
-        if (weather == null) warnings += CelestialRenderWarningV2.WEATHER_UNAVAILABLE
+        val freshness = CelestialDataFreshnessV2(
+            astronomyAgeMs = astronomyAgeMs,
+            locationAgeMs = locationAgeMs,
+            headingAgeMs = headingAgeMs,
+            weatherAgeMs = weatherAgeMs,
+            ambientAgeMs = ambientAgeMs,
+            locationSource = locationProvider,
+            weatherSource = weather?.source,
+            astronomyStatus = if (astronomyAgeMs <= ASTRONOMY_FRESH_MS) {
+                CelestialDataStatusV2.FRESH
+            } else {
+                CelestialDataStatusV2.STALE
+            },
+            locationStatus = locationStatus(locationQuality),
+            headingStatus = headingStatus(orientationQuality),
+            weatherStatus = when {
+                weather == null -> CelestialDataStatusV2.UNAVAILABLE
+                weather.isFresh(nowMs) -> CelestialDataStatusV2.FRESH
+                else -> CelestialDataStatusV2.STALE
+            },
+            ambientStatus = ambientStatus(ambient.quality)
+        )
+
+        val warnings = linkedSetOf<CelestialRenderWarningV2>()
+        when (freshness.weatherStatus) {
+            CelestialDataStatusV2.UNAVAILABLE,
+            CelestialDataStatusV2.INVALID ->
+                warnings += CelestialRenderWarningV2.WEATHER_UNAVAILABLE
+            CelestialDataStatusV2.STALE ->
+                warnings += CelestialRenderWarningV2.WEATHER_STALE
+            CelestialDataStatusV2.FRESH -> Unit
+        }
         when (ambient.quality) {
             CelestialAmbientLightQualityV2.UNAVAILABLE,
             CelestialAmbientLightQualityV2.INVALID ->
@@ -65,8 +128,14 @@ object CelestialRenderStateFactoryV2 {
                 warnings += CelestialRenderWarningV2.AMBIENT_LIGHT_STALE
             CelestialAmbientLightQualityV2.VALID -> Unit
         }
+        if (locationQuality == CelestialLocationQualityV2.STALE) {
+            warnings += CelestialRenderWarningV2.LOCATION_STALE
+        }
         if (!CelestialHeadingPolicyV2.isUsable(orientationQuality)) {
             warnings += CelestialRenderWarningV2.ORIENTATION_UNQUALIFIED
+        }
+        if (freshness.astronomyStatus == CelestialDataStatusV2.STALE) {
+            warnings += CelestialRenderWarningV2.ASTRONOMY_STALE
         }
 
         return CelestialRenderStateV2(
@@ -83,17 +152,50 @@ object CelestialRenderStateFactoryV2 {
             nightLevel = atmosphere.nightLevel,
             cloudCoverage = atmosphere.cloudCoverage,
             weatherType = atmosphere.weatherType,
-            weatherAgeMs = weather?.let { (nowMs - it.fetchedAtMs).coerceAtLeast(0L) },
+            weatherAgeMs = weatherAgeMs,
             ambientLux = ambient.lux,
             ambientLightQuality = ambient.quality,
-            ambientLightAgeMs = ambient.ageMs(nowElapsedMs),
+            ambientLightAgeMs = ambientAgeMs,
             starsVisibility = atmosphere.starsVisibility,
             constellationsVisibility = atmosphere.constellationsVisibility,
             sunVisibility = atmosphere.sunVisibility,
             moonVisibility = atmosphere.moonVisibility,
             atmosphereOpacity = atmosphere.atmosphereOpacity,
             orientationQuality = orientationQuality,
+            dataFreshness = freshness,
             warnings = warnings
         )
     }
+
+    private fun locationStatus(
+        quality: CelestialLocationQualityV2
+    ): CelestialDataStatusV2 = when (quality) {
+        CelestialLocationQualityV2.VALID -> CelestialDataStatusV2.FRESH
+        CelestialLocationQualityV2.STALE -> CelestialDataStatusV2.STALE
+        CelestialLocationQualityV2.INACCURATE -> CelestialDataStatusV2.INVALID
+        CelestialLocationQualityV2.NO_PERMISSION,
+        CelestialLocationQualityV2.UNAVAILABLE -> CelestialDataStatusV2.UNAVAILABLE
+    }
+
+    private fun headingStatus(
+        quality: CelestialHeadingQualityV2
+    ): CelestialDataStatusV2 = when (quality) {
+        CelestialHeadingQualityV2.VALID,
+        CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> CelestialDataStatusV2.FRESH
+        CelestialHeadingQualityV2.STALE -> CelestialDataStatusV2.STALE
+        CelestialHeadingQualityV2.INACCURATE,
+        CelestialHeadingQualityV2.UNRELIABLE -> CelestialDataStatusV2.INVALID
+        CelestialHeadingQualityV2.UNAVAILABLE -> CelestialDataStatusV2.UNAVAILABLE
+    }
+
+    private fun ambientStatus(
+        quality: CelestialAmbientLightQualityV2
+    ): CelestialDataStatusV2 = when (quality) {
+        CelestialAmbientLightQualityV2.VALID -> CelestialDataStatusV2.FRESH
+        CelestialAmbientLightQualityV2.STALE -> CelestialDataStatusV2.STALE
+        CelestialAmbientLightQualityV2.INVALID -> CelestialDataStatusV2.INVALID
+        CelestialAmbientLightQualityV2.UNAVAILABLE -> CelestialDataStatusV2.UNAVAILABLE
+    }
+
+    private const val ASTRONOMY_FRESH_MS = 5_000L
 }
