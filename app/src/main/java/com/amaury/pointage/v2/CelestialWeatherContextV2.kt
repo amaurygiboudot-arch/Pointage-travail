@@ -28,6 +28,12 @@ object CelestialWeatherContextV2 {
         fun isFresh(nowMs: Long): Boolean =
             nowMs >= fetchedAtMs && nowMs - fetchedAtMs <= MAX_RENDER_AGE_MS
 
+        fun matches(snapshot: CelestialSnapshotV2): Boolean {
+            val latitude = round(snapshot.latitudeDeg * 100.0) / 100.0
+            val longitude = round(snapshot.longitudeDeg * 100.0) / 100.0
+            return roundedLatitude == latitude && roundedLongitude == longitude
+        }
+
         val cloudTransmission: Double
             get() = (1.0 - cloudCover.coerceIn(0.0, 1.0) * 0.90).coerceIn(0.08, 1.0)
     }
@@ -50,12 +56,8 @@ object CelestialWeatherContextV2 {
         snapshot: CelestialSnapshotV2,
         nowMs: Long = System.currentTimeMillis()
     ): State? {
-        val latitude = roundedCoordinate(snapshot.latitudeDeg)
-        val longitude = roundedCoordinate(snapshot.longitudeDeg)
         return current?.takeIf {
-            it.isFresh(nowMs) &&
-                it.roundedLatitude == latitude &&
-                it.roundedLongitude == longitude
+            it.isFresh(nowMs) && it.matches(snapshot)
         }
     }
 

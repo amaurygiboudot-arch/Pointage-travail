@@ -31,4 +31,35 @@ final class CelestialWeatherV2Tests: XCTestCase {
         XCTAssertEqual(state.precipitationMillimeters ?? -1, 0.2, accuracy: 1e-12)
         XCTAssertLessThan(state.cloudTransmission, 0.4)
     }
+    func testWeatherStateMatchesOnlyItsRoundedSkyLocation() throws {
+        let data = """
+        {
+          "current": {
+            "cloud_cover": 20
+          }
+        }
+        """.data(using: .utf8)!
+
+        let state = try CelestialWeatherParserV2.parse(
+            data: data,
+            fetchedAt: Date(timeIntervalSince1970: 1_000),
+            latitudeDegrees: 46.67,
+            longitudeDegrees: -1.63,
+            source: "test"
+        )
+        let sameCell = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.671,
+            longitudeDegrees: -1.631,
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let movedCell = try DefaultCelestialEngineV2.snapshot(
+            latitudeDegrees: 46.69,
+            longitudeDegrees: -1.63,
+            date: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        XCTAssertTrue(state.matches(snapshot: sameCell))
+        XCTAssertFalse(state.matches(snapshot: movedCell))
+    }
+
 }
