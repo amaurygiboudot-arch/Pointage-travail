@@ -49,9 +49,9 @@ struct CelestialHomeView: View {
                                     .font(.headline)
                                     .foregroundStyle(homeForegroundColor)
                                     .shadow(
-                                        color: homeForegroundColor == .white
-                                            ? .black.opacity(0.65)
-                                            : .white.opacity(0.55),
+                                        color: homeUsesDarkText
+                                            ? .white.opacity(0.55)
+                                            : .black.opacity(0.65),
                                         radius: 2,
                                         y: 1
                                     )
@@ -136,11 +136,14 @@ struct CelestialHomeView: View {
         )
     }
 
-    private var homeForegroundColor: Color {
-        guard let render = celestialRenderState else { return .primary }
+    private var homeUsesDarkText: Bool {
+        guard let render = celestialRenderState else { return false }
         return render.solarLightLevel >= 0.58 && render.nightLevel < 0.20
-            ? Color.black.opacity(0.84)
-            : .white
+    }
+
+    private var homeForegroundColor: Color {
+        guard celestialRenderState != nil else { return .primary }
+        return homeUsesDarkText ? Color.black.opacity(0.84) : .white
     }
 
     private var weatherRequestKey: String {
