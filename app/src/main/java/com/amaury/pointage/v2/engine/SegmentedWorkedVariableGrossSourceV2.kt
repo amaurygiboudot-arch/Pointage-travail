@@ -77,6 +77,20 @@ object SegmentedWorkedVariableGrossSourceV2 {
             return blocked(timeline.warnings + TIMELINE_WARNING)
         }
 
+        val orderedSlices = timeline.slices.sortedBy { it.startEpochDay }
+        for (index in 1 until orderedSlices.size) {
+            val previous = orderedSlices[index - 1]
+            val current = orderedSlices[index]
+            val contractChanged = !payrollEquivalent(
+                previous.contractSnapshot.contract,
+                current.contractSnapshot.contract
+            )
+            val rulesChanged = previous.ruleSnapshot.rules != current.ruleSnapshot.rules
+            if ((contractChanged || rulesChanged) && !isMondayEpochDay(current.startEpochDay)) {
+                return blocked(timeline.warnings + WEEK_CONTEXT_WARNING)
+            }
+        }
+
         val expectedKeys = timeline.slices.map(::sliceKey)
         val providedKeys = sliceEvidence.map {
             SliceKey(
@@ -295,6 +309,24 @@ object SegmentedWorkedVariableGrossSourceV2 {
             null
         }
     }
+
+    private fun payrollEquivalent(
+        a: com.amaury.pointage.v2.model.ContractV2,
+        b: com.amaury.pointage.v2.model.ContractV2
+    ): Boolean =
+        a.employerId.trim() == b.employerId.trim() &&
+            a.type == b.type &&
+            a.contractualWeeklyMinutes == b.contractualWeeklyMinutes &&
+            a.grossHourlyRate == b.grossHourlyRate &&
+            a.hireDateEpochDay == b.hireDateEpochDay &&
+            a.payrollCutoffDay == b.payrollCutoffDay &&
+            a.forfaitHoursPeriod == b.forfaitHoursPeriod &&
+            a.forfaitHours == b.forfaitHours &&
+            a.forfaitAnnualDays == b.forfaitAnnualDays &&
+            a.monthlyGrossSalary == b.monthlyGrossSalary
+
+    private fun isMondayEpochDay(epochDay: Long): Boolean =
+        ((epochDay % 7L) + 7L) % 7L == 4L
 
     private fun sliceKey(slice: PayrollCalculationSliceV2) = SliceKey(
         slice.startEpochDay,
