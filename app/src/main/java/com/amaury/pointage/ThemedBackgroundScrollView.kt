@@ -32,15 +32,77 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     )
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val celestialHomeSky = CelestialHomeSkyBackgroundRendererV2(context) {
+        if (isAttachedToWindow) postInvalidateOnAnimation()
+    }
+    private var celestialHomeState: com.amaury.pointage.v2.CelestialTrackerV2.State? = null
+    private var celestialHomeActive = false
+    private var celestialTrackerSubscribed = false
     private var cachedImage: Bitmap? = null
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
 
+    fun setCelestialHomeActive(active: Boolean) {
+        if (celestialHomeActive == active) return
+        celestialHomeActive = active
+        updateCelestialSubscription()
+        if (!active) {
+            celestialHomeState = null
+            celestialHomeSky.clear()
+        }
+        postInvalidateOnAnimation()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        updateCelestialSubscription()
+    }
+
+    override fun onDetachedFromWindow() {
+        if (celestialTrackerSubscribed) {
+            com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
+            celestialTrackerSubscribed = false
+        }
+        celestialHomeState = null
+        celestialHomeSky.clear()
+        super.onDetachedFromWindow()
+    }
+
+    override fun onWindowVisibilityChanged(visibility: Int) {
+        super.onWindowVisibilityChanged(visibility)
+        if (isAttachedToWindow) updateCelestialSubscription()
+    }
+
+    private fun updateCelestialSubscription() {
+        val shouldSubscribe = celestialHomeActive && isAttachedToWindow &&
+            windowVisibility == VISIBLE && isShown
+        if (shouldSubscribe && !celestialTrackerSubscribed) {
+            celestialTrackerSubscribed = true
+            com.amaury.pointage.v2.CelestialTrackerV2.subscribe(context, this) { state ->
+                celestialHomeState = state
+                celestialHomeSky.update(state)
+                postInvalidateOnAnimation()
+            }
+        } else if (!shouldSubscribe && celestialTrackerSubscribed) {
+            com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
+            celestialTrackerSubscribed = false
+        }
+    }
+
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
-        drawHpBackground(canvas)
+        if (celestialHomeActive) {
+            celestialHomeSky.draw(
+                canvas = canvas,
+                width = width.toFloat(),
+                height = height.toFloat(),
+                state = celestialHomeState
+            )
+        } else {
+            drawHpBackground(canvas)
+        }
         canvas.restore()
         applyGlobalAdaptiveTextColor()
         super.dispatchDraw(canvas)
