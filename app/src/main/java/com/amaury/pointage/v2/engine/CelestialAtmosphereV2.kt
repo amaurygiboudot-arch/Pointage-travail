@@ -29,7 +29,8 @@ data class CelestialAtmosphereStateV2(
     val cloudCoverage: Double?,
     val weatherType: CelestialWeatherTypeV2,
     val weatherTransmission: Double,
-    val ambientStarFactor: Double
+    val ambientStarFactor: Double,
+    val ambientMoonFactor: Double
 )
 
 /**
@@ -53,6 +54,7 @@ object CelestialAtmosphereV2 {
         val weatherType = weatherType(weather?.weatherCode)
         val weatherTransmission = weatherTransmission(weather, weatherType)
         val ambientFactor = ambientStarFactor(ambient)
+        val ambientMoonFactor = ambientMoonFactor(ambient)
 
         val stars = (
             astronomicalStarLevel * weatherTransmission * ambientFactor
@@ -71,7 +73,8 @@ object CelestialAtmosphereV2 {
             ).coerceIn(0.0, 1.0)
         val moonVisibility = (
             CelestialHorizonTransitionV2.diskAlpha(snapshot.moon.altitudeDeg) *
-                moonCloudTransmission * phenomenonTransmission(weatherType)
+                moonCloudTransmission * phenomenonTransmission(weatherType) *
+                ambientMoonFactor
             ).coerceIn(0.0, 1.0)
 
         return CelestialAtmosphereStateV2(
@@ -86,7 +89,8 @@ object CelestialAtmosphereV2 {
             cloudCoverage = weather?.cloudCover,
             weatherType = weatherType,
             weatherTransmission = weatherTransmission,
-            ambientStarFactor = ambientFactor
+            ambientStarFactor = ambientFactor,
+            ambientMoonFactor = ambientMoonFactor
         )
     }
 
@@ -136,9 +140,25 @@ object CelestialAtmosphereV2 {
         return when {
             lux <= 1.0 -> 1.08
             lux <= 50.0 -> lerp(1.08, 1.0, (lux - 1.0) / 49.0)
-            lux <= 1_000.0 -> lerp(1.0, 0.80, (lux - 50.0) / 950.0)
-            else -> 0.65
-        }.coerceIn(0.65, 1.08)
+            lux <= 1_000.0 -> lerp(1.0, 0.75, (lux - 50.0) / 950.0)
+            lux <= 10_000.0 -> lerp(0.75, 0.35, (lux - 1_000.0) / 9_000.0)
+            lux <= 100_000.0 -> lerp(0.35, 0.12, (lux - 10_000.0) / 90_000.0)
+            else -> 0.12
+        }.coerceIn(0.12, 1.08)
+    }
+
+    private fun ambientMoonFactor(ambient: CelestialAmbientLightStateV2): Double {
+        if (ambient.quality != CelestialAmbientLightQualityV2.VALID) return 1.0
+        val lux = ambient.lux ?: return 1.0
+        if (!lux.isFinite() || lux < 0.0) return 1.0
+
+        return when {
+            lux <= 50.0 -> 1.0
+            lux <= 1_000.0 -> lerp(1.0, 0.92, (lux - 50.0) / 950.0)
+            lux <= 10_000.0 -> lerp(0.92, 0.75, (lux - 1_000.0) / 9_000.0)
+            lux <= 100_000.0 -> lerp(0.75, 0.60, (lux - 10_000.0) / 90_000.0)
+            else -> 0.60
+        }.coerceIn(0.60, 1.0)
     }
 
     private fun smoothStep(edge0: Double, edge1: Double, value: Double): Double {
