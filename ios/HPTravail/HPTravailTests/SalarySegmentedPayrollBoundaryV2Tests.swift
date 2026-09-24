@@ -7,8 +7,8 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
     func testMondayContractTransitionAllowsIndependentWeeklyVariableCalculation() {
         let contracts = contractResolution(
             [
-                contractSegment("c1", start: 0, end: 10),
-                contractSegment("c2", start: 11, end: 30)
+                contractSegment("c1", start: 0, end: 10, rate: 14),
+                contractSegment("c2", start: 11, end: 30, rate: 15)
             ]
         )
         let rules = ruleCoverage([
@@ -29,8 +29,8 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
     func testMidweekContractTransitionBlocksIndependentWeeklyVariableCalculation() {
         let contracts = contractResolution(
             [
-                contractSegment("c1", start: 0, end: 8),
-                contractSegment("c2", start: 9, end: 30)
+                contractSegment("c1", start: 0, end: 8, rate: 14),
+                contractSegment("c2", start: 9, end: 30, rate: 15)
             ]
         )
         let rules = ruleCoverage([
@@ -54,11 +54,11 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
 
     func testMidweekRuleTransitionAlsoBlocks() {
         let contracts = contractResolution([
-            contractSegment("c1", start: 0, end: 30)
+            contractSegment("c1", start: 0, end: 30, rate: 14)
         ])
         let rules = ruleCoverage([
             ruleSegment("r1", start: 0, end: 8),
-            ruleSegment("r2", start: 9, end: 30)
+            ruleSegment("r2", start: 9, end: 30, saturdayMultiplier: 1.25)
         ])
 
         let result = SalarySegmentedPayrollBoundaryV2.assess(
@@ -71,9 +71,32 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
         XCTAssertEqual(result.transitionEpochDays, [9])
     }
 
+    func testEquivalentVersionIdsDoNotCreateArtificialBoundary() {
+        let contracts = contractResolution(
+            [
+                contractSegment("c1", start: 0, end: 8, rate: 14),
+                contractSegment("c2", start: 9, end: 30, rate: 14)
+            ]
+        )
+        let rules = ruleCoverage([
+            ruleSegment("r1", start: 0, end: 8),
+            ruleSegment("r2", start: 9, end: 30)
+        ])
+
+        let result = SalarySegmentedPayrollBoundaryV2.assess(
+            contracts: contracts,
+            rules: rules
+        )
+
+        XCTAssertTrue(result.timelineReliable)
+        XCTAssertTrue(result.safeForIndependentWeeklyVariableCalculation)
+        XCTAssertTrue(result.transitionEpochDays.isEmpty)
+        XCTAssertTrue(result.warnings.isEmpty)
+    }
+
     func testIncompleteRuleTimelineFailsClosed() {
         let contracts = contractResolution([
-            contractSegment("c1", start: 0, end: 30)
+            contractSegment("c1", start: 0, end: 30, rate: 14)
         ])
         let rules = SalaryConventionCoverageV2(
             companyId: "company",
@@ -125,7 +148,8 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
     private func contractSegment(
         _ versionId: String,
         start: Int64,
-        end: Int64
+        end: Int64,
+        rate: Double = 14
     ) -> SalaryEmploymentContractCoverageSegmentV2 {
         SalaryEmploymentContractCoverageSegmentV2(
             startEpochDay: start,
@@ -140,7 +164,7 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
                     employerId: "company",
                     type: .fullTime,
                     contractualWeeklyMinutes: 35 * 60,
-                    grossHourlyRate: 14,
+                    grossHourlyRate: rate,
                     hireDateEpochDay: 0
                 ),
                 checkedAtMs: 1,
@@ -167,7 +191,8 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
     private func ruleSegment(
         _ versionId: String,
         start: Int64,
-        end: Int64
+        end: Int64,
+        saturdayMultiplier: Double? = nil
     ) -> SalaryConventionCoverageSegmentV2 {
         SalaryConventionCoverageSegmentV2(
             startEpochDay: start,
@@ -178,7 +203,10 @@ final class SalarySegmentedPayrollBoundaryV2Tests: XCTestCase {
                 sourceId: "rule-source",
                 effectiveFromEpochDay: start,
                 effectiveToEpochDay: end,
-                rules: PayrollRulesV2(weeklyRegularMinutes: 35 * 60),
+                rules: PayrollRulesV2(
+                    weeklyRegularMinutes: 35 * 60,
+                    saturdayMultiplier: saturdayMultiplier
+                ),
                 checkedAtMs: 1,
                 note: nil
             )
