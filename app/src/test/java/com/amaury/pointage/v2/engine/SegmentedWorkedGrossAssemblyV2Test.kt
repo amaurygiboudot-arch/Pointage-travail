@@ -132,9 +132,13 @@ class SegmentedWorkedGrossAssemblyV2Test {
             factor = 0.6,
             proratedBaseGross = 1_200.0
         )
+        val second = original.pieces[1].copy(
+            factor = 0.4,
+            proratedBaseGross = 400.0
+        )
         val tampered = original.copy(
-            pieces = listOf(badPiece, original.pieces[1]),
-            baseGross = 1_700.0
+            pieces = listOf(badPiece, second),
+            baseGross = 1_600.0
         )
 
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
