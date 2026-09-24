@@ -132,7 +132,11 @@ struct CelestialHomeView: View {
             snapshot: snapshot,
             weather: qualifiedWeather,
             ambient: CelestialAmbientLightV2.currentState,
-            orientationQuality: state.headingQuality
+            orientationQuality: state.headingQuality,
+            locationQuality: state.locationQuality,
+            locationAge: state.locationAge,
+            locationSource: state.locationQuality == .valid ? "CoreLocation" : nil,
+            headingAge: state.headingAge
         )
     }
 

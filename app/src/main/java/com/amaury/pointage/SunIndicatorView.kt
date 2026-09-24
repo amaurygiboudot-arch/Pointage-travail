@@ -80,6 +80,11 @@ class SunIndicatorView @JvmOverloads constructor(
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var deviceFrame: CelestialDeviceFrameV2? = null
     private var orientationQuality: CelestialHeadingQualityV2 = CelestialHeadingQualityV2.UNAVAILABLE
+    private var trackingLocationQuality: CelestialLocationQualityV2 =
+        CelestialLocationQualityV2.UNAVAILABLE
+    private var trackingLocationAgeMs: Long? = null
+    private var trackingLocationProvider: String? = null
+    private var trackingHeadingAgeMs: Long? = null
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
 
@@ -170,6 +175,10 @@ class SunIndicatorView @JvmOverloads constructor(
                 celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
                 deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
                 orientationQuality = tracking.headingQuality
+                trackingLocationQuality = tracking.locationQuality
+                trackingLocationAgeMs = tracking.locationAgeMs
+                trackingLocationProvider = tracking.locationProvider
+                trackingHeadingAgeMs = tracking.headingAgeMs
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
                 if (!directionalSkyUsable) {
@@ -187,6 +196,10 @@ class SunIndicatorView @JvmOverloads constructor(
             celestialSnapshot = null
             deviceFrame = null
             orientationQuality = CelestialHeadingQualityV2.UNAVAILABLE
+            trackingLocationQuality = CelestialLocationQualityV2.UNAVAILABLE
+            trackingLocationAgeMs = null
+            trackingLocationProvider = null
+            trackingHeadingAgeMs = null
         }
 
         if (shouldSubscribe && !ambientSubscribed) {
@@ -337,6 +350,10 @@ class SunIndicatorView @JvmOverloads constructor(
             weather = weather,
             ambient = CelestialAmbientLightV2.currentState(),
             orientationQuality = orientationQuality,
+            locationQuality = trackingLocationQuality,
+            locationAgeMs = trackingLocationAgeMs,
+            locationProvider = trackingLocationProvider,
+            headingAgeMs = trackingHeadingAgeMs,
             nowElapsedMs = android.os.SystemClock.elapsedRealtime()
         )
 

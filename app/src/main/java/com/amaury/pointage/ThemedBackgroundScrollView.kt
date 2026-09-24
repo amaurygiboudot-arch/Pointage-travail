@@ -128,6 +128,10 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
                 weather = weather,
                 ambient = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState(),
                 orientationQuality = celestialState.headingQuality,
+                locationQuality = celestialState.locationQuality,
+                locationAgeMs = celestialState.locationAgeMs,
+                locationProvider = celestialState.locationProvider,
+                headingAgeMs = celestialState.headingAgeMs,
                 nowElapsedMs = android.os.SystemClock.elapsedRealtime()
             )
             celestialRenderState = renderState
