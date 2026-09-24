@@ -152,7 +152,9 @@ class HpAnalogClockView @JvmOverloads constructor(
         if (alpha <= 0f || width <= 0 || height <= 0) return
 
         val cx = width * 0.50f
-        val cy = height * 0.55f
+        // Centre visuel de l'Accueil : légèrement sous le milieu mathématique
+        // pour équilibrer la barre système et le statut sous le cadran.
+        val cy = height * 0.52f
         val safeSpan = CelestialScreenGeometryV2.safeRenderSpan(
             width.toDouble(),
             height.toDouble()
