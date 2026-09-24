@@ -20,6 +20,8 @@ import android.provider.Settings
 import android.view.View
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
+import com.amaury.pointage.v2.CelestialAmbientLightV2
+import com.amaury.pointage.v2.CelestialAmbientLightStateV2
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
@@ -28,6 +30,7 @@ import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialHorizonTransitionV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialRenderStateFactoryV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
@@ -71,9 +74,12 @@ class SunIndicatorView @JvmOverloads constructor(
     private var visibleCelestial = false
     private var hostActivityVisible = false
     private var trackerSubscribed = false
+    private var ambientSubscribed = false
+    private var ambientState: CelestialAmbientLightStateV2 = CelestialAmbientLightV2.currentState()
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var deviceFrame: CelestialDeviceFrameV2? = null
+    private var orientationQuality: CelestialHeadingQualityV2 = CelestialHeadingQualityV2.UNAVAILABLE
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
 
@@ -137,6 +143,10 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
         }
+        if (ambientSubscribed) {
+            CelestialAmbientLightV2.unsubscribe(this)
+            ambientSubscribed = false
+        }
         super.onDetachedFromWindow()
     }
 
@@ -159,6 +169,7 @@ class SunIndicatorView @JvmOverloads constructor(
                 val directionalSkyUsable = tracking.hasRealSky
                 celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
                 deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
+                orientationQuality = tracking.headingQuality
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
                 if (!directionalSkyUsable) {
@@ -175,6 +186,19 @@ class SunIndicatorView @JvmOverloads constructor(
             trackerSubscribed = false
             celestialSnapshot = null
             deviceFrame = null
+            orientationQuality = CelestialHeadingQualityV2.UNAVAILABLE
+        }
+
+        if (shouldSubscribe && !ambientSubscribed) {
+            ambientSubscribed = true
+            CelestialAmbientLightV2.subscribe(context, this) { state ->
+                ambientState = state
+                invalidate()
+            }
+        } else if (!shouldSubscribe && ambientSubscribed) {
+            CelestialAmbientLightV2.unsubscribe(this)
+            ambientSubscribed = false
+            ambientState = CelestialAmbientLightV2.currentState()
         }
     }
 
@@ -308,16 +332,24 @@ class SunIndicatorView @JvmOverloads constructor(
         val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
         val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
         val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
-        val cloudCover = weather?.cloudCover?.coerceIn(0.0, 1.0)?.toFloat() ?: 0f
-        val sunCloudTransmission = (1f - cloudCover * 0.72f).coerceIn(0.18f, 1f)
-        val moonCloudTransmission = (1f - cloudCover * 0.88f).coerceIn(0.08f, 1f)
+        val renderState = CelestialRenderStateFactoryV2.build(
+            snapshot = snapshot,
+            weather = weather,
+            ambient = ambientState,
+            orientationQuality = orientationQuality,
+            nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        )
 
-        val sunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat() *
-            sunCloudTransmission
-        val moonDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(moon.altitudeDeg).toFloat() *
-            moonCloudTransmission
+        val baseSunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat()
+        val sunEnvironmentFactor = if (baseSunDiskAlpha > 0.001f) {
+            (renderState.sunVisibility.toFloat() / baseSunDiskAlpha).coerceIn(0f, 1f)
+        } else {
+            (1f - renderState.atmosphereOpacity.toFloat()).coerceIn(0f, 1f)
+        }
+        val sunDiskAlpha = renderState.sunVisibility.toFloat()
+        val moonDiskAlpha = renderState.moonVisibility.toFloat()
         val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat() *
-            (0.45f + 0.55f * sunCloudTransmission)
+            (0.45f + 0.55f * sunEnvironmentFactor)
         val sunScale = CelestialHorizonTransitionV2.diskScale(sun.altitudeDeg).toFloat()
         val moonScale = CelestialHorizonTransitionV2.diskScale(moon.altitudeDeg).toFloat()
         val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) *
