@@ -329,7 +329,7 @@ object V2SalaryAdapter {
   if(regularLimit==null)return empty(warnings+"Durée hebdomadaire de référence absente")
   if(isFullTime&&fullTimeRegularReference?.reliable==false)warnings+="Temps plein : seuil hebdomadaire régulier non confirmé par une règle amont ; la durée contractuelle est utilisée comme seuil technique et le brut reste à confirmer."
   val monthlyBoundaryThreshold=when{
-   isPartTime->contract.contractualWeeklyMinutes
+   isPartTime->regularLimit
    isFullTime->contract.contractualWeeklyMinutes?:regularLimit
    else->regularLimit
   }
