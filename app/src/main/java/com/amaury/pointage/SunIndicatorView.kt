@@ -11,6 +11,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
@@ -19,12 +20,16 @@ import android.provider.Settings
 import android.view.View
 import android.widget.TextView
 import androidx.core.app.ActivityCompat
+import com.amaury.pointage.v2.CelestialAmbientLightV2
+import com.amaury.pointage.v2.CelestialAmbientLightStateV2
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
-import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialHorizonTransitionV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
+import com.amaury.pointage.v2.engine.CelestialRenderStateFactoryV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import com.amaury.pointage.v2.engine.LunarEclipseStageV2
@@ -68,9 +73,16 @@ class SunIndicatorView @JvmOverloads constructor(
     private var visibleCelestial = false
     private var hostActivityVisible = false
     private var trackerSubscribed = false
+    private var ambientSubscribed = false
+    private var ambientState: CelestialAmbientLightStateV2 = CelestialAmbientLightV2.currentState()
     private var nightMode = false
     private var celestialSnapshot: CelestialSnapshotV2? = null
-    private var deviceFrame: CelestialDeviceFrameV2? = null
+    private var orientationQuality: CelestialHeadingQualityV2 = CelestialHeadingQualityV2.UNAVAILABLE
+    private var trackingLocationQuality: CelestialLocationQualityV2 =
+        CelestialLocationQualityV2.UNAVAILABLE
+    private var trackingLocationAgeMs: Long? = null
+    private var trackingLocationProvider: String? = null
+    private var trackingHeadingAgeMs: Long? = null
     private var deviceAzimuth = 0f
     private var devicePitch = 0f
 
@@ -134,6 +146,10 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
         }
+        if (ambientSubscribed) {
+            CelestialAmbientLightV2.unsubscribe(this)
+            ambientSubscribed = false
+        }
         super.onDetachedFromWindow()
     }
 
@@ -153,12 +169,17 @@ class SunIndicatorView @JvmOverloads constructor(
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { tracking ->
-                val directionalSkyUsable = tracking.hasRealSky
-                celestialSnapshot = tracking.snapshot?.takeIf { directionalSkyUsable }
-                deviceFrame = tracking.deviceFrame?.takeIf { directionalSkyUsable }
+                val localSkyUsable = tracking.snapshot != null &&
+                    tracking.locationQuality == CelestialLocationQualityV2.VALID
+                celestialSnapshot = tracking.snapshot?.takeIf { localSkyUsable }
+                orientationQuality = tracking.headingQuality
+                trackingLocationQuality = tracking.locationQuality
+                trackingLocationAgeMs = tracking.locationAgeMs
+                trackingLocationProvider = tracking.locationProvider
+                trackingHeadingAgeMs = tracking.headingAgeMs
                 deviceAzimuth = normalize(tracking.deviceAzimuthDeg)
                 devicePitch = tracking.devicePitchDeg.coerceIn(-90f, 90f)
-                if (!directionalSkyUsable) {
+                if (!localSkyUsable) {
                     CelestialLightingState.clearSunDirection()
                 }
                 // Le jour/nuit dépend de l'éphéméride et du GPS, pas de la qualité
@@ -171,7 +192,23 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
             celestialSnapshot = null
-            deviceFrame = null
+            orientationQuality = CelestialHeadingQualityV2.UNAVAILABLE
+            trackingLocationQuality = CelestialLocationQualityV2.UNAVAILABLE
+            trackingLocationAgeMs = null
+            trackingLocationProvider = null
+            trackingHeadingAgeMs = null
+        }
+
+        if (shouldSubscribe && !ambientSubscribed) {
+            ambientSubscribed = true
+            CelestialAmbientLightV2.subscribe(context, this) { state ->
+                ambientState = state
+                invalidate()
+            }
+        } else if (!shouldSubscribe && ambientSubscribed) {
+            CelestialAmbientLightV2.unsubscribe(this)
+            ambientSubscribed = false
+            ambientState = CelestialAmbientLightV2.currentState()
         }
     }
 
@@ -182,29 +219,54 @@ class SunIndicatorView @JvmOverloads constructor(
             CelestialLocationQualityV2.STALE -> "Localisation trop ancienne"
             CelestialLocationQualityV2.INACCURATE -> "Localisation imprécise"
             CelestialLocationQualityV2.VALID -> when (tracking.headingQuality) {
-                CelestialHeadingQualityV2.UNAVAILABLE -> "Boussole indisponible"
-                CelestialHeadingQualityV2.STALE -> "Boussole trop ancienne"
-                CelestialHeadingQualityV2.UNRELIABLE -> "Boussole perturbée"
-                CelestialHeadingQualityV2.INACCURATE -> "Boussole imprécise"
-                CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> "Ciel réel · précision boussole inconnue"
+                CelestialHeadingQualityV2.UNAVAILABLE ->
+                    "Boussole indisponible · mode Nord stable"
+                CelestialHeadingQualityV2.STALE ->
+                    "Boussole trop ancienne · mode Nord stable"
+                CelestialHeadingQualityV2.UNRELIABLE ->
+                    "Boussole perturbée · mode Nord stable"
+                CelestialHeadingQualityV2.INACCURATE ->
+                    "Boussole imprécise · mode Nord stable"
+                CelestialHeadingQualityV2.UNKNOWN_ACCURACY -> "Ciel réel · boussole active"
                 CelestialHeadingQualityV2.VALID -> "Ciel réel · GPS et boussole fiables"
             }
         }
         rootView.findViewById<TextView>(R.id.celestialStatusText)?.let { statusView ->
-            statusView.text = if (tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION) {
-                "$status · toucher pour autoriser"
+            val healthy = tracking.locationQuality == CelestialLocationQualityV2.VALID &&
+                CelestialHeadingPolicyV2.isUsable(tracking.headingQuality)
+
+            if (healthy) {
+                // Accueil propre : aucun bandeau quand GPS + boussole sont exploitables.
+                statusView.visibility = GONE
+                statusView.text = ""
+                configureLocationRecovery(statusView, tracking.locationQuality)
             } else {
-                status
+                statusView.visibility = VISIBLE
+                statusView.text = if (
+                    tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION
+                ) {
+                    "$status · toucher pour autoriser"
+                } else {
+                    status
+                }
+                configureLocationRecovery(statusView, tracking.locationQuality)
             }
-            configureLocationRecovery(statusView, tracking.locationQuality)
         }
 
         val sky = tracking.snapshot
-        val detail = if (tracking.hasRealSky && sky != null) {
+        val detail = if (
+            tracking.locationQuality == CelestialLocationQualityV2.VALID &&
+            sky != null
+        ) {
             val moment = if (sky.night) "nuit" else "jour"
-            "$moment, Soleil ${sky.sun.altitudeDeg.toInt()} degrés, Lune ${sky.moon.altitudeDeg.toInt()} degrés"
+            val orientation = if (CelestialHeadingPolicyV2.isUsable(tracking.headingQuality)) {
+                "point de vue orienté"
+            } else {
+                "mode Nord stable"
+            }
+            "$moment, $orientation, Soleil ${sky.sun.altitudeDeg.toInt()} degrés, Lune ${sky.moon.altitudeDeg.toInt()} degrés"
         } else {
-            "position exacte du Soleil et de la Lune masquée"
+            "ciel local précis indisponible"
         }
         rootView.findViewById<View>(R.id.celestialHomePanel)?.contentDescription =
             "Accueil céleste. $status. $detail."
@@ -271,7 +333,10 @@ class SunIndicatorView @JvmOverloads constructor(
         super.onDraw(canvas)
         if (!visibleCelestial || width <= 0 || height <= 0) return
         val snapshot = celestialSnapshot ?: return
-        val frame = deviceFrame ?: return
+        val renderHeading = CelestialHeadingPolicyV2.renderingHeadingDeg(
+            headingDeg = deviceAzimuth.toDouble(),
+            quality = orientationQuality
+        ).toFloat()
 
         // Le facteur vertical réserve la marge des disques Soleil/Lune sur les
         // écrans larges. Il évite tout rognage en paysage, tablette et multi-fenêtre.
@@ -280,17 +345,40 @@ class SunIndicatorView @JvmOverloads constructor(
             height.toDouble()
         ).toFloat()
         val earthX = width * 0.50f
-        val earthY = height * 0.55f
-        val horizonRadius = base * 0.43f
+        val earthY = screenAnchoredCenterY()
+        val clockFaceRadius = base * 0.40f
+        // Soleil et Lune sont centrés sur le même repère que l'horloge.
+        // Le centre des disques suit le bord extérieur du cadran, sans décalage.
+        val horizonRadius = clockFaceRadius
         val activeRadius = max(base * 0.078f, 22f)
         val inactiveRadius = activeRadius * 0.82f
         val sun = snapshot.sun
         val moon = snapshot.moon
-        val sunScreen = mapToDeviceSky(sun, frame, earthX, earthY, horizonRadius)
-        val moonScreen = mapToDeviceSky(moon, frame, earthX, earthY, horizonRadius)
-        val sunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat()
-        val moonDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(moon.altitudeDeg).toFloat()
-        val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat()
+        val sunScreen = mapToEarthCenteredSky(sun, renderHeading, earthX, earthY, horizonRadius)
+        val moonScreen = mapToEarthCenteredSky(moon, renderHeading, earthX, earthY, horizonRadius)
+        val weather = CelestialWeatherContextV2.currentStateFor(snapshot)
+        val renderState = CelestialRenderStateFactoryV2.build(
+            snapshot = snapshot,
+            weather = weather,
+            ambient = CelestialAmbientLightV2.currentState(),
+            orientationQuality = orientationQuality,
+            locationQuality = trackingLocationQuality,
+            locationAgeMs = trackingLocationAgeMs,
+            locationProvider = trackingLocationProvider,
+            headingAgeMs = trackingHeadingAgeMs,
+            nowElapsedMs = android.os.SystemClock.elapsedRealtime()
+        )
+
+        val baseSunDiskAlpha = CelestialHorizonTransitionV2.diskAlpha(sun.altitudeDeg).toFloat()
+        val sunEnvironmentFactor = if (baseSunDiskAlpha > 0.001f) {
+            (renderState.sunVisibility.toFloat() / baseSunDiskAlpha).coerceIn(0f, 1f)
+        } else {
+            (1f - renderState.atmosphereOpacity.toFloat()).coerceIn(0f, 1f)
+        }
+        val sunDiskAlpha = renderState.sunVisibility.toFloat()
+        val moonDiskAlpha = renderState.moonVisibility.toFloat()
+        val sunGlowAlpha = CelestialHorizonTransitionV2.sunGlowAlpha(sun.altitudeDeg).toFloat() *
+            (0.45f + 0.55f * sunEnvironmentFactor)
         val sunScale = CelestialHorizonTransitionV2.diskScale(sun.altitudeDeg).toFloat()
         val moonScale = CelestialHorizonTransitionV2.diskScale(moon.altitudeDeg).toFloat()
         val sunRadius = (if (!nightMode) activeRadius else inactiveRadius) *
@@ -301,11 +389,11 @@ class SunIndicatorView @JvmOverloads constructor(
         val solarEclipse = SolarEclipseGeometryV2.evaluate(sun, moon)
 
         val sunGlowScreen = if (sunGlowAlpha > 0f) {
-            mapToDeviceSky(
+            mapToEarthCenteredSky(
                 sun.copy(
                     altitudeDeg = CelestialHorizonTransitionV2.altitudeForHorizonGlow(sun.altitudeDeg)
                 ),
-                frame,
+                renderHeading,
                 earthX,
                 earthY,
                 horizonRadius
@@ -350,7 +438,7 @@ class SunIndicatorView @JvmOverloads constructor(
                 val moonDirectionFromSun = CelestialScreenGeometryV2.directionToward(
                     from = sun,
                     to = moon,
-                    frame = frame
+                    deviceAzimuthDeg = renderHeading
                 )
                 drawPhysicalSolarOccultation(
                     canvas = canvas,
@@ -382,7 +470,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val lunarLightDirection = CelestialScreenGeometryV2.directionToward(
                 from = moon,
                 to = sun,
-                frame = frame
+                deviceAzimuthDeg = renderHeading
             )
             drawMoonSunlight(
                 canvas = canvas,
@@ -397,7 +485,7 @@ class SunIndicatorView @JvmOverloads constructor(
             val eclipseDirection = CelestialScreenGeometryV2.directionTowardAntiSun(
                 moon = moon,
                 sun = sun,
-                frame = frame
+                deviceAzimuthDeg = renderHeading
             )
             drawEarthShadowOnMoon(
                 canvas = canvas,
@@ -422,6 +510,23 @@ class SunIndicatorView @JvmOverloads constructor(
                 opacity = sunDiskAlpha
             )
         }
+    }
+
+    /**
+     * Même ancrage vertical que HpAnalogClockView : la présence ou l'absence
+     * des onglets Accueil ne change jamais le centre du système céleste.
+     */
+    private fun screenAnchoredCenterY(): Float {
+        if (!isAttachedToWindow || height <= 0) return height * 0.50f
+
+        val visibleFrame = Rect()
+        getWindowVisibleDisplayFrame(visibleFrame)
+        val location = IntArray(2)
+        getLocationInWindow(location)
+
+        val targetWindowY = visibleFrame.exactCenterY()
+        val localY = targetWindowY - location[1]
+        return localY.coerceIn(height * 0.32f, height * 0.68f)
     }
 
     private fun drawPhysicalSolarOccultation(
@@ -712,14 +817,17 @@ class SunIndicatorView @JvmOverloads constructor(
         earthUmbraPaint.shader = null
     }
 
-    private fun mapToDeviceSky(
+    private fun mapToEarthCenteredSky(
         position: CelestialBodyV2,
-        frame: CelestialDeviceFrameV2,
+        renderingHeadingDeg: Float,
         cx: Float,
         cy: Float,
         horizonRadius: Float
     ): Pair<Float, Float>? {
-        val projected = CelestialScreenGeometryV2.projectInDeviceSky(position, frame) ?: return null
+        val projected = CelestialScreenGeometryV2.projectEarthCenteredSky(
+            body = position,
+            deviceAzimuthDeg = renderingHeadingDeg
+        ) ?: return null
         val x = cx + projected.xRadiusFraction.toFloat() * horizonRadius
         val y = cy + projected.yRadiusFraction.toFloat() * horizonRadius
         return x to y

@@ -19,6 +19,10 @@ import kotlin.math.sin
  * téléphone, tablette, multi-fenêtre et densités d'écran différentes.
  */
 object ClockDialRendererV2 {
+    fun interface CenterLayer {
+        fun draw(canvas: Canvas, cx: Float, cy: Float, radius: Float)
+    }
+
     private val goldStops = intArrayOf(
         Color.rgb(92, 48, 5),
         Color.rgb(255, 224, 115),
@@ -55,13 +59,24 @@ object ClockDialRendererV2 {
     }
 
     @Synchronized
-    fun draw(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+    fun draw(
+        canvas: Canvas,
+        cx: Float,
+        cy: Float,
+        radius: Float,
+        centerLayer: CenterLayer? = null,
+        backgroundAlpha: Int = 255
+    ) {
         if (radius <= 2f) return
 
         // Fond : noir profond, indépendant du thème pour conserver le contraste.
         fill.shader = null
-        fill.color = Color.rgb(2, 4, 8)
+        fill.color = Color.argb(backgroundAlpha.coerceIn(0, 255), 2, 4, 8)
         canvas.drawCircle(cx, cy, radius * 0.985f, fill)
+
+        // Couche astronomique optionnelle : dessinée après le fond opaque mais
+        // avant les graduations/chiffres afin de rester un vrai arrière-plan.
+        centerLayer?.draw(canvas, cx, cy, radius * 0.79f)
 
         // Bague or extérieure métallique.
         stroke.shader = SweepGradient(cx, cy, goldStops, null)

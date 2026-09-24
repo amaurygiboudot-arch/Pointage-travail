@@ -35,6 +35,7 @@ targets:
         NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
         NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
         NSMotionUsageDescription: HP Travail utilise l'orientation de l'iPhone pour afficher le ciel dans la bonne direction.
+        CelestialWeatherEndpoint: $(CELESTIAL_WEATHER_ENDPOINT)
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
             CFBundleURLSchemes:
@@ -46,6 +47,7 @@ targets:
         PRODUCT_MODULE_NAME: HPTravail
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
+        CELESTIAL_WEATHER_ENDPOINT: ""
 
   HPTravailTests:
     type: bundle.unit-test

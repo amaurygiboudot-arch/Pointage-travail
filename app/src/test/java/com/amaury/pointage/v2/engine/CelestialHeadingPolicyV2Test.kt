@@ -44,6 +44,44 @@ class CelestialHeadingPolicyV2Test {
     }
 
     @Test
+    fun `precision categorielle moyenne valide le cap sans valeur numerique`() {
+        val quality = CelestialHeadingPolicyV2.classify(
+            hasOrientation = true,
+            headingAgeMs = 80L,
+            sensorReportedUnreliable = false,
+            headingAccuracyDeg = null,
+            sensorAccuracy = CelestialHeadingSensorAccuracyV2.MEDIUM
+        )
+        assertEquals(CelestialHeadingQualityV2.VALID, quality)
+        assertTrue(CelestialHeadingPolicyV2.isUsable(quality))
+    }
+
+    @Test
+    fun `precision categorielle haute valide le cap sans valeur numerique`() {
+        val quality = CelestialHeadingPolicyV2.classify(
+            hasOrientation = true,
+            headingAgeMs = 80L,
+            sensorReportedUnreliable = false,
+            headingAccuracyDeg = null,
+            sensorAccuracy = CelestialHeadingSensorAccuracyV2.HIGH
+        )
+        assertEquals(CelestialHeadingQualityV2.VALID, quality)
+    }
+
+    @Test
+    fun `precision categorielle basse demande recalibrage`() {
+        val quality = CelestialHeadingPolicyV2.classify(
+            hasOrientation = true,
+            headingAgeMs = 80L,
+            sensorReportedUnreliable = false,
+            headingAccuracyDeg = null,
+            sensorAccuracy = CelestialHeadingSensorAccuracyV2.LOW
+        )
+        assertEquals(CelestialHeadingQualityV2.INACCURATE, quality)
+        assertFalse(CelestialHeadingPolicyV2.isUsable(quality))
+    }
+
+    @Test
     fun `capteur explicitement non fiable est bloque`() {
         val quality = CelestialHeadingPolicyV2.classify(
             hasOrientation = true,

@@ -17,7 +17,10 @@ object DevelopmentUpdateReleaseV2 {
     private const val DEVELOPMENT_TAG = "dev-latest"
     private const val REPOSITORY_RELEASE_PREFIX =
         "https://github.com/amaurygiboudot-arch/Pointage-travail/releases/download/$DEVELOPMENT_TAG/"
-    private val versionRegex = Regex("^\\d+(?:\\.\\d+)+-dev-(\\d{9,10})$")
+    // Canonical builds are 1.xxxx-dev-<revision>. The optional single label is
+    // accepted only for migration from already-published builds such as
+    // 1.1452-celeste-dev-<revision>; the workflow must keep emitting canonical names.
+    private val versionRegex = Regex("^\\d+(?:\\.\\d+)+(?:-[a-z0-9]+)?-dev-(\\d{9,10})$")
 
     data class Candidate(
         val versionName: String,

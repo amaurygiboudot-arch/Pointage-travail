@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.amaury.pointage.ThemedBackgroundScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/appRootScroll"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#050505"
@@ -170,6 +171,7 @@
                 android:id="@+id/celestialStatusText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:visibility="gone"
                 android:layout_gravity="bottom|center_horizontal"
                 android:layout_marginBottom="6dp"
                 android:importantForAccessibility="no"
@@ -474,6 +476,16 @@
                     android:text="Local : centre le globe sur votre GPS. Monde : garde le terminateur réel au centre pour montrer ensemble la partie éclairée et la partie nocturne."
                     android:textColor="@color/hp_grey"
                     android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/celestialWeatherAttribution"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Données météo : Open-Meteo • CC BY 4.0"
+                    android:textColor="@color/hp_grey"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
 
                 <TextView
                     android:layout_width="match_parent"

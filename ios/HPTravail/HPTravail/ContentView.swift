@@ -390,6 +390,14 @@ struct ContentView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    if let endpoint = Bundle.main.object(
+                        forInfoDictionaryKey: "CelestialWeatherEndpoint"
+                    ) as? String,
+                       endpoint.contains("open-meteo.com") {
+                        Text("Données météo : Open-Meteo • CC BY 4.0")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Apparence") {

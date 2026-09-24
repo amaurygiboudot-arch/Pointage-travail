@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
@@ -152,7 +153,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         if (alpha <= 0f || width <= 0 || height <= 0) return
 
         val cx = width * 0.50f
-        val cy = height * 0.55f
+        val cy = screenAnchoredCenterY()
         val safeSpan = CelestialScreenGeometryV2.safeRenderSpan(
             width.toDouble(),
             height.toDouble()
@@ -184,8 +185,32 @@ class HpAnalogClockView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Centre l'horloge dans la fenêtre visible et non dans le panneau situé sous
+     * les onglets. Ainsi l'apparition/disparition des onglets Accueil ne déplace
+     * plus le cadran verticalement.
+     */
+    private fun screenAnchoredCenterY(): Float {
+        if (!isAttachedToWindow || height <= 0) return height * 0.50f
+
+        val visibleFrame = Rect()
+        getWindowVisibleDisplayFrame(visibleFrame)
+        val location = IntArray(2)
+        getLocationInWindow(location)
+
+        val targetWindowY = visibleFrame.exactCenterY()
+        val localY = targetWindowY - location[1]
+        return localY.coerceIn(height * 0.32f, height * 0.68f)
+    }
+
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        ClockDialRendererV2.draw(canvas, cx, cy, radius)
+        ClockDialRendererV2.draw(
+            canvas = canvas,
+            cx = cx,
+            cy = cy,
+            radius = radius,
+            backgroundAlpha = 214
+        )
     }
 
     private fun requestSharpAssets() {
