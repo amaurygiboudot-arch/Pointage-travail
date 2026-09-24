@@ -553,6 +553,15 @@ class MainActivity : Activity() {
             }
         )
         updatingCelestialGlobeMode = false
+
+        findViewById<TextView>(R.id.celestialWeatherAttribution)?.apply {
+            val endpoint = BuildConfig.CELESTIAL_WEATHER_ENDPOINT
+            visibility = if (endpoint.contains("open-meteo.com", ignoreCase = true)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+        }
     }
 
     private fun loadGpsSettings() {
