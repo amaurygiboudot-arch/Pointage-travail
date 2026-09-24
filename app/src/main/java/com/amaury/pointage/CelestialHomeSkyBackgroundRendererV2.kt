@@ -335,10 +335,14 @@ class CelestialHomeSkyBackgroundRendererV2(
             canvas.drawBitmap(cache.bitmap, null, dst, panoramaPaint)
         }
 
-        // Trois copies suffisent toujours à couvrir le viewport après wrap.
-        drawAt(baseLeft - viewportWidth)
+        // Une ou deux copies suffisent : baseLeft reste toujours dans
+        // [-largeur/2 ; +largeur/2]. Éviter une troisième texture réduit
+        // l'overdraw GPU lors des mouvements du téléphone.
         drawAt(baseLeft)
-        drawAt(baseLeft + viewportWidth)
+        when {
+            baseLeft > 0f -> drawAt(baseLeft - viewportWidth)
+            baseLeft < 0f -> drawAt(baseLeft + viewportWidth)
+        }
     }
 
     private fun drawWrappedLine(
