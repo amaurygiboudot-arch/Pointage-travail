@@ -130,6 +130,9 @@ jobs:
   gradle-security-build:
     name: Security update build check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -177,6 +180,58 @@ jobs:
           PY
       - name: Compile Android app
         run: gradle :app:assembleDebug --stacktrace
+
+      - name: Require successful iOS build when iOS changes
+        if: github.event_name == 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+
+          if ! printf '%s\n' "$changed" | grep -Eq '^(ios/|\.github/workflows/build-ios\.yml$)'; then
+            echo "No iOS change detected; iOS build gate is not applicable."
+            exit 0
+          fi
+
+          echo "iOS changes detected; waiting for the build-ios check on $HEAD_SHA."
+
+          for attempt in $(seq 1 80); do
+            checks="$(gh api -H 'Accept: application/vnd.github+json' "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs?per_page=100")"
+
+            latest="$(printf '%s' "$checks" | jq -c '[.check_runs[] | select(.name == "build-ios")] | sort_by(.started_at // .created_at) | last // empty')"
+
+            if [ -z "$latest" ]; then
+              echo "[$attempt/80] build-ios check not created yet."
+              sleep 15
+              continue
+            fi
+
+            status="$(printf '%s' "$latest" | jq -r '.status')"
+            conclusion="$(printf '%s' "$latest" | jq -r '.conclusion // ""')"
+            url="$(printf '%s' "$latest" | jq -r '.html_url // ""')"
+
+            echo "[$attempt/80] build-ios status=$status conclusion=${conclusion:-pending} $url"
+
+            if [ "$status" = "completed" ]; then
+              if [ "$conclusion" = "success" ]; then
+                echo "iOS build succeeded for the exact PR HEAD."
+                exit 0
+              fi
+              echo "::error::iOS build did not succeed for the exact PR HEAD: $conclusion"
+              exit 1
+            fi
+
+            sleep 15
+          done
+
+          echo "::error::Timed out waiting for build-ios on the exact PR HEAD."
+          exit 1
 
   play-distribution-check:
     name: Google Play distribution check
