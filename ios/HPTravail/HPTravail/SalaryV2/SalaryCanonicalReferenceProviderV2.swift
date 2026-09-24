@@ -28,6 +28,7 @@ enum SalaryCanonicalReferenceProviderV2 {
         let companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot
         let incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?
         let calendar: Calendar
+        let now: Date
 
         init(
             companyId: String,
@@ -46,7 +47,8 @@ enum SalaryCanonicalReferenceProviderV2 {
             protectionCategory: ProtectionCategoryV2.Result,
             companyDeductions: CompanyEmployeeDeductionResolverV2.Snapshot,
             incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot?,
-            calendar: Calendar = .current
+            calendar: Calendar = .current,
+            now: Date = Date()
         ) {
             self.companyId = companyId
             self.companyAddress = companyAddress
@@ -65,6 +67,7 @@ enum SalaryCanonicalReferenceProviderV2 {
             self.companyDeductions = companyDeductions
             self.incomeTaxRate = incomeTaxRate
             self.calendar = calendar
+            self.now = now
         }
     }
 
@@ -86,6 +89,32 @@ enum SalaryCanonicalReferenceProviderV2 {
             calendar: input.calendar
         )
 
+        let weeklyBoundaryThreshold: Int? = {
+            switch input.contract.type {
+            case .partTime:
+                return input.contract.contractualWeeklyMinutes
+            case .fullTime:
+                return input.contract.contractualWeeklyMinutes
+                    ?? input.rules.weeklyRegularMinutes
+            case .other:
+                return input.rules.weeklyRegularMinutes
+                    ?? input.contract.contractualWeeklyMinutes
+            case .forfaitHours, .forfaitDays, .forfait:
+                return nil
+            }
+        }()
+        let weeklyBoundary = weeklyBoundaryThreshold.map {
+            SalaryWeeklyThresholdMonthBoundaryGuardV2.assess(
+                sessions: input.sessions,
+                employerId: companyId,
+                period: input.period,
+                weeklyThresholdMinutes: $0,
+                sourceReliable: input.workSourceReliable,
+                calendar: input.calendar,
+                now: input.now
+            )
+        }
+
         let holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(input.companyAddress)
         let payrollWeeks = SalaryPayrollWeekEvidenceBuilderV2.build(
             sessions: input.sessions,
@@ -101,13 +130,20 @@ enum SalaryCanonicalReferenceProviderV2 {
             calendar: input.calendar
         )
 
+        let payrollEvidence = PayrollInputEvidenceV2(
+            paidTimeReliable: payrollWeeks.evidence.paidTimeReliable
+                && (weeklyBoundary?.reliable ?? true),
+            premiumTimeBreakdownReliable: payrollWeeks.evidence.premiumTimeBreakdownReliable,
+            payrollRulesReliable: payrollWeeks.evidence.payrollRulesReliable
+        )
+
         let payroll: PayrollResultV2
         do {
             payroll = try PayrollEngineV2.calculate(
                 contract: input.contract,
                 weeks: payrollWeeks.weeks,
                 rules: input.rules,
-                evidence: payrollWeeks.evidence
+                evidence: payrollEvidence
             )
         } catch {
             return nil
@@ -156,7 +192,8 @@ enum SalaryCanonicalReferenceProviderV2 {
         return SalaryReferenceContractV2.buildFromPayroll(
             payroll: payroll,
             benefits: input.benefits,
-            projection: projection
+            projection: projection,
+            additionalWarnings: weeklyBoundary?.warnings ?? []
         )
     }
 
