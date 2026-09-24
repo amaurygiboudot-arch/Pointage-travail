@@ -46,9 +46,6 @@ class HpAnalogClockView @JvmOverloads constructor(
     private val earthGlobeRenderer = EarthGlobeRendererV2 {
         if (isAttachedToWindow) postInvalidateOnAnimation()
     }
-    private val starLayerRenderer = CelestialStarLayerRendererV2(context) {
-        if (isAttachedToWindow) postInvalidateOnAnimation()
-    }
     private val celestialPreferences = context.applicationContext.getSharedPreferences(
         CelestialGlobeModeV2.PREFS,
         Context.MODE_PRIVATE
@@ -66,16 +63,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         }
 
     private var celestialSnapshot: CelestialSnapshotV2? = null
-    private var celestialState: CelestialTrackerV2.State? = null
-    private val starCenterLayer = ClockDialRendererV2.CenterLayer { layerCanvas, layerCx, layerCy, layerRadius ->
-        starLayerRenderer.draw(
-            canvas = layerCanvas,
-            cx = layerCx,
-            cy = layerCy,
-            radius = layerRadius,
-            state = celestialState
-        )
-    }
     private var hostActivityVisible = false
     private var trackerSubscribed = false
 
@@ -117,8 +104,6 @@ class HpAnalogClockView @JvmOverloads constructor(
             trackerSubscribed = false
         }
         earthGlobeRenderer.clearCache()
-        starLayerRenderer.clear()
-        celestialState = null
         celestialSnapshot = null
         assetGeneration.incrementAndGet()
         sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
@@ -151,9 +136,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         if (shouldSubscribe && !trackerSubscribed) {
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { state ->
-                celestialState = state
                 celestialSnapshot = state.snapshot
-                starLayerRenderer.update(state)
                 invalidate()
             }
         } else if (!shouldSubscribe && trackerSubscribed) {
@@ -207,7 +190,7 @@ class HpAnalogClockView @JvmOverloads constructor(
             cx = cx,
             cy = cy,
             radius = radius,
-            centerLayer = starCenterLayer
+            backgroundAlpha = 214
         )
     }
 
