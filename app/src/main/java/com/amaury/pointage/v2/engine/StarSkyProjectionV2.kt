@@ -119,6 +119,26 @@ object StarSkyProjectionV2 {
     }
 
     /**
+     * Sensor-independent real-sky fallback.
+     *
+     * Maps the complete above-horizon hemisphere to the dial with zenith at the
+     * centre and true North at the top. This never invents device orientation:
+     * it is used only when a trustworthy physical frame is unavailable.
+     */
+    fun projectToZenithMap(position: LocalStarPositionV2): StarDeviceProjectionV2? {
+        if (!position.apparentAltitudeDeg.isFinite() || position.apparentAltitudeDeg < 0.0) {
+            return null
+        }
+        val radius = ((90.0 - position.apparentAltitudeDeg) / 90.0).coerceIn(0.0, 1.0)
+        val azimuth = Math.toRadians(position.azimuthDeg)
+        return StarDeviceProjectionV2(
+            x = radius * sin(azimuth),
+            y = -radius * cos(azimuth),
+            depth = 1.0
+        )
+    }
+
+    /**
      * Visual intensity only. Astronomy remains available during daytime, but the
      * Home background follows what the naked eye can realistically see.
      */
