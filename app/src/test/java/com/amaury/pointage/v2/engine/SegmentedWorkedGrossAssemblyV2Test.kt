@@ -126,6 +126,54 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun tamperedBasePieceFactorBlocksAssembly() {
+        val original = base()
+        val badPiece = original.pieces.first().copy(
+            factor = 0.6,
+            proratedBaseGross = 1_200.0
+        )
+        val tampered = original.copy(
+            pieces = listOf(badPiece, original.pieces[1]),
+            baseGross = 1_700.0
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            base = tampered,
+            variables = listOf(
+                variable("v1", 0, 14, 0.0),
+                variable("v2", 15, 30, 0.0)
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(
+            result.warnings.contains(
+                SegmentedWorkedGrossAssemblerV2.BASE_WARNING
+            )
+        )
+    }
+
+    @Test
+    fun invertedVariableBoundsBlockAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            base = base(),
+            variables = listOf(
+                variable("v1", 14, 0, 0.0),
+                variable("v2", 15, 30, 0.0)
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(
+            result.warnings.contains(
+                SegmentedWorkedGrossAssemblerV2.COVERAGE_WARNING
+            )
+        )
+    }
+
+    @Test
     fun invalidVariableAmountBlocksAssembly() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
             base = base(),
