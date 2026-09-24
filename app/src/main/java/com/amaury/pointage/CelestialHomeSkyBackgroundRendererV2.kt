@@ -124,7 +124,6 @@ class CelestialHomeSkyBackgroundRendererV2(
 
         val current = state ?: return
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
-        val sky = localSky ?: return
 
         val weather = CelestialWeatherContextV2.currentState()
         val cloudTransmission = weather?.cloudTransmission ?: 1.0
@@ -133,6 +132,7 @@ class CelestialHomeSkyBackgroundRendererV2(
         // La couverture nuageuse réelle atténue ensuite le ciel nocturne.
         val starOpacity = nightOpacity * cloudTransmission
         val constellationOpacity = 0.18 * nightOpacity * cloudTransmission
+        val sky = localSky
 
         val centerAzimuthDeg = if (
             CelestialHeadingPolicyV2.isUsable(current.headingQuality)
@@ -147,9 +147,10 @@ class CelestialHomeSkyBackgroundRendererV2(
         val scaleX = width * 0.5f
         val scaleY = height * 0.5f
 
-        val projected = HashMap<Int, PointF>(sky.stars.size)
-        val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
-        for (star in sky.stars) {
+        if (sky != null) {
+            val projected = HashMap<Int, PointF>(sky.stars.size)
+            val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
+            for (star in sky.stars) {
             val p = StarSkyProjectionV2.projectToPanorama(
                 position = star.position,
                 centerAzimuthDeg = centerAzimuthDeg
@@ -165,8 +166,8 @@ class CelestialHomeSkyBackgroundRendererV2(
             visibleStars += star to point
         }
 
-        linePaint.alpha = (255.0 * constellationOpacity).toInt().coerceIn(0, 255)
-        for (path in sky.paths) {
+            linePaint.alpha = (255.0 * constellationOpacity).toInt().coerceIn(0, 255)
+            for (path in sky.paths) {
             var previous: PointF? = null
             for (hr in path.hrNumbers) {
                 val point = projected[hr]
@@ -183,12 +184,13 @@ class CelestialHomeSkyBackgroundRendererV2(
             }
         }
 
-        for ((star, point) in visibleStars) {
-            val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
-            starPaint.alpha = (255.0 * starOpacity * (0.34 + 0.66 * brightness))
-                .toInt().coerceIn(0, 255)
-            val radius = (0.65 + brightness * 2.25).toFloat() * density
-            canvas.drawCircle(point.x, point.y, radius, starPaint)
+            for ((star, point) in visibleStars) {
+                val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
+                starPaint.alpha = (255.0 * starOpacity * (0.34 + 0.66 * brightness))
+                    .toInt().coerceIn(0, 255)
+                val radius = (0.65 + brightness * 2.25).toFloat() * density
+                canvas.drawCircle(point.x, point.y, radius, starPaint)
+            }
         }
 
         weather?.let {
