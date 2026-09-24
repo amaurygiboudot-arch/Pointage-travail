@@ -478,6 +478,16 @@
                     android:textSize="12sp" />
 
                 <TextView
+                    android:id="@+id/celestialWeatherAttribution"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Données météo : Open-Meteo • CC BY 4.0"
+                    android:textColor="@color/hp_grey"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
+
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="18dp"
