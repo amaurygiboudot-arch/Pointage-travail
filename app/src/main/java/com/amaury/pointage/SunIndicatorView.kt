@@ -24,6 +24,7 @@ import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.CelestialWeatherContextV2
 import com.amaury.pointage.v2.engine.CelestialBodyV2
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
 import com.amaury.pointage.v2.engine.CelestialHorizonTransitionV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
