@@ -1,2 +1,1 @@
-Build HoraTrack DEV updater migration - 2026-09-24
-SOURCE_HEAD=230dc1237625d1c43c57fc9bae8fb6608a8d0e7e
+Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
