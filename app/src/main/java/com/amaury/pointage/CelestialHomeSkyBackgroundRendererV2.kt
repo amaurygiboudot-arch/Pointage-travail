@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Shader
 import com.amaury.pointage.v2.CelestialTrackerV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
 import com.amaury.pointage.v2.engine.StarSkyProjectionV2
@@ -113,25 +114,31 @@ class CelestialHomeSkyBackgroundRendererV2(
         if (current.locationQuality != CelestialLocationQualityV2.VALID) return
         val sky = localSky ?: return
 
-        // Les positions restent astronomiquement réelles. En journée, une faible
-        // opacité minimale garde la carte stellaire lisible sans prétendre que les
-        // étoiles sont visibles à l'oeil nu.
-        val starOpacity = 0.20 + 0.80 * nightOpacity
-        val constellationOpacity = 0.10 + 0.16 * nightOpacity
+        // Jour réel : aucune étoile ni constellation artificiellement visible.
+        // Elles apparaissent progressivement uniquement quand le Soleil descend.
+        val starOpacity = nightOpacity
+        val constellationOpacity = 0.18 * nightOpacity
+
+        val centerAzimuthDeg = if (
+            CelestialHeadingPolicyV2.isUsable(current.headingQuality)
+        ) {
+            current.deviceAzimuthDeg.toDouble()
+        } else {
+            0.0
+        }
 
         val centerX = width * 0.5f
         val centerY = height * 0.5f
-        val scaleX = width * 0.52f
-        val scaleY = height * 0.52f
+        val scaleX = width * 0.5f
+        val scaleY = height * 0.5f
 
         val projected = HashMap<Int, PointF>(sky.stars.size)
         val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
         for (star in sky.stars) {
-            val p = if (current.hasRealSky && current.deviceFrame != null) {
-                StarSkyProjectionV2.projectToDevice(star.position, current.deviceFrame)
-            } else {
-                StarSkyProjectionV2.projectToZenithMap(star.position)
-            } ?: continue
+            val p = StarSkyProjectionV2.projectToPanorama(
+                position = star.position,
+                centerAzimuthDeg = centerAzimuthDeg
+            ) ?: continue
             val point = PointF(
                 centerX + (p.x * scaleX).toFloat(),
                 centerY + (p.y * scaleY).toFloat()
@@ -152,7 +159,11 @@ class CelestialHomeSkyBackgroundRendererV2(
                     previous = null
                     continue
                 }
-                previous?.let { canvas.drawLine(it.x, it.y, point.x, point.y, linePaint) }
+                previous?.let {
+                    if (kotlin.math.abs(it.x - point.x) <= width * 0.50f) {
+                        canvas.drawLine(it.x, it.y, point.x, point.y, linePaint)
+                    }
+                }
                 previous = point
             }
         }
@@ -173,8 +184,8 @@ class CelestialHomeSkyBackgroundRendererV2(
         nightOpacity: Double
     ) {
         val night = nightOpacity.toFloat().coerceIn(0f, 1f)
-        val top = blend(Color.rgb(8, 28, 56), Color.rgb(1, 5, 14), night)
-        val bottom = blend(Color.rgb(2, 9, 22), Color.rgb(0, 1, 7), night)
+        val top = blend(Color.rgb(54, 139, 224), Color.rgb(1, 5, 14), night)
+        val bottom = blend(Color.rgb(176, 222, 248), Color.rgb(0, 1, 7), night)
         backgroundPaint.shader = LinearGradient(
             0f, 0f, 0f, height,
             top, bottom, Shader.TileMode.CLAMP
