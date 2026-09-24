@@ -110,6 +110,34 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
         XCTAssertNil(SalaryReferenceContractV2.socialGross(reference))
     }
 
+    func testCrossMonthWeeklyThresholdBlocksCanonicalGross() throws {
+        let sessions = [
+            salarySession("aug31", 2026, 8, 31, 8, 16),
+            salarySession("sep1", 2026, 9, 1, 8, 16),
+            salarySession("sep2", 2026, 9, 2, 8, 16),
+            salarySession("sep3", 2026, 9, 3, 8, 16),
+            salarySession("sep4", 2026, 9, 4, 8, 16)
+        ]
+        let reference = try XCTUnwrap(
+            SalaryCanonicalReferenceProviderV2.build(
+                input(
+                    sessions: sessions,
+                    protectionCategory: ProtectionCategoryV2.noConventionOverride(),
+                    deductions: deductions(complete: true),
+                    now: localDate(2026, 10, 6, 0, 0)
+                )
+            )
+        )
+
+        XCTAssertFalse(reference.grossReliable)
+        XCTAssertNil(SalaryReferenceContractV2.socialGross(reference))
+        XCTAssertTrue(
+            reference.warnings.contains(
+                SalaryWeeklyThresholdMonthBoundaryGuardV2.contextWarning
+            )
+        )
+    }
+
     func testEmployerMismatchIsRejectedBeforeCalculation() {
         let base = contract()
         let wrongContract = ContractV2(
@@ -135,10 +163,12 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
     private func input(
         contract: ContractV2? = nil,
         workSourceReliable: Bool = true,
+        sessions: [SalarySessionFactV2]? = nil,
         absences: [SalaryAbsenceFactV2] = [],
         absenceSourceReliable: Bool = true,
         protectionCategory: ProtectionCategoryV2.Result,
-        deductions: CompanyEmployeeDeductionResolverV2.Snapshot
+        deductions: CompanyEmployeeDeductionResolverV2.Snapshot,
+        now: Date? = nil
     ) -> SalaryCanonicalReferenceProviderV2.Input {
         .init(
             companyId: companyId,
@@ -161,7 +191,7 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
                 ]
             ),
             payrollRulesReliable: true,
-            sessions: [
+            sessions: sessions ?? [
                 SalarySessionFactV2(
                     id: "session-1",
                     entry: localDate(2026, 9, 7, 8, 0),
@@ -189,7 +219,25 @@ final class SalaryCanonicalReferenceProviderV2Tests: XCTestCase {
             protectionCategory: protectionCategory,
             companyDeductions: deductions,
             incomeTaxRate: nil,
-            calendar: calendar
+            calendar: calendar,
+            now: now ?? localDate(2026, 10, 6, 0, 0)
+        )
+    }
+
+    private func salarySession(
+        _ id: String,
+        _ year: Int,
+        _ month: Int,
+        _ day: Int,
+        _ startHour: Int,
+        _ endHour: Int
+    ) -> SalarySessionFactV2 {
+        SalarySessionFactV2(
+            id: id,
+            entry: localDate(year, month, day, startHour, 0),
+            exit: localDate(year, month, day, endHour, 0),
+            employerId: companyId,
+            pauses: []
         )
     }
 
