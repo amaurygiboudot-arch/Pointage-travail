@@ -68,35 +68,32 @@ private final class CelestialStarFieldModelV2: ObservableObject {
 struct CelestialStarFieldViewV2: View {
     let state: CelestialTrackingStateV2
     let presentation: CelestialStarFieldPresentationV2
-    let cloudCover: Double?
+    let renderState: CelestialRenderStateV2?
     @StateObject private var model = CelestialStarFieldModelV2()
 
     init(
         state: CelestialTrackingStateV2,
         presentation: CelestialStarFieldPresentationV2 = .dial,
-        cloudCover: Double? = nil
+        renderState: CelestialRenderStateV2? = nil
     ) {
         self.state = state
         self.presentation = presentation
-        self.cloudCover = cloudCover
+        self.renderState = renderState
     }
 
     var body: some View {
         Canvas { context, size in
             guard state.locationQuality == .valid,
-                  let snapshot = state.snapshot,
+                  state.snapshot != nil,
+                  let renderState,
                   let sky = model.prepared else {
                 return
             }
 
-            let nightOpacity = StarSkyProjectionV2.nightSkyOpacity(
-                sunGeometricAltitudeDegrees: snapshot.sun.altitudeDegrees
-            )
-            let cloudTransmission = 1 - min(1, max(0, cloudCover ?? 0)) * 0.90
-            let starOpacity = nightOpacity * cloudTransmission
-            let constellationOpacity = (presentation == .fullScreen
-                ? 0.18 * nightOpacity
-                : 0.12 * nightOpacity) * cloudTransmission
+            let starOpacity = renderState.starsVisibility
+            let constellationOpacity = (
+                presentation == .fullScreen ? 0.18 : 0.12
+            ) * renderState.constellationsVisibility
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let radius = min(size.width, size.height) * 0.50
