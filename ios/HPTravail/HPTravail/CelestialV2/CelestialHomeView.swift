@@ -30,21 +30,23 @@ struct CelestialHomeView: View {
                 GeometryReader { viewport in
                     ScrollView {
                         VStack(spacing: 18) {
-                            VStack(spacing: 14) {
+                            ZStack {
+                                skyPanel
+                                    .frame(maxWidth: 470)
+                                    .position(
+                                        x: viewport.size.width / 2,
+                                        y: viewport.size.height / 2
+                                    )
+
                                 Text(Date.now.formatted(date: .complete, time: .shortened))
                                     .font(.headline)
                                     .multilineTextAlignment(.center)
-
-                                Spacer(minLength: 8)
-
-                                skyPanel
-                                    .frame(maxWidth: 470)
-
-                                Spacer(minLength: 8)
+                                    .frame(maxWidth: .infinity, alignment: .top)
+                                    .padding(.top, 8)
                             }
                             .frame(
-                                maxWidth: .infinity,
-                                minHeight: max(520, viewport.size.height - 24)
+                                width: viewport.size.width,
+                                height: max(520, viewport.size.height)
                             )
 
                             detailsPanel
