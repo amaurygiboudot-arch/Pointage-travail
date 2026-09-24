@@ -1,6 +1,14 @@
 package com.amaury.pointage.v2.engine
 
 /** Qualité du cap utilisé pour orienter la carte céleste 360°. */
+enum class CelestialHeadingSensorAccuracyV2 {
+    UNKNOWN,
+    LOW,
+    MEDIUM,
+    HIGH,
+    UNRELIABLE
+}
+
 enum class CelestialHeadingQualityV2 {
     VALID,
     /** Le téléphone fournit une orientation exploitable mais pas d'incertitude numérique. */
@@ -32,7 +40,8 @@ object CelestialHeadingPolicyV2 {
         hasOrientation: Boolean,
         headingAgeMs: Long?,
         sensorReportedUnreliable: Boolean,
-        headingAccuracyDeg: Float?
+        headingAccuracyDeg: Float?,
+        sensorAccuracy: CelestialHeadingSensorAccuracyV2 = CelestialHeadingSensorAccuracyV2.UNKNOWN
     ): CelestialHeadingQualityV2 {
         if (!hasOrientation || headingAgeMs == null) {
             return CelestialHeadingQualityV2.UNAVAILABLE
@@ -40,7 +49,9 @@ object CelestialHeadingPolicyV2 {
         if (headingAgeMs < 0L || headingAgeMs > MAX_HEADING_AGE_MS) {
             return CelestialHeadingQualityV2.STALE
         }
-        if (sensorReportedUnreliable) {
+        if (sensorReportedUnreliable ||
+            sensorAccuracy == CelestialHeadingSensorAccuracyV2.UNRELIABLE
+        ) {
             return CelestialHeadingQualityV2.UNRELIABLE
         }
         if (headingAccuracyDeg != null) {
@@ -52,7 +63,13 @@ object CelestialHeadingPolicyV2 {
             }
             return CelestialHeadingQualityV2.VALID
         }
-        return CelestialHeadingQualityV2.UNKNOWN_ACCURACY
+        return when (sensorAccuracy) {
+            CelestialHeadingSensorAccuracyV2.HIGH,
+            CelestialHeadingSensorAccuracyV2.MEDIUM -> CelestialHeadingQualityV2.VALID
+            CelestialHeadingSensorAccuracyV2.LOW -> CelestialHeadingQualityV2.INACCURATE
+            CelestialHeadingSensorAccuracyV2.UNRELIABLE -> CelestialHeadingQualityV2.UNRELIABLE
+            CelestialHeadingSensorAccuracyV2.UNKNOWN -> CelestialHeadingQualityV2.UNKNOWN_ACCURACY
+        }
     }
 
     fun isUsable(quality: CelestialHeadingQualityV2): Boolean =
