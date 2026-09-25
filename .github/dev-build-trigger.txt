@@ -1,4 +1,5 @@
-Build HoraTrack DEV unique - installation Céleste V5 demandée par Amaury - 2026-09-25
-Source produit vérifiée : main 86a2f74762b5fccf269ea52ec52c4b883d74137e, PR #430 fusionnée.
-Publier APK/AAB signés de test via le workflow existant vers dev-latest uniquement.
-Validation visuelle sur téléphone à effectuer ; aucune publication store ou déploiement Firebase demandé.
+Build HoraTrack DEV unique - cadran sphérique et étoiles vivantes - 2026-09-25
+Base vérifiée : main 5ef5d4c008475736a58ecaead83e452c9b776fbf après #430 et #432.
+Lot demandé : suppression des traits, étoiles blanc bleuté, scintillement et sphère dans le cadran.
+Publier APK/AAB signés de test vers dev-latest via le workflow existant après fusion.
+Validation visuelle sur appareils à effectuer ; aucun store ni déploiement Firebase.

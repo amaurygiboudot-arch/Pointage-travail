@@ -1,186 +1,128 @@
 package com.amaury.pointage
 
+import android.animation.ValueAnimator
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PointF
+import android.graphics.*
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import com.amaury.pointage.v2.CelestialAmbientLightV2
 import com.amaury.pointage.v2.CelestialTrackerV2
-import com.amaury.pointage.v2.engine.CelestialLocationQualityV2
-import com.amaury.pointage.v2.engine.LocalStarPositionV2
-import com.amaury.pointage.v2.engine.StarSkyProjectionV2
-import com.amaury.pointage.v2.ui.ConstellationPathV2
+import com.amaury.pointage.v2.CelestialWeatherContextV2
+import com.amaury.pointage.v2.engine.*
 import com.amaury.pointage.v2.ui.StarSkyCatalogLoaderV2
+import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.max
 
-/**
- * Rendu du ciel réel injecté à l'intérieur du cadran Android.
- *
- * Le propriétaire de l'abonnement GPS/capteurs reste HpAnalogClockView :
- * ce renderer reçoit l'état déjà publié et n'ouvre aucun second abonnement.
- */
-class CelestialStarLayerRendererV2(
-    context: Context,
-    private val onInvalidated: () -> Unit
-) {
-    private data class LocalStar(
-        val hr: Int,
-        val magnitude: Double,
-        val position: LocalStarPositionV2
-    )
-
-    private data class LocalSky(
-        val key: String,
-        val stars: List<LocalStar>,
-        val paths: List<ConstellationPathV2>
-    )
-
+/** The clock owns tracking and cadence; this adapter opens no sensor subscription. */
+class CelestialStarLayerRendererV2(context: Context, private val onInvalidated: () -> Unit) {
+    private data class Star(val id: Int, val magnitude: Double, val position: LocalStarPositionV2)
+    private data class Sky(val place: String, val atMs: Long, val stars: List<Star>)
     private val appContext = context.applicationContext
     private val density = context.resources.displayMetrics.density
-    private val generation = AtomicLong(0)
-    @Volatile private var localSky: LocalSky? = null
-    private var requestedKey: String? = null
-
-    private val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.WHITE
-    }
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = max(0.6f * density, 1f)
-        strokeCap = Paint.Cap.ROUND
-        color = Color.WHITE
-    }
-    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-        style = Paint.Style.FILL
-        textAlign = Paint.Align.CENTER
-        textSize = 9f * context.resources.displayMetrics.scaledDensity
-        color = Color.WHITE
-    }
+    private val handler = Handler(Looper.getMainLooper())
+    private val generation = AtomicLong()
+    private val sprite = CelestialStarSpritePainterV2()
+    private var sky: Sky? = null
+    private var requested: String? = null
+    private val domePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val rimShader = RadialGradient(0f, 0f, 1f,
+        intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(66,64,102,158), Color.TRANSPARENT),
+        floatArrayOf(0f,0.72f,0.98f,1f), Shader.TileMode.CLAMP)
+    private val shaderMatrix = Matrix()
+    private var gridKey: String? = null
+    private var grid: List<Pair<Path, Boolean>> = emptyList()
 
     fun update(state: CelestialTrackerV2.State) {
-        val snapshot = state.snapshot ?: return
-        if (state.locationQuality != CelestialLocationQualityV2.VALID) return
-        val bucket = snapshot.atMs / LOCAL_SKY_REFRESH_MS
-        val key = "%.4f:%.4f:%d".format(snapshot.latitudeDeg, snapshot.longitudeDeg, bucket)
-        if (key == requestedKey) return
-        requestedKey = key
-        val requestGeneration = generation.incrementAndGet()
-
+        val snapshot = state.snapshot
+        if (snapshot == null || state.locationQuality != CelestialLocationQualityV2.VALID) { clear(); return }
+        val place = String.format(Locale.ROOT, "%.4f:%.4f", snapshot.latitudeDeg, snapshot.longitudeDeg)
+        val key = "$place:${snapshot.atMs / 30_000L}"
+        if (key == requested) return
+        requested = key
+        val token = generation.incrementAndGet()
         executor.execute {
-            val catalog = runCatching { StarSkyCatalogLoaderV2.load(appContext) }.getOrNull()
-                ?: return@execute
-            val prepared = catalog.stars.mapNotNull { (hr, star) ->
-                runCatching {
-                    val position = StarSkyProjectionV2.horizontal(
-                        star = star,
-                        latitudeDeg = snapshot.latitudeDeg,
-                        longitudeDeg = snapshot.longitudeDeg,
-                        timeMs = snapshot.atMs
-                    )
-                    if (!position.aboveApparentHorizon) return@runCatching null
-                    LocalStar(
-                        hr = hr,
-                        magnitude = star.visualMagnitude,
-                        position = position
-                    )
-                }.getOrNull()
-            }
-            val result = LocalSky(
-                key = key,
-                stars = prepared,
-                paths = catalog.constellationPaths
-            )
-            if (requestGeneration == generation.get()) {
-                localSky = result
-                onInvalidated()
-            }
-        }
-    }
-
-    fun draw(
-        canvas: Canvas,
-        cx: Float,
-        cy: Float,
-        radius: Float,
-        state: CelestialTrackerV2.State?
-    ) {
-        val current = state ?: return
-        val snapshot = current.snapshot ?: return
-        if (current.locationQuality != CelestialLocationQualityV2.VALID || radius <= 1f) return
-
-        val starOpacity = StarSkyProjectionV2.nightSkyOpacity(snapshot.sun.altitudeDeg)
-        // Constellation lines are a positional overlay, not a claim that the
-        // connecting lines exist physically in the sky. Keep them readable in
-        // daylight while stars themselves still follow real solar visibility.
-        val constellationOpacity = 0.42 + 0.58 * starOpacity
-        val sky = localSky ?: return
-
-        val projected = HashMap<Int, PointF>(sky.stars.size)
-        val visibleStars = ArrayList<Pair<LocalStar, PointF>>(sky.stars.size)
-        for (star in sky.stars) {
-            val point = if (current.hasRealSky && current.deviceFrame != null) {
-                StarSkyProjectionV2.projectToDevice(star.position, current.deviceFrame)
-            } else {
-                StarSkyProjectionV2.projectToZenithMap(star.position)
-            } ?: continue
-            val screen = PointF(
-                cx + (point.x * radius).toFloat(),
-                cy + (point.y * radius).toFloat()
-            )
-            projected[star.hr] = screen
-            visibleStars += star to screen
-        }
-
-        linePaint.alpha = (22.0 + 34.0 * constellationOpacity).toInt().coerceIn(0, 255)
-        labelPaint.alpha = 0
-        for (path in sky.paths) {
-            var visibleCount = 0
-            var sumX = 0f
-            var sumY = 0f
-            var previous: PointF? = null
-            for (hr in path.hrNumbers) {
-                val point = projected[hr]
-                if (point == null) {
-                    previous = null
-                    continue
+            val result = runCatching {
+                val catalog = StarSkyCatalogLoaderV2.load(appContext)
+                val stars = catalog.stars.mapNotNull { (id, star) ->
+                    if (star.visualMagnitude > 4.5) return@mapNotNull null
+                    val p = StarSkyProjectionV2.horizontal(star, snapshot.latitudeDeg, snapshot.longitudeDeg, snapshot.atMs)
+                    if (!p.aboveApparentHorizon) return@mapNotNull null
+                    Star(id, star.visualMagnitude, p)
                 }
-                previous?.let { canvas.drawLine(it.x, it.y, point.x, point.y, linePaint) }
-                previous = point
-                visibleCount++
-                sumX += point.x
-                sumY += point.y
-            }
-            // Aucun nom permanent : l'Accueil privilégie le ciel étoilé.
-            // Les abréviations restent disponibles dans les données, pas dans le fond visuel.
-        }
-
-        if (starOpacity > 0.01) {
-            for ((star, point) in visibleStars) {
-                if (star.magnitude > DIAL_MAX_VISUAL_MAGNITUDE) continue
-                val brightness = ((6.6 - star.magnitude) / 7.5).coerceIn(0.08, 1.0)
-                starPaint.alpha = (starOpacity * (110.0 + 145.0 * brightness)).toInt().coerceIn(0, 255)
-                val starRadius = (0.60 + brightness * 2.15).toFloat() * density
-                canvas.drawCircle(point.x, point.y, starRadius, starPaint)
+                Sky(place, snapshot.atMs, stars)
+            }.getOrNull()
+            handler.post {
+                if (generation.get() == token) {
+                    if (result != null) { sky = result; onInvalidated() } else requested = null
+                }
             }
         }
     }
 
-    fun clear() {
-        generation.incrementAndGet()
-        requestedKey = null
-        localSky = null
+    fun draw(canvas: Canvas, cx: Float, cy: Float, radius: Float, state: CelestialTrackerV2.State?) {
+        val snapshot = state?.snapshot ?: return
+        if (state.locationQuality != CelestialLocationQualityV2.VALID || radius <= 1f) return
+        val heading = CelestialHeadingPolicyV2.renderingHeadingDeg(state.deviceAzimuthDeg.toDouble(), state.headingQuality)
+        drawDome(canvas, cx, cy, radius, heading)
+        val current = sky ?: return
+        val place = String.format(Locale.ROOT, "%.4f:%.4f", snapshot.latitudeDeg, snapshot.longitudeDeg)
+        if (current.place != place || snapshot.atMs - current.atMs !in 0L..60_000L) return
+        val render = CelestialRenderStateFactoryV2.build(
+            snapshot = snapshot, weather = CelestialWeatherContextV2.currentStateFor(snapshot),
+            ambient = CelestialAmbientLightV2.currentState(), orientationQuality = state.headingQuality,
+            locationQuality = state.locationQuality, locationAgeMs = state.locationAgeMs,
+            locationProvider = state.locationProvider, headingAgeMs = state.headingAgeMs,
+            nowElapsedMs = SystemClock.elapsedRealtime())
+        val visibility = render.starsVisibility.coerceIn(0.0, 1.0)
+        if (visibility <= 0.005) return
+        val quality = CelestialRenderQualityProviderV2.current(appContext)
+        val animated = quality != CelestialRenderQualityV2.REDUCED &&
+            (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled())
+        val seconds = SystemClock.uptimeMillis() / 1000.0
+        for (star in current.stars) {
+            val p = CelestialDomeV2.project(star.position.azimuthDeg, star.position.apparentAltitudeDeg, heading) ?: continue
+            val style = CelestialStarAppearanceV2.resolve(star.magnitude, star.position.apparentAltitudeDeg,
+                star.id, seconds, visibility, animated) ?: continue
+            sprite.draw(canvas, cx + (p.x * radius).toFloat(), cy + (p.y * radius).toFloat(), density, style)
+        }
     }
 
+    private fun drawDome(canvas: Canvas, cx: Float, cy: Float, radius: Float, heading: Double) {
+        val r = (radius * CelestialDomeV2.RADIUS_FRACTION).toFloat()
+        shaderMatrix.setScale(r, r); shaderMatrix.postTranslate(cx, cy)
+        rimShader.setLocalMatrix(shaderMatrix); domePaint.shader = rimShader
+        canvas.drawCircle(cx, cy, r, domePaint); domePaint.shader = null
+        val key = "$cx:$cy:$radius:${(heading * 10).toInt()}"
+        if (key != gridKey) {
+            fun curve(coordinates: List<Pair<Double, Double>>): Path = Path().apply {
+                coordinates.forEachIndexed { i, (az, alt) ->
+                    val p = CelestialDomeV2.project(az, alt, heading) ?: return@forEachIndexed
+                    val x = cx + (p.x * radius).toFloat(); val y = cy + (p.y * radius).toFloat()
+                    if (i == 0) moveTo(x, y) else lineTo(x, y)
+                }
+            }
+            grid = buildList {
+                for (alt in listOf(0.0,30.0,60.0)) add(curve((0..72).map { it * 5.0 to alt }) to (alt == 0.0))
+                for (az in 0 until 360 step 60) add(curve((0..30).map { az.toDouble() to it * 3.0 }) to false)
+            }
+            gridKey = key
+        }
+        // Coordinate graticule only: no catalogue constellation connections.
+        for ((path, horizon) in grid) {
+            gridPaint.color = Color.argb(if (horizon) 51 else 18,255,255,255)
+            gridPaint.strokeWidth = (if (horizon) 0.8f else 0.5f) * density
+            canvas.drawPath(path, gridPaint)
+        }
+    }
+
+    fun clear() { generation.incrementAndGet(); requested = null; sky = null; gridKey = null; grid = emptyList() }
     companion object {
-        private const val LOCAL_SKY_REFRESH_MS = 30_000L
-        private const val DIAL_MAX_VISUAL_MAGNITUDE = 4.5
         private val executor = Executors.newSingleThreadExecutor { task ->
-            Thread(task, "HoraTrack-StarSky").apply {
-                priority = Thread.NORM_PRIORITY - 1
-            }
+            Thread(task, "HoraTrack-StarSky").apply { priority = Thread.NORM_PRIORITY - 1 }
         }
     }
 }

@@ -1,300 +1,181 @@
 import SwiftUI
 
-enum CelestialStarFieldPresentationV2 {
-    case dial
-    case fullScreen
-}
+enum CelestialStarFieldPresentationV2 { case dial, fullScreen }
 
-private struct PreparedStarSkyStarV2: Sendable {
+private struct PreparedStarV2: Sendable {
     let hr: Int
     let magnitude: Double
     let position: LocalStarPositionV2
-    let panoramaX01: Double
-    let panoramaY01: Double
+    let x: Double
+    let y: Double
 }
 
-private struct PreparedStarSkySegmentV2: Sendable {
-    let x1: Double
-    let y1: Double
-    let x2: Double
-    let y2: Double
-}
-
-private struct PreparedStarSkyV2: Sendable {
-    let key: String
-    let stars: [PreparedStarSkyStarV2]
-    let paths: [ConstellationPathV2]
-    let panoramaSegments: [PreparedStarSkySegmentV2]
+private struct PreparedSkyV2: Sendable {
+    let place: String
+    let date: Date
+    let stars: [PreparedStarV2]
 }
 
 @MainActor
 private final class CelestialStarFieldModelV2: ObservableObject {
-    @Published private(set) var prepared: PreparedStarSkyV2?
-    private var requestedKey: String?
+    @Published private(set) var prepared: PreparedSkyV2?
 
-    func prepare(snapshot: CelestialSnapshotV2) {
-        let bucket = Int(snapshot.date.timeIntervalSince1970 / 30)
-        let key = String(
-            format: "%.4f:%.4f:%d",
-            snapshot.latitudeDegrees,
-            snapshot.longitudeDegrees,
-            bucket
-        )
-        guard key != requestedKey else { return }
-        requestedKey = key
+    func clear() { prepared = nil }
 
+    func prepare(snapshot: CelestialSnapshotV2) async {
         let latitude = snapshot.latitudeDegrees
         let longitude = snapshot.longitudeDegrees
         let date = snapshot.date
-
-        Task {
-            let result = await Task.detached(priority: .utility) {
-                guard let catalog = StarSkyCatalogLoaderV2.load() else {
-                    return Optional<PreparedStarSkyV2>.none
-                }
-                let stars = catalog.stars.compactMap { item -> PreparedStarSkyStarV2? in
-                    let position = StarSkyProjectionV2.horizontal(
-                        star: item.star,
-                        latitudeDegrees: latitude,
-                        longitudeDegrees: longitude,
-                        date: date
-                    )
-                    guard position.isAboveApparentHorizon,
-                          position.apparentAltitudeDegrees <= 90 else {
-                        return nil
-                    }
-                    guard let panorama = CelestialPanoramaGeometryV2.normalized(
-                        position: position
-                    ) else {
-                        return nil
-                    }
-                    return PreparedStarSkyStarV2(
-                        hr: item.hr,
-                        magnitude: item.star.visualMagnitude,
-                        position: position,
-                        panoramaX01: panorama.x01,
-                        panoramaY01: panorama.y01
-                    )
-                }
-
-                let byHr = Dictionary(uniqueKeysWithValues: stars.map { ($0.hr, $0) })
-                var panoramaSegments: [PreparedStarSkySegmentV2] = []
-                panoramaSegments.reserveCapacity(catalog.constellationPaths.count * 6)
-                for constellation in catalog.constellationPaths {
-                    var previous: PreparedStarSkyStarV2?
-                    for hr in constellation.hrNumbers {
-                        guard let star = byHr[hr] else {
-                            previous = nil
-                            continue
-                        }
-                        if let previous {
-                            panoramaSegments.append(
-                                PreparedStarSkySegmentV2(
-                                    x1: previous.panoramaX01,
-                                    y1: previous.panoramaY01,
-                                    x2: star.panoramaX01,
-                                    y2: star.panoramaY01
-                                )
-                            )
-                        }
-                        previous = star
-                    }
-                }
-
-                return PreparedStarSkyV2(
-                    key: key,
-                    stars: stars,
-                    paths: catalog.constellationPaths,
-                    panoramaSegments: panoramaSegments
-                )
-            }.value
-
-            guard let result, requestedKey == result.key else { return }
-            prepared = result
+        let place = String(format: "%.4f:%.4f", latitude, longitude)
+        let task = Task.detached(priority: .utility) { () -> PreparedSkyV2? in
+            guard let catalog = StarSkyCatalogLoaderV2.load() else { return nil }
+            var stars: [PreparedStarV2] = []
+            for item in catalog.stars {
+                if Task.isCancelled { return nil }
+                if item.star.visualMagnitude > 4.5 { continue }
+                let position = StarSkyProjectionV2.horizontal(star: item.star,
+                    latitudeDegrees: latitude, longitudeDegrees: longitude, date: date)
+                guard let p = CelestialPanoramaGeometryV2.normalized(position: position) else { continue }
+                stars.append(PreparedStarV2(hr: item.hr, magnitude: item.star.visualMagnitude,
+                    position: position, x: p.x01, y: p.y01))
+            }
+            return PreparedSkyV2(place: place, date: date, stars: stars)
         }
+        let result = await withTaskCancellationHandler(operation: { await task.value }, onCancel: { task.cancel() })
+        guard !Task.isCancelled else { return }
+        if let result { prepared = result }
     }
 }
 
+/// Same style policy and catalogue on both platforms; no constellation paths.
 struct CelestialStarFieldViewV2: View {
     let state: CelestialTrackingStateV2
     let presentation: CelestialStarFieldPresentationV2
     let renderState: CelestialRenderStateV2?
     @StateObject private var model = CelestialStarFieldModelV2()
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isVisible = false
 
-    init(
-        state: CelestialTrackingStateV2,
-        presentation: CelestialStarFieldPresentationV2 = .dial,
-        renderState: CelestialRenderStateV2? = nil
-    ) {
-        self.state = state
-        self.presentation = presentation
-        self.renderState = renderState
+    init(state: CelestialTrackingStateV2, presentation: CelestialStarFieldPresentationV2 = .dial,
+         renderState: CelestialRenderStateV2? = nil) {
+        self.state = state; self.presentation = presentation; self.renderState = renderState
     }
 
     var body: some View {
         let quality = CelestialRenderQualityProviderV2.current
-        Canvas(rendersAsynchronously: quality != .high) { context, size in
-            guard state.locationQuality == .valid,
-                  state.snapshot != nil,
-                  let renderState,
-                  let sky = model.prepared else {
-                return
+        let animate = isVisible && scenePhase == .active && !reduceMotion && quality != .reduced &&
+            (renderState?.starsVisibility ?? 0) > 0.005
+        ZStack {
+            // Faint stars are outside the animation timeline.
+            Canvas(rendersAsynchronously: quality != .high) { context, size in
+                draw(context: context, size: size, bright: false, seconds: 0, animated: false)
             }
-
-            let starOpacity = renderState.starsVisibility
-            let constellationOpacity = (
-                presentation == .fullScreen ? 0.18 : 0.12
-            ) * renderState.constellationsVisibility
-
-            if presentation == .fullScreen {
-                let centerAzimuth = CelestialHeadingPolicyV2.renderingHeadingDegrees(
-                    headingDegrees: state.trueHeadingDegrees,
-                    quality: state.headingQuality
-                )
-                let heading = CelestialPanoramaGeometryV2.headingFraction(
-                    centerAzimuthDegrees: centerAzimuth
-                )
-
-                var linePath = Path()
-                for segment in sky.panoramaSegments {
-                    let x1 = CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: segment.x1, heading: heading)) * size.width
-                    let x2Base = CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: segment.x2, heading: heading)) * size.width
-                    let y1 = CGFloat(segment.y1) * size.height
-                    let y2 = CGFloat(segment.y2) * size.height
-                    var x2 = x2Base
-                    let delta = x2 - x1
-                    if delta > size.width * 0.5 { x2 -= size.width }
-                    if delta < -size.width * 0.5 { x2 += size.width }
-
-                    linePath.move(to: CGPoint(x: x1, y: y1))
-                    linePath.addLine(to: CGPoint(x: x2, y: y2))
-                    linePath.move(to: CGPoint(x: x1 - size.width, y: y1))
-                    linePath.addLine(to: CGPoint(x: x2 - size.width, y: y2))
-                    linePath.move(to: CGPoint(x: x1 + size.width, y: y1))
-                    linePath.addLine(to: CGPoint(x: x2 + size.width, y: y2))
-                }
-
-                context.stroke(
-                    linePath,
-                    with: .color(.white.opacity(constellationOpacity)),
-                    lineWidth: 0.55
-                )
-
-                if starOpacity > 0.01 {
-                    for star in sky.stars where star.magnitude <= Self.fullScreenMaxVisualMagnitude {
-                        let point = CGPoint(
-                            x: CGFloat(CelestialPanoramaGeometryV2.screenFraction(skyX01: star.panoramaX01, heading: heading)) * size.width,
-                            y: CGFloat(star.panoramaY01) * size.height
-                        )
-                        let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
-                        let starRadius = CGFloat(0.65 + brightness * 2.25)
-                        let rect = CGRect(
-                            x: point.x - starRadius,
-                            y: point.y - starRadius,
-                            width: starRadius * 2,
-                            height: starRadius * 2
-                        )
-                        context.fill(
-                            Path(ellipseIn: rect),
-                            with: .color(
-                                .white.opacity(starOpacity * (0.34 + 0.66 * brightness))
-                            )
-                        )
-                    }
-                }
-            } else {
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let radius = min(size.width, size.height) * 0.50
-                var points: [Int: CGPoint] = [:]
-                points.reserveCapacity(sky.stars.count / 2)
-                var visible: [(PreparedStarSkyStarV2, CGPoint)] = []
-                visible.reserveCapacity(sky.stars.count / 2)
-
-                for star in sky.stars {
-                    let projected: StarDeviceProjectionV2?
-                    if state.hasPhysicalStarSky, let frame = state.deviceFrame {
-                        projected = StarSkyProjectionV2.projectToDevice(
-                            position: star.position,
-                            frame: frame
-                        )
-                    } else {
-                        projected = StarSkyProjectionV2.projectToZenithMap(
-                            position: star.position
-                        )
-                    }
-                    guard let projected else { continue }
-                    let point = CGPoint(
-                        x: center.x + CGFloat(projected.x) * radius,
-                        y: center.y + CGFloat(projected.y) * radius
-                    )
-                    if point.x < -24 || point.x > size.width + 24 ||
-                        point.y < -24 || point.y > size.height + 24 {
-                        continue
-                    }
-                    points[star.hr] = point
-                    visible.append((star, point))
-                }
-
-                var linePath = Path()
-                for constellation in sky.paths {
-                    var previous: CGPoint?
-                    for hr in constellation.hrNumbers {
-                        guard let point = points[hr] else {
-                            previous = nil
-                            continue
-                        }
-                        if let previous, abs(previous.x - point.x) <= size.width * 0.50 {
-                            linePath.move(to: previous)
-                            linePath.addLine(to: point)
-                        }
-                        previous = point
-                    }
-                }
-
-                context.stroke(
-                    linePath,
-                    with: .color(.white.opacity(constellationOpacity)),
-                    lineWidth: 0.65
-                )
-
-                if starOpacity > 0.01 {
-                    for (star, point) in visible where star.magnitude <= Self.dialMaxVisualMagnitude {
-                        let brightness = min(1, max(0.08, (6.6 - star.magnitude) / 7.5))
-                        let starRadius = CGFloat(0.55 + brightness * 2.0)
-                        let rect = CGRect(
-                            x: point.x - starRadius,
-                            y: point.y - starRadius,
-                            width: starRadius * 2,
-                            height: starRadius * 2
-                        )
-                        context.fill(
-                            Path(ellipseIn: rect),
-                            with: .color(
-                                .white.opacity(starOpacity * (0.34 + 0.66 * brightness))
-                            )
-                        )
-                    }
+            TimelineView(.animation(minimumInterval: quality == .high ? 0.05 : 0.1, paused: !animate)) { _ in
+                Canvas(rendersAsynchronously: quality != .high) { context, size in
+                    draw(context: context, size: size, bright: true,
+                         seconds: ProcessInfo.processInfo.systemUptime, animated: animate)
                 }
             }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false; model.clear() }
         .task(id: preparationKey) {
-            guard let snapshot = state.snapshot, state.locationQuality == .valid else { return }
-            model.prepare(snapshot: snapshot)
+            guard isVisible, scenePhase == .active, state.locationQuality == .valid,
+                  let snapshot = state.snapshot else { return }
+            await model.prepare(snapshot: snapshot)
         }
     }
 
-    // Le catalogue reste complet pour les constellations. On limite seulement
-    // les points effectivement dessinés afin d'éviter plusieurs milliers
-    // d'étoiles simultanées sur l'écran.
-    private static let fullScreenMaxVisualMagnitude = 4.2
-    private static let dialMaxVisualMagnitude = 4.5
+    private func draw(context: GraphicsContext, size: CGSize, bright: Bool,
+                      seconds: Double, animated: Bool) {
+        guard state.locationQuality == .valid, let snapshot = state.snapshot,
+              let renderState, let sky = model.prepared,
+              sky.place == String(format: "%.4f:%.4f", snapshot.latitudeDegrees, snapshot.longitudeDegrees),
+              (0...60).contains(snapshot.date.timeIntervalSince(sky.date)) else { return }
+        let heading = CelestialHeadingPolicyV2.renderingHeadingDegrees(
+            headingDegrees: state.trueHeadingDegrees, quality: state.headingQuality)
+        let center = CGPoint(x: size.width / 2, y: size.height / 2)
+        let radius = min(size.width, size.height) * 0.4
+        if presentation == .dial && !bright { drawDome(context: context, center: center, radius: radius, heading: heading) }
+        let visibility = renderState.starsVisibility
+        guard visibility > 0.005 else { return }
+        let shift = CelestialPanoramaGeometryV2.headingFraction(centerAzimuthDegrees: heading)
+        for star in sky.stars {
+            guard (star.magnitude <= CelestialStarAppearanceV2.twinkleMaxMagnitude) == bright else { continue }
+            if presentation == .fullScreen && star.magnitude > 4.2 { continue }
+            guard let style = CelestialStarAppearanceV2.resolve(magnitude: star.magnitude,
+                apparentAltitudeDegrees: star.position.apparentAltitudeDegrees, starId: star.hr,
+                elapsedSeconds: seconds, visibility: visibility, animated: animated) else { continue }
+            let point: CGPoint
+            if presentation == .fullScreen {
+                point = CGPoint(x: CelestialPanoramaGeometryV2.screenFraction(skyX01: star.x, heading: shift) * size.width,
+                                y: star.y * size.height)
+            } else {
+                guard let p = CelestialDomeV2.project(azimuthDegrees: star.position.azimuthDegrees,
+                    apparentAltitudeDegrees: star.position.apparentAltitudeDegrees, headingDegrees: heading) else { continue }
+                point = CGPoint(x: center.x + p.x * radius, y: center.y + p.y * radius)
+            }
+            drawStar(context: context, point: point, style: style)
+            if presentation == .fullScreen {
+                if point.x < style.haloRadius { drawStar(context: context, point: CGPoint(x: point.x + size.width, y: point.y), style: style) }
+                if point.x > size.width - style.haloRadius { drawStar(context: context, point: CGPoint(x: point.x - size.width, y: point.y), style: style) }
+            }
+        }
+    }
+
+    private func drawStar(context: GraphicsContext, point: CGPoint, style: CelestialStarStyleV2) {
+        guard style.coreAlpha > 0 else { return }
+        let cool = Color(red: 243.0/255, green: 247.0/255, blue: 1)
+        func circle(_ r: Double) -> Path {
+            Path(ellipseIn: CGRect(x: point.x-r, y: point.y-r, width: r*2, height: r*2))
+        }
+        if style.haloAlpha > 0 {
+            context.fill(circle(style.haloRadius), with: .radialGradient(
+                Gradient(stops: [.init(color: cool.opacity(style.haloAlpha), location: 0),
+                    .init(color: cool.opacity(style.haloAlpha * 80/255), location: 0.3),
+                    .init(color: .clear, location: 1)]), center: point, startRadius: 0, endRadius: style.haloRadius))
+        }
+        context.fill(circle(style.radius), with: .color(cool.opacity(style.coreAlpha)))
+        context.fill(circle(style.radius * 0.4), with: .color(.white.opacity(style.coreAlpha * 230/255)))
+    }
+
+    private func drawDome(context: GraphicsContext, center: CGPoint, radius: CGFloat, heading: Double) {
+        let r = radius * CelestialDomeV2.radiusFraction
+        let disk = Path(ellipseIn: CGRect(x: center.x-r, y: center.y-r, width: r*2, height: r*2))
+        context.fill(disk, with: .radialGradient(
+            Gradient(stops: [.init(color: .clear, location: 0),
+                .init(color: .clear, location: 0.72),
+                .init(color: Color(red: 0.25, green: 0.40, blue: 0.62).opacity(0.26), location: 0.98),
+                .init(color: .clear, location: 1)]), center: center, startRadius: 0, endRadius: r))
+        // Coordinate graticule, not links between stars. Every vertex belongs
+        // to the same oblique sphere used by Sun/Moon and the stars.
+        func path(_ coordinates: [(Double, Double)]) -> Path {
+            var result = Path()
+            for (i, pair) in coordinates.enumerated() {
+                guard let p = CelestialDomeV2.project(azimuthDegrees: pair.0,
+                    apparentAltitudeDegrees: pair.1, headingDegrees: heading) else { continue }
+                let q = CGPoint(x: center.x+p.x*radius, y: center.y+p.y*radius)
+                if i == 0 { result.move(to: q) } else { result.addLine(to: q) }
+            }
+            return result
+        }
+        for altitude in [0.0, 30.0, 60.0] {
+            let curve = path(stride(from: 0.0, through: 360.0, by: 5.0).map { ($0, altitude) })
+            context.stroke(curve, with: .color(.white.opacity(altitude == 0 ? 0.20 : 0.07)), lineWidth: altitude == 0 ? 0.8 : 0.5)
+        }
+        for azimuth in stride(from: 0.0, to: 360.0, by: 60.0) {
+            context.stroke(path(stride(from: 0.0, through: 90.0, by: 3.0).map { (azimuth, $0) }),
+                           with: .color(.white.opacity(0.07)), lineWidth: 0.5)
+        }
+    }
 
     private var preparationKey: String {
-        guard let snapshot = state.snapshot else { return "none" }
-        let bucket = Int(snapshot.date.timeIntervalSince1970 / 30)
-        return String(format: "%.4f:%.4f:%d", snapshot.latitudeDegrees, snapshot.longitudeDegrees, bucket)
+        guard isVisible, scenePhase == .active, state.locationQuality == .valid,
+              let snapshot = state.snapshot else { return "inactive" }
+        return String(format: "%.4f:%.4f:%.0f", snapshot.latitudeDegrees, snapshot.longitudeDegrees,
+                      floor(snapshot.date.timeIntervalSince1970 / 30))
     }
 }
-
