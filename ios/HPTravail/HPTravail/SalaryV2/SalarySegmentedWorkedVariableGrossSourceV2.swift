@@ -143,7 +143,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             }
 
             guard supplied.evidence.grossInputsReliable,
-                  supplied.weeks.allSatisfy { item in item.fullWeekContextReliable } else {
+                  supplied.weeks.allSatisfy({ item in item.fullWeekContextReliable }) else {
                 return blocked(
                     warnings
                         + supplied.warnings
