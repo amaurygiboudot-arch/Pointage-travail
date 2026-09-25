@@ -172,7 +172,7 @@ object SegmentedPayrollCoverageStoreV2 {
         val sourceId = if (used.isEmpty()) "coverage-unavailable" else {
             "coverage-" + sha256(
                 used.sortedBy { it.id }.joinToString("|") {
-                    "\${it.id}:\${it.factFingerprint}:\${it.confirmedAtMs}"
+                    "${it.id}:${it.factFingerprint}:${it.confirmedAtMs}"
                 }
             ).take(24)
         }
@@ -219,11 +219,11 @@ object SegmentedPayrollCoverageStoreV2 {
                 append(field(session.placeId)); append('|')
                 append(session.legacyFixedUnpaidPauseMs); append('|')
                 append(session.pauses.joinToString(";") { pause ->
-                    "\${pause.startMs},\${pause.endMs},\${pause.paid},\${pause.source.name},\${pause.status.name}"
+                    "${pause.startMs},${pause.endMs},${pause.paid},${pause.source.name},${pause.status.name}"
                 }); append('|')
                 append(session.travels.joinToString(";") { travel ->
-                    "\${travel.startMs},\${travel.endMs},\${field(travel.employerBeforeId)}," +
-                        "\${field(travel.employerAfterId)},\${travel.distanceMeters},\${travel.classification.name}"
+                    "${travel.startMs},${travel.endMs},${field(travel.employerBeforeId)}," +
+                        "${field(travel.employerAfterId)},${travel.distanceMeters},${travel.classification.name}"
                 })
             }
         }
