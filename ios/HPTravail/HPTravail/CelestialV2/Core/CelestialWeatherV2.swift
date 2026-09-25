@@ -19,8 +19,11 @@ struct CelestialWeatherStateV2: Equatable, Sendable {
 
     func isFresh(at date: Date) -> Bool {
         let age = date.timeIntervalSince(fetchedAt)
-        return age >= 0 && age <= 45 * 60
+        return age >= 0 && age <= Self.maxRenderAge
     }
+
+    private static let maxRenderAge: TimeInterval = 45 * 60
+    var renderExpiresAt: Date { fetchedAt.addingTimeInterval(Self.maxRenderAge) }
 
     func matches(snapshot: CelestialSnapshotV2) -> Bool {
         let latitude = (snapshot.latitudeDegrees * 100).rounded() / 100
@@ -84,3 +87,4 @@ enum CelestialWeatherParserV2 {
         )
     }
 }
+

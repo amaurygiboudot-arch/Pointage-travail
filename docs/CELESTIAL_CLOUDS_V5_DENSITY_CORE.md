@@ -1,53 +1,60 @@
-# Céleste — Nuages V5 : noyau de densité, premier lot
+# Céleste — nuages V5 : noyau et raccord graphique
 
-Date : 25 septembre 2026 (Europe/Paris).
-Base vérifiée : `67b41a1f076d521533f573b34c8a917620a77324`, après #426 (nuages V4).
-Référence fonctionnelle : document utilisateur « HoraTrack — Céleste — Nuages réalistes V5 — Recherche météorologique + spécification de rendu », daté du 24/09/2026.
+## Reprise du 25 septembre 2026
 
-## Statut exact
+PR de travail unique : **#430**, `feat/celeste-v5-density-core`.
+Ce raccord prolonge le noyau `9b731336be06a4e2bec7089d6419822dc60364db`, lui-même basé sur `main` après #426.
+Ne pas recréer les lots #383/#426 ni une pile de PR de validation concurrente.
+Référence fonctionnelle : document utilisateur « Nuages réalistes V5 — Recherche météorologique + spécification de rendu », 24/09/2026.
 
-Ce lot implémente et teste le **noyau portable** de la V5. Il ne constitue pas la livraison visuelle de toute la V5.
-Les renderers Android/iOS utilisent encore la V4 : leurs chemins graphiques ne sont pas supprimés ici avant migration des consommateurs. Aucun nouveau fichier APK/AAB n'est publié par ce lot.
+## Changements de ce raccord
 
-Ne pas reprendre #383 ni refaire #426 : poursuivre depuis ce noyau et les données low/mid/high déjà disponibles dans les deux clients météo.
+1. **État canonique** : `CelestialRenderStateFactoryV2` transmet `CloudAtmosphereStateV2` aux deux interfaces. Les étages absents restent absents ; un zéro confirmé reste zéro.
+2. **Qualification avant consommation** : âge, date future, lieu qualifié, cellule météo et données numériques sont contrôlés avant de calculer une visibilité ou une texture. Une météo rejetée ne continue plus à atténuer Soleil/Lune/étoiles derrière un simple warning.
+3. **Expiration autonome** : dates de collecte et d'expiration voyagent avec le rendu. Les adaptateurs vérifient cette fenêtre même sans nouvel événement GPS. La durée reste détenue par le modèle météo ; aucune seconde durée de validité n'est codée dans les renderers. Le calcul d'âge Android rejette aussi un débordement de Long.
+4. **Textures V5 actives en code** : les chemins de formes fermées V4, anciens helpers de bancs, cirrus dessinés et voiles concurrents sont retirés des deux renderers. Le raster partagé produit les pixels depuis le noyau de densité V5 ; le brouillard est bas et n'exige pas une couverture non nulle.
+5. **Lumière et composition** : recettes de couleur identiques, pilotées par jour/crépuscule/nuit canoniques ; modulation intérieure même à couverture totale ; nuit volontairement discrète. Le fond nuage est composé avant les étoiles, dont la visibilité canonique ne reçoit donc pas une seconde atténuation par superposition du nuage. Soleil/Lune gardent leur visibilité et géométrie canoniques existantes.
+6. **Cache et cycle de vie** : préparation hors thread UI ; textures bornées à 128 × 256 pixels ; détail 2/3/4 octaves selon qualité ; aucune couche météo mesurée retirée pour un appareil faible. Réutilisation tant que recette, taille, qualité et instant graphique ne changent pas. Annulation du travail obsolète, rejet d'une autre cellule/source, mémoire à deux images affichables et un calcul en cours par adaptateur Android.
+7. **Transitions** : fondu de six secondes par addition prémultipliée isolée, et non deux voiles source-over. Réduction des animations respectée sans abandonner le contrôle d'expiration. iOS arrête son animation hors écran/scène active ; Android annule son tick lors de `clear()` et ne relance le tick que depuis un dessin effectif.
+8. **iOS** : l'Accueil transmet le contexte météo au propriétaire canonique au lieu de conserver une qualification UI concurrente ; le message d'indisponibilité lit le résultat canonique.
 
-## Implémenté
+Aucune position de nuage n'est revendiquée comme observation réelle. Bruit, ombrage, vitesse de déformation et palette sont des choix visuels. Aucun vent mesuré ni microphysique exacte n'est inventé. Le noyau de densité du premier lot reste inchangé.
 
-- `CloudAtmosphereStateV2` conserve couverture totale, couches low/mid/high optionnelles, brouillard et visibilité ; les étages absents ne deviennent pas zéro.
-- `CelestialCloudAtmosphereV2.resolve` valide les entrées et refuse les données absentes, explicitement inutilisables ou numériquement invalides. Le futur appelant doit déterminer `usable` depuis les contrôles existants de fraîcheur, lieu et disponibilité : ce noyau ne lit ni horloge ni GPS.
-- `CelestialCloudDensityV2` produit une densité procédurale continue par bruit multi-octaves, déformation douce et seuils progressifs. Aucun ovale, contour fermé ou silhouette de nuage n'est généré par ce noyau.
-- Nuages hauts, moyens, bas et altitude non résolue possèdent des recettes graphiques distinctes, identiques en Kotlin et Swift.
-- Le brouillard est un voile bas, indépendant d'une couverture totale non nulle.
-- En profil d'altitude partiel, une couche connue à zéro ne doit pas effacer la couverture totale. Une représentation neutre non localisée complète visuellement les couches connues sans remplir les valeurs météo manquantes. Cette composition reste artistique, pas une déduction de l'altitude manquante.
-- Le raccord 0/360° est périodique et le temps ne comporte pas de remise à zéro toutes les 90 minutes.
-- Le nombre d'octaves peut varier de 1 à 6 sans retirer de couche mesurée. Aucune marque, aucun modèle ou métier n'intervient dans l'algorithme.
+## Vérifications réellement exécutées pour ce raccord
 
-Les poids optiques, densités, vitesses et paramètres de turbulence sont des choix graphiques. Ils ne sont ni une mesure atmosphérique, ni une reconstruction des nuages réels, ni une mesure de vent en altitude. La proportion exacte de pixels couverts n'est pas une nouvelle observation météo.
+Environnement isolé Linux : Swift 6.2.1 et Kotlin 1.9.0/JVM (JRE 21).
+Les sources de densité utilisées ont été recroisées avec les SHA des blobs du commit parent.
 
-## Vérifications locales réellement exécutées
+- Compilation native du raster Kotlin et Swift.
+- **486 textures appariées**, issues de 9 types météo × 6 couvertures × 3 lumières × 3 niveaux de détail.
+- **272 646 pixels ARGB comparés octet pour octet : identité exacte.**
+- **239 167 assertions par langage** dans ce harnais : transparence du clair, nuit bornée, raccord périodique, annulation et variation interne du couvert.
+- **8 tests XCTest du raster : 0 échec**, dans un package isolé portant le module `CelestialV2Contract`.
+- Analyse syntaxique Swift des fichiers modifiés, y compris les vues ; ce n'est pas une compilation SwiftUI contre le SDK iOS.
+- Aperçu interne du raster couvert, issu des pixels calculés ; ce n'est ni une capture de l'application ni une validation sur téléphone.
 
-Environnement isolé Linux, Kotlin 1.9/JVM et Swift 6.2.1 :
+Tests ajoutés au dépôt : **8 tests raster + 4 tests de raccord canonique sur chaque plateforme**. Les tests de raccord utilisent le moteur réel dans la CI du projet. Leur présence n'est pas déclarée comme une exécution locale. JUnit/Gradle, build Android et compilation iOS complète restent à vérifier sur le nouveau HEAD par les workflows existants.
+Les résultats CI du parent `9b73133` ne valent pas validation de ce nouveau raccord.
 
-- compilation du noyau Kotlin et du noyau Swift ;
-- exécution native des deux noyaux sur 22 680 échantillons appariés : différence absolue maximale observée 0, tolérance 1e-9 ;
-- vérification de densité bornée, monotonie selon couverture, raccord périodique et continuité autour de l'ancien seuil de 90 minutes ;
-- 10 tests XCTest du noyau, 0 échec, exécutés dans un package isolé portant le module `CelestialV2Contract` ;
-- 10 tests JUnit miroir ajoutés au dépôt, à exécuter dans la CI Android : ce rapport ne prétend pas que JUnit/Gradle ont été exécutés localement.
+## État à ne pas confondre
 
-Grille de parité : 4 étages × 6 couvertures (0/10/25/50/75/100 %) × 3 niveaux de détail (1/3/6 octaves) × 5 instants × 7 coordonnées verticales × 9 coordonnées horizontales. Les tests incluent huit références numériques communes pour détecter une divergence Kotlin/Swift.
+- Noyau portable : implémenté dans le premier lot.
+- Raccord aux consommateurs Android/iOS : implémenté dans ce lot, à valider par la CI et sur matériel.
+- Rendu V5 satisfaisant sur téléphone : **NON VALIDÉ**.
+- Performance/batterie/mémoire sur appareils : **NON MESURÉES** ; les bornes de texture ne constituent pas un benchmark.
+- Revue multi-agents : aucune revue n'est simulée par le compte rendu de l'auteur.
+- Fusion et publication : aucune autorisation de contournement ; pas de nouveau APK/AAB, déploiement Firebase ou publication store par ce document.
 
-Ces contrôles ne valent PAS build complet Android, build simulateur iOS, validation graphique sur téléphone, mesure de batterie ou revue multi-agents. Aucun état NOT_RUN n'est converti en PASS.
+## Prochaine validation, sans nouvelle refonte
 
-## Prochain raccord obligatoire, sans nouvelle refonte
+1. Exploiter CI Android/JUnit, APK+AAB, iOS/Swift, sécurité et fonctions sur le SHA exact. Corriger tout échec réel.
+2. Obtenir la revue réelle des spécialistes requis, puis team_lead, QA et control_gate. `NOT_RUN`, quota et échec restent bloquants.
+3. Vérifier appareils : changement de cellule, perte GPS, météo absente/périmée, hors ligne, arrière-plan/reprise, changement de taille, réduction des animations, économie d'énergie et pression mémoire.
+4. Comparer vidéos Android/iOS pour clair, high seul, low/mid/high, couvert, brouillard, pluie/neige/orage et jour/crépuscule/nuit. Vérifier lisibilité du cadran et des textes, contours, répétitions et rythme réel.
+5. Les améliorations fines restantes (vent comme influence limitée, éclairage directionnel solaire/lunaire du volume et éventuelle occultation locale) ne sont pas déclarées terminées. Toute occultation locale future doit remplacer la compensation correspondante, jamais la multiplier une deuxième fois, et ne doit pas présenter la forme procédurale comme un nuage localisé mesuré.
+6. Publier un installateur de test seulement après les validations requises, via l'emplacement unique `dev-latest`.
 
-1. Faire produire l'état nuage par `CelestialRenderStateFactoryV2`, à partir d'une météo fraîche appartenant au lieu qualifié du snapshot. Réutiliser la classification météo canonique ; ne pas dupliquer les codes fournisseur.
-2. Remplacer réellement les formes V4 des deux renderers par des textures issues du noyau. Produire/cache les textures hors du travail lourd par frame ; invalider sur changement pertinent, dimension ou qualité.
-3. Relier jour/crépuscule/nuit et atténuation Soleil/Lune/étoiles au propriétaire canonique, sans déplacer l'astronomie et sans appliquer deux fois une atténuation météo.
-4. Lisser les transitions météo et respecter économie d'énergie, application non visible, pression mémoire et appareils supportés. Le vent reste une influence limitée uniquement lorsque les données utiles existent.
-5. Exécuter les commandes de test/build existantes, puis les spécialistes requis, team_lead, QA et control_gate sur le SHA exact ; réaliser les captures/vidéos Android+iOS et fermer les anomalies visuelles avant validation finale.
-6. Retirer les anciens helpers graphiques après migration prouvée ; conserver le canal unique `dev-latest` pour les futurs installateurs de test.
+## Périmètre
 
-## Périmètre préservé
-
-Aucune modification de Salaire V2, Pointage, règles GPS, Firebase, positions astronomiques, gouvernance ou chaîne de sécurité. Le chantier Salaire parallèle reste séparé.
-La fusion éventuelle de ce noyau ne signifie jamais « V5 visuelle terminée ». Les gates du dépôt restent obligatoires ; aucune publication production/store n'est autorisée par ce document.
+Tous métiers/classes/catégories, Android/iOS et appareils officiellement supportés. Aucune règle par marque/modèle.
+Aucune modification de Salaire V2, Pointage, règles GPS métier, Firebase, catalogue stellaire, géométrie astronomique, gouvernance, permissions ou secrets.

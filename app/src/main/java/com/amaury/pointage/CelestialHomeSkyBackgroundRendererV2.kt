@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Shader
@@ -20,16 +19,13 @@ import com.amaury.pointage.v2.engine.CelestialPanoramaGeometryV2
 import com.amaury.pointage.v2.engine.CelestialRenderQualityProviderV2
 import com.amaury.pointage.v2.engine.CelestialRenderQualityV2
 import com.amaury.pointage.v2.engine.CelestialRenderStateV2
-import com.amaury.pointage.v2.engine.CelestialWeatherTypeV2
 import com.amaury.pointage.v2.engine.LocalStarPositionV2
 import com.amaury.pointage.v2.engine.StarSkyProjectionV2
 import com.amaury.pointage.v2.ui.ConstellationPathV2
 import com.amaury.pointage.v2.ui.StarSkyCatalogLoaderV2
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.sin
 
 /**
  * Ciel réel plein écran réservé à l'onglet Accueil.
@@ -66,6 +62,7 @@ class CelestialHomeSkyBackgroundRendererV2(
     private val density = context.resources.displayMetrics.density
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0)
+    private val cloudTextures = CelestialCloudTextureRendererV2(onInvalidated)
     @Volatile private var localSky: LocalSky? = null
     @Volatile private var panoramaCache: PanoramaCache? = null
     @Volatile private var panoramaRequestedKey: String? = null
@@ -82,17 +79,17 @@ class CelestialHomeSkyBackgroundRendererV2(
         strokeCap = Paint.Cap.ROUND
         color = Color.WHITE
     }
-    private val cloudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-    }
     private val panoramaPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
         isFilterBitmap = true
         isDither = true
     }
 
     fun update(state: CelestialTrackerV2.State) {
-        val snapshot = state.snapshot ?: return
-        if (state.locationQuality != CelestialLocationQualityV2.VALID) return
+        val snapshot = state.snapshot
+        if (snapshot == null || state.locationQuality != CelestialLocationQualityV2.VALID) {
+            cloudTextures.clear()
+            return
+        }
 
         CelestialWeatherContextV2.refreshIfNeeded(snapshot) {
             onInvalidated()
@@ -144,14 +141,21 @@ class CelestialHomeSkyBackgroundRendererV2(
 
         drawAtmosphericBase(canvas, width, height, renderState)
 
-        val current = state ?: return
-        if (current.locationQuality != CelestialLocationQualityV2.VALID) return
+        val current = state
+        if (current == null || current.locationQuality != CelestialLocationQualityV2.VALID) {
+            cloudTextures.clear()
+            return
+        }
 
         // Les coefficients de visibilité proviennent exclusivement de
         // CelestialRenderStateV2 : le renderer n'invente plus sa propre météo.
         val starOpacity = renderState.starsVisibility.coerceIn(0.0, 1.0)
         val quality = CelestialRenderQualityProviderV2.current(appContext)
         val sky = localSky
+
+        // La texture module le fond, avant les astres : ne pas atténuer une
+        // seconde fois les étoiles déjà qualifiées par le propriétaire canonique.
+        cloudTextures.draw(canvas, width, height, renderState, quality)
 
         val centerAzimuthDeg = CelestialHeadingPolicyV2.renderingHeadingDeg(
             headingDeg = current.deviceAzimuthDeg.toDouble(),
@@ -181,18 +185,6 @@ class CelestialHomeSkyBackgroundRendererV2(
                 )
                 panoramaPaint.alpha = 255
             }
-        }
-
-        renderState.cloudCoverage?.let { cover ->
-            drawCloudLayer(
-                canvas = canvas,
-                width = width,
-                height = height,
-                cloudCover = cover,
-                nightOpacity = renderState.nightLevel,
-                weatherType = renderState.weatherType,
-                quality = quality
-            )
         }
     }
 
@@ -415,414 +407,6 @@ class CelestialHomeSkyBackgroundRendererV2(
         append(quality.name)
     }
 
-    /**
-     * Représentation atmosphérique de la couverture réelle.
-     *
-     * Le fournisseur donne un pourcentage de couverture, pas la géométrie exacte
-     * des nuages au-dessus du téléphone. Les formes sont donc une visualisation
-     * stable de cette couverture et ne sont jamais présentées comme une image
-     * satellite ou la position exacte des nuages.
-     */
-    private fun drawCloudLayer(
-        canvas: Canvas,
-        width: Float,
-        height: Float,
-        cloudCover: Double,
-        nightOpacity: Double,
-        weatherType: CelestialWeatherTypeV2,
-        quality: CelestialRenderQualityV2
-    ) {
-        val cover = cloudCover.coerceIn(0.0, 1.0).toFloat()
-        if (cover < 0.03f) return
-
-        val night = nightOpacity.toFloat().coerceIn(0f, 1f)
-        val rainy = weatherType == CelestialWeatherTypeV2.DRIZZLE ||
-            weatherType == CelestialWeatherTypeV2.RAIN
-        val foggy = weatherType == CelestialWeatherTypeV2.FOG
-        val stormy = weatherType == CelestialWeatherTypeV2.THUNDERSTORM
-        val snowy = weatherType == CelestialWeatherTypeV2.SNOW
-
-        val dayTop = when {
-            stormy -> Color.rgb(124, 132, 146)
-            rainy -> Color.rgb(174, 182, 192)
-            snowy -> Color.rgb(242, 245, 247)
-            else -> Color.rgb(238, 242, 246)
-        }
-        val dayBottom = when {
-            stormy -> Color.rgb(82, 90, 104)
-            rainy -> Color.rgb(132, 143, 156)
-            snowy -> Color.rgb(210, 218, 225)
-            else -> Color.rgb(190, 201, 212)
-        }
-        val nightTop = when {
-            stormy -> Color.rgb(66, 73, 87)
-            rainy -> Color.rgb(78, 87, 101)
-            else -> Color.rgb(102, 112, 128)
-        }
-        val nightBottom = when {
-            stormy -> Color.rgb(37, 43, 54)
-            rainy -> Color.rgb(48, 56, 68)
-            else -> Color.rgb(69, 78, 92)
-        }
-
-        val topColor = blend(dayTop, nightTop, night)
-        val bottomColor = blend(dayBottom, nightBottom, night)
-
-        if (foggy) {
-            drawFogVeil(canvas, width, height, topColor, bottomColor, cover)
-            return
-        }
-
-        if (!rainy && !stormy && cover < 0.50f) {
-            drawCirrusLayer(
-                canvas = canvas,
-                width = width,
-                height = height,
-                color = topColor,
-                cover = cover,
-                night = night
-            )
-        }
-
-        // Open-Meteo donne une couverture, pas la géométrie exacte des nuages.
-        // On préfère donc de larges nappes atmosphériques semi-transparentes
-        // à de faux nuages isolés qui ressemblent à des autocollants.
-        val layerCount = when (quality) {
-            CelestialRenderQualityV2.REDUCED -> 2
-            CelestialRenderQualityV2.BALANCED -> 3
-            CelestialRenderQualityV2.HIGH -> 4
-        }
-        val visibleLayers = (1 + cover * (layerCount - 1)).toInt().coerceIn(1, layerCount)
-        val now = System.currentTimeMillis()
-
-        repeat(visibleLayers) { index ->
-            val seed = 31.0 + index * 19.37 + weatherType.ordinal * 2.71
-            val phase = (
-                (now % CLOUD_DRIFT_PERIOD_MS).toFloat() /
-                    CLOUD_DRIFT_PERIOD_MS.toFloat()
-                )
-            val xShift = width * (
-                phase * (0.035f + index * 0.012f) +
-                    (cloudNoise(seed + 3.1) - 0.5f) * 0.08f
-                )
-            val centerY = height * (
-                0.10f +
-                    index * 0.105f +
-                    cloudNoise(seed + 7.7) * 0.055f
-                )
-            val sheetHeight = height * (
-                0.075f +
-                    cover * 0.045f +
-                    cloudNoise(seed + 9.2) * 0.025f
-                )
-            val alpha = (
-                when {
-                    stormy -> 0.26f + cover * 0.13f
-                    rainy -> 0.20f + cover * 0.12f
-                    else -> 0.11f + cover * 0.11f
-                } * (0.92f - index * 0.08f)
-                ).coerceIn(0.07f, 0.40f)
-
-            drawAtmosphericCloudSheet(
-                canvas = canvas,
-                width = width,
-                centerY = centerY,
-                sheetHeight = sheetHeight,
-                xShift = xShift,
-                seed = seed,
-                topColor = topColor,
-                bottomColor = bottomColor,
-                alpha = alpha
-            )
-        }
-
-        if (cover > 0.78f) {
-            val veil = ((cover - 0.78f) / 0.22f).coerceIn(0f, 1f)
-            cloudPaint.shader = LinearGradient(
-                0f, 0f, 0f, height * 0.68f,
-                Color.argb(
-                    (veil * if (stormy || rainy) 42f else 30f).toInt(),
-                    Color.red(topColor),
-                    Color.green(topColor),
-                    Color.blue(topColor)
-                ),
-                Color.TRANSPARENT,
-                Shader.TileMode.CLAMP
-            )
-            canvas.drawRect(0f, 0f, width, height * 0.68f, cloudPaint)
-            cloudPaint.shader = null
-        }
-    }
-
-    private fun drawAtmosphericCloudSheet(
-        canvas: Canvas,
-        width: Float,
-        centerY: Float,
-        sheetHeight: Float,
-        xShift: Float,
-        seed: Double,
-        topColor: Int,
-        bottomColor: Int,
-        alpha: Float
-    ) {
-        val left = -width * 0.18f + xShift
-        val right = width * 1.18f + xShift
-        val span = right - left
-        val segments = 8
-        val top = ArrayList<PointF>(segments + 1)
-        val bottom = ArrayList<PointF>(segments + 1)
-
-        for (i in 0..segments) {
-            val t = i.toFloat() / segments.toFloat()
-            val x = left + span * t
-            val wave = sin((t * Math.PI * 2.0 + seed).toDouble()).toFloat()
-            val topNoise = cloudNoise(seed + i * 4.17) - 0.5f
-            val bottomNoise = cloudNoise(seed + i * 6.83) - 0.5f
-            top += PointF(
-                x,
-                centerY - sheetHeight * (0.46f + wave * 0.08f + topNoise * 0.16f)
-            )
-            bottom += PointF(
-                x,
-                centerY + sheetHeight * (0.38f + wave * 0.04f + bottomNoise * 0.12f)
-            )
-        }
-
-        val path = Path()
-        path.moveTo(top.first().x, top.first().y)
-        for (i in 1 until top.size) {
-            val p0 = top[i - 1]
-            val p1 = top[i]
-            val midX = (p0.x + p1.x) * 0.5f
-            path.cubicTo(midX, p0.y, midX, p1.y, p1.x, p1.y)
-        }
-        for (i in bottom.indices.reversed()) {
-            val p = bottom[i]
-            if (i == bottom.lastIndex) {
-                path.lineTo(p.x, p.y)
-            } else {
-                val prev = bottom[i + 1]
-                val midX = (prev.x + p.x) * 0.5f
-                path.cubicTo(midX, prev.y, midX, p.y, p.x, p.y)
-            }
-        }
-        path.close()
-
-        cloudPaint.shader = LinearGradient(
-            0f,
-            centerY - sheetHeight,
-            0f,
-            centerY + sheetHeight,
-            Color.argb(
-                (alpha * 255f).toInt().coerceIn(0, 122),
-                Color.red(topColor),
-                Color.green(topColor),
-                Color.blue(topColor)
-            ),
-            Color.argb(
-                (alpha * 165f).toInt().coerceIn(0, 98),
-                Color.red(bottomColor),
-                Color.green(bottomColor),
-                Color.blue(bottomColor)
-            ),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawPath(path, cloudPaint)
-        cloudPaint.shader = null
-    }
-
-    private fun drawCloudBank(
-        canvas: Canvas,
-        cx: Float,
-        cy: Float,
-        width: Float,
-        height: Float,
-        seed: Double,
-        topColor: Int,
-        bottomColor: Int,
-        alpha: Float,
-        dense: Boolean
-    ) {
-        if (width <= 1f || height <= 1f) return
-
-        val left = cx - width * 0.5f
-        val right = cx + width * 0.5f
-        val baseY = cy + height * 0.26f
-        val topBase = cy - height * 0.28f
-        val segments = 7
-        val path = Path()
-        path.moveTo(left, baseY)
-
-        var previousX = left
-        var previousY = baseY
-        for (segment in 1..segments) {
-            val t = segment.toFloat() / segments.toFloat()
-            val endX = left + width * t
-            val envelope = sin(Math.PI * t.toDouble()).toFloat()
-            val crest = 0.26f + cloudNoise(seed + segment * 2.73) * 0.62f
-            val endY = topBase - height * envelope * crest
-            val dx = endX - previousX
-            val c1x = previousX + dx * 0.38f
-            val c2x = previousX + dx * 0.72f
-            val c1y = previousY - height * (0.10f + cloudNoise(seed + segment * 5.11) * 0.18f)
-            val c2y = endY - height * (0.02f + cloudNoise(seed + segment * 7.91) * 0.10f)
-            path.cubicTo(c1x, c1y, c2x, c2y, endX, endY)
-            previousX = endX
-            previousY = endY
-        }
-
-        val lowerRight = baseY + height * (0.10f + cloudNoise(seed + 31.0) * 0.12f)
-        val lowerLeft = baseY + height * (0.06f + cloudNoise(seed + 37.0) * 0.10f)
-        path.cubicTo(
-            right - width * 0.08f,
-            lowerRight,
-            cx + width * 0.20f,
-            baseY + height * 0.22f,
-            cx,
-            baseY + height * 0.15f
-        )
-        path.cubicTo(
-            cx - width * 0.24f,
-            baseY + height * 0.20f,
-            left + width * 0.08f,
-            lowerLeft,
-            left,
-            baseY
-        )
-        path.close()
-
-        // Ombre basse douce, surtout visible sous pluie/orage : elle donne du
-        // volume sans contour noir ni effet "sticker".
-        if (dense) {
-            cloudPaint.shader = LinearGradient(
-                0f, cy - height,
-                0f, cy + height,
-                Color.TRANSPARENT,
-                Color.argb(
-                    (alpha * 84f).toInt().coerceIn(0, 92),
-                    Color.red(bottomColor),
-                    Color.green(bottomColor),
-                    Color.blue(bottomColor)
-                ),
-                Shader.TileMode.CLAMP
-            )
-            canvas.save()
-            canvas.translate(0f, height * 0.08f)
-            canvas.drawPath(path, cloudPaint)
-            canvas.restore()
-            cloudPaint.shader = null
-        }
-
-        val topAlpha = (alpha * 255f).toInt().coerceIn(0, 190)
-        val bottomAlpha = (alpha * 220f).toInt().coerceIn(0, 170)
-        cloudPaint.shader = LinearGradient(
-            0f, cy - height * 0.85f,
-            0f, cy + height * 0.70f,
-            Color.argb(topAlpha, Color.red(topColor), Color.green(topColor), Color.blue(topColor)),
-            Color.argb(bottomAlpha, Color.red(bottomColor), Color.green(bottomColor), Color.blue(bottomColor)),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawPath(path, cloudPaint)
-        cloudPaint.shader = null
-
-        // Éclat diffus uniquement sur la partie haute : jamais une bordure.
-        val highlight = Path(path)
-        cloudPaint.shader = LinearGradient(
-            0f, cy - height,
-            0f, cy + height * 0.15f,
-            Color.argb(
-                (alpha * 58f).toInt().coerceIn(0, 54),
-                255, 255, 255
-            ),
-            Color.TRANSPARENT,
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawPath(highlight, cloudPaint)
-        cloudPaint.shader = null
-        cloudPaint.alpha = 255
-    }
-
-    private fun drawCirrusLayer(
-        canvas: Canvas,
-        width: Float,
-        height: Float,
-        color: Int,
-        cover: Float,
-        night: Float
-    ) {
-        val oldStyle = cloudPaint.style
-        val oldStroke = cloudPaint.strokeWidth
-        val oldAlpha = cloudPaint.alpha
-        cloudPaint.style = Paint.Style.STROKE
-        cloudPaint.strokeCap = Paint.Cap.ROUND
-        cloudPaint.strokeWidth = max(1.2f * density, width * 0.0045f)
-        cloudPaint.color = color
-        cloudPaint.alpha = (
-            18f + cover * 36f - night * 8f
-            ).toInt().coerceIn(10, 52)
-
-        val drift = (
-            (System.currentTimeMillis() % (CLOUD_DRIFT_PERIOD_MS * 2L)).toFloat() /
-                (CLOUD_DRIFT_PERIOD_MS * 2L).toFloat()
-            ) * width * 0.10f
-
-        repeat(3) { index ->
-            val seed = 71.0 + index * 13.7
-            val y = height * (0.08f + index * 0.075f + cloudNoise(seed) * 0.035f)
-            val x = -width * 0.15f + drift + index * width * 0.31f
-            val w = width * (0.48f + cloudNoise(seed + 3.0) * 0.22f)
-            val p = Path()
-            p.moveTo(x, y)
-            p.cubicTo(
-                x + w * 0.22f,
-                y - height * (0.010f + cloudNoise(seed + 5.0) * 0.012f),
-                x + w * 0.62f,
-                y + height * (0.012f + cloudNoise(seed + 8.0) * 0.014f),
-                x + w,
-                y - height * 0.006f
-            )
-            canvas.drawPath(p, cloudPaint)
-        }
-
-        cloudPaint.style = oldStyle
-        cloudPaint.strokeWidth = oldStroke
-        cloudPaint.alpha = oldAlpha
-    }
-
-    private fun drawFogVeil(
-        canvas: Canvas,
-        width: Float,
-        height: Float,
-        topColor: Int,
-        bottomColor: Int,
-        cover: Float
-    ) {
-        val alpha = (56f + cover * 84f).toInt().coerceIn(48, 138)
-        cloudPaint.shader = LinearGradient(
-            0f, 0f, 0f, height,
-            Color.argb(
-                (alpha * 0.55f).toInt(),
-                Color.red(topColor),
-                Color.green(topColor),
-                Color.blue(topColor)
-            ),
-            Color.argb(
-                alpha,
-                Color.red(bottomColor),
-                Color.green(bottomColor),
-                Color.blue(bottomColor)
-            ),
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawRect(0f, 0f, width, height, cloudPaint)
-        cloudPaint.shader = null
-    }
-
-    private fun cloudNoise(value: Double): Float {
-        val raw = sin(value * 12.9898 + 78.233) * 43758.5453
-        return (raw - kotlin.math.floor(raw)).toFloat().coerceIn(0f, 1f)
-    }
-
     private fun drawAtmosphericBase(
         canvas: Canvas,
         width: Float,
@@ -866,16 +450,8 @@ class CelestialHomeSkyBackgroundRendererV2(
         backgroundPaint.shader = null
     }
 
-    private fun blend(day: Int, night: Int, amount: Float): Int {
-        fun channel(color: Int, shift: Int) = (color shr shift) and 0xff
-        val inverse = 1f - amount
-        val r = (channel(day, 16) * inverse + channel(night, 16) * amount).toInt()
-        val g = (channel(day, 8) * inverse + channel(night, 8) * amount).toInt()
-        val b = (channel(day, 0) * inverse + channel(night, 0) * amount).toInt()
-        return Color.rgb(r, g, b)
-    }
-
     fun clear() {
+        cloudTextures.clear()
         generation.incrementAndGet()
         requestedKey = null
         localSky = null
@@ -888,7 +464,6 @@ class CelestialHomeSkyBackgroundRendererV2(
         private const val CONSTELLATION_BASE_ALPHA = 46
         private const val HOME_MAX_VISUAL_MAGNITUDE = 4.2
         private const val CACHE_RECYCLE_DELAY_MS = 1_000L
-        private const val CLOUD_DRIFT_PERIOD_MS = 5_400_000L
         private val executor = Executors.newSingleThreadExecutor { task ->
             Thread(task, "HoraTrack-HomeSky").apply {
                 priority = Thread.NORM_PRIORITY - 1

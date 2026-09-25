@@ -51,7 +51,10 @@ data class CelestialRenderStateV2(
     val atmosphereOpacity: Double,
     val orientationQuality: CelestialHeadingQualityV2,
     val dataFreshness: CelestialDataFreshnessV2,
-    val warnings: Set<CelestialRenderWarningV2>
+    val warnings: Set<CelestialRenderWarningV2>,
+    val clouds: CloudAtmosphereStateV2? = null,
+    val cloudsExpiresAtMs: Long? = null,
+    val cloudsFetchedAtMs: Long? = null
 )
 
 enum class CelestialRenderWarningV2 {
@@ -83,7 +86,25 @@ object CelestialRenderStateFactoryV2 {
         nowMs: Long = System.currentTimeMillis(),
         nowElapsedMs: Long = android.os.SystemClock.elapsedRealtime()
     ): CelestialRenderStateV2 {
-        val atmosphere = CelestialAtmosphereV2.resolve(snapshot, weather, ambient)
+        // Qualify once, before any visibility or texture can consume weather.
+        val candidateClouds = weather?.let {
+            CelestialCloudAtmosphereV2.resolve(
+                it.cloudCover, it.cloudCoverLow, it.cloudCoverMid, it.cloudCoverHigh,
+                CelestialAtmosphereV2.weatherType(it.weatherCode) == CelestialWeatherTypeV2.FOG,
+                it.visibilityMeters
+            )
+        }
+        val weatherStatus = when {
+            weather == null -> CelestialDataStatusV2.UNAVAILABLE
+            nowMs < weather.fetchedAtMs -> CelestialDataStatusV2.INVALID
+            !weather.isFresh(nowMs) -> CelestialDataStatusV2.STALE
+            locationQuality != CelestialLocationQualityV2.VALID ||
+                !weather.matches(snapshot) || candidateClouds == null -> CelestialDataStatusV2.INVALID
+            else -> CelestialDataStatusV2.FRESH
+        }
+        val qualifiedWeather = weather.takeIf { weatherStatus == CelestialDataStatusV2.FRESH }
+        val clouds = candidateClouds.takeIf { weatherStatus == CelestialDataStatusV2.FRESH }
+        val atmosphere = CelestialAtmosphereV2.resolve(snapshot, qualifiedWeather, ambient)
         val astronomyAgeMs = (nowMs - snapshot.atMs).coerceAtLeast(0L)
         val weatherAgeMs = weather?.let { (nowMs - it.fetchedAtMs).coerceAtLeast(0L) }
         val ambientAgeMs = ambient.ageMs(nowElapsedMs)
@@ -103,11 +124,7 @@ object CelestialRenderStateFactoryV2 {
             },
             locationStatus = locationStatus(locationQuality),
             headingStatus = headingStatus(orientationQuality),
-            weatherStatus = when {
-                weather == null -> CelestialDataStatusV2.UNAVAILABLE
-                weather.isFresh(nowMs) -> CelestialDataStatusV2.FRESH
-                else -> CelestialDataStatusV2.STALE
-            },
+            weatherStatus = weatherStatus,
             ambientStatus = ambientStatus(ambient.quality)
         )
 
@@ -163,7 +180,10 @@ object CelestialRenderStateFactoryV2 {
             atmosphereOpacity = atmosphere.atmosphereOpacity,
             orientationQuality = orientationQuality,
             dataFreshness = freshness,
-            warnings = warnings
+            warnings = warnings,
+            clouds = clouds,
+            cloudsExpiresAtMs = qualifiedWeather?.renderExpiresAtMs,
+            cloudsFetchedAtMs = qualifiedWeather?.fetchedAtMs
         )
     }
 
