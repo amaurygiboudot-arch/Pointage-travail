@@ -62,6 +62,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
     const val MISSING_WEEKS_WARNING =
         "Variables segmentées : aucune preuve hebdomadaire n'est fournie pour une tranche ; variable inconnue, calcul bloqué."
+    const val WEEK_COVERAGE_WARNING =
+        "Variables segmentées : les semaines reçues ne couvrent pas exactement les dates de la tranche ; calcul bloqué."
     const val INVALID_PAID_TIME_WARNING =
         "Variables segmentées : une durée payée hebdomadaire est négative ; calcul bloqué."
     const val UNSUPPORTED_CONTRACT_WARNING =
@@ -161,6 +163,15 @@ object SegmentedWorkedVariableGrossSourceV2 {
                     }
                     return blocked(warnings + warning)
                 }
+            }
+
+            if (!hasExactWeekCoverage(
+                    startEpochDay = slice.startEpochDay,
+                    endEpochDay = slice.endEpochDay,
+                    weeks = supplied.weeks
+                )
+            ) {
+                return blocked(warnings + supplied.warnings + WEEK_COVERAGE_WARNING)
             }
 
             val contract = slice.contractSnapshot.contract
@@ -329,6 +340,47 @@ object SegmentedWorkedVariableGrossSourceV2 {
         } catch (_: IllegalArgumentException) {
             null
         }
+    }
+
+    /**
+     * Vérifie les semaines ISO touchant les bornes inclusives, sans modifier les durées/montants.
+     * Calendrier grégorien proleptique, années civiles 1 à 9999, commun Android/iOS.
+     * Le nombre attendu est contrôlé avant la boucle : aucune plage corrompue n'est parcourue.
+     * Une semaine de bord conserve son contexte complet ; aucune remise à zéro des seuils.
+     */
+    private fun hasExactWeekCoverage(
+        startEpochDay: Long,
+        endEpochDay: Long,
+        weeks: List<SegmentedPayrollWeekEvidenceV2>
+    ): Boolean {
+        if (startEpochDay < -719162L || endEpochDay > 2932896L ||
+            endEpochDay < startEpochDay
+        ) return false
+
+        val firstMonday = startEpochDay - ((startEpochDay % 7L + 10L) % 7L)
+        val lastMonday = endEpochDay - ((endEpochDay % 7L + 10L) % 7L)
+        val expectedCount = (lastMonday - firstMonday) / 7L + 1L
+        if (weeks.size.toLong() != expectedCount) return false
+
+        val seen = mutableSetOf<Long>()
+        for (item in weeks) {
+            if (item.weekYear !in 1..9999 || item.weekOfYear !in 1..53) return false
+            val yearStart = firstIsoMonday(item.weekYear)
+            val monday = yearStart + (item.weekOfYear - 1).toLong() * 7L
+            if (monday >= firstIsoMonday(item.weekYear + 1) ||
+                monday < firstMonday || monday > lastMonday || !seen.add(monday)
+            ) return false
+        }
+        return true
+    }
+
+    // La semaine ISO 1 contient le 4 janvier. Nombre de jours grégoriens avant l'année :
+    // 365*y + y/4 - y/100 + y/400. -719159 rattache le 4 janvier à l'epoch Unix.
+    // Appel uniquement avec year dans 1..10000, après validation des identifiants.
+    private fun firstIsoMonday(year: Int): Long {
+        val y = year.toLong() - 1L
+        val january4 = 365L * y + y / 4L - y / 100L + y / 400L - 719159L
+        return january4 - ((january4 % 7L + 10L) % 7L)
     }
 
     private fun payrollEquivalent(

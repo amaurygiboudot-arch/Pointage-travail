@@ -66,6 +66,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
     static let missingWeeksWarning =
         "Variables segmentées : aucune preuve hebdomadaire n'est fournie pour une tranche ; variable inconnue, calcul bloqué."
+    static let weekCoverageWarning =
+        "Variables segmentées : les semaines reçues ne couvrent pas exactement les dates de la tranche ; calcul bloqué."
     static let invalidPaidTimeWarning =
         "Variables segmentées : une durée payée hebdomadaire est négative ; calcul bloqué."
     static let unsupportedContractWarning =
@@ -188,6 +190,19 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     return blocked(warnings + [warning])
                 }
                 weekOwners[weekKey] = key
+            }
+
+            guard hasExactWeekCoverage(
+                startEpochDay: slice.startEpochDay,
+                endEpochDay: slice.endEpochDay,
+                weeks: supplied.weeks
+            ) else {
+                return blocked(
+                    warnings
+                        + supplied.warnings
+                        + supplied.evidence.warnings
+                        + [weekCoverageWarning]
+                )
             }
 
             let contract = slice.contractSnapshot.contract
@@ -398,6 +413,48 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         } catch {
             return nil
         }
+    }
+
+    /// Vérifie les semaines ISO touchant les bornes inclusives, sans modifier les durées/montants.
+    /// Calendrier grégorien proleptique, années civiles 1 à 9999, commun Android/iOS.
+    /// Aucun calendrier utilisateur ni fuseau ne modifie les identités de semaines.
+    /// Les semaines de bord conservent leur contexte complet et leurs seuils hebdomadaires.
+    private static func hasExactWeekCoverage(
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        weeks: [SalarySegmentedPayrollWeekEvidenceV2]
+    ) -> Bool {
+        guard startEpochDay >= -719162,
+              endEpochDay <= 2932896,
+              endEpochDay >= startEpochDay else {
+            return false
+        }
+
+        let firstMonday = startEpochDay - ((startEpochDay % 7 + 10) % 7)
+        let lastMonday = endEpochDay - ((endEpochDay % 7 + 10) % 7)
+        let expectedCount = (lastMonday - firstMonday) / 7 + 1
+        guard Int64(weeks.count) == expectedCount else { return false }
+
+        var seen = Set<Int64>()
+        for item in weeks {
+            guard (1...9999).contains(item.yearForWeekOfYear),
+                  (1...53).contains(item.weekOfYear) else { return false }
+            let yearStart = firstIsoMonday(year: item.yearForWeekOfYear)
+            let monday = yearStart + Int64(item.weekOfYear - 1) * 7
+            guard monday < firstIsoMonday(year: item.yearForWeekOfYear + 1),
+                  monday >= firstMonday, monday <= lastMonday,
+                  seen.insert(monday).inserted else { return false }
+        }
+        return true
+    }
+
+    // La semaine ISO 1 contient le 4 janvier. Les années bissextiles sont comptées
+    // par y/4 - y/100 + y/400 ; -719159 rattache le 4 janvier à l'epoch Unix.
+    // Appel uniquement avec year dans 1...10000, après validation des identifiants.
+    private static func firstIsoMonday(year: Int) -> Int64 {
+        let y = Int64(year) - 1
+        let january4 = 365 * y + y / 4 - y / 100 + y / 400 - 719159
+        return january4 - ((january4 % 7 + 10) % 7)
     }
 
     private static func sliceKey(
