@@ -134,4 +134,155 @@ final class SalaryWorkSessionBridgeV2Tests: XCTestCase {
         XCTAssertEqual(result.totalPaidMinutes, 60)
         XCTAssertTrue(result.warnings.contains(SalaryPaidWorkAggregatorV2.sourceWarning))
     }
+
+    func testConfirmedCoverageMakesSegmentedSourceExhaustive() throws {
+        let sessions = [coverageSession(day: 14)]
+        let start = epochDay(14)
+        let end = epochDay(20)
+        let attestation = try coverageAttestation(sessions: sessions, start: start, end: end)
+
+        let source = SalaryRuntimePayrollCoverageV2.sourceFrom(
+            sessions: sessions,
+            storageReliable: true,
+            attestation: attestation,
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            timeZoneId: "UTC",
+            now: date(22, 0)
+        )
+
+        XCTAssertTrue(source.work.reliable)
+        XCTAssertTrue(source.exhaustive)
+        XCTAssertEqual(source.sourceId, attestation.sourceId)
+        XCTAssertTrue(source.warnings.isEmpty)
+    }
+
+    func testMissingCoverageNeverTurnsReliableStorageIntoExhaustiveHistory() {
+        let start = epochDay(14)
+        let end = epochDay(20)
+        let source = SalaryRuntimePayrollCoverageV2.sourceFrom(
+            sessions: [coverageSession(day: 14)],
+            storageReliable: true,
+            attestation: nil,
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            timeZoneId: "UTC",
+            now: date(22, 0)
+        )
+
+        XCTAssertTrue(source.work.reliable)
+        XCTAssertFalse(source.exhaustive)
+        XCTAssertTrue(source.warnings.contains(SalaryRuntimePayrollCoverageV2.missingAttestationWarning))
+    }
+
+    func testChangingPauseInsideCoverageInvalidatesAttestation() throws {
+        let start = epochDay(14)
+        let end = epochDay(20)
+        let original = [coverageSession(day: 14)]
+        let attestation = try coverageAttestation(sessions: original, start: start, end: end)
+        var changed = original[0]
+        changed.pauses = [
+            PausePeriod(
+                id: UUID(),
+                start: date(14, 12),
+                end: date(14, 12, 30),
+                paid: false
+            )
+        ]
+
+        let source = SalaryRuntimePayrollCoverageV2.sourceFrom(
+            sessions: [changed],
+            storageReliable: true,
+            attestation: attestation,
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            timeZoneId: "UTC",
+            now: date(22, 0)
+        )
+
+        XCTAssertFalse(source.exhaustive)
+        XCTAssertTrue(source.warnings.contains(SalaryRuntimePayrollCoverageV2.staleAttestationWarning))
+    }
+
+    func testSessionOutsideCoverageDoesNotInvalidatePastAttestation() throws {
+        let start = epochDay(14)
+        let end = epochDay(20)
+        let original = [coverageSession(day: 14)]
+        let attestation = try coverageAttestation(sessions: original, start: start, end: end)
+
+        let source = SalaryRuntimePayrollCoverageV2.sourceFrom(
+            sessions: original + [coverageSession(day: 28)],
+            storageReliable: true,
+            attestation: attestation,
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            timeZoneId: "UTC",
+            now: date(29, 0)
+        )
+
+        XCTAssertTrue(source.exhaustive)
+    }
+
+    func testUnreliableStorageAlwaysBlocksExhaustivity() throws {
+        let start = epochDay(14)
+        let end = epochDay(20)
+        let sessions = [coverageSession(day: 14)]
+        let attestation = try coverageAttestation(sessions: sessions, start: start, end: end)
+
+        let source = SalaryRuntimePayrollCoverageV2.sourceFrom(
+            sessions: sessions,
+            storageReliable: false,
+            attestation: attestation,
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            timeZoneId: "UTC",
+            now: date(22, 0)
+        )
+
+        XCTAssertFalse(source.work.reliable)
+        XCTAssertFalse(source.exhaustive)
+    }
+
+    private func coverageSession(day: Int) -> WorkSession {
+        WorkSession(
+            id: UUID(),
+            entry: date(day, 8),
+            exit: date(day, 16),
+            pauses: [],
+            employerId: "company-a",
+            placeLabel: "Site"
+        )
+    }
+
+    private func epochDay(_ day: Int) -> Int64 {
+        Int64(floor(date(day, 0).timeIntervalSince1970 / 86_400))
+    }
+
+    private func coverageAttestation(
+        sessions: [WorkSession],
+        start: Int64,
+        end: Int64
+    ) throws -> SalaryPayrollCoverageAttestationV2 {
+        SalaryPayrollCoverageAttestationV2(
+            sourceId: "coverage-test",
+            employerId: "company-a",
+            coveredStartEpochDay: start,
+            coveredEndEpochDay: end,
+            checkedAt: date(21, 23),
+            timeZoneId: "UTC",
+            snapshotId: try XCTUnwrap(
+                SalaryRuntimePayrollCoverageV2.snapshotId(
+                    sessions: sessions,
+                    coveredStartEpochDay: start,
+                    coveredEndEpochDay: end,
+                    timeZoneId: "UTC"
+                )
+            )
+        )
+    }
 }
