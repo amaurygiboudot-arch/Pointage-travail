@@ -82,6 +82,7 @@ enum SalaryRuntimePayrollCoverageV2 {
         guard storageReliable,
               !employerId.isEmpty,
               coveredEndEpochDay >= coveredStartEpochDay,
+              coveredEndEpochDay < Int64.max,
               checkedAt.timeIntervalSince1970.isFinite,
               let timeZone = TimeZone(identifier: timeZoneId),
               let closedAt = localStart(coveredEndEpochDay + 1, timeZone: timeZone),
@@ -201,15 +202,17 @@ enum SalaryRuntimePayrollCoverageV2 {
             warnings.append(missingAttestationWarning)
         }
 
+        let attestationSourceId = normalized(attestation?.sourceId)
+
         return SalarySegmentedPayrollSessionSourceV2(
             employerId: employerId,
             work: SalaryWorkSessionBridgeV2.source(
                 from: sessions,
                 storageReliable: storageReliable
             ),
-            sourceId: attestation?.sourceId.isEmpty == false
-                ? attestation!.sourceId
-                : "runtime-v2-unattested",
+            sourceId: attestationSourceId.isEmpty
+                ? "runtime-v2-unattested"
+                : attestationSourceId,
             exhaustive: attestationValid,
             coveredStartEpochDay: coveredStartEpochDay,
             coveredEndEpochDay: coveredEndEpochDay,
@@ -226,6 +229,7 @@ enum SalaryRuntimePayrollCoverageV2 {
         timeZoneId: String
     ) -> String? {
         guard coveredEndEpochDay >= coveredStartEpochDay,
+              coveredEndEpochDay < Int64.max,
               let timeZone = TimeZone(identifier: timeZoneId),
               let from = localStart(coveredStartEpochDay, timeZone: timeZone),
               let to = localStart(coveredEndEpochDay + 1, timeZone: timeZone),
