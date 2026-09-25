@@ -77,7 +77,8 @@ enum SalaryPayrollCoverageAttestationStoreV2 {
         ]
         guard let data = encode(next) else { return false }
         defaults.set(data, forKey: storageKey)
-        return decode(defaults.data(forKey: storageKey))
+        guard let persisted = defaults.data(forKey: storageKey) else { return false }
+        return decode(persisted)
             == ReadResult(attestations: next, reliable: true, warnings: [])
     }
 
