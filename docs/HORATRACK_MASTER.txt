@@ -1,3 +1,136 @@
+HORATRACK — DOCUMENT MAITRE V2.22 — CHECKPOINT 30
+25 SEPTEMBRE 2026 — AUDIT DU RACCORD POINTAGES / B21 / B20
+
+REPERE SIMPLE — CE QUI AVANCE DANS CETTE PASSE
+Le document de travail est maintenant le meme fichier GitHub : docs/HORATRACK_MASTER.txt.
+Cette passe etablit le raccord qui reste a construire ; elle ne modifie aucun code applicatif.
+Les quatre corrections B21 du checkpoint 29 sont conservees, sans etre recommencees.
+La nouvelle chaine segmentee B20/B21 n'est pas encore raccordee aux appelants applicatifs examines.
+Cela ne signifie PAS que tout Salaire V2 est debranche : le chemin canonique existant est bien present.
+Prochaine implementation : preuves de pointage par tranche -> resultat B21 complet -> B20 -> sorties canoniques.
+B21 et Salaire V2 restent NON CLOTURES. Aucun APK/AAB livre, aucune fusion produit dans cette passe.
+
+30.1 EMPLACEMENT UNIQUE ET REFERENCES VERIFIEES
+Depot : amaurygiboudot-arch/Pointage-travail.
+Chemin unique : docs/HORATRACK_MASTER.txt ; pas de nouveau fichier maitre a chaque avancee.
+Branche documentaire actuelle : docs/horatrack-master-import-20260925, PR #440 ouverte et non fusionnee.
+Commit documentaire avant cette mise a jour : d5140353b9eb452ec03ef2493abdc12e05cf7564.
+Le chemin sur main ne devient la reference principale qu'apres integration normale de #440.
+Les copies du Bureau, les anciens DOCX et les pieces jointes ChatGPT ne se synchronisent pas automatiquement.
+main relu par git ls-remote depuis EDUCTOR : 0cf8e0828811a16a60e3dfff4e83480ebb3bfe19.
+Code audite : a75d165aa5037d57adea22d607f08facc1c07017, PR #428 toujours ouverte, brouillon, non fusionnee.
+Base metier de #428 : feat/segmented-worked-gross-assembly-v2, SHA 86ff7f3caf9d405c7a115bc53e779c564b722ca7.
+#437 reste VALIDATION ONLY, ouverte et non fusionnee, HEAD 3aa20ff6c7a30eaa642c2c657fc88463823f1e7e.
+Ses references historiques de base ne remplacent pas la lecture directe du main courant.
+
+30.2 CONSTATS DE CODE — PAS DE TEST APPAREIL NI DE NOUVELLE REGLE METIER
+A. Raccord des nouveaux moteurs
+Recherche litterale executee au SHA a75d165a dans app/src/main, app-v3/src et ios/HPTravail/HPTravail.
+Symboles : SegmentedWorkedGrossAssemblerV2, SegmentedWorkedVariableGrossSourceV2, SegmentedPayrollSliceEvidenceV2.
+Resultat : declarations et types internes retrouves ; aucun appel direct de B20/B21 dans les autres fichiers applicatifs de ce perimetre.
+Les noms Swift prefixes Salary sont egalement couverts par ces recherches litterales.
+Ce constat est statique et borne au SHA/perimetre cites, pas une preuve d'execution runtime ni un audit de code genere.
+
+B. Chemin Android existant a reutiliser
+V2SalaryAdapter.calculateForCompany resout les contrats dates via V2EmploymentContractPayrollBridge.
+Il lit les sessions canoniques avec V2RuntimeReader.allSessions et conserve leur fiabilite.
+calculateCore utilise PayrollEngineV2 et les calculateurs existants ; les primes d'entreprise et d'anciennete sont ajoutees dans leur couche propre.
+Le resultat expose monthlyGrossReliable, paidTimeReliable et warnings : ces proprietes doivent survivre au futur raccord.
+WeeklyThresholdMonthBoundaryGuardV2 est deja appele dans cet adaptateur. Ne pas creer un second garde-frontiere concurrent.
+
+C. Chemin iOS existant a reutiliser
+SalaryCanonicalReferenceProviderV2.build enchaine SalaryPayrollWeekEvidenceBuilderV2, PayrollEngineV2,
+EmployeeNetProjectionV2 puis SalaryReferenceContractV2.buildFromPayroll.
+Son contrat documentaire exclut explicitement les mois avec plusieurs contrats/regles : la timeline/proratisation dediee doit les traiter.
+SalaryWeeklyThresholdMonthBoundaryGuardV2 est deja appele dans le provider.
+SalarySegmentedMonthlyBaseProductionV2 appelle deja SalarySegmentedMonthlyBaseBridgeV2 : ne pas reconstruire cette base.
+
+D. Limite du constructeur de semaines iOS pour le raccord B21
+SalaryPayrollWeekEvidenceBuilderV2.build travaille sur YearMonthV2 ; les plages de majoration sont bornees au mois.
+Il dispose de cles hebdomadaires internes, mais SalaryPayrollWeekEvidenceResultV2 expose seulement [PayrollWeekV2], evidence et warnings.
+La sortie PayrollWeekV2 ne porte pas elle-meme l'annee ISO et le numero de semaine requis par les preuves B21.
+Une conversion directe de ce tableau ne suffit donc pas a prouver la couverture identitaire et le contexte hebdomadaire complet.
+Reutiliser les agregateurs et politiques de chevauchement existants ; conserver les cles au lieu de les reconstituer depuis l'ordre du tableau.
+Ne pas marquer fullWeekContextReliable=true a partir de la seule presence d'une ligne ou d'un total mensuel.
+
+E. Avertissements et fiabilite B21 -> B20
+B21 retourne pieces, reliable et warnings. Les pieces Android fiables sont creees avec warnings=emptyList().
+B20 recoit actuellement une liste de pieces ; il combine les avertissements des contrats, de la base et des pieces.
+Passer uniquement source.pieces ne transporte donc pas les avertissements globaux de source.warnings.
+C'est un risque du raccord a venir, pas la preuve d'un montant faux deja affiche par une version distribuee.
+Le futur raccord doit propager le resultat complet et bloquer si sa fiabilite est fausse, sans perdre le motif du blocage.
+B20 reste un brut de travail intermediaire : base proratee + variables. Ce n'est ni le brut social final ni le net.
+
+30.3 PROCHAINE IMPLEMENTATION — PLAN DERIVE DU CHECKPOINT 29, NON REALISE ICI
+Etape A — Producteur de preuves depuis les faits V2
+Conserver employeur stable, provenance et fiabilite des sessions/pauses, periode, cles ISO et versions de contrat/regle.
+Construire les preuves pour les tranches de la timeline canonique, avec leur vrai contexte de semaine complete.
+Separer le contexte des seuils hebdomadaires de l'allocation des minutes/montants a la periode de paie.
+Une semaine sans travail ne vaut zero que si l'absence de travail est explicitement prouvee ; un trou de lecture reste inconnu.
+
+Etape B — Passage du resultat complet B21 a B20
+Utiliser la base segmentee existante ; ne pas recompter la base mensualisee dans les variables.
+Conserver source.reliable et l'union dedupliquee des avertissements de chaque couche, y compris quand pieces est vide.
+Refuser les incoherences d'employeur, de versions ou de bornes ; ne publier aucun sous-total comme resultat complet.
+Les forfaits et heures complementaires non couverts restent explicitement non pris en charge dans cette chaine.
+
+Etape C — Raccord des consommateurs existants et regression
+Raccorder les adaptateurs canoniques Android/iOS sans supprimer prematurement le chemin sain non segmente.
+Verifier brut de travail -> autres composantes de brut -> projection nette -> ecran/PDF/comparaison/historique.
+Chaque consommateur doit recevoir le meme resultat et la meme fiabilite, sans formule locale parallele.
+Aucune activation produit avant tests du nouveau SHA, revues requises et controles appareils adaptes.
+
+30.4 MATRICE DE RECETTE DU RACCORD — A EXECUTER, PAS DES TESTS DECLARES REUSSIS
+R01. Deux semaines completes, meme employeur, preuves confirmees : meme resultat que les moteurs canoniques.
+R02. Employeur different ou ambigu : rejet, aucun melange des sessions ni des montants.
+R03. Session/pauses illisibles, ouvertes ou non qualifiees : conserver l'inconnu et le motif, jamais zero implicite.
+R04. Semaine sans travail explicitement confirmee versus donnees absentes : deux etats differents.
+R05. Semaine chevauchant deux mois : contexte complet des seuils, allocation de periode prouvee, sans remise a zero.
+R06. Changement contrat/regle un lundi versus en cours de semaine : appliquer les garde-fous existants, sans assouplissement.
+R07. Majoration de nuit/jour ferie sans preuve suffisante : montant fiable bloque, explication conservee.
+R08. Resultat B21 fiable avec avertissement global et pieces sans avertissement : message encore present en sortie B20.
+R09. Resultat B21 bloque apres une tranche valide : aucun montant partiel publie, motif amont conserve.
+R10. Base B17/B20 absente, incoherente ou dupliquee : blocage ; base correcte additionnee une seule fois.
+R11. Reprise hors ligne et changement d'entreprise : identites et historique preserves, aucune seconde lecture legacy.
+R12. Memes donnees Android/iOS : meme fiabilite et resultat canonique dans ecran, PDF, comparaison et historique.
+
+30.5 PREUVES, VALIDATIONS ET LIMITES DE CETTE PASSE
+Lectures de code et recherches de references effectuees sur le SHA a75d165a, sans modification applicative.
+Les 309 tests SwiftPM dont 32 B21 sont les resultats HISTORIQUES du checkpoint 29, pas des tests relances ici.
+Aucun test Gradle/SwiftPM/Xcode, test de raccord bout en bout, telephone ou revue specialisee n'est revendique dans cette passe.
+La tentative de creation d'une copie de travail applicative supplementaire a ete refusee par l'outil : elle n'a pas ete contournee.
+La poursuite est documentaire et en lecture seule pour le code ; les worktrees applicatifs existants sont conserves.
+#440 au commit d5140353 : Agent review gate 108142099830 termine en ECHEC dans le run 36156467630.
+Validation et publication du rapport agents sautees. Le motif detaille de ce job n'a pas ete relu ici ; ne pas le deduire de l'ancien quota B21.
+Les controles verts de compilation/tests de cette PR d'import ne valent ni revue finale ni validation d'une nouvelle fonction.
+La presente modification du document doit recevoir ses propres controles ; ne pas lui attribuer les resultats du parent d5140353.
+Aucun contournement de gate, changement de gouvernance, secret, facturation, Céleste, Firebase, formule ou taux salarial.
+
+30.6 REFERENCES DE REPRISE
+Code Android : app/src/main/java/com/amaury/pointage/V2SalaryAdapter.kt.
+Code B20 Android : app/src/main/java/com/amaury/pointage/v2/engine/SegmentedWorkedGrossAssemblyV2.kt.
+Code B21 Android : app/src/main/java/com/amaury/pointage/v2/engine/SegmentedWorkedVariableGrossSourceV2.kt.
+Code iOS : ios/HPTravail/HPTravail/SalaryV2/SalaryCanonicalReferenceProviderV2.swift.
+Preuves iOS : ios/HPTravail/HPTravail/SalaryV2/SalaryPayrollWeekEvidenceBuilderV2.swift.
+Base iOS : ios/HPTravail/HPTravail/SalaryV2/SalarySegmentedMonthlyBaseBridgeV2.swift.
+B20 iOS : ios/HPTravail/HPTravail/SalaryV2/SalarySegmentedWorkedGrossAssemblyV2.swift.
+Reference sociale iOS : ios/HPTravail/HPTravail/SalaryV2/SalaryReferencePayrollBridgeV2.swift.
+Tous les chemins de code ci-dessus ont ete lus au SHA a75d165aa5037d57adea22d607f08facc1c07017.
+Ordre de dependances conserve depuis le checkpoint 29 : #418 -> #425 -> #428, avec leurs parents anterieurs.
+La PR #437 ne doit jamais etre fusionnee. L'autorisation generale de fusion ne remplace pas les controles requis.
+Portee inchangee : tous utilisateurs concernes, metiers, classes/categories et entreprises, Android/iOS et appareils compatibles.
+Salaire V2 reste prioritaire ; Parametres V2, Moteur Temps universel et Céleste gardent leur place dans le maitre.
+
+CONSERVATION DU DOCUMENT
+L'integralite des 2 906 lignes du maitre importe est conservee octet pour octet ci-dessous.
+Archive : 203 912 octets ; SHA-256 8bdb865eeab700e9e56514c03a0d444a404f6d185661768108eb6dd76e06760b.
+Le checkpoint 30 precise le raccord a venir et l'emplacement de travail ; il ne retire aucune exigence ni preuve historique.
+
+==============================================================================
+ARCHIVE INTEGRALE — CHECKPOINT 29 ET DOCUMENT MAITRE ANTERIEUR
+Les statuts ci-dessous sont dates. Lire le checkpoint 30 pour le point de reprise courant.
+==============================================================================
+
 HORATRACK — DOCUMENT MAITRE V2.22 — CHECKPOINT 29
 MISE A JOUR DU 25 SEPTEMBRE 2026 — SALAIRE V2 / B21
 
