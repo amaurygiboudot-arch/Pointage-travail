@@ -13,6 +13,8 @@ import android.util.AttributeSet
 import android.view.View
 import com.amaury.pointage.v2.CelestialTrackerV2
 import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
+import com.amaury.pointage.v2.engine.CelestialGlobeOrientationV2
+import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import java.util.Calendar
@@ -68,6 +70,7 @@ class HpAnalogClockView @JvmOverloads constructor(
     }
     private var celestialState: CelestialTrackerV2.State? = null
     private var celestialSnapshot: CelestialSnapshotV2? = null
+    private var globeRotationDeg = 0f
     private var hostActivityVisible = false
     private var trackerSubscribed = false
 
@@ -111,6 +114,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         earthGlobeRenderer.clearCache()
         celestialSnapshot = null
         celestialState = null
+        globeRotationDeg = 0f
         starDome.clear()
         assetGeneration.incrementAndGet()
         sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
@@ -145,6 +149,11 @@ class HpAnalogClockView @JvmOverloads constructor(
             CelestialTrackerV2.subscribe(context, this) { state ->
                 celestialSnapshot = state.snapshot
                 celestialState = state
+                globeRotationDeg = CelestialGlobeOrientationV2.counterRotationDeg(
+                    CelestialHeadingPolicyV2.renderingHeadingDeg(
+                        state.deviceAzimuthDeg.toDouble(), state.headingQuality
+                    )
+                ).toFloat()
                 starDome.update(state)
                 invalidate()
             }
@@ -153,8 +162,8 @@ class HpAnalogClockView @JvmOverloads constructor(
             trackerSubscribed = false
             celestialState = null
             starDome.clear()
-            // Conserver le dernier snapshot qualifié : il s'agit uniquement d'un
-            // état visuel figé, pas d'une acquisition GPS/capteurs en arrière-plan.
+            // Conserver snapshot ET orientation : le globe reste visuellement figé
+            // en pause, sans acquisition GPS/capteurs supplémentaire.
         }
     }
 
@@ -263,10 +272,9 @@ class HpAnalogClockView @JvmOverloads constructor(
     /**
      * Globe GPS V2.
      *
-     * Quand une localisation qualifiée existe, sa latitude/longitude est la face
-     * avant du globe et le marqueur rouge est exactement au centre. Si aucune
-     * localisation fiable n'est disponible, on garde temporairement l'ancien
-     * symbole Terre plutôt que d'afficher un pays arbitraire comme position réelle.
+     * Le centre et le rayon restent ceux du pivot des aiguilles. Seule la Terre
+     * (texture, éclairage et marqueur ensemble) contre-tourne selon le cap vrai
+     * qualifié. Aucun nouveau raster n'est demandé pour un changement de cap.
      */
     private fun drawEarthGlobe(
         canvas: Canvas,
@@ -274,15 +282,22 @@ class HpAnalogClockView @JvmOverloads constructor(
         cy: Float,
         radius: Float
     ) {
-        val rendered = earthGlobeRenderer.draw(
-            canvas = canvas,
-            cx = cx,
-            cy = cy,
-            radius = radius,
-            snapshot = celestialSnapshot,
-            mode = globeMode
-        )
+        val saveCount = canvas.save()
+        val rendered = try {
+            canvas.rotate(globeRotationDeg, cx, cy)
+            earthGlobeRenderer.draw(
+                canvas = canvas,
+                cx = cx,
+                cy = cy,
+                radius = radius,
+                snapshot = celestialSnapshot,
+                mode = globeMode
+            )
+        } finally {
+            canvas.restoreToCount(saveCount)
+        }
         if (!rendered) {
+            // Un symbole de secours n'est pas présenté comme un globe orienté.
             drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
         }
     }

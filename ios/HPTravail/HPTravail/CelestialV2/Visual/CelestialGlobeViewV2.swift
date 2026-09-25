@@ -2,18 +2,25 @@ import Foundation
 import SwiftUI
 
 /// Orthographic Earth view whose centre is always the qualified GPS position.
-/// It is intentionally vector based so it does not depend on a remote map or
-/// texture, and Canvas renders asynchronously without a display link.
+/// The geographic projection is independent of heading; its display alone
+/// counter-rotates around the fixed centre, with no extra sensor subscription.
 struct CelestialGlobeViewV2: View {
     let snapshot: CelestialSnapshotV2
     var mode: CelestialGlobeModeV2 = .local
     var showsObserverMarker = true
+    var renderingHeadingDegrees = 0.0
 
     var body: some View {
         Canvas(opaque: false, colorMode: .linear, rendersAsynchronously: true) { context, size in
             drawGlobe(context: &context, size: size)
         }
         .aspectRatio(1, contentMode: .fit)
+        .rotationEffect(.degrees(CelestialGlobeOrientationV2.counterRotationDegrees(
+            renderingHeadingDegrees: renderingHeadingDegrees
+        )), anchor: .center)
+        // The tracker already stabilizes heading. Do not interpolate a full turn
+        // across the signed-angle seam or inherit a navigation animation.
+        .transaction { $0.animation = nil }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(mode == .local ? "Globe terrestre centré sur la position GPS" : "Globe terrestre montrant la répartition jour nuit")
         .accessibilityValue(accessibilityValue)
@@ -50,7 +57,6 @@ struct CelestialGlobeViewV2: View {
         )
 
         drawLand(context: &context, rect: rect, basis: basis)
-        drawGraticule(context: &context, rect: rect, basis: basis)
 
         let sunProjection = basis.project(
             EarthCoordinate(
@@ -98,17 +104,8 @@ struct CelestialGlobeViewV2: View {
                 lineWidth: max(4, diameter * 0.08)
             )
         }
-        context.stroke(
-            terminator,
-            with: .color(Color(red: 0.48, green: 0.72, blue: 0.94).opacity(0.38)),
-            lineWidth: max(0.7, diameter * 0.005)
-        )
-
-        context.stroke(
-            sphere,
-            with: .color(.white.opacity(0.70)),
-            lineWidth: max(1, diameter * 0.012)
-        )
+        // Keep the physical lighting transition, without a sharp guide line,
+        // graticule or white outline around the globe.
 
         if showsObserverMarker {
             let observer = basis.project(
@@ -152,28 +149,6 @@ struct CelestialGlobeViewV2: View {
                     )
                 )
                 context.stroke(path, with: .color(.white.opacity(0.26)), lineWidth: max(0.4, rect.width * 0.003))
-            }
-        }
-    }
-
-    private func drawGraticule(context: inout GraphicsContext, rect: CGRect, basis: EarthBasis) {
-        let shading = GraphicsContext.Shading.color(.white.opacity(0.14))
-        let width = max(0.35, rect.width * 0.002)
-
-        for latitude in stride(from: -60.0, through: 60.0, by: 30.0) {
-            let points = stride(from: -180.0, through: 180.0, by: 3.0).map {
-                EarthCoordinate(latitude: latitude, longitude: $0)
-            }
-            for path in projectedVisiblePaths(points, rect: rect, basis: basis, closesPath: false) {
-                context.stroke(path, with: shading, lineWidth: width)
-            }
-        }
-        for longitude in stride(from: -180.0, to: 180.0, by: 30.0) {
-            let points = stride(from: -90.0, through: 90.0, by: 3.0).map {
-                EarthCoordinate(latitude: $0, longitude: longitude)
-            }
-            for path in projectedVisiblePaths(points, rect: rect, basis: basis, closesPath: false) {
-                context.stroke(path, with: shading, lineWidth: width)
             }
         }
     }

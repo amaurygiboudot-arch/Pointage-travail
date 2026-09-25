@@ -31,8 +31,9 @@ import kotlin.math.sqrt
  * de l'utilisateur devient le point au centre de la sphère. Ainsi, en France la
  * France est face à l'utilisateur ; au Japon, le Japon l'est automatiquement.
  *
- * Le globe ne dépend volontairement pas du cap du téléphone. Le ciel tourne avec
- * la boussole, mais la Terre centrale reste une référence géographique stable.
+ * Les pixels sont calculés Nord en haut, indépendamment du cap. L'horloge applique
+ * ensuite une contre-rotation de présentation autour du centre fixe du globe.
+ * Le cap ne modifie ni la géographie ni le cache de projection/éclairage.
  *
  * La projection par pixel est calculée hors du thread UI. Le dernier bitmap valide
  * reste affiché pendant la reconstruction puis est remplacé atomiquement sur main.
@@ -87,11 +88,6 @@ class EarthGlobeRendererV2(
         style = Paint.Style.STROKE
         strokeWidth = 1.4f
         color = Color.argb(225, 255, 255, 255)
-    }
-    private val limbPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 1.1f
-        color = Color.argb(150, 220, 236, 255)
     }
     private val destination = RectF()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -172,8 +168,7 @@ class EarthGlobeRendererV2(
             }
         }
 
-        limbPaint.strokeWidth = max(1f, radius * 0.022f)
-        canvas.drawCircle(cx, cy, radius - limbPaint.strokeWidth * 0.5f, limbPaint)
+        // The lit texture already defines the limb; no white outline around Earth.
         return true
     }
 

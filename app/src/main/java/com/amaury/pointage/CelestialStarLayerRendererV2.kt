@@ -28,13 +28,10 @@ class CelestialStarLayerRendererV2(context: Context, private val onInvalidated: 
     private var sky: Sky? = null
     private var requested: String? = null
     private val domePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val rimShader = RadialGradient(0f, 0f, 1f,
         intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT, Color.argb(66,64,102,158), Color.TRANSPARENT),
         floatArrayOf(0f,0.72f,0.98f,1f), Shader.TileMode.CLAMP)
     private val shaderMatrix = Matrix()
-    private var gridKey: String? = null
-    private var grid: List<Pair<Path, Boolean>> = emptyList()
 
     fun update(state: CelestialTrackerV2.State) {
         val snapshot = state.snapshot
@@ -67,7 +64,7 @@ class CelestialStarLayerRendererV2(context: Context, private val onInvalidated: 
         val snapshot = state?.snapshot ?: return
         if (state.locationQuality != CelestialLocationQualityV2.VALID || radius <= 1f) return
         val heading = CelestialHeadingPolicyV2.renderingHeadingDeg(state.deviceAzimuthDeg.toDouble(), state.headingQuality)
-        drawDome(canvas, cx, cy, radius, heading)
+        drawDome(canvas, cx, cy, radius)
         val current = sky ?: return
         val place = String.format(Locale.ROOT, "%.4f:%.4f", snapshot.latitudeDeg, snapshot.longitudeDeg)
         if (current.place != place || snapshot.atMs - current.atMs !in 0L..60_000L) return
@@ -91,35 +88,16 @@ class CelestialStarLayerRendererV2(context: Context, private val onInvalidated: 
         }
     }
 
-    private fun drawDome(canvas: Canvas, cx: Float, cy: Float, radius: Float, heading: Double) {
+    private fun drawDome(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
         val r = (radius * CelestialDomeV2.RADIUS_FRACTION).toFloat()
         shaderMatrix.setScale(r, r); shaderMatrix.postTranslate(cx, cy)
         rimShader.setLocalMatrix(shaderMatrix); domePaint.shader = rimShader
         canvas.drawCircle(cx, cy, r, domePaint); domePaint.shader = null
-        val key = "$cx:$cy:$radius:${(heading * 10).toInt()}"
-        if (key != gridKey) {
-            fun curve(coordinates: List<Pair<Double, Double>>): Path = Path().apply {
-                coordinates.forEachIndexed { i, (az, alt) ->
-                    val p = CelestialDomeV2.project(az, alt, heading) ?: return@forEachIndexed
-                    val x = cx + (p.x * radius).toFloat(); val y = cy + (p.y * radius).toFloat()
-                    if (i == 0) moveTo(x, y) else lineTo(x, y)
-                }
-            }
-            grid = buildList {
-                for (alt in listOf(0.0,30.0,60.0)) add(curve((0..72).map { it * 5.0 to alt }) to (alt == 0.0))
-                for (az in 0 until 360 step 60) add(curve((0..30).map { az.toDouble() to it * 3.0 }) to false)
-            }
-            gridKey = key
-        }
-        // Coordinate graticule only: no catalogue constellation connections.
-        for ((path, horizon) in grid) {
-            gridPaint.color = Color.argb(if (horizon) 51 else 18,255,255,255)
-            gridPaint.strokeWidth = (if (horizon) 0.8f else 0.5f) * density
-            canvas.drawPath(path, gridPaint)
-        }
+        // Keep the spherical shading, not the white graticule/horizon guides.
+        // Celestial positions and the mathematical horizon are unchanged.
     }
 
-    fun clear() { generation.incrementAndGet(); requested = null; sky = null; gridKey = null; grid = emptyList() }
+    fun clear() { generation.incrementAndGet(); requested = null; sky = null }
     companion object {
         private val executor = Executors.newSingleThreadExecutor { task ->
             Thread(task, "HoraTrack-StarSky").apply { priority = Thread.NORM_PRIORITY - 1 }

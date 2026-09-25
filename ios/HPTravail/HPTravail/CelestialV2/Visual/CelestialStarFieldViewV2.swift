@@ -99,7 +99,7 @@ struct CelestialStarFieldViewV2: View {
             headingDegrees: state.trueHeadingDegrees, quality: state.headingQuality)
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let radius = min(size.width, size.height) * 0.4
-        if presentation == .dial && !bright { drawDome(context: context, center: center, radius: radius, heading: heading) }
+        if presentation == .dial && !bright { drawDome(context: context, center: center, radius: radius) }
         let visibility = renderState.starsVisibility
         guard visibility > 0.005 else { return }
         let shift = CelestialPanoramaGeometryV2.headingFraction(centerAzimuthDegrees: heading)
@@ -142,7 +142,7 @@ struct CelestialStarFieldViewV2: View {
         context.fill(circle(style.radius * 0.4), with: .color(.white.opacity(style.coreAlpha * 230/255)))
     }
 
-    private func drawDome(context: GraphicsContext, center: CGPoint, radius: CGFloat, heading: Double) {
+    private func drawDome(context: GraphicsContext, center: CGPoint, radius: CGFloat) {
         let r = radius * CelestialDomeV2.radiusFraction
         let disk = Path(ellipseIn: CGRect(x: center.x-r, y: center.y-r, width: r*2, height: r*2))
         context.fill(disk, with: .radialGradient(
@@ -150,26 +150,8 @@ struct CelestialStarFieldViewV2: View {
                 .init(color: .clear, location: 0.72),
                 .init(color: Color(red: 0.25, green: 0.40, blue: 0.62).opacity(0.26), location: 0.98),
                 .init(color: .clear, location: 1)]), center: center, startRadius: 0, endRadius: r))
-        // Coordinate graticule, not links between stars. Every vertex belongs
-        // to the same oblique sphere used by Sun/Moon and the stars.
-        func path(_ coordinates: [(Double, Double)]) -> Path {
-            var result = Path()
-            for (i, pair) in coordinates.enumerated() {
-                guard let p = CelestialDomeV2.project(azimuthDegrees: pair.0,
-                    apparentAltitudeDegrees: pair.1, headingDegrees: heading) else { continue }
-                let q = CGPoint(x: center.x+p.x*radius, y: center.y+p.y*radius)
-                if i == 0 { result.move(to: q) } else { result.addLine(to: q) }
-            }
-            return result
-        }
-        for altitude in [0.0, 30.0, 60.0] {
-            let curve = path(stride(from: 0.0, through: 360.0, by: 5.0).map { ($0, altitude) })
-            context.stroke(curve, with: .color(.white.opacity(altitude == 0 ? 0.20 : 0.07)), lineWidth: altitude == 0 ? 0.8 : 0.5)
-        }
-        for azimuth in stride(from: 0.0, to: 360.0, by: 60.0) {
-            context.stroke(path(stride(from: 0.0, through: 90.0, by: 3.0).map { (azimuth, $0) }),
-                           with: .color(.white.opacity(0.07)), lineWidth: 0.5)
-        }
+        // Keep the spherical shading, not the white graticule/horizon guides.
+        // Celestial positions and the mathematical horizon are unchanged.
     }
 
     private var preparationKey: String {
