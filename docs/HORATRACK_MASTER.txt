@@ -1,3 +1,205 @@
+HORATRACK — DOCUMENT MAITRE V2.22 — CHECKPOINT 31
+25 SEPTEMBRE 2026 — B21 DEPUIS LES POINTAGES + CORRECTIF GPS PRIORITAIRE
+
+REPERE SIMPLE — ETAT COURANT
+Le checkpoint 30 est conserve integralement plus bas.
+Salaire V2 reste prioritaire, mais une anomalie pouvant fausser un pointage ou une sortie devient prioritaire selon AGENTS.md.
+Deux lots distincts sont maintenant ouverts :
+- PR #441 : producteur de preuves B21 depuis les sessions/pauses V2, non active dans les ecrans ;
+- PR #442 : correctif GPS du faux dialogue de depart au retour dans la meme zone.
+Aucune des deux PR n'est fusionnee.
+Aucune nouvelle version HoraTrack n'est publiee par ce checkpoint.
+Le gate agents reste bloque par quota externe ; aucun faux PASS n'est attribue.
+
+31.1 REFERENCES EXACTES
+Depot : amaurygiboudot-arch/Pointage-travail.
+main de reference au lancement de #442 : 0cf8e0828811a16a60e3dfff4e83480ebb3bfe19.
+Document maitre : docs/HORATRACK_MASTER.txt.
+Branche documentaire : docs/horatrack-master-import-20260925, PR #440 ouverte.
+PR #441 : feat/b21-session-evidence-v2, HEAD f5128bab144fb711263722a43af1788de351d257, base #428 a75d165aa5037d57adea22d607f08facc1c07017.
+PR #437 : VALIDATION ONLY, NE PAS FUSIONNER, HEAD 32b22bd8191fecc0c3540f5d63cf4ae18903299e pour le candidat #441.
+PR #442 : fix/gps-stale-exit-on-reentry-v2, HEAD b6894686ac4187003c721fc6c300e60b03eec4d4, base main.
+Toutes ces references sont non fusionnees a la date de ce checkpoint.
+
+31.2 B21 — PRODUCTEUR DE PREUVES DEPUIS LES SESSIONS V2
+La PR #441 realise l'etape A definie au checkpoint 30.
+Elle ne recalcule pas une seconde formule de paie : elle reutilise les moteurs et politiques existants.
+Android reutilise notamment PayrollCalculationTimelineV2, MonthlyPaidWorkScopeV2, PaidWorkAllocationV2,
+NightPremiumPolicyV2 et PublicHolidayPremiumPolicyV2.
+iOS reutilise les faits SalaryWorkSessionSourceV2 issus du bridge RuntimeV2, la timeline,
+SalaryPaidOverlapPolicyV2 / PaidTimePolicyV2 et les politiques de majoration existantes.
+
+Le producteur exige :
+- un employeur stable ;
+- un identifiant de snapshot ;
+- une lecture fiable ET une preuve distincte d'exhaustivite ;
+- des bornes couvertes ;
+- un instant de confirmation ;
+- un fuseau explicite ;
+- les identites ISO des semaines ;
+- des pauses qualifiees payees/non payees ;
+- un contexte temporel confirme pour chaque tranche de timeline.
+
+Blocages volontaires :
+- session ouverte ;
+- superposition de sessions ;
+- identifiant duplique ;
+- employeur absent ;
+- lecture incomplete ;
+- certificat futur ;
+- temps paye hors tranche quand l'allocation monetaire entre tranches n'est pas prouvee ;
+- borne de nuit inexistante ou ambigue lors d'un changement d'heure ;
+- contexte territorial/regle insuffisant.
+Une semaine vide ne devient zero que si toute la periode est explicitement attestee sans travail.
+La seule reussite d'une lecture du store ne vaut jamais preuve d'exhaustivite.
+
+Le resultat complet B21, sa fiabilite et ses avertissements globaux doivent etre conserves.
+Le raccord B20, ecrans, PDF, net et historique reste encore a integrer.
+La collecte des attestations de couverture depuis les stores reste egalement a construire.
+B21 et Salaire V2 restent NON CLOTURES.
+
+31.3 VALIDATION #441 SUR LE CANDIDAT 32b22bd8
+Run Security checks 36161704377 :
+- Google Play distribution check : SUCCES ;
+- Firebase Functions tests : SUCCES ;
+- dependency-review : job vert ;
+- CodeQL Android : SUCCES ;
+- Security update build check : SUCCES ;
+- V2 unit tests : SUCCES ;
+- Agent review gate : ECHEC.
+
+Run Build iOS 36161704367 :
+- build-ios : SUCCES.
+
+Le gate agents 108159581209 a echoue avec :
+"Quota exceeded. Check your plan and billing details."
+Aucun rapport multi-agents valide n'a ete produit.
+Les 29 nouveaux tests par plateforme, 58 au total, couvrent notamment :
+sessions V2, pauses, employeurs distincts, duplications/superpositions, vrais zeros,
+couverture incomplete, nuit, fuseau, dimanche, changements d'heure et avertissements.
+Ces fixtures utilisent les vrais modeles V2 mais ne sont pas des pointages utilisateur extraits d'un telephone.
+
+31.4 INCIDENT GPS OBSERVE SUR TELEPHONE REEL
+Observation utilisateur :
+- l'arrivee dans la zone fonctionne ;
+- la session ne se termine pas automatiquement a la sortie de zone ;
+- au retour dans la zone, HoraTrack peut demander si l'utilisateur part alors qu'il vient d'arriver.
+
+La non-fermeture automatique n'est pas un bug du lot #442 :
+le code actuel transforme volontairement un EXIT de zone POSTE en demande de confirmation
+EXIT_PENDING_CONFIRMATION au lieu de fermer la session sans validation humaine.
+
+Le vrai bug est le pending EXIT_WORKSITE obsolete.
+Avant correction, un retour dans la meme zone n'annulait automatiquement le depart en attente
+que dans certaines conditions, notamment la fenetre historique de 120 secondes.
+Au-dela, l'ancien depart pouvait rester present et etre repropose plus tard par l'interface.
+
+31.5 CORRECTIF GPS #442 — REGLE ANDROID / IOS
+Nouvel invariant :
+si la meme session est toujours ouverte et qu'un ENTER POSTE revient dans la meme zone
+qui avait produit le depart en attente, cette demande de fin de journee est annulee,
+meme si plus de 120 secondes se sont ecoulees.
+
+Protections conservees :
+- le pending doit appartenir a une session encore ouverte ;
+- le pending doit etre posterieur au debut de cette session ;
+- l'ENTER doit etre un vrai ENTER POSTE ;
+- la zone doit correspondre ;
+- un ENTER dans une autre zone ne supprime pas arbitrairement le depart precedent ;
+- aucune fermeture automatique de session n'est ajoutee dans ce lot ;
+- les etats ambigus continuent de rester explicites/fail-closed.
+
+La logique fonctionnelle est la meme Android/iOS.
+Aucune regle n'est specifique a un employeur, un metier, une marque ou un modele de telephone.
+Seuls les adaptateurs plateforme peuvent differer.
+
+31.6 VALIDATION TECHNIQUE #442 AU HEAD b6894686
+Run Security checks #2899 / 36171974609 :
+- Firebase Functions tests : SUCCES ;
+- Security update build check / compilation Android : SUCCES ;
+- CodeQL Android : SUCCES ;
+- V2 unit tests : SUCCES ;
+- Google Play APK/AAB + manifeste : SUCCES ;
+- dependency-review : job vert, revue de dependances non requise ;
+- Agent review gate : ECHEC.
+
+Run Build iOS #629 / 36171974557 :
+- Build for iOS Simulator : SUCCES ;
+- tests Swift contract : SUCCES.
+
+Le premier candidat de #442 avait 499 tests Swift sur 500 et un seul test nouvellement ajoute mal specifie
+pour le cas "entree dans une autre zone".
+Le test a ete corrige sans modifier la regle metier puis tous les controles ont repasse sur b6894686.
+
+Le gate agents 108193453286 reste en echec pour quota Codex externe.
+Aucun contournement, aucune modification de workflow ou de gouvernance.
+
+31.7 TEST SUR TELEPHONE ANDROID REEL — HARNAIS ISOLE
+Une copie temporaire a ete construite depuis le HEAD exact b6894686.
+Package du harnais : com.amaury.pointage.gpstest.
+Le vrai HoraTrack est reste separe :
+- package : com.amaury.pointage ;
+- version verifiee apres le test : 1.1468-dev-1790336765 ;
+- dataDir : /data/user/0/com.amaury.pointage.
+
+Scenario execute sur le telephone Android connecte avec le vrai runtime applicatif :
+1. creation d'une session V2 synthetique via V2RuntimeStore ;
+2. routage d'un POSTE / EXIT accepte ;
+3. verification de la creation d'un pending EXIT_WORKSITE ;
+4. retour POSTE / ENTER dans la meme zone 10 minutes plus tard ;
+5. verification de la suppression du pending ;
+6. verification que la session reste OPEN et que realExitMs reste null.
+
+Log appareil :
+PASS EXIT created pending; same-zone ENTER after 10 min cancelled it; session stayed OPEN
+
+Le harnais a ete desinstalle apres le test.
+Le fichier APK temporaire sur /data/local/tmp et la copie locale du projet de test ont ete supprimes.
+Les donnees du vrai HoraTrack n'ont pas ete remplacees par le harnais.
+
+LIMITE :
+ce test execute le vrai stockage Android et GpsWorkStateCoordinatorV2 sur appareil reel,
+mais ne simule pas encore le franchissement physique d'une geofence Google Play Services
+avec les vraies conditions GNSS/radio du lieu de travail.
+Une validation terrain au prochain passage reel dans la zone reste donc utile pour ce dernier niveau.
+
+31.8 POINTAGES FIREBASE UTILISES POUR L'AUDIT B21 — LECTURE SEULE
+Le document Firestore prive v2_complete a ete retrouve dans l'espace utilisateur.
+Une copie locale de lecture seule du payload V2 a ete extraite pour analyse B21.
+Snapshot observe :
+- format : horatrack_v2 ;
+- formatVersion : 4 ;
+- schemaVersion : 2 ;
+- 6 sessions dans l'historique au moment de l'extraction.
+
+Constats utiles :
+- une session historique ne porte pas d'employeur : elle ne doit pas etre attribuee arbitrairement ;
+- une session nocturne contient une pause non payee tres longue qui produirait une duree payee negative
+  avec une soustraction naive : le moteur doit bloquer, jamais fabriquer un montant ;
+- une semaine partiellement observee ne prouve pas que les jours manquants valent zero.
+Ces donnees utilisateur brutes ne doivent jamais etre commitees dans GitHub ni publiees dans les logs CI.
+
+31.9 PROCHAINE REPRISE
+Priorite GPS :
+- conserver #442 en brouillon tant que le gate agents requis n'est pas satisfait ;
+- effectuer la validation de geofence physique a la prochaine occasion reelle ;
+- traiter la fermeture automatique a la sortie comme une decision produit separee,
+  pas comme une consequence implicite de ce correctif.
+
+Priorite Salaire V2 :
+- construire la collecte fiable des attestations d'exhaustivite depuis les stores ;
+- raccorder le resultat B21 complet a B20 ;
+- propager fiabilite + avertissements ;
+- raccorder ecran, PDF, net et historique sans formule locale parallele ;
+- verifier ensuite la chaine pointage -> B21 -> B20 -> brut/net -> sorties.
+
+Aucune fusion produit, aucun deploiement Firebase, aucune publication store dans ce checkpoint.
+Le checkpoint 30 et toute l'archive anterieure sont conserves integralement ci-dessous.
+
+==============================================================================
+CHECKPOINT 30 ET ARCHIVE ANTERIEURE — CONSERVES SANS SUPPRESSION
+==============================================================================
+
 HORATRACK — DOCUMENT MAITRE V2.22 — CHECKPOINT 30
 25 SEPTEMBRE 2026 — AUDIT DU RACCORD POINTAGES / B21 / B20
 
