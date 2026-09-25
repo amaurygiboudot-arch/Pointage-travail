@@ -26,7 +26,11 @@ object CelestialWeatherContextV2 {
         val source: String
     ) {
         fun isFresh(nowMs: Long): Boolean =
-            nowMs >= fetchedAtMs && nowMs - fetchedAtMs <= MAX_RENDER_AGE_MS
+            nowMs >= fetchedAtMs && nowMs - fetchedAtMs in 0L..MAX_RENDER_AGE_MS
+
+        val renderExpiresAtMs: Long
+            get() = if (fetchedAtMs > Long.MAX_VALUE - MAX_RENDER_AGE_MS) Long.MAX_VALUE
+                else fetchedAtMs + MAX_RENDER_AGE_MS
 
         fun matches(snapshot: CelestialSnapshotV2): Boolean {
             val latitude = round(snapshot.latitudeDeg * 100.0) / 100.0
