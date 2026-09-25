@@ -60,6 +60,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : une même semaine est fournie plusieurs fois dans une tranche ; calcul bloqué pour éviter un double comptage."
     const val EVIDENCE_WARNING =
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
+    const val MISSING_WEEKS_WARNING =
+        "Variables segmentées : aucune preuve hebdomadaire n'est fournie pour une tranche ; variable inconnue, calcul bloqué."
     const val INVALID_PAID_TIME_WARNING =
         "Variables segmentées : une durée payée hebdomadaire est négative ; calcul bloqué."
     const val UNSUPPORTED_CONTRACT_WARNING =
@@ -131,6 +133,11 @@ object SegmentedWorkedVariableGrossSourceV2 {
             val key = sliceKey(slice)
             val supplied = evidenceByKey[key]
                 ?: return blocked(warnings + COVERAGE_WARNING)
+
+            // Une liste vide ne prouve pas un zéro : conserver une semaine explicitement qualifiée.
+            if (supplied.weeks.isEmpty()) {
+                return blocked(warnings + supplied.warnings + MISSING_WEEKS_WARNING)
+            }
 
             // Bloquer avant les préconditions des calculateurs, sans convertir la corruption en zéro.
             if (supplied.weeks.any { it.week.paidMinutes < 0 }) {

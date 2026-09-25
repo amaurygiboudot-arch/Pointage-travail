@@ -366,6 +366,66 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         assertFalse(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.INVALID_PAID_TIME_WARNING))
     }
 
+    @Test
+    fun emptyFullTimeWeeksNeverBecomeReliableZero() {
+        assertMissingWeeksBlocked(calculateSingleSliceWeeks(emptyList()))
+    }
+
+    @Test
+    fun emptyPartTimeWeeksNeverBecomeReliableZero() {
+        assertMissingWeeksBlocked(
+            calculateSingleSliceWeeks(
+                weeks = emptyList(),
+                contractType = ContractTypeV2.PART_TIME,
+                contractualWeeklyMinutes = 20 * 60
+            )
+        )
+    }
+
+    @Test
+    fun emptyEarlierSliceBlocksOtherwiseValidPeriod() {
+        assertMissingWeeksBlocked(calculateWithEmptySlice(emptyIndex = 0))
+    }
+
+    @Test
+    fun emptyLaterSliceDiscardsEarlierVariableAndPreservesWarnings() {
+        assertMissingWeeksBlocked(calculateWithEmptySlice(emptyIndex = 1))
+    }
+
+    private fun calculateWithEmptySlice(emptyIndex: Int): SegmentedWorkedVariableGrossSourceResultV2 {
+        val contracts = contracts(
+            periodStart = 4,
+            periodEnd = 17,
+            snapshots = listOf(
+                contract("c1", 4, 10, 10.0, ContractTypeV2.FULL_TIME, 35 * 60),
+                contract("c2", 11, null, 20.0, ContractTypeV2.FULL_TIME, 35 * 60)
+            )
+        )
+        val rules = rules(4, 17, listOf(rule("r1", 4, null)))
+        val timeline = PayrollCalculationTimelineV2.align(contracts, rules)
+        assertEquals(2, timeline.slices.size)
+        val result = SegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts = contracts,
+            rules = rules,
+            sliceEvidence = timeline.slices.mapIndexed { index, slice ->
+                val supplied = evidence(slice, 1970, index + 2, 40 * 60)
+                if (index == emptyIndex) {
+                    supplied.copy(weeks = emptyList(), warnings = listOf("preuve-vide"))
+                } else {
+                    supplied
+                }
+            }
+        )
+        assertTrue(result.warnings.contains("preuve-vide"))
+        return result
+    }
+
+    private fun assertMissingWeeksBlocked(result: SegmentedWorkedVariableGrossSourceResultV2) {
+        assertFalse(result.reliable)
+        assertTrue(result.pieces.isEmpty())
+        assertTrue(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.MISSING_WEEKS_WARNING))
+    }
+
     private fun assertInvalidPaidTimeBlocked(result: SegmentedWorkedVariableGrossSourceResultV2) {
         assertFalse(result.reliable)
         assertTrue(result.pieces.isEmpty())
