@@ -114,6 +114,10 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                     return blocked(SalaryPaidWorkAggregatorV2.unassignedEmployerWarning)
                 }
                 let selected = relevant.filter { normalized($0.employerId) == employer }
+                if !selected.isEmpty, payrollRules.nightMultiplier != nil, let rule = context.nightRule,
+                   !nightBoundsReliable(monday: monday, calendar: calendar, rule: rule) {
+                    return blocked(calendarWarning)
+                }
                 let ordered = selected.sorted { $0.entry < $1.entry }
                 for index in ordered.indices {
                     let session = ordered[index]
@@ -225,6 +229,34 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
         let actual = calendar.dateComponents([.year, .month, .day], from: value)
         guard actual.year == day.year, actual.month == day.month, actual.day == day.day else { return nil }
         return calendar.startOfDay(for: value)
+    }
+
+    // Même refus que ZoneRules côté Android : une borne locale inexistante ou répétée
+    // ne devient pas silencieusement la première occurrence choisie par Calendar.
+    // Aucune durée de nuit n'est calculée ici ; la politique canonique reste propriétaire.
+    private static func nightBoundsReliable(
+        monday: Int64, calendar: Calendar, rule: NightPremiumRuleV2
+    ) -> Bool {
+        for offset in -1...8 {
+            let day = monday + Int64(offset)
+            let endDay = rule.endMinute <= rule.startMinute ? day + 1 : day
+            guard let start = localStart(day, calendar: calendar),
+                  let end = localStart(endDay, calendar: calendar),
+                  uniqueLocalTime(on: start, minute: rule.startMinute, calendar: calendar),
+                  uniqueLocalTime(on: end, minute: rule.endMinute, calendar: calendar) else { return false }
+        }
+        return true
+    }
+
+    private static func uniqueLocalTime(on day: Date, minute: Int, calendar: Calendar) -> Bool {
+        guard let first = calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0,
+                                       of: day, matchingPolicy: .strict, repeatedTimePolicy: .first),
+              let last = calendar.date(bySettingHour: minute / 60, minute: minute % 60, second: 0,
+                                      of: day, matchingPolicy: .strict, repeatedTimePolicy: .last),
+              first == last, calendar.isDate(first, inSameDayAs: day),
+              calendar.component(.hour, from: first) == minute / 60,
+              calendar.component(.minute, from: first) == minute % 60 else { return false }
+        return true
     }
 
     private static func wholeMinutes(_ seconds: TimeInterval) -> Int? {
