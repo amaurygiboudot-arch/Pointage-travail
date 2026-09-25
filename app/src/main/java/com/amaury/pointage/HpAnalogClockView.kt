@@ -63,6 +63,10 @@ class HpAnalogClockView @JvmOverloads constructor(
             }
         }
 
+    private val starDome = CelestialStarLayerRendererV2(context) {
+        if (isAttachedToWindow) postInvalidateOnAnimation()
+    }
+    private var celestialState: CelestialTrackerV2.State? = null
     private var celestialSnapshot: CelestialSnapshotV2? = null
     private var hostActivityVisible = false
     private var trackerSubscribed = false
@@ -106,6 +110,8 @@ class HpAnalogClockView @JvmOverloads constructor(
         }
         earthGlobeRenderer.clearCache()
         celestialSnapshot = null
+        celestialState = null
+        starDome.clear()
         assetGeneration.incrementAndGet()
         sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
         sharpSecondBitmap?.takeIf { it !== secondBitmap && !it.isRecycled }?.recycle()
@@ -138,11 +144,15 @@ class HpAnalogClockView @JvmOverloads constructor(
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { state ->
                 celestialSnapshot = state.snapshot
+                celestialState = state
+                starDome.update(state)
                 invalidate()
             }
         } else if (!shouldSubscribe && trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
+            celestialState = null
+            starDome.clear()
             // Conserver le dernier snapshot qualifié : il s'agit uniquement d'un
             // état visuel figé, pas d'une acquisition GPS/capteurs en arrière-plan.
         }
@@ -161,6 +171,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         val faceRadius = safeSpan * 0.40f
 
         drawFace(canvas, cx, cy, faceRadius)
+        starDome.draw(canvas, cx, cy, faceRadius, celestialState)
 
         val now = Calendar.getInstance()
         val seconds = now.get(Calendar.SECOND) + now.get(Calendar.MILLISECOND) / 1000f
@@ -209,7 +220,9 @@ class HpAnalogClockView @JvmOverloads constructor(
             cx = cx,
             cy = cy,
             radius = radius,
-            backgroundAlpha = 214
+            // The dial owns its spherical sky: do not mix the flat panorama
+            // behind it into the same star map.
+            backgroundAlpha = 255
         )
     }
 

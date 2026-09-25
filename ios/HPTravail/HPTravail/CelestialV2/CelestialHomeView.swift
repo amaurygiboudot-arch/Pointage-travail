@@ -487,7 +487,8 @@ private struct CelestialSkyDialV2: View {
                         dialAtmosphereBackground
                             .clipShape(Circle())
                     }
-                    .opacity(0.58)
+                    .background(Color.black, in: Circle())
+                CelestialStarFieldViewV2(state: state, presentation: .dial, renderState: renderState)
                 Circle()
                     .stroke(.white.opacity(0.55), lineWidth: 2)
                     .padding(size * 0.08)
@@ -696,7 +697,7 @@ private struct CelestialSkyDialV2: View {
         center: CGPoint,
         radius: CGFloat
     ) -> CGPoint {
-        guard let projected = CelestialDialProjectionV2.project(
+        guard let projected = CelestialDialProjectionV2.projectSpherical(
             azimuthDegrees: body.azimuthDegrees,
             altitudeDegrees: body.altitudeDegrees,
             trueHeadingDegrees: heading
@@ -718,7 +719,7 @@ private struct CelestialSkyDialV2: View {
         let projectedAltitude = CelestialHorizonTransitionV2.altitudeForHorizonGlow(
             body.altitudeDegrees
         )
-        guard let projected = CelestialDialProjectionV2.project(
+        guard let projected = CelestialDialProjectionV2.projectSpherical(
             azimuthDegrees: body.azimuthDegrees,
             altitudeDegrees: projectedAltitude,
             trueHeadingDegrees: heading
