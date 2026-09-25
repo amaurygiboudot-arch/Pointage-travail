@@ -1,1 +1,4 @@
-Build HoraTrack DEV unique - publish after PR #369 Local Monde - 2026-09-23
+Build HoraTrack DEV unique - installation Céleste V5 demandée par Amaury - 2026-09-25
+Source produit vérifiée : main 86a2f74762b5fccf269ea52ec52c4b883d74137e, PR #430 fusionnée.
+Publier APK/AAB signés de test via le workflow existant vers dev-latest uniquement.
+Validation visuelle sur téléphone à effectuer ; aucune publication store ou déploiement Firebase demandé.
