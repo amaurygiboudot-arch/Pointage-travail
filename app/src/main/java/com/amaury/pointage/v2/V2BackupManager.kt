@@ -30,6 +30,7 @@ object V2BackupManager {
         "horatrack_v2_legal_sources",
         "horatrack_v2_rights",
         "horatrack_v2_payslips",
+        PayrollCoverageAttestationStoreV2.PREFS,
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
         SALARY_COMPANIES_PREFS,
