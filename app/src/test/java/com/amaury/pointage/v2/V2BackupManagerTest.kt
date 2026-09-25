@@ -28,6 +28,15 @@ class V2BackupManagerTest {
     }
 
     @Test
+    fun `la couverture paie v2 est geree par le backup`() {
+        assertTrue(
+            V2BackupManager.isManagedPreferenceFileName(
+                PayrollCoverageAttestationStoreV2.PREFS
+            )
+        )
+    }
+
+    @Test
     fun `un paquet de preferences doit etre entierement type`() {
         val valid = JSONObject()
             .put("name", typed("s", "HoraTrack"))
@@ -42,6 +51,34 @@ class V2BackupManagerTest {
         assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("unknown", typed("x", "value"))))
         assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("fraction", typed("i", 1.5))))
         assertFalse(V2BackupManager.isValidTypedPreferencePayload(JSONObject().put("set", typed("set", JSONArray().put(1)))))
+    }
+
+    @Test
+    fun `fusion couverture conserve le local et ajoute le distant`() {
+        val local = coverage("local", 10L, 16L, 20_000L)
+        val remote = coverage("remote", 17L, 23L, 30_000L)
+
+        val merged = V2BackupManager.mergeCoverageAttestations(
+            listOf(local),
+            listOf(remote)
+        )
+
+        assertEquals(listOf(local, remote), merged)
+    }
+
+    @Test
+    fun `fusion couverture refuse un meme identifiant avec un contenu different`() {
+        val local = coverage("same", 10L, 16L, 20_000L)
+        val remote = local.copy(endEpochDay = 17L)
+
+        assertTrue(
+            runCatching {
+                V2BackupManager.mergeCoverageAttestations(
+                    listOf(local),
+                    listOf(remote)
+                )
+            }.isFailure
+        )
     }
 
     @Test
@@ -88,6 +125,20 @@ class V2BackupManagerTest {
         assertTrue(runCatching { V2BackupManager.mergeHistories(malformed, JSONArray()) }.isFailure)
         assertTrue(runCatching { V2BackupManager.mergeHistories(JSONArray(), malformed) }.isFailure)
     }
+
+    private fun coverage(
+        id: String,
+        start: Long,
+        end: Long,
+        confirmedAtMs: Long
+    ) = PayrollCoverageAttestationV2(
+        id = id,
+        employerId = "company-a",
+        startEpochDay = start,
+        endEpochDay = end,
+        confirmedAtMs = confirmedAtMs,
+        timeZoneId = "UTC"
+    )
 
     private fun typed(type: String, value: Any) = JSONObject().put("t", type).put("v", value)
 
