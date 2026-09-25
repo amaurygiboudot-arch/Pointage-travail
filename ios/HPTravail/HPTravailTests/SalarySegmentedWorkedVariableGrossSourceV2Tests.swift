@@ -302,6 +302,103 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
         XCTAssertFalse(result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.duplicateWeekWarning))
     }
 
+    func testNegativePaidMinutesFailClosedBeforeFullTimeCalculation() throws {
+        assertInvalidPaidTimeBlocked(
+            try calculateSingleSliceWeeks([weekEvidence(2, paidMinutes: -1), weekEvidence(3, paidMinutes: 0)])
+        )
+    }
+
+    func testMinimumPaidMinutesFailClosedBeforeFullTimeCalculation() throws {
+        assertInvalidPaidTimeBlocked(
+            try calculateSingleSliceWeeks([weekEvidence(2, paidMinutes: Int.min), weekEvidence(3, paidMinutes: 0)])
+        )
+    }
+
+    func testNegativePaidMinutesAfterValidWeekDoNotPublishPartialGross() throws {
+        assertInvalidPaidTimeBlocked(
+            try calculateSingleSliceWeeks([weekEvidence(2, paidMinutes: 40 * 60), weekEvidence(3, paidMinutes: -1)])
+        )
+    }
+
+    func testNegativePaidMinutesInLaterSliceDiscardEarlierVariable() throws {
+        let contracts = try XCTUnwrap(
+            contractResolution(
+                start: 4,
+                end: 17,
+                snapshots: [
+                    contract("c1", from: 4, to: 10, rate: 10, type: .fullTime, weekly: 35 * 60),
+                    contract("c2", from: 11, to: nil, rate: 20, type: .fullTime, weekly: 35 * 60)
+                ]
+            )
+        )
+        let rules = coverage(start: 4, end: 17, segments: [ruleSegment("r1", start: 4, end: 17)])
+        let timeline = SalaryPayrollCalculationTimelineV2.align(contracts: contracts, rules: rules)
+        XCTAssertEqual(timeline.slices.count, 2)
+        let result = SalarySegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts: contracts,
+            rules: rules,
+            sliceEvidence: timeline.slices.enumerated().map { index, slice in
+                SalarySegmentedPayrollSliceEvidenceV2(
+                    startEpochDay: slice.startEpochDay,
+                    endEpochDay: slice.endEpochDay,
+                    contractVersionId: slice.contractVersionId,
+                    ruleVersionId: slice.ruleVersionId,
+                    weeks: [weekEvidence(index + 2, paidMinutes: index == 0 ? 40 * 60 : -1)],
+                    evidence: .fullyConfirmed,
+                    warnings: index == 1 ? ["preuve-import"] : []
+                )
+            }
+        )
+        assertInvalidPaidTimeBlocked(result)
+        XCTAssertTrue(result.warnings.contains("preuve-import"))
+    }
+
+    func testPartTimeNegativePaidMinutesFailClosed() throws {
+        assertInvalidPaidTimeBlocked(
+            try calculateSingleSliceWeeks(
+                [weekEvidence(2, paidMinutes: -1), weekEvidence(3, paidMinutes: 0)],
+                contractType: .partTime,
+                contractualWeeklyMinutes: 20 * 60
+            )
+        )
+    }
+
+    func testExplicitZeroPaidTimeRemainsReliable() throws {
+        let result = try calculateSingleSliceWeeks([weekEvidence(2, paidMinutes: 0), weekEvidence(3, paidMinutes: 0)])
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.pieces.count, 1)
+        let piece = try XCTUnwrap(result.pieces.first)
+        XCTAssertEqual(piece.variableGross, 0, accuracy: 0)
+        XCTAssertFalse(result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.invalidPaidTimeWarning))
+    }
+
+    func testPartTimeExplicitZeroPaidTimeRemainsReliable() throws {
+        let result = try calculateSingleSliceWeeks(
+            [weekEvidence(2, paidMinutes: 0), weekEvidence(3, paidMinutes: 0)],
+            contractType: .partTime,
+            contractualWeeklyMinutes: 20 * 60
+        )
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.pieces.count, 1)
+        let piece = try XCTUnwrap(result.pieces.first)
+        XCTAssertEqual(piece.variableGross, 0, accuracy: 0)
+        XCTAssertFalse(result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.invalidPaidTimeWarning))
+    }
+
+    private func assertInvalidPaidTimeBlocked(
+        _ result: SalarySegmentedWorkedVariableGrossSourceResultV2,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(result.reliable, file: file, line: line)
+        XCTAssertTrue(result.pieces.isEmpty, file: file, line: line)
+        XCTAssertTrue(
+            result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.invalidPaidTimeWarning),
+            file: file,
+            line: line
+        )
+    }
+
     private func assertDuplicateWeekBlocked(
         _ result: SalarySegmentedWorkedVariableGrossSourceResultV2,
         file: StaticString = #filePath,
@@ -317,21 +414,23 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
     }
 
     private func calculateSingleSliceWeeks(
-        _ weeks: [SalarySegmentedPayrollWeekEvidenceV2]
+        _ weeks: [SalarySegmentedPayrollWeekEvidenceV2],
+        contractType: ContractTypeV2 = .fullTime,
+        contractualWeeklyMinutes: Int = 35 * 60
     ) throws -> SalarySegmentedWorkedVariableGrossSourceResultV2 {
         let contracts = try XCTUnwrap(
             contractResolution(
                 start: 4,
                 end: 17,
                 snapshots: [
-                    contract("c1", from: 4, to: nil, rate: 10, type: .fullTime, weekly: 35 * 60)
+                    contract("c1", from: 4, to: nil, rate: 10, type: contractType, weekly: contractualWeeklyMinutes)
                 ]
             )
         )
         let rules = coverage(
             start: 4,
             end: 17,
-            segments: [ruleSegment("r1", start: 4, end: 17)]
+            segments: [ruleSegment("r1", start: 4, end: 17, weeklyRegularMinutes: contractualWeeklyMinutes)]
         )
         let timeline = SalaryPayrollCalculationTimelineV2.align(contracts: contracts, rules: rules)
         XCTAssertEqual(timeline.slices.count, 1)

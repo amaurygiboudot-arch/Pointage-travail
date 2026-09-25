@@ -64,6 +64,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : une même semaine est fournie plusieurs fois dans une tranche ; calcul bloqué pour éviter un double comptage."
     static let evidenceWarning =
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
+    static let invalidPaidTimeWarning =
+        "Variables segmentées : une durée payée hebdomadaire est négative ; calcul bloqué."
     static let unsupportedContractWarning =
         "Variables segmentées : ce type de contrat n'est pas supporté par la base segmentée actuelle."
     static let partTimeComplementaryWarning =
@@ -142,6 +144,16 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             let key = sliceKey(slice)
             guard let supplied = evidenceByKey[key] else {
                 return blocked(warnings + [coverageWarning])
+            }
+
+            // Bloquer avant les préconditions des calculateurs, sans convertir la corruption en zéro.
+            guard supplied.weeks.allSatisfy({ $0.week.paidMinutes >= 0 }) else {
+                return blocked(
+                    warnings
+                        + supplied.warnings
+                        + supplied.evidence.warnings
+                        + [invalidPaidTimeWarning]
+                )
             }
 
             guard supplied.evidence.grossInputsReliable,

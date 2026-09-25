@@ -287,6 +287,91 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         assertFalse(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.DUPLICATE_WEEK_WARNING))
     }
 
+    @Test
+    fun negativePaidMinutesFailClosedBeforeFullTimeCalculation() {
+        assertInvalidPaidTimeBlocked(
+            calculateSingleSliceWeeks(listOf(weekEvidence(2, -1), weekEvidence(3, 0)))
+        )
+    }
+
+    @Test
+    fun minimumPaidMinutesFailClosedBeforeFullTimeCalculation() {
+        assertInvalidPaidTimeBlocked(
+            calculateSingleSliceWeeks(listOf(weekEvidence(2, Int.MIN_VALUE), weekEvidence(3, 0)))
+        )
+    }
+
+    @Test
+    fun negativePaidMinutesAfterValidWeekDoNotPublishPartialGross() {
+        assertInvalidPaidTimeBlocked(
+            calculateSingleSliceWeeks(listOf(weekEvidence(2, 40 * 60), weekEvidence(3, -1)))
+        )
+    }
+
+    @Test
+    fun negativePaidMinutesInLaterSliceDiscardEarlierVariable() {
+        val contracts = contracts(
+            periodStart = 4,
+            periodEnd = 17,
+            snapshots = listOf(
+                contract("c1", 4, 10, 10.0, ContractTypeV2.FULL_TIME, 35 * 60),
+                contract("c2", 11, null, 20.0, ContractTypeV2.FULL_TIME, 35 * 60)
+            )
+        )
+        val rules = rules(4, 17, listOf(rule("r1", 4, null)))
+        val timeline = PayrollCalculationTimelineV2.align(contracts, rules)
+        assertEquals(2, timeline.slices.size)
+        val result = SegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts = contracts,
+            rules = rules,
+            sliceEvidence = timeline.slices.mapIndexed { index, slice ->
+                evidence(slice, 1970, index + 2, if (index == 0) 40 * 60 else -1)
+                    .copy(warnings = if (index == 1) listOf("preuve-import") else emptyList())
+            }
+        )
+        assertInvalidPaidTimeBlocked(result)
+        assertTrue(result.warnings.contains("preuve-import"))
+    }
+
+    @Test
+    fun partTimeNegativePaidMinutesFailClosed() {
+        assertInvalidPaidTimeBlocked(
+            calculateSingleSliceWeeks(
+                weeks = listOf(weekEvidence(2, -1), weekEvidence(3, 0)),
+                contractType = ContractTypeV2.PART_TIME,
+                contractualWeeklyMinutes = 20 * 60
+            )
+        )
+    }
+
+    @Test
+    fun explicitZeroPaidTimeRemainsReliable() {
+        val result = calculateSingleSliceWeeks(listOf(weekEvidence(2, 0), weekEvidence(3, 0)))
+        assertTrue(result.reliable)
+        assertEquals(1, result.pieces.size)
+        assertEquals(0.0, result.pieces.single().variableGross, 0.0)
+        assertFalse(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.INVALID_PAID_TIME_WARNING))
+    }
+
+    @Test
+    fun partTimeExplicitZeroPaidTimeRemainsReliable() {
+        val result = calculateSingleSliceWeeks(
+            weeks = listOf(weekEvidence(2, 0), weekEvidence(3, 0)),
+            contractType = ContractTypeV2.PART_TIME,
+            contractualWeeklyMinutes = 20 * 60
+        )
+        assertTrue(result.reliable)
+        assertEquals(1, result.pieces.size)
+        assertEquals(0.0, result.pieces.single().variableGross, 0.0)
+        assertFalse(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.INVALID_PAID_TIME_WARNING))
+    }
+
+    private fun assertInvalidPaidTimeBlocked(result: SegmentedWorkedVariableGrossSourceResultV2) {
+        assertFalse(result.reliable)
+        assertTrue(result.pieces.isEmpty())
+        assertTrue(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.INVALID_PAID_TIME_WARNING))
+    }
+
     private fun assertDuplicateWeekBlocked(result: SegmentedWorkedVariableGrossSourceResultV2) {
         assertFalse(result.reliable)
         assertTrue(result.pieces.isEmpty())
@@ -294,19 +379,21 @@ class SegmentedWorkedVariableGrossSourceV2Test {
     }
 
     private fun calculateSingleSliceWeeks(
-        weeks: List<SegmentedPayrollWeekEvidenceV2>
+        weeks: List<SegmentedPayrollWeekEvidenceV2>,
+        contractType: ContractTypeV2 = ContractTypeV2.FULL_TIME,
+        contractualWeeklyMinutes: Int = 35 * 60
     ): SegmentedWorkedVariableGrossSourceResultV2 {
         val contracts = contracts(
             periodStart = 4,
             periodEnd = 17,
             snapshots = listOf(
-                contract("c1", 4, null, 10.0, ContractTypeV2.FULL_TIME, 35 * 60)
+                contract("c1", 4, null, 10.0, contractType, contractualWeeklyMinutes)
             )
         )
         val rules = rules(
             periodStart = 4,
             periodEnd = 17,
-            snapshots = listOf(rule("r1", 4, null))
+            snapshots = listOf(rule("r1", 4, null, weeklyRegularMinutes = contractualWeeklyMinutes))
         )
         val slice = PayrollCalculationTimelineV2.align(contracts, rules).slices.single()
         return SegmentedWorkedVariableGrossSourceV2.calculate(
