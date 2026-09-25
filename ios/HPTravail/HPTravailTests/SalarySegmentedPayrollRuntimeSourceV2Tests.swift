@@ -33,8 +33,9 @@ final class SalarySegmentedPayrollRuntimeSourceV2Tests: XCTestCase {
 
     func testSliceOnlyAttestationCannotCertifyFullWeekButFullWeekCan() throws {
         let fixture = try makeFixture(start: 6, end: 8)
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "coverage-runtime-\(UUID().uuidString)"))
-        defer { defaults.removePersistentDomain(forName: defaultsSuiteName(defaults)) }
+        let suite = "coverage-runtime-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
 
         let work = SalaryWorkSessionSourceV2(
             sessions: [
@@ -190,10 +191,5 @@ final class SalarySegmentedPayrollRuntimeSourceV2Tests: XCTestCase {
 
     private func date(_ epochDay: Int64, _ hour: Int) -> Date {
         Date(timeIntervalSince1970: Double(epochDay) * 86_400 + Double(hour * 3_600))
-    }
-
-    private func defaultsSuiteName(_ defaults: UserDefaults) -> String {
-        // Les suites de test sont isolées par UUID ; ce nom n'est pas utilisé par l'application.
-        defaults.volatileDomainNames.first(where: { $0.hasPrefix("coverage-runtime-") }) ?? ""
     }
 }
