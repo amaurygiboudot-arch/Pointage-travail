@@ -221,7 +221,7 @@ final class GpsGeofenceV2Tests: XCTestCase {
         )
 
         XCTAssertEqual(returned.pendingEvents.map(\.kind), [.departure, .arrival])
-        XCTAssertNil(returned.confirmedSessionId)
+        XCTAssertEqual(returned.confirmedSessionId, sessionId)
     }
 
     func testReturnTimestampBeforeDepartureIsRejected() {
