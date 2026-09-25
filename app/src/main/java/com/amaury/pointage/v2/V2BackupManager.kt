@@ -32,6 +32,7 @@ object V2BackupManager {
         "horatrack_v2_payslips",
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
+        SegmentedPayrollCoverageStoreV2.PREFS,
         SALARY_COMPANIES_PREFS,
         "salary_settings",
         "gps_settings",
