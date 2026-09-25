@@ -499,13 +499,19 @@ private struct CelestialSkyDialV2: View {
                 cardinal("O", x: center.x - horizonRadius - 15, y: center.y)
 
                 if let snapshot = state.snapshot {
-                    CelestialGlobeViewV2(snapshot: snapshot, mode: globeMode)
+                    CelestialGlobeViewV2(
+                        snapshot: snapshot,
+                        mode: globeMode,
+                        renderingHeadingDegrees: CelestialHeadingPolicyV2.renderingHeadingDegrees(
+                            headingDegrees: state.trueHeadingDegrees,
+                            quality: state.headingQuality
+                        )
+                    )
                         .frame(width: size * 0.29, height: size * 0.29)
                         .position(center)
                 } else {
                     Circle()
                         .fill(.blue.opacity(0.42))
-                        .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
                         .frame(width: size * 0.22, height: size * 0.22)
                         .position(center)
                 }
