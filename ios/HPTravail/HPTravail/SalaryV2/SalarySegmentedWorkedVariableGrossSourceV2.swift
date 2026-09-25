@@ -51,8 +51,8 @@ struct SalarySegmentedWorkedVariableGrossSourceResultV2: Equatable {
 /// - Temps partiel : majorations temporelles uniquement tant que les heures complémentaires
 ///   reposent encore sur un barème supplétif non structuré.
 ///
-/// Une même semaine observée dans deux tranches différentes est un signal de coupure artificielle
-/// des seuils hebdomadaires et bloque le résultat.
+/// Une même semaine ne doit apparaître qu'une fois, y compris au sein d'une même tranche.
+/// Une duplication ou un partage entre tranches bloque le résultat avant tout calcul monétaire.
 enum SalarySegmentedWorkedVariableGrossSourceV2 {
     static let timelineWarning =
         "Variables segmentées : la timeline contrat/règles est absente ou non fiable ; calcul bloqué."
@@ -60,6 +60,8 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : les preuves hebdomadaires ne correspondent pas exactement aux tranches de calcul."
     static let weekContextWarning =
         "Variables segmentées : une semaine est tronquée ou partagée entre plusieurs tranches ; les seuils hebdomadaires ne sont pas fiables."
+    static let duplicateWeekWarning =
+        "Variables segmentées : une même semaine est fournie plusieurs fois dans une tranche ; calcul bloqué pour éviter un double comptage."
     static let evidenceWarning =
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
     static let unsupportedContractWarning =
@@ -157,8 +159,9 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     yearForWeekOfYear: item.yearForWeekOfYear,
                     weekOfYear: item.weekOfYear
                 )
-                if let previous = weekOwners[weekKey], previous != key {
-                    return blocked(warnings + [weekContextWarning])
+                if let previous = weekOwners[weekKey] {
+                    let warning = previous == key ? duplicateWeekWarning : weekContextWarning
+                    return blocked(warnings + [warning])
                 }
                 weekOwners[weekKey] = key
             }

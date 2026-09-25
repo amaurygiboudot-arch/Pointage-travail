@@ -7,7 +7,7 @@ import com.amaury.pointage.v2.model.ContractTypeV2
  *
  * fullWeekContextReliable signifie que la semaine a été qualifiée avec son contexte hebdomadaire
  * complet : aucune borne de mois, contrat ou règle n'a remis artificiellement les compteurs à zéro.
- * Une même semaine ne doit jamais apparaître dans deux tranches différentes.
+ * Une même semaine ne doit apparaître qu'une fois, y compris au sein d'une même tranche.
  */
 data class SegmentedPayrollWeekEvidenceV2(
     val weekYear: Int,
@@ -46,7 +46,7 @@ data class SegmentedWorkedVariableGrossSourceResultV2(
  * - temps partiel : majorations temporelles uniquement tant qu'aucune règle structurée fiable
  *   ne remplace le barème supplétif des heures complémentaires.
  *
- * Toute semaine partagée entre deux tranches, toute preuve incomplète ou tout palier non couvert
+ * Toute semaine dupliquée ou partagée entre tranches, toute preuve incomplète ou tout palier non couvert
  * laisse la variable inconnue. Aucun zéro n'est créé par défaut.
  */
 object SegmentedWorkedVariableGrossSourceV2 {
@@ -56,6 +56,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
         "Variables segmentées : les preuves hebdomadaires ne correspondent pas exactement aux tranches de calcul."
     const val WEEK_CONTEXT_WARNING =
         "Variables segmentées : une semaine est tronquée ou partagée entre plusieurs tranches ; les seuils hebdomadaires ne sont pas fiables."
+    const val DUPLICATE_WEEK_WARNING =
+        "Variables segmentées : une même semaine est fournie plusieurs fois dans une tranche ; calcul bloqué pour éviter un double comptage."
     const val EVIDENCE_WARNING =
         "Variables segmentées : les preuves de temps/règles/majorations sont incomplètes ; calcul bloqué."
     const val UNSUPPORTED_CONTRACT_WARNING =
@@ -137,8 +139,13 @@ object SegmentedWorkedVariableGrossSourceV2 {
             supplied.weeks.forEach { week ->
                 val weekKey = week.weekYear to week.weekOfYear
                 val previous = weekOwners.putIfAbsent(weekKey, key)
-                if (previous != null && previous != key) {
-                    return blocked(warnings + WEEK_CONTEXT_WARNING)
+                if (previous != null) {
+                    val warning = if (previous == key) {
+                        DUPLICATE_WEEK_WARNING
+                    } else {
+                        WEEK_CONTEXT_WARNING
+                    }
+                    return blocked(warnings + warning)
                 }
             }
 

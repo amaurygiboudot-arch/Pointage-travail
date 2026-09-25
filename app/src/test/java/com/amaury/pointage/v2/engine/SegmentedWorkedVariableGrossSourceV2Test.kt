@@ -246,6 +246,86 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         )
     }
 
+    @Test
+    fun identicalWeekWithinOneSliceFailsClosed() {
+        val week = weekEvidence(2, 40 * 60)
+        assertDuplicateWeekBlocked(calculateSingleSliceWeeks(listOf(week, week)))
+    }
+
+    @Test
+    fun conflictingWeekWithinOneSliceFailsClosed() {
+        assertDuplicateWeekBlocked(
+            calculateSingleSliceWeeks(
+                listOf(weekEvidence(2, 40 * 60), weekEvidence(2, 36 * 60))
+            )
+        )
+    }
+
+    @Test
+    fun nonAdjacentDuplicateWeekWithinOneSliceFailsClosed() {
+        val week = weekEvidence(2, 40 * 60)
+        assertDuplicateWeekBlocked(
+            calculateSingleSliceWeeks(listOf(week, weekEvidence(3, 36 * 60), week))
+        )
+    }
+
+    @Test
+    fun duplicateZeroVariableWeekDoesNotBecomeReliableZero() {
+        val week = weekEvidence(2, 35 * 60)
+        assertDuplicateWeekBlocked(calculateSingleSliceWeeks(listOf(week, week)))
+    }
+
+    @Test
+    fun distinctWeeksWithinOneSliceRemainReliable() {
+        val result = calculateSingleSliceWeeks(
+            listOf(weekEvidence(2, 40 * 60), weekEvidence(3, 40 * 60))
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1, result.pieces.size)
+        assertEquals(125.0, result.pieces.single().variableGross, 0.0001)
+        assertFalse(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.DUPLICATE_WEEK_WARNING))
+    }
+
+    private fun assertDuplicateWeekBlocked(result: SegmentedWorkedVariableGrossSourceResultV2) {
+        assertFalse(result.reliable)
+        assertTrue(result.pieces.isEmpty())
+        assertTrue(result.warnings.contains(SegmentedWorkedVariableGrossSourceV2.DUPLICATE_WEEK_WARNING))
+    }
+
+    private fun calculateSingleSliceWeeks(
+        weeks: List<SegmentedPayrollWeekEvidenceV2>
+    ): SegmentedWorkedVariableGrossSourceResultV2 {
+        val contracts = contracts(
+            periodStart = 4,
+            periodEnd = 17,
+            snapshots = listOf(
+                contract("c1", 4, null, 10.0, ContractTypeV2.FULL_TIME, 35 * 60)
+            )
+        )
+        val rules = rules(
+            periodStart = 4,
+            periodEnd = 17,
+            snapshots = listOf(rule("r1", 4, null))
+        )
+        val slice = PayrollCalculationTimelineV2.align(contracts, rules).slices.single()
+        return SegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts = contracts,
+            rules = rules,
+            sliceEvidence = listOf(
+                evidence(slice, 1970, 2, 35 * 60).copy(weeks = weeks)
+            )
+        )
+    }
+
+    private fun weekEvidence(weekOfYear: Int, paidMinutes: Int) =
+        SegmentedPayrollWeekEvidenceV2(
+            weekYear = 1970,
+            weekOfYear = weekOfYear,
+            week = PayrollWeekV2(paidMinutes = paidMinutes),
+            fullWeekContextReliable = true
+        )
+
     private fun contracts(
         periodStart: Long,
         periodEnd: Long,

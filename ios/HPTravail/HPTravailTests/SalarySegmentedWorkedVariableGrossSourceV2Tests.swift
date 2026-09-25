@@ -263,6 +263,107 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
         )
     }
 
+    func testIdenticalWeekWithinOneSliceFailsClosed() throws {
+        let week = weekEvidence(2, paidMinutes: 40 * 60)
+        assertDuplicateWeekBlocked(try calculateSingleSliceWeeks([week, week]))
+    }
+
+    func testConflictingWeekWithinOneSliceFailsClosed() throws {
+        assertDuplicateWeekBlocked(
+            try calculateSingleSliceWeeks([
+                weekEvidence(2, paidMinutes: 40 * 60),
+                weekEvidence(2, paidMinutes: 36 * 60)
+            ])
+        )
+    }
+
+    func testNonAdjacentDuplicateWeekWithinOneSliceFailsClosed() throws {
+        let week = weekEvidence(2, paidMinutes: 40 * 60)
+        assertDuplicateWeekBlocked(
+            try calculateSingleSliceWeeks([week, weekEvidence(3, paidMinutes: 36 * 60), week])
+        )
+    }
+
+    func testDuplicateZeroVariableWeekDoesNotBecomeReliableZero() throws {
+        let week = weekEvidence(2, paidMinutes: 35 * 60)
+        assertDuplicateWeekBlocked(try calculateSingleSliceWeeks([week, week]))
+    }
+
+    func testDistinctWeeksWithinOneSliceRemainReliable() throws {
+        let result = try calculateSingleSliceWeeks([
+            weekEvidence(2, paidMinutes: 40 * 60),
+            weekEvidence(3, paidMinutes: 40 * 60)
+        ])
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(result.pieces.count, 1)
+        let piece = try XCTUnwrap(result.pieces.first)
+        XCTAssertEqual(piece.variableGross, 125.0, accuracy: 0.0001)
+        XCTAssertFalse(result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.duplicateWeekWarning))
+    }
+
+    private func assertDuplicateWeekBlocked(
+        _ result: SalarySegmentedWorkedVariableGrossSourceResultV2,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(result.reliable, file: file, line: line)
+        XCTAssertTrue(result.pieces.isEmpty, file: file, line: line)
+        XCTAssertTrue(
+            result.warnings.contains(SalarySegmentedWorkedVariableGrossSourceV2.duplicateWeekWarning),
+            file: file,
+            line: line
+        )
+    }
+
+    private func calculateSingleSliceWeeks(
+        _ weeks: [SalarySegmentedPayrollWeekEvidenceV2]
+    ) throws -> SalarySegmentedWorkedVariableGrossSourceResultV2 {
+        let contracts = try XCTUnwrap(
+            contractResolution(
+                start: 4,
+                end: 17,
+                snapshots: [
+                    contract("c1", from: 4, to: nil, rate: 10, type: .fullTime, weekly: 35 * 60)
+                ]
+            )
+        )
+        let rules = coverage(
+            start: 4,
+            end: 17,
+            segments: [ruleSegment("r1", start: 4, end: 17)]
+        )
+        let timeline = SalaryPayrollCalculationTimelineV2.align(contracts: contracts, rules: rules)
+        XCTAssertEqual(timeline.slices.count, 1)
+        let slice = try XCTUnwrap(timeline.slices.first)
+        return SalarySegmentedWorkedVariableGrossSourceV2.calculate(
+            contracts: contracts,
+            rules: rules,
+            sliceEvidence: [
+                SalarySegmentedPayrollSliceEvidenceV2(
+                    startEpochDay: slice.startEpochDay,
+                    endEpochDay: slice.endEpochDay,
+                    contractVersionId: slice.contractVersionId,
+                    ruleVersionId: slice.ruleVersionId,
+                    weeks: weeks,
+                    evidence: .fullyConfirmed
+                )
+            ]
+        )
+    }
+
+    private func weekEvidence(
+        _ weekOfYear: Int,
+        paidMinutes: Int
+    ) -> SalarySegmentedPayrollWeekEvidenceV2 {
+        SalarySegmentedPayrollWeekEvidenceV2(
+            yearForWeekOfYear: 1970,
+            weekOfYear: weekOfYear,
+            week: PayrollWeekV2(paidMinutes: paidMinutes),
+            fullWeekContextReliable: true
+        )
+    }
+
     private func contractResolution(
         start: Int64,
         end: Int64,
