@@ -90,7 +90,8 @@ class MainActivity : Activity() {
                 .setDuration(220L)
                 .withEndAction {
                     if (activeTab == "home") {
-                        navigationTabs.visibility = View.GONE
+                        // Keep the measured slot: GONE reflows the sky panel after the fade.
+                        navigationTabs.visibility = View.INVISIBLE
                         navigationTabs.alpha = 1f
                     }
                 }

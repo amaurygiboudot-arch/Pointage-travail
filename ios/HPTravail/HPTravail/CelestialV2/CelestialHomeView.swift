@@ -74,7 +74,9 @@ struct CelestialHomeView: View {
                 }
             }
             .navigationTitle("Accueil")
-            .toolbar(tabBarVisible ? .visible : .hidden, for: .tabBar)
+            // Preserve the system bar's safe-area slot; only its opacity changes.
+            .toolbar(.visible, for: .tabBar)
+            .background(HomeTabBarFadeV2(isVisible: tabBarVisible))
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -194,17 +196,11 @@ struct CelestialHomeView: View {
 
     private func revealTabBarAndScheduleHide() {
         tabBarHideTask?.cancel()
-        if !tabBarVisible {
-            withAnimation(.easeOut(duration: 0.16)) {
-                tabBarVisible = true
-            }
-        }
+        tabBarVisible = true
         tabBarHideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: HomeTabBarVisibilityPolicyV2.inactivityTimeoutNanoseconds)
             guard !Task.isCancelled, isVisible else { return }
-            withAnimation(.easeInOut(duration: 0.22)) {
-                tabBarVisible = false
-            }
+            tabBarVisible = false
         }
     }
 

@@ -1,5 +1,6 @@
-Build HoraTrack DEV unique - Terre centrée orientée nord réel, sans guides blancs - 2026-09-25
-Base vérifiée : main 0bff9ef5e9226c12f82a4396c416ce28d7e15aa3 après #433.
-Essai demandé par Amaury : supprimer les arcs/grilles blancs et contre-tourner la Terre sur son centre fixe.
+Build HoraTrack DEV unique - fondu des onglets sans saut de l'Accueil - 2026-09-25
+Base vérifiée : main e2e9cad6bc1e3acd5ec15dfb69b26bbe1060c8ed après #434.
+Retour utilisateur : petit sautillement lors du masquage des onglets.
+Conserver la place de la navigation Android/iOS, le centrage et l'orientation de la Terre.
 Publier APK/AAB signés de test vers dev-latest via le workflow existant après fusion.
-Validation visuelle et boussole sur appareils à effectuer ; aucun store ni déploiement Firebase.
+Validation visuelle sur appareils à effectuer ; aucun store ni déploiement Firebase.
