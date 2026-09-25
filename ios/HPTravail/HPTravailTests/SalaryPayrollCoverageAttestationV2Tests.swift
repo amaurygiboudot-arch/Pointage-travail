@@ -4,7 +4,7 @@ import XCTest
 
 final class SalaryPayrollCoverageAttestationV2Tests: XCTestCase {
     private let zoneId = "Europe/Paris"
-    private let monday = epochDay(2026, 9, 21)
+    private let monday: Int64 = 20_717 // 2026-09-21 en jours depuis 1970-01-01 UTC
     private var sunday: Int64 { monday + 6 }
 
     func testReadableStoreWithoutAttestationNeverProvesEmptyWeek() {
