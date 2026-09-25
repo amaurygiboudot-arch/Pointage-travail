@@ -58,6 +58,9 @@ struct CelestialRenderStateV2: Equatable, Sendable {
     let orientationQuality: CelestialHeadingQualityV2
     let dataFreshness: CelestialDataFreshnessV2
     let warnings: Set<CelestialRenderWarningV2>
+    var clouds: CloudAtmosphereStateV2? = nil
+    var cloudsExpiresAt: Date? = nil
+    var cloudsFetchedAt: Date? = nil
 }
 
 enum CelestialRenderStateFactoryV2 {
@@ -72,9 +75,28 @@ enum CelestialRenderStateFactoryV2 {
         headingAge: TimeInterval? = nil,
         now: Date = Date()
     ) -> CelestialRenderStateV2 {
+        // Qualify once, before any visibility or texture can consume weather.
+        let candidateClouds = weather.flatMap {
+            CelestialCloudAtmosphereV2.resolve(
+                totalCoverage: $0.cloudCover, lowCoverage: $0.cloudCoverLow,
+                midCoverage: $0.cloudCoverMid, highCoverage: $0.cloudCoverHigh,
+                fog: CelestialAtmosphereV2.weatherType($0.weatherCode) == .fog,
+                visibilityMeters: $0.visibilityMeters
+            )
+        }
+        let weatherStatus: CelestialDataStatusV2 = {
+            guard let weather else { return .unavailable }
+            guard now >= weather.fetchedAt else { return .invalid }
+            guard weather.isFresh(at: now) else { return .stale }
+            guard locationQuality == .valid, weather.matches(snapshot: snapshot),
+                  candidateClouds != nil else { return .invalid }
+            return .fresh
+        }()
+        let qualifiedWeather = weatherStatus == .fresh ? weather : nil
+        let clouds = weatherStatus == .fresh ? candidateClouds : nil
         let atmosphere = CelestialAtmosphereV2.resolve(
             snapshot: snapshot,
-            weather: weather,
+            weather: qualifiedWeather,
             ambient: ambient
         )
 
@@ -93,10 +115,7 @@ enum CelestialRenderStateFactoryV2 {
             astronomyStatus: astronomyAge <= 5 ? .fresh : .stale,
             locationStatus: locationStatus(locationQuality),
             headingStatus: headingStatus(orientationQuality),
-            weatherStatus: {
-                guard let weather else { return .unavailable }
-                return weather.isFresh(at: now) ? .fresh : .stale
-            }(),
+            weatherStatus: weatherStatus,
             ambientStatus: ambientStatus(ambient.quality)
         )
 
@@ -152,7 +171,10 @@ enum CelestialRenderStateFactoryV2 {
             atmosphereOpacity: atmosphere.atmosphereOpacity,
             orientationQuality: orientationQuality,
             dataFreshness: freshness,
-            warnings: warnings
+            warnings: warnings,
+            clouds: clouds,
+            cloudsExpiresAt: qualifiedWeather?.renderExpiresAt,
+            cloudsFetchedAt: qualifiedWeather?.fetchedAt
         )
     }
 

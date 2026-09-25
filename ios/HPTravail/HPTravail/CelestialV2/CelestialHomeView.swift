@@ -22,14 +22,15 @@ struct CelestialHomeView: View {
                 homeSkyBase
                     .ignoresSafeArea()
 
-                CelestialStarFieldViewV2(
-                    state: locationManager.celestialState,
-                    presentation: .fullScreen,
+                // Clouds modulate the base before stars; canonical visibility is applied only once.
+                CelestialCloudLayerV2(
                     renderState: celestialRenderState
                 )
                 .ignoresSafeArea()
 
-                CelestialCloudLayerV2(
+                CelestialStarFieldViewV2(
+                    state: locationManager.celestialState,
+                    presentation: .fullScreen,
                     renderState: celestialRenderState
                 )
                 .ignoresSafeArea()
@@ -111,17 +112,6 @@ struct CelestialHomeView: View {
         }
     }
 
-    private var qualifiedWeather: CelestialWeatherStateV2? {
-        let state = locationManager.celestialState
-        guard state.locationQuality == .valid,
-              let snapshot = state.snapshot,
-              let fresh = weather.freshState,
-              fresh.matches(snapshot: snapshot) else {
-            return nil
-        }
-        return fresh
-    }
-
     private var celestialRenderState: CelestialRenderStateV2? {
         let state = locationManager.celestialState
         guard state.locationQuality == .valid,
@@ -130,7 +120,7 @@ struct CelestialHomeView: View {
         }
         return CelestialRenderStateFactoryV2.build(
             snapshot: snapshot,
-            weather: qualifiedWeather,
+            weather: weather.state,
             ambient: CelestialAmbientLightV2.currentState,
             orientationQuality: state.headingQuality,
             locationQuality: state.locationQuality,
@@ -326,7 +316,7 @@ struct CelestialHomeView: View {
                 }
             }
             Text(
-                qualifiedWeather == nil
+                celestialRenderState?.clouds == nil
                     ? "La météo locale est indisponible : Céleste conserve uniquement le ciel astronomique."
                     : "La météo locale module les nuages et la visibilité sans modifier les positions astronomiques."
             )
