@@ -28,6 +28,15 @@ class V2BackupManagerTest {
     }
 
     @Test
+    fun `la couverture paie v2 est geree par le backup`() {
+        assertTrue(
+            V2BackupManager.isManagedPreferenceFileName(
+                PayrollCoverageAttestationStoreV2.PREFS
+            )
+        )
+    }
+
+    @Test
     fun `un paquet de preferences doit etre entierement type`() {
         val valid = JSONObject()
             .put("name", typed("s", "HoraTrack"))
