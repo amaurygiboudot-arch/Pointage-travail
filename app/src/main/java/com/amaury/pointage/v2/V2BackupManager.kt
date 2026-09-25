@@ -66,14 +66,23 @@ object V2BackupManager {
             saved
         }
         val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
+        val coveragePlan=payloads[PayrollCoverageAttestationStoreV2.PREFS]
+            ?.let{prepareCoverageMerge(context,it)}
         clearEphemeralGpsPresenceState(context)
         var restored=0;var merged=0
         savedNames.forEach{name->
             val saved=payloads.getValue(name)
-            if(name==RUNTIME_PREFS){
-                val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
-                merged=applyRuntimeMerge(context,plan)
-            }else mergePreferences(context,name,saved)
+            when(name){
+                RUNTIME_PREFS->{
+                    val plan=runtimePlan?:error("Historique de sauvegarde indisponible")
+                    merged=applyRuntimeMerge(context,plan)
+                }
+                PayrollCoverageAttestationStoreV2.PREFS->{
+                    val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
+                    applyCoverageMerge(context,plan)
+                }
+                else->mergePreferences(context,name,saved)
+            }
             restored++
         }
         V2ProfileStore.bind(context)
@@ -192,6 +201,43 @@ object V2BackupManager {
         return JSONArray(decoded.history.toString())
     }
 
+    internal fun decodeBackupCoverage(saved:JSONObject):List<PayrollCoverageAttestationV2>{
+        if(!saved.has("attestations"))return emptyList()
+        val item=saved.optJSONObject("attestations")?:error("Couverture paie de sauvegarde mal typée")
+        val raw=(item.opt("v") as? String)?.takeIf{item.optString("t")=="s"}
+            ?:error("Couverture paie de sauvegarde mal typée")
+        val decoded=PayrollCoverageAttestationStoreV2.decode(raw)
+        require(decoded.reliable){"Couverture paie de sauvegarde illisible ou incohérente"}
+        return decoded.attestations
+    }
+
+    internal fun mergeCoverageAttestations(
+        current:List<PayrollCoverageAttestationV2>,
+        saved:List<PayrollCoverageAttestationV2>
+    ):List<PayrollCoverageAttestationV2>{
+        require(PayrollCoverageAttestationStoreV2.encode(current)!=null){
+            "Couverture paie locale illisible ou incohérente"
+        }
+        require(PayrollCoverageAttestationStoreV2.encode(saved)!=null){
+            "Couverture paie de sauvegarde illisible ou incohérente"
+        }
+        val merged=current.toMutableList()
+        val byId=current.associateBy{it.id}.toMutableMap()
+        saved.forEach{remote->
+            val local=byId[remote.id]
+            if(local==null){
+                merged+=remote
+                byId[remote.id]=remote
+            }else require(local==remote){
+                "L'attestation de couverture "+remote.id+" diffère entre le téléphone et la sauvegarde"
+            }
+        }
+        require(PayrollCoverageAttestationStoreV2.encode(merged)!=null){
+            "Fusion de couverture paie incohérente"
+        }
+        return merged
+    }
+
     internal fun mergeHistories(current:JSONArray,saved:JSONArray):HistoryMergePlan {
         require(V2RuntimeHistoryGuardV2.inspect(current).reliable){"Historique local illisible ou incohérent"}
         require(V2RuntimeHistoryGuardV2.inspect(saved).reliable){"Historique de sauvegarde illisible ou incohérent"}
@@ -231,6 +277,30 @@ object V2BackupManager {
         val current=V2RuntimeHistoryGuardV2.read(context)
         require(current.reliable){"Historique local illisible : restauration bloquée"}
         return mergeHistories(current.history,decodeBackupHistory(saved))
+    }
+
+    private fun prepareCoverageMerge(
+        context:Context,
+        saved:JSONObject
+    ):List<PayrollCoverageAttestationV2>{
+        val local=PayrollCoverageAttestationStoreV2.read(context)
+        require(local.reliable){"Couverture paie locale illisible : restauration bloquée"}
+        return mergeCoverageAttestations(local.attestations,decodeBackupCoverage(saved))
+    }
+
+    private fun applyCoverageMerge(
+        context:Context,
+        plan:List<PayrollCoverageAttestationV2>
+    ){
+        val encoded=PayrollCoverageAttestationStoreV2.encode(plan)
+            ?:error("Couverture paie fusionnée illisible")
+        check(
+            context.applicationContext
+                .getSharedPreferences(PayrollCoverageAttestationStoreV2.PREFS,Context.MODE_PRIVATE)
+                .edit()
+                .putString("attestations",encoded)
+                .commit()
+        ){"Impossible d'enregistrer la couverture paie fusionnée"}
     }
 
     private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
