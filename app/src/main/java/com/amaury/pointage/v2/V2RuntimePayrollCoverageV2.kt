@@ -217,13 +217,13 @@ object V2RuntimePayrollCoverageV2 {
                 append(canonical, travel.endMs)
                 append(canonical, travel.employerBeforeId)
                 append(canonical, travel.employerAfterId)
-                append(canonical, travel.distanceMeters?.let(java.lang.Double::doubleToLongBits))
+                append(canonical, travel.distanceMeters?.let { java.lang.Double.doubleToLongBits(it) })
                 append(canonical, travel.classification.name)
             }
         }
         val digest = MessageDigest.getInstance("SHA-256")
             .digest(canonical.toString().toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return "sha256:$digest"
     }
 
