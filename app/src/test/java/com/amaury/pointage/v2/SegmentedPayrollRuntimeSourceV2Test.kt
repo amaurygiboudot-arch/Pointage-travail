@@ -96,7 +96,7 @@ class SegmentedPayrollRuntimeSourceV2Test {
                     effectiveFromEpochDay = start,
                     effectiveToEpochDay = null,
                     contract = contract,
-                    confirmedAtMs = 1L,
+                    checkedAtMs = 1L,
                     note = null
                 )
             )
@@ -118,7 +118,7 @@ class SegmentedPayrollRuntimeSourceV2Test {
                     effectiveFromEpochDay = start,
                     effectiveToEpochDay = null,
                     rules = payrollRules,
-                    confirmedAtMs = 1L
+                    checkedAtMs = 1L
                 )
             )
         )
