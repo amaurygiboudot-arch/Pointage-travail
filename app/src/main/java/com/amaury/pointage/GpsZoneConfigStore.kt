@@ -199,6 +199,35 @@ internal fun resolveUniqueGpsZoneIdForAddress(
     return matches.singleOrNull()?.id
 }
 
+
+internal fun resolveGpsZoneScopedObject(
+    values: JSONObject,
+    zonesResult: GpsZonesReadResult,
+    zoneId: String?,
+    address: String
+): JSONObject? {
+    val canonicalId = zoneId?.trim().orEmpty()
+    if (canonicalId.isNotBlank()) {
+        values.optJSONObject(canonicalId)?.let { return it }
+    }
+    val uniqueOwner = resolveUniqueGpsZoneIdForAddress(zonesResult, address) ?: return null
+    if (canonicalId.isNotBlank() && uniqueOwner != canonicalId) return null
+    return values.optJSONObject(address)
+}
+
+internal fun putGpsZoneScopedObject(
+    values: JSONObject,
+    zoneId: String?,
+    address: String,
+    value: JSONObject
+): Boolean {
+    val canonicalId = zoneId?.trim().orEmpty()
+    if (canonicalId.isBlank()) return false
+    values.remove(address)
+    values.put(canonicalId, JSONObject(value.toString()))
+    return true
+}
+
 internal fun updateGpsZoneTypeById(
     zones: JSONArray,
     zoneId: String,
