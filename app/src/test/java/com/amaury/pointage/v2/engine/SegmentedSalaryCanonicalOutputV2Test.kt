@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.amaury.pointage.v2.SegmentedPayslipComparisonValuesV2
 
 class SegmentedSalaryCanonicalOutputV2Test {
     @Test
@@ -27,6 +28,14 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertEquals(1_000.0, result.workedGross!!, 0.0001)
         assertEquals(1_100.0, result.cashGross!!, 0.0001)
         assertEquals(900.0, result.netBeforeIncomeTax!!, 0.0001)
+
+        val comparison = SegmentedPayslipComparisonValuesV2.expected(result)
+        assertTrue(comparison != null)
+        assertEquals(50.0, comparison!![PayslipDocumentParserV2.KEY_OVERTIME_GROSS]!!, 0.0001)
+        assertEquals(25.0, comparison[PayslipDocumentParserV2.KEY_PREMIUMS_GROSS]!!, 0.0001)
+        assertEquals(1_100.0, comparison[PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
+        assertEquals(900.0, comparison[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0001)
+        assertEquals(950.0, comparison[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!, 0.0001)
     }
 
     @Test
@@ -43,6 +52,12 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertFalse(result.netBeforeIncomeTaxComplete)
         assertEquals(1_100.0, result.cashGross!!, 0.0001)
         assertNull(result.netBeforeIncomeTax)
+
+        val comparison = SegmentedPayslipComparisonValuesV2.expected(result)
+        assertTrue(comparison != null)
+        assertEquals(1_100.0, comparison!![PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
+        assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX))
+        assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_TAXABLE))
     }
 
     @Test
