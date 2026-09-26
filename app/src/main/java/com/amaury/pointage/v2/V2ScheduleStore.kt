@@ -69,6 +69,31 @@ object V2ScheduleStore {
         editor.putBoolean(marker, true).commit()
     }
 
+    /** Compatibilité rollback V1 uniquement : conserve les anciennes clés globales. */
+    fun legacySchedule(context: Context, id: String): Schedule {
+        require(id in SHIFT_IDS)
+        val p = prefs(context)
+        return Schedule(
+            id = id,
+            startMinute = parseMinute(p.getString("expected_start_$id", "").orEmpty()),
+            endMinute = parseMinute(p.getString("expected_end_$id", "").orEmpty())
+        )
+    }
+
+    /** Compatibilité rollback V1 uniquement. */
+    fun legacySave(context: Context, id: String, start: String?, end: String?): Boolean {
+        require(id in SHIFT_IDS)
+        val startMin = start?.takeIf { it.isNotBlank() }?.let(::parseMinute)
+        val endMin = end?.takeIf { it.isNotBlank() }?.let(::parseMinute)
+        if (!start.isNullOrBlank() && startMin == null) return false
+        if (!end.isNullOrBlank() && endMin == null) return false
+        val editor = prefs(context).edit()
+        if (start.isNullOrBlank()) editor.remove("expected_start_$id")
+        else editor.putString("expected_start_$id", formatMinute(startMin!!))
+        if (end.isNullOrBlank()) editor.remove("expected_end_$id")
+        else editor.putString("expected_end_$id", formatMinute(endMin!!))
+        return editor.commit()
+    }
     fun schedule(context: Context, companyId: String, id: String): Schedule {
         require(id in SHIFT_IDS)
         val company = companyId.trim()
