@@ -44,6 +44,7 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
     static let edgeWarning = "Preuves B21 : temps payé hors de la tranche dans une semaine de bord ; allocation monétaire non prouvée."
     static let holidayWarning = "Preuves B21 : jour férié nécessitant une règle dédiée ou un périmètre confirmé."
     static let calendarWarning = "Preuves B21 : dates, fuseau ou durée hors du domaine vérifiable."
+    static let pauseGeometryWarning = "Preuves B21 : pause hors des bornes du pointage ; durée payée non certifiable."
 
     static func build(
         contracts: SalaryEmploymentContractPeriodResolutionV2,
@@ -125,6 +126,7 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
                           let exit = session.exit, exit.timeIntervalSince1970.isFinite, exit > session.entry, exit <= source.checkedAt else {
                         return blocked(SalaryPaidWorkAggregatorV2.invalidSessionWarning)
                     }
+                    if hasInvalidPauseGeometry(session) { return blocked(pauseGeometryWarning) }
                     if index > 0, let previousExit = ordered[index - 1].exit,
                        session.entry < previousExit { return blocked(SalaryPaidWorkAggregatorV2.overlapWarning) }
                 }
@@ -202,6 +204,16 @@ enum SalarySegmentedPayrollSessionEvidenceBuilderV2 {
         let result = SalarySegmentedWorkedVariableGrossSourceV2.calculate(
             contracts: contracts, rules: rules, sliceEvidence: proof.slices)
         return .init(pieces: result.pieces, reliable: result.reliable, warnings: unique(proof.warnings + result.warnings))
+    }
+
+    private static func hasInvalidPauseGeometry(_ session: SalarySessionFactV2) -> Bool {
+        guard session.entry.timeIntervalSince1970.isFinite,
+              let exit = session.exit, exit.timeIntervalSince1970.isFinite, exit > session.entry else { return true }
+        return session.pauses.contains { pause in
+            guard pause.start.timeIntervalSince1970.isFinite,
+                  let end = pause.end, end.timeIntervalSince1970.isFinite else { return true }
+            return end <= pause.start || pause.start < session.entry || end > exit
+        }
     }
 
     private static func touches(_ session: SalarySessionFactV2, from: Date, to: Date) -> Bool {
