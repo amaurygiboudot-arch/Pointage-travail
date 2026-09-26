@@ -63,6 +63,13 @@ service cloud.firestore {
       }
     }
 
+    // Paramètres centraux de paie : lisibles par les utilisateurs connectés,
+    // jamais modifiables directement par un client mobile.
+    match /payroll_rates/current {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
     // Métadonnée publique et non sensible : uniquement la révision du backend
     // Firebase actuellement déployée. Les clients n'ont aucun droit d'écriture.
     match /system/backend_release {
