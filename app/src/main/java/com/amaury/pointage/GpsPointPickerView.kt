@@ -127,14 +127,17 @@ class GpsPointPickerView @JvmOverloads constructor(
         return source.optJSONObject(address)
     }
 
-    private fun findZone(address: String, list: JSONArray?): JSONObject? {
-        if (list == null) return null
-        for (i in 0 until list.length()) {
-            val zone = list.optJSONObject(i) ?: continue
-            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return zone
+    private fun zonesForAddress(address: String, list: JSONArray?): List<JSONObject> {
+        if (list == null) return emptyList()
+        val normalized = address.trim()
+        return (0 until list.length()).mapNotNull { index ->
+            list.optJSONObject(index)
+                ?.takeIf { it.optString("address").trim().equals(normalized, ignoreCase = true) }
         }
-        return null
     }
+
+    private fun uniqueZoneForAddress(address: String, list: JSONArray?): JSONObject? =
+        zonesForAddress(address, list).singleOrNull()
 
     private fun provisionalZone(address: String): JSONObject {
         val provisionalId = UUID.randomUUID().toString()
@@ -192,7 +195,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
 
         addresses.forEach { address ->
-            if (findZone(address, source) != null) return@forEach
+            if (zonesForAddress(address, source).isNotEmpty()) return@forEach
             val point = custom.optJSONObject(address) ?: return@forEach
             val lat = point.optDouble("latitude", Double.NaN)
             val lon = point.optDouble("longitude", Double.NaN)
@@ -241,7 +244,17 @@ class GpsPointPickerView @JvmOverloads constructor(
             GeofenceManager.reconfigureStoredZones(context)
             return
         }
-        val zone = findZone(pending, storedZones) ?: provisionalZone(pending)
+        val matching = zonesForAddress(pending, storedZones)
+        if (matching.size > 1) {
+            prefs.edit().remove("pending_point_address").apply()
+            Toast.makeText(
+                context,
+                "Plusieurs zones utilisent cette adresse : choisis explicitement la zone à ajuster.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val zone = matching.singleOrNull() ?: provisionalZone(pending)
         promptScheduled = true
         postDelayed({
             promptScheduled = false
@@ -263,12 +276,32 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
-        addresses.forEach { address ->
-            val item = findZone(address, list) ?: provisionalZone(address)
+        val coveredAddresses = mutableSetOf<String>()
+
+        for (index in 0 until list.length()) {
+            val item = list.optJSONObject(index) ?: continue
+            val address = item.optString("address").trim()
+            if (address.isBlank()) continue
+            if (addresses.none { it.equals(address, ignoreCase = true) }) continue
             val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() }
-            labels += (PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
-            items += item
+            val placeName = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
+            val type = item.optString("pointType").trim().takeIf { it.isNotBlank() }
+            labels += buildString {
+                append(placeName ?: address)
+                if (placeName != null) append(" — ").append(address)
+                if (type != null) append(" • ").append(type)
+            }
+            items += JSONObject(item.toString())
+            coveredAddresses += address.lowercase(Locale.FRANCE)
         }
+
+        addresses
+            .filterNot { it.lowercase(Locale.FRANCE) in coveredAddresses }
+            .forEach { address ->
+                val item = provisionalZone(address)
+                labels += address
+                items += item
+            }
 
         val dark = AppThemeCatalog.useDarkPalette(context)
         val theme = AppThemeCatalog.current(context)
