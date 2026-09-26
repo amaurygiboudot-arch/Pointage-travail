@@ -59,6 +59,36 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
     static let overflowWarning =
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
 
+    /// Raccord B21 -> B20 conservant la fiabilité et les avertissements globaux.
+    /// Ne pas appeler assemble(..., source.pieces) directement : les warnings du résultat B21
+    /// seraient perdus lorsque les pièces elles-mêmes n'en portent pas.
+    static func assembleFromSource(
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
+        source: SalarySegmentedWorkedVariableGrossSourceResultV2
+    ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        guard source.reliable else {
+            return blocked(
+                contracts.warnings
+                    + base.warnings
+                    + source.warnings
+                    + [variableReliabilityWarning]
+            )
+        }
+        let assembled = assemble(
+            contracts: contracts,
+            base: base,
+            variables: source.pieces
+        )
+        return SalarySegmentedWorkedGrossAssemblyResultV2(
+            baseGross: assembled.baseGross,
+            variableGross: assembled.variableGross,
+            workedGross: assembled.workedGross,
+            reliable: assembled.reliable,
+            warnings: unique(source.warnings + assembled.warnings)
+        )
+    }
+
     static func assemble(
         contracts: SalaryEmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,
