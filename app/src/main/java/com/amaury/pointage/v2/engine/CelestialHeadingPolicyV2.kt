@@ -1,14 +1,6 @@
 package com.amaury.pointage.v2.engine
 
 /** Qualité du cap utilisé pour orienter la carte céleste 360°. */
-enum class CelestialHeadingSensorAccuracyV2 {
-    UNKNOWN,
-    LOW,
-    MEDIUM,
-    HIGH,
-    UNRELIABLE
-}
-
 enum class CelestialHeadingQualityV2 {
     VALID,
     /** Le téléphone fournit une orientation exploitable mais pas d'incertitude numérique. */
@@ -40,8 +32,7 @@ object CelestialHeadingPolicyV2 {
         hasOrientation: Boolean,
         headingAgeMs: Long?,
         sensorReportedUnreliable: Boolean,
-        headingAccuracyDeg: Float?,
-        sensorAccuracy: CelestialHeadingSensorAccuracyV2 = CelestialHeadingSensorAccuracyV2.UNKNOWN
+        headingAccuracyDeg: Float?
     ): CelestialHeadingQualityV2 {
         if (!hasOrientation || headingAgeMs == null) {
             return CelestialHeadingQualityV2.UNAVAILABLE
@@ -49,9 +40,7 @@ object CelestialHeadingPolicyV2 {
         if (headingAgeMs < 0L || headingAgeMs > MAX_HEADING_AGE_MS) {
             return CelestialHeadingQualityV2.STALE
         }
-        if (sensorReportedUnreliable ||
-            sensorAccuracy == CelestialHeadingSensorAccuracyV2.UNRELIABLE
-        ) {
+        if (sensorReportedUnreliable) {
             return CelestialHeadingQualityV2.UNRELIABLE
         }
         if (headingAccuracyDeg != null) {
@@ -63,35 +52,10 @@ object CelestialHeadingPolicyV2 {
             }
             return CelestialHeadingQualityV2.VALID
         }
-        return when (sensorAccuracy) {
-            CelestialHeadingSensorAccuracyV2.HIGH,
-            CelestialHeadingSensorAccuracyV2.MEDIUM -> CelestialHeadingQualityV2.VALID
-            CelestialHeadingSensorAccuracyV2.LOW -> CelestialHeadingQualityV2.INACCURATE
-            CelestialHeadingSensorAccuracyV2.UNRELIABLE -> CelestialHeadingQualityV2.UNRELIABLE
-            CelestialHeadingSensorAccuracyV2.UNKNOWN -> CelestialHeadingQualityV2.UNKNOWN_ACCURACY
-        }
+        return CelestialHeadingQualityV2.UNKNOWN_ACCURACY
     }
 
     fun isUsable(quality: CelestialHeadingQualityV2): Boolean =
         quality == CelestialHeadingQualityV2.VALID ||
             quality == CelestialHeadingQualityV2.UNKNOWN_ACCURACY
-
-    /**
-     * Cap de rendu universel.
-     *
-     * Une orientation qualifiée pilote le point de vue. Sinon Céleste revient
-     * explicitement à un mode Nord stable (0°) au lieu d'inventer une direction.
-     */
-    fun renderingHeadingDeg(
-        headingDeg: Double?,
-        quality: CelestialHeadingQualityV2
-    ): Double {
-        if (!isUsable(quality) || headingDeg == null || !headingDeg.isFinite()) {
-            return 0.0
-        }
-        return ((headingDeg % 360.0) + 360.0) % 360.0
-    }
-
-    fun usesNeutralNorthMode(quality: CelestialHeadingQualityV2): Boolean =
-        !isUsable(quality)
 }

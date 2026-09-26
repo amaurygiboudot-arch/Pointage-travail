@@ -27,6 +27,7 @@ object V2BackupManager {
         RUNTIME_PREFS,
         "horatrack_v2_integration",
         "horatrack_v2_migration",
+        PayrollCoverageAttestationStoreV2.PREFS,
         "horatrack_v2_legal_sources",
         "horatrack_v2_rights",
         "horatrack_v2_payslips",
