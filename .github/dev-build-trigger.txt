@@ -8,3 +8,5 @@ Trajectoire réelle et résultat sur appareil à confirmer ; aucun Firebase/stor
 Déclenchement DEV après fusion #480 - correction permissions GPS/notifications - 2026-09-26.
 
 Déclenchement AGKGMG Play après #482/#483 - 2026-09-26.
+
+Déclenchement Google Play autorisé — prochain versionCode après 1470 — 2026-09-26.
