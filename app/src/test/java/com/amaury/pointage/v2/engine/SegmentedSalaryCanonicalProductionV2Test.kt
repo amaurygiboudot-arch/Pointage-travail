@@ -23,7 +23,8 @@ class SegmentedSalaryCanonicalProductionV2Test {
         )
 
         assertTrue(result.complementaryMinutesReliable)
-        assertTrue(result.output.cashGrossReliable)        assertTrue(result.output.netBeforeIncomeTaxComplete)
+        assertTrue(result.output.cashGrossReliable)
+        assertTrue(result.output.netBeforeIncomeTaxComplete)
         assertEquals(1_000.0, result.output.cashGross!!, 0.0001)
         assertEquals(0, result.output.complementaryMinutes)
     }
@@ -49,7 +50,9 @@ class SegmentedSalaryCanonicalProductionV2Test {
         assertTrue(result.output.warnings.contains(
             SegmentedCashGrossNetProjectionV2.COMPLEMENTARY_WARNING
         ))
-    }    private fun worked(
+    }
+
+    private fun worked(
         complementaryMinutes: Int
     ): SegmentedWorkedGrossProductionResultV2 {
         val week = SegmentedPayrollWeekEvidenceV2(
@@ -73,7 +76,8 @@ class SegmentedSalaryCanonicalProductionV2Test {
             paidTimeReliable = true,
             premiumTimeBreakdownReliable = true,
             payrollRulesReliable = true
-        )        val evidence = SegmentedPayrollSessionEvidenceResultV2(
+        )
+        val evidence = SegmentedPayrollSessionEvidenceResultV2(
             slices = listOf(slice),
             reliable = true,
             warnings = emptyList(),
@@ -97,7 +101,8 @@ class SegmentedSalaryCanonicalProductionV2Test {
                     complementaryMinutes = complementaryMinutes
                 )
             )
-        )        val base = SegmentedMonthlyBaseResultV2(
+        )
+        val base = SegmentedMonthlyBaseResultV2(
             pieces = emptyList(),
             baseGross = 1_000.0,
             reliable = true,
@@ -121,7 +126,8 @@ class SegmentedSalaryCanonicalProductionV2Test {
     private fun completeCompany() = CompanyPayrollOverridesV2.Snapshot(
         companyId = "company",
         idcc = null,
-        referenceDate = LocalDate.of(2026, 1, 31),        entryDate = LocalDate.of(2020, 1, 1),
+        referenceDate = LocalDate.of(2026, 1, 31),
+        entryDate = LocalDate.of(2020, 1, 1),
         seniorityMonths = 72,
         contractType = ContractTypeV2.FULL_TIME,
         contractualWeeklyMinutes = 35 * 60,
