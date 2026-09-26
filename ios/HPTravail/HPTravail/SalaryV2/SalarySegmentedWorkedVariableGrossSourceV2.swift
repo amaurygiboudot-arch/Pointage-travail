@@ -241,7 +241,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             }
 
             let payrollWeeks = supplied.weeks.map { item in item.week }
-            let variable: Double
+            let variable: VariableAmounts
             switch contract.type {
             case .fullTime:
                 guard let value = fullTimeVariable(
