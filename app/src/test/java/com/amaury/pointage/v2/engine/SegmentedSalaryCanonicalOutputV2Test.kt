@@ -22,6 +22,11 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(result.netBeforeIncomeTaxComplete)
         assertEquals(2_400, result.paidMinutes)
         assertEquals(300, result.variableOvertimeMinutes)
+        assertEquals(200.0, result.structuralOvertimeMinutes!!, 0.0001)
+        assertEquals(500.0, result.totalOvertimeMinutes!!, 0.0001)
+        assertEquals(50.0, result.overtimeGross!!, 0.0001)
+        assertEquals(40.0, result.structuralOvertimeGross!!, 0.0001)
+        assertEquals(90.0, result.totalOvertimeGross!!, 0.0001)
         assertEquals(0, result.complementaryMinutes)
         assertEquals(120, result.nightMinutes)
         assertEquals(1_000.0, result.workedGross!!, 0.0001)
@@ -110,7 +115,21 @@ class SegmentedSalaryCanonicalOutputV2Test {
             )
         )
         val base = SegmentedMonthlyBaseResultV2(
-            pieces = emptyList(),
+            pieces = listOf(
+                SegmentedMonthlyBasePieceV2(
+                    versionId = "c1",
+                    startEpochDay = 1,
+                    endEpochDay = 7,
+                    scheduledMinutes = 2_100,
+                    factor = 1.0,
+                    fullMonthBaseGross = 925.0,
+                    proratedBaseGross = 925.0,
+                    fullMonthStructuralOvertimeMinutes = 200.0,
+                    proratedStructuralOvertimeMinutes = 200.0,
+                    fullMonthStructuralOvertimeGross = 40.0,
+                    proratedStructuralOvertimeGross = 40.0
+                )
+            ),
             baseGross = 925.0,
             reliable = true,
             warnings = emptyList()

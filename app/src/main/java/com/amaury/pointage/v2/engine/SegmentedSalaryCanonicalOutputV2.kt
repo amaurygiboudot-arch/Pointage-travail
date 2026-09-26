@@ -6,13 +6,18 @@ data class SegmentedSalaryCanonicalOutputV2(
     val net: SegmentedCashGrossNetProjectionResultV2,
     val paidMinutes: Int?,
     val variableOvertimeMinutes: Int?,
+    val structuralOvertimeMinutes: Double?,
+    val totalOvertimeMinutes: Double?,
     val complementaryMinutes: Int?,
     val nightMinutes: Int?,
     val saturdayMinutes: Int?,
     val sundayMinutes: Int?,
     val publicHolidayMinutes: Int?,
     val baseGross: Double?,
+    /** Brut HS variables uniquement. */
     val overtimeGross: Double?,
+    val structuralOvertimeGross: Double?,
+    val totalOvertimeGross: Double?,
     val complementaryGross: Double?,
     val premiumGross: Double?,
     val workedGross: Double?,
@@ -119,6 +124,30 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             warnings += VARIABLE_WARNING
         }
 
+        val structuralBreakdownReliable =
+            worked.base.reliable &&
+                worked.base.pieces.isNotEmpty() &&
+                worked.base.pieces.all {
+                    finiteNonNegative(it.proratedStructuralOvertimeMinutes) &&
+                        finiteNonNegative(it.proratedStructuralOvertimeGross)
+                }
+        val structuralOvertimeMinutes = if (structuralBreakdownReliable) {
+            sumDecimal(worked.base.pieces.map { it.proratedStructuralOvertimeMinutes })
+        } else null
+        val structuralOvertimeGross = if (structuralBreakdownReliable) {
+            sumMoney(worked.base.pieces.map { it.proratedStructuralOvertimeGross })
+        } else null
+        val totalOvertimeMinutes =
+            structuralOvertimeMinutes?.let { structural ->
+                variableOvertimeMinutes?.let { variable ->
+                    safeAdd(structural, variable.toDouble())
+                }
+            }
+        val totalOvertimeGross =
+            structuralOvertimeGross?.let { structural ->
+                overtimeGross?.let { variable -> safeAdd(structural, variable) }
+            }
+
         val baseGross = worked.base.baseGross?.takeIf { worked.base.reliable && finiteNonNegative(it) }
         val reliableWorkedGross = workedGross?.takeIf {
             chainConsistent && worked.reliable && worked.assembly.reliable && finiteNonNegative(it)
@@ -139,6 +168,8 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             net = net,
             paidMinutes = paidMinutes,
             variableOvertimeMinutes = variableOvertimeMinutes,
+            structuralOvertimeMinutes = structuralOvertimeMinutes,
+            totalOvertimeMinutes = totalOvertimeMinutes,
             complementaryMinutes = complementaryMinutes,
             nightMinutes = nightMinutes,
             saturdayMinutes = saturdayMinutes,
@@ -146,6 +177,8 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             publicHolidayMinutes = publicHolidayMinutes,
             baseGross = baseGross,
             overtimeGross = overtimeGross,
+            structuralOvertimeGross = structuralOvertimeGross,
+            totalOvertimeGross = totalOvertimeGross,
             complementaryGross = complementaryGross,
             premiumGross = premiumGross,
             workedGross = reliableWorkedGross,
@@ -172,7 +205,9 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         return total.toInt()
     }
 
-    private fun sumMoney(values: List<Double>): Double? {
+    private fun sumMoney(values: List<Double>): Double? = sumDecimal(values)
+
+    private fun sumDecimal(values: List<Double>): Double? {
         var total = 0.0
         for (value in values) {
             if (!finiteNonNegative(value)) return null
@@ -180,6 +215,12 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             if (!total.isFinite() || total < 0.0) return null
         }
         return total
+    }
+
+    private fun safeAdd(left: Double, right: Double): Double? {
+        if (!finiteNonNegative(left) || !finiteNonNegative(right)) return null
+        val total = left + right
+        return total.takeIf(::finiteNonNegative)
     }
 
     private fun sameMoney(left: Double?, right: Double?): Boolean =

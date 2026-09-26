@@ -128,6 +128,8 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         )
         XCTAssertTrue(calculated.reliable)
         XCTAssertEqual(try XCTUnwrap(calculated.baseGross), 1733.333333, accuracy: 0.0001)
+        XCTAssertEqual(calculated.pieces[0].proratedStructuralOvertimeMinutes, 1040, accuracy: 0.0001)
+        XCTAssertEqual(calculated.pieces[0].proratedStructuralOvertimeGross, 216.666667, accuracy: 0.0001)
     }
 
     func testPartTimeUsesOnlyConfirmedWeeklyDurationAndRate() throws {

@@ -137,6 +137,8 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
         )
         assertTrue(calculated.reliable)
         assertEquals(1733.333333, calculated.baseGross!!, 0.0001)
+        assertEquals(1040.0, calculated.pieces.single().proratedStructuralOvertimeMinutes, 0.0001)
+        assertEquals(216.666667, calculated.pieces.single().proratedStructuralOvertimeGross, 0.0001)
     }
 
     @Test

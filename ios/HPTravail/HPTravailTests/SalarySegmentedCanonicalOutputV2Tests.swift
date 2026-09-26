@@ -23,6 +23,11 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertFalse(result.netBeforeIncomeTaxComplete)
         XCTAssertEqual(result.paidMinutes, 2_400)
         XCTAssertEqual(result.variableOvertimeMinutes, 300)
+        XCTAssertEqual(result.structuralOvertimeMinutes, 200)
+        XCTAssertEqual(result.totalOvertimeMinutes, 500)
+        XCTAssertEqual(result.overtimeGross, 50)
+        XCTAssertEqual(result.structuralOvertimeGross, 40)
+        XCTAssertEqual(result.totalOvertimeGross, 90)
         XCTAssertEqual(result.complementaryMinutes, 0)
         XCTAssertEqual(result.nightMinutes, 120)
         XCTAssertEqual(result.workedGross, 1_000)
@@ -114,7 +119,21 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
             ]
         )
         let base = SegmentedMonthlyBaseResultV2(
-            pieces: [],
+            pieces: [
+                .init(
+                    versionId: "c1",
+                    startEpochDay: 1,
+                    endEpochDay: 7,
+                    scheduledMinutes: 2_100,
+                    factor: 1,
+                    fullMonthBaseGross: 925,
+                    proratedBaseGross: 925,
+                    fullMonthStructuralOvertimeMinutes: 200,
+                    proratedStructuralOvertimeMinutes: 200,
+                    fullMonthStructuralOvertimeGross: 40,
+                    proratedStructuralOvertimeGross: 40
+                )
+            ],
             baseGross: 925,
             reliable: true,
             warnings: []

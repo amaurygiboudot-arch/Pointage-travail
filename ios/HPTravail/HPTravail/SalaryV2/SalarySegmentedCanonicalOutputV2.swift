@@ -6,13 +6,18 @@ struct SalarySegmentedCanonicalOutputV2 {
     let net: SalarySegmentedCashGrossNetProjectionResultV2
     let paidMinutes: Int?
     let variableOvertimeMinutes: Int?
+    let structuralOvertimeMinutes: Double?
+    let totalOvertimeMinutes: Double?
     let complementaryMinutes: Int?
     let nightMinutes: Int?
     let saturdayMinutes: Int?
     let sundayMinutes: Int?
     let publicHolidayMinutes: Int?
     let baseGross: Double?
+    /// Brut HS variables uniquement.
     let overtimeGross: Double?
+    let structuralOvertimeGross: Double?
+    let totalOvertimeGross: Double?
     let complementaryGross: Double?
     let premiumGross: Double?
     let workedGross: Double?
@@ -110,6 +115,28 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             warnings.append(variableWarning)
         }
 
+        let structuralBreakdownReliable =
+            worked.base.reliable &&
+            !worked.base.pieces.isEmpty &&
+            worked.base.pieces.allSatisfy {
+                finiteNonNegative($0.proratedStructuralOvertimeMinutes) &&
+                finiteNonNegative($0.proratedStructuralOvertimeGross)
+            }
+        let structuralOvertimeMinutes = structuralBreakdownReliable
+            ? sumDecimal(worked.base.pieces.map { $0.proratedStructuralOvertimeMinutes })
+            : nil
+        let structuralOvertimeGross = structuralBreakdownReliable
+            ? sumMoney(worked.base.pieces.map { $0.proratedStructuralOvertimeGross })
+            : nil
+        let totalOvertimeMinutes = structuralOvertimeMinutes.flatMap { structural in
+            variableOvertimeMinutes.flatMap { variable in
+                safeAdd(structural, Double(variable))
+            }
+        }
+        let totalOvertimeGross = structuralOvertimeGross.flatMap { structural in
+            overtimeGross.flatMap { variable in safeAdd(structural, variable) }
+        }
+
         let baseGross = worked.base.reliable ? worked.base.baseGross.flatMap {
             finiteNonNegative($0) ? $0 : nil
         } : nil
@@ -134,6 +161,8 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             net: net,
             paidMinutes: paidMinutes,
             variableOvertimeMinutes: variableOvertimeMinutes,
+            structuralOvertimeMinutes: structuralOvertimeMinutes,
+            totalOvertimeMinutes: totalOvertimeMinutes,
             complementaryMinutes: complementaryMinutes,
             nightMinutes: nightMinutes,
             saturdayMinutes: saturdayMinutes,
@@ -141,6 +170,8 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             publicHolidayMinutes: publicHolidayMinutes,
             baseGross: baseGross,
             overtimeGross: overtimeGross,
+            structuralOvertimeGross: structuralOvertimeGross,
+            totalOvertimeGross: totalOvertimeGross,
             complementaryGross: complementaryGross,
             premiumGross: premiumGross,
             workedGross: reliableWorkedGross,
@@ -169,6 +200,10 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
     }
 
     private static func sumMoney(_ values: [Double]) -> Double? {
+        sumDecimal(values)
+    }
+
+    private static func sumDecimal(_ values: [Double]) -> Double? {
         var total = 0.0
         for value in values {
             guard finiteNonNegative(value) else { return nil }
@@ -176,6 +211,12 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             guard total.isFinite, total >= 0 else { return nil }
         }
         return total
+    }
+
+    private static func safeAdd(_ left: Double, _ right: Double) -> Double? {
+        guard finiteNonNegative(left), finiteNonNegative(right) else { return nil }
+        let total = left + right
+        return finiteNonNegative(total) ? total : nil
     }
 
     private static func sameMoney(_ left: Double?, _ right: Double?) -> Bool {
