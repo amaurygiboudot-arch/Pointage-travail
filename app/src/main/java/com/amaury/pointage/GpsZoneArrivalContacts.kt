@@ -41,7 +41,14 @@ internal object GpsZoneArrivalContacts {
         phone: String?,
         enabled: Boolean
     ) {
-        put(context, zoneId = null, address, contactName, phone, enabled)
+        put(
+            context = context,
+            zoneId = null,
+            address = address,
+            contactName = contactName,
+            phone = phone,
+            enabled = enabled
+        )
     }
 
     fun put(
