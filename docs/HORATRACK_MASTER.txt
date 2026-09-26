@@ -1,3 +1,192 @@
+HORATRACK — DOCUMENT MAITRE V2.23 — CHECKPOINT 31
+MISE A JOUR DU 26 SEPTEMBRE 2026 — SALAIRE V2 / POINTAGES → B21 → B20
+
+REPERE SIMPLE
+Salaire V2 reste la priorité fonctionnelle.
+Le chantier B21 a franchi une étape importante : les pointages V2 peuvent maintenant produire des preuves
+hebdomadaires segmentées, puis des variables de brut B21, puis un brut de travail B20.
+La collecte de couverture n'est plus confondue avec une simple lecture réussie du stockage.
+Android dispose maintenant, comme iOS, d'un store de proratisation mensuelle segmentée confirmé.
+Les bridges Android/iOS savent résoudre proratisation + couverture des semaines ISO complètes depuis leurs stores
+avant d'appeler la chaîne B21 → B20.
+Le chemin historique mono-contrat n'a pas été remplacé.
+Les écrans, PDF, historique et net ne sont PAS encore raccordés au résultat segmenté.
+Aucun chiffre non prouvé n'est injecté dans l'ancien V2SalaryAdapter.Result pour remplir ses champs détaillés.
+PR produit #441 reste brouillon et non fusionnée.
+PR #437 reste VALIDATION ONLY et ne doit jamais être fusionnée.
+La revue agents reste bloquée par quota Codex ; aucun quota dépassé n'est transformé en PASS.
+
+31.1 REFERENCES EXACTES
+Dépôt : amaurygiboudot-arch/Pointage-travail.
+Main de référence : 7362c5560769f2333af4d64937ffdf3790c13773.
+PR produit #441 : feat/b21-session-evidence-v2.
+HEAD produit courant : bb1294f6098409e36091aff36e0490958a9d7235.
+Base historique de #441 : feat/segmented-variable-gross-source-v2 / PR #428.
+PR de validation #437 : validation/b21-fdc72867-with-main-2bb9acf.
+HEAD validation courant : 84b54077dabf67de65a0a368d8887f44a7f2bc30.
+Le nom historique de #437 ne décrit plus sa vraie base : toujours lire ses parents/HEAD avant toute conclusion.
+
+31.2 COUVERTURE DES POINTAGES — EXHAUSTIF != LISIBLE
+Le stockage V2 peut être lisible sans prouver que tous les faits d'une période sont présents.
+V2PayrollCoverageStore et son équivalent iOS conservent des attestations explicites de couverture :
+- employeur stable ;
+- intervalle fermé ;
+- date de contrôle ;
+- fuseau ;
+- empreinte des sessions concernées.
+Une modification ultérieure d'un pointage, d'une pause ou d'un fait inclus invalide l'attestation concernée.
+Une semaine absente ne vaut jamais automatiquement zéro.
+Un zéro hebdomadaire n'est fiable que lorsque toute la semaine nécessaire au seuil est explicitement couverte.
+
+31.3 PRODUCTEUR B21 DEPUIS LES SESSIONS V2
+SegmentedPayrollSessionEvidenceBuilderV2 et son miroir iOS transforment les faits V2 en preuves segmentées.
+Ils conservent :
+- employeur ;
+- versions de contrat et règles ;
+- semaines ISO ;
+- pauses payées/non payées ;
+- fuseau ;
+- contexte de nuit/jours fériés ;
+- warnings et fiabilité.
+Blocages fail-closed conservés :
+- session ouverte ;
+- doublon ou superposition ;
+- employeur absent ;
+- pause non qualifiée ;
+- couverture incomplète ;
+- certificat futur ;
+- borne locale ambiguë/inexistante lors d'un changement d'heure ;
+- temps payé hors tranche quand son allocation monétaire n'est pas prouvée.
+Les cas réels observés dans des pointages privés ont confirmé l'utilité de ces gardes :
+employeur absent, pause anormalement longue pouvant rendre une durée naïve négative, semaine partielle.
+Les données brutes personnelles ne sont pas committées dans le dépôt.
+
+31.4 B21 → B20 — CHAINE METIER PURE
+Nouveau raccord pur et testable :
+contrats datés + règles datées + proratisation confirmée + couverture pointages + contextes de primes
+→ preuves hebdomadaires
+→ variables B21
+→ base mensuelle segmentée
+→ B20 workedGross.
+
+Android :
+- SegmentedMonthlyBaseBridgeV2 ;
+- SegmentedWorkedGrossProductionV2.
+iOS :
+- SalarySegmentedMonthlyBaseBridgeV2 ;
+- SalarySegmentedWorkedGrossProductionV2.
+
+La base mensualisée et les variables ne sont jamais additionnées deux fois.
+Les warnings globaux de B21 restent propagés à B20 même lorsque les pièces monétaires sont vides.
+Un changement de règle à l'intérieur d'un segment contractuel bloque la base au lieu d'aplatir le mois.
+Un changement contractuel/règle incompatible avec les seuils hebdomadaires reste bloqué.
+
+31.5 PRORATISATION SEGMENTEE — PARITE ANDROID / IOS
+iOS possédait déjà SalarySegmentedProrationStoreV2.
+Android dispose maintenant de V2SegmentedProrationStore.
+Le store Android conserve strictement :
+- entreprise ;
+- mois ;
+- sourceId ;
+- checkedAt ;
+- méthode ;
+- version de contrat par segment ;
+- bornes de segment ;
+- minutes planifiées confirmées.
+Entreprise confirmée obligatoire.
+Stockage absent, mal typé, dupliqué, période invalide ou total non prouvé => source non fiable.
+La fiabilité et les warnings du store sont propagés jusqu'à B20.
+V2BackupManager inclut ce store dans les sauvegardes Drive/Firestore.
+
+31.6 STORES CONFIRMES → B21 → B20
+Nouveaux bridges de production :
+- Android : V2SegmentedWorkedGrossProductionBridge ;
+- iOS : SalarySegmentedWorkedGrossProductionBridgeV2.
+
+Ils résolvent automatiquement :
+- proratisation confirmée du mois ;
+- attestations de couverture des pointages ;
+- sessions V2.
+La couverture demandée est élargie aux semaines ISO entières :
+lundi de la première semaine touchée → dimanche de la dernière semaine touchée.
+Cette règle protège les seuils hebdomadaires contre une remise à zéro artificielle aux bornes du mois.
+
+Les preuves juridiques de primes restent fournies explicitement par la couche d'arbitrage existante.
+Le bridge ne transforme jamais « aucune règle trouvée » en preuve d'absence d'une règle collective prioritaire.
+
+31.7 TESTS AJOUTES
+Les nouvelles régressions couvrent notamment :
+- deux segments contractuels confirmés avec changement un lundi ;
+- variable explicitement prouvée à zéro ;
+- assemblage B20 fiable ;
+- couverture absente => B20 entier bloqué ;
+- warning B21 conservé ;
+- changement de règle dans un segment => base bloquée ;
+- round-trip du store de proratisation Android ;
+- corruption/duplication rejetée ;
+- store inclus dans le backup V2 ;
+- bornes de couverture étendues aux semaines ISO complètes Android/iOS.
+Un premier test a échoué uniquement pour une erreur de type dans la fixture après introduction
+de SegmentedProrationSourceV2 ; le test a été corrigé sans modifier la règle métier.
+
+31.8 VALIDATION TECHNIQUE
+Build iOS direct de #441, HEAD bb1294f6, run #731 / 36236712951 : SUCCES.
+
+Validation complète via #437, HEAD 84b54077 :
+Security checks #2954 / 36236726560 :
+- V2 unit tests Android : SUCCES ;
+- Firebase Functions : SUCCES ;
+- compilation Android / Security update build : SUCCES ;
+- Google Play APK/AAB : SUCCES ;
+- CodeQL Android : SUCCES ;
+- dependency-review : job vert, action non requise ;
+- Agent review gate : ECHEC.
+Build iOS #732 / 36236726691 : SUCCES.
+
+Cause exacte du gate agents :
+"Quota exceeded. Check your plan and billing details."
+Aucun rapport agents conforme n'a été produit.
+Aucun contrôle n'a été désactivé ou contourné.
+
+31.9 POURQUOI L'UI N'EST PAS ENCORE BRANCHEE
+L'ancien V2SalaryAdapter.Result expose :
+- brut régulier ;
+- heures supplémentaires par tiers ;
+- primes ;
+- durées nuit/samedi/dimanche/férié ;
+- temps total ;
+- autres détails d'affichage.
+B20 fournit actuellement un brut de travail fiable et ses warnings, mais pas tous ces détails
+au même niveau mensuel d'affichage.
+Injecter B20 dans ces champs en mettant le reste à zéro fabriquerait une présentation fausse.
+HoraTrack refuse cette solution.
+
+La prochaine couche doit donc produire un contrat de sortie segmenté riche :
+- brut de travail fiable ;
+- provenance ;
+- fiabilité ;
+- warnings ;
+- détails réellement prouvés seulement.
+Les composants non prouvés restent absents/à confirmer, jamais zéro par confort d'affichage.
+
+31.10 SUITE PRIORITAIRE
+1. Définir le contrat de sortie segmenté riche.
+2. Assembler le brut en espèces complet sans double comptage :
+   B20 + composantes fixes/confirmées applicables.
+3. Bloquer explicitement les cas encore non supportés avant net
+   (par exemple ajustement spécifique non segmenté plutôt que l'inventer).
+4. Projeter vers le net via les moteurs sociaux canoniques existants.
+5. Raccorder l'écran Salaire, PDF, comparaison et historique au même résultat.
+6. Conserver le chemin mono-contrat sain tant que le chemin segmenté n'est pas complètement validé.
+7. Tester les mêmes scénarios Android/iOS et sur appareils réels quand une interaction mobile est concernée.
+
+Aucune activation produit, fusion, release, publication store ou déploiement Firebase n'est déclarée par ce checkpoint.
+Le checkpoint 30 V2.23 et tout son contenu sont conservés intégralement ci-dessous.
+
+==============================================================================
+CHECKPOINT 30 V2.23 ET CONTENU ANTERIEUR — CONSERVES SANS SUPPRESSION
+==============================================================================
+
 HORATRACK — DOCUMENT MAITRE V2.23 — CHECKPOINT 30
 MISE A JOUR DU 25 SEPTEMBRE 2026 — UX / PROXIMITE / BULLETINS / CELESTE
 
