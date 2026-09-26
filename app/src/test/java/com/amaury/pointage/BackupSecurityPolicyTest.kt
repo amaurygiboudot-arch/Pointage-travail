@@ -19,6 +19,13 @@ class BackupSecurityPolicyTest {
             "horatrack_v2_gps_state",
             "drive_backup",
             "pointage",
+            "user_feedback",
+            "snake_profile",
+            "payroll_rates_cache",
+            "location_onboarding",
+            "horatrack_v2_test_policy",
+            "horatrack_local_provident_documents",
+            "firebase_backend_updates",
             " V2_APP_LOCK "
         ).forEach { name ->
             assertFalse(name, BackupSecurityPolicy.canTransferPreferenceFile(name))
