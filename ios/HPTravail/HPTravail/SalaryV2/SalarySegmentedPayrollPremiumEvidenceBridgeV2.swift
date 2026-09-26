@@ -97,10 +97,14 @@ enum SalarySegmentedPayrollPremiumEvidenceBridgeV2 {
                 nightSnapshot = nil
             }
 
+            let nightSourceId = nightSnapshot?.sourceId
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? "none"
+            let ruleSourceId = ruleSnapshot.sourceId
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let sourceId =
-                "premium-context-v1|rule=(ruleSnapshot.sourceId.trimmingCharacters(in: .whitespacesAndNewlines))" +
-                "|night=(nightSnapshot?.sourceId.trimmingCharacters(in: .whitespacesAndNewlines) ?? "none")" +
-                "|holiday=(holidayKey(scope))"
+                "premium-context-v1|rule=\(ruleSourceId)" +
+                "|night=\(nightSourceId)" +
+                "|holiday=\(holidayKey(scope))"
 
             output.append(
                 SalarySegmentedPayrollPremiumEvidenceV2(
