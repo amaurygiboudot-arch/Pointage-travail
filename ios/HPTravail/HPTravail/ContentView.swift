@@ -208,7 +208,7 @@ struct ContentView: View {
                 }
                 .padding()
             }
-            .navigationTitle("HP Travail")
+            .navigationTitle("AGKGMG")
             .onAppear {
                 refreshClockEmployerSelection()
             }
@@ -368,7 +368,7 @@ struct ContentView: View {
                         }
 
                         if let user = authManager.user {
-                            Text(user.displayName ?? user.email ?? "Profil HP Travail")
+                            Text(user.displayName ?? user.email ?? "Profil AGKGMG")
                                 .foregroundStyle(.secondary)
                             Button("SE DÉCONNECTER DU PROFIL", role: .destructive) {
                                 authManager.signOut()
@@ -471,7 +471,7 @@ struct ContentView: View {
                 }
 
                 Section("À propos") {
-                    Text("Version iPhone de HP Travail")
+                    Text("Version iPhone de AGKGMG")
                     Text("Google et Apple peuvent être liés séparément ou ensemble au même profil Firebase.")
                         .foregroundStyle(.secondary)
                 }
