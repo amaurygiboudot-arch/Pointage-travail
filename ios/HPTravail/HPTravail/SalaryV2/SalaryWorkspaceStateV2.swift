@@ -25,6 +25,36 @@ enum SalaryWorkspaceResolverV2 {
 
     static func resolve(
         period: YearMonthV2,
+        segmented: SalarySegmentedSalaryPresentationV2.Result?
+    ) -> SalaryWorkspaceSnapshotV2 {
+        guard let segmented else {
+            return SalaryWorkspaceSnapshotV2(
+                period: period,
+                sourceReady: false,
+                socialGross: nil,
+                netBeforeIncomeTax: nil,
+                netTaxable: nil,
+                incomeTax: nil,
+                netAfterIncomeTax: nil,
+                warnings: [upstreamUnavailableWarning]
+            )
+        }
+
+        let sourceReady = segmented.state != .unreliable
+        return SalaryWorkspaceSnapshotV2(
+            period: period,
+            sourceReady: sourceReady,
+            socialGross: sourceReady ? segmented.socialGross : nil,
+            netBeforeIncomeTax: segmented.state == .available ? segmented.netBeforeIncomeTax : nil,
+            netTaxable: segmented.state == .available ? segmented.netTaxable : nil,
+            incomeTax: segmented.state == .available ? segmented.incomeTax : nil,
+            netAfterIncomeTax: segmented.state == .available ? segmented.netAfterIncomeTax : nil,
+            warnings: unique(segmented.warnings)
+        )
+    }
+
+    static func resolve(
+        period: YearMonthV2,
         reference: SalaryReferenceContractV2?,
         incomeTaxRate: CompanyIncomeTaxRateResolverV2.Snapshot? = nil
     ) -> SalaryWorkspaceSnapshotV2 {
