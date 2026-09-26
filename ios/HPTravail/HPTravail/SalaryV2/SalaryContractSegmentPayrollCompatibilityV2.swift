@@ -30,7 +30,7 @@ enum SalaryContractSegmentPayrollCompatibilityV2 {
 
         var changed = Set<String>()
         for segment in segments.dropFirst() {
-            collectChanges(first, segment.snapshot.contract, into: &changed)
+            changed.formUnion(changedPayrollFields(first, segment.snapshot.contract))
         }
         guard changed.isEmpty else {
             return SalaryContractSegmentPayrollCompatibilityResultV2(
@@ -49,11 +49,13 @@ enum SalaryContractSegmentPayrollCompatibilityV2 {
         )
     }
 
-    private static func collectChanges(
+    /// Compare uniquement les paramètres contractuels qui peuvent influencer la paie.
+    /// Les identifiants techniques de version/source ne créent jamais à eux seuls un changement.
+    static func changedPayrollFields(
         _ a: ContractV2,
-        _ b: ContractV2,
-        into output: inout Set<String>
-    ) {
+        _ b: ContractV2
+    ) -> Set<String> {
+        var output = Set<String>()
         if a.employerId.trimmingCharacters(in: .whitespacesAndNewlines) != b.employerId.trimmingCharacters(in: .whitespacesAndNewlines) {
             output.insert("employerId")
         }
@@ -66,5 +68,7 @@ enum SalaryContractSegmentPayrollCompatibilityV2 {
         if a.forfaitHours != b.forfaitHours { output.insert("forfaitHours") }
         if a.forfaitAnnualDays != b.forfaitAnnualDays { output.insert("forfaitAnnualDays") }
         if a.monthlyGrossSalary != b.monthlyGrossSalary { output.insert("monthlyGrossSalary") }
+        return output
     }
+
 }
