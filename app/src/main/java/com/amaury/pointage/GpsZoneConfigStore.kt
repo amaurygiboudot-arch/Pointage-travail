@@ -154,6 +154,44 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
 }
 
 
+
+internal data class GpsLocationEntry(
+    val zoneId: String?,
+    val address: String
+)
+
+internal fun resolveGpsLocationEntries(
+    zonesResult: GpsZonesReadResult,
+    savedAddresses: List<String>
+): List<GpsLocationEntry>? {
+    if (zonesResult is GpsZonesReadResult.Corrupt) return null
+
+    val normalizedSaved = savedAddresses
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+
+    val entries = mutableListOf<GpsLocationEntry>()
+    val coveredAddresses = mutableSetOf<String>()
+
+    if (zonesResult is GpsZonesReadResult.Valid) {
+        zonesResult.zones.forEach { zone ->
+            val source = runCatching { JSONObject(zone.sourceJson) }.getOrNull()
+            if (source?.optBoolean("smartCandidate", false) == true) return@forEach
+            val address = zone.address?.trim().orEmpty()
+            if (address.isBlank()) return@forEach
+            entries += GpsLocationEntry(zone.id, address)
+            coveredAddresses += address.lowercase()
+        }
+    }
+
+    normalizedSaved
+        .filterNot { it.lowercase() in coveredAddresses }
+        .forEach { entries += GpsLocationEntry(null, it) }
+
+    return entries
+}
+
 internal sealed class GpsZoneRadiusResolution {
     data class Known(val radiusMeters: Float) : GpsZoneRadiusResolution()
     object Missing : GpsZoneRadiusResolution()
@@ -197,6 +235,35 @@ internal fun resolveUniqueGpsZoneIdForAddress(
         it.address?.trim()?.equals(normalized, ignoreCase = true) == true
     }
     return matches.singleOrNull()?.id
+}
+
+
+internal fun resolveGpsZoneScopedObject(
+    values: JSONObject,
+    zonesResult: GpsZonesReadResult,
+    zoneId: String?,
+    address: String
+): JSONObject? {
+    val canonicalId = zoneId?.trim().orEmpty()
+    if (canonicalId.isNotBlank()) {
+        values.optJSONObject(canonicalId)?.let { return it }
+    }
+    val uniqueOwner = resolveUniqueGpsZoneIdForAddress(zonesResult, address) ?: return null
+    if (canonicalId.isNotBlank() && uniqueOwner != canonicalId) return null
+    return values.optJSONObject(address)
+}
+
+internal fun putGpsZoneScopedObject(
+    values: JSONObject,
+    zoneId: String?,
+    address: String,
+    value: JSONObject
+): Boolean {
+    val canonicalId = zoneId?.trim().orEmpty()
+    if (canonicalId.isBlank()) return false
+    values.remove(address)
+    values.put(canonicalId, JSONObject(value.toString()))
+    return true
 }
 
 internal fun updateGpsZoneTypeById(

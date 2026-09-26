@@ -337,4 +337,105 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `un objet de zone est lu par id avant le fallback adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+        val values = org.json.JSONObject()
+            .put("atelier", org.json.JSONObject().put("phone", "111"))
+            .put("1 rue A", org.json.JSONObject().put("phone", "222"))
+
+        assertEquals("111", resolveGpsZoneScopedObject(values, zones, "atelier", "1 rue A")?.getString("phone"))
+    }
+
+    @Test
+    fun `le fallback adresse est refuse si plusieurs zones partagent l adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+        val values = org.json.JSONObject()
+            .put("1 rue A", org.json.JSONObject().put("phone", "222"))
+
+        assertNull(resolveGpsZoneScopedObject(values, zones, "atelier", "1 rue A"))
+    }
+
+    @Test
+    fun `ecrire un objet de zone migre la cle adresse vers l id canonique`() {
+        val values = org.json.JSONObject()
+            .put("1 rue A", org.json.JSONObject().put("phone", "ancien"))
+
+        assertTrue(
+            putGpsZoneScopedObject(
+                values,
+                "atelier",
+                "1 rue A",
+                org.json.JSONObject().put("phone", "nouveau")
+            )
+        )
+        assertNull(values.optJSONObject("1 rue A"))
+        assertEquals("nouveau", values.getJSONObject("atelier").getString("phone"))
+    }
+
+
+    @Test
+    fun `les fiches de lieux gardent deux zones distinctes a la meme adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+
+        val entries = resolveGpsLocationEntries(zones, listOf("1 rue A"))
+
+        assertEquals(2, entries?.size)
+        assertEquals(listOf("atelier", "parking"), entries?.mapNotNull { it.zoneId })
+    }
+
+    @Test
+    fun `une ancienne adresse sans zone reste visible pour migration`() {
+        val zones = parsePersistedGpsZones("[]")
+
+        val entries = resolveGpsLocationEntries(zones, listOf("Ancien site"))
+
+        assertEquals(1, entries?.size)
+        assertNull(entries?.single()?.zoneId)
+        assertEquals("Ancien site", entries?.single()?.address)
+    }
+
+    @Test
+    fun `une configuration gps corrompue ne fabrique aucune fiche de lieu`() {
+        val zones = parsePersistedGpsZones("{invalide}")
+
+        assertNull(resolveGpsLocationEntries(zones, listOf("1 rue A")))
+    }
+
+
+    @Test
+    fun `une zone candidate apprise ne devient pas une fiche utilisateur`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {
+                    "id":"candidate",
+                    "latitude":46.7,
+                    "longitude":-1.4,
+                    "radius":150,
+                    "address":"1 rue A",
+                    "smartCandidate":true
+                }
+            ]""".trimIndent()
+        )
+
+        val entries = resolveGpsLocationEntries(zones, emptyList())
+
+        assertTrue(entries?.isEmpty() == true)
+    }
+
+
 }

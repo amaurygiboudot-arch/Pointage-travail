@@ -15,6 +15,52 @@ import java.util.Locale
 import java.util.UUID
 import kotlin.math.abs
 
+internal data class SmartSetupCompanyTarget(
+    val companyId: String,
+    val address: String
+)
+
+internal fun resolveSmartSetupCompanyTargets(
+    stored: SalaryCompanyStore.ReadResult
+): List<SmartSetupCompanyTarget>? {
+    if (!stored.reliable) return null
+    return stored.companies.mapNotNull { company ->
+        val companyId = company.id.trim()
+        val address = company.address.trim()
+        val siret = company.siret.filter(Char::isDigit)
+        if (companyId.isBlank() || address.isBlank() || siret.length != 14) null
+        else SmartSetupCompanyTarget(companyId, address)
+    }
+}
+
+internal fun smartCandidateZoneJson(
+    id: String,
+    address: String,
+    latitude: Double,
+    longitude: Double,
+    radius: Int,
+    companyId: String?,
+    legacyCompanySlot: Int?
+): JSONObject {
+    val stableCompanyId = companyId?.trim()?.takeIf { it.isNotBlank() }
+    val legacySlot = legacyCompanySlot?.takeIf { it in 1..2 }
+    require(stableCompanyId != null || legacySlot != null) {
+        "Une zone candidate doit avoir un propriétaire entreprise explicite"
+    }
+    return JSONObject()
+        .put("id", id)
+        .put("address", address)
+        .put("latitude", latitude)
+        .put("longitude", longitude)
+        .put("radius", radius)
+        .put("pointSource", "smart_siret_candidate")
+        .put("smartCandidate", true)
+        .also { zone ->
+            if (stableCompanyId != null) zone.put("companyId", stableCompanyId)
+            else zone.put("companySlot", legacySlot)
+        }
+}
+
 /**
  * Configuration intelligente activée par défaut à la première installation.
  *
@@ -54,8 +100,13 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
                 .apply()
         }
         if (!listening) {
-            app.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-                .registerOnSharedPreferenceChangeListener(this)
+            if (HoraTrackV2.ENABLED) {
+                app.getSharedPreferences("salary_companies_v2", Context.MODE_PRIVATE)
+                    .registerOnSharedPreferenceChangeListener(this)
+            } else {
+                app.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+                    .registerOnSharedPreferenceChangeListener(this)
+            }
             if (legacyPauseLearningAllowed()) {
                 app.getSharedPreferences("pointage", Context.MODE_PRIVATE)
                     .registerOnSharedPreferenceChangeListener(this)
@@ -73,7 +124,8 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val context = appContext ?: return
         if (!enabled(context)) return
         when {
-            key == "company_address" || key == "company_siret" ||
+            key == "companies" || key == "companies_last_known_good" ||
+                key == "company_address" || key == "company_siret" ||
                 key == "company2_address" || key == "company2_siret" -> syncKnownCompaniesAsync(context)
             key == "data" -> learnPausesAsync(context)
         }
@@ -85,12 +137,33 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         busyCompany = true
         Thread {
             try {
-                val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
-                for (slot in 1..2) {
-                    val prefix = if (slot == 2) "company2_" else "company_"
-                    val siret = salary.getString(prefix + "siret", "").orEmpty()
-                    val address = salary.getString(prefix + "address", "").orEmpty().trim()
-                    if (siret.length == 14 && address.isNotBlank()) ensureCandidateZone(context, slot, address)
+                if (HoraTrackV2.ENABLED) {
+                    val targets = resolveSmartSetupCompanyTargets(
+                        SalaryCompanyStore.readConfirmed(context)
+                    ) ?: return@Thread
+                    targets.forEach { target ->
+                        ensureCandidateZone(
+                            context = context,
+                            companyId = target.companyId,
+                            legacyCompanySlot = null,
+                            address = target.address
+                        )
+                    }
+                } else {
+                    val salary = context.getSharedPreferences("salary_settings", Context.MODE_PRIVATE)
+                    for (slot in 1..2) {
+                        val prefix = if (slot == 2) "company2_" else "company_"
+                        val siret = salary.getString(prefix + "siret", "").orEmpty()
+                        val address = salary.getString(prefix + "address", "").orEmpty().trim()
+                        if (siret.length == 14 && address.isNotBlank()) {
+                            ensureCandidateZone(
+                                context = context,
+                                companyId = null,
+                                legacyCompanySlot = slot,
+                                address = address
+                            )
+                        }
+                    }
                 }
             } finally {
                 busyCompany = false
@@ -98,7 +171,12 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }.start()
     }
 
-    private fun ensureCandidateZone(context: Context, companySlot: Int, address: String) {
+    private fun ensureCandidateZone(
+        context: Context,
+        companyId: String?,
+        legacyCompanySlot: Int?,
+        address: String
+    ) {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
 
@@ -112,17 +190,17 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }.getOrNull() ?: return
 
         val radius = gps.getInt("radius", 150).coerceIn(50, 1000)
-        val id = "smart_candidate_${companySlot}_${UUID.randomUUID()}"
+        val id = "smart_candidate_${UUID.randomUUID()}"
         zones.put(
-            JSONObject()
-                .put("id", id)
-                .put("address", address)
-                .put("latitude", geocoded.latitude)
-                .put("longitude", geocoded.longitude)
-                .put("radius", radius)
-                .put("pointSource", "smart_siret_candidate")
-                .put("companySlot", companySlot)
-                .put("smartCandidate", true)
+            smartCandidateZoneJson(
+                id = id,
+                address = address,
+                latitude = geocoded.latitude,
+                longitude = geocoded.longitude,
+                radius = radius,
+                companyId = companyId,
+                legacyCompanySlot = legacyCompanySlot
+            )
         )
 
         gps.edit()
@@ -171,11 +249,18 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         if (hasThreeConsecutiveDays(sorted)) {
             val pendingZone = prefs.getString("pending_workplace_zone", "").orEmpty()
             if (pendingZone.isBlank()) {
-                prefs.edit()
+                val editor = prefs.edit()
                     .putString("pending_workplace_zone", zoneId)
                     .putString("pending_workplace_address", zone.optString("address"))
-                    .putInt("pending_workplace_company", zone.optInt("companySlot", 1))
-                    .apply()
+                val stableCompanyId = zone.optString("companyId").trim()
+                if (stableCompanyId.isNotBlank()) {
+                    editor.remove("pending_workplace_company")
+                } else {
+                    val legacySlot = zone.optInt("companySlot", 0)
+                    if (legacySlot in 1..2) editor.putInt("pending_workplace_company", legacySlot)
+                    else return
+                }
+                editor.apply()
             }
         }
     }
@@ -194,14 +279,27 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         }
 
         val address = zone.optString("address").ifBlank { prefs.getString("pending_workplace_address", "").orEmpty() }
-        val company = zone.optInt("companySlot", prefs.getInt("pending_workplace_company", 1)).coerceIn(1, 2)
+        val stableCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+        val companyDescription = if (stableCompanyId != null) {
+            val stored = SalaryCompanyStore.readConfirmed(activity)
+            if (!stored.reliable) return
+            val company = stored.companies.firstOrNull { it.id == stableCompanyId } ?: return
+            company.name.trim().takeIf { it.isNotBlank() } ?: "cette entreprise"
+        } else {
+            val legacySlot = zone.optInt(
+                "companySlot",
+                prefs.getInt("pending_workplace_company", 0)
+            )
+            if (legacySlot !in 1..2) return
+            "l'Entreprise $legacySlot"
+        }
         prefs.edit().putBoolean("proposal_dialog_visible", true).apply()
 
         AlertDialog.Builder(activity)
             .setTitle("Lieu de travail détecté ?")
             .setMessage(
                 "Tu as passé au moins 7 heures à cette adresse pendant 3 jours consécutifs :\n\n$address\n\n" +
-                    "Est-ce bien un lieu de travail pour l'Entreprise $company ? HoraTrack ne l'activera jamais sans ta confirmation."
+                    "Est-ce bien un lieu de travail pour $companyDescription ? HoraTrack ne l'activera jamais sans ta confirmation."
             )
             .setPositiveButton("OUI, C'EST MON TRAVAIL") { _, _ ->
                 confirmCandidate(activity, zoneId)
@@ -221,15 +319,31 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
         val gps = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val zones = readPersistedGpsZones(gps).toMutableJsonArrayOrNull() ?: return
         var confirmedAddress = ""
-        var companySlot = 1
+        var stableCompanyId: String? = null
+        var legacyCompanySlot: Int? = null
+
         for (i in 0 until zones.length()) {
             val zone = zones.optJSONObject(i) ?: continue
             if (zone.optString("id") != zoneId) continue
+
+            stableCompanyId = zone.optString("companyId").trim().takeIf { it.isNotBlank() }
+            legacyCompanySlot = if (stableCompanyId == null) {
+                zone.optInt("companySlot", 0).takeIf { it in 1..2 }
+            } else {
+                null
+            }
+            if (stableCompanyId == null && legacyCompanySlot == null) return
+
+            if (stableCompanyId != null) {
+                val companies = SalaryCompanyStore.readConfirmed(context)
+                if (!companies.reliable || companies.companies.none { it.id == stableCompanyId }) return
+                zone.remove("companySlot")
+            }
+
             zone.put("smartCandidate", false)
             zone.put("pointType", "POSTE")
             zone.put("pointSource", "smart_siret_confirmed")
             confirmedAddress = zone.optString("address")
-            companySlot = zone.optInt("companySlot", 1).coerceIn(1, 2)
             break
         }
 
@@ -237,8 +351,16 @@ object SmartSetupManager : SharedPreferences.OnSharedPreferenceChangeListener {
             val addresses = gps.getString("address", "").orEmpty().lines()
                 .map { it.trim() }.filter { it.isNotBlank() }.toMutableList()
             if (addresses.none { it.equals(confirmedAddress, ignoreCase = true) }) addresses += confirmedAddress
-            val companyMap = runCatching { JSONObject(gps.getString("address_company_slots", "{}") ?: "{}") }.getOrElse { JSONObject() }
-            companyMap.put(confirmedAddress, companySlot)
+
+            val companyMap = runCatching {
+                JSONObject(gps.getString("address_company_slots", "{}") ?: "{}")
+            }.getOrElse { JSONObject() }
+            if (stableCompanyId != null) {
+                companyMap.remove(confirmedAddress)
+            } else {
+                legacyCompanySlot?.let { companyMap.put(confirmedAddress, it) }
+            }
+
             gps.edit()
                 .putString("zones", zones.toString())
                 .putString("address", addresses.distinctBy { it.lowercase(Locale.FRANCE) }.take(10).joinToString("\n"))

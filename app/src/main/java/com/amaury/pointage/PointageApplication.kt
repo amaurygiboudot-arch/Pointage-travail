@@ -304,8 +304,8 @@ object SettingsUiInstaller {
                 activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).edit().putString("mode", mode).apply()
                 updateModeLabel()
                 AppearanceManager.apply(activity)
-                PointageWidgetProvider.updateAll(activity)
-                QuickActionsWidgetProvider.updateAll(activity)
+                PointageWidgetProvider.refreshAppearance(activity)
+                QuickActionsWidgetProvider.refreshAppearance(activity)
             }.show()
         }
         appearance.addView(modeButton)
@@ -330,18 +330,18 @@ object SettingsUiInstaller {
         val widget = settingsSection(activity, SettingsV2Host.TAG_WIDGET)
         widget.addView(title(activity, "WIDGET"))
         val widgetBg = styledButton(activity, "COULEUR DU FOND DU WIDGET")
-        widgetBg.setOnClickListener { chooseWidgetColor(activity, "widget_bg", "Fond du widget") }
+        widgetBg.setOnClickListener { chooseWidgetColor(activity, WidgetStyleSettings.KEY_BACKGROUND, "Fond du widget") }
         widget.addView(widgetBg)
         val widgetAccent = styledButton(activity, "COULEUR D'ACCENT DU WIDGET")
-        widgetAccent.setOnClickListener { chooseWidgetColor(activity, "widget_accent", "Accent du widget") }
+        widgetAccent.setOnClickListener { chooseWidgetColor(activity, WidgetStyleSettings.KEY_ACCENT, "Accent du widget") }
         widget.addView(widgetAccent)
 
         val showPosition = Switch(activity).apply {
             text = "Afficher la position dans le widget"
             textSize = 14f
-            isChecked = activity.getSharedPreferences("widget_style", Context.MODE_PRIVATE).getBoolean("show_position", true)
+            isChecked = activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).getBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, true)
             setOnCheckedChangeListener { _, checked ->
-                activity.getSharedPreferences("widget_style", Context.MODE_PRIVATE).edit().putBoolean("show_position", checked).apply()
+                activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putBoolean(WidgetStyleSettings.KEY_SHOW_POSITION, checked).apply()
                 PointageWidgetProvider.updateAll(activity)
                 QuickActionsWidgetProvider.updateAll(activity)
             }
@@ -445,9 +445,9 @@ object SettingsUiInstaller {
     }
 
     private fun saveWidgetColor(activity: Activity, key: String, color: String) {
-        activity.getSharedPreferences("widget_style", Context.MODE_PRIVATE).edit().putString(key, color).apply()
-        PointageWidgetProvider.updateAll(activity)
-        QuickActionsWidgetProvider.updateAll(activity)
+        activity.getSharedPreferences(WidgetStyleSettings.PREFS, Context.MODE_PRIVATE).edit().putString(key, color).apply()
+        PointageWidgetProvider.refreshAppearance(activity)
+        QuickActionsWidgetProvider.refreshAppearance(activity)
         Toast.makeText(activity, "Widget mis à jour", Toast.LENGTH_SHORT).show()
     }
 
