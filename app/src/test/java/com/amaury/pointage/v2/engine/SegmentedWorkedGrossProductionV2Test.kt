@@ -72,7 +72,7 @@ class SegmentedWorkedGrossProductionV2Test {
         val base = SegmentedMonthlyBaseBridgeV2.calculate(
             contracts = f.contracts,
             rules = changedRules,
-            proration = f.proration
+            proration = f.proration.proration
         )
 
         assertFalse(base.reliable)
