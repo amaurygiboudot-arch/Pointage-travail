@@ -5,7 +5,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2RuntimeReader
 import org.json.JSONArray
@@ -20,7 +20,7 @@ object DailyPdfReport {
     private const val M = 38f
 
     fun write(context: Context, data: JSONArray, dayStart: Long, dayEnd: Long, output: OutputStream) {
-        if (AGKGMGV2.ENABLED) {
+        if (HoraTrackV2.ENABLED) {
             writeV2(context, dayStart, dayEnd, output)
             return
         }
@@ -80,7 +80,7 @@ object DailyPdfReport {
         sessions.forEachIndexed { index, s ->
             val entry = s.countedEntryMs ?: s.realArrivalMs ?: return@forEachIndexed
             val exit = s.countedExitMs ?: s.realExitMs ?: return@forEachIndexed
-            val result = AGKGMGV2.time.calculate(s)
+            val result = HoraTrackV2.time.calculate(s)
             totalWorked += result.paidWorkMs
 
             ensureSpace(90f)
