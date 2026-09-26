@@ -16,6 +16,24 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         rules: SalaryConventionCoverageV2,
         now: Date
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        calculateDetailedFromStores(
+            defaults: defaults, companyId: companyId, companyAddress: companyAddress,
+            period: period, timeZoneId: timeZoneId, work: work,
+            contracts: contracts, rules: rules, now: now
+        ).assembly
+    }
+
+    static func calculateDetailedFromStores(
+        defaults: UserDefaults = .standard,
+        companyId: String,
+        companyAddress: String,
+        period: YearMonthV2,
+        timeZoneId: String,
+        work: SalaryWorkSessionSourceV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        rules: SalaryConventionCoverageV2,
+        now: Date
+    ) -> SalarySegmentedWorkedGrossProductionResultV2 {
         let night = SalaryConventionNightRuleStoreV2.readConfirmed(defaults: defaults)
         let premiumContext = SalarySegmentedPayrollPremiumEvidenceBridgeV2.build(
             contracts: contracts,
@@ -26,8 +44,8 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
             holidayScope: FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
             now: now
         )
-        guard premiumContext.reliable else { return blocked(premiumContext.warnings) }
-        return calculate(
+        guard premiumContext.reliable else { return blockedDetailed(premiumContext.warnings) }
+        return calculateDetailed(
             defaults: defaults,
             companyId: companyId,
             period: period,
@@ -51,11 +69,29 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         premiums: [SalarySegmentedPayrollPremiumEvidenceV2],
         now: Date
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        calculateDetailed(
+            defaults: defaults, companyId: companyId, period: period,
+            timeZoneId: timeZoneId, work: work, contracts: contracts,
+            rules: rules, premiums: premiums, now: now
+        ).assembly
+    }
+
+    static func calculateDetailed(
+        defaults: UserDefaults = .standard,
+        companyId: String,
+        period: YearMonthV2,
+        timeZoneId: String,
+        work: SalaryWorkSessionSourceV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        rules: SalaryConventionCoverageV2,
+        premiums: [SalarySegmentedPayrollPremiumEvidenceV2],
+        now: Date
+    ) -> SalarySegmentedWorkedGrossProductionResultV2 {
         guard let bounds = coverageBounds(
             start: contracts.periodStartEpochDay,
             end: contracts.periodEndEpochDay
         ) else {
-            return blocked("Brut segmenté : bornes de couverture hebdomadaire invalides.")
+            return blockedDetailed("Brut segmenté : bornes de couverture hebdomadaire invalides.")
         }
 
         let proration = SalarySegmentedProrationStoreV2.resolve(
@@ -72,7 +108,7 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
             now: now,
             defaults: defaults
         )
-        return SalarySegmentedWorkedGrossProductionV2.calculate(
+        return SalarySegmentedWorkedGrossProductionV2.calculateDetailed(
             contracts: contracts,
             rules: rules,
             prorationSource: proration,
@@ -92,6 +128,31 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
         let addition = lastMonday.addingReportingOverflow(6)
         guard !addition.overflow else { return nil }
         return (firstMonday, addition.partialValue)
+    }
+
+    private static func blockedDetailed(
+        _ warning: String
+    ) -> SalarySegmentedWorkedGrossProductionResultV2 {
+        blockedDetailed([warning])
+    }
+
+    private static func blockedDetailed(
+        _ warnings: [String]
+    ) -> SalarySegmentedWorkedGrossProductionResultV2 {
+        let safe = Array(Set(warnings)).sorted()
+        return SalarySegmentedWorkedGrossProductionResultV2(
+            evidence: SalarySegmentedPayrollSessionEvidenceResultV2(
+                slices: [], reliable: false, warnings: safe,
+                sourceId: "production-blocked", contributingSessionIds: []
+            ),
+            variables: SalarySegmentedWorkedVariableGrossSourceResultV2(
+                pieces: [], reliable: false, warnings: safe
+            ),
+            base: SegmentedMonthlyBaseResultV2(
+                pieces: [], baseGross: nil, reliable: false, warnings: safe
+            ),
+            assembly: blocked(safe)
+        )
     }
 
     private static func blocked(
