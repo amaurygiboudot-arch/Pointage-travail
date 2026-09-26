@@ -312,4 +312,29 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `une adresse avec une seule zone resout son proprietaire canonique`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","label":"Atelier"},
+                {"id":"depot","latitude":46.8,"longitude":-1.5,"radius":180,"address":"2 rue B","label":"Dépôt"}
+            ]""".trimIndent()
+        )
+
+        assertEquals("atelier", resolveUniqueGpsZoneIdForAddress(result, "1 RUE A"))
+    }
+
+    @Test
+    fun `deux zones a la meme adresse ne choisissent jamais un proprietaire arbitraire`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","label":"Atelier"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A","label":"Parking"}
+            ]""".trimIndent()
+        )
+
+        assertNull(resolveUniqueGpsZoneIdForAddress(result, "1 rue A"))
+    }
+
+
 }
