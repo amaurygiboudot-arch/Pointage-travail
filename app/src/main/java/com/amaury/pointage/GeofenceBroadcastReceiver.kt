@@ -509,9 +509,15 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         val address = zone.address?.trim().orEmpty()
         if (address.isBlank()) return
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val contact = runCatching {
-            JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}").optJSONObject(address)
+        val contacts = runCatching {
+            JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}")
         }.getOrNull() ?: return
+        val contact = resolveGpsZoneScopedObject(
+            contacts,
+            readPersistedGpsZones(prefs),
+            zone.id,
+            address
+        ) ?: return
         if (!contact.optBoolean("enabled", false)) return
         val phone = contact.optString("phone").trim()
         if (phone.isBlank()) return
@@ -528,7 +534,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         }
         val pending = PendingIntent.getActivity(
             context,
-            address.hashCode(),
+            zone.id.hashCode(),
             smsIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -551,6 +557,6 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
-        manager.notify(address.hashCode(), notification)
+        manager.notify(zone.id.hashCode(), notification)
     }
 }
