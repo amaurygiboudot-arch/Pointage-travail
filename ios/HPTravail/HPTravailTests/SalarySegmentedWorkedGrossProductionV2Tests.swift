@@ -80,6 +80,21 @@ final class SalarySegmentedWorkedGrossProductionV2Tests: XCTestCase {
         XCTAssertEqual(epoch?.end, 3)
     }
 
+    func testExtremeBoundsFailClosedWithoutOverflow() {
+        XCTAssertNil(
+            SalarySegmentedWorkedGrossProductionV2.requiredCoverageBounds(
+                start: Int64.max,
+                end: Int64.max
+            )
+        )
+        XCTAssertNil(
+            SalarySegmentedWorkedGrossProductionV2.requiredCoverageBounds(
+                start: Int64.min,
+                end: Int64.min
+            )
+        )
+    }
+
     private struct Fixture {
         let contracts: SalaryEmploymentContractPeriodResolutionV2
         let rules: SalaryConventionCoverageV2
