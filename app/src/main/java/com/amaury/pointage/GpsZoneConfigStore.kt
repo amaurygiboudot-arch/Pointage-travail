@@ -185,6 +185,47 @@ internal fun resolveGpsZoneRadiusForAddress(
     }
 }
 
+internal fun promoteLegacyGpsEmployerBindingsV2(
+    zones: JSONArray,
+    legacyAddressSlots: JSONObject?,
+    confirmedCompanyIds: List<String>
+): Int {
+    var promoted = 0
+
+    fun legacySlotFor(zone: JSONObject): Int? {
+        val embedded = zone.optInt("companySlot", 0).takeIf { it in 1..2 }
+        if (embedded != null) return embedded
+        val map = legacyAddressSlots ?: return null
+        val candidates = listOf(zone.optString("address"), zone.optString("id"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        for (candidate in candidates) {
+            val direct = map.optInt(candidate, 0)
+            if (direct in 1..2) return direct
+            val keys = map.keys()
+            while (keys.hasNext()) {
+                val saved = keys.next()
+                if (saved.equals(candidate, ignoreCase = true)) {
+                    val mapped = map.optInt(saved, 0)
+                    if (mapped in 1..2) return mapped
+                }
+            }
+        }
+        return null
+    }
+
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: continue
+        if (zone.optString("companyId").trim().isNotBlank()) continue
+        val slot = legacySlotFor(zone) ?: continue
+        val stableId = confirmedCompanyIds.getOrNull(slot - 1)?.trim().orEmpty()
+        if (stableId.isBlank()) continue
+        zone.put("companyId", stableId)
+        promoted++
+    }
+    return promoted
+}
+
 internal fun updateGpsZoneTypeById(
     zones: JSONArray,
     zoneId: String,
