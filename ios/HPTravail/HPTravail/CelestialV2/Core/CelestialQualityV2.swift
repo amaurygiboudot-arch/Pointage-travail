@@ -142,23 +142,4 @@ enum CelestialHeadingPolicyV2 {
     static func isUsable(_ quality: CelestialHeadingQualityV2) -> Bool {
         quality == .valid
     }
-
-    /// Une orientation non qualifiée ne masque pas le ciel local : le rendu
-    /// revient à un point de vue Nord stable (0°), clairement distinct d'un cap réel.
-    static func renderingHeadingDegrees(
-        headingDegrees: Double?,
-        quality: CelestialHeadingQualityV2
-    ) -> Double {
-        guard isUsable(quality),
-              let headingDegrees,
-              headingDegrees.isFinite else {
-            return 0
-        }
-        let remainder = headingDegrees.truncatingRemainder(dividingBy: 360)
-        return remainder >= 0 ? remainder : remainder + 360
-    }
-
-    static func usesNeutralNorthMode(_ quality: CelestialHeadingQualityV2) -> Bool {
-        !isUsable(quality)
-    }
 }

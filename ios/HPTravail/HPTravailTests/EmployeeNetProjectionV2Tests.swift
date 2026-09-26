@@ -103,6 +103,27 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         )
     }
 
+    private func confirmedForfaitPayroll(
+        monthlyGross: Double = 3_000,
+        evidence: PayrollInputEvidenceV2 = .fullyConfirmed
+    ) throws -> PayrollResultV2 {
+        try PayrollEngineV2.calculate(
+            contract: ContractV2(
+                id: "contract-a",
+                employerId: "company-a",
+                type: .forfaitDays,
+                contractualWeeklyMinutes: nil,
+                grossHourlyRate: nil,
+                hireDateEpochDay: 18_000,
+                forfaitAnnualDays: 218,
+                monthlyGrossSalary: monthlyGross
+            ),
+            weeks: [],
+            rules: PayrollRulesV2(),
+            evidence: evidence
+        )
+    }
+
     func testCompleteInputsPublishBeforeTaxAndTaxableNet() {
         let result = EmployeeNetProjectionV2.calculate(
             input(benefits: benefits(total: 100))
@@ -340,4 +361,80 @@ final class EmployeeNetProjectionV2Tests: XCTestCase {
         XCTAssertNil(result.netTaxable)
         XCTAssertTrue(result.warnings.contains { $0.contains("barèmes nationaux non intégrés") })
     }
+    func testCanonicalReferenceBridgeUsesPayrollThenEmployeeProjection() throws {
+        let payroll = try confirmedForfaitPayroll()
+        let monthBenefits = benefits()
+        let projection = EmployeeNetProjectionV2.calculate(
+            input(
+                cashGross: payroll.grossEstimate,
+                upstreamReliable: payroll.grossReliable,
+                benefits: monthBenefits
+            )
+        )
+
+        let reference = SalaryReferenceContractV2.buildFromPayroll(
+            payroll: payroll,
+            benefits: monthBenefits,
+            projection: projection
+        )
+
+        XCTAssertTrue(payroll.grossReliable)
+        XCTAssertTrue(projection.grossReliable)
+        XCTAssertTrue(projection.netBeforeIncomeTaxComplete)
+        XCTAssertTrue(reference.grossReliable)
+        XCTAssertTrue(reference.complete)
+        XCTAssertEqual(
+            reference.netBeforeIncomeTax,
+            projection.netBeforeIncomeTax ?? -1,
+            accuracy: 0.0001
+        )
+    }
+
+    func testCanonicalReferenceBridgeBlocksMismatchedGrossChain() throws {
+        let payroll = try confirmedForfaitPayroll()
+        let monthBenefits = benefits()
+        let projection = EmployeeNetProjectionV2.calculate(
+            input(
+                cashGross: payroll.grossEstimate - 100,
+                upstreamReliable: true,
+                benefits: monthBenefits
+            )
+        )
+
+        let reference = SalaryReferenceContractV2.buildFromPayroll(
+            payroll: payroll,
+            benefits: monthBenefits,
+            projection: projection
+        )
+
+        XCTAssertFalse(reference.grossReliable)
+        XCTAssertFalse(reference.complete)
+        XCTAssertTrue(reference.warnings.contains { $0.contains("ne correspond pas au brut canonique") })
+    }
+
+    func testCanonicalReferenceBridgeKeepsGrossButBlocksIncompleteNet() throws {
+        let payroll = try confirmedForfaitPayroll()
+        let monthBenefits = benefits()
+        let projection = EmployeeNetProjectionV2.calculate(
+            input(
+                cashGross: payroll.grossEstimate,
+                upstreamReliable: payroll.grossReliable,
+                benefits: monthBenefits,
+                professionalStatus: nil
+            )
+        )
+
+        let reference = SalaryReferenceContractV2.buildFromPayroll(
+            payroll: payroll,
+            benefits: monthBenefits,
+            projection: projection
+        )
+
+        XCTAssertTrue(reference.grossReliable)
+        XCTAssertFalse(reference.complete)
+        XCTAssertNotNil(SalaryReferenceContractV2.socialGross(reference))
+        XCTAssertNil(SalaryReferenceContractV2.beforeIncomeTax(reference))
+        XCTAssertTrue(reference.warnings.contains { $0.contains("projection canonique incomplète") })
+    }
+
 }

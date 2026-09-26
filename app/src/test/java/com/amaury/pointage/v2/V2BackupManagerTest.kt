@@ -19,6 +19,15 @@ class V2BackupManagerTest {
     }
 
     @Test
+    fun `l attestation de couverture b21 est geree par le backup`() {
+        assertTrue(
+            V2BackupManager.isManagedPreferenceFileName(
+                PayrollCoverageAttestationStoreV2.PREFS
+            )
+        )
+    }
+
+    @Test
     fun `les fichiers entreprises salaire v2 sont geres par le backup`() {
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_companies_v2"))
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_company_siret_12345678901234"))

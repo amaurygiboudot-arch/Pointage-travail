@@ -8,17 +8,13 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.util.AttributeSet
-import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
-import com.amaury.pointage.v2.ui.CelestialHomeViewportV2
 import java.io.File
 import kotlin.math.max
 
@@ -36,208 +32,15 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
     )
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val celestialHomeSky = CelestialHomeSkyBackgroundRendererV2(context) {
-        if (isAttachedToWindow) postInvalidateOnAnimation()
-    }
-    private var celestialHomeState: com.amaury.pointage.v2.CelestialTrackerV2.State? = null
-    private var celestialAmbientState = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState()
-    private var celestialRenderState: com.amaury.pointage.v2.engine.CelestialRenderStateV2? = null
-    private var celestialHomeActive = false
-    private var measuredViewportHeightPx = 0
-    private var normalOverScrollMode = OVER_SCROLL_IF_CONTENT_SCROLLS
-    private var normalVerticalScrollBar = true
-    private var celestialTrackerSubscribed = false
-    private var celestialAmbientSubscribed = false
     private var cachedImage: Bitmap? = null
     private var cachedImageToken: String? = null
     private var cachedTextColor: Int? = null
     private var cachedShadowColor: Int? = null
 
-    fun setCelestialHomeActive(active: Boolean) {
-        if (celestialHomeActive == active) return
-        if (active) {
-            normalOverScrollMode = overScrollMode
-            normalVerticalScrollBar = isVerticalScrollBarEnabled
-            // Abort a fling inherited from a business tab before pinning Home.
-            super.fling(0)
-        }
-        celestialHomeActive = active
-        overScrollMode = if (active) OVER_SCROLL_NEVER else normalOverScrollMode
-        isVerticalScrollBarEnabled = if (active) false else normalVerticalScrollBar
-        if (active) super.scrollTo(0, 0)
-        requestLayout()
-        updateCelestialSubscription()
-        if (!active) {
-            celestialHomeState = null
-            celestialRenderState = null
-            celestialHomeSky.clear()
-        }
-        postInvalidateOnAnimation()
-    }
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        // Use this window's measured bounds, never the physical display height.
-        measuredViewportHeightPx = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.UNSPECIFIED) {
-            0
-        } else {
-            MeasureSpec.getSize(heightMeasureSpec)
-        }
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-    }
-
-    internal fun availableHomePanelHeight(panel: View): Int? {
-        if (!celestialHomeActive || measuredViewportHeightPx <= 0) return null
-        val column = panel.parent as? LinearLayout ?: return null
-        if (column.parent !== this) return null
-        var reserved = (paddingTop + paddingBottom + column.paddingTop + column.paddingBottom).toLong()
-        (column.layoutParams as? ViewGroup.MarginLayoutParams)?.let {
-            reserved += it.topMargin.toLong() + it.bottomMargin
-        }
-        for (i in 0 until column.childCount) {
-            val child = column.getChildAt(i)
-            // INVISIBLE navigation still reserves its measured space.
-            if (child.visibility == GONE) continue
-            val margins = child.layoutParams as? ViewGroup.MarginLayoutParams
-            reserved += (margins?.topMargin ?: 0).toLong() + (margins?.bottomMargin ?: 0)
-            if (child !== panel) reserved += child.measuredHeight
-        }
-        return CelestialHomeViewportV2.panelHeightPx(
-            measuredViewportHeightPx, reserved.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
-        )
-    }
-
-    // A fixed Home scene is not scrollable content. Let buttons/status actions
-    // receive their gestures, without starting ScrollView drag/stretch physics.
-    override fun onInterceptTouchEvent(event: MotionEvent): Boolean =
-        if (celestialHomeActive) false else super.onInterceptTouchEvent(event)
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (!celestialHomeActive) return super.onTouchEvent(event)
-        if (event.actionMasked == MotionEvent.ACTION_UP) performClick()
-        return true
-    }
-
-    override fun performClick(): Boolean = super.performClick()
-
-    override fun onGenericMotionEvent(event: MotionEvent): Boolean =
-        if (celestialHomeActive) false else super.onGenericMotionEvent(event)
-
-    override fun executeKeyEvent(event: KeyEvent): Boolean =
-        if (celestialHomeActive) false else super.executeKeyEvent(event)
-
-    override fun fling(velocityY: Int) {
-        if (!celestialHomeActive) super.fling(velocityY)
-    }
-
-    override fun scrollTo(x: Int, y: Int) {
-        super.scrollTo(
-            CelestialHomeViewportV2.scrollCoordinate(celestialHomeActive, x),
-            CelestialHomeViewportV2.scrollCoordinate(celestialHomeActive, y)
-        )
-    }
-
-    override fun onOverScrolled(scrollX: Int, scrollY: Int, clampedX: Boolean, clampedY: Boolean) {
-        if (celestialHomeActive) super.onOverScrolled(0, 0, false, false)
-        else super.onOverScrolled(scrollX, scrollY, clampedX, clampedY)
-    }
-
-    override fun computeScroll() {
-        if (celestialHomeActive) super.scrollTo(0, 0) else super.computeScroll()
-    }
-
-    override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean =
-        if (celestialHomeActive) false else super.requestChildRectangleOnScreen(child, rectangle, immediate)
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        updateCelestialSubscription()
-    }
-
-    override fun onDetachedFromWindow() {
-        if (celestialTrackerSubscribed) {
-            com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
-            celestialTrackerSubscribed = false
-        }
-        if (celestialAmbientSubscribed) {
-            com.amaury.pointage.v2.CelestialAmbientLightV2.unsubscribe(this)
-            celestialAmbientSubscribed = false
-        }
-        celestialHomeState = null
-        celestialRenderState = null
-        celestialHomeSky.clear()
-        super.onDetachedFromWindow()
-    }
-
-    override fun onWindowVisibilityChanged(visibility: Int) {
-        super.onWindowVisibilityChanged(visibility)
-        if (isAttachedToWindow) updateCelestialSubscription()
-    }
-
-    private fun updateCelestialSubscription() {
-        val shouldSubscribe = celestialHomeActive && isAttachedToWindow &&
-            windowVisibility == VISIBLE && isShown
-        if (shouldSubscribe && !celestialTrackerSubscribed) {
-            celestialTrackerSubscribed = true
-            com.amaury.pointage.v2.CelestialTrackerV2.subscribe(context, this) { state ->
-                celestialHomeState = state
-                celestialHomeSky.update(state)
-                postInvalidateOnAnimation()
-            }
-        } else if (!shouldSubscribe && celestialTrackerSubscribed) {
-            com.amaury.pointage.v2.CelestialTrackerV2.unsubscribe(this)
-            celestialTrackerSubscribed = false
-        }
-
-        if (shouldSubscribe && !celestialAmbientSubscribed) {
-            celestialAmbientSubscribed = true
-            com.amaury.pointage.v2.CelestialAmbientLightV2.subscribe(context, this) { state ->
-                celestialAmbientState = state
-                postInvalidateOnAnimation()
-            }
-        } else if (!shouldSubscribe && celestialAmbientSubscribed) {
-            com.amaury.pointage.v2.CelestialAmbientLightV2.unsubscribe(this)
-            celestialAmbientSubscribed = false
-            celestialAmbientState = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState()
-        }
-    }
-
     override fun dispatchDraw(canvas: Canvas) {
         canvas.save()
         canvas.translate(0f, scrollY.toFloat())
-        val celestialState = celestialHomeState
-        val hasQualifiedSky = celestialHomeActive &&
-            celestialState?.snapshot != null &&
-            celestialState.locationQuality == com.amaury.pointage.v2.engine.CelestialLocationQualityV2.VALID
-
-        if (hasQualifiedSky) {
-            val snapshot = celestialState.snapshot!!
-            val weather = com.amaury.pointage.v2.CelestialWeatherContextV2
-                .currentStateFor(snapshot)
-            val renderState = com.amaury.pointage.v2.engine.CelestialRenderStateFactoryV2.build(
-                snapshot = snapshot,
-                weather = weather,
-                ambient = com.amaury.pointage.v2.CelestialAmbientLightV2.currentState(),
-                orientationQuality = celestialState.headingQuality,
-                locationQuality = celestialState.locationQuality,
-                locationAgeMs = celestialState.locationAgeMs,
-                locationProvider = celestialState.locationProvider,
-                headingAgeMs = celestialState.headingAgeMs,
-                nowElapsedMs = android.os.SystemClock.elapsedRealtime()
-            )
-            celestialRenderState = renderState
-            celestialHomeSky.draw(
-                canvas = canvas,
-                width = width.toFloat(),
-                height = height.toFloat(),
-                state = celestialState,
-                renderState = renderState
-            )
-        } else {
-            celestialRenderState = null
-            // Fail-closed : sans position/éphéméride qualifiée, ne jamais inventer
-            // un ciel de jour ou de nuit. On conserve simplement le fond normal.
-            drawHpBackground(canvas)
-        }
+        drawHpBackground(canvas)
         canvas.restore()
         applyGlobalAdaptiveTextColor()
         super.dispatchDraw(canvas)
@@ -306,16 +109,7 @@ class ThemedBackgroundScrollView @JvmOverloads constructor(
 
         val textColor: Int
         val shadowColor: Int
-        val celestial = celestialRenderState
-        if (celestialHomeActive && celestial != null) {
-            val useDark = celestial.solarLightLevel >= 0.58 && celestial.nightLevel < 0.20
-            textColor = if (useDark) Color.rgb(12, 18, 24) else Color.WHITE
-            shadowColor = if (useDark) {
-                Color.argb(200, 255, 255, 255)
-            } else {
-                Color.argb(225, 0, 0, 0)
-            }
-        } else if (hasImage) {
+        if (hasImage) {
             if (cachedTextColor == null || cachedShadowColor == null) {
                 cachedImage?.let {
                     val useDark = chooseDarkText(globalBackgroundStats(it))

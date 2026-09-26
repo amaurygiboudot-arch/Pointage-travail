@@ -12,7 +12,6 @@ struct ContentView: View {
     @EnvironmentObject private var authManager: AuthManager
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hp_theme") private var theme = "signature"
-    @AppStorage(CelestialGlobeModeV2.preferenceKey) private var celestialGlobeMode = CelestialGlobeModeV2.local.rawValue
     @State private var showPausePaymentChoice = false
     @State private var showManualEntry = false
     @State private var showGpsZoneEditor = false
@@ -21,11 +20,10 @@ struct ContentView: View {
     @State private var clockEmployerChoice: ClockEmployerChoice = .unresolved
     @State private var clockInFeedback: String?
     @State private var gpsFeedback: String?
-    @State private var homeTabBarVisible = true
 
     var body: some View {
         TabView {
-            CelestialHomeView(tabBarVisible: $homeTabBarVisible)
+            CelestialHomeView()
                 .tabItem { Label("Accueil", systemImage: "globe.europe.africa.fill") }
             todayView
                 .tabItem { Label("Pointage", systemImage: "clock") }
@@ -374,29 +372,6 @@ struct ContentView: View {
                                 authManager.signOut()
                             }
                         }
-                    }
-                }
-
-                Section("Système céleste") {
-                    Picker("Mode du globe", selection: $celestialGlobeMode) {
-                        Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
-                        Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
-                    }
-                    .pickerStyle(.segmented)
-                    Text(
-                        celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
-                            ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
-                            : "Local : le globe reste centré sur votre position GPS."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if let endpoint = Bundle.main.object(
-                        forInfoDictionaryKey: "CelestialWeatherEndpoint"
-                    ) as? String,
-                       endpoint.contains("open-meteo.com") {
-                        Text("Données météo : Open-Meteo • CC BY 4.0")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                     }
                 }
 
