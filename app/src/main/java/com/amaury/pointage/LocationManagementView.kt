@@ -25,7 +25,7 @@ class LocationManagementView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr) {
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = GpsSettingsV2.preferences(context)
 
     init { orientation = VERTICAL; refresh() }
 
