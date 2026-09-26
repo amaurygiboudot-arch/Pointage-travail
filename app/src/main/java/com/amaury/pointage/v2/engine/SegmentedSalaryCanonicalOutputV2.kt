@@ -56,9 +56,14 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
         warnings += net.warnings
 
         val workedGross = worked.workedGross
+        val cashConsistentWithWorked = if (cash.reliable) {
+            sameMoney(cash.workedGross, workedGross)
+        } else {
+            cash.workedGross == null && cash.cashGross == null
+        }
         val chainConsistent =
             net.cash == cash &&
-                sameMoney(cash.workedGross, workedGross)
+                cashConsistentWithWorked
 
         if (!chainConsistent) warnings += CHAIN_WARNING
 
@@ -121,7 +126,7 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
 
         val baseGross = worked.base.baseGross?.takeIf { worked.base.reliable && finiteNonNegative(it) }
         val reliableWorkedGross = workedGross?.takeIf {
-            chainConsistent && worked.reliable && worked.assembly.reliable && finiteNonNegative(it)
+            worked.reliable && worked.assembly.reliable && finiteNonNegative(it)
         }
         val reliableCashGross = cash.cashGross?.takeIf {
             chainConsistent && cash.reliable && finiteNonNegative(it)
