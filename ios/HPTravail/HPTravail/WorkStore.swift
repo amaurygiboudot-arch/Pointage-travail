@@ -240,7 +240,7 @@ final class WorkStoreV2: ObservableObject {
         return WorkHistoryCoverageStoreV2.saveConfirmed(
             attestation,
             defaults: defaults,
-            now: confirmedAt
+            now: Date()
         )
     }
 
