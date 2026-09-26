@@ -14,6 +14,7 @@ object SettingsV2Host {
     const val TAG_ACCOUNT_SECURITY = "settings_account_security_v2"
     const val TAG_POINTAGE = "settings_pointage_v2"
     const val TAG_UPDATES = "settings_updates_v2"
+    const val TAG_CELESTIAL = "settings_celestial_v2"
     const val TAG_PERSONALIZATION = "settings_personalization_installed"
     const val TAG_WIDGET = "settings_widget_v2"
     const val TAG_DRIVE = "settings_drive_v2"
