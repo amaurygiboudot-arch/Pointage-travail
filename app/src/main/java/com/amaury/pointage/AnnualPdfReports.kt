@@ -3,7 +3,7 @@ package com.amaury.pointage
 import android.content.Context
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2LegacyPolicy
@@ -128,7 +128,7 @@ object AnnualPdfReports {
 
     /** Entrée canonique V2 : aucun chargement ni adaptateur PointageStore. */
     fun writeWork(context: Context, year: Int, out: OutputStream) {
-        check(AGKGMGV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
+        check(HoraTrackV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
         writeWorkV2(context, year, out)
     }
 
@@ -138,7 +138,7 @@ object AnnualPdfReports {
      * Le JSONArray n'est conservé que pour le rollback legacy lorsque ce moteur est désactivé.
      */
     fun writeWork(context: Context, data: JSONArray, year: Int, out: OutputStream) {
-        if (!AGKGMGV2.ENABLED) {
+        if (!HoraTrackV2.ENABLED) {
             writeWorkLegacy(context, data, year, out)
             return
         }
@@ -152,7 +152,7 @@ object AnnualPdfReports {
             val anchor = session.countedEntryMs ?: session.realArrivalMs ?: return@filter false
             Calendar.getInstance(Locale.FRANCE).apply { timeInMillis = anchor }.get(Calendar.YEAR) == year
         }
-        val calculatedSessions = sessions.map { it to AGKGMGV2.time.calculate(it, reportNowMs) }
+        val calculatedSessions = sessions.map { it to HoraTrackV2.time.calculate(it, reportNowMs) }
         val yearRange = yearRange(year)
         val annualBoundaryCrossing = runtimeSessions.any { session ->
             crossesAnnualReportBoundaryV2(
@@ -304,7 +304,7 @@ object AnnualPdfReports {
         out: OutputStream,
         company: SalaryCompanyStore.Company?
     ) {
-        check(AGKGMGV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
+        check(HoraTrackV2.ENABLED) { "L'export annuel V2 exige le moteur V2 actif" }
         writeSalaryV2(context, year, out, company)
     }
 
@@ -316,7 +316,7 @@ object AnnualPdfReports {
         out: OutputStream,
         company: SalaryCompanyStore.Company?
     ) {
-        if (!AGKGMGV2.ENABLED) {
+        if (!HoraTrackV2.ENABLED) {
             writeSalaryLegacy(context, data, year, out)
             return
         }
@@ -391,7 +391,7 @@ object AnnualPdfReports {
                 val correctEmployer = acceptedEmployerIds.isEmpty() || session.employerId in acceptedEmployerIds
                 correctEmployer && c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month && session.realExitMs != null
             }
-            val timeResults = monthSessions.map { AGKGMGV2.time.calculate(it) }
+            val timeResults = monthSessions.map { HoraTrackV2.time.calculate(it) }
             val periodRange = monthRange(year, month)
             val employerSessions = if (acceptedEmployerIds.isEmpty()) {
                 runtimeSessions
