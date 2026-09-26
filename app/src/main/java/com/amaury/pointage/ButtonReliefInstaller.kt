@@ -286,7 +286,8 @@ object ButtonReliefInstaller {
     }
 
     private fun installDiamondLabIfPossible(activity: Activity) {
-        if (activity !is MainActivity || AppThemeCatalog.current(activity).id != "diamond_crystal") return
+        if (activity !is MainActivity || !AdminDiagnosticsGate.isEnabled(activity)) return
+        if (AppThemeCatalog.current(activity).id != "diamond_crystal") return
         val section = SettingsV2Host.personalization(activity) ?: return
         if (section.findViewWithTag<View>(TAG_DIAMOND_LAB) != null) return
         val button = Button(activity).apply {
