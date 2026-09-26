@@ -221,10 +221,21 @@ object SettingsUiInstaller {
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
+        updates.addView(title(activity, "APPLICATION"))
+        updates.addView(TextView(activity).apply {
+            text = "Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+            textSize = 13f
+            setPadding(0, 0, 0, dp(activity, 6))
+        })
         if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
-            updates.addView(title(activity, "APPLICATION & MISES À JOUR"))
             updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
                 setOnClickListener { UpdateChecker.check(activity, silent = false) }
+            })
+        } else {
+            updates.addView(TextView(activity).apply {
+                text = "Les mises à jour sont gérées par Google Play."
+                textSize = 13f
+                setPadding(0, 0, 0, dp(activity, 6))
             })
         }
 
