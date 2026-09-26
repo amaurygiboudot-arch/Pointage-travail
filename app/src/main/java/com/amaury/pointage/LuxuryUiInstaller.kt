@@ -189,10 +189,12 @@ object LuxuryUiInstaller {
         }
         val button = Button(activity).apply {
             isAllCaps = false
-            minHeight = 0
-            minimumHeight = 0
+            minHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+            minimumHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
             gravity = Gravity.CENTER
-            setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
+            isSingleLine = false
+            maxLines = 3
+            setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
             setBackgroundResource(R.drawable.hp_panel)
         }
 
@@ -220,7 +222,7 @@ object LuxuryUiInstaller {
         }
 
         wrapper.addView(heading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
+        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(activity, 2)
             bottomMargin = dp(activity, 2)
         })
@@ -233,13 +235,15 @@ object LuxuryUiInstaller {
             val child = section.getChildAt(i)
             when (child) {
                 is Button -> {
-                    child.minHeight = 0
-                    child.minimumHeight = 0
+                    child.minHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+                    child.minimumHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
                     child.gravity = Gravity.CENTER
-                    child.setPadding(dp(activity, 14), 0, dp(activity, 14), 0)
-                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP))).apply {
+                    child.isSingleLine = false
+                    child.maxLines = 3
+                    child.setPadding(dp(activity, 14), dp(activity, 8), dp(activity, 14), dp(activity, 8))
+                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)).apply {
                         width = ViewGroup.LayoutParams.MATCH_PARENT
-                        height = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+                        height = ViewGroup.LayoutParams.WRAP_CONTENT
                         topMargin = dp(activity, 4)
                         bottomMargin = dp(activity, 4)
                     }
