@@ -119,6 +119,32 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
         )
     }
 
+    /// Pont canonique B21 -> B20 : les avertissements globaux de B21 ne sont jamais perdus.
+    static func assemble(
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
+        variables: SalarySegmentedWorkedVariableGrossSourceResultV2
+    ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        let upstreamWarnings = unique(
+            contracts.warnings + base.warnings + variables.warnings
+        )
+        guard variables.reliable else {
+            return blocked(upstreamWarnings + [variableReliabilityWarning])
+        }
+        let result = assemble(
+            contracts: contracts,
+            base: base,
+            variables: variables.pieces
+        )
+        return SalarySegmentedWorkedGrossAssemblyResultV2(
+            baseGross: result.baseGross,
+            variableGross: result.variableGross,
+            workedGross: result.workedGross,
+            reliable: result.reliable,
+            warnings: unique(variables.warnings + result.warnings)
+        )
+    }
+
     static func assemble(
         contracts: SalaryEmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,

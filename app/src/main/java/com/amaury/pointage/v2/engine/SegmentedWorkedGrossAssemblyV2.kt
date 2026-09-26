@@ -108,6 +108,25 @@ object SegmentedWorkedGrossAssemblerV2 {
         )
     }
 
+    /**
+     * Pont canonique B21 -> B20.
+     *
+     * Le résultat global B21 est transporté intact : transmettre uniquement `pieces` ferait
+     * disparaître ses avertissements globaux et permettrait de perdre le motif d'un blocage.
+     */
+    fun assemble(
+        contracts: EmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
+        variables: SegmentedWorkedVariableGrossSourceResultV2
+    ): SegmentedWorkedGrossAssemblyResultV2 {
+        val upstreamWarnings = (contracts.warnings + base.warnings + variables.warnings).distinct()
+        if (!variables.reliable) {
+            return blocked(upstreamWarnings + VARIABLE_RELIABILITY_WARNING)
+        }
+        val result = assemble(contracts, base, variables.pieces)
+        return result.copy(warnings = (variables.warnings + result.warnings).distinct())
+    }
+
     fun assemble(
         contracts: EmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,

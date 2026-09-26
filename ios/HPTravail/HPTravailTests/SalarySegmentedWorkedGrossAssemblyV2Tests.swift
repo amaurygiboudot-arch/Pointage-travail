@@ -329,6 +329,49 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
     }
 
+    func testGlobalB21WarningSurvivesB20Assembly() throws {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [
+                variable("v1", 0, 14, 120),
+                variable("v2", 15, 30, 80)
+            ],
+            reliable: true,
+            warnings: ["b21-global-warning"]
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variables: source
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
+        XCTAssertTrue(result.warnings.contains("b21-global-warning"))
+    }
+
+    func testUnreliableB21ResultBlocksB20EvenWhenPiecesLookComplete() {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [
+                variable("v1", 0, 14, 120),
+                variable("v2", 15, 30, 80)
+            ],
+            reliable: false,
+            warnings: ["b21-blocked"]
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variables: source
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(result.warnings.contains("b21-blocked"))
+        XCTAssertTrue(result.warnings.contains(SalarySegmentedWorkedGrossAssemblerV2.variableReliabilityWarning))
+    }
+
     private func contracts(
         secondVersionId: String = "v2"
     ) -> SalaryEmploymentContractPeriodResolutionV2 {

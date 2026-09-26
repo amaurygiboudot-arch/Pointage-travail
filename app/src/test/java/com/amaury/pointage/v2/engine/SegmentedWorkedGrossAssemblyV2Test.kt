@@ -328,6 +328,51 @@ class SegmentedWorkedGrossAssemblyV2Test {
         assertEquals(1_700.0, result.workedGross!!, 0.0001)
     }
 
+    @Test
+    fun globalB21WarningSurvivesB20Assembly() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(
+                variable("v1", 0, 14, 120.0),
+                variable("v2", 15, 30, 80.0)
+            ),
+            reliable = true,
+            warnings = listOf("b21-global-warning")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variables = source
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1_700.0, result.workedGross!!, 0.0001)
+        assertTrue(result.warnings.contains("b21-global-warning"))
+    }
+
+    @Test
+    fun unreliableB21ResultBlocksB20EvenWhenPiecesLookComplete() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(
+                variable("v1", 0, 14, 120.0),
+                variable("v2", 15, 30, 80.0)
+            ),
+            reliable = false,
+            warnings = listOf("b21-blocked")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variables = source
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains("b21-blocked"))
+        assertTrue(result.warnings.contains(SegmentedWorkedGrossAssemblerV2.VARIABLE_RELIABILITY_WARNING))
+    }
+
     private fun contracts(
         secondVersionId: String = "v2"
     ): EmploymentContractPeriodResolutionV2 {
