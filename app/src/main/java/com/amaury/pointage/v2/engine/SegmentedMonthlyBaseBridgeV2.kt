@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.SegmentedProrationSourceV2
+
 /**
  * Pont fail-closed entre les timelines contractuelle/conventionnelle et la base mensuelle segmentée.
  *
@@ -11,6 +13,24 @@ object SegmentedMonthlyBaseBridgeV2 {
         "Proratisation mensuelle : les règles de paie changent à l'intérieur d'un même segment contractuel ; la base mensuelle reste bloquée."
     const val TIMELINE_WARNING =
         "Proratisation mensuelle : contrat et règles conventionnelles ne peuvent pas être alignés de façon fiable pour tout le mois."
+
+    fun calculate(
+        contracts: EmploymentContractPeriodResolutionV2,
+        rules: ConventionRulePeriodResolutionV2,
+        prorationSource: SegmentedProrationSourceV2
+    ): SegmentedMonthlyBaseResultV2 {
+        if (!prorationSource.reliable) {
+            return blocked(
+                prorationSource.warnings.ifEmpty {
+                    listOf(ConfirmedSegmentedMonthlyProrationCalculatorV2.MISSING_PRORATION_WARNING)
+                }
+            )
+        }
+        val result = calculate(contracts, rules, prorationSource.proration)
+        return result.copy(
+            warnings = (prorationSource.warnings + result.warnings).distinct()
+        )
+    }
 
     fun calculate(
         contracts: EmploymentContractPeriodResolutionV2,
