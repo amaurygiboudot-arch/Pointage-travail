@@ -22,7 +22,6 @@ object V2AutoBackupCoordinator {
         "horatrack_v2_payslips",
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
-        "v2_app_lock",
         SALARY_COMPANIES_PREFS,
         "salary_settings",
         "gps_settings",
@@ -33,6 +32,8 @@ object V2AutoBackupCoordinator {
         "smart_setup",
         "welcome_preview"
     )
+
+    internal fun watchedPreferenceFilesForTest(): List<String> = watchedFiles.toList()
 
     private val handler by lazy { Handler(Looper.getMainLooper()) }
     private val listeners = mutableListOf<Pair<SharedPreferences, SharedPreferences.OnSharedPreferenceChangeListener>>()
