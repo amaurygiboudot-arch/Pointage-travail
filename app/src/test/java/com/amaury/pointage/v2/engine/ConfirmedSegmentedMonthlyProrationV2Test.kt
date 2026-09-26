@@ -137,6 +137,13 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
         )
         assertTrue(calculated.reliable)
         assertEquals(1733.333333, calculated.baseGross!!, 0.0001)
+        val breakdown = calculated.breakdowns.single()
+        assertEquals(9100.0, breakdown.regularMinutes, 0.0001)
+        assertEquals(1040.0, breakdown.structuralOvertimeMinutes, 0.0001)
+        assertEquals(216.666666, breakdown.structuralOvertimeGross, 0.0001)
+        assertEquals(1, breakdown.structuralOvertimeTiers.size)
+        assertEquals(1.25, breakdown.structuralOvertimeTiers.single().multiplier, 0.0)
+        assertEquals(1040.0, breakdown.structuralOvertimeTiers.single().minutes, 0.0001)
     }
 
     @Test
@@ -158,6 +165,8 @@ class ConfirmedSegmentedMonthlyProrationV2Test {
 
         assertTrue(result.reliable)
         assertEquals(1040.0, result.baseGross!!, 0.0001)
+        assertEquals(5200.0, result.breakdowns.single().regularMinutes, 0.0001)
+        assertEquals(0.0, result.breakdowns.single().structuralOvertimeMinutes, 0.0)
     }
 
     @Test

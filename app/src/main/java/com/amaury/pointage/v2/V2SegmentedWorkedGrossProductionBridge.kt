@@ -6,8 +6,12 @@ import com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
 import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
 import com.amaury.pointage.v2.engine.SegmentedPayrollPremiumEvidenceBridgeV2
 import com.amaury.pointage.v2.engine.SegmentedPayrollPremiumEvidenceV2
+import com.amaury.pointage.v2.engine.SegmentedMonthlyBaseResultV2
+import com.amaury.pointage.v2.engine.SegmentedPayrollSessionEvidenceResultV2
 import com.amaury.pointage.v2.engine.SegmentedWorkedGrossAssemblyResultV2
+import com.amaury.pointage.v2.engine.SegmentedWorkedGrossProductionResultV2
 import com.amaury.pointage.v2.engine.SegmentedWorkedGrossProductionV2
+import com.amaury.pointage.v2.engine.SegmentedWorkedVariableGrossSourceResultV2
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -30,7 +34,21 @@ object V2SegmentedWorkedGrossProductionBridge {
         contracts: EmploymentContractPeriodResolutionV2,
         rules: ConventionRulePeriodResolutionV2,
         nowMs: Long = System.currentTimeMillis()
-    ): SegmentedWorkedGrossAssemblyResultV2 {
+    ): SegmentedWorkedGrossAssemblyResultV2 = calculateDetailedFromStores(
+        context, companyId, companyAddress, year, monthZeroBased, timeZoneId, contracts, rules, nowMs
+    ).assembly
+
+    fun calculateDetailedFromStores(
+        context: Context,
+        companyId: String,
+        companyAddress: String,
+        year: Int,
+        monthZeroBased: Int,
+        timeZoneId: String,
+        contracts: EmploymentContractPeriodResolutionV2,
+        rules: ConventionRulePeriodResolutionV2,
+        nowMs: Long = System.currentTimeMillis()
+    ): SegmentedWorkedGrossProductionResultV2 {
         val night = V2ConventionNightRuleStore.readConfirmed(context)
         val premiumContext = SegmentedPayrollPremiumEvidenceBridgeV2.build(
             contracts = contracts,
@@ -41,8 +59,8 @@ object V2SegmentedWorkedGrossProductionBridge {
             holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
             nowMs = nowMs
         )
-        if (!premiumContext.reliable) return blocked(premiumContext.warnings)
-        return calculate(
+        if (!premiumContext.reliable) return blockedDetailed(premiumContext.warnings)
+        return calculateDetailed(
             context = context,
             companyId = companyId,
             year = year,
@@ -65,13 +83,27 @@ object V2SegmentedWorkedGrossProductionBridge {
         rules: ConventionRulePeriodResolutionV2,
         premiums: List<SegmentedPayrollPremiumEvidenceV2>,
         nowMs: Long = System.currentTimeMillis()
-    ): SegmentedWorkedGrossAssemblyResultV2 {
+    ): SegmentedWorkedGrossAssemblyResultV2 = calculateDetailed(
+        context, companyId, year, monthZeroBased, timeZoneId, contracts, rules, premiums, nowMs
+    ).assembly
+
+    fun calculateDetailed(
+        context: Context,
+        companyId: String,
+        year: Int,
+        monthZeroBased: Int,
+        timeZoneId: String,
+        contracts: EmploymentContractPeriodResolutionV2,
+        rules: ConventionRulePeriodResolutionV2,
+        premiums: List<SegmentedPayrollPremiumEvidenceV2>,
+        nowMs: Long = System.currentTimeMillis()
+    ): SegmentedWorkedGrossProductionResultV2 {
         val period = runCatching { YearMonth.of(year, monthZeroBased + 1) }.getOrNull()
-            ?: return blocked("Brut segmenté : période mensuelle invalide.")
+            ?: return blockedDetailed("Brut segmenté : période mensuelle invalide.")
         val bounds = coverageBounds(
             contracts.periodStartEpochDay,
             contracts.periodEndEpochDay
-        ) ?: return blocked("Brut segmenté : bornes de couverture hebdomadaire invalides.")
+        ) ?: return blockedDetailed("Brut segmenté : bornes de couverture hebdomadaire invalides.")
 
         val proration = V2SegmentedProrationStore.resolve(
             context = context,
@@ -86,7 +118,7 @@ object V2SegmentedWorkedGrossProductionBridge {
             timeZoneId = timeZoneId,
             nowMs = nowMs
         )
-        return SegmentedWorkedGrossProductionV2.calculate(
+        return SegmentedWorkedGrossProductionV2.calculateDetailed(
             contracts = contracts,
             rules = rules,
             prorationSource = proration,
@@ -108,6 +140,25 @@ object V2SegmentedWorkedGrossProductionBridge {
                 .with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
             start.toEpochDay() to end.toEpochDay()
         }.getOrNull()
+    }
+
+    private fun blockedDetailed(warning: String) = blockedDetailed(listOf(warning))
+
+    private fun blockedDetailed(warnings: List<String>): SegmentedWorkedGrossProductionResultV2 {
+        val safe = warnings.distinct()
+        return SegmentedWorkedGrossProductionResultV2(
+            evidence = SegmentedPayrollSessionEvidenceResultV2(
+                slices = emptyList(), reliable = false, warnings = safe,
+                sourceId = "production-blocked", contributingSessionIds = emptyList()
+            ),
+            variables = SegmentedWorkedVariableGrossSourceResultV2(
+                pieces = emptyList(), reliable = false, warnings = safe
+            ),
+            base = SegmentedMonthlyBaseResultV2(
+                pieces = emptyList(), baseGross = null, reliable = false, warnings = safe
+            ),
+            assembly = blocked(safe)
+        )
     }
 
     private fun blocked(warning: String) = blocked(listOf(warning))

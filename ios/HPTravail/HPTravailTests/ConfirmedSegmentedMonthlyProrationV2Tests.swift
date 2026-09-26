@@ -128,6 +128,13 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
         )
         XCTAssertTrue(calculated.reliable)
         XCTAssertEqual(try XCTUnwrap(calculated.baseGross), 1733.333333, accuracy: 0.0001)
+        let breakdown = try XCTUnwrap(calculated.breakdowns.first)
+        XCTAssertEqual(breakdown.regularMinutes, 9100, accuracy: 0.0001)
+        XCTAssertEqual(breakdown.structuralOvertimeMinutes, 1040, accuracy: 0.0001)
+        XCTAssertEqual(breakdown.structuralOvertimeGross, 216.666666, accuracy: 0.0001)
+        XCTAssertEqual(breakdown.structuralOvertimeTiers.count, 1)
+        XCTAssertEqual(breakdown.structuralOvertimeTiers.first?.multiplier, 1.25)
+        XCTAssertEqual(breakdown.structuralOvertimeTiers.first?.minutes, 1040)
     }
 
     func testPartTimeUsesOnlyConfirmedWeeklyDurationAndRate() throws {
@@ -148,6 +155,8 @@ final class ConfirmedSegmentedMonthlyProrationV2Tests: XCTestCase {
 
         XCTAssertTrue(result.reliable)
         XCTAssertEqual(try XCTUnwrap(result.baseGross), 1040.0, accuracy: 0.0001)
+        XCTAssertEqual(result.breakdowns.first?.regularMinutes, 5200)
+        XCTAssertEqual(result.breakdowns.first?.structuralOvertimeMinutes, 0)
     }
 
     func testForfaitIsNeverProratedByScheduledMinutesWithoutSpecificRule() {

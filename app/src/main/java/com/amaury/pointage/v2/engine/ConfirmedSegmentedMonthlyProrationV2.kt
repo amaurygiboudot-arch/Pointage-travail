@@ -38,11 +38,28 @@ data class SegmentedMonthlyBasePieceV2(
     val proratedBaseGross: Double
 )
 
+data class SegmentedOvertimeTierBreakdownV2(
+    val multiplier: Double,
+    val minutes: Double,
+    val gross: Double
+)
+
+data class SegmentedMonthlyBaseBreakdownV2(
+    val versionId: String,
+    val startEpochDay: Long,
+    val endEpochDay: Long,
+    val regularMinutes: Double,
+    val structuralOvertimeMinutes: Double,
+    val structuralOvertimeGross: Double,
+    val structuralOvertimeTiers: List<SegmentedOvertimeTierBreakdownV2>
+)
+
 data class SegmentedMonthlyBaseResultV2(
     val pieces: List<SegmentedMonthlyBasePieceV2>,
     val baseGross: Double?,
     val reliable: Boolean,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val breakdowns: List<SegmentedMonthlyBaseBreakdownV2> = emptyList()
 )
 
 object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
@@ -75,6 +92,7 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         if (totalScheduled <= 0L) return blocked(INVALID_PRORATION_WARNING)
 
         val pieces = mutableListOf<SegmentedMonthlyBasePieceV2>()
+        val breakdowns = mutableListOf<SegmentedMonthlyBaseBreakdownV2>()
         val warnings = mutableListOf<String>()
 
         for (segment in segments.sortedBy { it.startEpochDay }) {
@@ -82,7 +100,7 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             val scheduled = scheduledBySegment[key(versionId, segment.startEpochDay, segment.endEpochDay)]
                 ?: return blocked(INVALID_PRORATION_WARNING)
             val rules = rulesByVersionId[versionId] ?: PayrollRulesV2()
-            val base = fullMonthBaseGross(segment.snapshot.contract, rules)
+            val base = fullMonthBase(segment.snapshot.contract, rules)
             if (base == null) {
                 warnings += when (segment.snapshot.contract.type) {
                     ContractTypeV2.FORFAIT_HOURS,
@@ -101,8 +119,23 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                 endEpochDay = segment.endEpochDay,
                 scheduledMinutes = scheduled,
                 factor = factor,
-                fullMonthBaseGross = base,
-                proratedBaseGross = base * factor
+                fullMonthBaseGross = base.gross,
+                proratedBaseGross = base.gross * factor
+            )
+            breakdowns += SegmentedMonthlyBaseBreakdownV2(
+                versionId = versionId,
+                startEpochDay = segment.startEpochDay,
+                endEpochDay = segment.endEpochDay,
+                regularMinutes = base.regularMinutes * factor,
+                structuralOvertimeMinutes = base.structuralOvertimeMinutes * factor,
+                structuralOvertimeGross = base.structuralOvertimeGross * factor,
+                structuralOvertimeTiers = base.structuralOvertimeTiers.map {
+                    SegmentedOvertimeTierBreakdownV2(
+                        multiplier = it.multiplier,
+                        minutes = it.minutes * factor,
+                        gross = it.gross * factor
+                    )
+                }
             )
         }
 
@@ -110,16 +143,35 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             pieces = pieces,
             baseGross = pieces.sumOf { it.proratedBaseGross },
             reliable = true,
-            warnings = emptyList()
+            warnings = emptyList(),
+            breakdowns = breakdowns
         )
     }
 
-    private fun fullMonthBaseGross(contract: ContractV2, rules: PayrollRulesV2): Double? {
+    private data class FullMonthBase(
+        val gross: Double,
+        val regularMinutes: Double,
+        val structuralOvertimeMinutes: Double,
+        val structuralOvertimeGross: Double,
+        val structuralOvertimeTiers: List<FullTimeStructuralOvertimeV2.TierAmount>
+    )
+
+    private fun fullMonthBase(contract: ContractV2, rules: PayrollRulesV2): FullMonthBase? {
         val rate = contract.grossHourlyRate?.takeIf { it.isFinite() && it > 0.0 } ?: return null
         val weekly = contract.contractualWeeklyMinutes?.takeIf { it > 0 } ?: return null
+        val factor = 52.0 / 12.0
 
         return when (contract.type) {
-            ContractTypeV2.PART_TIME -> weekly * (52.0 / 12.0) / 60.0 * rate
+            ContractTypeV2.PART_TIME -> {
+                val regularMinutes = weekly * factor
+                FullMonthBase(
+                    gross = regularMinutes / 60.0 * rate,
+                    regularMinutes = regularMinutes,
+                    structuralOvertimeMinutes = 0.0,
+                    structuralOvertimeGross = 0.0,
+                    structuralOvertimeTiers = emptyList()
+                )
+            }
             ContractTypeV2.FULL_TIME -> {
                 // Pour un temps plein, le seuil régulier doit être explicite. Utiliser la durée
                 // contractuelle comme seuil ferait disparaître silencieusement les heures structurelles.
@@ -132,7 +184,13 @@ object ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                     overtimeTiers = rules.overtimeTiers
                 )
                 if (result.provisionalRateUsed || result.unresolvedStructuralOvertimeMinutes > 0.0) null
-                else result.monthlyBaseGross
+                else FullMonthBase(
+                    gross = result.monthlyBaseGross,
+                    regularMinutes = result.monthlyRegularMinutes,
+                    structuralOvertimeMinutes = result.monthlyStructuralOvertimeMinutes,
+                    structuralOvertimeGross = result.structuralOvertimeGross,
+                    structuralOvertimeTiers = result.structuralTiers
+                )
             }
             ContractTypeV2.FORFAIT_HOURS,
             ContractTypeV2.FORFAIT_DAYS,

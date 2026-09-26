@@ -41,11 +41,28 @@ struct SegmentedMonthlyBasePieceV2: Equatable {
     let proratedBaseGross: Double
 }
 
+struct SegmentedOvertimeTierBreakdownV2: Equatable {
+    let multiplier: Double
+    let minutes: Double
+    let gross: Double
+}
+
+struct SegmentedMonthlyBaseBreakdownV2: Equatable {
+    let versionId: String
+    let startEpochDay: Int64
+    let endEpochDay: Int64
+    let regularMinutes: Double
+    let structuralOvertimeMinutes: Double
+    let structuralOvertimeGross: Double
+    let structuralOvertimeTiers: [SegmentedOvertimeTierBreakdownV2]
+}
+
 struct SegmentedMonthlyBaseResultV2: Equatable {
     let pieces: [SegmentedMonthlyBasePieceV2]
     let baseGross: Double?
     let reliable: Bool
     let warnings: [String]
+    var breakdowns: [SegmentedMonthlyBaseBreakdownV2] = []
 }
 
 /// Miroir iOS du calcul Android de base mensuelle segmentée.
@@ -82,6 +99,7 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
         )
 
         var pieces: [SegmentedMonthlyBasePieceV2] = []
+        var breakdowns: [SegmentedMonthlyBaseBreakdownV2] = []
         for segment in segments.sorted(by: { $0.startEpochDay < $1.startEpochDay }) {
             let versionId = segment.snapshot.versionId.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let scheduled = scheduledBySegment[
@@ -90,7 +108,7 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                 return blocked(invalidProrationWarning)
             }
             let rules = rulesByVersionId[versionId] ?? PayrollRulesV2()
-            guard let base = fullMonthBaseGross(contract: segment.snapshot.contract, rules: rules) else {
+            guard let base = fullMonthBase(contract: segment.snapshot.contract, rules: rules) else {
                 switch segment.snapshot.contract.type {
                 case .forfaitHours, .forfaitDays, .forfait, .other:
                     return blocked(unsupportedContractWarning)
@@ -106,8 +124,25 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                     endEpochDay: segment.endEpochDay,
                     scheduledMinutes: scheduled,
                     factor: factor,
-                    fullMonthBaseGross: base,
-                    proratedBaseGross: base * factor
+                    fullMonthBaseGross: base.gross,
+                    proratedBaseGross: base.gross * factor
+                )
+            )
+            breakdowns.append(
+                SegmentedMonthlyBaseBreakdownV2(
+                    versionId: versionId,
+                    startEpochDay: segment.startEpochDay,
+                    endEpochDay: segment.endEpochDay,
+                    regularMinutes: base.regularMinutes * factor,
+                    structuralOvertimeMinutes: base.structuralOvertimeMinutes * factor,
+                    structuralOvertimeGross: base.structuralOvertimeGross * factor,
+                    structuralOvertimeTiers: base.structuralOvertimeTiers.map {
+                        .init(
+                            multiplier: $0.multiplier,
+                            minutes: $0.minutes * factor,
+                            gross: $0.gross * factor
+                        )
+                    }
                 )
             )
         }
@@ -116,14 +151,23 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
             pieces: pieces,
             baseGross: pieces.reduce(0.0) { $0 + $1.proratedBaseGross },
             reliable: true,
-            warnings: []
+            warnings: [],
+            breakdowns: breakdowns
         )
     }
 
-    private static func fullMonthBaseGross(
+    private struct FullMonthBase {
+        let gross: Double
+        let regularMinutes: Double
+        let structuralOvertimeMinutes: Double
+        let structuralOvertimeGross: Double
+        let structuralOvertimeTiers: [FullTimeStructuralOvertimeV2.TierAmount]
+    }
+
+    private static func fullMonthBase(
         contract: ContractV2,
         rules: PayrollRulesV2
-    ) -> Double? {
+    ) -> FullMonthBase? {
         guard let rate = contract.grossHourlyRate,
               rate.isFinite,
               rate > 0,
@@ -131,10 +175,18 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
               weekly > 0 else {
             return nil
         }
+        let factor = 52.0 / 12.0
 
         switch contract.type {
         case .partTime:
-            return Double(weekly) * (52.0 / 12.0) / 60.0 * rate
+            let regularMinutes = Double(weekly) * factor
+            return FullMonthBase(
+                gross: regularMinutes / 60.0 * rate,
+                regularMinutes: regularMinutes,
+                structuralOvertimeMinutes: 0,
+                structuralOvertimeGross: 0,
+                structuralOvertimeTiers: []
+            )
 
         case .fullTime:
             // Le seuil régulier doit rester explicite : le remplacer par la durée du contrat
@@ -151,7 +203,13 @@ enum ConfirmedSegmentedMonthlyProrationCalculatorV2 {
                   result.unresolvedStructuralOvertimeMinutes <= 0 else {
                 return nil
             }
-            return result.monthlyBaseGross
+            return FullMonthBase(
+                gross: result.monthlyBaseGross,
+                regularMinutes: result.monthlyRegularMinutes,
+                structuralOvertimeMinutes: result.monthlyStructuralOvertimeMinutes,
+                structuralOvertimeGross: result.structuralOvertimeGross,
+                structuralOvertimeTiers: result.structuralTiers
+            )
 
         case .forfaitHours, .forfaitDays, .forfait, .other:
             return nil
