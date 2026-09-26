@@ -34,26 +34,17 @@ object SettingsV2SectionOrganizer {
         val tag = view.tag?.toString().orEmpty()
         val id = resourceName(view)
 
-        return when {
-            tag == SettingsV2Host.TAG_ACCOUNT_SECURITY -> 10
-            tag == SettingsV2Host.TAG_POINTAGE -> 20
+        canonicalSectionPriority(tag)?.let { return it }
 
+        return when {
             view is FirebaseAccountButtonView -> 10
             view is V2SecuritySettingsView || tag == V2SecuritySettingsView.TAG -> 11
 
             isPointageView(view, id, tag) -> 20
 
-            tag == SettingsV2Host.TAG_CELESTIAL -> 30
             isCelestialView(view, id) -> 30
-            tag == SettingsV2Host.TAG_PERSONALIZATION -> 31
-            tag == SettingsV2Host.TAG_WIDGET -> 32
 
             view is V2BackupRestoreView || tag == V2BackupRestoreView.TAG -> 40
-            tag == SettingsV2Host.TAG_DRIVE -> 41
-            tag == SettingsV2Host.TAG_UPDATES -> 45
-
-            tag == SettingsV2Host.TAG_HELP -> 50
-            tag == SettingsV2Host.TAG_EXTRAS -> 55
             view is SuggestionBoxView -> 55
             tag == "first_steps_replay" -> 55
             view is SnakeGameButtonView -> 55
@@ -63,6 +54,20 @@ object SettingsV2SectionOrganizer {
         }
     }
 
+
+
+    internal fun canonicalSectionPriority(tag: String): Int? = when (tag) {
+        SettingsV2Host.TAG_UPDATES -> 5
+        SettingsV2Host.TAG_ACCOUNT_SECURITY -> 10
+        SettingsV2Host.TAG_POINTAGE -> 20
+        SettingsV2Host.TAG_CELESTIAL -> 30
+        SettingsV2Host.TAG_PERSONALIZATION -> 31
+        SettingsV2Host.TAG_WIDGET -> 32
+        SettingsV2Host.TAG_DRIVE -> 40
+        SettingsV2Host.TAG_HELP -> 50
+        SettingsV2Host.TAG_EXTRAS -> 55
+        else -> null
+    }
 
     private fun ensureCoreSections(activity: MainActivity, panel: LinearLayout) {
         if (SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) == null) {
