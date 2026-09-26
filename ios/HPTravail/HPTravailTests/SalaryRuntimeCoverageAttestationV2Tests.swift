@@ -11,6 +11,14 @@ final class SalaryRuntimeCoverageAttestationV2Tests: XCTestCase {
     private lazy var end = start + 6
     private lazy var checkedAt = date(end + 1, 0).addingTimeInterval(1)
 
+    func testOnlyExplicitUserReviewMayIssueCoverage() {
+        XCTAssertTrue(SalaryRuntimeCoverageClaimPolicyV2.mayIssue(.userReviewedClosedPeriod))
+        XCTAssertFalse(SalaryRuntimeCoverageClaimPolicyV2.mayIssue(.localBackupRestore))
+        XCTAssertFalse(SalaryRuntimeCoverageClaimPolicyV2.mayIssue(.cloudBackupRestore))
+        XCTAssertFalse(SalaryRuntimeCoverageClaimPolicyV2.mayIssue(.legacyMigration))
+        XCTAssertFalse(SalaryRuntimeCoverageClaimPolicyV2.mayIssue(.storageRead))
+    }
+
     func testExplicitEmptyCoverageCanBeCertified() throws {
         let a = try XCTUnwrap(create([]))
         XCTAssertTrue(SalaryRuntimeCoverageAttestationPolicyV2.validate(a, sessions: [], now: checkedAt.addingTimeInterval(1)))
@@ -60,7 +68,8 @@ final class SalaryRuntimeCoverageAttestationV2Tests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let initial = [session("00000000-0000-0000-0000-000000000001")]
         XCTAssertTrue(SalaryRuntimeCoverageAttestationStoreV2.confirm(
-            defaults: defaults, sessions: initial, storageReliable: true, sourceId: "explicit-check",
+            defaults: defaults, sessions: initial, storageReliable: true,
+            origin: .userReviewedClosedPeriod, sourceId: "explicit-check",
             coveredStartEpochDay: start, coveredEndEpochDay: end, checkedAt: checkedAt,
             timeZoneId: zone, now: checkedAt.addingTimeInterval(1)))
         XCTAssertNotNil(SalaryRuntimeCoverageAttestationStoreV2.read(
