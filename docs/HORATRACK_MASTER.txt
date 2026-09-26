@@ -1,3 +1,92 @@
+AGKGMG / HORATRACK — DOCUMENT MAITRE V2.24 — CHECKPOINT 31
+MISE A JOUR DU 26 SEPTEMBRE 2026 — PARAMETRES V2 / PUBLICATION / TRAVAIL PARALLELE SALAIRE V2
+
+REPERE SIMPLE
+Le nom visible du produit est désormais AGKGMG. Les identifiants techniques historiques HoraTrack peuvent rester internes lorsqu'un renommage présenterait un risque de compatibilité.
+Salaire V2 n'est ni arrêté ni abandonné : il continue en parallèle dans son chantier dédié.
+Dans le présent chantier, la priorité immédiate de préparation à la publication est Paramètres V2.
+Les deux chantiers doivent rester découplés : Paramètres ne modifie pas les moteurs Salaire V2 sans raccord explicitement nécessaire et vérifié.
+Toute intégration doit repartir de main courant et réconcilier les changements concurrents avant fusion.
+
+31.1 ETAT GITHUB ET LIVRAISON VERIFIES
+Dépôt : amaurygiboudot-arch/Pointage-travail.
+main vérifié après P3 Paramètres : af111583506a07966875dcb756e932a63a17b8b0.
+PR #482 fusionnée : l'AAB destiné à Google Play utilise la variante play et désactive l'ancien updater APK/GitHub.
+PR #483 fusionnée : identité visible principale renommée AGKGMG, sans changement du package Android ni des identifiants Firebase.
+PR #485 fusionnée : déclenchement de la build Google Play suivant #482/#483.
+Build Play produite : versionCode 1470, versionName 1.1470-dev-1790423021.
+La release 1470 est publiée dans le canal Tests internes Google Play et a été installée sur le téléphone de test via Google Play.
+Le téléphone utilisait auparavant 1468 ; la mise à jour Play vers 1470 a finalement été proposée après rafraîchissement du Play Store.
+Firebase App Check / Play Integrity a été observé fonctionnel sur l'installation Play ; un échec transitoire d'attestation a disparu après nouvelle attestation.
+Ces validations concernent le téléphone de test observé et ne remplacent pas la validation multi-appareils finale.
+
+31.2 PARAMETRES V2 — CHANGEMENT DE PRIORITE OPERATIONNELLE
+Paramètres V2 est le principal blocage identifié avant publication par le propriétaire du produit.
+Salaire V2 reste un chantier prioritaire fonctionnel mais avance dans une autre conversation en parallèle.
+Le chantier Paramètres doit donc progresser sans attendre la clôture complète de Salaire V2.
+Objectif : rendre le menu Paramètres propre, compréhensible, cohérent, sans apparence de prototype, sans seconde vérité et sans résidu interne visible au public.
+
+31.3 P1 PARAMETRES V2 — HOTE CANONIQUE
+PR #486 fusionnée.
+Création de SettingsV2Host comme point d'entrée UI canonique pour le panneau Paramètres.
+Les recherches dispersées du panneau et de la section personnalisation ont été centralisées.
+SettingsUiInstaller, LuxuryUiInstaller, ButtonReliefInstaller et ThemeFrameStyler utilisent désormais cet hôte partagé.
+Aucun fichier Salaire V2 n'a été modifié par ce lot.
+Tests V2, build sécurité, Google Play, CodeQL, Firebase Functions et dependency review : réussis.
+Agent review gate : échec uniquement pour quota Codex dépassé ; ne pas transformer cet échec en PASS.
+
+31.4 P2 PARAMETRES V2 — SECTIONS VISIBLES
+PR #487 fusionnée.
+L'ancien bloc unique injecté a été séparé en sections V2 distinctes : Application & mises à jour, Apparence, Widget, Drive et Aide.
+SettingsV2SectionOrganizer remet les blocs directs du panneau dans un ordre stable : Compte/Sécurité, Pointage/GPS, Apparence/Céleste, sauvegarde, mises à jour, aide/extras, éléments internes.
+Les vues et callbacks métier existants sont conservés ; il s'agit d'une réorganisation UI conservatrice.
+Les libellés visibles restés HoraTrack / HP Travail dans les éléments Paramètres touchés ont été réalignés vers AGKGMG.
+Aucun fichier Salaire V2 n'a été modifié.
+Tous les contrôles techniques ont réussi ; gate agent toujours bloqué par quota.
+
+31.5 P3 PARAMETRES V2 — NETTOYAGE PUBLICATION
+PR #488 fusionnée.
+Dans les builds Google Play, l'ancien bouton manuel de mise à jour GitHub n'est plus affiché : Google Play reste le canal de mise à jour.
+Le doublon de Notice d'utilisation dans la boîte à suggestions a été retiré.
+Le Laboratoire Diamant est réservé au mode propriétaire/diagnostic et n'est plus un contrôle public normal.
+Aucun moteur, store ou calcul Salaire V2 n'a été modifié.
+Tous les contrôles techniques ont réussi ; gate agent toujours bloqué par quota.
+
+31.6 REGLE DE COEXISTENCE AVEC SALAIRE V2
+Le chantier Salaire V2 peut continuer à créer et fusionner ses propres PR.
+Avant fusion d'un lot Paramètres ou Salaire, vérifier main courant et les fichiers transverses éventuellement modifiés par l'autre chantier.
+Les fichiers MainActivity, navigation, manifest, build, Firebase, sécurité, sauvegarde et composants partagés sont considérés comme zones de réconciliation sensibles.
+Ne jamais écraser silencieusement une modification de Salaire V2 par une branche Paramètres plus ancienne, ni l'inverse.
+En cas de conflit, conserver les deux intentions fonctionnelles et reconstruire le raccord sur le main le plus récent.
+
+31.7 SUITE EXACTE PARAMETRES V2
+1. Auditer les réglages publics restants et les outils internes résiduels.
+2. Cartographier les SharedPreferences / stores et attribuer chaque réglage à un propriétaire unique : global, utilisateur, entreprise ou salarié.
+3. Identifier les doublons de données, anciens fallbacks et chemins legacy encore actifs.
+4. Conserver les fonctions saines, les promouvoir sous le propriétaire V2, puis supprimer uniquement les résidus démontrés obsolètes.
+5. Auditer Pointage & lieux : zones multiples, rayon, permissions, pause/parking et comportement hors ligne.
+6. Auditer Compte/Sécurité : Firebase, App Check, verrouillage, biométrie, confidentialité et données sauvegardées.
+7. Auditer Sauvegarde/Restauration et Google Drive : cohérence, migration, reprise après réinstallation et absence de secrets exportés.
+8. Auditer Apparence/Widget/Céleste sans laisser une préférence graphique modifier une règle métier.
+9. Test téléphone réel complet du menu après les lots structurels.
+10. Rejouer build Play, mise à jour par Google Play et validation App Check avant décision de publication.
+
+31.8 DOCTRINE NON NEGOCIABLE
+Même règle métier pour 100 % des utilisateurs concernés, tous métiers/classes/catégories, Android/iOS et appareils officiellement supportés.
+Une différence de marque ou modèle peut adapter le rendu ou l'API plateforme, jamais la règle métier.
+Un réglage doit avoir un seul propriétaire V2 actif.
+Fonction saine : migrer/promouvoir avant retrait.
+Fonction obsolète ou dupliquée : supprimer après preuve d'absence de dépendance.
+Inconnu != zéro ; corruption != absence ; aucune seconde vérité.
+Salaire V2 continue en parallèle et reste autoritaire sur les calculs de paie.
+
+Le texte maître précédent est conservé intégralement à la suite de ce checkpoint.
+
+==============================================================================
+ARCHIVE INTEGRALE DU MAITRE PRECEDENT — CHECKPOINT 30 ET HISTORIQUE
+Les statuts de cette archive sont historiques ; consulter le checkpoint 31 en tête.
+==============================================================================
+
 HORATRACK — DOCUMENT MAITRE V2.23 — CHECKPOINT 30
 MISE A JOUR DU 25 SEPTEMBRE 2026 — UX / PROXIMITE / BULLETINS / CELESTE
 
