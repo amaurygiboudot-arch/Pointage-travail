@@ -223,15 +223,13 @@ object PlaceNames {
             }
         }
 
-        // Ancienne installation sans zone canonique exploitable : conserver la saisie
-        // jusqu'à ce que la zone soit créée/migrée, sans inventer d'identifiant.
-        if (stored is GpsZonesReadResult.Missing) {
-            val legacy = runCatching {
-                JSONObject(prefs.getString(LEGACY_KEY, "{}") ?: "{}")
-            }.getOrElse { JSONObject() }
-            if (name.isBlank()) legacy.remove(address) else legacy.put(address, name.trim())
-            prefs.edit().putString(LEGACY_KEY, legacy.toString()).apply()
-        }
+        // Compatibilité transitoire uniquement si aucun propriétaire de zone unique
+        // ne peut encore être résolu. La configuration corrompue reste bloquée plus haut.
+        val legacy = runCatching {
+            JSONObject(prefs.getString(LEGACY_KEY, "{}") ?: "{}")
+        }.getOrElse { JSONObject() }
+        if (name.isBlank()) legacy.remove(address) else legacy.put(address, name.trim())
+        prefs.edit().putString(LEGACY_KEY, legacy.toString()).apply()
     }
 
     fun display(context: Context, address: String): String {
