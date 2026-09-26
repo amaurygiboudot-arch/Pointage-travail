@@ -185,11 +185,7 @@ object SalaryExamplePdfV2 {
                 ).output
             }.getOrNull()
         }
-        val salaryNet = when {
-            company != null -> null
-            !HoraTrackV2.ENABLED || convention == null -> null
-            else -> null
-        }
+        val salaryNet: V2SalaryNetBridgeV2.Result? = null
         val salary = when {
             company != null || !HoraTrackV2.ENABLED || convention == null -> null
             rate != null -> runCatching {
