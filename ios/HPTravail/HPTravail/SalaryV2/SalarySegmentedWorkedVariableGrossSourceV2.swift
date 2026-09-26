@@ -43,7 +43,27 @@ struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
     let overtimeGross: Double
     let complementaryGross: Double
     let premiumGross: Double
-    let complementaryMinutes: Int = 0
+    let complementaryMinutes: Int
+
+    init(
+        companyId: String,
+        versionId: String,
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        overtimeGross: Double,
+        complementaryGross: Double,
+        premiumGross: Double,
+        complementaryMinutes: Int = 0
+    ) {
+        self.companyId = companyId
+        self.versionId = versionId
+        self.startEpochDay = startEpochDay
+        self.endEpochDay = endEpochDay
+        self.overtimeGross = overtimeGross
+        self.complementaryGross = complementaryGross
+        self.premiumGross = premiumGross
+        self.complementaryMinutes = complementaryMinutes
+    }
 
     var variableGross: Double {
         overtimeGross + complementaryGross + premiumGross
