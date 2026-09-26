@@ -45,7 +45,7 @@ object V2ManualSessionWriter {
         val migration = V2MigrationManager.ensureMigrated(context)
         if (!migration.reliable) return false
         val countedEntry = HoraTrackV2.time.countedEntryFromRealArrival(realStartMs)
-        val expectedEnd = V2ScheduleStore.expectedEnd(context, realStartMs, realEndMs)
+        val expectedEnd = employerId?.let { V2ScheduleStore.expectedEnd(context, it, realStartMs, realEndMs) }
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(realEndMs, expectedEnd)
         val placeLabel = place?.trim()?.takeIf { it.isNotBlank() }
 
