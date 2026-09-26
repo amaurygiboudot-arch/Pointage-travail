@@ -271,4 +271,45 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `le nom gps est modifie uniquement pour la zone cible meme a adresse identique`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","label":"Atelier"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A","label":"Parking ancien"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(updateGpsZoneLabelById(zones, "parking", "Parking visiteurs"))
+        assertEquals("Atelier", zones.getJSONObject(0).getString("label"))
+        assertEquals("Parking visiteurs", zones.getJSONObject(1).getString("label"))
+    }
+
+    @Test
+    fun `supprimer un nom gps ne supprime pas la zone cible`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","label":"Atelier"}]"""
+        )
+
+        assertTrue(updateGpsZoneLabelById(zones, "portail", "   "))
+        assertTrue(!zones.getJSONObject(0).has("label"))
+        assertEquals("portail", zones.getJSONObject(0).getString("id"))
+        assertEquals("1 rue A", zones.getJSONObject(0).getString("address"))
+    }
+
+    @Test
+    fun `la resolution du nom par id reste non ambigue a adresse identique`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","label":"Atelier"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A","label":"Parking"}
+            ]""".trimIndent()
+        )
+
+        assertEquals("Atelier", resolveGpsZoneLabel(result, "portail", "1 rue A"))
+        assertEquals("Parking", resolveGpsZoneLabel(result, "parking", "1 rue A"))
+        assertNull(resolveGpsZoneLabel(result, null, "1 rue A"))
+    }
+
+
 }
