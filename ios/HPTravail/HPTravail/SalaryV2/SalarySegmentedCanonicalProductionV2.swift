@@ -15,7 +15,8 @@ enum SalarySegmentedCanonicalProductionV2 {
         let cash = SalarySegmentedCashGrossAssemblerV2.assemble(
             worked: worked,
             fixed: fixed
-        )        let net = SalarySegmentedCashGrossNetProjectionV2.project(
+        )
+        let net = SalarySegmentedCashGrossNetProjectionV2.project(
             cash: cash,
             context: netContext
         )
