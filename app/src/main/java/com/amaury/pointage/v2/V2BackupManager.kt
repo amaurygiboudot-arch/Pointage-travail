@@ -36,6 +36,7 @@ object V2BackupManager {
         V2SegmentedProrationStore.PREFS,
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
+        SegmentedPayrollCoverageStoreV2.PREFS,
         SALARY_COMPANIES_PREFS,
         "salary_settings",
         "gps_settings",
