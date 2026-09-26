@@ -25,6 +25,6 @@ enum SalarySegmentedCanonicalProductionV2 {
             cash: cash,
             net: net
         )
-        return .init(output: output)
+        return SalarySegmentedCanonicalProductionResultV2(output: output)
     }
 }
