@@ -80,7 +80,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
      * d'apparence et par les vues réellement visibles.
      */
     private fun removeLegacyLightTrackingToggle(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val panel = SettingsV2Host.panel(activity) ?: return
         panel.findViewWithTag<View>(LIGHT_BUTTON_TAG)?.let(panel::removeView)
     }
 
@@ -187,12 +187,12 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun removeLegacyGpsTestButton(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val panel = SettingsV2Host.panel(activity) ?: return
         panel.findViewWithTag<View>("gps_workplace_test")?.let { panel.removeView(it) }
     }
 
     private fun removeVisibleDeveloperButton(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val panel = SettingsV2Host.panel(activity) ?: return
         panel.findViewWithTag<View>("developer_tools")?.let { panel.removeView(it) }
     }
 
