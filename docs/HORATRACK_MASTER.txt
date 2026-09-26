@@ -129,7 +129,7 @@ Audit d'unicité sur la tête #554 : écran, PDF, comparaison et annuel appellen
 
 Pile Git nettoyée et rattachée sans changement de contenu : #548 -> #550 -> #552 -> #554. #555 est un candidat VALIDATION ONLY contre main et ne doit jamais être fusionné.
 
-Validation observée à ce checkpoint : #548 Build iOS #806 réussi après correction du test YearMonthV2 optionnel ; tests V2 #548 réussis. Sur #555, Firebase Functions et dependency-review sont déjà réussis ; Android/build, Google Play, CodeQL, tests V2 et iOS sont encore en cours. Agent review gate reste rouge ; ne pas le convertir en PASS ni multiplier les relances. Aucun déploiement Firebase ni publication store effectué.
+Validation observée à ce checkpoint : #548 Build iOS #806 réussi après correction du test YearMonthV2 optionnel ; tests V2 #548 réussis. Sur #555, Firebase Functions et dependency-review sont déjà réussis ; Android/build, Google Play, CodeQL, tests V2 et iOS sont encore en cours. Agent review gate reste rouge. Sur le candidat final #555, le journal indique : aucune preuve multi-agents valide pour ce HEAD et OPENAI_API_KEY non configurée. Ce motif est distinct des anciens échecs par quota ; ne pas remettre une clé API, ne pas contourner le gate et ne pas le convertir en PASS. Les agents Projet ChatGPT restent utilisables séparément lorsqu'un besoin réel le justifie. Aucun déploiement Firebase ni publication store effectué.
 
 Règle de sortie : ne fusionner les PR métier que dans l'ordre des dépendances après gates du SHA exact. Les PR VALIDATION ONLY #549/#551/#553/#555 restent sans fusion. Toute future mise à jour publique Android passe uniquement par Google Play Console.
 
