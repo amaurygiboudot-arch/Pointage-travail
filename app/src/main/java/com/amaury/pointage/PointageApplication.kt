@@ -407,7 +407,7 @@ object SettingsUiInstaller {
         minimumWidth = 0
         gravity = Gravity.CENTER
         setPadding(dp(context, 12), 0, dp(context, 12), 0)
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, 46)).apply {
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(context, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
             topMargin = dp(context, 4)
             bottomMargin = dp(context, 4)
         }
