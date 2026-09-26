@@ -71,6 +71,7 @@ jobs:
       - name: Publish to internal testing
         env:
           PACKAGE_NAME: com.amaury.pointage
+          PLAY_TRACK: qa
         run: |
           python <<'PY'
           import json, os, pathlib, requests
@@ -78,6 +79,7 @@ jobs:
           from google.auth.transport.requests import Request
 
           package = os.environ["PACKAGE_NAME"]
+          play_track = os.environ["PLAY_TRACK"]
           expected = int(os.environ["EXPECTED_VERSION_CODE"])
           version_name = os.environ["VERSION_NAME"]
           credential_file = os.environ["PLAY_CREDENTIALS"]
@@ -114,10 +116,10 @@ jobs:
               raise RuntimeError(f"VersionCode AAB inattendu: {uploaded_code} != {expected}")
 
           track = requests.put(
-              f"{api}/applications/{package}/edits/{edit_id}/tracks/internal",
+              f"{api}/applications/{package}/edits/{edit_id}/tracks/{play_track}",
               headers={**headers, "Content-Type": "application/json"},
               json={
-                  "track": "internal",
+                  "track": play_track,
                   "releases": [{
                       "name": f"AGKGMG {version_name}",
                       "versionCodes": [str(uploaded_code)],
