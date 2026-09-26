@@ -101,12 +101,6 @@ object AppThemeCatalog {
             .putBoolean("custom_image_bg", false)
             .commit()
 
-        context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
-            .edit()
-            .remove("widget_bg")
-            .remove("widget_accent")
-            .apply()
-
         forceFullWidgetRefresh(context, PointageWidgetProvider::class.java)
         forceFullWidgetRefresh(context, QuickActionsWidgetProvider::class.java)
     }
