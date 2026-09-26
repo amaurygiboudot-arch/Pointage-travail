@@ -104,7 +104,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
         private fun applyDynamicState(context: Context, views: RemoteViews) {
             val dark = AppThemeCatalog.useDarkPalette(context)
-            val (adaptiveText, _) = adaptiveWidgetTextColors(context, dark)
+            val adaptiveText = WidgetStyleSettings.customBackground(context)
+                ?.let(WidgetStyleSettings::readableTextColors)
+                ?.first
+                ?: adaptiveWidgetTextColors(context, dark).first
             var entryText = "--:--"
             var exitText = "--:--"
             var durationText = "00h 00m"
