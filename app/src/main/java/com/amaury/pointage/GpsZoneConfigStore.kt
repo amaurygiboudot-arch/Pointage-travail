@@ -176,6 +176,8 @@ internal fun resolveGpsLocationEntries(
 
     if (zonesResult is GpsZonesReadResult.Valid) {
         zonesResult.zones.forEach { zone ->
+            val source = runCatching { JSONObject(zone.sourceJson) }.getOrNull()
+            if (source?.optBoolean("smartCandidate", false) == true) return@forEach
             val address = zone.address?.trim().orEmpty()
             if (address.isBlank()) return@forEach
             entries += GpsLocationEntry(zone.id, address)
