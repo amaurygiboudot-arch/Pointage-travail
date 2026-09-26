@@ -114,6 +114,25 @@ Point d'injection iOS identifié : SalaryV2View affiche SalaryV2Store.snapshot d
 Android reste plus direct : SalaryPayslipWorkspaceView appelle encore V2SalaryNetBridgeV2 ; migration à effectuer consommateur par consommateur, avec adaptateurs purs avant activation.
 
 
+31.11 SORTIES SALAIRE CANONIQUES — MIGRATION DES CONSOMMATEURS
+État de reprise du 26/09/2026 au soir.
+
+La pile Salaire V2 récente dispose désormais d'un point d'entrée Android canonique entreprise+mois : V2SegmentedSalaryCanonicalBridge.calculateForCompany(...), issu de #523. Ce bridge orchestre les propriétaires V2 déjà existants et produit la sortie segmentée canonique sans recalcul dans les écrans.
+
+Migration des consommateurs construite dans l'ordre :
+- #548 — comparaison bulletin : V2PayslipStore.comparison() consomme la sortie canonique. Les valeurs non encore exposées par le contrat canonique (paniers, mutuelle, prévoyance) ne sont pas reconstruites localement et restent non comparées. iOS reçoit un adaptateur SalarySegmentedCanonicalOutputV2 -> SalaryWorkspaceSnapshotV2 ; le moteur de comparaison reste pur.
+- #550 — PDF entreprise : le chemin entreprise n'utilise plus V2SalaryNetBridgeV2 pour produire ses montants. Brut social, HS variables, net/PAS et contrôles disponibles viennent de la sortie canonique. Les paniers, pauses non payées agrégées et ventilations non exhaustives restent « À confirmer » au lieu d'utiliser un fallback legacy.
+- #552 — annuel/historique : les mois d'une entreprise V2 utilisent la même sortie canonique. Le total d'heures supplémentaires reste « À confirmer » tant que le contrat ne transporte pas un total exhaustif incluant les heures structurelles ; ne jamais présenter les seules HS variables comme total.
+- #554 — écran Fiche de salaire : le cœur monétaire de renderEstimate() n'appelle plus V2SalaryNetBridgeV2 ni V2SalaryAdapter pour l'entreprise V2. Temps payé, HS variables, heures complémentaires, ventilations de primes, brut de travail, cash gross, brut social et net/PAS sont lus depuis la sortie canonique selon leurs indicateurs de fiabilité. Les règles d'entreprise, conflits, changement de règle, règle de nuit, maladie/IJSS et actions d'import restent conservés.
+
+Audit d'unicité sur la tête #554 : écran, PDF, comparaison et annuel appellent tous V2SegmentedSalaryCanonicalBridge pour le chemin entreprise. Le seul appel V2SalaryAdapter.calculateForCompany restant dans V2PayslipStore concerne la base théorique maladie/IJSS ; il ne nourrit ni l'estimation principale ni la comparaison bulletin et doit être audité séparément avant toute suppression.
+
+Pile Git nettoyée et rattachée sans changement de contenu : #548 -> #550 -> #552 -> #554. #555 est un candidat VALIDATION ONLY contre main et ne doit jamais être fusionné.
+
+Validation observée à ce checkpoint : #548 Build iOS #806 réussi après correction du test YearMonthV2 optionnel ; tests V2 #548 réussis. Sur #555, Firebase Functions et dependency-review sont déjà réussis ; Android/build, Google Play, CodeQL, tests V2 et iOS sont encore en cours. Agent review gate reste rouge ; ne pas le convertir en PASS ni multiplier les relances. Aucun déploiement Firebase ni publication store effectué.
+
+Règle de sortie : ne fusionner les PR métier que dans l'ordre des dépendances après gates du SHA exact. Les PR VALIDATION ONLY #549/#551/#553/#555 restent sans fusion. Toute future mise à jour publique Android passe uniquement par Google Play Console.
+
 Le texte maître précédent est conservé intégralement à la suite de ce checkpoint.
 
 ==============================================================================
