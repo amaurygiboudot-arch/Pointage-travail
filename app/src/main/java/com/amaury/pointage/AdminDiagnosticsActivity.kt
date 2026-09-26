@@ -21,10 +21,10 @@ object AdminDiagnosticsGate {
     private const val PREFS = "admin_diagnostics"
     private const val KEY_ENABLED = "owner_enabled"
 
-    internal fun developerModeAllowed(internalBuild: Boolean): Boolean = internalBuild
+    internal fun developerModeAllowed(debugBuild: Boolean): Boolean = debugBuild
 
     fun canEnroll(): Boolean =
-        developerModeAllowed(UpdateChecker.INTERNAL_APK_UPDATES_ENABLED)
+        developerModeAllowed(BuildConfig.DEBUG)
 
     fun isEnabled(context: Context): Boolean =
         canEnroll() && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
