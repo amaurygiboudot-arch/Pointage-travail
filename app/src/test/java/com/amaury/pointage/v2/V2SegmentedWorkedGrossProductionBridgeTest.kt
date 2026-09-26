@@ -2,7 +2,9 @@ package com.amaury.pointage.v2
 
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class V2SegmentedWorkedGrossProductionBridgeTest {
@@ -20,5 +22,24 @@ class V2SegmentedWorkedGrossProductionBridgeTest {
     @Test
     fun invertedPeriodIsRejected() {
         assertNull(V2SegmentedWorkedGrossProductionBridge.coverageBounds(10, 9))
+    }
+
+    @Test
+    fun detailedBlockedResultKeepsWarningsAndPublishesNoAmounts() {
+        val result = V2SegmentedWorkedGrossProductionBridge.blockedDetailed(
+            listOf("preuve manquante", "preuve manquante", "règle absente")
+        )
+
+        assertFalse(result.reliable)
+        assertFalse(result.evidence.reliable)
+        assertFalse(result.variables.reliable)
+        assertFalse(result.base.reliable)
+        assertFalse(result.assembly.reliable)
+        assertNull(result.base.baseGross)
+        assertNull(result.assembly.variableGross)
+        assertNull(result.workedGross)
+        assertTrue(result.evidence.slices.isEmpty())
+        assertTrue(result.variables.pieces.isEmpty())
+        assertEquals(listOf("preuve manquante", "règle absente"), result.warnings)
     }
 }
