@@ -7,7 +7,7 @@ import RuntimeV2Contract
 
 final class SalaryRuntimeCoverageAttestationV2Tests: XCTestCase {
     private let zone = "Europe/Paris"
-    private let start = epochDay(2026, 9, 21)
+    private let start: Int64 = 20_717 // 2026-09-21 en jours Unix UTC
     private lazy var end = start + 6
     private lazy var checkedAt = date(end + 1, 0).addingTimeInterval(1)
 
