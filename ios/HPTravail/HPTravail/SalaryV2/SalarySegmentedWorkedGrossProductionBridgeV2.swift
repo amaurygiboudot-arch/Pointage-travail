@@ -5,6 +5,41 @@ import Foundation
 /// Les preuves juridiques de primes sont fournies explicitement par la couche d'arbitrage.
 /// L'absence d'une règle n'est jamais transformée ici en preuve d'absence.
 enum SalarySegmentedWorkedGrossProductionBridgeV2 {
+    static func calculateFromStores(
+        defaults: UserDefaults = .standard,
+        companyId: String,
+        companyAddress: String,
+        period: YearMonthV2,
+        timeZoneId: String,
+        work: SalaryWorkSessionSourceV2,
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        rules: SalaryConventionCoverageV2,
+        now: Date
+    ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        let night = SalaryConventionNightRuleStoreV2.readConfirmed(defaults: defaults)
+        let premiumContext = SalarySegmentedPayrollPremiumEvidenceBridgeV2.build(
+            contracts: contracts,
+            rules: rules,
+            nightSnapshots: night.snapshots,
+            nightSourceReliable: night.reliable,
+            nightWarnings: night.warnings,
+            holidayScope: FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
+            now: now
+        )
+        guard premiumContext.reliable else { return blocked(premiumContext.warnings) }
+        return calculate(
+            defaults: defaults,
+            companyId: companyId,
+            period: period,
+            timeZoneId: timeZoneId,
+            work: work,
+            contracts: contracts,
+            rules: rules,
+            premiums: premiumContext.evidence,
+            now: now
+        )
+    }
+
     static func calculate(
         defaults: UserDefaults = .standard,
         companyId: String,
@@ -62,12 +97,18 @@ enum SalarySegmentedWorkedGrossProductionBridgeV2 {
     private static func blocked(
         _ warning: String
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        blocked([warning])
+    }
+
+    private static func blocked(
+        _ warnings: [String]
+    ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
         SalarySegmentedWorkedGrossAssemblyResultV2(
             baseGross: nil,
             variableGross: nil,
             workedGross: nil,
             reliable: false,
-            warnings: [warning]
+            warnings: Array(Set(warnings)).sorted()
         )
     }
 }
