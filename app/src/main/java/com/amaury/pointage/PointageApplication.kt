@@ -288,7 +288,7 @@ object SettingsUiInstaller {
         widget.addView(showPosition)
 
         val drive = settingsSection(activity, SettingsV2Host.TAG_DRIVE)
-        drive.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
+        drive.addView(title(activity, "SAUVEGARDE & SYNCHRONISATION"))
         val driveStatus = TextView(activity).apply {
             textSize = 14f
             text = when {
