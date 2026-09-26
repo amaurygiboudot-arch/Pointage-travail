@@ -84,6 +84,11 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         sessions = updated
+        _ = WorkHistoryCoverageStoreV2.invalidateRange(
+            start: entryDate,
+            end: entryDate.addingTimeInterval(0.001),
+            defaults: defaults
+        )
         return true
     }
 
@@ -101,6 +106,13 @@ final class WorkStoreV2: ObservableObject {
             )
         }
         save()
+        if storageReliable {
+            _ = WorkHistoryCoverageStoreV2.invalidateRange(
+                start: sessions[index].entry,
+                end: Date().addingTimeInterval(0.001),
+                defaults: defaults
+            )
+        }
     }
 
     @discardableResult
@@ -127,6 +139,11 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         sessions = updated
+        _ = WorkHistoryCoverageStoreV2.invalidateRange(
+            start: updated[index].entry,
+            end: exitDate.addingTimeInterval(0.001),
+            defaults: defaults
+        )
         return true
     }
 
@@ -138,6 +155,7 @@ final class WorkStoreV2: ObservableObject {
               sessions[index].pauses.isEmpty else {
             return false
         }
+        let removed = sessions[index]
         var updated = sessions
         updated.remove(at: index)
         guard persistCanonical(updated) else {
@@ -145,6 +163,11 @@ final class WorkStoreV2: ObservableObject {
             return false
         }
         sessions = updated
+        _ = WorkHistoryCoverageStoreV2.invalidateRange(
+            start: removed.entry,
+            end: Date().addingTimeInterval(0.001),
+            defaults: defaults
+        )
         return true
     }
 
@@ -182,7 +205,60 @@ final class WorkStoreV2: ObservableObject {
         }
         sessions = updated
         save()
+        if storageReliable {
+            _ = WorkHistoryCoverageStoreV2.invalidateRange(
+                start: entry,
+                end: exit,
+                defaults: defaults
+            )
+        }
         return storageReliable
+    }
+
+    @discardableResult
+    func confirmHistoryCoverage(
+        id: UUID = UUID(),
+        sourceId: String,
+        employerId: String,
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        timeZoneId: String,
+        confirmedAt: Date = Date(),
+        note: String? = nil
+    ) -> Bool {
+        guard storageReliable else { return false }
+        let attestation = WorkHistoryCoverageAttestationV2(
+            id: id,
+            sourceId: sourceId,
+            employerId: employerId,
+            startEpochDay: startEpochDay,
+            endEpochDay: endEpochDay,
+            confirmedAt: confirmedAt,
+            timeZoneId: timeZoneId,
+            note: note
+        )
+        return WorkHistoryCoverageStoreV2.saveConfirmed(
+            attestation,
+            defaults: defaults,
+            now: confirmedAt
+        )
+    }
+
+    func historyCoverage(
+        employerId: String,
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        timeZoneId: String,
+        now: Date = Date()
+    ) -> WorkHistoryCoverageResultV2 {
+        WorkHistoryCoverageStoreV2.coverage(
+            employerId: employerId,
+            startEpochDay: startEpochDay,
+            endEpochDay: endEpochDay,
+            timeZoneId: timeZoneId,
+            defaults: defaults,
+            now: now
+        )
     }
 
     func paidTimeAssessment(for session: WorkSession, until endDate: Date = Date()) -> PaidTimeAssessmentV2 {
@@ -248,6 +324,7 @@ final class WorkStoreV2: ObservableObject {
                 if origin == .legacyMigration {
                     defaults.removeObject(forKey: WorkSessionStorageV2.legacyKey)
                 }
+                _ = WorkHistoryCoverageStoreV2.clearAll(defaults: defaults)
 
                 sessions = decoded
                 storageReliable = true
