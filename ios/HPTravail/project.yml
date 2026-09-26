@@ -107,6 +107,7 @@ targets:
       - path: HPTravail/SalaryV2/SalaryPaidWorkAggregatorV2.swift
       - path: HPTravail/SalaryV2/SalaryContractSegmentPaidWorkV2.swift
       - path: HPTravail/SalaryV2/SalaryWorkSessionBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalaryPayrollCoverageAttestationStoreV2.swift
       - path: HPTravail/SalaryV2/PartTimeComplementaryHoursV2.swift
       - path: HPTravail/SalaryV2/FullTimeStructuralOvertimeV2.swift
       - path: HPTravail/SalaryV2/EmployerUnemploymentAgsV2.swift

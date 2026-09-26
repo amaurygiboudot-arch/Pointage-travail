@@ -54,6 +54,27 @@ object SegmentedWorkedGrossAssemblerV2 {
     const val OVERFLOW_WARNING =
         "Brut segmenté : total monétaire non représentable de façon fiable ; assemblage bloqué."
 
+    /**
+     * Raccord B21 -> B20 : transporte le résultat amont complet, pas seulement ses pièces.
+     * Un warning global de B21 doit survivre même si chaque pièce individuelle est sans warning.
+     */
+    fun assemble(
+        contracts: EmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
+        variables: SegmentedWorkedVariableGrossSourceResultV2
+    ): SegmentedWorkedGrossAssemblyResultV2 {
+        if (!variables.reliable) {
+            return blocked(
+                contracts.warnings + base.warnings + variables.warnings +
+                    VARIABLE_RELIABILITY_WARNING
+            )
+        }
+        val assembled = assemble(contracts, base, variables.pieces)
+        return assembled.copy(
+            warnings = (variables.warnings + assembled.warnings).distinct()
+        )
+    }
+
     fun assemble(
         contracts: EmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,

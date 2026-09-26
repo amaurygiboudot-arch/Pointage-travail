@@ -21,6 +21,27 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.isEmpty)
     }
 
+    func testGlobalB21WarningSurvivesB20Assembly() throws {
+        let variables = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [
+                variable("v1", 0, 14, 120),
+                variable("v2", 15, 30, 80)
+            ],
+            reliable: true,
+            warnings: ["avertissement global B21"]
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variables: variables
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
+        XCTAssertTrue(result.warnings.contains("avertissement global B21"))
+    }
+
     func testExplicitReliableZeroVariableIsAccepted() throws {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             contracts: contracts(),
