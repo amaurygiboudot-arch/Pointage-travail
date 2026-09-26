@@ -1,5 +1,7 @@
 package com.amaury.pointage
 
+import com.amaury.pointage.v2.engine.SegmentedSalaryPresentationV2
+
 /**
  * Contrat de présentation sûr pour les montants nets de Salaire V2.
  *
@@ -25,6 +27,39 @@ object V2SalaryNetPresentationV2 {
         val secondaryAmount: Double?,
         val detail: String
     )
+
+    fun from(result: SegmentedSalaryPresentationV2.Result): Result = when (result.state) {
+        SegmentedSalaryPresentationV2.State.UNRELIABLE -> Result(
+            state = State.UNRELIABLE_GROSS,
+            primaryLabel = "Net indisponible",
+            primaryAmount = null,
+            taxableAmount = null,
+            incomeTaxAmount = null,
+            secondaryLabel = null,
+            secondaryAmount = null,
+            detail = "Brut à confirmer : aucun net salarié n'est affiché."
+        )
+        SegmentedSalaryPresentationV2.State.GROSS_AVAILABLE_NET_INCOMPLETE -> Result(
+            state = State.INCOMPLETE,
+            primaryLabel = "Net incomplet",
+            primaryAmount = null,
+            taxableAmount = null,
+            incomeTaxAmount = null,
+            secondaryLabel = null,
+            secondaryAmount = null,
+            detail = "Cotisations ou paramètres de paie à confirmer : aucun net salarié final n'est affiché."
+        )
+        SegmentedSalaryPresentationV2.State.AVAILABLE -> Result(
+            state = State.AVAILABLE,
+            primaryLabel = "Net avant impôt",
+            primaryAmount = result.netBeforeIncomeTax,
+            taxableAmount = result.netTaxable,
+            incomeTaxAmount = result.incomeTax,
+            secondaryLabel = result.netAfterIncomeTax?.let { "Net après impôt" },
+            secondaryAmount = result.netAfterIncomeTax,
+            detail = "Montants affichés uniquement à partir des données de paie confirmées."
+        )
+    }
 
     fun from(result: V2SalaryNetBridgeV2.Result): Result {
         if (!result.salary.monthlyGrossReliable || !result.salary.paidTimeReliable) {
