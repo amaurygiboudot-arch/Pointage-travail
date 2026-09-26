@@ -49,7 +49,7 @@ class LocationManagementView @JvmOverloads constructor(
         val contacts = jsonObjectPreference("arrival_contacts")
         val contact = contacts.optJSONObject(address)
         val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() }
-        val radius = prefs.getInt("radius", 150)
+        val radius = zoneRadiusText(address)
         val total = totalWorkedAtText(address)
         return LinearLayout(context).apply {
             orientation = VERTICAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), dp(14), dp(16), dp(14))
@@ -59,7 +59,7 @@ class LocationManagementView @JvmOverloads constructor(
             addView(TextView(context).apply { text = "📍 $name"; textSize = 16f; setTextColor(accentText()) })
             addView(TextView(context).apply { text = address; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(5), 0, 0) })
             if (contactName != null) addView(TextView(context).apply { text = "Contact : $contactName"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(7), 0, 0) })
-            addView(TextView(context).apply { text = "Rayon GPS : $radius m   •   Temps travaillé : $total"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(5), 0, 0) })
+            addView(TextView(context).apply { text = "Rayon GPS : $radius   •   Temps travaillé : $total"; textSize = 14f; setTextColor(secondaryText()); setPadding(0, dp(5), 0, 0) })
         }.also { it.layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) } }
     }
 
@@ -70,10 +70,10 @@ class LocationManagementView @JvmOverloads constructor(
 
     private fun showDetails(address: String) {
         val contacts = jsonObjectPreference("arrival_contacts"); val contact = contacts.optJSONObject(address); val name = PlaceNames.get(context, address) ?: "Lieu sans nom"
-        val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"; val radius = prefs.getInt("radius", 150)
+        val contactName = contact?.optString("contactName")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val phone = contact?.optString("phone")?.takeIf { it.isNotBlank() } ?: "Non renseigné"; val notify = if (contact?.optBoolean("enabled", false) == true) "Oui" else "Non"; val radius = zoneRadiusText(address)
         val content = LinearLayout(context).apply { orientation = VERTICAL; setPadding(dp(20), dp(6), dp(20), 0); setBackgroundColor(panelColor()) }
         fun line(label: String, value: String): TextView = TextView(context).apply { text = "$label\n$value"; textSize = 14f; setTextColor(primaryText()); setPadding(0, dp(7), 0, dp(7)); content.addView(this) }
-        line("Nom", name); line("Adresse", address); line("Contact", contactName); line("Téléphone", phone); line("Prévenir à l'arrivée", notify); line("Rayon GPS", "$radius m"); val totalText = line("Temps total travaillé", totalWorkedAtText(address))
+        line("Nom", name); line("Adresse", address); line("Contact", contactName); line("Téléphone", phone); line("Prévenir à l'arrivée", notify); line("Rayon GPS", radius); val totalText = line("Temps total travaillé", totalWorkedAtText(address))
         val dialog = AlertDialog.Builder(context).setTitle(name).setView(content).setPositiveButton("Fermer", null).setNeutralButton("Modifier") { _, _ -> showEdit(address) }.setNegativeButton("Supprimer") { _, _ -> confirmDelete(address, name) }.create()
         val handler = Handler(Looper.getMainLooper()); val updater = object : Runnable { override fun run() { if (!dialog.isShowing) return; totalText.text = "Temps total travaillé\n${totalWorkedAtText(address)}"; handler.postDelayed(this, 10_000L) } }
         dialog.setOnShowListener { styleDialog(dialog); handler.post(updater) }; dialog.setOnDismissListener { handler.removeCallbacks(updater); refresh() }; dialog.show()
@@ -125,6 +125,16 @@ class LocationManagementView @JvmOverloads constructor(
     }
     private fun jsonObjectPreference(key: String): JSONObject = runCatching { JSONObject(prefs.getString(key, "{}") ?: "{}") }.getOrElse { JSONObject() }
     private fun savedAddresses(): List<String> = prefs.getString("address", "").orEmpty().lines().map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.FRANCE) }
+    private fun zoneRadiusText(address: String): String =
+        when (val resolution = resolveGpsZoneRadiusForAddress(readPersistedGpsZones(prefs), address)) {
+            is GpsZoneRadiusResolution.Known -> {
+                val meters = resolution.radiusMeters
+                if (meters % 1f == 0f) "${meters.toInt()} m" else String.format(Locale.FRANCE, "%.1f m", meters)
+            }
+            GpsZoneRadiusResolution.Missing -> "À confirmer"
+            GpsZoneRadiusResolution.Ambiguous,
+            GpsZoneRadiusResolution.Corrupt -> "À vérifier"
+        }
     private fun totalWorkedAtText(address: String): String {
         if (!HoraTrackV2.ENABLED) return formatDuration(legacyTotalWorkedAt(address))
         val now = System.currentTimeMillis()
