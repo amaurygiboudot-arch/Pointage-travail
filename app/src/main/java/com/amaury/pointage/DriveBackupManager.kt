@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 import com.amaury.pointage.v2.V2BackupManager
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -53,7 +53,7 @@ object DriveBackupManager {
 
     fun syncCurrentMonthAsync(context: Context) {
         if (!isConfigured(context)) return
-        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             V2BackupManager.backupIfConfiguredAsync(context)
             return
         }
@@ -70,7 +70,7 @@ object DriveBackupManager {
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
-        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             executor.execute {
                 val result = V2BackupManager.backupToConfiguredDrive(app)
                 onDone?.invoke(
@@ -96,7 +96,7 @@ object DriveBackupManager {
     }
 
     private fun loadReliablePointage(context: Context): JSONArray {
-        check(syncOwner(AGKGMGV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
+        check(syncOwner(HoraTrackV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
             "Lecture PointageStore interdite : la sauvegarde AGKGMG V2 est propriétaire"
         }
         return PointageStore.load(context)
@@ -166,7 +166,7 @@ object DriveBackupManager {
     }
 
     fun syncMonth(context: Context, year: Int, month: Int) {
-        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             V2BackupManager.backupToConfiguredDrive(context).getOrThrow()
             return
         }
