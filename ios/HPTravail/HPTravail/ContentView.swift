@@ -338,7 +338,14 @@ struct ContentView: View {
     private var settingsView: some View {
         NavigationStack {
             Form {
-                Section("Compte Google / Apple") {
+                Section("Application") {
+                    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+                    let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+                    Text("Version \(version) (\(build))")
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Compte & sécurité") {
                     if !authManager.isFirebaseConfigured {
                         Text("Configuration Firebase iOS requise")
                             .foregroundStyle(.secondary)
@@ -377,37 +384,7 @@ struct ContentView: View {
                     }
                 }
 
-                Section("Système céleste") {
-                    Picker("Mode du globe", selection: $celestialGlobeMode) {
-                        Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
-                        Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
-                    }
-                    .pickerStyle(.segmented)
-                    Text(
-                        celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
-                            ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
-                            : "Local : le globe reste centré sur votre position GPS."
-                    )
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if let endpoint = Bundle.main.object(
-                        forInfoDictionaryKey: "CelestialWeatherEndpoint"
-                    ) as? String,
-                       endpoint.contains("open-meteo.com") {
-                        Text("Données météo : Open-Meteo • CC BY 4.0")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Section("Apparence") {
-                    Picker("Thème", selection: $theme) {
-                        Text("Signature Or").tag("signature")
-                        Text("Acier Bleu").tag("blue")
-                    }
-                }
-
-                Section("Localisation") {
+                Section("Pointage & lieux") {
                     Text(locationLabel)
                     Text(locationManager.statusMessage)
                         .foregroundStyle(.secondary)
@@ -468,6 +445,36 @@ struct ContentView: View {
                     Text("Maximum 10 zones. Les parkings, pauses et zones candidates ne sont pas encore automatisés sur iPhone.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                Section("Système céleste") {
+                    Picker("Mode du globe", selection: $celestialGlobeMode) {
+                        Text("Local").tag(CelestialGlobeModeV2.local.rawValue)
+                        Text("Monde").tag(CelestialGlobeModeV2.world.rawValue)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(
+                        celestialGlobeMode == CelestialGlobeModeV2.world.rawValue
+                            ? "Monde : le terminateur réel reste au centre pour voir ensemble la partie éclairée et la partie nocturne."
+                            : "Local : le globe reste centré sur votre position GPS."
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    if let endpoint = Bundle.main.object(
+                        forInfoDictionaryKey: "CelestialWeatherEndpoint"
+                    ) as? String,
+                       endpoint.contains("open-meteo.com") {
+                        Text("Données météo : Open-Meteo • CC BY 4.0")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Apparence") {
+                    Picker("Thème", selection: $theme) {
+                        Text("Signature Or").tag("signature")
+                        Text("Acier Bleu").tag("blue")
+                    }
                 }
 
                 Section("À propos") {
