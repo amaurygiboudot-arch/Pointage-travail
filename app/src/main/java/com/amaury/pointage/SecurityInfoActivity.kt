@@ -130,9 +130,10 @@ class SecurityInfoActivity : Activity() {
 
     private fun appCheckStatus(): String {
         val prefs = getSharedPreferences("app_check_status", MODE_PRIVATE)
+        val provider = if (BuildConfig.DEBUG) "App Check debug" else "Play Integrity"
         return when (prefs.getString("state", null)) {
-            "valid" -> "✓ Jeton Play Integrity obtenu"
-            "initializing" -> "Attestation Play Integrity en cours…"
+            "valid" -> "✓ Jeton $provider obtenu"
+            "initializing" -> "Attestation $provider en cours…"
             "error" -> "✗ Échec d'attestation\n${prefs.getString("error", "Erreur inconnue").orEmpty()}"
             else -> "Pas encore testé sur cette installation"
         }
