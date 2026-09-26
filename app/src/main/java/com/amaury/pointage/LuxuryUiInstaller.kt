@@ -304,8 +304,7 @@ object LuxuryUiInstaller {
         val isProtectedImageButton = idName == "entryButton" || idName == "pauseButton" || idName == "exitButton" || idName == "settingsButton"
         val isPanel = idName == "statusCard" || idName == "pointageButtons" || idName == "contentPanel" || idName == "gpsSettingsPanel" || idName == "analyticsPdfPanel" || idName.contains("Panel", ignoreCase = true) || idName.contains("Card", ignoreCase = true)
         val isStandardButton = view is Button && !isProtectedImageButton
-        val isNavigationBar = view is LinearLayout && (0 until view.childCount).any { view.getChildAt(it).id == R.id.tabToday }
-        if ((isPanel || isStandardButton || isNavigationBar) && view.background != null) view.background.mutate().alpha = alpha
+        if ((isPanel || isStandardButton) && view.background != null) view.background.mutate().alpha = alpha
         if (view is ViewGroup) for (i in 0 until view.childCount) applyTransparencyToView(view.getChildAt(i), alpha)
     }
 
@@ -356,36 +355,7 @@ object LuxuryUiInstaller {
     }
 
     private fun syncTabs(activity: MainActivity) {
-        val theme = AppThemeCatalog.current(activity)
-        val dark = AppThemeCatalog.useDarkPalette(activity)
-        val activeColor = if (dark) theme.darkText else theme.lightText
-        val inactiveColor = if (dark) theme.darkHint else theme.lightHint
-
-        val home = activity.findViewById<TextView>(R.id.tabHome)
-        val today = activity.findViewById<TextView>(R.id.tabToday)
-        val history = activity.findViewById<TextView>(R.id.tabHistory)
-        val analytics = activity.findViewById<TextView>(R.id.tabAnalytics)
-        val salary = activity.findViewById<TextView>(R.id.tabSalary)
-        val settings = activity.findViewById<TextView>(R.id.tabSettings)
-
-        (today?.parent as? LinearLayout)?.apply {
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-            backgroundTintList = null
-        }
-
-        val homeVisible = activity.findViewById<View>(R.id.celestialHomePanel)?.visibility == View.VISIBLE
-        val settingsVisible = activity.findViewById<View>(R.id.gpsSettingsPanel)?.visibility == View.VISIBLE
-        val analyticsVisible = activity.findViewById<View>(R.id.analyticsPdfPanel)?.visibility == View.VISIBLE
-        val todayVisible = activity.findViewById<View>(R.id.pointageButtons)?.visibility == View.VISIBLE
-
-        val active = when {
-            homeVisible -> home
-            settingsVisible -> settings
-            analyticsVisible -> analytics
-            todayVisible -> today
-            else -> history
-        }
-        listOf(home, today, history, analytics, salary, settings).forEach { tab -> tab?.setTextColor(if (tab === active) activeColor else inactiveColor) }
+        activity.findViewById<LinearLayout>(R.id.navigationTabs)?.let(NavigationTabContrastV2::apply)
     }
 
     private fun dp(activity: MainActivity, value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
