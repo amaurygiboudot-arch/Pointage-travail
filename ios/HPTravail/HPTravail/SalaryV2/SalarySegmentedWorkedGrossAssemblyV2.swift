@@ -62,6 +62,33 @@ enum SalarySegmentedWorkedGrossAssemblerV2 {
     static func assemble(
         contracts: SalaryEmploymentContractPeriodResolutionV2,
         base: SegmentedMonthlyBaseResultV2,
+        variableSource: SalarySegmentedWorkedVariableGrossSourceResultV2
+    ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
+        guard variableSource.reliable else {
+            return blocked(
+                contracts.warnings
+                    + base.warnings
+                    + variableSource.warnings
+                    + [variableReliabilityWarning]
+            )
+        }
+        let assembled = assemble(
+            contracts: contracts,
+            base: base,
+            variables: variableSource.pieces
+        )
+        return SalarySegmentedWorkedGrossAssemblyResultV2(
+            baseGross: assembled.baseGross,
+            variableGross: assembled.variableGross,
+            workedGross: assembled.workedGross,
+            reliable: assembled.reliable,
+            warnings: unique(assembled.warnings + variableSource.warnings)
+        )
+    }
+
+    static func assemble(
+        contracts: SalaryEmploymentContractPeriodResolutionV2,
+        base: SegmentedMonthlyBaseResultV2,
         variables: [SalarySegmentedWorkedVariableGrossPieceV2]
     ) -> SalarySegmentedWorkedGrossAssemblyResultV2 {
         let companyId = contracts.companyId.trimmingCharacters(in: .whitespacesAndNewlines)
