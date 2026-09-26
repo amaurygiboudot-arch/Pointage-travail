@@ -107,7 +107,7 @@ object UpdateChecker {
                 )
             }.onFailure {
                 installerOpening = false
-                Toast.makeText(activity, "Autorisez HoraTrack à installer les mises à jour.", Toast.LENGTH_LONG).show()
+                Toast.makeText(activity, "Autorisez AGKGMG à installer les mises à jour.", Toast.LENGTH_LONG).show()
             }
             return
         }
@@ -266,7 +266,7 @@ object UpdateChecker {
             if (code !in 200..299) error("liste des prereleases indisponible ($code)")
             val json = connection.inputStream.bufferedReader().use { it.readText() }
             return DevelopmentUpdateReleaseV2.parseLatest(json)
-                ?: error("aucune prerelease HoraTrack de développement valide")
+                ?: error("aucune prerelease AGKGMG de développement valide")
         } finally {
             connection.disconnect()
         }
@@ -306,7 +306,7 @@ object UpdateChecker {
         promptShowing = true
         val dialog = AlertDialog.Builder(activity)
             .setTitle("Mise à jour disponible")
-            .setMessage("HoraTrack $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
+            .setMessage("AGKGMG $versionName est disponible.\n\nVoulez-vous télécharger la mise à jour maintenant ?")
             .setPositiveButton("TÉLÉCHARGER") { _, _ ->
                 enqueueBackgroundDownload(activity, apkUrl, versionName, false, recoveryRepair, onStatus)
             }
@@ -331,11 +331,11 @@ object UpdateChecker {
             return
         }
         try {
-            val fileName = "HoraTrack-$versionName.apk"
+            val fileName = "AGKGMG-$versionName.apk"
             val dir = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "updates").apply { mkdirs() }
             dir.listFiles()?.forEach { if (it.name.endsWith(".apk", true)) it.delete() }
             val request = DownloadManager.Request(Uri.parse(apkUrl)).apply {
-                setTitle("Mise à jour HoraTrack")
+                setTitle("Mise à jour AGKGMG")
                 setDescription("Téléchargement de la version $versionName")
                 setMimeType("application/vnd.android.package-archive")
                 setAllowedOverMetered(true)
@@ -363,7 +363,7 @@ object UpdateChecker {
                 activity,
                 silent,
                 Status.DOWNLOADING,
-                "Téléchargement sécurisé de HoraTrack $versionName lancé. L’installation sera proposée après vérification.",
+                "Téléchargement sécurisé de AGKGMG $versionName lancé. L’installation sera proposée après vérification.",
                 onStatus
             )
         } catch (e: Exception) {
