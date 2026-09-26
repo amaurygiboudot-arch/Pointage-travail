@@ -48,6 +48,47 @@ class V2PayrollCoverageAttestationV2Test {
         )
     }
 
+    @Test fun `deux periodes distinctes avec la meme source restent conservees`() {
+        val first = attestation("manual-review", 1, 31, 100, "fp-1")
+        val second = attestation("manual-review", 32, 59, 200, "fp-2")
+
+        val merged = V2PayrollCoverageAttestationStoreV2.upsertAttestation(
+            V2PayrollCoverageAttestationStoreV2.upsertAttestation(emptyList(), first),
+            second
+        )
+
+        assertEquals(2, merged.size)
+        assertTrue(merged.contains(first))
+        assertTrue(merged.contains(second))
+
+        val correctedFirst = first.copy(checkedAtMs = 300, historyFingerprint = "fp-1-new")
+        val replaced = V2PayrollCoverageAttestationStoreV2.upsertAttestation(merged, correctedFirst)
+        assertEquals(2, replaced.size)
+        assertFalse(replaced.contains(first))
+        assertTrue(replaced.contains(correctedFirst))
+        assertTrue(replaced.contains(second))
+    }
+
+    @Test fun `attestation stockee avant la fin de sa periode est invalide`() {
+        val end = java.time.LocalDate.of(2026, 9, 7).toEpochDay()
+        val zone = java.time.ZoneId.of("Europe/Paris")
+        val beforeEnd = java.time.LocalDate.of(2026, 9, 7)
+            .atTime(23, 0)
+            .atZone(zone)
+            .toInstant()
+            .toEpochMilli()
+        val afterEnd = java.time.LocalDate.of(2026, 9, 8)
+            .atStartOfDay(zone)
+            .toInstant()
+            .toEpochMilli()
+
+        val invalid = attestation("proof", end - 6, end, beforeEnd, "abc")
+        val valid = invalid.copy(checkedAtMs = afterEnd)
+
+        assertFalse(V2PayrollCoverageAttestationStoreV2.validStoredAttestation(invalid))
+        assertTrue(V2PayrollCoverageAttestationStoreV2.validStoredAttestation(valid))
+    }
+
     @Test fun `attestation superset la plus recente couvre la periode demandee`() {
         val fingerprint = "abc"
         val older = attestation("old", 1, 31, 100, fingerprint)
