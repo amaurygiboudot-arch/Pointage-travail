@@ -263,7 +263,7 @@ object ButtonReliefInstaller {
             }
         }
         section.addView(button, if (section.childCount >= 2) 2 else section.childCount,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
                 topMargin = dp(activity, 4)
                 bottomMargin = dp(activity, 4)
             })
