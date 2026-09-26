@@ -235,6 +235,9 @@ object V2BackupManager {
     private fun applyRuntimeMerge(context:Context,plan:HistoryMergePlan):Int {
         if(plan.added==0)return 0
         check(V2RuntimeHistoryGuardV2.save(context,plan.history)){"Impossible d'enregistrer l'historique fusionné"}
+        check(V2WorkHistoryCoverageStore.clearAll(context)){
+            "Impossible d'invalider la couverture après fusion de l'historique"
+        }
         return plan.added
     }
     private fun strictLong(value:Any?):Long?=when(value){
