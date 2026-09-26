@@ -38,7 +38,10 @@ data class SegmentedWorkedVariableGrossBreakdownV2(
     val endEpochDay: Long,
     val overtimeGross: Double,
     val complementaryGross: Double,
-    val premiumGross: Double
+    val premiumGross: Double,
+    val overtimeMinutes: Double = 0.0,
+    val overtimeTiers: List<SegmentedOvertimeTierBreakdownV2> = emptyList(),
+    val complementaryMinutes: Int = 0
 ) {
     val variableGross: Double
         get() = overtimeGross + complementaryGross + premiumGross
@@ -304,7 +307,10 @@ object SegmentedWorkedVariableGrossSourceV2 {
                     endEpochDay = key.endEpochDay,
                     overtimeGross = item.overtimeGross,
                     complementaryGross = item.complementaryGross,
-                    premiumGross = item.premiumGross
+                    premiumGross = item.premiumGross,
+                    overtimeMinutes = item.overtimeMinutes,
+                    overtimeTiers = item.overtimeTiers,
+                    complementaryMinutes = item.complementaryMinutes
                 )
             }
 
@@ -344,7 +350,15 @@ object SegmentedWorkedVariableGrossSourceV2 {
         val premiums = premiumGross(weeks, rate, rules) ?: return null
         return VariableAmounts(
             overtimeGross = overtime.variableOvertimeGross,
-            premiumGross = premiums
+            premiumGross = premiums,
+            overtimeMinutes = overtime.variableTiers.sumOf { it.minutes },
+            overtimeTiers = overtime.variableTiers.map {
+                SegmentedOvertimeTierBreakdownV2(
+                    multiplier = it.multiplier,
+                    minutes = it.minutes,
+                    gross = it.gross
+                )
+            }
         ).takeIf { it.valid() }
     }
 
@@ -463,17 +477,52 @@ object SegmentedWorkedVariableGrossSourceV2 {
     private data class VariableAmounts(
         val overtimeGross: Double = 0.0,
         val complementaryGross: Double = 0.0,
-        val premiumGross: Double = 0.0
+        val premiumGross: Double = 0.0,
+        val overtimeMinutes: Double = 0.0,
+        val overtimeTiers: List<SegmentedOvertimeTierBreakdownV2> = emptyList(),
+        val complementaryMinutes: Int = 0
     ) {
         val totalGross: Double get() = overtimeGross + complementaryGross + premiumGross
-        operator fun plus(other: VariableAmounts) = VariableAmounts(
-            overtimeGross + other.overtimeGross,
-            complementaryGross + other.complementaryGross,
-            premiumGross + other.premiumGross
-        )
-        fun valid(): Boolean = listOf(
-            overtimeGross, complementaryGross, premiumGross, totalGross
-        ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }
+
+        operator fun plus(other: VariableAmounts): VariableAmounts {
+            val tiers = (overtimeTiers + other.overtimeTiers)
+                .groupBy { it.multiplier }
+                .map { (multiplier, values) ->
+                    SegmentedOvertimeTierBreakdownV2(
+                        multiplier = multiplier,
+                        minutes = values.sumOf { it.minutes },
+                        gross = values.sumOf { it.gross }
+                    )
+                }
+                .sortedBy { it.multiplier }
+            return VariableAmounts(
+                overtimeGross = overtimeGross + other.overtimeGross,
+                complementaryGross = complementaryGross + other.complementaryGross,
+                premiumGross = premiumGross + other.premiumGross,
+                overtimeMinutes = overtimeMinutes + other.overtimeMinutes,
+                overtimeTiers = tiers,
+                complementaryMinutes = (complementaryMinutes.toLong() + other.complementaryMinutes.toLong())
+                    .takeIf { it <= Int.MAX_VALUE }
+                    ?.toInt()
+                    ?: return VariableAmounts(overtimeGross = Double.NEGATIVE_INFINITY)
+            )
+        }
+
+        fun valid(): Boolean {
+            val amountsValid = listOf(
+                overtimeGross, complementaryGross, premiumGross, totalGross, overtimeMinutes
+            ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }
+            val tiersValid = overtimeTiers.all {
+                it.multiplier.isFinite() && it.multiplier >= 1.0 &&
+                    it.minutes.isFinite() && it.minutes >= 0.0 &&
+                    it.gross.isFinite() && it.gross >= 0.0
+            }
+            val tierMinutes = overtimeTiers.sumOf { it.minutes }
+            val tierGross = overtimeTiers.sumOf { it.gross }
+            return amountsValid && tiersValid && complementaryMinutes >= 0 &&
+                kotlin.math.abs(tierMinutes - overtimeMinutes) <= MINUTE_TOLERANCE &&
+                kotlin.math.abs(tierGross - overtimeGross) <= CURRENCY_TOLERANCE
+        }
     }
 
     private data class SliceKey(
@@ -490,4 +539,5 @@ object SegmentedWorkedVariableGrossSourceV2 {
     )
 
     private const val CURRENCY_TOLERANCE = 0.005
+    private const val MINUTE_TOLERANCE = 0.000_001
 }

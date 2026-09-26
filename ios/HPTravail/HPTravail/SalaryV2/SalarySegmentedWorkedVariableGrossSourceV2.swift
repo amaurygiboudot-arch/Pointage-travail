@@ -43,6 +43,9 @@ struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
     let overtimeGross: Double
     let complementaryGross: Double
     let premiumGross: Double
+    var overtimeMinutes: Double = 0
+    var overtimeTiers: [SegmentedOvertimeTierBreakdownV2] = []
+    var complementaryMinutes: Int = 0
 
     var variableGross: Double {
         overtimeGross + complementaryGross + premiumGross
@@ -369,7 +372,10 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     endEpochDay: key.endEpochDay,
                     overtimeGross: item.overtimeGross,
                     complementaryGross: item.complementaryGross,
-                    premiumGross: item.premiumGross
+                    premiumGross: item.premiumGross,
+                    overtimeMinutes: item.overtimeMinutes,
+                    overtimeTiers: item.overtimeTiers,
+                    complementaryMinutes: item.complementaryMinutes
                 )
             )
         }
@@ -427,7 +433,11 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
             }
             let value = VariableAmounts(
                 overtimeGross: overtime.variableOvertimeGross,
-                premiumGross: premium
+                premiumGross: premium,
+                overtimeMinutes: overtime.variableTiers.reduce(0) { $0 + $1.minutes },
+                overtimeTiers: overtime.variableTiers.map {
+                    .init(multiplier: $0.multiplier, minutes: $0.minutes, gross: $0.gross)
+                }
             )
             return value.valid ? value : nil
         } catch {
@@ -556,15 +566,24 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         let overtimeGross: Double
         let complementaryGross: Double
         let premiumGross: Double
+        let overtimeMinutes: Double
+        let overtimeTiers: [SegmentedOvertimeTierBreakdownV2]
+        let complementaryMinutes: Int
 
         init(
             overtimeGross: Double = 0,
             complementaryGross: Double = 0,
-            premiumGross: Double = 0
+            premiumGross: Double = 0,
+            overtimeMinutes: Double = 0,
+            overtimeTiers: [SegmentedOvertimeTierBreakdownV2] = [],
+            complementaryMinutes: Int = 0
         ) {
             self.overtimeGross = overtimeGross
             self.complementaryGross = complementaryGross
             self.premiumGross = premiumGross
+            self.overtimeMinutes = overtimeMinutes
+            self.overtimeTiers = overtimeTiers
+            self.complementaryMinutes = complementaryMinutes
         }
 
         var totalGross: Double {
@@ -572,15 +591,44 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         }
 
         var valid: Bool {
-            [overtimeGross, complementaryGross, premiumGross, totalGross]
+            let amountsValid = [overtimeGross, complementaryGross, premiumGross, totalGross, overtimeMinutes]
                 .allSatisfy { $0.isFinite && $0 >= -currencyTolerance }
+            let tiersValid = overtimeTiers.allSatisfy {
+                $0.multiplier.isFinite && $0.multiplier >= 1 &&
+                    $0.minutes.isFinite && $0.minutes >= 0 &&
+                    $0.gross.isFinite && $0.gross >= 0
+            }
+            let tierMinutes = overtimeTiers.reduce(0) { $0 + $1.minutes }
+            let tierGross = overtimeTiers.reduce(0) { $0 + $1.gross }
+            return amountsValid && tiersValid && complementaryMinutes >= 0 &&
+                abs(tierMinutes - overtimeMinutes) <= minuteTolerance &&
+                abs(tierGross - overtimeGross) <= currencyTolerance
         }
 
         static func + (lhs: VariableAmounts, rhs: VariableAmounts) -> VariableAmounts {
-            VariableAmounts(
+            let grouped = Dictionary(
+                grouping: lhs.overtimeTiers + rhs.overtimeTiers,
+                by: \.multiplier
+            )
+            let tiers = grouped.map { multiplier, values in
+                SegmentedOvertimeTierBreakdownV2(
+                    multiplier: multiplier,
+                    minutes: values.reduce(0) { $0 + $1.minutes },
+                    gross: values.reduce(0) { $0 + $1.gross }
+                )
+            }.sorted { $0.multiplier < $1.multiplier }
+
+            let complementary = lhs.complementaryMinutes.addingReportingOverflow(rhs.complementaryMinutes)
+            guard !complementary.overflow else {
+                return VariableAmounts(overtimeGross: -.infinity)
+            }
+            return VariableAmounts(
                 overtimeGross: lhs.overtimeGross + rhs.overtimeGross,
                 complementaryGross: lhs.complementaryGross + rhs.complementaryGross,
-                premiumGross: lhs.premiumGross + rhs.premiumGross
+                premiumGross: lhs.premiumGross + rhs.premiumGross,
+                overtimeMinutes: lhs.overtimeMinutes + rhs.overtimeMinutes,
+                overtimeTiers: tiers,
+                complementaryMinutes: complementary.partialValue
             )
         }
     }
@@ -604,6 +652,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
     }
 
     private static let currencyTolerance = 0.005
+    private static let minuteTolerance = 0.000_001
 }
 
 private extension Array {
