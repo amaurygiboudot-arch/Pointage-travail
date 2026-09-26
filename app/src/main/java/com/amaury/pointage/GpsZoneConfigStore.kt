@@ -203,6 +203,50 @@ internal fun updateGpsZoneTypeById(
     return changed
 }
 
+
+internal fun updateGpsZoneLabelById(
+    zones: JSONArray,
+    zoneId: String,
+    label: String?
+): Boolean {
+    val targetId = zoneId.trim()
+    if (targetId.isBlank()) return false
+    val normalizedLabel = label?.trim().orEmpty()
+    for (index in 0 until zones.length()) {
+        val zone = zones.optJSONObject(index) ?: continue
+        if (zone.optString("id").trim() != targetId) continue
+        if (normalizedLabel.isBlank()) {
+            listOf("name", "label", "placeName", "zoneName").forEach(zone::remove)
+        } else {
+            zone.put("label", normalizedLabel)
+            listOf("name", "placeName", "zoneName").forEach(zone::remove)
+        }
+        return true
+    }
+    return false
+}
+
+internal fun resolveGpsZoneLabel(
+    zonesResult: GpsZonesReadResult,
+    zoneId: String?,
+    address: String?
+): String? {
+    val valid = zonesResult as? GpsZonesReadResult.Valid ?: return null
+    val normalizedId = zoneId?.trim().orEmpty()
+    if (normalizedId.isNotBlank()) {
+        return valid.zones.firstOrNull { it.id == normalizedId }
+            ?.label?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    val normalizedAddress = address?.trim().orEmpty()
+    if (normalizedAddress.isBlank()) return null
+    val matches = valid.zones.filter {
+        it.address?.trim()?.equals(normalizedAddress, ignoreCase = true) == true
+    }
+    if (matches.size != 1) return null
+    return matches.single().label?.trim()?.takeIf { it.isNotBlank() }
+}
+
 internal fun resolveGpsRadiusForRefresh(existing: JSONObject?, fallbackRadius: Int): Int {
     val existingRadius = existing
         ?.optDouble("radius", Double.NaN)

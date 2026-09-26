@@ -285,7 +285,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         ) {
             V2SessionPlaceStore.setCurrent(context, zone.id, findZoneLabel(context, zone))
             if (!zone.address.isNullOrBlank()) {
-                showArrivalContactNotification(context, zone.address)
+                showArrivalContactNotification(context, zone)
             }
         }
     }
@@ -501,11 +501,13 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
     private fun findZoneLabel(context: Context, zone: StoredGpsZone): String? {
         if (!zone.label.isNullOrBlank()) return zone.label
         return zone.address?.let {
-            PlaceNames.get(context, it)?.trim()?.takeIf(String::isNotBlank)
+            PlaceNames.get(context, zone.id, it)?.trim()?.takeIf(String::isNotBlank)
         }
     }
 
-    private fun showArrivalContactNotification(context: Context, address: String) {
+    private fun showArrivalContactNotification(context: Context, zone: StoredGpsZone) {
+        val address = zone.address?.trim().orEmpty()
+        if (address.isBlank()) return
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
         val contact = runCatching {
             JSONObject(prefs.getString("arrival_contacts", "{}") ?: "{}").optJSONObject(address)
@@ -516,7 +518,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
-        val placeName = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: address
+        val placeName = PlaceNames.get(context, zone.id, address)?.takeIf { it.isNotBlank() } ?: address
         val contactName = contact.optString("contactName").trim().takeIf { it.isNotBlank() } ?: phone
         val message = "Bonjour, je viens d'arriver à $placeName."
         val smsIntent = Intent(Intent.ACTION_SENDTO).apply {

@@ -71,7 +71,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
             val address = zone.optString("address").trim()
             if (address.isBlank()) continue
             val type = normalizedType(zone.optString("pointType").ifBlank { zone.optString("zoneType") })
-            val display = PlaceNames.get(context, address)?.takeIf { it.isNotBlank() } ?: address
+            val display = PlaceNames.get(context, zone.optString("id"), address)?.takeIf { it.isNotBlank() } ?: address
             addView(Button(context).apply {
                 text = "$display  •  ${typeLabel(type)}"
                 isAllCaps = false

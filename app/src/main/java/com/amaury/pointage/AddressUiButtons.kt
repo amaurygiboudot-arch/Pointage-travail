@@ -233,7 +233,6 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         val updated = (latestAddresses + formatted).distinctBy { it.lowercase() }.take(10)
                         addressList.setText(updated.joinToString("\n"))
 
-                        PlaceNames.put(context, formatted, nameValue)
 
                         val contacts = runCatching {
                             JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
@@ -257,6 +256,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             val zone = JSONObject()
                                 .put("id", UUID.randomUUID().toString())
                                 .put("address", formatted)
+                                .put("label", nameValue)
                                 .put("latitude", geocoded.latitude)
                                 .put("longitude", geocoded.longitude)
                                 .put("radius", gpsPrefs.getInt("radius", 150).coerceIn(50, 1000))
@@ -278,6 +278,9 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             .putString("pending_point_address", formatted)
                         if (!useV2EmployerBinding) editor.putString("address_company_slots", companyMap.toString())
                         editor.apply()
+                        if (geocoded == null) {
+                            PlaceNames.put(context, formatted, nameValue)
+                        }
                         GeofenceManager.reconfigureStoredZones(context)
 
                         if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&

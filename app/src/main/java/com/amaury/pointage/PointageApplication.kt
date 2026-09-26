@@ -175,23 +175,70 @@ object AppearanceManager {
 }
 
 object PlaceNames {
-    fun get(context: Context, address: String): String? {
+    private const val LEGACY_KEY = "address_names"
+
+    fun get(context: Context, address: String): String? =
+        get(context, zoneId = null, address = address)
+
+    fun get(context: Context, zoneId: String?, address: String): String? {
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+        val canonical = resolveGpsZoneLabel(readPersistedGpsZones(prefs), zoneId, address)
+        if (!canonical.isNullOrBlank()) return canonical
+
+        // Compatibilité de migration uniquement : les nouveaux noms appartiennent à la zone GPS.
         return runCatching {
-            JSONObject(prefs.getString("address_names", "{}") ?: "{}")
+            JSONObject(prefs.getString(LEGACY_KEY, "{}") ?: "{}")
                 .optString(address).trim().takeIf { it.isNotBlank() }
         }.getOrNull()
     }
 
     fun put(context: Context, address: String, name: String) {
+        put(context, zoneId = null, address = address, name = name)
+    }
+
+    fun put(context: Context, zoneId: String?, address: String, name: String) {
         val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
-        val obj = runCatching { JSONObject(prefs.getString("address_names", "{}") ?: "{}") }.getOrElse { JSONObject() }
-        obj.put(address, name)
-        prefs.edit().putString("address_names", obj.toString()).apply()
+        val stored = readPersistedGpsZones(prefs)
+        if (stored is GpsZonesReadResult.Corrupt) return
+
+        val resolvedId = zoneId?.trim()?.takeIf { it.isNotBlank() }
+            ?: (stored as? GpsZonesReadResult.Valid)
+                ?.zones
+                ?.filter { it.address?.trim()?.equals(address.trim(), ignoreCase = true) == true }
+                ?.singleOrNull()
+                ?.id
+
+        if (!resolvedId.isNullOrBlank()) {
+            val zones = stored.toMutableJsonArrayOrNull() ?: return
+            if (updateGpsZoneLabelById(zones, resolvedId, name)) {
+                val legacy = runCatching {
+                    JSONObject(prefs.getString(LEGACY_KEY, "{}") ?: "{}")
+                }.getOrElse { JSONObject() }
+                legacy.remove(address)
+                prefs.edit()
+                    .putString("zones", zones.toString())
+                    .putString(LEGACY_KEY, legacy.toString())
+                    .apply()
+                return
+            }
+        }
+
+        // Compatibilité transitoire uniquement si aucun propriétaire de zone unique
+        // ne peut encore être résolu. La configuration corrompue reste bloquée plus haut.
+        val legacy = runCatching {
+            JSONObject(prefs.getString(LEGACY_KEY, "{}") ?: "{}")
+        }.getOrElse { JSONObject() }
+        if (name.isBlank()) legacy.remove(address) else legacy.put(address, name.trim())
+        prefs.edit().putString(LEGACY_KEY, legacy.toString()).apply()
     }
 
     fun display(context: Context, address: String): String {
         val name = get(context, address)
+        return if (name.isNullOrBlank()) address else "$name — $address"
+    }
+
+    fun display(context: Context, zoneId: String?, address: String): String {
+        val name = get(context, zoneId, address)
         return if (name.isNullOrBlank()) address else "$name — $address"
     }
 }
