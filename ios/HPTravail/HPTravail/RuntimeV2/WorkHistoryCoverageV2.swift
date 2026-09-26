@@ -1,14 +1,34 @@
 import Foundation
 
-struct WorkHistoryCoverageAttestationV2: Codable, Equatable, Identifiable {
-    let id: UUID
-    let sourceId: String
-    let employerId: String
-    let startEpochDay: Int64
-    let endEpochDay: Int64
-    let confirmedAt: Date
-    let timeZoneId: String
-    let note: String?
+public struct WorkHistoryCoverageAttestationV2: Codable, Equatable, Identifiable {
+    public let id: UUID
+    public let sourceId: String
+    public let employerId: String
+    public let startEpochDay: Int64
+    public let endEpochDay: Int64
+    public let confirmedAt: Date
+    public let timeZoneId: String
+    public let note: String?
+
+    public init(
+        id: UUID,
+        sourceId: String,
+        employerId: String,
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        confirmedAt: Date,
+        timeZoneId: String,
+        note: String?
+    ) {
+        self.id = id
+        self.sourceId = sourceId
+        self.employerId = employerId
+        self.startEpochDay = startEpochDay
+        self.endEpochDay = endEpochDay
+        self.confirmedAt = confirmedAt
+        self.timeZoneId = timeZoneId
+        self.note = note
+    }
 }
 
 struct WorkHistoryCoverageReadV2: Equatable {
@@ -18,17 +38,41 @@ struct WorkHistoryCoverageReadV2: Equatable {
     let warnings: [String]
 }
 
-struct WorkHistoryCoverageResultV2: Equatable {
-    let employerId: String
-    let startEpochDay: Int64
-    let endEpochDay: Int64
-    let timeZoneId: String
-    let attestations: [WorkHistoryCoverageAttestationV2]
-    let fullyCovered: Bool
-    let reliable: Bool
-    let sourceId: String
-    let checkedAt: Date?
-    let warnings: [String]
+public struct WorkHistoryCoverageResultV2: Equatable {
+    public let employerId: String
+    public let startEpochDay: Int64
+    public let endEpochDay: Int64
+    public let timeZoneId: String
+    public let attestations: [WorkHistoryCoverageAttestationV2]
+    public let fullyCovered: Bool
+    public let reliable: Bool
+    public let sourceId: String
+    public let checkedAt: Date?
+    public let warnings: [String]
+
+    public init(
+        employerId: String,
+        startEpochDay: Int64,
+        endEpochDay: Int64,
+        timeZoneId: String,
+        attestations: [WorkHistoryCoverageAttestationV2],
+        fullyCovered: Bool,
+        reliable: Bool,
+        sourceId: String,
+        checkedAt: Date?,
+        warnings: [String]
+    ) {
+        self.employerId = employerId
+        self.startEpochDay = startEpochDay
+        self.endEpochDay = endEpochDay
+        self.timeZoneId = timeZoneId
+        self.attestations = attestations
+        self.fullyCovered = fullyCovered
+        self.reliable = reliable
+        self.sourceId = sourceId
+        self.checkedAt = checkedAt
+        self.warnings = warnings
+    }
 }
 
 /// Registre explicite de complétude du journal de pointage iOS.
