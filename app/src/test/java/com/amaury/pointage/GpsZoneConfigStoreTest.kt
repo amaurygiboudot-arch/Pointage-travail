@@ -184,4 +184,48 @@ class GpsZoneConfigStoreTest {
 
         assertNull(result.toMutableJsonArrayOrNull())
     }
+
+    @Test
+    fun `le rayon affiche provient de la zone correspondant a l adresse`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"a","latitude":46.7,"longitude":-1.4,"radius":180,"address":"1 rue A"},
+                {"id":"b","latitude":46.8,"longitude":-1.5,"radius":320,"address":"2 rue B"}
+            ]""".trimIndent()
+        )
+
+        val resolution = resolveGpsZoneRadiusForAddress(result, "2 rue B")
+
+        assertTrue(resolution is GpsZoneRadiusResolution.Known)
+        assertEquals(320f, (resolution as GpsZoneRadiusResolution.Known).radiusMeters, 0f)
+    }
+
+    @Test
+    fun `une adresse sans zone reste a confirmer`() {
+        val result = parsePersistedGpsZones(
+            """[{"id":"a","latitude":46.7,"longitude":-1.4,"radius":180,"address":"1 rue A"}]"""
+        )
+
+        assertTrue(resolveGpsZoneRadiusForAddress(result, "adresse absente") is GpsZoneRadiusResolution.Missing)
+    }
+
+    @Test
+    fun `deux zones de meme adresse avec rayons differents restent ambigues`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"a","latitude":46.7,"longitude":-1.4,"radius":180,"address":"1 rue A"},
+                {"id":"b","latitude":46.7001,"longitude":-1.4001,"radius":240,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(resolveGpsZoneRadiusForAddress(result, "1 RUE A") is GpsZoneRadiusResolution.Ambiguous)
+    }
+
+    @Test
+    fun `une configuration gps corrompue ne produit aucun faux rayon`() {
+        val result = parsePersistedGpsZones("{invalide}")
+
+        assertTrue(resolveGpsZoneRadiusForAddress(result, "1 rue A") is GpsZoneRadiusResolution.Corrupt)
+    }
+
 }
