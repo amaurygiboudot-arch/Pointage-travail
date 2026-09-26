@@ -106,8 +106,11 @@ enum SalarySegmentedWorkedGrossProductionV2 {
         end: Int64
     ) -> (start: Int64, end: Int64)? {
         guard end >= start else { return nil }
-        let startOffset = floorMod(start + 3, 7)
-        let endOffset = floorMod(end + 3, 7)
+        let shiftedStart = start.addingReportingOverflow(3)
+        let shiftedEnd = end.addingReportingOverflow(3)
+        guard !shiftedStart.overflow, !shiftedEnd.overflow else { return nil }
+        let startOffset = floorMod(shiftedStart.partialValue, 7)
+        let endOffset = floorMod(shiftedEnd.partialValue, 7)
         let first = start.subtractingReportingOverflow(startOffset)
         let monday = end.subtractingReportingOverflow(endOffset)
         guard !first.overflow, !monday.overflow else { return nil }
