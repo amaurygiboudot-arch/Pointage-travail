@@ -26,6 +26,24 @@ final class SalarySegmentedWorkedGrossProductionBridgeV2Tests: XCTestCase {
         )
     }
 
+    func testDetailedBlockedResultKeepsWarningsAndPublishesNoAmounts() {
+        let result = SalarySegmentedWorkedGrossProductionBridgeV2.blockedDetailed(
+            ["preuve manquante", "preuve manquante", "règle absente"]
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertFalse(result.evidence.reliable)
+        XCTAssertFalse(result.variables.reliable)
+        XCTAssertFalse(result.base.reliable)
+        XCTAssertFalse(result.assembly.reliable)
+        XCTAssertNil(result.base.baseGross)
+        XCTAssertNil(result.assembly.variableGross)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(result.evidence.slices.isEmpty)
+        XCTAssertTrue(result.variables.pieces.isEmpty)
+        XCTAssertEqual(result.warnings, ["preuve manquante", "règle absente"])
+    }
+
     private func epochDay(_ year: Int, _ month: Int, _ day: Int) -> Int64 {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
