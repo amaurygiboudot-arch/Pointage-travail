@@ -117,17 +117,31 @@ class GpsPointPickerView @JvmOverloads constructor(
         JSONObject(prefs.getString("zone_point_confirmed", "{}") ?: "{}")
     }.getOrElse { JSONObject() }
 
-    private fun findZone(address: String, list: JSONArray?): JSONObject? {
-        if (list == null) return null
-        for (i in 0 until list.length()) {
-            val zone = list.optJSONObject(i) ?: continue
-            if (zone.optString("address").trim().equals(address.trim(), ignoreCase = true)) return zone
+    private fun pointOverrideFor(zoneId: String?, address: String, source: JSONObject = overrides()): JSONObject? {
+        val canonicalId = zoneId?.trim().orEmpty()
+        if (canonicalId.isNotBlank()) {
+            source.optJSONObject(canonicalId)?.let { return it }
         }
-        return null
+        val uniqueOwner = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
+        if (uniqueOwner == null || canonicalId.isNotBlank() && uniqueOwner != canonicalId) return null
+        return source.optJSONObject(address)
     }
 
+    private fun zonesForAddress(address: String, list: JSONArray?): List<JSONObject> {
+        if (list == null) return emptyList()
+        val normalized = address.trim()
+        return (0 until list.length()).mapNotNull { index ->
+            list.optJSONObject(index)
+                ?.takeIf { it.optString("address").trim().equals(normalized, ignoreCase = true) }
+        }
+    }
+
+    private fun uniqueZoneForAddress(address: String, list: JSONArray?): JSONObject? =
+        zonesForAddress(address, list).singleOrNull()
+
     private fun provisionalZone(address: String): JSONObject {
-        val custom = overrides().optJSONObject(address)
+        val provisionalId = UUID.randomUUID().toString()
+        val custom = pointOverrideFor(provisionalId, address)
         val current = currentLocation()
         val lat = custom?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: current?.latitude
@@ -136,7 +150,7 @@ class GpsPointPickerView @JvmOverloads constructor(
             ?: current?.longitude
             ?: 1.888334
         return JSONObject()
-            .put("id", UUID.randomUUID().toString())
+            .put("id", provisionalId)
             .put("address", address)
             .put("latitude", lat)
             .put("longitude", lon)
@@ -166,7 +180,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         for (i in 0 until source.length()) {
             val zone = source.optJSONObject(i) ?: continue
             val address = zone.optString("address").trim()
-            val point = custom.optJSONObject(address) ?: continue
+            val zoneId = zone.optString("id").trim()
+            val point = pointOverrideFor(zoneId, address, custom) ?: continue
             val lat = point.optDouble("latitude", Double.NaN)
             val lon = point.optDouble("longitude", Double.NaN)
             if (!lat.isFinite() || !lon.isFinite()) continue
@@ -180,7 +195,7 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
 
         addresses.forEach { address ->
-            if (findZone(address, source) != null) return@forEach
+            if (zonesForAddress(address, source).isNotEmpty()) return@forEach
             val point = custom.optJSONObject(address) ?: return@forEach
             val lat = point.optDouble("latitude", Double.NaN)
             val lon = point.optDouble("longitude", Double.NaN)
@@ -229,7 +244,17 @@ class GpsPointPickerView @JvmOverloads constructor(
             GeofenceManager.reconfigureStoredZones(context)
             return
         }
-        val zone = findZone(pending, storedZones) ?: provisionalZone(pending)
+        val matching = zonesForAddress(pending, storedZones)
+        if (matching.size > 1) {
+            prefs.edit().remove("pending_point_address").apply()
+            Toast.makeText(
+                context,
+                "Plusieurs zones utilisent cette adresse : choisis explicitement la zone à ajuster.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        val zone = matching.singleOrNull() ?: provisionalZone(pending)
         promptScheduled = true
         postDelayed({
             promptScheduled = false
@@ -251,12 +276,32 @@ class GpsPointPickerView @JvmOverloads constructor(
         }
         val labels = ArrayList<String>()
         val items = ArrayList<JSONObject>()
-        addresses.forEach { address ->
-            val item = findZone(address, list) ?: provisionalZone(address)
+        val coveredAddresses = mutableSetOf<String>()
+
+        for (index in 0 until list.length()) {
+            val item = list.optJSONObject(index) ?: continue
+            val address = item.optString("address").trim()
+            if (address.isBlank()) continue
+            if (addresses.none { it.equals(address, ignoreCase = true) }) continue
             val zoneId = item.optString("id").trim().takeIf { it.isNotBlank() }
-            labels += (PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }?.let { "$it — $address" } ?: address)
-            items += item
+            val placeName = PlaceNames.get(context, zoneId, address)?.takeIf { it.isNotBlank() }
+            val type = item.optString("pointType").trim().takeIf { it.isNotBlank() }
+            labels += buildString {
+                append(placeName ?: address)
+                if (placeName != null) append(" — ").append(address)
+                if (type != null) append(" • ").append(type)
+            }
+            items += JSONObject(item.toString())
+            coveredAddresses += address.lowercase(Locale.FRANCE)
         }
+
+        addresses
+            .filterNot { it.lowercase(Locale.FRANCE) in coveredAddresses }
+            .forEach { address ->
+                val item = provisionalZone(address)
+                labels += address
+                items += item
+            }
 
         val dark = AppThemeCatalog.useDarkPalette(context)
         val theme = AppThemeCatalog.current(context)
@@ -284,7 +329,8 @@ class GpsPointPickerView @JvmOverloads constructor(
         val address = zone.optString("address").trim()
         if (address.isBlank()) return
 
-        val customPoint = overrides().optJSONObject(address)
+        val zoneId = zone.optString("id").trim()
+        val customPoint = pointOverrideFor(zoneId, address)
         val savedLat = customPoint?.optDouble("latitude", Double.NaN)?.takeIf { it.isFinite() }
             ?: zone.optDouble("latitude", Double.NaN)
         val savedLon = customPoint?.optDouble("longitude", Double.NaN)?.takeIf { it.isFinite() }
@@ -497,15 +543,20 @@ class GpsPointPickerView @JvmOverloads constructor(
             Toast.makeText(context, "Configuration GPS illisible : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
             return
         }
-        val custom = overrides().apply {
-            put(address, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
-        }
+        val custom = overrides()
         val legacyOrCanonicalName = PlaceNames.get(context, zone.optString("id"), address)
         var targetZoneId = zone.optString("id").trim()
         var found = false
+        val uniqueAddressOwner = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
         for (i in 0 until list.length()) {
             val item = list.optJSONObject(i) ?: continue
-            if (item.optString("address").trim().equals(address, ignoreCase = true)) {
+            val itemId = item.optString("id").trim()
+            val targetMatches = if (targetZoneId.isNotBlank()) {
+                itemId == targetZoneId
+            } else {
+                uniqueAddressOwner != null && itemId == uniqueAddressOwner
+            }
+            if (targetMatches) {
                 item.put("latitude", latitude)
                 item.put("longitude", longitude)
                 item.put("radius", prefs.getInt("radius", item.optInt("radius", 150)).coerceIn(50, 1000))
@@ -537,6 +588,13 @@ class GpsPointPickerView @JvmOverloads constructor(
             )
         }
 
+        if (targetZoneId.isBlank()) {
+            Toast.makeText(context, "Zone GPS ambiguë : le point n'a pas été enregistré", Toast.LENGTH_LONG).show()
+            return
+        }
+        custom.remove(address)
+        custom.put(targetZoneId, JSONObject().put("latitude", latitude).put("longitude", longitude).put("source", source))
+
         applyingOverride = true
         prefs.edit()
             .putString("zone_point_overrides", custom.toString())
@@ -550,13 +608,18 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
             PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
         }
-        markConfirmed(address)
+        markConfirmed(targetZoneId, address)
         registerCurrentZones()
         Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, targetZoneId, address) ?: address}", Toast.LENGTH_LONG).show()
     }
 
-    private fun markConfirmed(address: String) {
-        val done = confirmed().apply { put(address, true) }
+    private fun markConfirmed(zoneId: String, address: String) {
+        val canonicalId = zoneId.trim()
+        if (canonicalId.isBlank()) return
+        val done = confirmed().apply {
+            remove(address)
+            put(canonicalId, true)
+        }
         prefs.edit().putString("zone_point_confirmed", done.toString()).apply()
     }
 

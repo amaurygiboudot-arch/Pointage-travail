@@ -130,7 +130,14 @@ class LocationManagementView @JvmOverloads constructor(
             Toast.makeText(context, "Configuration GPS illisible : le lieu n'a pas été supprimé", Toast.LENGTH_LONG).show()
             return
         }
-        val addresses = savedAddresses().filterNot { it.equals(address, true) }; rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n")); val names = jsonObjectPreference("address_names").apply { remove(address) }; val contacts = jsonObjectPreference("arrival_contacts").apply { remove(address) }; val companyMap = jsonObjectPreference("address_company_slots").apply { remove(address) }; val overrides = jsonObjectPreference("zone_point_overrides").apply { remove(address) }; val confirmed = jsonObjectPreference("zone_point_confirmed").apply { remove(address) }
+        val deletedZoneIds = (0 until oldZones.length()).mapNotNull { index ->
+            oldZones.optJSONObject(index)
+                ?.takeIf { it.optString("address").trim().equals(address.trim(), ignoreCase = true) }
+                ?.optString("id")
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+        }
+        val addresses = savedAddresses().filterNot { it.equals(address, true) }; rootView.findViewById<EditText>(R.id.workplaceAddress)?.setText(addresses.joinToString("\n")); val names = jsonObjectPreference("address_names").apply { remove(address) }; val contacts = jsonObjectPreference("arrival_contacts").apply { remove(address) }; val companyMap = jsonObjectPreference("address_company_slots").apply { remove(address) }; val overrides = jsonObjectPreference("zone_point_overrides").apply { remove(address); deletedZoneIds.forEach(::remove) }; val confirmed = jsonObjectPreference("zone_point_confirmed").apply { remove(address); deletedZoneIds.forEach(::remove) }
         val newZones = JSONArray(); for (i in 0 until oldZones.length()) { val zone = oldZones.optJSONObject(i) ?: continue; if (!zone.optString("address").equals(address, true)) newZones.put(zone) }
         val pending = prefs.getString("pending_point_address", "").orEmpty(); val editor = prefs.edit().putString("address", addresses.joinToString("\n")).putString("address_names", names.toString()).putString("arrival_contacts", contacts.toString()).putString("address_company_slots", companyMap.toString()).putString("zone_point_overrides", overrides.toString()).putString("zone_point_confirmed", confirmed.toString()).putString("zones", newZones.toString()).remove("active_zones").remove("entry_resolution_pending").remove("entry_resolution_token").remove("pending_exit_zones"); if (pending.equals(address, ignoreCase = true)) editor.remove("pending_point_address"); editor.apply()
         registerZones(); refresh(); PointageWidgetProvider.updateAll(context); QuickActionsWidgetProvider.updateAll(context); Toast.makeText(context, "Lieu supprimé. Historique conservé.", Toast.LENGTH_LONG).show()
