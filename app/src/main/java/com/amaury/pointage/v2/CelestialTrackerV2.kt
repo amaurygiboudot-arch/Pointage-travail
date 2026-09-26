@@ -18,6 +18,7 @@ import android.os.SystemClock
 import android.view.Surface
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
+import com.amaury.pointage.DeviceLocationAvailability
 import com.amaury.pointage.v2.engine.CelestialDeviceFrameV2
 import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialHeadingQualityV2
@@ -340,7 +341,7 @@ object CelestialTrackerV2 {
 
     private fun startLocationUpdates() {
         val context = appContext ?: return
-        if (!hasLocationPermission(context)) return
+        if (!hasLocationPermission(context) || !DeviceLocationAvailability.isEnabled(context)) return
         lastLocationRegistrationAttemptElapsedMs = SystemClock.elapsedRealtime()
 
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -557,6 +558,11 @@ object CelestialTrackerV2 {
             applyLocation(null, now, notify)
             return
         }
+        if (!DeviceLocationAvailability.isEnabled(context)) {
+            stopLocationUpdatesOnly()
+            applyLocation(null, now, notify)
+            return
+        }
 
         // L'abonnement peut avoir commence avant l'octroi de permission. Le
         // ticker detecte alors l'autorisation sans exiger de changer d'onglet.
@@ -577,6 +583,12 @@ object CelestialTrackerV2 {
     /** Recalcule seulement l'éphéméride avec la position déjà qualifiée. */
     private fun refreshAstronomyOnly(notify: Boolean) {
         val now = System.currentTimeMillis()
+        val context = appContext ?: return
+        if (!DeviceLocationAvailability.isEnabled(context)) {
+            stopLocationUpdatesOnly()
+            applyLocation(null, now, notify)
+            return
+        }
         updateLocationQuality(resolvedLocation, now)
         snapshot = buildSnapshot(resolvedLocation, now)
         if (notify) notifyObservers()
@@ -623,7 +635,8 @@ object CelestialTrackerV2 {
             hasPermission = hasPermission,
             hasLocation = location?.let(::hasValidCoordinates) == true,
             locationAgeMs = ageMs,
-            accuracyMeters = accuracy
+            accuracyMeters = accuracy,
+            systemLocationEnabled = DeviceLocationAvailability.isEnabled(context)
         )
         locationAgeMs = ageMs
         locationAccuracyMeters = accuracy

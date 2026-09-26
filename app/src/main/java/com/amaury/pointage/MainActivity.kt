@@ -81,6 +81,8 @@ class MainActivity : Activity() {
     private var updatingGpsSwitch = false
     private var updatingCelestialGlobeMode = false
     private var gpsSaveRequestId = 0
+    private var gpsRegistrationConfirmed = false
+    private var gpsRegistrationError: String? = null
     private val homeTabsHandler = Handler(Looper.getMainLooper())
     private val hideHomeTabsRunnable = Runnable {
         if (HomeTabVisibilityPolicyV2.shouldHide(activeTab == "home", HomeTabVisibilityPolicyV2.INACTIVITY_TIMEOUT_MS)) {
@@ -177,6 +179,8 @@ class MainActivity : Activity() {
 
         autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
             if (updatingGpsSwitch) return@setOnCheckedChangeListener
+            gpsRegistrationConfirmed = false
+            gpsRegistrationError = null
             gpsPrefs.edit().putBoolean("enabled", checked).apply()
             if (!checked) {
                 gpsSaveRequestId++
@@ -262,6 +266,8 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (HoraTrackV2.ENABLED) V2RuntimeStore.bind(this)
+        gpsRegistrationConfirmed = false
+        gpsRegistrationError = null
         updateGpsStatus()
         tryRestoreGeofence()
         when (activeTab) {
@@ -626,6 +632,8 @@ class MainActivity : Activity() {
         val storedEnabledBeforeRequest = gpsPrefs.getBoolean("enabled", false)
         val requestId = ++gpsSaveRequestId
         val appContext = applicationContext
+        gpsRegistrationConfirmed = false
+        gpsRegistrationError = null
         gpsStatusText.text = "Localisation des adresses…"
 
         Thread {
@@ -678,7 +686,7 @@ class MainActivity : Activity() {
                     if (workZones.isEmpty()) disableAutomaticGps("Aucune adresse valide pour le pointage GPS")
                     else if (GeofenceManager.hasRequiredPermissions(this)) {
                         GeofenceManager.reconfigureStoredZones(this) { success, message -> runOnUiThread {
-                            gpsStatusText.text = if (success) "GPS automatique actif" else message
+                            showGpsReconciliationResult(success, message)
                             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                         } }
                     } else {
@@ -716,6 +724,8 @@ class MainActivity : Activity() {
 
     private fun disableAutomaticGps(message: String) {
         gpsSaveRequestId++
+        gpsRegistrationConfirmed = false
+        gpsRegistrationError = null
         updatingGpsSwitch = true; autoGpsSwitch.isChecked = false; updatingGpsSwitch = false
         gpsPrefs.edit().putBoolean("enabled", false)
             .remove("active_zones").remove("entry_resolution_pending")
@@ -745,7 +755,7 @@ class MainActivity : Activity() {
                 // not discard a business event (for example an EXIT awaiting confirmation).
                 GeofenceManager.resyncStoredZones(this) { success, message ->
                     runOnUiThread {
-                        gpsStatusText.text = if (success) "GPS automatique actif" else message
+                        showGpsReconciliationResult(success, message)
                     }
                 }
             }
@@ -753,12 +763,32 @@ class MainActivity : Activity() {
     }
 
     private fun updateGpsStatus() {
-        gpsStatusText.text = when {
-            !autoGpsSwitch.isChecked -> "GPS automatique désactivé"
-            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Localisation précise à autoriser"
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED -> "Autorise la localisation tout le temps"
-            else -> "GPS automatique actif"
-        }
+        val systemEnabled = DeviceLocationAvailability.isEnabled(this)
+        val precisePermission = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val backgroundPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q ||
+            checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+        gpsStatusText.text = gpsAutomaticStatus(
+            enabled = autoGpsSwitch.isChecked,
+            precisePermission = precisePermission,
+            backgroundPermission = backgroundPermission,
+            systemLocationEnabled = systemEnabled,
+            registrationCurrent = gpsRegistrationConfirmed && GeofenceManager.isStoredRegistrationCurrent(this),
+            registrationError = gpsRegistrationError
+        )
+        val canOpenSystemSettings = shouldOpenSystemLocationSettings(
+            autoGpsSwitch.isChecked, precisePermission, backgroundPermission, systemEnabled
+        )
+        gpsStatusText.isClickable = canOpenSystemSettings
+        gpsStatusText.isFocusable = canOpenSystemSettings
+        gpsStatusText.setOnClickListener(if (canOpenSystemSettings) View.OnClickListener {
+            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        } else null)
+    }
+
+    private fun showGpsReconciliationResult(success: Boolean, message: String) {
+        gpsRegistrationConfirmed = success && GeofenceManager.isStoredRegistrationCurrent(this)
+        gpsRegistrationError = if (success || !autoGpsSwitch.isChecked) null else message
+        updateGpsStatus()
     }
 
     private fun refreshScreen() {

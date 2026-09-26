@@ -57,9 +57,11 @@ object CelestialTrackingPolicyV2 {
         hasPermission: Boolean,
         hasLocation: Boolean,
         locationAgeMs: Long?,
-        accuracyMeters: Float?
+        accuracyMeters: Float?,
+        systemLocationEnabled: Boolean = true
     ): CelestialLocationQualityV2 {
         if (!hasPermission) return CelestialLocationQualityV2.NO_PERMISSION
+        if (!systemLocationEnabled) return CelestialLocationQualityV2.UNAVAILABLE
         if (!hasLocation || locationAgeMs == null) {
             return CelestialLocationQualityV2.UNAVAILABLE
         }

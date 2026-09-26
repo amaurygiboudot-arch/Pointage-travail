@@ -92,6 +92,7 @@ object GeofenceManager {
         )
 
     internal fun isStoredRegistrationCurrent(context: Context): Boolean {
+        if (!DeviceLocationAvailability.isEnabled(context)) return false
         val prefs = context.getSharedPreferences(GPS_PREFS, Context.MODE_PRIVATE)
         return isCurrentStoredGeofenceRegistrationV2(
             registrationValid = prefs.getBoolean(
@@ -186,6 +187,12 @@ object GeofenceManager {
         if (!hasLocationHardware(context)) {
             removeRegisteredGeofences(context)
             onResult(false, "Aucun service de localisation disponible sur cet appareil")
+            return
+        }
+
+        if (!DeviceLocationAvailability.isEnabled(context)) {
+            removeRegisteredGeofences(context)
+            onResult(false, "Localisation de l’appareil désactivée — active-la dans les réglages")
             return
         }
 
@@ -324,7 +331,7 @@ object GeofenceManager {
         val fingerprint = storedGpsConfigurationFingerprint(prefs)
         val plan = planStoredGeofenceRegistrationV2(
             enabled = prefs.getBoolean("enabled", false),
-            hasHardware = hasLocationHardware(app),
+            hasHardware = hasLocationHardware(app) && DeviceLocationAvailability.isEnabled(app),
             hasPermissions = hasRequiredPermissions(app),
             stored = readPersistedGpsZones(prefs),
             maxZones = MAX_ZONES

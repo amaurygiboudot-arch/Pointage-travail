@@ -20,6 +20,18 @@ class CelestialTrackingPolicyV2Test {
     }
 
     @Test
+    fun `position precedente ne valide pas le ciel quand localisation systeme eteinte`() {
+        val quality = CelestialTrackingPolicyV2.classifyAge(
+            hasPermission = true,
+            hasLocation = true,
+            locationAgeMs = 0L,
+            accuracyMeters = 5f,
+            systemLocationEnabled = false
+        )
+        assertEquals(CelestialLocationQualityV2.UNAVAILABLE, quality)
+    }
+
+    @Test
     fun `age monotone trop ancien est refuse`() {
         val quality = CelestialTrackingPolicyV2.classifyAge(
             hasPermission = true,

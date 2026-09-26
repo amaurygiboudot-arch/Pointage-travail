@@ -1,3 +1,4 @@
+import CoreLocation
 import SwiftUI
 
 struct ContentView: View {
@@ -79,6 +80,7 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
+            locationManager.reloadAndReconcile()
             _ = locationManager.reconcileSession(openSessionId: store.currentSession?.id)
         }
         .onChange(of: locationManager.pendingEvent?.id) { pendingId in
@@ -517,6 +519,9 @@ struct ContentView: View {
     }
 
     private var locationLabel: String {
+        if !CLLocationManager.locationServicesEnabled() {
+            return "Localisation de l’appareil désactivée dans Réglages"
+        }
         switch locationManager.authorizationStatus {
         case .authorizedAlways: return "Localisation : toujours autorisée"
         case .authorizedWhenInUse: return "Localisation : autorisée pendant l'utilisation"

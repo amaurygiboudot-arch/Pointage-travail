@@ -213,7 +213,9 @@ class SunIndicatorView @JvmOverloads constructor(
     }
 
     private fun updateStatus(tracking: CelestialTrackerV2.State) {
-        val status = when (tracking.locationQuality) {
+        val systemLocationOff = tracking.locationQuality != CelestialLocationQualityV2.NO_PERMISSION &&
+            !DeviceLocationAvailability.isEnabled(context)
+        val status = if (systemLocationOff) "Localisation de l’appareil désactivée" else when (tracking.locationQuality) {
             CelestialLocationQualityV2.NO_PERMISSION -> "Localisation refusée"
             CelestialLocationQualityV2.UNAVAILABLE -> "Localisation indisponible"
             CelestialLocationQualityV2.STALE -> "Localisation trop ancienne"
@@ -232,29 +234,32 @@ class SunIndicatorView @JvmOverloads constructor(
             }
         }
         rootView.findViewById<TextView>(R.id.celestialStatusText)?.let { statusView ->
-            val healthy = tracking.locationQuality == CelestialLocationQualityV2.VALID &&
+            val healthy = !systemLocationOff && tracking.locationQuality == CelestialLocationQualityV2.VALID &&
                 CelestialHeadingPolicyV2.isUsable(tracking.headingQuality)
 
             if (healthy) {
                 // Accueil propre : aucun bandeau quand GPS + boussole sont exploitables.
                 statusView.visibility = GONE
                 statusView.text = ""
-                configureLocationRecovery(statusView, tracking.locationQuality)
+                configureLocationRecovery(statusView, tracking.locationQuality, systemLocationOff)
             } else {
                 statusView.visibility = VISIBLE
-                statusView.text = if (
+                statusView.text = if (systemLocationOff) {
+                    "$status · toucher pour l'activer"
+                } else if (
                     tracking.locationQuality == CelestialLocationQualityV2.NO_PERMISSION
                 ) {
                     "$status · toucher pour autoriser"
                 } else {
                     status
                 }
-                configureLocationRecovery(statusView, tracking.locationQuality)
+                configureLocationRecovery(statusView, tracking.locationQuality, systemLocationOff)
             }
         }
 
         val sky = tracking.snapshot
         val detail = if (
+            !systemLocationOff &&
             tracking.locationQuality == CelestialLocationQualityV2.VALID &&
             sky != null
         ) {
@@ -274,10 +279,11 @@ class SunIndicatorView @JvmOverloads constructor(
 
     private fun configureLocationRecovery(
         statusView: TextView,
-        quality: CelestialLocationQualityV2
+        quality: CelestialLocationQualityV2,
+        systemLocationOff: Boolean
     ) {
         val activity = context as? Activity
-        val actionable = quality == CelestialLocationQualityV2.NO_PERMISSION && activity != null
+        val actionable = (systemLocationOff || quality == CelestialLocationQualityV2.NO_PERMISSION) && activity != null
         statusView.isClickable = actionable
         statusView.isFocusable = actionable
         statusView.importantForAccessibility = if (actionable) {
@@ -285,14 +291,17 @@ class SunIndicatorView @JvmOverloads constructor(
         } else {
             IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        statusView.contentDescription = if (actionable) {
-            "Localisation refusee. Activer la localisation pour afficher le ciel reel."
-        } else {
-            null
+        statusView.contentDescription = when {
+            !actionable -> null
+            systemLocationOff -> "Localisation de l’appareil désactivée. Ouvrir les réglages de localisation."
+            else -> "Localisation refusée. Autoriser la localisation pour afficher le ciel réel."
         }
         if (actionable) {
             val owner = requireNotNull(activity)
-            statusView.setOnClickListener { requestLocationRecovery(owner) }
+            statusView.setOnClickListener {
+                if (systemLocationOff) owner.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                else requestLocationRecovery(owner)
+            }
         } else {
             statusView.setOnClickListener(null)
         }

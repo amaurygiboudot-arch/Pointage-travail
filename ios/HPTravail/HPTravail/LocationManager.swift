@@ -104,6 +104,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     func requestCurrentLocation() {
         location = nil
+        guard CLLocationManager.locationServicesEnabled() else {
+            locationRequestPending = false
+            statusMessage = "Localisation de l’appareil désactivée — active-la dans Réglages"
+            return
+        }
         locationRequestPending = true
         switch manager.authorizationStatus {
         case .notDetermined:
@@ -374,6 +379,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                 : "Pointage GPS désactivé"
             return
         }
+        guard CLLocationManager.locationServicesEnabled() else {
+            invalidateRegistration(clearBusinessState: false)
+            statusMessage = "Localisation de l’appareil désactivée — active-la dans Réglages"
+            return
+        }
         guard manager.authorizationStatus == .authorizedAlways else {
             invalidateRegistration(clearBusinessState: false)
             statusMessage = "Autorisation Toujours requise pour le pointage GPS"
@@ -570,7 +580,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
         clearInFlightRegistration()
-        statusMessage = "Pointage GPS actif — \(zones.count) zone(s)"
+        statusMessage = CLLocationManager.locationServicesEnabled()
+            ? "Pointage GPS actif — \(zones.count) zone(s)"
+            : "Localisation de l’appareil désactivée — active-la dans Réglages"
         registeredRegions.forEach { manager.requestState(for: $0) }
     }
 
@@ -647,7 +659,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
            monitoredIdentifiers == expectedRegisteredIdentifiers,
            registeredFingerprint == fingerprint,
            state != nil {
-            statusMessage = "Pointage GPS actif — \(zones.count) zone(s)"
+            statusMessage = CLLocationManager.locationServicesEnabled()
+                ? "Pointage GPS actif — \(zones.count) zone(s)"
+                : "Localisation de l’appareil désactivée — active-la dans Réglages"
             return
         }
         if registrationFingerprintInFlight == fingerprint {
@@ -946,6 +960,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private func refreshCelestialState(at now: Date = Date()) {
         let isAuthorized = authorizationStatus == .authorizedWhenInUse
             || authorizationStatus == .authorizedAlways
+        if !CLLocationManager.locationServicesEnabled() {
+            celestialLocation = nil
+        }
         let locationAge = celestialLocation.map { now.timeIntervalSince($0.timestamp) }
         let locationQuality = CelestialTrackingPolicyV2.classify(
             hasPermission: isAuthorized,
