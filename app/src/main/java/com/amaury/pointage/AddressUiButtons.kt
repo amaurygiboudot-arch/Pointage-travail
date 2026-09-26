@@ -234,17 +234,6 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         addressList.setText(updated.joinToString("\n"))
 
 
-                        val contacts = runCatching {
-                            JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
-                        }.getOrElse { JSONObject() }
-                        contacts.put(
-                            formatted,
-                            JSONObject()
-                                .put("contactName", contactValue)
-                                .put("phone", phoneValue)
-                                .put("enabled", notifyOnArrivalValue)
-                        )
-
                         val companyMap = runCatching {
                             JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
                         }.getOrElse { JSONObject() }
@@ -252,9 +241,11 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                             companyMap.put(formatted, legacyCompanySlot)
                         }
 
+                        var createdZoneId: String? = null
                         if (geocoded != null) {
+                            createdZoneId = UUID.randomUUID().toString()
                             val zone = JSONObject()
-                                .put("id", UUID.randomUUID().toString())
+                                .put("id", createdZoneId)
                                 .put("address", formatted)
                                 .put("label", nameValue)
                                 .put("latitude", geocoded.latitude)
@@ -269,7 +260,6 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
 
                         val editor = gpsPrefs.edit()
                             .putString("address", updated.joinToString("\n"))
-                            .putString("arrival_contacts", contacts.toString())
                             .putString("zones", zones.toString())
                             .remove("active_zones")
                             .remove("entry_resolution_pending")
@@ -281,6 +271,14 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         if (geocoded == null) {
                             PlaceNames.put(context, formatted, nameValue)
                         }
+                        GpsZoneArrivalContacts.put(
+                            context = context,
+                            zoneId = createdZoneId,
+                            address = formatted,
+                            contactName = contactValue,
+                            phone = phoneValue,
+                            enabled = notifyOnArrivalValue
+                        )
                         GeofenceManager.reconfigureStoredZones(context)
 
                         if (notifyOnArrivalValue && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
