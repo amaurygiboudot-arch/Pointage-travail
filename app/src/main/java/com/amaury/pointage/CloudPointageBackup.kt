@@ -30,8 +30,8 @@ object CloudPointageBackup {
             FirebaseFirestore.getInstance()
                 .collection("users").document(user.uid).collection("pointages").document(V2_DOCUMENT)
                 .set(hashMapOf("format" to "horatrack_v2", "payload" to payload, "updatedAt" to FieldValue.serverTimestamp()))
-                .addOnSuccessListener { onDone(true, "Sauvegarde HoraTrack complète enregistrée") }
-                .addOnFailureListener { onDone(false, it.localizedMessage ?: "Échec de la sauvegarde HoraTrack") }
+                .addOnSuccessListener { onDone(true, "Sauvegarde AGKGMG complète enregistrée") }
+                .addOnFailureListener { onDone(false, it.localizedMessage ?: "Échec de la sauvegarde AGKGMG") }
             return
         }
 
@@ -71,8 +71,8 @@ object CloudPointageBackup {
                         val result = V2BackupManager.restoreFromJson(context.applicationContext, payload)
                         if (result.isSuccess) {
                             val r = result.getOrThrow()
-                            onDone(true, "HoraTrack restaurée sans effacer les données locales (${r.mergedSessions} session(s) ajoutée(s))")
-                        } else onDone(false, "Sauvegarde HoraTrack illisible : rien n'a été remplacé")
+                            onDone(true, "AGKGMG restaurée sans effacer les données locales (${r.mergedSessions} session(s) ajoutée(s))")
+                        } else onDone(false, "Sauvegarde AGKGMG illisible : rien n'a été remplacé")
                     } else restoreLegacyIntoV2(collection, context, onDone)
                 }
                 .addOnFailureListener { restoreLegacyIntoV2(collection, context, onDone) }
@@ -99,11 +99,11 @@ object CloudPointageBackup {
                 runCatching { JSONObject(payload) }.getOrNull()?.let(restored::put)
             }
             if (restored.length() == 0) {
-                onDone(false, "Aucune sauvegarde HoraTrack ou historique compatible trouvé")
+                onDone(false, "Aucune sauvegarde AGKGMG ou historique compatible trouvé")
                 return@addOnSuccessListener
             }
             val result = V2BackupManager.importLegacyPointageJson(context.applicationContext, restored)
-            if (result > 0) onDone(true, "$result ancien(s) pointage(s) fusionné(s) dans HoraTrack")
+            if (result > 0) onDone(true, "$result ancien(s) pointage(s) fusionné(s) dans AGKGMG")
             else onDone(true, "Aucun pointage supplémentaire à restaurer")
         }.addOnFailureListener { onDone(false, it.localizedMessage ?: "Firestore refuse la restauration") }
     }
