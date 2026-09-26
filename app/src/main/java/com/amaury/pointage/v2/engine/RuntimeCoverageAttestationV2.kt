@@ -23,6 +23,19 @@ data class RuntimeCoverageSourceReadV2(
     val warnings: List<String>
 )
 
+enum class RuntimeCoverageClaimOriginV2 {
+    USER_REVIEWED_CLOSED_PERIOD,
+    LOCAL_BACKUP_RESTORE,
+    CLOUD_BACKUP_RESTORE,
+    LEGACY_MIGRATION,
+    STORAGE_READ
+}
+
+object RuntimeCoverageClaimPolicyV2 {
+    fun mayIssue(origin: RuntimeCoverageClaimOriginV2): Boolean =
+        origin == RuntimeCoverageClaimOriginV2.USER_REVIEWED_CLOSED_PERIOD
+}
+
 object RuntimeCoverageAttestationPolicyV2 {
     const val WARNING = "Preuves B21 : attestation exhaustive des pointages absente, périmée ou incohérente."
 
@@ -112,6 +125,7 @@ object V2RuntimeCoverageAttestationStore {
 
     fun confirm(
         context: Context,
+        origin: RuntimeCoverageClaimOriginV2,
         sourceId: String,
         coveredStartEpochDay: Long,
         coveredEndEpochDay: Long,
@@ -119,6 +133,7 @@ object V2RuntimeCoverageAttestationStore {
         timeZoneId: String,
         nowMs: Long = System.currentTimeMillis()
     ): Boolean {
+        if (!RuntimeCoverageClaimPolicyV2.mayIssue(origin)) return false
         val read = V2RuntimeReader.allSessions(context, nowMs)
         if (!read.reliable) return false
         val attestation = RuntimeCoverageAttestationPolicyV2.create(
