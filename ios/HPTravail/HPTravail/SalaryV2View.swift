@@ -13,6 +13,9 @@ struct SalaryV2View: View {
     @State private var payslipComparisonResult: SalaryPayslipComparisonResultV2?
     @State private var payslipComparisonFeedback: String?
 
+    @State private var showCoverageConfirmation = false
+    @State private var coverageFeedback: String?
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -598,10 +601,98 @@ struct SalaryV2View: View {
                 Text("À confirmer")
                     .font(.title3.bold())
             }
+
+            coverageConfirmationSection
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    @ViewBuilder
+    private var coverageConfirmationSection: some View {
+        if let companyId = salaryStore.selectedCompanyId,
+           let coverage = SalaryPayrollCoveragePeriodV2.forMonth(salaryStore.selectedPeriod) {
+            let zoneId = TimeZone.current.identifier
+            let source = SalaryRuntimeCoverageAttestationStoreV2.source(
+                defaults: .standard,
+                sessions: workStore.sessions,
+                storageReliable: workStore.storageReliable,
+                employerId: companyId,
+                requiredStartEpochDay: coverage.startEpochDay,
+                requiredEndEpochDay: coverage.endEpochDay,
+                timeZoneId: zoneId
+            )
+            let start = coverageDateLabel(coverage.startEpochDay)
+            let end = coverageDateLabel(coverage.endEpochDay)
+
+            Divider()
+            if source != nil {
+                Label("Historique complet confirmé", systemImage: "checkmark.shield.fill")
+                    .font(.headline)
+                Text("Pointages, pauses et jours sans travail confirmés du \(start) au \(end). Toute modification de l’historique invalide automatiquement cette confirmation.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if !coverage.isClosed(at: Date(), timeZoneId: zoneId) {
+                Label("Période encore ouverte", systemImage: "clock.fill")
+                    .font(.headline)
+                Text("Le calcul hebdomadaire nécessite l’historique complet du \(start) au \(end). La confirmation sera disponible après la fin de cette période.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("Couverture des pointages à confirmer", systemImage: "exclamationmark.triangle.fill")
+                    .font(.headline)
+                Text("Confirmez une seule fois que tous les pointages, pauses et jours sans travail du \(start) au \(end) sont présents.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button("Confirmer l’historique de pointage") {
+                    showCoverageConfirmation = true
+                }
+                .buttonStyle(.borderedProminent)
+                .alert("Confirmer l’historique ?", isPresented: $showCoverageConfirmation) {
+                    Button("Annuler", role: .cancel) {}
+                    Button("Confirmer") {
+                        confirmCoverage(coverage, zoneId: zoneId)
+                    }
+                } message: {
+                    Text("Je confirme que tous mes pointages, pauses et jours sans travail du \(start) au \(end) sont présents et à jour. Toute modification ultérieure invalidera automatiquement cette confirmation.")
+                }
+            }
+            if let coverageFeedback {
+                Text(coverageFeedback)
+                    .font(.footnote)
+            }
+        }
+    }
+
+    private func confirmCoverage(_ coverage: SalaryPayrollCoveragePeriodV2, zoneId: String) {
+        let now = Date()
+        let saved = SalaryRuntimeCoverageAttestationStoreV2.confirm(
+            defaults: .standard,
+            sessions: workStore.sessions,
+            storageReliable: workStore.storageReliable,
+            origin: .userReviewedClosedPeriod,
+            sourceId: "user-reviewed-closed-period-v1",
+            coveredStartEpochDay: coverage.startEpochDay,
+            coveredEndEpochDay: coverage.endEpochDay,
+            checkedAt: now,
+            timeZoneId: zoneId,
+            now: now
+        )
+        coverageFeedback = saved
+            ? "Historique de pointage confirmé."
+            : "Confirmation impossible : vérifiez l’historique de pointage."
+        salaryStore.refresh()
+    }
+
+    private func coverageDateLabel(_ epochDay: Int64) -> String {
+        let date = Date(timeIntervalSince1970: Double(epochDay) * 86_400)
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "dd/MM/yyyy"
+        return formatter.string(from: date)
     }
 
     private var absenceCard: some View {
