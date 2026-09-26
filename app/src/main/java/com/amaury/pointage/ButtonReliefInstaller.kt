@@ -238,10 +238,12 @@ object ButtonReliefInstaller {
             text = "THÈME : ${current.label.uppercase()}"
             isAllCaps = false
             textSize = 13f
-            minHeight = 0
-            minimumHeight = 0
+            minHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+            minimumHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
             gravity = Gravity.CENTER
-            setPadding(dp(activity, 12), 0, dp(activity, 12), 0)
+            isSingleLine = false
+            maxLines = 3
+            setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
             setOnClickListener {
                 val themes = AppThemeCatalog.themes
                 val selected = themes.indexOfFirst { it.id == AppThemeCatalog.current(activity).id }.coerceAtLeast(0)
@@ -263,7 +265,7 @@ object ButtonReliefInstaller {
             }
         }
         section.addView(button, if (section.childCount >= 2) 2 else section.childCount,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(activity, 4)
                 bottomMargin = dp(activity, 4)
             })
@@ -295,9 +297,11 @@ object ButtonReliefInstaller {
             text = "💎 LABORATOIRE DIAMANT"
             isAllCaps = false
             textSize = 13f
-            minHeight = 0
-            minimumHeight = 0
+            minHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
+            minimumHeight = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
             gravity = Gravity.CENTER
+            isSingleLine = false
+            maxLines = 3
             setPadding(dp(activity, 12), dp(activity, 8), dp(activity, 12), dp(activity, 8))
             setOnClickListener { activity.startActivity(Intent(activity, DiamondLabActivity::class.java)) }
         }
