@@ -32,13 +32,6 @@ class SuggestionBoxView @JvmOverloads constructor(
         orientation = VERTICAL
         setPadding(0, dp(18), 0, dp(8))
 
-        val guide = adaptiveButton("📖  NOTICE D'UTILISATION").apply {
-            setOnClickListener { UserGuideDialog.show(context) }
-        }
-        addView(guide, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            bottomMargin = dp(14)
-        })
-
         val ownerInbox = adaptiveButton("📥  IDÉES REÇUES").apply {
             visibility = View.GONE
             setOnClickListener { context.startActivity(Intent(context, OwnerFeedbackActivity::class.java)) }

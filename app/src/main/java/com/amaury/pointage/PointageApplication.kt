@@ -221,10 +221,12 @@ object SettingsUiInstaller {
         }
 
         val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
-        updates.addView(title(activity, "APPLICATION & MISES À JOUR"))
-        updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
-            setOnClickListener { UpdateChecker.check(activity, silent = false) }
-        })
+        if (UpdateChecker.INTERNAL_APK_UPDATES_ENABLED) {
+            updates.addView(title(activity, "APPLICATION & MISES À JOUR"))
+            updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+                setOnClickListener { UpdateChecker.check(activity, silent = false) }
+            })
+        }
 
         val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
         appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
