@@ -44,6 +44,72 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun unreliableB21ResultKeepsGlobalWarningEvenWithNoPieces() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = SegmentedWorkedVariableGrossSourceResultV2(
+                pieces = emptyList(),
+                reliable = false,
+                warnings = listOf("B21 global : couverture incomplète")
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains("B21 global : couverture incomplète"))
+        assertTrue(
+            result.warnings.contains(
+                SegmentedWorkedGrossAssemblerV2.VARIABLE_RELIABILITY_WARNING
+            )
+        )
+    }
+
+    @Test
+    fun reliableB21ResultKeepsGlobalWarningAfterSuccessfulAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = SegmentedWorkedVariableGrossSourceResultV2(
+                pieces = listOf(
+                    variable("v1", 0, 14, 120.0),
+                    variable("v2", 15, 30, 80.0)
+                ),
+                reliable = true,
+                warnings = listOf("B21 global : preuve datée conservée")
+            )
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1_700.0, result.workedGross!!, 0.0001)
+        assertTrue(result.warnings.contains("B21 global : preuve datée conservée"))
+    }
+
+    @Test
+    fun inconsistentB21BreakdownBlocksAssembly() {
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = SegmentedWorkedVariableGrossSourceResultV2(
+                pieces = listOf(
+                    variable("v1", 0, 14, 120.0),
+                    variable("v2", 15, 30, 80.0)
+                ),
+                reliable = true,
+                warnings = emptyList(),
+                breakdowns = listOf(
+                    SegmentedWorkedVariableGrossBreakdownV2("company", "v1", 0, 14, 121.0, 0.0, 0.0),
+                    SegmentedWorkedVariableGrossBreakdownV2("company", "v2", 15, 30, 80.0, 0.0, 0.0)
+                )
+            )
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains(SegmentedWorkedGrossAssemblerV2.BREAKDOWN_WARNING))
+    }
+
+    @Test
     fun missingVariablePieceNeverBecomesImplicitZero() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
             contracts = contracts(),

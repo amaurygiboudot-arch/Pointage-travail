@@ -31,10 +31,24 @@ data class SegmentedPayrollSliceEvidenceV2(
         get() = paidTimeReliable && premiumTimeBreakdownReliable && payrollRulesReliable
 }
 
+data class SegmentedWorkedVariableGrossBreakdownV2(
+    val employerId: String,
+    val versionId: String,
+    val startEpochDay: Long,
+    val endEpochDay: Long,
+    val overtimeGross: Double,
+    val complementaryGross: Double,
+    val premiumGross: Double
+) {
+    val variableGross: Double
+        get() = overtimeGross + complementaryGross + premiumGross
+}
+
 data class SegmentedWorkedVariableGrossSourceResultV2(
     val pieces: List<SegmentedWorkedVariableGrossPieceV2>,
     val reliable: Boolean,
-    val warnings: List<String>
+    val warnings: List<String>,
+    val breakdowns: List<SegmentedWorkedVariableGrossBreakdownV2> = emptyList()
 )
 
 /**
@@ -128,6 +142,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
 
         val weekOwners = linkedMapOf<Pair<Int, Int>, SliceKey>()
         val variableByContract = linkedMapOf<ContractSegmentKey, Double>()
+        val breakdownByContract = linkedMapOf<ContractSegmentKey, VariableAmounts>()
         val warnings = mutableListOf<String>()
         warnings += timeline.warnings
 
@@ -206,7 +221,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
                 )
             }
 
-            if (!variable.isFinite() || variable < -CURRENCY_TOLERANCE) {
+            if (!variable.totalGross.isFinite() || variable.totalGross < -CURRENCY_TOLERANCE) {
                 return blocked(warnings + AMOUNT_WARNING)
             }
 
@@ -221,13 +236,17 @@ object SegmentedWorkedVariableGrossSourceV2 {
                 contractSegment.startEpochDay,
                 contractSegment.endEpochDay
             )
-            val normalized = if (kotlin.math.abs(variable) <= CURRENCY_TOLERANCE) 0.0 else variable
+            val normalized = if (kotlin.math.abs(variable.totalGross) <= CURRENCY_TOLERANCE) 0.0 else variable.totalGross
             val next = variableByContract.getOrDefault(contractKey, 0.0) + normalized
             if (!next.isFinite() || next < -CURRENCY_TOLERANCE) {
                 return blocked(warnings + AMOUNT_WARNING)
             }
             variableByContract[contractKey] =
                 if (kotlin.math.abs(next) <= CURRENCY_TOLERANCE) 0.0 else next
+            val previousBreakdown = breakdownByContract[contractKey] ?: VariableAmounts()
+            val nextBreakdown = previousBreakdown + variable
+            if (!nextBreakdown.valid()) return blocked(warnings + AMOUNT_WARNING)
+            breakdownByContract[contractKey] = nextBreakdown
             warnings += supplied.warnings
         }
 
@@ -239,7 +258,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
             )
         }
         if (expectedContractKeys.distinct().size != expectedContractKeys.size ||
-            variableByContract.keys.toSet() != expectedContractKeys.toSet()
+            variableByContract.keys.toSet() != expectedContractKeys.toSet() ||
+            breakdownByContract.keys.toSet() != expectedContractKeys.toSet()
         ) {
             return blocked(warnings + COVERAGE_WARNING)
         }
@@ -267,10 +287,32 @@ object SegmentedWorkedVariableGrossSourceV2 {
                 )
             }
 
+        val breakdowns = contracts.calculationSegments
+            .sortedBy { it.startEpochDay }
+            .map { segment ->
+                val key = ContractSegmentKey(
+                    segment.snapshot.versionId.trim(),
+                    segment.startEpochDay,
+                    segment.endEpochDay
+                )
+                val item = breakdownByContract[key]
+                    ?: return blocked(warnings + COVERAGE_WARNING)
+                SegmentedWorkedVariableGrossBreakdownV2(
+                    employerId = employerId,
+                    versionId = key.versionId,
+                    startEpochDay = key.startEpochDay,
+                    endEpochDay = key.endEpochDay,
+                    overtimeGross = item.overtimeGross,
+                    complementaryGross = item.complementaryGross,
+                    premiumGross = item.premiumGross
+                )
+            }
+
         return SegmentedWorkedVariableGrossSourceResultV2(
             pieces = pieces,
             reliable = true,
-            warnings = warnings.distinct()
+            warnings = warnings.distinct(),
+            breakdowns = breakdowns
         )
     }
 
@@ -280,7 +322,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
         weeks: List<PayrollWeekV2>,
         rules: PayrollRulesV2,
         warnings: MutableList<String>
-    ): Double? {
+    ): VariableAmounts? {
         val contractual = contractualWeeklyMinutes?.takeIf { it > 0 } ?: return null
         val regularLimit = rules.weeklyRegularMinutes?.takeIf { it > 0 } ?: return null
 
@@ -300,8 +342,10 @@ object SegmentedWorkedVariableGrossSourceV2 {
         }
 
         val premiums = premiumGross(weeks, rate, rules) ?: return null
-        val total = overtime.variableOvertimeGross + premiums
-        return total.takeIf { it.isFinite() && it >= 0.0 }
+        return VariableAmounts(
+            overtimeGross = overtime.variableOvertimeGross,
+            premiumGross = premiums
+        ).takeIf { it.valid() }
     }
 
     private fun partTimeVariable(
@@ -310,7 +354,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
         weeks: List<PayrollWeekV2>,
         rules: PayrollRulesV2,
         warnings: MutableList<String>
-    ): Double? {
+    ): VariableAmounts? {
         val contractual = contractualWeeklyMinutes?.takeIf { it > 0 } ?: return null
         for (week in weeks) {
             val complementary = PartTimeComplementaryHoursV2.calculateWeek(
@@ -321,7 +365,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
             warnings += complementary.warnings
             if (complementary.complementaryMinutes > 0) return null
         }
-        return premiumGross(weeks, rate, rules)
+        val premiums = premiumGross(weeks, rate, rules) ?: return null
+        return VariableAmounts(premiumGross = premiums).takeIf { it.valid() }
     }
 
     private fun premiumGross(
@@ -414,6 +459,22 @@ object SegmentedWorkedVariableGrossSourceV2 {
             reliable = false,
             warnings = warnings.distinct()
         )
+
+    private data class VariableAmounts(
+        val overtimeGross: Double = 0.0,
+        val complementaryGross: Double = 0.0,
+        val premiumGross: Double = 0.0
+    ) {
+        val totalGross: Double get() = overtimeGross + complementaryGross + premiumGross
+        operator fun plus(other: VariableAmounts) = VariableAmounts(
+            overtimeGross + other.overtimeGross,
+            complementaryGross + other.complementaryGross,
+            premiumGross + other.premiumGross
+        )
+        fun valid(): Boolean = listOf(
+            overtimeGross, complementaryGross, premiumGross, totalGross
+        ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }
+    }
 
     private data class SliceKey(
         val startEpochDay: Long,
