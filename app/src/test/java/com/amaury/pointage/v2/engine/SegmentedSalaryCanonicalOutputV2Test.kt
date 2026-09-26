@@ -36,6 +36,19 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertEquals(1_100.0, comparison[PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
         assertEquals(900.0, comparison[PayslipDocumentParserV2.KEY_NET_BEFORE_TAX]!!, 0.0001)
         assertEquals(950.0, comparison[PayslipDocumentParserV2.KEY_NET_TAXABLE]!!, 0.0001)
+
+        val pdfMoney = SalaryExamplePdfV2.estimatedGrossLines(result).toMap()
+        assertEquals("1100,00 €", pdfMoney["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("50,00 €", pdfMoney["Majoration heures supplémentaires"])
+        assertEquals("900,00 €", pdfMoney["Net estimé avant impôt"])
+        assertEquals("950,00 €", pdfMoney["Net imposable estimé"])
+
+        val pdfTime = SalaryExamplePdfV2.timeSectionValues(result)
+        assertEquals("1", pdfTime.completedSessions)
+        assertEquals("40h00", pdfTime.paidTime)
+        assertEquals("À confirmer", pdfTime.regularHours)
+        assertEquals("À confirmer", pdfTime.overtimeHours)
+        assertEquals("À confirmer", pdfTime.unpaidPauses)
     }
 
     @Test
@@ -58,6 +71,12 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertEquals(1_100.0, comparison!![PayslipDocumentParserV2.KEY_GROSS]!!, 0.0001)
         assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_BEFORE_TAX))
         assertFalse(comparison.containsKey(PayslipDocumentParserV2.KEY_NET_TAXABLE))
+
+        val pdfMoney = SalaryExamplePdfV2.estimatedGrossLines(result).toMap()
+        assertEquals("1100,00 €", pdfMoney["Brut social estimé HoraTrack hors paniers"])
+        assertEquals("À confirmer", pdfMoney["Net estimé avant impôt"])
+        assertEquals("À confirmer", pdfMoney["Net imposable estimé"])
+        assertEquals("À confirmer", pdfMoney["Paniers hors brut"])
     }
 
     @Test
