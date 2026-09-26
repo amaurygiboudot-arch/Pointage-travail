@@ -18,7 +18,8 @@ object SegmentedSalaryCanonicalProductionV2 {
         fixed: ConfirmedCashGrossComponentsV2,
         year: Int,
         companyPayroll: CompanyPayrollOverridesV2.Snapshot
-    ): SegmentedSalaryCanonicalProductionResultV2 {        val complementary = complementaryMinutes(worked)
+    ): SegmentedSalaryCanonicalProductionResultV2 {
+        val complementary = complementaryMinutes(worked)
         val cash = SegmentedCashGrossAssemblerV2.assemble(
             worked = worked,
             fixed = fixed
@@ -44,7 +45,9 @@ object SegmentedSalaryCanonicalProductionV2 {
     private data class ComplementaryMinutes(
         val minutes: Int?,
         val reliable: Boolean
-    )    private fun complementaryMinutes(
+    )
+
+    private fun complementaryMinutes(
         worked: SegmentedWorkedGrossProductionResultV2
     ): ComplementaryMinutes {
         if (!worked.variables.reliable) return ComplementaryMinutes(null, false)
