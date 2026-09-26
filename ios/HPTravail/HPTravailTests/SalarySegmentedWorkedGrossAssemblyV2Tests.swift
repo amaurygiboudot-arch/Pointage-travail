@@ -36,6 +36,44 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_500, accuracy: 0.0001)
     }
 
+    func testUnreliableB21ResultKeepsGlobalWarningEvenWithNoPieces() {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variableSource: SalarySegmentedWorkedVariableGrossSourceResultV2(
+                pieces: [],
+                reliable: false,
+                warnings: ["B21 global : couverture incomplète"]
+            )
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(result.warnings.contains("B21 global : couverture incomplète"))
+        XCTAssertTrue(result.warnings.contains(
+            SalarySegmentedWorkedGrossAssemblerV2.variableReliabilityWarning
+        ))
+    }
+
+    func testReliableB21ResultKeepsGlobalWarningAfterSuccessfulAssembly() throws {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variableSource: SalarySegmentedWorkedVariableGrossSourceResultV2(
+                pieces: [
+                    variable("v1", 0, 14, 120),
+                    variable("v2", 15, 30, 80)
+                ],
+                reliable: true,
+                warnings: ["B21 global : preuve datée conservée"]
+            )
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
+        XCTAssertTrue(result.warnings.contains("B21 global : preuve datée conservée"))
+    }
+
     func testMissingVariablePieceNeverBecomesImplicitZero() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             contracts: contracts(),
