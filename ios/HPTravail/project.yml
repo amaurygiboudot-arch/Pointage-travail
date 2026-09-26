@@ -97,6 +97,7 @@ targets:
       - path: HPTravail/SalaryV2/SalarySegmentedPayrollBoundaryV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossAssemblyV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedCashGrossAssemblyV2.swift
       - path: HPTravail/SalaryV2/SalaryPayrollPremiumGrossV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedVariableGrossSourceV2.swift
       - path: HPTravail/SalaryV2/SalaryWeeklyThresholdMonthBoundaryGuardV2.swift
