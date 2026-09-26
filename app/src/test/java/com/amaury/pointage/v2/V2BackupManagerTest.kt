@@ -24,6 +24,7 @@ class V2BackupManagerTest {
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_company_siret_12345678901234"))
         assertTrue(V2BackupManager.isManagedPreferenceFileName("salary_company_name_entreprise_test"))
         assertFalse(V2BackupManager.isManagedPreferenceFileName("salary_company"))
+        assertTrue(V2BackupManager.isManagedPreferenceFileName("celestial_settings"))
         assertFalse(V2BackupManager.isManagedPreferenceFileName("firebase_device_registry"))
     }
 
