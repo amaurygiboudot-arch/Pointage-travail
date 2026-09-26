@@ -3,6 +3,8 @@ package com.amaury.pointage.v2
 import android.content.Context
 import com.amaury.pointage.v2.engine.ConventionRulePeriodResolutionV2
 import com.amaury.pointage.v2.engine.EmploymentContractPeriodResolutionV2
+import com.amaury.pointage.v2.engine.FrenchPublicHolidayCalendarV2
+import com.amaury.pointage.v2.engine.SegmentedPayrollPremiumEvidenceBridgeV2
 import com.amaury.pointage.v2.engine.SegmentedPayrollPremiumEvidenceV2
 import com.amaury.pointage.v2.engine.SegmentedWorkedGrossAssemblyResultV2
 import com.amaury.pointage.v2.engine.SegmentedWorkedGrossProductionV2
@@ -18,6 +20,41 @@ import java.time.temporal.TemporalAdjusters
  * ce bridge ne transforme jamais l'absence d'une règle en preuve d'absence.
  */
 object V2SegmentedWorkedGrossProductionBridge {
+    fun calculateFromStores(
+        context: Context,
+        companyId: String,
+        companyAddress: String,
+        year: Int,
+        monthZeroBased: Int,
+        timeZoneId: String,
+        contracts: EmploymentContractPeriodResolutionV2,
+        rules: ConventionRulePeriodResolutionV2,
+        nowMs: Long = System.currentTimeMillis()
+    ): SegmentedWorkedGrossAssemblyResultV2 {
+        val night = V2ConventionNightRuleStore.readConfirmed(context)
+        val premiumContext = SegmentedPayrollPremiumEvidenceBridgeV2.build(
+            contracts = contracts,
+            rules = rules,
+            nightSnapshots = night.snapshots,
+            nightSourceReliable = night.reliable,
+            nightWarnings = night.warnings,
+            holidayScope = FrenchPublicHolidayCalendarV2.scopeForAddress(companyAddress),
+            nowMs = nowMs
+        )
+        if (!premiumContext.reliable) return blocked(premiumContext.warnings)
+        return calculate(
+            context = context,
+            companyId = companyId,
+            year = year,
+            monthZeroBased = monthZeroBased,
+            timeZoneId = timeZoneId,
+            contracts = contracts,
+            rules = rules,
+            premiums = premiumContext.evidence,
+            nowMs = nowMs
+        )
+    }
+
     fun calculate(
         context: Context,
         companyId: String,
@@ -73,11 +110,13 @@ object V2SegmentedWorkedGrossProductionBridge {
         }.getOrNull()
     }
 
-    private fun blocked(warning: String) = SegmentedWorkedGrossAssemblyResultV2(
+    private fun blocked(warning: String) = blocked(listOf(warning))
+
+    private fun blocked(warnings: List<String>) = SegmentedWorkedGrossAssemblyResultV2(
         baseGross = null,
         variableGross = null,
         workedGross = null,
         reliable = false,
-        warnings = listOf(warning)
+        warnings = warnings.distinct()
     )
 }
