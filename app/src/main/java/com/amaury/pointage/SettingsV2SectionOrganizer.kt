@@ -136,6 +136,8 @@ object SettingsV2SectionOrganizer {
         if (view is LocationManagementView || view is GpsPointPickerView || view is GpsZoneTypeView) return true
         if (tag == GpsZoneTypeView.TAG) return true
         if (id in setOf(
+                "settingsPointageTitle",
+                "settingsGeofenceRadiusLabel",
                 "workplaceAddress",
                 "geofenceRadius",
                 "autoGpsSwitch",
@@ -146,18 +148,17 @@ object SettingsV2SectionOrganizer {
                 "locationManagementView"
             )
         ) return true
-        return (view as? TextView)?.text?.toString()?.trim()?.uppercase() in setOf(
-            "POINTAGE GPS",
-            "RAYON DE DÉCLENCHEMENT (MÈTRES)"
-        )
+        return false
     }
 
     private fun isCelestialView(view: View, id: String): Boolean {
-        if (id == "celestialGlobeModeGroup" || id == "celestialWeatherAttribution") return true
-        val text = (view as? TextView)?.text?.toString()?.trim().orEmpty()
-        return text == "SYSTÈME CÉLESTE" ||
-            text == "Mode du globe terrestre" ||
-            text.startsWith("Local : centre le globe")
+        return id in setOf(
+            "settingsCelestialTitle",
+            "settingsCelestialModeLabel",
+            "celestialGlobeModeGroup",
+            "settingsCelestialDescription",
+            "celestialWeatherAttribution"
+        )
     }
 
     private fun resourceName(view: View): String =
