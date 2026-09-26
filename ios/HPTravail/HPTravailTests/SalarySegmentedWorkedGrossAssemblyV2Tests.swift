@@ -21,6 +21,55 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.isEmpty)
     }
 
+    func testB21GlobalWarningSurvivesSuccessfulB20Assembly() throws {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [
+                variable("v1", 0, 14, 120),
+                variable("v2", 15, 30, 80)
+            ],
+            reliable: true,
+            warnings: ["avertissement global B21"]
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assembleFromSource(
+            contracts: contracts(),
+            base: base(),
+            source: source
+        )
+
+        XCTAssertTrue(result.reliable)
+        XCTAssertEqual(try XCTUnwrap(result.workedGross), 1_700, accuracy: 0.0001)
+        XCTAssertTrue(result.warnings.contains("avertissement global B21"))
+    }
+
+    func testUnreliableB21ResultBlocksB20WithoutPublishingPartialAmounts() {
+        let source = SalarySegmentedWorkedVariableGrossSourceResultV2(
+            pieces: [
+                variable("v1", 0, 14, 120),
+                variable("v2", 15, 30, 80)
+            ],
+            reliable: false,
+            warnings: ["couverture B21 incomplete"]
+        )
+
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assembleFromSource(
+            contracts: contracts(),
+            base: base(),
+            source: source
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.baseGross)
+        XCTAssertNil(result.variableGross)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(result.warnings.contains("couverture B21 incomplete"))
+        XCTAssertTrue(
+            result.warnings.contains(
+                SalarySegmentedWorkedGrossAssemblerV2.variableReliabilityWarning
+            )
+        )
+    }
+
     func testExplicitReliableZeroVariableIsAccepted() throws {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             contracts: contracts(),
