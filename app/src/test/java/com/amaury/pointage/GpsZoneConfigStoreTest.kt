@@ -383,4 +383,38 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `les fiches de lieux gardent deux zones distinctes a la meme adresse`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {"id":"atelier","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A"}
+            ]""".trimIndent()
+        )
+
+        val entries = resolveGpsLocationEntries(zones, listOf("1 rue A"))
+
+        assertEquals(2, entries?.size)
+        assertEquals(listOf("atelier", "parking"), entries?.mapNotNull { it.zoneId })
+    }
+
+    @Test
+    fun `une ancienne adresse sans zone reste visible pour migration`() {
+        val zones = parsePersistedGpsZones("[]")
+
+        val entries = resolveGpsLocationEntries(zones, listOf("Ancien site"))
+
+        assertEquals(1, entries?.size)
+        assertNull(entries?.single()?.zoneId)
+        assertEquals("Ancien site", entries?.single()?.address)
+    }
+
+    @Test
+    fun `une configuration gps corrompue ne fabrique aucune fiche de lieu`() {
+        val zones = parsePersistedGpsZones("{invalide}")
+
+        assertNull(resolveGpsLocationEntries(zones, listOf("1 rue A")))
+    }
+
+
 }
