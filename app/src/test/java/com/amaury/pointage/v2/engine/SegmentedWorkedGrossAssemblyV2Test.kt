@@ -28,6 +28,28 @@ class SegmentedWorkedGrossAssemblyV2Test {
     }
 
     @Test
+    fun globalB21WarningSurvivesB20Assembly() {
+        val variables = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(
+                variable("v1", 0, 14, 120.0),
+                variable("v2", 15, 30, 80.0)
+            ),
+            reliable = true,
+            warnings = listOf("avertissement global B21")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variables = variables
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1_700.0, result.workedGross!!, 0.0001)
+        assertTrue(result.warnings.contains("avertissement global B21"))
+    }
+
+    @Test
     fun explicitReliableZeroVariableIsAccepted() {
         val result = SegmentedWorkedGrossAssemblerV2.assemble(
             contracts = contracts(),
