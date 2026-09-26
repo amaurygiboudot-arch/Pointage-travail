@@ -18,6 +18,7 @@ object SettingsV2Host {
     const val TAG_WIDGET = "settings_widget_v2"
     const val TAG_DRIVE = "settings_drive_v2"
     const val TAG_HELP = "settings_help_v2"
+    const val TAG_EXTRAS = "settings_extras_v2"
 
     fun panel(activity: MainActivity): LinearLayout? =
         activity.findViewById(R.id.gpsSettingsPanel)
