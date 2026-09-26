@@ -27,6 +27,8 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             manager.getAppWidgetIds(component).forEach { updateDynamicState(context, manager, it) }
         }
 
+        fun refreshAppearance(context: Context) = rebuildAll(context)
+
         private fun rebuildAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, QuickActionsWidgetProvider::class.java)
@@ -88,7 +90,9 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_quick_actions)
             val theme = AppThemeCatalog.current(context)
             val dark = AppThemeCatalog.useDarkPalette(context)
-            val accent = if (dark) theme.accentLight else theme.accent
+            val customBackground = WidgetStyleSettings.customBackground(context)
+            val accent = WidgetStyleSettings.customAccent(context)
+                ?: if (dark) theme.accentLight else theme.accent
 
             val (widgetWidth, _) = widgetSize(manager, widgetId)
             val cellWidth = widgetWidth / 3f
@@ -97,7 +101,11 @@ class QuickActionsWidgetProvider : AppWidgetProvider() {
             val labelSp = (buttonDp * .15f).coerceIn(8f, 12f)
             val bitmapPx = (buttonDp * 3f).toInt().coerceIn(156, 300)
 
-            views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            if (customBackground != null) {
+                views.setInt(R.id.quick_surface, "setBackgroundColor", customBackground)
+            } else {
+                views.setInt(R.id.quick_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            }
             val frame = WidgetVisualRenderer.jewelFrame(bitmapPx)
             views.setImageViewBitmap(R.id.quick_entry_button, frame)
             views.setImageViewBitmap(R.id.quick_pause_icon, frame)
