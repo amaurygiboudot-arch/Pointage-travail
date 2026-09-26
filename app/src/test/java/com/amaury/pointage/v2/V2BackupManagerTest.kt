@@ -28,6 +28,50 @@ class V2BackupManagerTest {
     }
 
     @Test
+    fun `la proratisation segmentee est geree par le backup`() {
+        assertTrue(
+            V2BackupManager.isManagedPreferenceFileName(
+                V2SegmentedProrationStore.PREFS
+            )
+        )
+    }
+
+    @Test
+    fun `fusion backup proratisation refuse un meme mois different`() {
+        val first = V2SegmentedProrationStore.encode(
+            com.amaury.pointage.v2.engine.ConfirmedSegmentedMonthlyProrationV2(
+                sourceId = "first",
+                checkedAtMs = 1L,
+                segments = listOf(
+                    com.amaury.pointage.v2.engine.ConfirmedProrationSegmentV2(
+                        "v1", 0, 30, 8_400
+                    )
+                )
+            )
+        )!!
+        val second = V2SegmentedProrationStore.encode(
+            com.amaury.pointage.v2.engine.ConfirmedSegmentedMonthlyProrationV2(
+                sourceId = "second",
+                checkedAtMs = 2L,
+                segments = listOf(
+                    com.amaury.pointage.v2.engine.ConfirmedProrationSegmentV2(
+                        "v1", 0, 30, 8_400
+                    )
+                )
+            )
+        )!!
+
+        assertTrue(
+            runCatching {
+                V2BackupManager.mergeSegmentedProrations(
+                    mapOf("company.2026-09" to first),
+                    mapOf("company.2026-09" to second)
+                )
+            }.isFailure
+        )
+    }
+
+    @Test
     fun `un paquet de preferences doit etre entierement type`() {
         val valid = JSONObject()
             .put("name", typed("s", "HoraTrack"))
