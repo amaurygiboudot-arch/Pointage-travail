@@ -21,13 +21,24 @@ object AdminDiagnosticsGate {
     private const val PREFS = "admin_diagnostics"
     private const val KEY_ENABLED = "owner_enabled"
 
-    fun isEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
-    fun enable(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
+    internal fun developerModeAllowed(internalBuild: Boolean): Boolean = internalBuild
+
+    fun canEnroll(): Boolean =
+        developerModeAllowed(UpdateChecker.INTERNAL_APK_UPDATES_ENABLED)
+
+    fun isEnabled(context: Context): Boolean =
+        canEnroll() && context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, false)
+
+    fun enable(context: Context) {
+        if (!canEnroll()) return
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, true).apply()
+    }
 
     fun deviceCredentialIntent(context: Context, title: String): Intent? {
+        if (!canEnroll()) return null
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (!km.isDeviceSecure) return null
-        return km.createConfirmDeviceCredentialIntent(title, "Accès réservé au propriétaire de HP Travail")
+        return km.createConfirmDeviceCredentialIntent(title, "Accès réservé au propriétaire de AGKGMG")
     }
 }
 
