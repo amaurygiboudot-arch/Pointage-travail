@@ -98,13 +98,15 @@ object SegmentedWorkedGrossProductionV2 {
     ): Pair<Long, Long>? {
         if (periodEndEpochDay < periodStartEpochDay) return null
         return runCatching {
+            val startShifted = Math.addExact(periodStartEpochDay, 3L)
+            val endShifted = Math.addExact(periodEndEpochDay, 3L)
             val firstMonday = Math.subtractExact(
                 periodStartEpochDay,
-                Math.floorMod(periodStartEpochDay + 3L, 7L)
+                Math.floorMod(startShifted, 7L)
             )
             val lastMonday = Math.subtractExact(
                 periodEndEpochDay,
-                Math.floorMod(periodEndEpochDay + 3L, 7L)
+                Math.floorMod(endShifted, 7L)
             )
             firstMonday to Math.addExact(lastMonday, 6L)
         }.getOrNull()
