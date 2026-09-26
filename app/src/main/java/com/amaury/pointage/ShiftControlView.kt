@@ -16,6 +16,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2ScheduleStore
 import com.amaury.pointage.v2.model.SessionStatusV2
@@ -65,7 +66,7 @@ class ShiftControlView @JvmOverloads constructor(
         addView(stateText)
 
         val configure = Button(context).apply {
-            text = if (HoraTrackV2.ENABLED) "Horaires et pauses" else "Horaires, pauses et paniers"
+            text = if (HoraTrackV2.ENABLED) "Horaires" else "Horaires, pauses et paniers"
             isAllCaps = false
             textSize = 11f
             minHeight = 0
@@ -80,7 +81,12 @@ class ShiftControlView @JvmOverloads constructor(
     }
 
     fun refresh() {
-        val mode = ShiftProfileManager.selectedMode(context)
+        val companyId = if (HoraTrackV2.ENABLED) V2ProfileStore.activeCompanyId(context) else null
+        val mode = if (HoraTrackV2.ENABLED) {
+            companyId?.let { V2ScheduleStore.selectedMode(context, it) } ?: "auto"
+        } else {
+            ShiftProfileManager.selectedMode(context)
+        }
         val modeLabel = when (mode) {
             ShiftType.MORNING.id -> "Matin"
             ShiftType.DAY.id -> "Journée"
@@ -111,32 +117,64 @@ class ShiftControlView @JvmOverloads constructor(
             }
             legacyEntry
         }
-        val detected = ShiftProfileManager.resolve(context, entry)
-        val pause = ShiftProfileManager.pauseMinutes(context, detected)
-        val schedule = V2ScheduleStore.schedule(context, detected.id)
+        val detected = if (HoraTrackV2.ENABLED) {
+            when (mode) {
+                ShiftType.MORNING.id -> ShiftType.MORNING
+                ShiftType.DAY.id -> ShiftType.DAY
+                ShiftType.AFTERNOON.id -> ShiftType.AFTERNOON
+                ShiftType.NIGHT.id -> ShiftType.NIGHT
+                else -> ShiftProfileManager.detect(entry)
+            }
+        } else {
+            ShiftProfileManager.resolve(context, entry)
+        }
+        val schedule = if (HoraTrackV2.ENABLED) {
+            companyId?.let { V2ScheduleStore.schedule(context, it, detected.id) }
+                ?: V2ScheduleStore.Schedule(detected.id, null, null)
+        } else {
+            V2ScheduleStore.legacySchedule(context, detected.id)
+        }
         val hours = when {
             schedule.startMinute != null && schedule.endMinute != null -> " • ${V2ScheduleStore.formatMinute(schedule.startMinute)}–${V2ScheduleStore.formatMinute(schedule.endMinute)}"
             schedule.endMinute != null -> " • fin ${V2ScheduleStore.formatMinute(schedule.endMinute)}"
             else -> ""
         }
-        stateText.text = "${detected.label}$hours • pause $pause min"
+        stateText.text = if (HoraTrackV2.ENABLED) {
+            "${detected.label}$hours"
+        } else {
+            val pause = ShiftProfileManager.pauseMinutes(context, detected)
+            "${detected.label}$hours • pause $pause min"
+        }
     }
-
     private fun chooseMode() {
         val labels = arrayOf("Automatique", "Matin", "Journée", "Après-midi", "Nuit")
         val ids = arrayOf("auto", ShiftType.MORNING.id, ShiftType.DAY.id, ShiftType.AFTERNOON.id, ShiftType.NIGHT.id)
-        val selected = ids.indexOf(ShiftProfileManager.selectedMode(context)).coerceAtLeast(0)
+        val companyId = if (HoraTrackV2.ENABLED) V2ProfileStore.activeCompanyId(context) else null
+        val currentMode = if (HoraTrackV2.ENABLED) {
+            companyId?.let { V2ScheduleStore.selectedMode(context, it) } ?: "auto"
+        } else {
+            ShiftProfileManager.selectedMode(context)
+        }
+        val selected = ids.indexOf(currentMode).coerceAtLeast(0)
         AlertDialog.Builder(context)
             .setTitle("Poste du jour")
             .setSingleChoiceItems(labels, selected) { dialog, which ->
-                ShiftProfileManager.setSelectedMode(context, ids[which])
+                val saved = if (HoraTrackV2.ENABLED) {
+                    companyId?.let { V2ScheduleStore.setSelectedMode(context, it, ids[which]) } == true
+                } else {
+                    ShiftProfileManager.setSelectedMode(context, ids[which])
+                    true
+                }
+                if (!saved) {
+                    Toast.makeText(context, "Sélectionne d’abord une entreprise valide", Toast.LENGTH_LONG).show()
+                    return@setSingleChoiceItems
+                }
                 dialog.dismiss()
                 refresh()
             }
             .setNegativeButton("Annuler", null)
             .show()
     }
-
     private fun showProfilesDialog() {
         val box = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -147,9 +185,14 @@ class ShiftControlView @JvmOverloads constructor(
             addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
+        val activeCompanyId = if (HoraTrackV2.ENABLED) V2ProfileStore.activeCompanyId(context) else null
         if (HoraTrackV2.ENABLED) {
+            if (activeCompanyId == null) {
+                Toast.makeText(context, "Sélectionne d’abord une entreprise valide", Toast.LENGTH_LONG).show()
+                return
+            }
             box.addView(TextView(context).apply {
-                text = "Les paniers ne se règlent plus par poste : HoraTrack V2 les détermine uniquement à partir des faits confirmés et des règles officielles vérifiées."
+                text = "Ces horaires appartiennent uniquement à l’entreprise active. Les pauses V2 se règlent dans la fiche de l’entreprise, dans Salaire."
                 textSize = 12f
                 setTextColor(Color.parseColor("#B0B0B0"))
                 setPadding(0, dp(4), 0, dp(6))
@@ -190,7 +233,11 @@ class ShiftControlView @JvmOverloads constructor(
                 setPadding(0, dp(14), 0, dp(6))
             })
 
-            val schedule = V2ScheduleStore.schedule(context, shift.id)
+            val schedule = if (HoraTrackV2.ENABLED) {
+                V2ScheduleStore.schedule(context, activeCompanyId!!, shift.id)
+            } else {
+                V2ScheduleStore.legacySchedule(context, shift.id)
+            }
             val start = timeField("Début prévu — ex. 05:00", schedule.startMinute?.let(V2ScheduleStore::formatMinute).orEmpty())
             val end = timeField("Fin prévue — ex. 13:00", schedule.endMinute?.let(V2ScheduleStore::formatMinute).orEmpty())
             startInputs[shift] = start
@@ -198,24 +245,24 @@ class ShiftControlView @JvmOverloads constructor(
             box.addView(start, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)))
             box.addView(end, LayoutParams(LayoutParams.MATCH_PARENT, dp(54)).apply { topMargin = dp(5) })
 
-            val pause = EditText(context).apply {
-                hint = "Pause à déduire (minutes)"
-                inputType = InputType.TYPE_CLASS_NUMBER
-                isSingleLine = true
-                setText(ShiftProfileManager.pauseMinutes(context, shift).toString())
-                setTextColor(Color.WHITE)
-                setHintTextColor(Color.parseColor("#B0B0B0"))
-                textSize = 16f
-                gravity = Gravity.CENTER_VERTICAL
-                background = fieldBackground()
-                setPadding(dp(18), 0, dp(18), 0)
-                setSelectAllOnFocus(true)
-                includeFontPadding = false
-            }
-            pauseInputs[shift] = pause
-            box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(5) })
-
             if (!HoraTrackV2.ENABLED) {
+                val pause = EditText(context).apply {
+                    hint = "Pause à déduire (minutes)"
+                    inputType = InputType.TYPE_CLASS_NUMBER
+                    isSingleLine = true
+                    setText(ShiftProfileManager.pauseMinutes(context, shift).toString())
+                    setTextColor(Color.WHITE)
+                    setHintTextColor(Color.parseColor("#B0B0B0"))
+                    textSize = 16f
+                    gravity = Gravity.CENTER_VERTICAL
+                    background = fieldBackground()
+                    setPadding(dp(18), 0, dp(18), 0)
+                    setSelectAllOnFocus(true)
+                    includeFontPadding = false
+                }
+                pauseInputs[shift] = pause
+                box.addView(pause, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)).apply { topMargin = dp(5) })
+
                 val meal = Switch(context).apply {
                     text = "Panier pour ce poste"
                     textSize = 14f
@@ -231,7 +278,7 @@ class ShiftControlView @JvmOverloads constructor(
         }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle(if (HoraTrackV2.ENABLED) "Horaires et pauses" else "Horaires, pauses et paniers")
+            .setTitle(if (HoraTrackV2.ENABLED) "Horaires" else "Horaires, pauses et paniers")
             .setView(scroll)
             .setPositiveButton("Enregistrer", null)
             .setNegativeButton("Annuler", null)
@@ -255,15 +302,34 @@ class ShiftControlView @JvmOverloads constructor(
                         return@setOnClickListener
                     }
                 }
-                ShiftType.values().forEach { shift ->
-                    V2ScheduleStore.save(context, shift.id, startInputs[shift]?.text?.toString(), endInputs[shift]?.text?.toString())
-                    val minutes = pauseInputs[shift]?.text.toString().trim().toIntOrNull()?.coerceIn(0, 240) ?: 0
-                    ShiftProfileManager.setPauseMinutes(context, shift, minutes)
+                for (shift in ShiftType.values()) {
+                    val scheduleSaved = if (HoraTrackV2.ENABLED) {
+                        V2ScheduleStore.save(
+                            context,
+                            activeCompanyId!!,
+                            shift.id,
+                            startInputs[shift]?.text?.toString(),
+                            endInputs[shift]?.text?.toString()
+                        )
+                    } else {
+                        V2ScheduleStore.legacySave(
+                            context,
+                            shift.id,
+                            startInputs[shift]?.text?.toString(),
+                            endInputs[shift]?.text?.toString()
+                        )
+                    }
+                    if (!scheduleSaved) {
+                        Toast.makeText(context, "Impossible d’enregistrer les horaires", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
                     if (!HoraTrackV2.ENABLED) {
+                        val minutes = pauseInputs[shift]?.text.toString().trim().toIntOrNull()?.coerceIn(0, 240) ?: 0
+                        ShiftProfileManager.setPauseMinutes(context, shift, minutes)
                         ShiftProfileManager.setMealEnabled(context, shift, mealSwitches[shift]?.isChecked == true)
                     }
                 }
-                Toast.makeText(context, if (HoraTrackV2.ENABLED) "Profils horaires V2 enregistrés" else "Profils enregistrés", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, if (HoraTrackV2.ENABLED) "Horaires de l’entreprise enregistrés" else "Profils enregistrés", Toast.LENGTH_SHORT).show()
                 refresh()
                 dialog.dismiss()
             }
