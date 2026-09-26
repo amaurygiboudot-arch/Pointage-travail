@@ -185,6 +185,20 @@ internal fun resolveGpsZoneRadiusForAddress(
     }
 }
 
+
+internal fun resolveUniqueGpsZoneIdForAddress(
+    zonesResult: GpsZonesReadResult,
+    address: String
+): String? {
+    val valid = zonesResult as? GpsZonesReadResult.Valid ?: return null
+    val normalized = address.trim()
+    if (normalized.isBlank()) return null
+    val matches = valid.zones.filter {
+        it.address?.trim()?.equals(normalized, ignoreCase = true) == true
+    }
+    return matches.singleOrNull()?.id
+}
+
 internal fun updateGpsZoneTypeById(
     zones: JSONArray,
     zoneId: String,
