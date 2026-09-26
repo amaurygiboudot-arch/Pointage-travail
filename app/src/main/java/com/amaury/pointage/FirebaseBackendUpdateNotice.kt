@@ -253,6 +253,12 @@ object FirebaseBackendUpdateNotice : Application.ActivityLifecycleCallbacks {
     private fun ensureNotificationPermission(activity: Activity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         if (ContextCompat.checkSelfPermission(activity, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+
+        // Ne jamais empiler une seconde demande système pendant l'onboarding GPS.
+        // Android/MIUI peut alors retirer le premier dialogue puis le réafficher,
+        // ce qui donne l'impression que le choix de localisation a "disparu".
+        if (!ForegroundLocationInitProvider.isOnboardingResolved(activity)) return
+
         val prefs = activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getBoolean(KEY_PERMISSION_REQUESTED, false)) return
         prefs.edit().putBoolean(KEY_PERMISSION_REQUESTED, true).apply()
