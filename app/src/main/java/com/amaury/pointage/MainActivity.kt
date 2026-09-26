@@ -6,7 +6,6 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.Configuration
 import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
@@ -488,21 +487,8 @@ class MainActivity : Activity() {
     }
 
     private fun setActiveTab(active: TextView) {
-        val appearance = getSharedPreferences(AppThemeCatalog.PREFS, Context.MODE_PRIVATE)
-        val mode = appearance.getString("mode", "auto") ?: "auto"
-        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        val dark = mode == "dark" || (mode == "auto" && systemDark)
-        val theme = AppThemeCatalog.current(this)
-        val activeColor = if (dark) theme.accentLight else theme.accent
-        val inactiveColor = if (dark) theme.darkHint else theme.lightHint
-        tabHome.setTextColor(if (active == tabHome) activeColor else inactiveColor)
-        tabToday.setTextColor(if (active == tabToday) activeColor else inactiveColor)
-        tabHistory.setTextColor(if (active == tabHistory) activeColor else inactiveColor)
-        tabAnalytics.setTextColor(if (active == tabAnalytics) activeColor else inactiveColor)
-        tabSalary.setTextColor(if (active == tabSalary) activeColor else inactiveColor)
-        tabSettings.setTextColor(if (active == tabSettings) activeColor else inactiveColor)
         listOf(tabHome, tabToday, tabHistory, tabAnalytics, tabSalary, tabSettings).forEach { tab ->
-            tab.isSelected = tab === active
+            NavigationTabContrastV2.style(tab, tab === active)
         }
     }
 

@@ -46,7 +46,7 @@ object ThemeFrameStyler {
 
         when {
             framedContainer -> clearContainerBackground(view)
-            id in tabIds && view is TextView -> styleTab(view, theme, localDark)
+            id in tabIds && view is TextView -> NavigationTabContrastV2.style(view, view.isSelected)
             view is Button -> styleButton(view)
             view is EditText -> styleInput(view, localDark)
             view is Switch -> styleSwitch(view, localDark)
@@ -111,20 +111,6 @@ object ThemeFrameStyler {
             if (current == referenceOrange) referenceOrange else accent
         } else textColor
         if (current != target) view.setTextColor(target)
-    }
-
-    private fun styleTab(tab: TextView, theme: HpTheme, dark: Boolean) {
-        val active = tab.isSelected
-        val alpha = if (active) 1f else 0.78f
-        if (tab.alpha != alpha) tab.alpha = alpha
-        val elevation = if (active) 3f * tab.resources.displayMetrics.density else 0f
-        if (tab.elevation != elevation) tab.elevation = elevation
-        val target = if (dark) {
-            if (active) Color.WHITE else Color.parseColor("#D0D0D0")
-        } else {
-            if (active) Color.parseColor("#111111") else Color.parseColor("#555555")
-        }
-        if (tab.currentTextColor != target) tab.setTextColor(target)
     }
 
     private fun contrastRatio(foreground: Int, background: Int): Double {
