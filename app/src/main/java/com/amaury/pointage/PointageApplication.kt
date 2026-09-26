@@ -197,10 +197,10 @@ object PlaceNames {
 }
 
 object SettingsUiInstaller {
-    private const val TAG = "settings_personalization_installed"
+    private const val TAG = SettingsV2Host.TAG_PERSONALIZATION
 
     fun install(activity: MainActivity) {
-        val panel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
+        val panel = SettingsV2Host.panel(activity) ?: return
         if (panel.findViewWithTag<View>(TAG) != null) return
 
         activity.findViewById<EditText>(R.id.workplaceAddress)?.apply {
