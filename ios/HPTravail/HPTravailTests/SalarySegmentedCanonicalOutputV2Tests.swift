@@ -44,6 +44,26 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertFalse(result.netBeforeIncomeTaxComplete)
         XCTAssertEqual(result.cashGross, 1_100)
         XCTAssertNil(result.netBeforeIncomeTax)
+
+        let workspace = SalaryWorkspaceResolverV2.resolve(
+            period: YearMonthV2(year: 2026, month: 9),
+            segmented: result
+        )
+        XCTAssertTrue(workspace.sourceReady)
+        XCTAssertNil(workspace.netBeforeIncomeTax)
+        XCTAssertNil(workspace.netTaxable)
+        XCTAssertNil(
+            SalaryPayslipComparisonEngineV2.compare(
+                snapshot: workspace,
+                observed: SalaryPayslipObservedValuesV2(
+                    socialGross: nil,
+                    netBeforeIncomeTax: 900,
+                    netTaxable: nil,
+                    incomeTax: nil,
+                    netAfterIncomeTax: nil
+                )
+            )
+        )
     }
 
     func testMismatchedCashChainIsRejected() {
