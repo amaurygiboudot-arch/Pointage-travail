@@ -37,7 +37,7 @@ class GpsPointPickerView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : LinearLayout(context, attrs, defStyleAttr), SharedPreferences.OnSharedPreferenceChangeListener {
 
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = GpsSettingsV2.preferences(context)
     private var promptScheduled = false
     private var applyingOverride = false
 
