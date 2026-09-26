@@ -88,6 +88,59 @@ object V2SegmentedProrationStore {
         return !prefs.contains(key)
     }
 
+    internal fun readRaw(context: Context): Map<String, String>? {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val result = linkedMapOf<String, String>()
+        for ((key, value) in prefs.all) {
+            val raw = value as? String ?: return null
+            if (!isStorageKey(key) || decode(raw) == null) return null
+            result[key] = raw
+        }
+        return result
+    }
+
+    internal fun mergeRaw(
+        current: Map<String, String>,
+        saved: Map<String, String>
+    ): Map<String, String>? {
+        if (!validRawMap(current) || !validRawMap(saved)) return null
+        val merged = current.toMutableMap()
+        for ((key, value) in saved) {
+            val local = merged[key]
+            if (local != null && local != value) return null
+            merged[key] = value
+        }
+        return merged.toSortedMap()
+    }
+
+    internal fun replaceAllForRestore(
+        context: Context,
+        values: Map<String, String>
+    ): Boolean {
+        if (!validRawMap(values)) return false
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val editor = prefs.edit().clear()
+        values.toSortedMap().forEach { (key, value) -> editor.putString(key, value) }
+        if (!editor.commit()) return false
+        return readRaw(context) == values.toSortedMap()
+    }
+
+    internal fun isStorageKey(key: String): Boolean {
+        val lastDot = key.lastIndexOf('.')
+        if (lastDot <= 0 || lastDot == key.lastIndex) return false
+        val company = key.substring(0, lastDot).trim()
+        val period = key.substring(lastDot + 1)
+        val parts = period.split('-')
+        if (company.isBlank() || parts.size != 2) return false
+        val year = parts[0].toIntOrNull() ?: return false
+        val month = parts[1].toIntOrNull() ?: return false
+        return year in 1900..2200 && month in 1..12 &&
+            parts[1].length == 2
+    }
+
+    private fun validRawMap(values: Map<String, String>): Boolean =
+        values.all { (key, raw) -> isStorageKey(key) && decode(raw) != null }
+
     internal fun encode(value: ConfirmedSegmentedMonthlyProrationV2): String? {
         if (!valid(value)) return null
         val segments = JSONArray()
