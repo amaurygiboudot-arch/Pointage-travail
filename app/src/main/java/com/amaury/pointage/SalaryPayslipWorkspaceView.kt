@@ -21,6 +21,9 @@ import com.amaury.pointage.v2.V2RightsStore
 import com.amaury.pointage.v2.engine.AbsencePayrollImpactV2
 import com.amaury.pointage.v2.engine.CompanyAgreementPayrollBridgeV2
 import com.amaury.pointage.v2.engine.PayrollPeriodV2
+import com.amaury.pointage.v2.engine.PayrollCoveragePeriodV2
+import com.amaury.pointage.v2.engine.RuntimeCoverageClaimOriginV2
+import com.amaury.pointage.v2.engine.V2RuntimeCoverageAttestationStore
 import com.amaury.pointage.v2.engine.SalaryExamplePdfV2
 import com.amaury.pointage.v2.engine.SicknessPaymentFlowV2
 import com.amaury.pointage.v2.model.AbsenceSalaryTreatmentV2
@@ -96,7 +99,60 @@ class SalaryPayslipWorkspaceView(context:Context,private val company:SalaryCompa
    add(TextView(context).apply{text=lines;textSize=14f});if(agreementRules.hasApplicableRules)add(TextView(context).apply{text=buildString{append("\nRÈGLES D’ENTREPRISE APPLICABLES\n• ");append(agreementRules.applicableRules.joinToString("\n• "){"${it.category.name} : ${it.excerpt}"});append('\n');when{agreementRules.hasOvertimeConflicts->append("Les règles d’heures supplémentaires en conflit sont bloquées et exclues du calcul. Les autres catégories restent informatives tant qu’elles ne sont pas structurées de façon sûre.");agreementRules.hasPeriodChanges->append("Une règle change pendant le mois : les taux d’heures supplémentaires d’entreprise ne sont pas appliqués automatiquement pour cette période. Les autres catégories restent informatives.");agreementRules.hasSafeOvertimeRules->append("Les taux d’heures supplémentaires vérifiés et non conflictuels sont intégrés au calcul. Les autres catégories restent informatives tant qu’elles ne sont pas structurées de façon sûre.");else->append("Aucune règle d’entreprise n’est actuellement assez structurée pour modifier automatiquement le calcul.")}};textSize=12f});if(agreementRules.hasPeriodChanges)add(TextView(context).apply{text="\n⚠ CHANGEMENT DE RÈGLE PENDANT LE MOIS\n"+agreementRules.periodSegments.joinToString("\n"){segment->"• ${segment.start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} → ${segment.endInclusive.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))} : ${segment.applicableRules.size} règle(s) applicable(s)"}+"\nLes taux d’heures supplémentaires d’entreprise restent bloqués pour ce mois tant que la période n’est pas calculée par segments.";textSize=12f;setTypeface(typeface,Typeface.BOLD)});if(agreementRules.hasOvertimeConflicts)add(TextView(context).apply{text="\n⚠ CONFLIT D’HEURES SUPPLÉMENTAIRES — BLOQUÉ\n"+agreementRules.conflictingOvertimeRules.joinToString("\n"){rule->val end=rule.band.toHourInclusive?.let{"${it}e heure"}?:"sans limite déterminée";"• ${rule.band.fromHourInclusive}e → $end : +${String.format(Locale.FRANCE,"%.2f",rule.percent)} %\n  ${rule.source.source.excerpt}"}+"\nCes règles restent enregistrées mais sont exclues du calcul tant que le conflit n’est pas résolu.";textSize=12f;setTypeface(typeface,Typeface.BOLD)});ConventionNightRules.forIdcc(convention?.idcc.orEmpty())?.let{rule->add(TextView(context).apply{text="\nRègle nuit : ${rule.note}";textSize=12f})};val conventionWarnings=mutableListOf<String>();if(conventionMinimum!=null&&calc.monthlyGrossReliable&&calc.regularGross+1e-6<conventionMinimum)conventionWarnings+="Salaire de base estimé inférieur au minimum conventionnel résolu : vérifier l’assiette de comparaison avant conclusion.";val warnings=salaryNet.warnings+conventionWarnings;if(warnings.isNotEmpty())add(TextView(context).apply{text="\nÀ vérifier :\n• "+warnings.distinct().joinToString("\n• ");textSize=12f})
    val monthStartMs=LocalDate.of(year,month+1,1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val monthEndMs=LocalDate.of(year,month+1,1).plusMonths(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();val sicknessAbsences=V2RightsStore.absencesForCompany(context,company.id).filter{it.type==AbsencePayrollImpactV2.TYPE_SICKNESS&&it.endMs>monthStartMs&&it.startMs<monthEndMs};if(sicknessAbsences.isNotEmpty())add(TextView(context).apply{text=buildString{append("\nARRÊT MALADIE / IJSS\n");sicknessAbsences.forEach{absence->val start=Instant.ofEpochMilli(absence.startMs).atZone(ZoneId.systemDefault()).toLocalDate();val end=Instant.ofEpochMilli(absence.endMs-1L).atZone(ZoneId.systemDefault()).toLocalDate();val allowance=V2PayslipStore.sicknessAllowanceForAbsence(context,company.id,absence);val flow=SicknessPaymentFlowV2.resolve(absence,allowance);append("• ").append(start.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" → ").append(end.format(DateTimeFormatter.ofPattern("dd/MM/uuuu"))).append(" • ").append(absenceTreatmentLabel(absence.salaryTreatment)).append('\n');when(flow.ijssRecipient){SicknessPaymentFlowV2.IjssRecipient.EMPLOYER->{append("  IJSS → employeur");flow.employerIjssReimbursementGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — non ajoutées une 2e fois au salarié\n")};SicknessPaymentFlowV2.IjssRecipient.EMPLOYEE->{append("  IJSS → salarié séparément");flow.directEmployeeIjssGross?.let{append(" : ").append(eur(it)).append(" brut estimés")};append(" — hors net de la fiche employeur\n")};SicknessPaymentFlowV2.IjssRecipient.TO_CONFIRM->append("  Destination IJSS : à confirmer\n")};flow.warnings.firstOrNull()?.let{append("  ⚠ ").append(it).append('\n')}}};textSize=12f})
   }
+  addCoverageConfirmation(year,month)
   add(TextView(context).apply{text="\nDurée hebdomadaire contractuelle : ${weekly.ifBlank{"à compléter"}}\nCette fiche est une estimation HoraTrack, pas un bulletin officiel.";textSize=12f});addButton("PRENDRE UNE PHOTO"){launchPhoto()};addButton("IMPORTER UN FICHIER"){launchImport()}
+ }
+ private fun addCoverageConfirmation(year:Int,month:Int){
+  val coverage=PayrollCoveragePeriodV2.forMonth(year,month+1)?:return
+  val zoneId=ZoneId.systemDefault().id
+  val now=System.currentTimeMillis()
+  val format=DateTimeFormatter.ofPattern("dd/MM/uuuu",Locale.FRANCE)
+  val start=LocalDate.ofEpochDay(coverage.startEpochDay).format(format)
+  val end=LocalDate.ofEpochDay(coverage.endEpochDay).format(format)
+  val verified=V2RuntimeCoverageAttestationStore.source(
+   context=context,
+   employerId=company.id,
+   requiredStartEpochDay=coverage.startEpochDay,
+   requiredEndEpochDay=coverage.endEpochDay,
+   timeZoneId=zoneId,
+   nowMs=now
+  ).source!=null
+  add(TextView(context).apply{
+   text=when{
+    verified->"\nPOINTAGES — COUVERTURE CONFIRMÉE\nHistorique complet confirmé du $start au $end. Toute modification de l’historique invalide automatiquement cette confirmation."
+    !coverage.isClosedAt(now,zoneId)->{
+     val available=LocalDate.ofEpochDay(coverage.endEpochDay).plusDays(1).format(format)
+     "\nPOINTAGES — PÉRIODE ENCORE OUVERTE\nLe calcul hebdomadaire du mois nécessite l’historique complet du $start au $end. Confirmation possible à partir du $available."
+    }
+    else->"\nPOINTAGES — COUVERTURE À CONFIRMER\nPour calculer les semaines complètes, confirme que tous les pointages, pauses et jours sans travail du $start au $end sont présents."
+   }
+   textSize=12f
+   if(verified)setTypeface(typeface,Typeface.BOLD)
+  })
+  if(!verified&&coverage.isClosedAt(now,zoneId)){
+   addButton("CONFIRMER L’HISTORIQUE DE POINTAGE"){
+    AlertDialog.Builder(context)
+     .setTitle("Confirmer l’historique ?")
+     .setMessage("Je confirme que tous mes pointages, pauses et jours sans travail du $start au $end sont présents et à jour. Toute modification ultérieure invalidera automatiquement cette confirmation.")
+     .setNegativeButton("ANNULER",null)
+     .setPositiveButton("CONFIRMER"){_,_->
+      val checkedAt=System.currentTimeMillis()
+      val saved=V2RuntimeCoverageAttestationStore.confirm(
+       context=context,
+       origin=RuntimeCoverageClaimOriginV2.USER_REVIEWED_CLOSED_PERIOD,
+       sourceId="user-reviewed-closed-period-v1",
+       coveredStartEpochDay=coverage.startEpochDay,
+       coveredEndEpochDay=coverage.endEpochDay,
+       checkedAtMs=checkedAt,
+       timeZoneId=zoneId,
+       nowMs=checkedAt
+      )
+      Toast.makeText(context,if(saved)"Historique de pointage confirmé" else "Confirmation impossible : vérifie l’historique de pointage",Toast.LENGTH_LONG).show()
+      render()
+     }
+     .show()
+   }
+  }
  }
  private fun absenceTreatmentLabel(value:AbsenceSalaryTreatmentV2)=when(value){AbsenceSalaryTreatmentV2.FULLY_MAINTAINED->"maintien complet";AbsenceSalaryTreatmentV2.PARTIALLY_MAINTAINED->"maintien partiel à chiffrer";AbsenceSalaryTreatmentV2.UNPAID->"sans maintien employeur";AbsenceSalaryTreatmentV2.TO_CONFIRM->"maintien à confirmer"}
  private fun seniority(raw:String,year:Int,month:Int):String{val start=runCatching{LocalDate.parse(raw.trim(),DateTimeFormatter.ofPattern("dd/MM/yyyy",Locale.FRANCE))}.getOrNull()?:return "à compléter";val end=LocalDate.of(year,month+1,1).withDayOfMonth(LocalDate.of(year,month+1,1).lengthOfMonth());if(start.isAfter(end))return "0 mois";val months=ChronoUnit.MONTHS.between(start.withDayOfMonth(1),end.withDayOfMonth(1)).toInt();val y=months/12;val m=months%12;return when{y>0&&m>0->"$y an${if(y>1)"s" else ""} et $m mois";y>0->"$y an${if(y>1)"s" else ""}";else->"$m mois"}}
