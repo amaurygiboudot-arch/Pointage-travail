@@ -271,4 +271,71 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `une association gps stable n est jamais remplacee par un ancien slot`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"zone-a","latitude":46.7,"longitude":-1.4,"radius":150,"companyId":"company-c","companySlot":1}]"""
+        )
+
+        val promoted = promoteLegacyGpsEmployerBindingsV2(
+            zones,
+            legacyAddressSlots = null,
+            confirmedCompanyIds = listOf("company-a", "company-b", "company-c")
+        )
+
+        assertEquals(0, promoted)
+        assertEquals("company-c", zones.getJSONObject(0).getString("companyId"))
+    }
+
+    @Test
+    fun `un ancien slot gps est promu vers l identifiant stable correspondant`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"zone-b","latitude":46.7,"longitude":-1.4,"radius":150,"companySlot":2}]"""
+        )
+
+        val promoted = promoteLegacyGpsEmployerBindingsV2(
+            zones,
+            legacyAddressSlots = null,
+            confirmedCompanyIds = listOf("company-a", "company-b", "company-c")
+        )
+
+        assertEquals(1, promoted)
+        assertEquals("company-b", zones.getJSONObject(0).getString("companyId"))
+        assertEquals(2, zones.getJSONObject(0).getInt("companySlot"))
+    }
+
+    @Test
+    fun `une ancienne association par adresse est promue sans tenir compte de la casse`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"zone-a","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 RUE A"}]"""
+        )
+        val map = org.json.JSONObject().put("1 rue a", 1)
+
+        val promoted = promoteLegacyGpsEmployerBindingsV2(
+            zones,
+            legacyAddressSlots = map,
+            confirmedCompanyIds = listOf("company-a", "company-b")
+        )
+
+        assertEquals(1, promoted)
+        assertEquals("company-a", zones.getJSONObject(0).getString("companyId"))
+    }
+
+    @Test
+    fun `un ancien slot sans entreprise correspondante ne fabrique aucun company id`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"zone-b","latitude":46.7,"longitude":-1.4,"radius":150,"companySlot":2}]"""
+        )
+
+        val promoted = promoteLegacyGpsEmployerBindingsV2(
+            zones,
+            legacyAddressSlots = null,
+            confirmedCompanyIds = listOf("company-a")
+        )
+
+        assertEquals(0, promoted)
+        assertTrue(!zones.getJSONObject(0).has("companyId"))
+    }
+
+
 }
