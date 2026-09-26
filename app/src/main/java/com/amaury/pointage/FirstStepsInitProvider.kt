@@ -115,7 +115,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
         val prompt = BiometricPrompt.Builder(activity)
             .setTitle("Développeur")
             .setSubtitle("Confirme ton empreinte pour ouvrir la zone privée")
-            .setDescription("Accès réservé au propriétaire de HoraTrack")
+            .setDescription("Accès réservé au propriétaire de AGKGMG")
             .setNegativeButton("Annuler", activity.mainExecutor) { _, _ -> cancellationSignal.cancel() }
             .build()
         prompt.authenticate(cancellationSignal, activity.mainExecutor, object : BiometricPrompt.AuthenticationCallback() {

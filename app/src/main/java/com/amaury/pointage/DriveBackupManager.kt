@@ -76,7 +76,7 @@ object DriveBackupManager {
                 onDone?.invoke(
                     result.isSuccess,
                     result.fold(
-                        onSuccess = { "sauvegarde HoraTrack V2 à jour" },
+                        onSuccess = { "sauvegarde AGKGMG V2 à jour" },
                         onFailure = { it.message ?: "Erreur Drive" }
                     )
                 )
@@ -97,7 +97,7 @@ object DriveBackupManager {
 
     private fun loadReliablePointage(context: Context): JSONArray {
         check(syncOwner(HoraTrackV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
-            "Lecture PointageStore interdite : la sauvegarde HoraTrack V2 est propriétaire"
+            "Lecture PointageStore interdite : la sauvegarde AGKGMG V2 est propriétaire"
         }
         return PointageStore.load(context)
     }
@@ -181,7 +181,7 @@ object DriveBackupManager {
         val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(
             Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
         ).replaceFirstChar { it.uppercase() }
-        val placeFolder = ensureDirectory(context, root, "HoraTrack")
+        val placeFolder = ensureDirectory(context, root, "AGKGMG")
         val yearFolder = ensureDirectory(context, placeFolder, year.toString())
         val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
         val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
