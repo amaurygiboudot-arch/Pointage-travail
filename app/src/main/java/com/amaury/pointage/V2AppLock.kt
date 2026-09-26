@@ -136,7 +136,7 @@ object V2AppLock {
     private fun showBiometric(activity: Activity, onSuccess: () -> Unit, onCancel: () -> Unit) {
         val cancellation = CancellationSignal()
         val builder = BiometricPrompt.Builder(activity)
-            .setTitle("Déverrouiller HoraTrack")
+            .setTitle("Déverrouiller AGKGMG")
             .setSubtitle("Confirme ton identité")
         builder.setNegativeButton(
             if (hasPin(activity)) "Utiliser le PIN" else "Annuler",
@@ -173,7 +173,7 @@ object V2AppLock {
             addView(input)
         }
         val dialog = AlertDialog.Builder(activity)
-            .setTitle("HoraTrack verrouillé")
+            .setTitle("AGKGMG verrouillé")
             .setView(box)
             .setPositiveButton("Déverrouiller", null)
             .setNegativeButton("Fermer") { _, _ -> onCancel() }
