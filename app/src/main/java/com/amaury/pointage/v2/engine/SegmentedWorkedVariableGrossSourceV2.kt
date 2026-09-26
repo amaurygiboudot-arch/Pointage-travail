@@ -39,6 +39,7 @@ data class SegmentedWorkedVariableGrossBreakdownV2(
     val overtimeGross: Double,
     val complementaryGross: Double,
     val premiumGross: Double,
+    val variableOvertimeMinutes: Int = 0,
     val complementaryMinutes: Int = 0
 ) {
     val variableGross: Double
@@ -306,6 +307,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
                     overtimeGross = item.overtimeGross,
                     complementaryGross = item.complementaryGross,
                     premiumGross = item.premiumGross,
+                    variableOvertimeMinutes = item.variableOvertimeMinutes.toInt(),
                     complementaryMinutes = item.complementaryMinutes.toInt()
                 )
             }
@@ -343,10 +345,12 @@ object SegmentedWorkedVariableGrossSourceV2 {
             return null
         }
 
+        val variableOvertimeMinutes = exactVariableOvertimeMinutes(overtime.variableTiers) ?: return null
         val premiums = premiumGross(weeks, rate, rules) ?: return null
         return VariableAmounts(
             overtimeGross = overtime.variableOvertimeGross,
-            premiumGross = premiums
+            premiumGross = premiums,
+            variableOvertimeMinutes = variableOvertimeMinutes
         ).takeIf { it.valid() }
     }
 
@@ -376,6 +380,25 @@ object SegmentedWorkedVariableGrossSourceV2 {
             complementaryMinutes = complementaryMinutes,
             premiumGross = premiums
         ).takeIf { it.valid() }
+    }
+
+    private fun exactVariableOvertimeMinutes(
+        tiers: List<FullTimeStructuralOvertimeV2.TierAmount>
+    ): Long? {
+        var total = 0L
+        for (tier in tiers) {
+            val minutes = tier.minutes
+            if (!minutes.isFinite() || minutes < 0.0 || minutes > Int.MAX_VALUE.toDouble()) return null
+            val integral = minutes.toLong()
+            if (integral.toDouble() != minutes) return null
+            total = try {
+                Math.addExact(total, integral)
+            } catch (_: ArithmeticException) {
+                return null
+            }
+            if (total > Int.MAX_VALUE.toLong()) return null
+        }
+        return total
     }
 
     private fun premiumGross(
@@ -473,6 +496,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
         val overtimeGross: Double = 0.0,
         val complementaryGross: Double = 0.0,
         val premiumGross: Double = 0.0,
+        val variableOvertimeMinutes: Long = 0L,
         val complementaryMinutes: Long = 0L
     ) {
         val totalGross: Double get() = overtimeGross + complementaryGross + premiumGross
@@ -480,10 +504,12 @@ object SegmentedWorkedVariableGrossSourceV2 {
             overtimeGross + other.overtimeGross,
             complementaryGross + other.complementaryGross,
             premiumGross + other.premiumGross,
+            variableOvertimeMinutes + other.variableOvertimeMinutes,
             complementaryMinutes + other.complementaryMinutes
         )
         fun valid(): Boolean =
-            complementaryMinutes in 0L..Int.MAX_VALUE.toLong() &&
+            variableOvertimeMinutes in 0L..Int.MAX_VALUE.toLong() &&
+                complementaryMinutes in 0L..Int.MAX_VALUE.toLong() &&
                 listOf(
                     overtimeGross, complementaryGross, premiumGross, totalGross
                 ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }

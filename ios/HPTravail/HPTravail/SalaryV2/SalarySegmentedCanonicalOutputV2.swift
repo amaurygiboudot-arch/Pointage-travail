@@ -5,6 +5,7 @@ struct SalarySegmentedCanonicalOutputV2 {
     let cash: SalarySegmentedCashGrossAssemblyResultV2
     let net: SalarySegmentedCashGrossNetProjectionResultV2
     let paidMinutes: Int?
+    let variableOvertimeMinutes: Int?
     let complementaryMinutes: Int?
     let nightMinutes: Int?
     let saturdayMinutes: Int?
@@ -92,16 +93,20 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
                 finiteNonNegative($0.overtimeGross) &&
                 finiteNonNegative($0.complementaryGross) &&
                 finiteNonNegative($0.premiumGross) &&
+                $0.variableOvertimeMinutes >= 0 &&
                 $0.complementaryMinutes >= 0
             }
         let overtimeGross = breakdownReliable ? sumMoney(worked.variables.breakdowns.map { $0.overtimeGross }) : nil
         let complementaryGross = breakdownReliable ? sumMoney(worked.variables.breakdowns.map { $0.complementaryGross }) : nil
         let premiumGross = breakdownReliable ? sumMoney(worked.variables.breakdowns.map { $0.premiumGross }) : nil
+        let variableOvertimeMinutes = breakdownReliable
+            ? sumMinutes(worked.variables.breakdowns.map { $0.variableOvertimeMinutes })
+            : nil
         let complementaryMinutes = breakdownReliable
             ? sumMinutes(worked.variables.breakdowns.map { $0.complementaryMinutes })
             : nil
         if !breakdownReliable || overtimeGross == nil || complementaryGross == nil ||
-            premiumGross == nil || complementaryMinutes == nil {
+            premiumGross == nil || variableOvertimeMinutes == nil || complementaryMinutes == nil {
             warnings.append(variableWarning)
         }
 
@@ -128,6 +133,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             cash: cash,
             net: net,
             paidMinutes: paidMinutes,
+            variableOvertimeMinutes: variableOvertimeMinutes,
             complementaryMinutes: complementaryMinutes,
             nightMinutes: nightMinutes,
             saturdayMinutes: saturdayMinutes,

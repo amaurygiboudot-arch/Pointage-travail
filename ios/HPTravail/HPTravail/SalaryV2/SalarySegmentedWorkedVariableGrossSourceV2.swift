@@ -43,6 +43,7 @@ struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
     let overtimeGross: Double
     let complementaryGross: Double
     let premiumGross: Double
+    let variableOvertimeMinutes: Int
     let complementaryMinutes: Int
 
     init(
@@ -53,6 +54,7 @@ struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
         overtimeGross: Double,
         complementaryGross: Double,
         premiumGross: Double,
+        variableOvertimeMinutes: Int = 0,
         complementaryMinutes: Int = 0
     ) {
         self.companyId = companyId
@@ -62,6 +64,7 @@ struct SalarySegmentedWorkedVariableGrossBreakdownV2: Equatable {
         self.overtimeGross = overtimeGross
         self.complementaryGross = complementaryGross
         self.premiumGross = premiumGross
+        self.variableOvertimeMinutes = variableOvertimeMinutes
         self.complementaryMinutes = complementaryMinutes
     }
 
@@ -391,6 +394,7 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                     overtimeGross: item.overtimeGross,
                     complementaryGross: item.complementaryGross,
                     premiumGross: item.premiumGross,
+                    variableOvertimeMinutes: item.variableOvertimeMinutes,
                     complementaryMinutes: item.complementaryMinutes
                 )
             )
@@ -447,14 +451,37 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
                   premium >= 0 else {
                 return nil
             }
+            guard let variableOvertimeMinutes = exactVariableOvertimeMinutes(overtime.variableTiers) else {
+                return nil
+            }
             let value = VariableAmounts(
                 overtimeGross: overtime.variableOvertimeGross,
-                premiumGross: premium
+                premiumGross: premium,
+                variableOvertimeMinutes: variableOvertimeMinutes
             )
             return value.valid ? value : nil
         } catch {
             return nil
         }
+    }
+
+    private static func exactVariableOvertimeMinutes(
+        _ tiers: [FullTimeStructuralOvertimeV2.TierAmount]
+    ) -> Int? {
+        var total = 0
+        for tier in tiers {
+            let minutes = tier.minutes
+            guard minutes.isFinite,
+                  minutes >= 0,
+                  minutes <= Double(Int.max),
+                  minutes.rounded(.towardZero) == minutes else {
+                return nil
+            }
+            let addition = total.addingReportingOverflow(Int(minutes))
+            guard !addition.overflow else { return nil }
+            total = addition.partialValue
+        }
+        return total
     }
 
     private static func partTimeVariable(
@@ -588,17 +615,20 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         let overtimeGross: Double
         let complementaryGross: Double
         let premiumGross: Double
+        let variableOvertimeMinutes: Int
         let complementaryMinutes: Int
 
         init(
             overtimeGross: Double = 0,
             complementaryGross: Double = 0,
             premiumGross: Double = 0,
+            variableOvertimeMinutes: Int = 0,
             complementaryMinutes: Int = 0
         ) {
             self.overtimeGross = overtimeGross
             self.complementaryGross = complementaryGross
             self.premiumGross = premiumGross
+            self.variableOvertimeMinutes = variableOvertimeMinutes
             self.complementaryMinutes = complementaryMinutes
         }
 
@@ -607,18 +637,21 @@ enum SalarySegmentedWorkedVariableGrossSourceV2 {
         }
 
         var valid: Bool {
-            complementaryMinutes >= 0 &&
+            variableOvertimeMinutes >= 0 &&
+                complementaryMinutes >= 0 &&
                 [overtimeGross, complementaryGross, premiumGross, totalGross]
                     .allSatisfy { $0.isFinite && $0 >= -currencyTolerance }
         }
 
         static func + (lhs: VariableAmounts, rhs: VariableAmounts) -> VariableAmounts {
-            let addition = lhs.complementaryMinutes.addingReportingOverflow(rhs.complementaryMinutes)
+            let overtimeAddition = lhs.variableOvertimeMinutes.addingReportingOverflow(rhs.variableOvertimeMinutes)
+            let complementaryAddition = lhs.complementaryMinutes.addingReportingOverflow(rhs.complementaryMinutes)
             return VariableAmounts(
                 overtimeGross: lhs.overtimeGross + rhs.overtimeGross,
                 complementaryGross: lhs.complementaryGross + rhs.complementaryGross,
                 premiumGross: lhs.premiumGross + rhs.premiumGross,
-                complementaryMinutes: addition.overflow ? -1 : addition.partialValue
+                variableOvertimeMinutes: overtimeAddition.overflow ? -1 : overtimeAddition.partialValue,
+                complementaryMinutes: complementaryAddition.overflow ? -1 : complementaryAddition.partialValue
             )
         }
     }
