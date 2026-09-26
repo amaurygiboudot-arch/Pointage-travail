@@ -15,6 +15,15 @@ class RuntimeCoverageAttestationPolicyV2Test {
     private val end = start + 6
     private val checkedAt = LocalDate.ofEpochDay(end + 1).atStartOfDay(ZoneId.of(zone)).toInstant().toEpochMilli() + 1
 
+    @Test fun onlyExplicitUserReviewMayIssueCoverage() {
+        assertTrue(RuntimeCoverageClaimPolicyV2.mayIssue(
+            RuntimeCoverageClaimOriginV2.USER_REVIEWED_CLOSED_PERIOD))
+        assertFalse(RuntimeCoverageClaimPolicyV2.mayIssue(RuntimeCoverageClaimOriginV2.LOCAL_BACKUP_RESTORE))
+        assertFalse(RuntimeCoverageClaimPolicyV2.mayIssue(RuntimeCoverageClaimOriginV2.CLOUD_BACKUP_RESTORE))
+        assertFalse(RuntimeCoverageClaimPolicyV2.mayIssue(RuntimeCoverageClaimOriginV2.LEGACY_MIGRATION))
+        assertFalse(RuntimeCoverageClaimPolicyV2.mayIssue(RuntimeCoverageClaimOriginV2.STORAGE_READ))
+    }
+
     @Test fun explicitEmptyCoverageCanBeCertified() {
         val a = create(emptyList())
         assertNotNull(a)
