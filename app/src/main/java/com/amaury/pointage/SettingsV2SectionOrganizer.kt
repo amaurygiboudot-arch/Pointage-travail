@@ -43,6 +43,7 @@ object SettingsV2SectionOrganizer {
 
             isPointageView(view, id, tag) -> 20
 
+            tag == SettingsV2Host.TAG_CELESTIAL -> 30
             isCelestialView(view, id) -> 30
             tag == SettingsV2Host.TAG_PERSONALIZATION -> 31
             tag == SettingsV2Host.TAG_WIDGET -> 32
@@ -70,6 +71,9 @@ object SettingsV2SectionOrganizer {
         if (SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) == null) {
             panel.addView(section(activity, SettingsV2Host.TAG_POINTAGE, null))
         }
+        if (SettingsV2Host.section(activity, SettingsV2Host.TAG_CELESTIAL) == null) {
+            panel.addView(section(activity, SettingsV2Host.TAG_CELESTIAL, null))
+        }
         if (SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS) == null) {
             panel.addView(section(activity, SettingsV2Host.TAG_EXTRAS, "AIDE & EXTRAS"))
         }
@@ -92,6 +96,8 @@ object SettingsV2SectionOrganizer {
     private fun moveCoreViews(activity: MainActivity, panel: LinearLayout) {
         val account = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
         val pointage = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+        val celestial = SettingsV2Host.section(activity, SettingsV2Host.TAG_CELESTIAL) ?: return
+        val drive = SettingsV2Host.section(activity, SettingsV2Host.TAG_DRIVE)
         val extras = SettingsV2Host.section(activity, SettingsV2Host.TAG_EXTRAS) ?: return
 
         val directChildren = (0 until panel.childCount).map(panel::getChildAt)
@@ -104,6 +110,10 @@ object SettingsV2SectionOrganizer {
                     view is V2SecuritySettingsView ||
                     tag == V2SecuritySettingsView.TAG -> move(view, account)
                 isPointageView(view, id, tag) -> move(view, pointage)
+                isCelestialView(view, id) -> move(view, celestial)
+                view is V2BackupRestoreView || tag == V2BackupRestoreView.TAG -> {
+                    if (drive != null) move(view, drive)
+                }
                 view is SuggestionBoxView ||
                     tag == "first_steps_replay" ||
                     view is SnakeGameButtonView -> move(view, extras)
