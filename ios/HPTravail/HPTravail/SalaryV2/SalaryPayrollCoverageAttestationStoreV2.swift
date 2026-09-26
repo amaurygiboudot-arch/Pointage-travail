@@ -52,6 +52,7 @@ enum SalaryPayrollCoverageAttestationStoreV2 {
               checkedAt.timeIntervalSince1970.isFinite,
               checkedAt.timeIntervalSince1970 > 0,
               coveredEndEpochDay >= coveredStartEpochDay,
+              coveredEndEpochDay < Int64.max,
               let timeZone = TimeZone(identifier: timeZoneId),
               let endExclusive = localStart(
                   epochDay: coveredEndEpochDay + 1,
