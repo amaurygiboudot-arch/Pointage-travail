@@ -1,6 +1,6 @@
-Build HoraTrack DEV unique - fondu des onglets sans saut de l'Accueil - 2026-09-25
-Base vérifiée : main e2e9cad6bc1e3acd5ec15dfb69b26bbe1060c8ed après #434.
-Retour utilisateur : petit sautillement lors du masquage des onglets.
-Conserver la place de la navigation Android/iOS, le centrage et l'orientation de la Terre.
+Build HoraTrack DEV unique - Accueil fixe sans défilement ni rebond - 2026-09-25
+Base : main 2bb9acfddb43b42e6d3f24807174c4d5e56c6638 après #435.
+Retour vidéo : sautillement persistant et Soleil décalé pendant les gestes.
+Corriger le conteneur Android ; conserver la géométrie céleste et les écrans métier défilants.
 Publier APK/AAB signés de test vers dev-latest via le workflow existant après fusion.
-Validation visuelle sur appareils à effectuer ; aucun store ni déploiement Firebase.
+Trajectoire réelle et résultat sur appareil à confirmer ; aucun Firebase/store.

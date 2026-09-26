@@ -159,7 +159,7 @@ async function handleLegalChange(db, change) {
 }
 
 exports.legifranceRequest = onCall(
-  { secrets: [pisteClientId, pisteClientSecret], timeoutSeconds: 30 },
+  { secrets: [pisteClientId, pisteClientSecret], timeoutSeconds: 30, enforceAppCheck: true },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Connexion HoraTrack requise.");
 
@@ -212,7 +212,7 @@ exports.legifranceRequest = onCall(
 );
 
 exports.legalReanalysisPlan = onCall(
-  { timeoutSeconds: 15 },
+  { timeoutSeconds: 15, enforceAppCheck: true },
   async (request) => {
     if (!request.auth) throw new HttpsError("unauthenticated", "Connexion HoraTrack requise.");
     const db = legalCacheDb();

@@ -4,53 +4,34 @@ import android.content.Context
 import android.util.AttributeSet
 import android.view.View
 import android.widget.FrameLayout
-import kotlin.math.max
-import kotlin.math.min
 
-/**
- * Conteneur responsive de l'accueil céleste.
- *
- * L'horloge doit devenir l'élément principal de l'écran Accueil sans dépendre
- * d'une taille fixe en dp. La largeur disponible pilote donc le diamètre, avec
- * une limite liée à la hauteur réelle de l'écran pour rester confortable sur
- * téléphone comme sur tablette.
- *
- * Le panneau est légèrement plus haut que large : le cadran reste circulaire,
- * mais Soleil/Lune disposent de la marge verticale nécessaire près de l'horizon
- * sans être rognés par le bas du conteneur.
- */
+/** One stable, window-sized viewport for the clock and its celestial overlay. */
 class CelestialHomePanel @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : FrameLayout(context, attrs, defStyleAttr) {
-
     init {
         clipChildren = false
         clipToPadding = false
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val widthMode = View.MeasureSpec.getMode(widthMeasureSpec)
-        val availableWidth = View.MeasureSpec.getSize(widthMeasureSpec)
-        if (widthMode == View.MeasureSpec.UNSPECIFIED || availableWidth <= 0) {
+        val scroll = (parent as? View)?.parent as? ThemedBackgroundScrollView
+        val available = scroll?.availableHomePanelHeight(this)
+        if (available != null) {
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(available, MeasureSpec.EXACTLY))
+        } else {
+            // Ordinary embedding retains its parent's measurement contract.
             super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-            return
         }
+    }
 
-        val density = resources.displayMetrics.density
-        val screenHeight = resources.displayMetrics.heightPixels
-        val minHeight = max((320f * density).toInt(), (availableWidth * 1.10f).toInt())
-        // Accueil Céleste est un écran immersif : le panneau doit occuper presque
-        // toute la hauteur utile, même lorsque les onglets se masquent.
-        val viewportHeight = (screenHeight * 0.88f).toInt()
-        val tabletSafetyCap = (900f * density).toInt()
-        val targetHeight = min(viewportHeight, tabletSafetyCap)
-            .coerceAtLeast(minHeight)
-
-        super.onMeasure(
-            widthMeasureSpec,
-            View.MeasureSpec.makeMeasureSpec(targetHeight, View.MeasureSpec.EXACTLY)
-        )
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        // Both layers must re-record their display lists in the same layout pass
+        // after a real window/inset change, not on their different sensor ticks.
+        findViewById<View>(R.id.heroClockPermanent)?.invalidate()
+        findViewById<View>(R.id.sunIndicator)?.invalidate()
     }
 }
