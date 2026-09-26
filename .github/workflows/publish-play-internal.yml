@@ -71,7 +71,6 @@ jobs:
       - name: Publish to internal testing
         env:
           PACKAGE_NAME: com.amaury.pointage
-          PLAY_TRACK: qa
         run: |
           python <<'PY'
           import json, os, pathlib, requests
@@ -79,7 +78,6 @@ jobs:
           from google.auth.transport.requests import Request
 
           package = os.environ["PACKAGE_NAME"]
-          play_track = os.environ["PLAY_TRACK"]
           expected = int(os.environ["EXPECTED_VERSION_CODE"])
           version_name = os.environ["VERSION_NAME"]
           credential_file = os.environ["PLAY_CREDENTIALS"]
@@ -101,6 +99,48 @@ jobs:
           )
           edit_response.raise_for_status()
           edit_id = edit_response.json()["id"]
+
+          tracks_response = requests.get(
+              f"{api}/applications/{package}/edits/{edit_id}/tracks",
+              headers=headers,
+              timeout=30,
+          )
+          tracks_response.raise_for_status()
+          tracks = tracks_response.json().get("tracks", [])
+          available_tracks = [str(item.get("track", "")).strip() for item in tracks if item.get("track")]
+
+          previous_code = str(expected - 1)
+          release_matches = []
+          for item in tracks:
+              track_name = str(item.get("track", "")).strip()
+              if not track_name or track_name == "production":
+                  continue
+              releases = item.get("releases") or []
+              if any(
+                  previous_code in [str(code) for code in (release.get("versionCodes") or [])]
+                  for release in releases
+              ):
+                  release_matches.append(track_name)
+
+          preferred = [name for name in ("qa", "internal") if name in available_tracks]
+          if len(release_matches) == 1:
+              play_track = release_matches[0]
+          elif len(preferred) == 1:
+              play_track = preferred[0]
+          elif len(release_matches) > 1:
+              preferred_matches = [name for name in release_matches if name in ("qa", "internal")]
+              if len(preferred_matches) == 1:
+                  play_track = preferred_matches[0]
+              else:
+                  raise RuntimeError(
+                      f"Plusieurs tracks contiennent la version {previous_code}: {release_matches}"
+                  )
+          else:
+              raise RuntimeError(
+                  f"Aucun track interne identifiable. Tracks API disponibles: {available_tracks}"
+              )
+
+          print(f"Track Google Play sélectionné: {play_track}; disponibles={available_tracks}")
 
           with aab.open("rb") as handle:
               upload = requests.post(
