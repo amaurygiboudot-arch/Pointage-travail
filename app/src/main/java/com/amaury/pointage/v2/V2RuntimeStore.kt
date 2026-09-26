@@ -101,7 +101,9 @@ object V2RuntimeStore {
         val employerId = profile.employer?.id
         val legacySlot = profile.companySlot.takeIf { it in 1..2 }
         val knownExpected = expectedEndMs?.takeIf { it > nowMs }
-            ?: V2ScheduleStore.expectedEndForEntry(context, nowMs)?.takeIf { it > nowMs }
+            ?: employerId?.let { companyId ->
+                V2ScheduleStore.expectedEndForEntry(context, companyId, nowMs)?.takeIf { it > nowMs }
+            }
 
         val editor = prefs.edit()
             .remove(KEY_ID).remove(KEY_EMPLOYER_ID).remove(KEY_COMPANY_SLOT)
@@ -427,7 +429,9 @@ object V2RuntimeStore {
 
         val knownExpectedEnd = expectedEndMs
             ?: safeLong(prefs.all[KEY_EXPECTED_END]).takeIf { it > 0L }
-            ?: V2ScheduleStore.expectedEnd(context, entry, nowMs)
+            ?: session.employerId?.trim()?.takeIf { it.isNotBlank() }?.let { companyId ->
+                V2ScheduleStore.expectedEnd(context, companyId, entry, nowMs)
+            }
         val countedExit = HoraTrackV2.time.countedExitFromRealExit(nowMs, knownExpectedEnd)
         val closedPauses = pauseArrayOrNull(pauses)?.let(::parsePauseArray) ?: return false
         val closedSession = session.copy(
