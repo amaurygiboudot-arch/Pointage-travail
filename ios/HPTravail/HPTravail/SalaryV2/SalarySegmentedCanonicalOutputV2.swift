@@ -48,9 +48,15 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
     ) -> SalarySegmentedCanonicalOutputV2 {
         var warnings = unique(worked.warnings + cash.warnings + net.warnings)
 
+        let cashConsistentWithWorked: Bool
+        if cash.reliable {
+            cashConsistentWithWorked = sameMoney(cash.workedGross, worked.workedGross)
+        } else {
+            cashConsistentWithWorked = cash.workedGross == nil && cash.cashGross == nil
+        }
         let chainConsistent =
             cashEqual(net.cash, cash) &&
-            sameMoney(cash.workedGross, worked.workedGross)
+            cashConsistentWithWorked
         if !chainConsistent { warnings.append(chainWarning) }
 
         let weeks = worked.evidence.slices.flatMap { $0.weeks }
@@ -114,7 +120,7 @@ enum SalarySegmentedCanonicalOutputAssemblerV2 {
             finiteNonNegative($0) ? $0 : nil
         } : nil
         let reliableWorkedGross =
-            chainConsistent && worked.reliable && worked.assembly.reliable
+            worked.reliable && worked.assembly.reliable
                 ? worked.workedGross.flatMap { finiteNonNegative($0) ? $0 : nil }
                 : nil
         let reliableCashGross =

@@ -56,7 +56,8 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
             net: net(cashB, complete: true)
         )
 
-        XCTAssertFalse(result.workedGrossReliable)
+        XCTAssertTrue(result.workedGrossReliable)
+        XCTAssertEqual(result.workedGross, 1_000)
         XCTAssertFalse(result.cashGrossReliable)
         XCTAssertFalse(result.netBeforeIncomeTaxComplete)
         XCTAssertNil(result.cashGross)
