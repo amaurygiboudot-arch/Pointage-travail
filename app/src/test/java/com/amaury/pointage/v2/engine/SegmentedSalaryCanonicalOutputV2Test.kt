@@ -21,6 +21,7 @@ class SegmentedSalaryCanonicalOutputV2Test {
         assertTrue(result.cashGrossReliable)
         assertTrue(result.netBeforeIncomeTaxComplete)
         assertEquals(2_400, result.paidMinutes)
+        assertEquals(300, result.variableOvertimeMinutes)
         assertEquals(0, result.complementaryMinutes)
         assertEquals(120, result.nightMinutes)
         assertEquals(1_000.0, result.workedGross!!, 0.0001)
@@ -103,6 +104,7 @@ class SegmentedSalaryCanonicalOutputV2Test {
                     overtimeGross = 50.0,
                     complementaryGross = 0.0,
                     premiumGross = 25.0,
+                    variableOvertimeMinutes = 300,
                     complementaryMinutes = 0
                 )
             )
