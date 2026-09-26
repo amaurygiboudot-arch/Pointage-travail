@@ -112,6 +112,9 @@ object AppearanceManager {
         }
 
         recolor(contentRoot, bg, panel, hasImage, false)
+        if (activity is MainActivity) {
+            activity.findViewById<LinearLayout>(R.id.navigationTabs)?.let(NavigationTabContrastV2::apply)
+        }
     }
 
     private fun recolor(view: View, bg: Int, panel: Int, imageBg: Boolean, inheritedPanel: Boolean) {
