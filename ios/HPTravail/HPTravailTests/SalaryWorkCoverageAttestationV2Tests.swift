@@ -58,6 +58,88 @@ final class SalaryWorkCoverageAttestationV2Tests: XCTestCase {
         )
     }
 
+    func testTwoDistinctPeriodsWithSameSourceAreBothRetained() {
+        let first = SalaryWorkCoverageAttestationV2(
+            employerId: "company",
+            coveredStartEpochDay: 1,
+            coveredEndEpochDay: 31,
+            checkedAt: Date(timeIntervalSince1970: 100),
+            timeZoneId: "UTC",
+            sourceId: "manual-review",
+            historyFingerprint: "fp-1"
+        )
+        let second = SalaryWorkCoverageAttestationV2(
+            employerId: "company",
+            coveredStartEpochDay: 32,
+            coveredEndEpochDay: 59,
+            checkedAt: Date(timeIntervalSince1970: 200),
+            timeZoneId: "UTC",
+            sourceId: "manual-review",
+            historyFingerprint: "fp-2"
+        )
+
+        let merged = SalaryWorkCoverageStoreV2.upsertAttestation(
+            SalaryWorkCoverageStoreV2.upsertAttestation([], replacement: first),
+            replacement: second
+        )
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertTrue(merged.contains(first))
+        XCTAssertTrue(merged.contains(second))
+
+        let correctedFirst = SalaryWorkCoverageAttestationV2(
+            employerId: first.employerId,
+            coveredStartEpochDay: first.coveredStartEpochDay,
+            coveredEndEpochDay: first.coveredEndEpochDay,
+            checkedAt: Date(timeIntervalSince1970: 300),
+            timeZoneId: first.timeZoneId,
+            sourceId: first.sourceId,
+            historyFingerprint: "fp-1-new"
+        )
+        let replaced = SalaryWorkCoverageStoreV2.upsertAttestation(
+            merged,
+            replacement: correctedFirst
+        )
+        XCTAssertEqual(replaced.count, 2)
+        XCTAssertFalse(replaced.contains(first))
+        XCTAssertTrue(replaced.contains(correctedFirst))
+        XCTAssertTrue(replaced.contains(second))
+    }
+
+    func testStoredAttestationBeforeEndOfCoveredDayIsInvalid() {
+        let end: Int64 = 20_703 // 2026-09-07
+        let zone = TimeZone(identifier: "Europe/Paris")!
+        var paris = Calendar(identifier: .gregorian)
+        paris.timeZone = zone
+        let beforeEnd = paris.date(from: DateComponents(
+            year: 2026, month: 9, day: 7, hour: 23
+        ))!
+        let afterEnd = paris.date(from: DateComponents(
+            year: 2026, month: 9, day: 8, hour: 0
+        ))!
+
+        let invalid = SalaryWorkCoverageAttestationV2(
+            employerId: "company",
+            coveredStartEpochDay: end - 6,
+            coveredEndEpochDay: end,
+            checkedAt: beforeEnd,
+            timeZoneId: zone.identifier,
+            sourceId: "proof",
+            historyFingerprint: "abc"
+        )
+        let valid = SalaryWorkCoverageAttestationV2(
+            employerId: invalid.employerId,
+            coveredStartEpochDay: invalid.coveredStartEpochDay,
+            coveredEndEpochDay: invalid.coveredEndEpochDay,
+            checkedAt: afterEnd,
+            timeZoneId: invalid.timeZoneId,
+            sourceId: invalid.sourceId,
+            historyFingerprint: invalid.historyFingerprint
+        )
+
+        XCTAssertFalse(SalaryWorkCoverageStoreV2.validStoredAttestation(invalid))
+        XCTAssertTrue(SalaryWorkCoverageStoreV2.validStoredAttestation(valid))
+    }
+
     func testExplicitAttestationResolvesAndMutationInvalidatesIt() {
         let defaults = defaults()
         let sessions = [session("00000000-0000-0000-0000-000000000001", 1)]
