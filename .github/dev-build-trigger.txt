@@ -1,6 +1,1 @@
-Build HoraTrack DEV unique - Accueil fixe sans défilement ni rebond - 2026-09-25
-Base : main 2bb9acfddb43b42e6d3f24807174c4d5e56c6638 après #435.
-Retour vidéo : sautillement persistant et Soleil décalé pendant les gestes.
-Corriger le conteneur Android ; conserver la géométrie céleste et les écrans métier défilants.
-Publier APK/AAB signés de test vers dev-latest via le workflow existant après fusion.
-Trajectoire réelle et résultat sur appareil à confirmer ; aucun Firebase/store.
+Build HoraTrack DEV unique - celestial V2 3D tracking - 2026-09-10

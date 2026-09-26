@@ -36,7 +36,6 @@ android {
         buildConfigField("String", "FIREBASE_APP_ID", "\"${envString("FIREBASE_APP_ID")}\"")
         buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${envString("FIREBASE_PROJECT_ID")}\"")
         buildConfigField("String", "FIREBASE_SENDER_ID", "\"${envString("FIREBASE_SENDER_ID")}\"")
-        buildConfigField("String", "CELESTIAL_WEATHER_ENDPOINT", "\"${envString("CELESTIAL_WEATHER_ENDPOINT")}\"")
         buildConfigField("Boolean", "INTERNAL_APK_UPDATES_ENABLED", "true")
     }
 

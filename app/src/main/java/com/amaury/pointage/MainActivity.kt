@@ -11,15 +11,11 @@ import android.location.Geocoder
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.provider.Settings
-import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
-import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextClock
 import android.widget.TextView
@@ -30,8 +26,6 @@ import com.amaury.pointage.v2.V2ProfileStore
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.V2RuntimeStore
 import com.amaury.pointage.v2.ui.HistoryTextFormatterV2
-import com.amaury.pointage.v2.ui.HomeTabVisibilityPolicyV2
-import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
 import com.amaury.pointage.v2.engine.MonthlyPdfReportV2
 import com.amaury.pointage.v2.model.SessionStatusV2
 import org.json.JSONArray
@@ -58,12 +52,10 @@ class MainActivity : Activity() {
     private lateinit var contentTitle: TextView
     private lateinit var clockDigital: TextClock
     private lateinit var contentPanel: LinearLayout
-    private lateinit var navigationTabs: LinearLayout
     private lateinit var celestialHomePanel: View
     private lateinit var sunIndicator: SunIndicatorView
     private lateinit var pointageButtons: LinearLayout
     private lateinit var gpsSettingsPanel: LinearLayout
-    private lateinit var celestialGlobeModeGroup: RadioGroup
     private lateinit var analyticsPdfPanel: LinearLayout
     private lateinit var workplaceAddress: EditText
     private lateinit var geofenceRadius: EditText
@@ -79,25 +71,7 @@ class MainActivity : Activity() {
 
     private var activeTab = "home"
     private var updatingGpsSwitch = false
-    private var updatingCelestialGlobeMode = false
     private var gpsSaveRequestId = 0
-    private val homeTabsHandler = Handler(Looper.getMainLooper())
-    private val hideHomeTabsRunnable = Runnable {
-        if (HomeTabVisibilityPolicyV2.shouldHide(activeTab == "home", HomeTabVisibilityPolicyV2.INACTIVITY_TIMEOUT_MS)) {
-            navigationTabs.animate().cancel()
-            navigationTabs.animate()
-                .alpha(0f)
-                .setDuration(220L)
-                .withEndAction {
-                    if (activeTab == "home") {
-                        // Keep the measured slot: GONE reflows the sky panel after the fade.
-                        navigationTabs.visibility = View.INVISIBLE
-                        navigationTabs.alpha = 1f
-                    }
-                }
-                .start()
-        }
-    }
 
     private val selectedReportMonth = Calendar.getInstance(Locale.FRANCE).apply {
         set(Calendar.DAY_OF_MONTH, 1)
@@ -114,9 +88,6 @@ class MainActivity : Activity() {
     private val reportMonthFormat = SimpleDateFormat("MMMM yyyy", Locale.FRANCE)
 
     private val gpsPrefs by lazy { getSharedPreferences("gps_settings", Context.MODE_PRIVATE) }
-    private val celestialPrefs by lazy {
-        getSharedPreferences(CelestialGlobeModeV2.PREFS, Context.MODE_PRIVATE)
-    }
     private val navigationPrefs by lazy { getSharedPreferences(NAVIGATION_PREFS, Context.MODE_PRIVATE) }
 
     private inline fun <reified T : View> requiredView(id: Int, name: String): T =
@@ -132,12 +103,10 @@ class MainActivity : Activity() {
         contentTitle = requiredView(R.id.contentTitle, "contentTitle")
         clockDigital = requiredView(R.id.clockDigital, "clockDigital")
         contentPanel = requiredView(R.id.contentPanel, "contentPanel")
-        navigationTabs = requiredView(R.id.navigationTabs, "navigationTabs")
         celestialHomePanel = requiredView(R.id.celestialHomePanel, "celestialHomePanel")
         sunIndicator = requiredView(R.id.sunIndicator, "sunIndicator")
         pointageButtons = requiredView(R.id.pointageButtons, "pointageButtons")
         gpsSettingsPanel = requiredView(R.id.gpsSettingsPanel, "gpsSettingsPanel")
-        celestialGlobeModeGroup = requiredView(R.id.celestialGlobeModeGroup, "celestialGlobeModeGroup")
         analyticsPdfPanel = requiredView(R.id.analyticsPdfPanel, "analyticsPdfPanel")
         workplaceAddress = requiredView(R.id.workplaceAddress, "workplaceAddress")
         geofenceRadius = requiredView(R.id.geofenceRadius, "geofenceRadius")
@@ -160,20 +129,8 @@ class MainActivity : Activity() {
         val generateMonthlyPdfButton: Button? = findViewById(R.id.generateMonthlyPdfButton)
 
         loadGpsSettings()
-        loadCelestialSettings()
         restoreSelectedReportMonth()
         updateSelectedReportMonthText()
-
-        celestialGlobeModeGroup.setOnCheckedChangeListener { _, checkedId ->
-            if (updatingCelestialGlobeMode) return@setOnCheckedChangeListener
-            val mode = when (checkedId) {
-                R.id.celestialGlobeModeWorld -> CelestialGlobeModeV2.WORLD
-                else -> CelestialGlobeModeV2.LOCAL
-            }
-            celestialPrefs.edit()
-                .putString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, mode.name)
-                .apply()
-        }
 
         autoGpsSwitch.setOnCheckedChangeListener { _, checked ->
             if (updatingGpsSwitch) return@setOnCheckedChangeListener
@@ -244,13 +201,6 @@ class MainActivity : Activity() {
         openRequestedTab(intent)
     }
 
-    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-        if (activeTab == "home" && event.actionMasked == MotionEvent.ACTION_DOWN) {
-            revealHomeTabsAndScheduleHide()
-        }
-        return super.dispatchTouchEvent(event)
-    }
-
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
         if (intent != null) {
@@ -276,8 +226,6 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         gpsSaveRequestId++
-        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
-        navigationTabs.animate().cancel()
         super.onDestroy()
     }
 
@@ -300,8 +248,6 @@ class MainActivity : Activity() {
     }
 
     internal fun onSalaryTabShown() {
-        setCelestialHomeBackground(false)
-        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("salary")
         setActiveTab(tabSalary)
     }
@@ -354,21 +300,11 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun setCelestialHomeBackground(active: Boolean) {
-        findViewById<ThemedBackgroundScrollView>(R.id.appRootScroll)
-            ?.setCelestialHomeActive(active)
-    }
-
     private fun showHomeTab() {
-        setCelestialHomeBackground(true)
         persistActiveTab("home")
         setActiveTab(tabHome)
-        revealHomeTabsAndScheduleHide()
         celestialHomePanel.visibility = View.VISIBLE
         sunIndicator.setSunVisible(true)
-        // Le Soleil et la Lune sont des objets célestes du premier plan :
-        // ils ne doivent jamais être masqués par le cadran central.
-        sunIndicator.bringToFront()
         clockDigital.visibility = View.VISIBLE
         statusCard.visibility = View.GONE
         pointageButtons.visibility = View.GONE
@@ -380,8 +316,6 @@ class MainActivity : Activity() {
     }
 
     private fun showTodayTab() {
-        setCelestialHomeBackground(false)
-        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("today")
         setActiveTab(tabToday)
         celestialHomePanel.visibility = View.GONE
@@ -399,8 +333,6 @@ class MainActivity : Activity() {
     }
 
     private fun showHistoryTab() {
-        setCelestialHomeBackground(false)
-        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("history")
         setActiveTab(tabHistory)
         celestialHomePanel.visibility = View.GONE
@@ -418,8 +350,6 @@ class MainActivity : Activity() {
     }
 
     private fun showAnalyticsTab() {
-        setCelestialHomeBackground(false)
-        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("analytics")
         setActiveTab(tabAnalytics)
         celestialHomePanel.visibility = View.GONE
@@ -438,8 +368,6 @@ class MainActivity : Activity() {
     }
 
     private fun showSettingsTab() {
-        setCelestialHomeBackground(false)
-        cancelHomeTabAutoHideAndShowTabs()
         persistActiveTab("settings")
         setActiveTab(tabSettings)
         celestialHomePanel.visibility = View.GONE
@@ -452,34 +380,9 @@ class MainActivity : Activity() {
         historyText.visibility = View.GONE
         analyticsPdfPanel.visibility = View.GONE
         gpsSettingsPanel.visibility = View.VISIBLE
-        contentTitle.text = "PARAMÈTRES"
-        loadCelestialSettings()
+        contentTitle.text = "LIEUX DE TRAVAIL GPS"
         loadGpsSettings()
         updateGpsStatus()
-    }
-
-    private fun revealHomeTabsAndScheduleHide() {
-        if (activeTab != "home") return
-        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
-        navigationTabs.animate().cancel()
-        if (navigationTabs.visibility != View.VISIBLE) {
-            navigationTabs.alpha = 0f
-            navigationTabs.visibility = View.VISIBLE
-            navigationTabs.animate().alpha(1f).setDuration(160L).start()
-        } else {
-            navigationTabs.alpha = 1f
-        }
-        homeTabsHandler.postDelayed(
-            hideHomeTabsRunnable,
-            HomeTabVisibilityPolicyV2.INACTIVITY_TIMEOUT_MS
-        )
-    }
-
-    private fun cancelHomeTabAutoHideAndShowTabs() {
-        homeTabsHandler.removeCallbacks(hideHomeTabsRunnable)
-        navigationTabs.animate().cancel()
-        navigationTabs.alpha = 1f
-        navigationTabs.visibility = View.VISIBLE
     }
 
     private fun setActiveTab(active: TextView) {
@@ -542,30 +445,6 @@ class MainActivity : Activity() {
         startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE); type = "application/pdf"; putExtra(Intent.EXTRA_TITLE, "HoraTrack_$monthFile.pdf")
         }, REQUEST_CREATE_MONTHLY_PDF)
-    }
-
-    private fun loadCelestialSettings() {
-        val mode = CelestialGlobeModeV2.fromStored(
-            celestialPrefs.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
-        )
-        updatingCelestialGlobeMode = true
-        celestialGlobeModeGroup.check(
-            if (mode == CelestialGlobeModeV2.WORLD) {
-                R.id.celestialGlobeModeWorld
-            } else {
-                R.id.celestialGlobeModeLocal
-            }
-        )
-        updatingCelestialGlobeMode = false
-
-        findViewById<TextView>(R.id.celestialWeatherAttribution)?.apply {
-            val endpoint = BuildConfig.CELESTIAL_WEATHER_ENDPOINT
-            visibility = if (endpoint.contains("open-meteo.com", ignoreCase = true)) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
-        }
     }
 
     private fun loadGpsSettings() {

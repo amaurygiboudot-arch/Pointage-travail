@@ -14,17 +14,12 @@ struct CelestialTrackingStateV2 {
     let headingAge: TimeInterval?
     let pitchDegrees: Double?
     let rollDegrees: Double?
-    let deviceFrame: StarDeviceFrameV2?
 
     var hasRealDirectionalSky: Bool {
         snapshot != nil
             && locationQuality == .valid
             && trueHeadingDegrees != nil
             && CelestialHeadingPolicyV2.isUsable(headingQuality)
-    }
-
-    var hasPhysicalStarSky: Bool {
-        hasRealDirectionalSky && deviceFrame != nil
     }
 
     static let unavailable = CelestialTrackingStateV2(
@@ -36,8 +31,7 @@ struct CelestialTrackingStateV2 {
         headingQuality: .unavailable,
         headingAge: nil,
         pitchDegrees: nil,
-        rollDegrees: nil,
-        deviceFrame: nil
+        rollDegrees: nil
     )
 }
 
@@ -59,7 +53,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var latestHeading: CLHeading?
     private var latestMotion: CMDeviceMotion?
     private var latestMotionUptime: TimeInterval?
-    private var celestialDeviceOrientation: UIDeviceOrientation = .portrait
     /// Dedicated qualified sample for the sky. The published `location`
     /// remains the result of an explicit one-shot request used by pointage and
     /// zone creation; continuous celestial tracking must not overwrite it.
@@ -462,13 +455,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
         guard celestialTrackingActive else { return }
         latestHeading = newHeading
-
-        // Quand Core Motion tourne déjà à 5 Hz, il publiera le dernier cap au
-        // prochain tick. Éviter un second redraw sur chaque événement boussole
-        // réduit les reprojections du ciel sans ralentir visiblement le point de vue.
-        if !motionManager.isDeviceMotionActive {
-            refreshCelestialState()
-        }
+        refreshCelestialState()
     }
 
     func locationManagerShouldDisplayHeadingCalibration(_ manager: CLLocationManager) -> Bool {
@@ -523,19 +510,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private func updateHeadingOrientation() {
         switch UIDevice.current.orientation {
         case .portrait:
-            celestialDeviceOrientation = .portrait
             manager.headingOrientation = .portrait
         case .portraitUpsideDown:
-            celestialDeviceOrientation = .portraitUpsideDown
             manager.headingOrientation = .portraitUpsideDown
         case .landscapeLeft:
-            celestialDeviceOrientation = .landscapeLeft
             manager.headingOrientation = .landscapeLeft
         case .landscapeRight:
-            celestialDeviceOrientation = .landscapeRight
             manager.headingOrientation = .landscapeRight
         default:
-            // faceUp/faceDown/unknown conservent le dernier repère écran fiable.
             break
         }
     }
@@ -912,37 +894,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         registrationStartedIdentifiers = []
     }
 
-    private func buildPhysicalStarDeviceFrame(motion: CMDeviceMotion) -> StarDeviceFrameV2? {
-        guard motionManager.attitudeReferenceFrame == .xTrueNorthZVertical else {
-            return nil
-        }
-
-        let matrix = motion.attitude.rotationMatrix
-        let orientation: StarScreenOrientationV2
-        switch celestialDeviceOrientation {
-        case .portraitUpsideDown:
-            orientation = .portraitUpsideDown
-        case .landscapeLeft:
-            orientation = .landscapeLeft
-        case .landscapeRight:
-            orientation = .landscapeRight
-        default:
-            orientation = .portrait
-        }
-
-        return StarDeviceFrameFactoryV2.trueNorthFrame(
-            matrix: StarAttitudeMatrixV2(
-                m11: matrix.m11, m12: matrix.m12, m13: matrix.m13,
-                m21: matrix.m21, m22: matrix.m22, m23: matrix.m23,
-                m31: matrix.m31, m32: matrix.m32, m33: matrix.m33
-            ),
-            gravityX: motion.gravity.x,
-            gravityY: motion.gravity.y,
-            gravityZ: motion.gravity.z,
-            orientation: orientation
-        )
-    }
-
     private func refreshCelestialState(at now: Date = Date()) {
         let isAuthorized = authorizationStatus == .authorizedWhenInUse
             || authorizationStatus == .authorizedAlways
@@ -988,26 +939,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
 
         let radiansToDegrees = 180.0 / Double.pi
-        let usableTrueHeading = CelestialHeadingPolicyV2.isUsable(headingQuality)
-            ? trueHeading
-            : nil
-        let physicalFrame = latestMotion.flatMap { motion in
-            usableTrueHeading.flatMap { _ in
-                buildPhysicalStarDeviceFrame(motion: motion)
-            }
-        }
-
         celestialState = CelestialTrackingStateV2(
             snapshot: snapshot,
             locationQuality: locationQuality,
             locationAge: locationAge,
             locationAccuracyMeters: celestialLocation?.horizontalAccuracy,
-            trueHeadingDegrees: usableTrueHeading,
+            trueHeadingDegrees: CelestialHeadingPolicyV2.isUsable(headingQuality) ? trueHeading : nil,
             headingQuality: headingQuality,
             headingAge: combinedHeadingAge,
             pitchDegrees: latestMotion.map { $0.attitude.pitch * radiansToDegrees },
-            rollDegrees: latestMotion.map { $0.attitude.roll * radiansToDegrees },
-            deviceFrame: physicalFrame
+            rollDegrees: latestMotion.map { $0.attitude.roll * radiansToDegrees }
         )
     }
 }

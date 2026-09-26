@@ -1,20 +1,15 @@
 package com.amaury.pointage
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.view.View
 import com.amaury.pointage.v2.CelestialTrackerV2
-import com.amaury.pointage.v2.engine.CelestialGlobeModeV2
-import com.amaury.pointage.v2.engine.CelestialGlobeOrientationV2
-import com.amaury.pointage.v2.engine.CelestialHeadingPolicyV2
 import com.amaury.pointage.v2.engine.CelestialScreenGeometryV2
 import com.amaury.pointage.v2.engine.CelestialSnapshotV2
 import java.util.Calendar
@@ -49,28 +44,8 @@ class HpAnalogClockView @JvmOverloads constructor(
     private val earthGlobeRenderer = EarthGlobeRendererV2 {
         if (isAttachedToWindow) postInvalidateOnAnimation()
     }
-    private val celestialPreferences = context.applicationContext.getSharedPreferences(
-        CelestialGlobeModeV2.PREFS,
-        Context.MODE_PRIVATE
-    )
-    private var globeMode = CelestialGlobeModeV2.fromStored(
-        celestialPreferences.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
-    )
-    private val celestialPreferenceListener =
-        SharedPreferences.OnSharedPreferenceChangeListener { preferences, key ->
-            if (key == CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE) {
-                globeMode = CelestialGlobeModeV2.fromStored(preferences.getString(key, null))
-                earthGlobeRenderer.clearCache()
-                postInvalidateOnAnimation()
-            }
-        }
 
-    private val starDome = CelestialStarLayerRendererV2(context) {
-        if (isAttachedToWindow) postInvalidateOnAnimation()
-    }
-    private var celestialState: CelestialTrackerV2.State? = null
     private var celestialSnapshot: CelestialSnapshotV2? = null
-    private var globeRotationDeg = 0f
     private var hostActivityVisible = false
     private var trackerSubscribed = false
 
@@ -83,10 +58,6 @@ class HpAnalogClockView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        celestialPreferences.registerOnSharedPreferenceChangeListener(celestialPreferenceListener)
-        globeMode = CelestialGlobeModeV2.fromStored(
-            celestialPreferences.getString(CelestialGlobeModeV2.PREF_KEY_GLOBE_MODE, null)
-        )
         maybeRequestSharpAssets()
         updateTrackerSubscription()
     }
@@ -106,16 +77,12 @@ class HpAnalogClockView @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
-        celestialPreferences.unregisterOnSharedPreferenceChangeListener(celestialPreferenceListener)
         if (trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
         }
         earthGlobeRenderer.clearCache()
         celestialSnapshot = null
-        celestialState = null
-        globeRotationDeg = 0f
-        starDome.clear()
         assetGeneration.incrementAndGet()
         sharpHandBitmap?.takeIf { it !== handBitmap && !it.isRecycled }?.recycle()
         sharpSecondBitmap?.takeIf { it !== secondBitmap && !it.isRecycled }?.recycle()
@@ -148,22 +115,13 @@ class HpAnalogClockView @JvmOverloads constructor(
             trackerSubscribed = true
             CelestialTrackerV2.subscribe(context, this) { state ->
                 celestialSnapshot = state.snapshot
-                celestialState = state
-                globeRotationDeg = CelestialGlobeOrientationV2.counterRotationDeg(
-                    CelestialHeadingPolicyV2.renderingHeadingDeg(
-                        state.deviceAzimuthDeg.toDouble(), state.headingQuality
-                    )
-                ).toFloat()
-                starDome.update(state)
                 invalidate()
             }
         } else if (!shouldSubscribe && trackerSubscribed) {
             CelestialTrackerV2.unsubscribe(this)
             trackerSubscribed = false
-            celestialState = null
-            starDome.clear()
-            // Conserver snapshot ET orientation : le globe reste visuellement figé
-            // en pause, sans acquisition GPS/capteurs supplémentaire.
+            // Conserver le dernier snapshot qualifié : il s'agit uniquement d'un
+            // état visuel figé, pas d'une acquisition GPS/capteurs en arrière-plan.
         }
     }
 
@@ -172,7 +130,7 @@ class HpAnalogClockView @JvmOverloads constructor(
         if (alpha <= 0f || width <= 0 || height <= 0) return
 
         val cx = width * 0.50f
-        val cy = screenAnchoredCenterY()
+        val cy = height * 0.55f
         val safeSpan = CelestialScreenGeometryV2.safeRenderSpan(
             width.toDouble(),
             height.toDouble()
@@ -180,7 +138,6 @@ class HpAnalogClockView @JvmOverloads constructor(
         val faceRadius = safeSpan * 0.40f
 
         drawFace(canvas, cx, cy, faceRadius)
-        starDome.draw(canvas, cx, cy, faceRadius, celestialState)
 
         val now = Calendar.getInstance()
         val seconds = now.get(Calendar.SECOND) + now.get(Calendar.MILLISECOND) / 1000f
@@ -205,34 +162,8 @@ class HpAnalogClockView @JvmOverloads constructor(
         }
     }
 
-    /**
-     * Centre l'horloge dans la fenêtre visible et non dans le panneau situé sous
-     * les onglets. Ainsi l'apparition/disparition des onglets Accueil ne déplace
-     * plus le cadran verticalement.
-     */
-    private fun screenAnchoredCenterY(): Float {
-        if (!isAttachedToWindow || height <= 0) return height * 0.50f
-
-        val visibleFrame = Rect()
-        getWindowVisibleDisplayFrame(visibleFrame)
-        val location = IntArray(2)
-        getLocationInWindow(location)
-
-        val targetWindowY = visibleFrame.exactCenterY()
-        val localY = targetWindowY - location[1]
-        return localY.coerceIn(height * 0.32f, height * 0.68f)
-    }
-
     private fun drawFace(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        ClockDialRendererV2.draw(
-            canvas = canvas,
-            cx = cx,
-            cy = cy,
-            radius = radius,
-            // The dial owns its spherical sky: do not mix the flat panorama
-            // behind it into the same star map.
-            backgroundAlpha = 255
-        )
+        ClockDialRendererV2.draw(canvas, cx, cy, radius)
     }
 
     private fun requestSharpAssets() {
@@ -272,9 +203,10 @@ class HpAnalogClockView @JvmOverloads constructor(
     /**
      * Globe GPS V2.
      *
-     * Le centre et le rayon restent ceux du pivot des aiguilles. Seule la Terre
-     * (texture, éclairage et marqueur ensemble) contre-tourne selon le cap vrai
-     * qualifié. Aucun nouveau raster n'est demandé pour un changement de cap.
+     * Quand une localisation qualifiée existe, sa latitude/longitude est la face
+     * avant du globe et le marqueur rouge est exactement au centre. Si aucune
+     * localisation fiable n'est disponible, on garde temporairement l'ancien
+     * symbole Terre plutôt que d'afficher un pays arbitraire comme position réelle.
      */
     private fun drawEarthGlobe(
         canvas: Canvas,
@@ -282,22 +214,14 @@ class HpAnalogClockView @JvmOverloads constructor(
         cy: Float,
         radius: Float
     ) {
-        val saveCount = canvas.save()
-        val rendered = try {
-            canvas.rotate(globeRotationDeg, cx, cy)
-            earthGlobeRenderer.draw(
-                canvas = canvas,
-                cx = cx,
-                cy = cy,
-                radius = radius,
-                snapshot = celestialSnapshot,
-                mode = globeMode
-            )
-        } finally {
-            canvas.restoreToCount(saveCount)
-        }
+        val rendered = earthGlobeRenderer.draw(
+            canvas = canvas,
+            cx = cx,
+            cy = cy,
+            radius = radius,
+            snapshot = celestialSnapshot
+        )
         if (!rendered) {
-            // Un symbole de secours n'est pas présenté comme un globe orienté.
             drawFallbackEarthPng(canvas, EarthDesignAsset.bitmap, cx, cy, radius)
         }
     }
