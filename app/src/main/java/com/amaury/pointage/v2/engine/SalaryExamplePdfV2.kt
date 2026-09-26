@@ -460,6 +460,70 @@ object SalaryExamplePdfV2 {
     private const val PDF_SECTION_TAIL_HEIGHT = 23f
 
     internal fun estimatedGrossLines(
+        canonical: SegmentedSalaryCanonicalOutputV2?
+    ): List<Pair<String, String>> {
+        val payroll = canonical?.net?.projection?.payroll
+        val reliablePayrollGross =
+            canonical?.cashGrossReliable == true &&
+                payroll?.grossReliable == true
+        val socialGross = payroll
+            ?.takeIf { reliablePayrollGross }
+            ?.let(NetSalaryReferencePolicyV2::socialGross)
+
+        return buildList {
+            add(
+                "Brut social estimé HoraTrack hors paniers" to
+                    (socialGross?.let(::money) ?: "À confirmer")
+            )
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Dont avantages en nature" to money(payroll!!.benefitsInKindDeduction))
+            }
+            add(
+                "Majoration heures supplémentaires" to
+                    (canonical?.overtimeGross
+                        ?.takeIf { canonical.workedGrossReliable && it.isFinite() && it >= 0.0 }
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+
+            // Le contrat segmenté ne porte pas encore les paniers : ne jamais relire l'ancien moteur
+            // pour compléter ce champ dans un PDF autrement canonique.
+            add("Paniers hors brut" to "À confirmer")
+
+            if (reliablePayrollGross && (payroll?.benefitsInKindDeduction ?: 0.0) > 0.0) {
+                add("Avantages en nature non versés en espèces" to "-${money(payroll!!.benefitsInKindDeduction)}")
+            }
+
+            val netComplete = canonical?.netBeforeIncomeTaxComplete == true
+            add("Net estimé avant impôt" to
+                (canonical?.netBeforeIncomeTax?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+            add("Net imposable estimé" to
+                (canonical?.netTaxable?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+            add("Prélèvement à la source" to
+                (canonical?.incomeTax?.takeIf { netComplete }?.let { "-${money(it)}" } ?: "À confirmer"))
+            add("Net estimé après PAS" to
+                (canonical?.netAfterIncomeTax?.takeIf { netComplete }?.let(::money) ?: "À confirmer"))
+
+            add(
+                "Réductions / exonérations patronales" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.confirmedEmployerReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+            add(
+                "Sous-total patronal connu après réductions" to
+                    (payroll
+                        ?.takeIf { reliablePayrollGross }
+                        ?.knownEmployerContributionsAfterReductions
+                        ?.let(::money)
+                        ?: "À confirmer")
+            )
+        }
+    }
+
+    internal fun estimatedGrossLines(
         salary: V2SalaryAdapter.Result?,
         salaryNet: V2SalaryNetBridgeV2.Result?
     ): List<Pair<String, String>> {
@@ -522,6 +586,27 @@ object SalaryExamplePdfV2 {
                         ?: "À confirmer")
             )
         }
+    }
+
+    internal fun timeSectionValues(
+        canonical: SegmentedSalaryCanonicalOutputV2?
+    ): TimeSectionValues {
+        if (canonical?.paidTimeReliable != true || canonical.paidMinutes == null) {
+            return TimeSectionValues(
+                completedSessions = "À confirmer",
+                paidTime = "À confirmer",
+                regularHours = "À confirmer",
+                overtimeHours = "À confirmer",
+                unpaidPauses = "À confirmer"
+            )
+        }
+        return TimeSectionValues(
+            completedSessions = canonical.worked.evidence.contributingSessionIds.size.toString(),
+            paidTime = duration(canonical.paidMinutes.toLong() * 60_000L),
+            regularHours = "À confirmer",
+            overtimeHours = "À confirmer",
+            unpaidPauses = "À confirmer"
+        )
     }
 
     internal fun timeSectionValues(
