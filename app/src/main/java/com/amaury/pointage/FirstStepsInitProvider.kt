@@ -17,7 +17,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import com.amaury.pointage.v2.AGKGMGV2
+import com.amaury.pointage.v2.HoraTrackV2
 
 /** Branche le tutoriel et les composants V2 sur l'interface normale. */
 class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleCallbacks {
@@ -85,7 +85,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installEmployerSelector(activity: MainActivity) {
-        if (!AGKGMGV2.ENABLED) return
+        if (!HoraTrackV2.ENABLED) return
         val panel = activity.findViewById<LinearLayout>(R.id.pointageButtons) ?: return
         val existing = panel.findViewWithTag<V2EmployerSelectorView>(V2EmployerSelectorView.TAG)
         if (existing == null) {
@@ -157,7 +157,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
     }
 
     private fun installV2PdfExport(activity: MainActivity) {
-        if (!AGKGMGV2.ENABLED) return
+        if (!HoraTrackV2.ENABLED) return
         activity.findViewById<Button>(R.id.generateMonthlyPdfButton)?.setOnClickListener {
             activity.startActivity(Intent(activity, V2MonthlyPdfActivity::class.java))
         }
