@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
 import android.widget.Toast
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.V2BackupManager
 import org.json.JSONArray
 import java.text.SimpleDateFormat
@@ -53,7 +53,7 @@ object DriveBackupManager {
 
     fun syncCurrentMonthAsync(context: Context) {
         if (!isConfigured(context)) return
-        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             V2BackupManager.backupIfConfiguredAsync(context)
             return
         }
@@ -70,13 +70,13 @@ object DriveBackupManager {
 
     fun syncAllAsync(context: Context, onDone: ((Boolean, String) -> Unit)? = null) {
         val app = context.applicationContext
-        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             executor.execute {
                 val result = V2BackupManager.backupToConfiguredDrive(app)
                 onDone?.invoke(
                     result.isSuccess,
                     result.fold(
-                        onSuccess = { "sauvegarde HoraTrack V2 à jour" },
+                        onSuccess = { "sauvegarde AGKGMG V2 à jour" },
                         onFailure = { it.message ?: "Erreur Drive" }
                     )
                 )
@@ -96,8 +96,8 @@ object DriveBackupManager {
     }
 
     private fun loadReliablePointage(context: Context): JSONArray {
-        check(syncOwner(HoraTrackV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
-            "Lecture PointageStore interdite : la sauvegarde HoraTrack V2 est propriétaire"
+        check(syncOwner(AGKGMGV2.ENABLED) == SyncOwner.LEGACY_REPORTS) {
+            "Lecture PointageStore interdite : la sauvegarde AGKGMG V2 est propriétaire"
         }
         return PointageStore.load(context)
     }
@@ -166,7 +166,7 @@ object DriveBackupManager {
     }
 
     fun syncMonth(context: Context, year: Int, month: Int) {
-        if (syncOwner(HoraTrackV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
+        if (syncOwner(AGKGMGV2.ENABLED) == SyncOwner.V2_SNAPSHOT) {
             V2BackupManager.backupToConfiguredDrive(context).getOrThrow()
             return
         }
@@ -181,7 +181,7 @@ object DriveBackupManager {
         val monthLabel = SimpleDateFormat("MM - MMMM", Locale.FRANCE).format(
             Calendar.getInstance(Locale.FRANCE).apply { set(year, month, 1) }.time
         ).replaceFirstChar { it.uppercase() }
-        val placeFolder = ensureDirectory(context, root, "HoraTrack")
+        val placeFolder = ensureDirectory(context, root, "AGKGMG")
         val yearFolder = ensureDirectory(context, placeFolder, year.toString())
         val monthFolder = ensureDirectory(context, yearFolder, safeName(monthLabel))
         val fileName = "Récapitulatif_${year}_${String.format(Locale.FRANCE, "%02d", month + 1)}.pdf"
