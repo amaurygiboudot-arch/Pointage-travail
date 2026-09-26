@@ -14,7 +14,7 @@ class SettingsUiInstallerIdempotenceContractV2Test {
         val source = File(root, "app/src/main/java/com/amaury/pointage/PointageApplication.kt").readText()
             .substringAfter("object SettingsUiInstaller")
 
-        assertFalse(source.contains("panel.findViewWithTag<View>(TAG) != null) return")
+        assertFalse(source.contains("panel.findViewWithTag<View>(TAG) != null) return"))
         listOf(
             "CONTENT_UPDATES",
             "CONTENT_APPEARANCE",
