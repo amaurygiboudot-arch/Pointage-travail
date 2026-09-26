@@ -1,4 +1,4 @@
-name: HPTravail
+﻿name: HPTravail
 options:
   bundleIdPrefix: com.amaury
 settings:
@@ -33,7 +33,7 @@ targets:
         CFBundleDisplayName: HP Travail
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: HP Travail utilise votre position pour le pointage GPS et l'affichage soleil/lune.
-        NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arrière-plan pour le pointage automatique si vous l'activez.
+        NSLocationAlwaysAndWhenInUseUsageDescription: HP Travail peut utiliser votre position en arriÃ¨re-plan pour le pointage automatique si vous l'activez.
         NSMotionUsageDescription: HP Travail utilise l'orientation de l'iPhone pour afficher le ciel dans la bonne direction.
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
@@ -98,6 +98,8 @@ targets:
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossAssemblyV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedCashGrossAssemblyV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedWorkedGrossProductionBridgeV2.swift
+      - path: HPTravail/SalaryV2/SalarySegmentedPayrollPremiumEvidenceBridgeV2.swift
       - path: HPTravail/SalaryV2/SalaryPayrollPremiumGrossV2.swift
       - path: HPTravail/SalaryV2/SalarySegmentedWorkedVariableGrossSourceV2.swift
       - path: HPTravail/SalaryV2/SalaryWeeklyThresholdMonthBoundaryGuardV2.swift
@@ -134,3 +136,4 @@ schemes:
       config: Debug
       targets:
         - HPTravailTests
+
