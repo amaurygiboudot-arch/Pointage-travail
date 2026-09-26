@@ -6,7 +6,7 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import java.util.Calendar
 
-/** Identité visuelle commune à tous les PDF HoraTrack. */
+/** Identité visuelle commune à tous les PDF AGKGMG. */
 object PdfVisualStyle {
     val gold = Color.rgb(190, 150, 72)
     val goldLight = Color.rgb(226, 199, 126)
@@ -22,14 +22,14 @@ object PdfVisualStyle {
         val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(205,205,205); textSize = 7.5f }
         canvas.drawRect(0f, 0f, width.toFloat(), 62f, dark)
         canvas.drawLine(0f, 62f, width.toFloat(), 62f, border)
-        canvas.drawText("HoraTrack", 24f, 25f, brand)
+        canvas.drawText("AGKGMG", 24f, 25f, brand)
         canvas.drawText(title, 24f, 45f, heading)
         if (subtitle.isNotBlank()) canvas.drawText(subtitle, width - 24f - small.measureText(subtitle), 43f, small)
     }
 
     fun footer(canvas: Canvas, width: Int, height: Int, page: Int? = null) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(105,105,105); textSize = 7f }
-        val copyright = "© ${Calendar.getInstance().get(Calendar.YEAR)} HoraTrack — Tous droits réservés"
+        val copyright = "© ${Calendar.getInstance().get(Calendar.YEAR)} AGKGMG — Tous droits réservés"
         canvas.drawLine(24f, height - 24f, width - 24f, height - 24f, Paint().apply { color = line; strokeWidth = .7f })
         canvas.drawText(copyright, 24f, height - 11f, p)
         page?.let {
