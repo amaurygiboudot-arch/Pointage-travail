@@ -23,7 +23,7 @@ class V2SecuritySettingsView @JvmOverloads constructor(
         tag = TAG
         orientation = VERTICAL
         setPadding(0, dp(14), 0, dp(4))
-        addView(TextView(context).apply { text = "VERROUILLAGE HORATRACK"; textSize = 15f })
+        addView(TextView(context).apply { text = "VERROUILLAGE AGKGMG"; textSize = 15f })
         addView(status.apply { textSize = 12f; setPadding(0, dp(4), 0, dp(6)) })
         addView(button("🔢 CONFIGURER LE PIN") { configurePin() })
         addView(button("👆 ACTIVER / DÉSACTIVER LA BIOMÉTRIE") {

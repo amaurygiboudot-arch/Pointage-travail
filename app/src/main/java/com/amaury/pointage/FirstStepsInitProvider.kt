@@ -61,6 +61,7 @@ class FirstStepsInitProvider : ContentProvider(), Application.ActivityLifecycleC
             installGpsZoneTypeSelector(activity)
             installBackupRestore(activity)
             installSecuritySettings(activity)
+            SettingsV2SectionOrganizer.organize(activity)
             removeLegacyLightTrackingToggle(activity)
             installV2PdfExport(activity)
             installReplayButton(activity)

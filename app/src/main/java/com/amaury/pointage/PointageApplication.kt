@@ -220,18 +220,14 @@ object SettingsUiInstaller {
             header.addView(back, 0)
         }
 
-        val section = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(activity, 14), 0, 0)
-            tag = TAG
-        }
-
-        section.addView(title(activity, "MISES À JOUR"))
-        section.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
+        val updates = settingsSection(activity, SettingsV2Host.TAG_UPDATES)
+        updates.addView(title(activity, "APPLICATION & MISES À JOUR"))
+        updates.addView(styledButton(activity, "VÉRIFIER LES MISES À JOUR").apply {
             setOnClickListener { UpdateChecker.check(activity, silent = false) }
         })
 
-        section.addView(title(activity, "APPARENCE DE L'APPLICATION"))
+        val appearance = settingsSection(activity, SettingsV2Host.TAG_PERSONALIZATION)
+        appearance.addView(title(activity, "APPARENCE DE L'APPLICATION"))
         val modeButton = styledButton(activity, "")
         fun updateModeLabel() {
             val mode = activity.getSharedPreferences("appearance_settings", Context.MODE_PRIVATE).getString("mode", "auto") ?: "auto"
@@ -249,15 +245,15 @@ object SettingsUiInstaller {
                 QuickActionsWidgetProvider.updateAll(activity)
             }.show()
         }
-        section.addView(modeButton)
+        appearance.addView(modeButton)
 
         val bgButton = styledButton(activity, "COULEUR DU FOND")
         bgButton.setOnClickListener { chooseAppBackground(activity) }
-        section.addView(bgButton)
+        appearance.addView(bgButton)
 
         val imageButton = styledButton(activity, "CHOISIR UNE IMAGE DE FOND")
         imageButton.setOnClickListener { activity.startActivity(Intent(activity, BackgroundPickerActivity::class.java)) }
-        section.addView(imageButton)
+        appearance.addView(imageButton)
 
         val resetBg = styledButton(activity, "RÉINITIALISER LE FOND")
         resetBg.setOnClickListener {
@@ -266,15 +262,16 @@ object SettingsUiInstaller {
                 .remove("app_bg").putBoolean("custom_bg", false).putBoolean("custom_image_bg", false).apply()
             AppearanceManager.apply(activity)
         }
-        section.addView(resetBg)
+        appearance.addView(resetBg)
 
-        section.addView(title(activity, "PERSONNALISER LE WIDGET"))
+        val widget = settingsSection(activity, SettingsV2Host.TAG_WIDGET)
+        widget.addView(title(activity, "WIDGET"))
         val widgetBg = styledButton(activity, "COULEUR DU FOND DU WIDGET")
         widgetBg.setOnClickListener { chooseWidgetColor(activity, "widget_bg", "Fond du widget") }
-        section.addView(widgetBg)
+        widget.addView(widgetBg)
         val widgetAccent = styledButton(activity, "COULEUR D'ACCENT DU WIDGET")
         widgetAccent.setOnClickListener { chooseWidgetColor(activity, "widget_accent", "Accent du widget") }
-        section.addView(widgetAccent)
+        widget.addView(widgetAccent)
 
         val showPosition = Switch(activity).apply {
             text = "Afficher la position dans le widget"
@@ -286,14 +283,10 @@ object SettingsUiInstaller {
                 QuickActionsWidgetProvider.updateAll(activity)
             }
         }
-        section.addView(showPosition)
+        widget.addView(showPosition)
 
-        section.addView(title(activity, "NOTICE"))
-        section.addView(styledButton(activity, "📖 NOTICE D'UTILISATION").apply {
-            setOnClickListener { UserGuideDialog.show(activity) }
-        })
-
-        section.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
+        val drive = settingsSection(activity, SettingsV2Host.TAG_DRIVE)
+        drive.addView(title(activity, "SAUVEGARDE GOOGLE DRIVE"))
         val driveStatus = TextView(activity).apply {
             textSize = 14f
             text = when {
@@ -302,11 +295,11 @@ object SettingsUiInstaller {
                 else -> "● Sauvegarde Drive active — PDF classés par lieu / année / mois"
             }
         }
-        section.addView(driveStatus)
-        section.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE").apply {
+        drive.addView(driveStatus)
+        drive.addView(styledButton(activity, if (DriveBackupManager.isConfigured(activity)) "CHANGER LE DOSSIER GOOGLE DRIVE" else "CHOISIR LE DOSSIER GOOGLE DRIVE").apply {
             setOnClickListener { activity.startActivity(Intent(activity, DriveFolderPickerActivity::class.java)) }
         })
-        section.addView(styledButton(activity, "SYNCHRONISER TOUT L'HISTORIQUE").apply {
+        drive.addView(styledButton(activity, "SYNCHRONISER TOUT L'HISTORIQUE").apply {
             setOnClickListener {
                 if (!DriveBackupManager.isConfigured(activity)) {
                     Toast.makeText(activity, "Choisis d'abord un dossier Google Drive", Toast.LENGTH_LONG).show()
@@ -318,7 +311,7 @@ object SettingsUiInstaller {
                 }
             }
         })
-        section.addView(styledButton(activity, "DÉCONNECTER LE DOSSIER DRIVE").apply {
+        drive.addView(styledButton(activity, "DÉCONNECTER LE DOSSIER DRIVE").apply {
             setOnClickListener {
                 DriveBackupManager.clear(activity)
                 driveStatus.text = "Drive non configuré"
@@ -326,8 +319,21 @@ object SettingsUiInstaller {
             }
         })
 
-        panel.addView(section)
+        val help = settingsSection(activity, SettingsV2Host.TAG_HELP)
+        help.addView(title(activity, "AIDE"))
+        help.addView(styledButton(activity, "📖 NOTICE D'UTILISATION").apply {
+            setOnClickListener { UserGuideDialog.show(activity) }
+        })
+
+        listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
+        SettingsV2SectionOrganizer.organize(activity)
         AppearanceManager.apply(activity)
+    }
+
+    private fun settingsSection(context: Context, sectionTag: String) = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(0, dp(context, 14), 0, 0)
+        tag = sectionTag
     }
 
     private fun styledButton(context: Context, label: String) = Button(context).apply {
