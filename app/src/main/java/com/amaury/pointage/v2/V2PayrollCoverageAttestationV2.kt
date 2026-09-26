@@ -80,12 +80,8 @@ object V2PayrollCoverageAttestationStoreV2 {
             sourceId = source,
             historyFingerprint = fingerprint(sessionsRead.sessions)
         )
-        val retained = current.second.filterNot {
-            it.employerId == attestation.employerId &&
-                it.sourceId == attestation.sourceId &&
-                it.timeZoneId == attestation.timeZoneId
-        } + attestation
-        return writeStored(context, retained.sortedBy { it.checkedAtMs })
+        val retained = upsertAttestation(current.second, attestation)
+        return writeStored(context, retained)
     }
 
     fun resolve(
@@ -128,6 +124,28 @@ object V2PayrollCoverageAttestationStoreV2 {
             sourceId = match.sourceId,
             warnings = emptyList()
         )
+    }
+
+    internal fun upsertAttestation(
+        attestations: List<Attestation>,
+        replacement: Attestation
+    ): List<Attestation> =
+        (attestations.filterNot {
+            it.employerId == replacement.employerId &&
+                it.sourceId == replacement.sourceId &&
+                it.timeZoneId == replacement.timeZoneId &&
+                it.coveredStartEpochDay == replacement.coveredStartEpochDay &&
+                it.coveredEndEpochDay == replacement.coveredEndEpochDay
+        } + replacement).sortedBy { it.checkedAtMs }
+
+    internal fun validStoredAttestation(attestation: Attestation): Boolean {
+        val zone = runCatching { ZoneId.of(attestation.timeZoneId.trim()) }.getOrNull() ?: return false
+        return attestation.employerId.trim().isNotEmpty() &&
+            attestation.sourceId.trim().isNotEmpty() &&
+            attestation.historyFingerprint.trim().isNotEmpty() &&
+            attestation.coveredEndEpochDay >= attestation.coveredStartEpochDay &&
+            attestation.checkedAtMs > 0L &&
+            coverageWindowClosed(attestation.coveredEndEpochDay, attestation.checkedAtMs, zone)
     }
 
     internal fun selectMatching(
@@ -240,11 +258,20 @@ object V2PayrollCoverageAttestationStoreV2 {
             val start = strictLong(item.opt("coveredStartEpochDay")) ?: return false to emptyList()
             val end = strictLong(item.opt("coveredEndEpochDay")) ?: return false to emptyList()
             val checkedAt = strictLong(item.opt("checkedAtMs")) ?: return false to emptyList()
-            if (employer.isEmpty() || zone.isEmpty() || source.isEmpty() || fingerprint.isEmpty() ||
-                end < start || checkedAt <= 0L || runCatching { ZoneId.of(zone) }.isFailure
-            ) return false to emptyList()
-            out += Attestation(employer, start, end, checkedAt, zone, source, fingerprint)
+            val attestation = Attestation(employer, start, end, checkedAt, zone, source, fingerprint)
+            if (!validStoredAttestation(attestation)) return false to emptyList()
+            out += attestation
         }
+        val identities = out.map {
+            listOf(
+                it.employerId,
+                it.timeZoneId,
+                it.sourceId,
+                it.coveredStartEpochDay.toString(),
+                it.coveredEndEpochDay.toString()
+            )
+        }
+        if (identities.toSet().size != identities.size) return false to emptyList()
         return true to out
     }
 
@@ -262,10 +289,13 @@ object V2PayrollCoverageAttestationStoreV2 {
                     .put("historyFingerprint", a.historyFingerprint)
             )
         }
-        return context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_ATTESTATIONS, array.toString())
             .commit()
+        if (!saved) return false
+        val verified = readStored(context)
+        return verified.first && verified.second == attestations
     }
 
     private fun strictLong(value: Any?): Long? = when (value) {
