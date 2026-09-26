@@ -4,7 +4,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import com.amaury.pointage.PdfVisualStyle
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.V2RuntimeHistoryGuardV2
 import com.amaury.pointage.v2.V2RuntimeReader
 import com.amaury.pointage.v2.model.WorkSessionV2
@@ -13,7 +13,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-/** Génération mensuelle basée uniquement sur les sessions et calculs HoraTrackMotor. */
+/** Génération mensuelle basée uniquement sur les sessions et calculs AGKGMGMotor. */
 object MonthlyPdfReportV2 {
     private const val W = 842
     private const val H = 595
@@ -62,7 +62,7 @@ object MonthlyPdfReportV2 {
                 page!!.canvas,
                 W,
                 "RELEVÉ MENSUEL DE TRAVAIL — $monthLabel",
-                if (continuation) "HoraTrack • suite • page $pageNo" else "HoraTrack • données calculées automatiquement"
+                if (continuation) "AGKGMG • suite • page $pageNo" else "AGKGMG • données calculées automatiquement"
             )
             y = 92f
         }
@@ -75,7 +75,7 @@ object MonthlyPdfReportV2 {
         selected.forEachIndexed { index, s ->
             if (y > H - 82f) startPage(continuation = true)
             val canvas = page!!.canvas
-            val result = HoraTrackV2.time.calculate(s)
+            val result = AGKGMGV2.time.calculate(s)
             val entry = s.realArrivalMs?.let(time::format) ?: "—"
             val exit = s.realExitMs?.let(time::format) ?: "EN COURS"
 
@@ -108,7 +108,7 @@ object MonthlyPdfReportV2 {
             bold
         )
         y += 18f
-        canvas.drawText("Rapport de suivi personnel HoraTrack — ne constitue pas un document officiel de paie.", M, y, muted)
+        canvas.drawText("Rapport de suivi personnel AGKGMG — ne constitue pas un document officiel de paie.", M, y, muted)
 
         finishPage()
         pdf.writeTo(output)
