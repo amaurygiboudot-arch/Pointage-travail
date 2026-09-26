@@ -4,3 +4,5 @@ Retour vidéo : sautillement persistant et Soleil décalé pendant les gestes.
 Corriger le conteneur Android ; conserver la géométrie céleste et les écrans métier défilants.
 Publier APK/AAB signés de test vers dev-latest via le workflow existant après fusion.
 Trajectoire réelle et résultat sur appareil à confirmer ; aucun Firebase/store.
+
+Déclenchement DEV après fusion #480 - correction permissions GPS/notifications - 2026-09-26.

@@ -85,7 +85,19 @@ class ForegroundLocationInitProvider : ContentProvider() {
     companion object {
         private const val PREFS = "location_onboarding"
         private const val KEY_ASKED = "foreground_location_asked"
+        private const val KEY_RESOLVED = "foreground_location_resolved"
         private const val KEY_REFRESH_AFTER_GRANT = "refresh_after_location_grant"
-        private const val REQUEST_FOREGROUND_LOCATION = 3010
+        internal const val REQUEST_FOREGROUND_LOCATION = 3010
+
+        internal fun isOnboardingResolved(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_RESOLVED, false)
+
+        internal fun markOnboardingResolved(context: Context) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_RESOLVED, true)
+                .apply()
+        }
     }
 }
