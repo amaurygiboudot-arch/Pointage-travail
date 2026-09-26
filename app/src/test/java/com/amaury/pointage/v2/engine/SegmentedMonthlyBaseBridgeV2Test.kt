@@ -25,9 +25,9 @@ class SegmentedMonthlyBaseBridgeV2Test {
     @Test fun ruleChangeInsideOneContractSegmentBlocksBase() {
         val contracts = contracts()
         val rules = rules(
-            rule("r1", 0, 6),
-            rule("r2", 7, 14),
-            rule("r3", 15, null)
+            rule("r1", 0, 6, regularMinutes = 35 * 60),
+            rule("r2", 7, 14, regularMinutes = 36 * 60),
+            rule("r3", 15, null, regularMinutes = 35 * 60)
         )
         val result = SegmentedMonthlyBaseBridgeV2.calculate(
             contracts, rules, source()
@@ -123,14 +123,18 @@ class SegmentedMonthlyBaseBridgeV2Test {
         note = null
     )
 
-    private fun rule(version: String, from: Long, to: Long?) =
-        ConventionRuleSnapshotV2(
+    private fun rule(
+        version: String,
+        from: Long,
+        to: Long?,
+        regularMinutes: Int = 35 * 60
+    ) = ConventionRuleSnapshotV2(
             idcc = "0292",
             versionId = version,
             sourceId = "rule-test",
             effectiveFromEpochDay = from,
             effectiveToEpochDay = to,
-            rules = PayrollRulesV2(weeklyRegularMinutes = 35 * 60),
+            rules = PayrollRulesV2(weeklyRegularMinutes = regularMinutes),
             checkedAtMs = 1
         )
 }
