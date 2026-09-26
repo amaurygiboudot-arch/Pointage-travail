@@ -96,6 +96,9 @@ main courant vérifié pendant cette reprise : e24580eb73c6b11f89e87074788cbc90a
 Avant toute fusion de #441, réconcilier la pile Salaire avec main courant et les changements Paramètres concurrents, sans écraser les propriétaires canoniques de l'un ou l'autre chantier.
 Ordre de reprise B21 : 1) vérifier la chaîne de dépendances de #428/#441 ; 2) rattacher de façon versionnée les preuves de pointage réelles anonymisées ou reproductions fidèles ; 3) exécuter les tests ciblés Android+iOS sur B21->B20 ; 4) vérifier écrans/PDF/comparaison/historique consommateurs ; 5) seulement ensuite faire passer les gates complets et fusionner si tous sont réellement satisfaits.
 Aucun déploiement Firebase Functions n'est requis par ce lot B21.
+Audit consommateurs au 26/09/2026 : la nouvelle pile est construite jusqu'à la projection nette canonique (#472 puis #474), mais #474 confirme que les consommateurs écran/PDF/historique ne sont pas encore remplacés. Le main courant utilise encore V2SalaryAdapter.Result / V2SalaryNetBridgeV2 dans ces sorties et dans la comparaison bulletin. Ne pas injecter artificiellement la nouvelle chaîne dans cet ancien contrat : construire un raccord canonique explicite sans deuxième vérité.
+Écart de dépendance vérifié : #464 a été créée depuis #441 au SHA f5128bab, alors que #441 est désormais 8cbd8e01201b7a76680c65c1374bd10a93dca643, soit 48 commits d'avance. Ces commits touchent notamment couverture, proratisation, B20/B21 et tests Android/iOS. Les PR aval #464/#465/#470/#472/#474 doivent donc être réconciliées/rebasées sur le HEAD courant avant toute fusion.
+Validation #475 : tous les contrôles techniques Android/iOS sont verts ; le seul gate rouge est Agent review gate. Relance ciblée le 26/09/2026 : échec confirmé « Quota exceeded. Check your plan and billing details. ». Aucun contournement ni faux PASS.
 
 Le texte maître précédent est conservé intégralement à la suite de ce checkpoint.
 
