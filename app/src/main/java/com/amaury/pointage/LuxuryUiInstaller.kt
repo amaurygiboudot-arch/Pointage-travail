@@ -53,7 +53,7 @@ object LuxuryUiInstaller {
         val mainText = if (dark) theme.darkText else theme.lightText
 
         activity.findViewById<TextView>(R.id.logoText)?.apply {
-            text = "♛\nH  P\nT R A V A I L"
+            text = "♛\nAGKGMG"
             gravity = Gravity.CENTER
             setTextColor(if (dark) theme.accentLight else theme.accent)
             typeface = Typeface.create("serif", Typeface.BOLD)
