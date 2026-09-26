@@ -5,7 +5,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
-import com.amaury.pointage.v2.HoraTrackV2
+import com.amaury.pointage.v2.AGKGMGV2
 import com.amaury.pointage.v2.V2LegacyPolicy
 import com.amaury.pointage.v2.V2RuntimeReader
 import org.json.JSONArray
@@ -20,7 +20,7 @@ object DailyPdfReport {
     private const val M = 38f
 
     fun write(context: Context, data: JSONArray, dayStart: Long, dayEnd: Long, output: OutputStream) {
-        if (HoraTrackV2.ENABLED) {
+        if (AGKGMGV2.ENABLED) {
             writeV2(context, dayStart, dayEnd, output)
             return
         }
@@ -51,7 +51,7 @@ object DailyPdfReport {
 
         fun finishPage() {
             page?.let {
-                it.canvas.drawText("© HoraTrack — Rapport généré par HoraTrack.  •  Page $pageNo", M, H - 20f, muted)
+                it.canvas.drawText("© AGKGMG — Rapport généré par AGKGMG.  •  Page $pageNo", M, H - 20f, muted)
                 pdf.finishPage(it)
             }
             page = null
@@ -80,7 +80,7 @@ object DailyPdfReport {
         sessions.forEachIndexed { index, s ->
             val entry = s.countedEntryMs ?: s.realArrivalMs ?: return@forEachIndexed
             val exit = s.countedExitMs ?: s.realExitMs ?: return@forEachIndexed
-            val result = HoraTrackV2.time.calculate(s)
+            val result = AGKGMGV2.time.calculate(s)
             totalWorked += result.paidWorkMs
 
             ensureSpace(90f)
@@ -159,7 +159,7 @@ object DailyPdfReport {
         y = H - 70f
         c.drawLine(M, y, W-M, y, line); y += 20
         c.drawText("Total travaillé : ${format(totalWorked)}", M, y, title)
-        c.drawText("© HoraTrack — rollback historique.", M, H - 20f, muted)
+        c.drawText("© AGKGMG — rollback historique.", M, H - 20f, muted)
         pdf.finishPage(page)
         pdf.writeTo(output)
         pdf.close()
