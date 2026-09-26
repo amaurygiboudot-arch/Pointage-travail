@@ -35,6 +35,17 @@ class SegmentedPayrollSessionEvidenceBuilderV2Test {
             PauseV2(ms(4, 12), ms(4, 12, 30), null, EventSourceV2.IMPORT)))
         assertBlocked(fixture(listOf(s)))
     }
+
+    @Test fun realAuditLongUnpaidPauseOutsideSessionBlocksInsteadOfReliableZero() {
+        // Régression dérivée d’une propriété anonymisée du snapshot Firebase réel :
+        // une pause non payée incohérente ne doit jamais être clippée en zéro fiable.
+        val s = session("audit-shape", 4, 22, 5, 6).copy(pauses = listOf(
+            PauseV2(ms(4, 23), ms(5, 10), false, EventSourceV2.IMPORT)))
+        val proof = fixture(listOf(s)).build()
+        assertFalse(proof.reliable)
+        assertTrue(proof.slices.isEmpty())
+        assertTrue(proof.warnings.contains(SegmentedPayrollSessionEvidenceBuilderV2.PAUSE_GEOMETRY_WARNING))
+    }
     @Test fun openSessionBlocks() {
         assertBlocked(fixture(listOf(session("s", 4, 8, 4, 16).copy(
             status = SessionStatusV2.OPEN, countedExitMs = null, realExitMs = null))))
