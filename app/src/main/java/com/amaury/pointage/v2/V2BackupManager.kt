@@ -33,6 +33,7 @@ object V2BackupManager {
         "horatrack_v2_rights",
         "horatrack_v2_payslips",
         V2PayrollCoverageStore.PREFS,
+        V2SegmentedProrationStore.PREFS,
         "horatrack_v2_company_pause",
         "horatrack_v2_gps_state",
         SALARY_COMPANIES_PREFS,
@@ -70,6 +71,8 @@ object V2BackupManager {
         val runtimePlan=payloads[RUNTIME_PREFS]?.let{prepareRuntimeMerge(context,it)}
         val coveragePlan=payloads[V2PayrollCoverageStore.PREFS]
             ?.let{prepareCoverageMerge(context,it)}
+        val segmentedProrationPlan=payloads[V2SegmentedProrationStore.PREFS]
+            ?.let{prepareSegmentedProrationMerge(context,it)}
         clearEphemeralGpsPresenceState(context)
         var restored=0;var merged=0
         savedNames.forEach{name->
@@ -82,6 +85,11 @@ object V2BackupManager {
                 V2PayrollCoverageStore.PREFS->{
                     val plan=coveragePlan?:error("Couverture paie de sauvegarde indisponible")
                     applyCoverageMerge(context,plan)
+                }
+                V2SegmentedProrationStore.PREFS->{
+                    val plan=segmentedProrationPlan
+                        ?:error("Proratisation segmentée de sauvegarde indisponible")
+                    applySegmentedProrationMerge(context,plan)
                 }
                 else->mergePreferences(context,name,saved)
             }
@@ -279,6 +287,55 @@ object V2BackupManager {
         val current=V2RuntimeHistoryGuardV2.read(context)
         require(current.reliable){"Historique local illisible : restauration bloquée"}
         return mergeHistories(current.history,decodeBackupHistory(saved))
+    }
+
+    internal fun decodeBackupSegmentedProrations(saved: JSONObject): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        val keys = saved.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (!V2SegmentedProrationStore.isStorageKey(key)) {
+                error("Clé de proratisation segmentée invalide")
+            }
+            val item = saved.optJSONObject(key)
+                ?: error("Proratisation segmentée de sauvegarde mal typée")
+            val raw = (item.opt("v") as? String)
+                ?.takeIf { item.optString("t") == "s" }
+                ?: error("Proratisation segmentée de sauvegarde mal typée")
+            require(V2SegmentedProrationStore.decode(raw) != null) {
+                "Proratisation segmentée de sauvegarde illisible"
+            }
+            result[key] = raw
+        }
+        return result
+    }
+
+    internal fun mergeSegmentedProrations(
+        current: Map<String, String>,
+        saved: Map<String, String>
+    ): Map<String, String> =
+        V2SegmentedProrationStore.mergeRaw(current, saved)
+            ?: error("Conflit de proratisation segmentée entre le téléphone et la sauvegarde")
+
+    private fun prepareSegmentedProrationMerge(
+        context: Context,
+        saved: JSONObject
+    ): Map<String, String> {
+        val local = V2SegmentedProrationStore.readRaw(context)
+            ?: error("Proratisation segmentée locale illisible : restauration bloquée")
+        return mergeSegmentedProrations(
+            local,
+            decodeBackupSegmentedProrations(saved)
+        )
+    }
+
+    private fun applySegmentedProrationMerge(
+        context: Context,
+        plan: Map<String, String>
+    ) {
+        check(V2SegmentedProrationStore.replaceAllForRestore(context, plan)) {
+            "Impossible d'enregistrer la proratisation segmentée fusionnée"
+        }
     }
 
     private fun prepareCoverageMerge(
