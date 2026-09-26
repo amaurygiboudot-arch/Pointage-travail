@@ -228,8 +228,7 @@ object LuxuryUiInstaller {
     }
 
     private fun tidySettingsSection(activity: MainActivity) {
-        val gpsPanel = activity.findViewById<LinearLayout>(R.id.gpsSettingsPanel) ?: return
-        val section = gpsPanel.findViewWithTag<View>("settings_personalization_installed") as? LinearLayout ?: return
+        val section = SettingsV2Host.personalization(activity) ?: return
         for (i in 0 until section.childCount) {
             val child = section.getChildAt(i)
             when (child) {
