@@ -550,6 +550,18 @@ class GpsPointPickerView @JvmOverloads constructor(
         if (!legacyOrCanonicalName.isNullOrBlank() && targetZoneId.isNotBlank()) {
             PlaceNames.put(context, targetZoneId, address, legacyOrCanonicalName)
         }
+        if (targetZoneId.isNotBlank()) {
+            GpsZoneArrivalContacts.get(context, targetZoneId, address)?.let { contact ->
+                GpsZoneArrivalContacts.put(
+                    context = context,
+                    zoneId = targetZoneId,
+                    address = address,
+                    contactName = contact.contactName,
+                    phone = contact.phone,
+                    enabled = contact.enabled
+                )
+            }
+        }
         markConfirmed(address)
         registerCurrentZones()
         Toast.makeText(context, "Point GPS enregistré pour ${PlaceNames.get(context, targetZoneId, address) ?: address}", Toast.LENGTH_LONG).show()
