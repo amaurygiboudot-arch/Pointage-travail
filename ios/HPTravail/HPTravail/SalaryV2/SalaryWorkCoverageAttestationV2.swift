@@ -68,16 +68,11 @@ enum SalaryWorkCoverageStoreV2 {
             sourceId: source,
             historyFingerprint: fingerprint(sessions)
         )
-        let retained = read.attestations.filter {
-            !($0.employerId == attestation.employerId
-              && $0.sourceId == attestation.sourceId
-              && $0.timeZoneId == attestation.timeZoneId)
-        } + [attestation]
-        guard let data = try? JSONEncoder().encode(retained.sorted { $0.checkedAt < $1.checkedAt }) else {
-            return false
-        }
+        let retained = upsertAttestation(read.attestations, replacement: attestation)
+        guard let data = try? JSONEncoder().encode(retained) else { return false }
         defaults.set(data, forKey: storageKey)
-        return readStored(defaults: defaults).reliable
+        let verified = readStored(defaults: defaults)
+        return verified.reliable && verified.attestations == retained
     }
 
     static func resolve(
@@ -139,6 +134,34 @@ enum SalaryWorkCoverageStoreV2 {
             sourceId: match.sourceId,
             warnings: []
         )
+    }
+
+    static func upsertAttestation(
+        _ attestations: [SalaryWorkCoverageAttestationV2],
+        replacement: SalaryWorkCoverageAttestationV2
+    ) -> [SalaryWorkCoverageAttestationV2] {
+        (attestations.filter {
+            !($0.employerId == replacement.employerId
+              && $0.sourceId == replacement.sourceId
+              && $0.timeZoneId == replacement.timeZoneId
+              && $0.coveredStartEpochDay == replacement.coveredStartEpochDay
+              && $0.coveredEndEpochDay == replacement.coveredEndEpochDay)
+        } + [replacement]).sorted { $0.checkedAt < $1.checkedAt }
+    }
+
+    static func validStoredAttestation(_ attestation: SalaryWorkCoverageAttestationV2) -> Bool {
+        guard let timeZone = TimeZone(identifier: attestation.timeZoneId) else { return false }
+        return !normalized(attestation.employerId).isEmpty
+            && !normalized(attestation.sourceId).isEmpty
+            && !normalized(attestation.historyFingerprint).isEmpty
+            && attestation.coveredEndEpochDay >= attestation.coveredStartEpochDay
+            && attestation.checkedAt.timeIntervalSince1970.isFinite
+            && attestation.checkedAt > .distantPast
+            && coverageWindowClosed(
+                endEpochDay: attestation.coveredEndEpochDay,
+                checkedAt: attestation.checkedAt,
+                timeZone: timeZone
+            )
     }
 
     static func selectMatching(
@@ -214,20 +237,18 @@ enum SalaryWorkCoverageStoreV2 {
             return .init(attestations: [], reliable: true)
         }
         guard let decoded = try? JSONDecoder().decode([SalaryWorkCoverageAttestationV2].self, from: data),
-              decoded.allSatisfy(valid)
+              decoded.allSatisfy(validStoredAttestation)
         else {
             return .init(attestations: [], reliable: false)
         }
+        let identities = decoded.map {
+            [$0.employerId, $0.timeZoneId, $0.sourceId,
+             String($0.coveredStartEpochDay), String($0.coveredEndEpochDay)]
+        }
+        guard Set(identities).count == identities.count else {
+            return .init(attestations: [], reliable: false)
+        }
         return .init(attestations: decoded, reliable: true)
-    }
-
-    private static func valid(_ a: SalaryWorkCoverageAttestationV2) -> Bool {
-        !normalized(a.employerId).isEmpty
-            && !normalized(a.sourceId).isEmpty
-            && !normalized(a.historyFingerprint).isEmpty
-            && a.coveredEndEpochDay >= a.coveredStartEpochDay
-            && a.checkedAt.timeIntervalSince1970.isFinite
-            && TimeZone(identifier: a.timeZoneId) != nil
     }
 
     private static func coverageWindowClosed(
