@@ -237,13 +237,14 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
                         val contacts = runCatching {
                             JSONObject(gpsPrefs.getString("arrival_contacts", "{}") ?: "{}")
                         }.getOrElse { JSONObject() }
-                        contacts.put(
-                            formatted,
-                            JSONObject()
-                                .put("contactName", contactValue)
-                                .put("phone", phoneValue)
-                                .put("enabled", notifyOnArrivalValue)
-                        )
+                        val newZoneId = if (geocoded != null) UUID.randomUUID().toString() else null
+                        val arrivalContact = JSONObject()
+                            .put("contactName", contactValue)
+                            .put("phone", phoneValue)
+                            .put("enabled", notifyOnArrivalValue)
+                        if (!putGpsZoneScopedObject(contacts, newZoneId, formatted, arrivalContact)) {
+                            contacts.put(formatted, arrivalContact)
+                        }
 
                         val companyMap = runCatching {
                             JSONObject(gpsPrefs.getString("address_company_slots", "{}") ?: "{}")
@@ -254,7 +255,7 @@ class AddAddressButton @JvmOverloads constructor(context: Context, attrs: Attrib
 
                         if (geocoded != null) {
                             val zone = JSONObject()
-                                .put("id", UUID.randomUUID().toString())
+                                .put("id", requireNotNull(newZoneId))
                                 .put("address", formatted)
                                 .put("label", nameValue)
                                 .put("latitude", geocoded.latitude)
