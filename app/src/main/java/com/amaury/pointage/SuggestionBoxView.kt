@@ -50,11 +50,11 @@ class SuggestionBoxView @JvmOverloads constructor(
 
         addView(sectionTitle("IDÉES & AMÉLIORATIONS"))
 
-        addView(bodyText("Une idée pour améliorer HP Travail ? Écris-la ici. Le texte, la version de l'application et des informations techniques sur l'appareil seront enregistrés dans Firebase.").apply {
+        addView(bodyText("Une idée pour améliorer AGKGMG ? Écris-la ici. Le texte, la version de l'application et des informations techniques sur l'appareil seront enregistrés dans Firebase.").apply {
             setPadding(0, 0, 0, dp(8))
         })
 
-        addView(bodyText("Les idées sont uniquement des propositions. Elles sont examinées par le propriétaire de l'application et ne peuvent jamais modifier automatiquement HP Travail.").apply {
+        addView(bodyText("Les idées sont uniquement des propositions. Elles sont examinées par le propriétaire de l'application et ne peuvent jamais modifier automatiquement AGKGMG.").apply {
             setTextColor(Color.parseColor("#D6A84B"))
             setPadding(0, 0, 0, dp(10))
         })
