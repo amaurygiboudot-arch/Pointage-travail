@@ -1,6 +1,8 @@
 package com.amaury.pointage
 
 import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
@@ -13,6 +15,8 @@ import android.widget.TextView
 object SettingsV2SectionOrganizer {
     fun organize(activity: MainActivity) {
         val panel = SettingsV2Host.panel(activity) ?: return
+        ensureCoreSections(activity, panel)
+        moveCoreViews(activity, panel)
         if (panel.childCount < 2) return
 
         val children = (0 until panel.childCount).map { index ->
@@ -31,6 +35,9 @@ object SettingsV2SectionOrganizer {
         val id = resourceName(view)
 
         return when {
+            tag == SettingsV2Host.TAG_ACCOUNT_SECURITY -> 10
+            tag == SettingsV2Host.TAG_POINTAGE -> 20
+
             view is FirebaseAccountButtonView -> 10
             view is V2SecuritySettingsView || tag == V2SecuritySettingsView.TAG -> 11
 
@@ -53,6 +60,59 @@ object SettingsV2SectionOrganizer {
             else -> 70
         }
     }
+
+
+    private fun ensureCoreSections(activity: MainActivity, panel: LinearLayout) {
+        if (SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) == null) {
+            panel.addView(section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY, "COMPTE & SÉCURITÉ"))
+        }
+        if (SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) == null) {
+            panel.addView(section(activity, SettingsV2Host.TAG_POINTAGE, null))
+        }
+    }
+
+    private fun section(activity: MainActivity, tagValue: String, title: String?): LinearLayout =
+        LinearLayout(activity).apply {
+            tag = tagValue
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(activity, 10), 0, 0)
+            if (!title.isNullOrBlank()) {
+                addView(TextView(activity).apply {
+                    text = title
+                    textSize = 16f
+                    setPadding(0, 0, 0, dp(activity, 8))
+                })
+            }
+        }
+
+    private fun moveCoreViews(activity: MainActivity, panel: LinearLayout) {
+        val account = SettingsV2Host.section(activity, SettingsV2Host.TAG_ACCOUNT_SECURITY) ?: return
+        val pointage = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+
+        val directChildren = (0 until panel.childCount).map(panel::getChildAt)
+        directChildren.forEach { view ->
+            if (view === account || view === pointage) return@forEach
+            val tag = view.tag?.toString().orEmpty()
+            val id = resourceName(view)
+            when {
+                view is FirebaseAccountButtonView ||
+                    view is V2SecuritySettingsView ||
+                    tag == V2SecuritySettingsView.TAG -> move(view, account)
+                isPointageView(view, id, tag) -> move(view, pointage)
+            }
+        }
+    }
+
+    private fun move(view: View, destination: LinearLayout) {
+        val parent = view.parent as? ViewGroup ?: return
+        if (parent === destination) return
+        val params = view.layoutParams
+        parent.removeView(view)
+        destination.addView(view, params)
+    }
+
+    private fun dp(activity: MainActivity, value: Int): Int =
+        (value * activity.resources.displayMetrics.density).toInt()
 
     private fun isPointageView(view: View, id: String, tag: String): Boolean {
         if (view is LocationManagementView || view is GpsPointPickerView || view is GpsZoneTypeView) return true
