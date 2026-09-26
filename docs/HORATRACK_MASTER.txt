@@ -106,6 +106,13 @@ Nouveau candidat VALIDATION ONLY #525 : main 98f816cf5338f8e3978aaff01809a4ffe1b
 Source projet « Mise à jours Play store.txt » : toutes les mises à jour Android destinées aux utilisateurs doivent désormais passer par la Google Play Console. Ne plus présenter GitHub Release, un APK direct ou un artefact CI comme canal normal de mise à jour publique. Les opérations nécessaires à ce flux sont autorisées par le propriétaire du projet, sous réserve des contrôles techniques et de sécurité prévus par le maître.
 Source projet « Agent Projet Disponible en Cas de Besoin.txt » : les agents du projet sont de nouveau disponibles, mais ils ne doivent être utilisés que lorsqu'un besoin réel le justifie. Chaque lancement doit apporter une valeur claire d'audit, de revue, de test ou de spécialisation ; ne pas lancer systématiquement tous les agents. Objectif : économiser les tokens tout en conservant les revues importantes lorsqu'elles sont réellement nécessaires.
 Ces deux règles s'appliquent à la suite du chantier actuel. Elles ne modifient aucune règle métier Salaire V2, aucun calcul, aucune donnée utilisateur et aucune logique Android/iOS.
+31.11 SORTIE CANONIQUE SALAIRE V2 POUR LES CONSOMMATEURS
+PR métier #537 : branche feat/salary-canonical-presentation-v2, HEAD ad47a5922edbf2caefbc0250eba931f5b22a6039 au moment de sa création. Le lot ajoute Android/iOS un coordinateur pur B20 riche -> cash gross confirmé -> net canonique et un contrat de présentation fail-closed conservant les preuves B21/B20.
+Invariants de présentation : amont non fiable => aucun montant publié ; brut/cash fiables avec net incomplet => bruts conservés mais aucun net final affiché ; warnings conservés/dédupliqués. Aucun écran/PDF/comparaison/historique modifié dans ce lot.
+PR VALIDATION ONLY #538 : main 395e8078e969ee53ab667954e35f252a777aabe9 + pile Salaire V2 jusqu'au net + #528 + #537, HEAD 09ca54394f4115e0aac2a913a81308d8bb9c05a3 au lancement. Ne jamais fusionner #538.
+Point d'injection iOS identifié : SalaryV2View affiche SalaryV2Store.snapshot de type SalaryWorkspaceSnapshotV2 ; la migration peut donc raccorder le nouveau contrat canonique au resolver du snapshot sans recopier les formules dans la vue.
+Android reste plus direct : SalaryPayslipWorkspaceView appelle encore V2SalaryNetBridgeV2 ; migration à effectuer consommateur par consommateur, avec adaptateurs purs avant activation.
+
 
 Le texte maître précédent est conservé intégralement à la suite de ce checkpoint.
 
