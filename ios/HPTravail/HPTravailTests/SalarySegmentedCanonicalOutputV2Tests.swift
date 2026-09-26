@@ -29,7 +29,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertEqual(result.cashGross, 1_100)
     }
 
-    func testIncompleteNetKeepsProvedGrossAndTime() {
+    func testIncompleteNetKeepsProvedGrossAndTime() throws {
         let worked = fixtureWorked()
         let cash = cash(worked, 1_100)
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
@@ -45,8 +45,9 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertEqual(result.cashGross, 1_100)
         XCTAssertNil(result.netBeforeIncomeTax)
 
+        let period = try XCTUnwrap(YearMonthV2(year: 2026, month: 9))
         let workspace = SalaryWorkspaceResolverV2.resolve(
-            period: YearMonthV2(year: 2026, month: 9),
+            period: period,
             segmented: result
         )
         XCTAssertTrue(workspace.sourceReady)
