@@ -246,4 +246,29 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `le type gps est modifie uniquement pour la zone cible meme a adresse identique`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","pointType":"POSTE"},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A","pointType":"POSTE"}
+            ]""".trimIndent()
+        )
+
+        assertTrue(updateGpsZoneTypeById(zones, "parking", "PARKING"))
+        assertEquals("POSTE", zones.getJSONObject(0).getString("pointType"))
+        assertEquals("PARKING", zones.getJSONObject(1).getString("pointType"))
+    }
+
+    @Test
+    fun `un id de zone gps inconnu ne modifie rien`() {
+        val zones = org.json.JSONArray(
+            """[{"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A","pointType":"POSTE"}]"""
+        )
+
+        assertTrue(!updateGpsZoneTypeById(zones, "absente", "PARKING"))
+        assertEquals("POSTE", zones.getJSONObject(0).getString("pointType"))
+    }
+
+
 }

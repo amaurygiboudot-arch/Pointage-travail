@@ -77,12 +77,12 @@ class GpsZoneTypeView @JvmOverloads constructor(
                 isAllCaps = false
                 textSize = 14f
                 setBackgroundResource(R.drawable.hp_panel)
-                setOnClickListener { chooseType(address) }
+                setOnClickListener { chooseType(zone.optString("id"), address) }
             }, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(5) })
         }
     }
 
-    private fun chooseType(address: String) {
+    private fun chooseType(zoneId: String, address: String) {
         val labels = arrayOf("🏭 Poste de travail", "🅿️ Parking", "📍 Autre / à confirmer")
         val values = arrayOf("POSTE", "PARKING", "OTHER")
         AlertDialog.Builder(context)
@@ -95,14 +95,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
                     Toast.makeText(context, "Configuration GPS illisible : aucun type n'a été modifié", Toast.LENGTH_LONG).show()
                     return@setItems
                 }
-                var changed = false
-                for (i in 0 until zones.length()) {
-                    val zone = zones.optJSONObject(i) ?: continue
-                    if (zone.optString("address").trim().equals(address, ignoreCase = true)) {
-                        zone.put("pointType", values[which])
-                        changed = true
-                    }
-                }
+                val changed = updateGpsZoneTypeById(zones, zoneId, values[which])
                 if (changed) {
                     val saved = prefs.edit().putString("zones", zones.toString())
                         .remove("active_zones").remove("entry_resolution_pending")
