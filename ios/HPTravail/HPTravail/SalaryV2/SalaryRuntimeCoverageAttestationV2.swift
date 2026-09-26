@@ -4,6 +4,20 @@ import Foundation
 import RuntimeV2Contract
 #endif
 
+enum SalaryRuntimeCoverageClaimOriginV2 {
+    case userReviewedClosedPeriod
+    case localBackupRestore
+    case cloudBackupRestore
+    case legacyMigration
+    case storageRead
+}
+
+enum SalaryRuntimeCoverageClaimPolicyV2 {
+    static func mayIssue(_ origin: SalaryRuntimeCoverageClaimOriginV2) -> Bool {
+        origin == .userReviewedClosedPeriod
+    }
+}
+
 struct SalaryRuntimeCoverageAttestationV2: Codable, Equatable {
     let sourceId: String
     let coveredStartEpochDay: Int64
@@ -103,6 +117,7 @@ enum SalaryRuntimeCoverageAttestationStoreV2 {
         defaults: UserDefaults,
         sessions: [WorkSession],
         storageReliable: Bool,
+        origin: SalaryRuntimeCoverageClaimOriginV2,
         sourceId: String,
         coveredStartEpochDay: Int64,
         coveredEndEpochDay: Int64,
@@ -110,7 +125,8 @@ enum SalaryRuntimeCoverageAttestationStoreV2 {
         timeZoneId: String,
         now: Date = Date()
     ) -> Bool {
-        guard storageReliable,
+        guard SalaryRuntimeCoverageClaimPolicyV2.mayIssue(origin),
+              storageReliable,
               let attestation = SalaryRuntimeCoverageAttestationPolicyV2.create(
                 sessions: sessions, sourceId: sourceId,
                 coveredStartEpochDay: coveredStartEpochDay, coveredEndEpochDay: coveredEndEpochDay,
