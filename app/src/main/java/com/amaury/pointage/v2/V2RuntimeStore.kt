@@ -116,7 +116,11 @@ object V2RuntimeStore {
         legacySlot?.let { editor.putInt(KEY_COMPANY_SLOT, it) }
         employerId?.let { editor.putString(KEY_EMPLOYER_ID, it) }
         knownExpected?.let { editor.putLong(KEY_EXPECTED_END, it) }
-        return editor.commit()
+        val committed = editor.commit()
+        if (committed) {
+            V2WorkHistoryCoverageStore.invalidateRange(context, nowMs, nowMs + 1L)
+        }
+        return committed
     }
 
     @Synchronized
@@ -154,11 +158,15 @@ object V2RuntimeStore {
             // Le canal de saisie ne permet jamais de déduire si une pause est payée.
             // Une nouvelle pause doit donc être explicitement qualifiée avant toute écriture.
             val openingPaid = paid ?: return false
-            return prefs.edit()
+            val committed = prefs.edit()
                 .putLong(KEY_PAUSE_START, nowMs)
                 .putString(KEY_PAUSE_SOURCE, source.name)
                 .putBoolean(KEY_PAUSE_PAID, openingPaid)
                 .commit()
+            if (committed) {
+                V2WorkHistoryCoverageStore.invalidateRange(context, entry, nowMs + 1L)
+            }
+            return committed
         }
         val storedSource = parseSourceOrNull(prefs.getString(KEY_PAUSE_SOURCE, null)) ?: return false
         val hasStoredPaid = prefs.contains(KEY_PAUSE_PAID)
@@ -166,12 +174,16 @@ object V2RuntimeStore {
         val resolvedPaid = RuntimePauseIntegrityV2.paidForClose(hasStoredPaid, storedPaid, paid) ?: return false
         val updated = appendPause(prefs.getString(KEY_PAUSES, "[]").orEmpty(), start, nowMs, storedSource, resolvedPaid)
             ?: return false
-        return prefs.edit()
+        val committed = prefs.edit()
             .putString(KEY_PAUSES, updated)
             .remove(KEY_PAUSE_START)
             .remove(KEY_PAUSE_SOURCE)
             .remove(KEY_PAUSE_PAID)
             .commit()
+        if (committed) {
+            V2WorkHistoryCoverageStore.invalidateRange(context, entry, nowMs + 1L)
+        }
+        return committed
     }
 
     /**
@@ -213,7 +225,12 @@ object V2RuntimeStore {
             if (after > before) added++
         }
 
-        if (added > 0 && !prefs.edit().putString(KEY_PAUSES, raw).commit()) return 0
+        if (added > 0) {
+            if (!prefs.edit().putString(KEY_PAUSES, raw).commit()) return 0
+            val from = qualified.minOf { it.startMs }
+            val to = qualified.maxOf { it.endMs }
+            V2WorkHistoryCoverageStore.invalidateRange(context, from, to)
+        }
         return added
     }
 
@@ -388,10 +405,14 @@ object V2RuntimeStore {
 
         if (!V2RuntimeHistoryGuardV2.inspect(history).reliable) return false
         if (!V2RuntimeHistoryGuardV2.validPauseArray(currentPauses)) return false
-        return p.edit()
+        val committed = p.edit()
             .putString(KEY_HISTORY, history.toString())
             .putString(KEY_PAUSES, currentPauses.toString())
             .commit()
+        if (committed) {
+            V2WorkHistoryCoverageStore.invalidateRange(context, dayStart, dayEnd)
+        }
+        return committed
     }
 
     @Deprecated("Utiliser replaceQualifiedEditablePausesForDay avec un statut payé explicite")
@@ -460,6 +481,7 @@ object V2RuntimeStore {
             return false
         }
         V2RuntimeHistoryGuardV2.publishSourceState(true)
+        V2WorkHistoryCoverageStore.invalidateRange(context, entry, nowMs + 1L)
         WidgetLocationExpiryScheduler.schedule(context, nowMs)
         return true
     }
@@ -469,6 +491,7 @@ object V2RuntimeStore {
     fun reset(context: Context) {
         bind(context)
         prefs(context).edit().clear().commit()
+        V2WorkHistoryCoverageStore.clearAll(context)
     }
 
     fun snapshot(context: Context, nowMs: Long = System.currentTimeMillis()): Snapshot {
