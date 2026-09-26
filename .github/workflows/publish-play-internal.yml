@@ -91,13 +91,22 @@ jobs:
           headers = {"Authorization": f"Bearer {credentials.token}"}
           api = "https://androidpublisher.googleapis.com/androidpublisher/v3"
 
+          def require_ok(response, label):
+              if response.ok:
+                  return
+              try:
+                  detail = response.json()
+              except Exception:
+                  detail = response.text[:4000]
+              raise RuntimeError(f"{label}: HTTP {response.status_code}: {detail}")
+
           edit_response = requests.post(
               f"{api}/applications/{package}/edits",
               headers={**headers, "Content-Type": "application/json"},
               json={},
               timeout=30,
           )
-          edit_response.raise_for_status()
+          require_ok(edit_response, "Création de l'edit")
           edit_id = edit_response.json()["id"]
 
           tracks_response = requests.get(
@@ -105,7 +114,7 @@ jobs:
               headers=headers,
               timeout=30,
           )
-          tracks_response.raise_for_status()
+          require_ok(tracks_response, "Liste des tracks")
           tracks = tracks_response.json().get("tracks", [])
           available_tracks = [str(item.get("track", "")).strip() for item in tracks if item.get("track")]
 
@@ -150,7 +159,7 @@ jobs:
                   data=handle,
                   timeout=180,
               )
-          upload.raise_for_status()
+          require_ok(upload, "Upload AAB")
           uploaded_code = int(upload.json()["versionCode"])
           if uploaded_code != expected:
               raise RuntimeError(f"VersionCode AAB inattendu: {uploaded_code} != {expected}")
@@ -172,7 +181,7 @@ jobs:
               },
               timeout=30,
           )
-          track.raise_for_status()
+          require_ok(track, f"Mise à jour du track {play_track}")
 
           commit = requests.post(
               f"{api}/applications/{package}/edits/{edit_id}:commit",
@@ -180,7 +189,7 @@ jobs:
               json={},
               timeout=30,
           )
-          commit.raise_for_status()
+          require_ok(commit, "Commit Google Play")
           print(f"Google Play internal: versionCode {uploaded_code} publiée.")
           PY
 
