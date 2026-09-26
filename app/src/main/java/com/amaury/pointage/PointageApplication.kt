@@ -390,7 +390,37 @@ object SettingsUiInstaller {
 
         listOf(updates, appearance, widget, drive, help).forEach(panel::addView)
         SettingsV2SectionOrganizer.organize(activity)
+        installPointageAddressButton(activity)
         AppearanceManager.apply(activity)
+    }
+
+    private fun installPointageAddressButton(activity: MainActivity) {
+        val section = SettingsV2Host.section(activity, SettingsV2Host.TAG_POINTAGE) ?: return
+        if (section.findViewWithTag<View>("add_address_button") != null) return
+        val addressList = activity.findViewById<EditText>(R.id.workplaceAddress) ?: return
+        val parent = addressList.parent as? ViewGroup ?: return
+        if (parent !== section) return
+
+        addressList.isFocusable = false
+        addressList.isFocusableInTouchMode = false
+        addressList.isCursorVisible = false
+        addressList.isLongClickable = false
+        addressList.hint = "Aucune adresse — utilise le bouton +"
+        addressList.setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
+
+        val addButton = AddAddressButton(activity).apply {
+            tag = "add_address_button"
+            text = "+  AJOUTER UNE ADRESSE"
+            textSize = 14f
+            isAllCaps = false
+            setBackgroundResource(R.drawable.hp_panel)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(activity, 46)
+            ).apply { topMargin = dp(activity, 8) }
+        }
+        val index = section.indexOfChild(addressList)
+        section.addView(addButton, (index + 1).coerceAtMost(section.childCount))
     }
 
     private fun settingsSection(context: Context, sectionTag: String) = LinearLayout(context).apply {
