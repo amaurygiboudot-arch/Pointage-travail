@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.SegmentedProrationSourceV2
+
 /**
  * Chaîne métier pure B21 -> B20.
  *
@@ -11,7 +13,7 @@ object SegmentedWorkedGrossProductionV2 {
     fun calculate(
         contracts: EmploymentContractPeriodResolutionV2,
         rules: ConventionRulePeriodResolutionV2,
-        proration: ConfirmedSegmentedMonthlyProrationV2?,
+        prorationSource: SegmentedProrationSourceV2,
         source: SegmentedPayrollSessionSourceV2,
         premiums: List<SegmentedPayrollPremiumEvidenceV2>,
         nowMs: Long
@@ -19,7 +21,7 @@ object SegmentedWorkedGrossProductionV2 {
         val base = SegmentedMonthlyBaseBridgeV2.calculate(
             contracts = contracts,
             rules = rules,
-            proration = proration
+            prorationSource = prorationSource
         )
         val variables = SegmentedPayrollSessionEvidenceBuilderV2.calculateVariables(
             contracts = contracts,
