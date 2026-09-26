@@ -80,6 +80,26 @@ Fonction obsolète ou dupliquée : supprimer après preuve d'absence de dépenda
 Inconnu != zéro ; corruption != absence ; aucune seconde vérité.
 Salaire V2 continue en parallèle et reste autoritaire sur les calculs de paie.
 
+31.9 CHANTIER SALAIRE V2 / B21 — REPRISE AU 26 SEPTEMBRE 2026
+Salaire V2 continue en parallèle conformément à 31.6 et reste autoritaire sur les calculs de paie.
+PR #441 « construire les preuves B21 depuis les sessions V2 » : ouverte en draft.
+HEAD vérifié : 010839f2d5092034a6a67ad3f858bb502e94713b.
+Base empilée : PR #428 / a75d165aa5037d57adea22d607f08facc1c07017 ; #428 est elle-même encore ouverte en draft.
+Depuis l'ancien repère f5128bab, la branche #441 a avancé de 46 commits : l'ancien état local de quatre fichiers non commités ne doit plus être utilisé comme vérité courante sans nouvelle comparaison.
+Le contenu versionné comporte désormais les briques de production B21 -> B20 Android/iOS : attestations de couverture, stores de couverture, proratisation segmentée, preuves de majorations datées et bridges de production du brut travaillé segmenté.
+Les bornes mensuelles sont étendues à des semaines ISO complètes afin de ne pas réinitialiser les seuils hebdomadaires aux frontières du mois.
+Les contextes nuit/jours fériés/règles restent fail-closed : preuve absente, historique non fiable, règle future ou couverture incomplète => résultat bloqué, jamais faux zéro.
+Sur le HEAD exact 010839f2, le check build-ios est SUCCESS et le check submit-gradle est SUCCESS.
+Ces deux checks ne constituent pas à eux seuls la validation complète de la pile B21 ; la PR reste draft et les gates complets doivent être rejoués sur le HEAD final.
+Le snapshot Firestore privé `v2_complete` avait été lu en lecture seule lors de l'audit précédent : format horatrack_v2, formatVersion 4, schemaVersion 2, avec 6 sessions observées. Les données brutes n'ont pas été commitées ; seules des propriétés anonymisées ont été consignées (session sans employeur, pause non payée très longue sur une session nocturne, semaine partiellement observée). Leur présence comme fixtures exactes dans #441 n'est pas démontrée : ne pas prétendre que les 6 sessions brutes sont intégrées aux tests.
+main courant vérifié pendant cette reprise : e24580eb73c6b11f89e87074788cbc90a3af5f12 (après PR #491).
+Avant toute fusion de #441, réconcilier la pile Salaire avec main courant et les changements Paramètres concurrents, sans écraser les propriétaires canoniques de l'un ou l'autre chantier.
+Ordre de reprise B21 : 1) vérifier la chaîne de dépendances de #428/#441 ; 2) rattacher de façon versionnée les preuves de pointage réelles anonymisées ou reproductions fidèles ; 3) exécuter les tests ciblés Android+iOS sur B21->B20 ; 4) vérifier écrans/PDF/comparaison/historique consommateurs ; 5) seulement ensuite faire passer les gates complets et fusionner si tous sont réellement satisfaits.
+Aucun déploiement Firebase Functions n'est requis par ce lot B21.
+Audit consommateurs au 26/09/2026 : la nouvelle pile est construite jusqu'à la projection nette canonique (#472 puis #474), mais #474 confirme que les consommateurs écran/PDF/historique ne sont pas encore remplacés. Le main courant utilise encore V2SalaryAdapter.Result / V2SalaryNetBridgeV2 dans ces sorties et dans la comparaison bulletin. Ne pas injecter artificiellement la nouvelle chaîne dans cet ancien contrat : construire un raccord canonique explicite sans deuxième vérité.
+Écart de dépendance vérifié : #464 a été créée depuis #441 au SHA f5128bab, alors que #441 est désormais 8cbd8e01201b7a76680c65c1374bd10a93dca643, soit 48 commits d'avance. Ces commits touchent notamment couverture, proratisation, B20/B21 et tests Android/iOS. Les PR aval #464/#465/#470/#472/#474 doivent donc être réconciliées/rebasées sur le HEAD courant avant toute fusion.
+Validation #475 : tous les contrôles techniques Android/iOS sont verts ; le seul gate rouge est Agent review gate. Relance ciblée le 26/09/2026 : échec confirmé « Quota exceeded. Check your plan and billing details. ». Aucun contournement ni faux PASS.
+
 Le texte maître précédent est conservé intégralement à la suite de ce checkpoint.
 
 ==============================================================================
