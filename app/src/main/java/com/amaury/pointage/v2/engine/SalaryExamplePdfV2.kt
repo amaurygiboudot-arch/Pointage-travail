@@ -17,6 +17,7 @@ import com.amaury.pointage.v2.NetSalaryReferencePolicyV2
 import com.amaury.pointage.v2.OfficialLegalCodeSourceV2
 import com.amaury.pointage.v2.SalaryNumericInputV2
 import com.amaury.pointage.v2.V2ProfileStore
+import com.amaury.pointage.v2.V2SegmentedSalaryCanonicalBridge
 import com.amaury.pointage.v2.V2RightsStore
 import java.io.OutputStream
 import java.text.DateFormatSymbols
@@ -172,15 +173,24 @@ object SalaryExamplePdfV2 {
             ?.let { ConventionCatalog.findByIdcc(context, it) }
             ?.takeIf { it.idcc.isNotBlank() }
 
-        val salaryNet = when {
-            !HoraTrackV2.ENABLED || convention == null -> null
-            company != null -> runCatching {
-                V2SalaryNetBridgeV2.calculateForCompany(context, company, year, month, convention)
+        val canonical = when {
+            company == null || !HoraTrackV2.ENABLED -> null
+            else -> runCatching {
+                V2SegmentedSalaryCanonicalBridge.calculateForCompany(
+                    context = context,
+                    company = company,
+                    year = year,
+                    monthZeroBased = month,
+                    timeZoneId = ZoneId.systemDefault().id
+                ).output
             }.getOrNull()
+        }
+        val salaryNet = when {
+            company != null -> null
+            !HoraTrackV2.ENABLED || convention == null -> null
             else -> null
         }
         val salary = when {
-            salaryNet != null -> salaryNet.salary
             company != null || !HoraTrackV2.ENABLED || convention == null -> null
             rate != null -> runCatching {
                 V2SalaryAdapter.calculate(context, year, month, rate, convention)
@@ -188,9 +198,10 @@ object SalaryExamplePdfV2 {
             else -> null
         }
         val payrollReferenceDate = PayrollPeriodV2.month(year, month).referenceDate
-        val payroll = salaryNet?.payroll
+        val payroll = canonical?.net?.projection?.payroll ?: salaryNet?.payroll
 
-        val timeSection = timeSectionValues(salary, salary?.unpaidPauseMs)
+        val timeSection = if (company != null) timeSectionValues(canonical)
+            else timeSectionValues(salary, salary?.unpaidPauseMs)
         val counters = if (company != null) V2RightsStore.forCompany(context, company.id) else V2RightsStore.all(context)
         val legalReferenceAtMs = payrollReferenceDate
             .atStartOfDay(ZoneId.systemDefault())
@@ -243,7 +254,8 @@ object SalaryExamplePdfV2 {
             )))
 
             if (Field.ESTIMATED_GROSS in fields) {
-                add(PdfSection("ESTIMATION DE RÉMUNÉRATION", estimatedGrossLines(salary, salaryNet)))
+                add(PdfSection("ESTIMATION DE RÉMUNÉRATION",
+                    if (company != null) estimatedGrossLines(canonical) else estimatedGrossLines(salary, salaryNet)))
             }
 
             if (Field.COUNTERS in fields) {
@@ -260,7 +272,8 @@ object SalaryExamplePdfV2 {
 
             if (Field.SOURCES in fields) {
                 val warningSections = warningSections(
-                    salaryWarnings = salaryNet?.warnings ?: salary?.warnings.orEmpty(),
+                    salaryWarnings = if (company != null) canonical?.warnings.orEmpty()
+                        else salaryNet?.warnings ?: salary?.warnings.orEmpty(),
                     payrollWarnings = emptyList(),
                     employerCostWarnings = payroll?.employerCostWarnings.orEmpty()
                 )
