@@ -417,4 +417,25 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `une zone candidate apprise ne devient pas une fiche utilisateur`() {
+        val zones = parsePersistedGpsZones(
+            """[
+                {
+                    "id":"candidate",
+                    "latitude":46.7,
+                    "longitude":-1.4,
+                    "radius":150,
+                    "address":"1 rue A",
+                    "smartCandidate":true
+                }
+            ]""".trimIndent()
+        )
+
+        val entries = resolveGpsLocationEntries(zones, emptyList())
+
+        assertTrue(entries?.isEmpty() == true)
+    }
+
+
 }
