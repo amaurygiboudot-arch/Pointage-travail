@@ -312,4 +312,100 @@ class GpsZoneConfigStoreTest {
     }
 
 
+    @Test
+    fun `une zone conserve son contact d arrivee canonique`() {
+        val result = parsePersistedGpsZones(
+            """[{
+                "id":"portail",
+                "latitude":46.7,
+                "longitude":-1.4,
+                "radius":150,
+                "address":"1 rue A",
+                "arrivalContact":{"contactName":"Accueil","phone":"0601020304","enabled":true}
+            }]""".trimIndent()
+        )
+
+        assertTrue(result is GpsZonesReadResult.Valid)
+        val contact = (result as GpsZonesReadResult.Valid).zones.single().arrivalContact
+        assertEquals("Accueil", contact?.contactName)
+        assertEquals("0601020304", contact?.phone)
+        assertTrue(contact?.enabled == true)
+    }
+
+    @Test
+    fun `un contact d arrivee invalide rend la configuration gps corrompue`() {
+        val result = parsePersistedGpsZones(
+            """[{
+                "id":"portail",
+                "latitude":46.7,
+                "longitude":-1.4,
+                "radius":150,
+                "arrivalContact":{"enabled":"oui"}
+            }]""".trimIndent()
+        )
+
+        assertTrue(result is GpsZonesReadResult.Corrupt)
+    }
+
+    @Test
+    fun `le contact d arrivee est modifie uniquement pour la zone cible a adresse identique`() {
+        val zones = org.json.JSONArray(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A",
+                 "arrivalContact":{"contactName":"Accueil","phone":"0101","enabled":true}},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A",
+                 "arrivalContact":{"contactName":"Gardien","phone":"0202","enabled":false}}
+            ]""".trimIndent()
+        )
+
+        assertTrue(
+            updateGpsZoneArrivalContactById(
+                zones,
+                "parking",
+                StoredGpsArrivalContact("Parking visiteurs", "0303", true)
+            )
+        )
+
+        assertEquals("Accueil", zones.getJSONObject(0).getJSONObject("arrivalContact").getString("contactName"))
+        val target = zones.getJSONObject(1).getJSONObject("arrivalContact")
+        assertEquals("Parking visiteurs", target.getString("contactName"))
+        assertEquals("0303", target.getString("phone"))
+        assertTrue(target.getBoolean("enabled"))
+    }
+
+    @Test
+    fun `supprimer le contact d arrivee conserve la zone gps`() {
+        val zones = org.json.JSONArray(
+            """[{
+                "id":"portail",
+                "latitude":46.7,
+                "longitude":-1.4,
+                "radius":150,
+                "address":"1 rue A",
+                "arrivalContact":{"contactName":"Accueil","phone":"0101","enabled":true}
+            }]""".trimIndent()
+        )
+
+        assertTrue(updateGpsZoneArrivalContactById(zones, "portail", null))
+        assertTrue(!zones.getJSONObject(0).has("arrivalContact"))
+        assertEquals("portail", zones.getJSONObject(0).getString("id"))
+    }
+
+    @Test
+    fun `la resolution du contact par zone reste non ambigue a adresse identique`() {
+        val result = parsePersistedGpsZones(
+            """[
+                {"id":"portail","latitude":46.7,"longitude":-1.4,"radius":150,"address":"1 rue A",
+                 "arrivalContact":{"contactName":"Accueil","phone":"0101","enabled":true}},
+                {"id":"parking","latitude":46.7005,"longitude":-1.4005,"radius":180,"address":"1 rue A",
+                 "arrivalContact":{"contactName":"Gardien","phone":"0202","enabled":false}}
+            ]""".trimIndent()
+        )
+
+        assertEquals("Accueil", resolveGpsZoneArrivalContact(result, "portail", "1 rue A")?.contactName)
+        assertEquals("Gardien", resolveGpsZoneArrivalContact(result, "parking", "1 rue A")?.contactName)
+        assertNull(resolveGpsZoneArrivalContact(result, null, "1 rue A"))
+    }
+
+
 }
