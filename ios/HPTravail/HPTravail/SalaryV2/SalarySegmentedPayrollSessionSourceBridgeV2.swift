@@ -1,4 +1,7 @@
 import Foundation
+#if SWIFT_PACKAGE
+import RuntimeV2Contract
+#endif
 
 /// Adaptateur journal RuntimeV2 + registre explicite de couverture -> source B21 iOS.
 enum SalarySegmentedPayrollSessionSourceBridgeV2 {
