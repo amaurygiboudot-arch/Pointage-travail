@@ -139,10 +139,22 @@ class SegmentedSalaryCanonicalOutputV2Test {
         val projection = EmployeeNetProjectionV2.Result(
             payroll = NetSalaryEngineV2.Result(
                 gross = cash.cashGross ?: 0.0,
-                grossReliable = true,
-                employeeDeductions = 200.0,
-                employerCost = null,
-                warnings = emptyList()
+                socialSecurityCeiling = 4_005.0,
+                socialSecurityCeilingComplete = true,
+                statutory = 100.0,
+                complementaryRetirement = 50.0,
+                conventionProvidentEmployee = 0.0,
+                conventionProvidentEmployer = 0.0,
+                companyEmployeeDeductions = 50.0,
+                employerStatusContributions = 0.0,
+                employerAtMpContribution = null,
+                netBeforeIncomeTax = 900.0,
+                netTaxable = if (complete) 950.0 else null,
+                incomeTax = if (complete) 45.0 else null,
+                netAfterIncomeTax = if (complete) 855.0 else null,
+                complete = complete,
+                warnings = emptyList(),
+                grossReliable = true
             ),
             netBeforeIncomeTax = if (complete) 900.0 else null,
             netTaxable = if (complete) 950.0 else null,
