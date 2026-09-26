@@ -421,6 +421,7 @@
                 android:paddingTop="12dp">
 
                 <TextView
+                    android:id="@+id/settingsCelestialTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="SYSTÈME CÉLESTE"
@@ -430,6 +431,7 @@
                     android:fontFamily="serif" />
 
                 <TextView
+                    android:id="@+id/settingsCelestialModeLabel"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
@@ -470,6 +472,7 @@
                 </RadioGroup>
 
                 <TextView
+                    android:id="@+id/settingsCelestialDescription"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
@@ -488,6 +491,7 @@
                     android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/settingsPointageTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="18dp"
@@ -513,6 +517,7 @@
                     android:textSize="14sp" />
 
                 <TextView
+                    android:id="@+id/settingsGeofenceRadiusLabel"
                     android:layout_width="1dp"
                     android:layout_height="1dp"
                     android:visibility="gone"
