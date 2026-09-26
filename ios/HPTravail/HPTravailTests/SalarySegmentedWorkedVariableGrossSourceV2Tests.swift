@@ -42,6 +42,13 @@ final class SalarySegmentedWorkedVariableGrossSourceV2Tests: XCTestCase {
         XCTAssertEqual(result.pieces.count, 2)
         XCTAssertEqual(result.pieces[0].variableGross, 62.5, accuracy: 0.0001)
         XCTAssertEqual(result.pieces[1].variableGross, 125.0, accuracy: 0.0001)
+        XCTAssertEqual(result.breakdowns.count, 2)
+        XCTAssertEqual(result.breakdowns[0].overtimeGross, 62.5, accuracy: 0.0001)
+        XCTAssertEqual(result.breakdowns[0].complementaryGross, 0, accuracy: 0)
+        XCTAssertEqual(result.breakdowns[0].premiumGross, 0, accuracy: 0)
+        XCTAssertEqual(result.breakdowns[1].overtimeGross, 125.0, accuracy: 0.0001)
+        XCTAssertEqual(result.breakdowns[1].complementaryGross, 0, accuracy: 0)
+        XCTAssertEqual(result.breakdowns[1].premiumGross, 0, accuracy: 0)
     }
 
     func testMaterialMidweekTransitionFailsClosed() throws {

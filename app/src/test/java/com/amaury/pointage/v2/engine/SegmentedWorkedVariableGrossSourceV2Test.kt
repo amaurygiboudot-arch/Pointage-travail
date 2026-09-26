@@ -42,6 +42,13 @@ class SegmentedWorkedVariableGrossSourceV2Test {
         assertEquals(2, result.pieces.size)
         assertEquals(62.5, result.pieces[0].variableGross, 0.0001)
         assertEquals(125.0, result.pieces[1].variableGross, 0.0001)
+        assertEquals(2, result.breakdowns.size)
+        assertEquals(62.5, result.breakdowns[0].overtimeGross, 0.0001)
+        assertEquals(0.0, result.breakdowns[0].complementaryGross, 0.0)
+        assertEquals(0.0, result.breakdowns[0].premiumGross, 0.0)
+        assertEquals(125.0, result.breakdowns[1].overtimeGross, 0.0001)
+        assertEquals(0.0, result.breakdowns[1].complementaryGross, 0.0)
+        assertEquals(0.0, result.breakdowns[1].premiumGross, 0.0)
     }
 
     @Test
