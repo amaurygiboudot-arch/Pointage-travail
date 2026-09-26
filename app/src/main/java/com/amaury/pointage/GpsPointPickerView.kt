@@ -127,14 +127,6 @@ class GpsPointPickerView @JvmOverloads constructor(
         return source.optJSONObject(address)
     }
 
-    private fun confirmedFor(zoneId: String?, address: String, source: JSONObject = confirmed()): Boolean {
-        val canonicalId = zoneId?.trim().orEmpty()
-        if (canonicalId.isNotBlank() && source.optBoolean(canonicalId, false)) return true
-        val uniqueOwner = resolveUniqueGpsZoneIdForAddress(readPersistedGpsZones(prefs), address)
-        if (uniqueOwner == null || canonicalId.isNotBlank() && uniqueOwner != canonicalId) return false
-        return source.optBoolean(address, false)
-    }
-
     private fun findZone(address: String, list: JSONArray?): JSONObject? {
         if (list == null) return null
         for (i in 0 until list.length()) {
