@@ -35,6 +35,8 @@ class PointageWidgetProvider : AppWidgetProvider() {
             manager.getAppWidgetIds(component).forEach { updateDynamicWidget(context, manager, it) }
         }
 
+        fun refreshAppearance(context: Context) = rebuildAll(context)
+
         private fun rebuildAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, PointageWidgetProvider::class.java)
@@ -219,9 +221,17 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             val theme = AppThemeCatalog.current(context)
             val dark = AppThemeCatalog.useDarkPalette(context)
-            val accent = if (dark) theme.accentLight else theme.accent
-            val (adaptiveText, adaptiveSecondary) = adaptiveWidgetTextColors(context, dark)
-            views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            val customBackground = WidgetStyleSettings.customBackground(context)
+            val accent = WidgetStyleSettings.customAccent(context)
+                ?: if (dark) theme.accentLight else theme.accent
+            val (adaptiveText, adaptiveSecondary) = customBackground
+                ?.let(WidgetStyleSettings::readableTextColors)
+                ?: adaptiveWidgetTextColors(context, dark)
+            if (customBackground != null) {
+                views.setInt(R.id.widget_surface, "setBackgroundColor", customBackground)
+            } else {
+                views.setInt(R.id.widget_surface, "setBackgroundResource", backgroundFor(theme.id, dark))
+            }
 
             val (widgetWidth, widgetHeight) = widgetSize(manager, widgetId)
             val buttonDp = min(widgetWidth / 5.15f, widgetHeight * 0.54f).coerceIn(46f, 84f)
@@ -274,8 +284,10 @@ class PointageWidgetProvider : AppWidgetProvider() {
 
             applyDynamicState(context, views)
 
-            val widgetPrefs = context.getSharedPreferences("widget_style", Context.MODE_PRIVATE)
-            views.setViewVisibility(R.id.widget_location, if (widgetPrefs.getBoolean("show_position", true)) View.VISIBLE else View.GONE)
+            views.setViewVisibility(
+                R.id.widget_location,
+                if (WidgetStyleSettings.showPosition(context)) View.VISIBLE else View.GONE
+            )
             manager.updateAppWidget(widgetId, views)
         }
     }
