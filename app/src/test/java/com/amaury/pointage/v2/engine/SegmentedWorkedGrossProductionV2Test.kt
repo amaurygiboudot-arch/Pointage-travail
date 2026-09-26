@@ -1,5 +1,7 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.SegmentedProrationSourceV2
+
 import com.amaury.pointage.v2.model.ContractTypeV2
 import com.amaury.pointage.v2.model.ContractV2
 import java.time.LocalDate
@@ -17,7 +19,7 @@ class SegmentedWorkedGrossProductionV2Test {
         val result = SegmentedWorkedGrossProductionV2.calculate(
             contracts = f.contracts,
             rules = f.rules,
-            proration = f.proration,
+            prorationSource = f.proration,
             source = f.source,
             premiums = f.premiums,
             nowMs = f.nowMs
@@ -35,7 +37,7 @@ class SegmentedWorkedGrossProductionV2Test {
         val result = SegmentedWorkedGrossProductionV2.calculate(
             contracts = f.contracts,
             rules = f.rules,
-            proration = f.proration,
+            prorationSource = f.proration,
             source = f.source.copy(exhaustive = false),
             premiums = f.premiums,
             nowMs = f.nowMs
@@ -81,7 +83,7 @@ class SegmentedWorkedGrossProductionV2Test {
     private data class Fixture(
         val contracts: EmploymentContractPeriodResolutionV2,
         val rules: ConventionRulePeriodResolutionV2,
-        val proration: ConfirmedSegmentedMonthlyProrationV2,
+        val proration: SegmentedProrationSourceV2,
         val source: SegmentedPayrollSessionSourceV2,
         val premiums: List<SegmentedPayrollPremiumEvidenceV2>,
         val nowMs: Long
@@ -114,13 +116,17 @@ class SegmentedWorkedGrossProductionV2Test {
                 )
             )
         )
-        val proration = ConfirmedSegmentedMonthlyProrationV2(
-            sourceId = "planning-confirme",
-            checkedAtMs = 1L,
-            segments = listOf(
-                ConfirmedProrationSegmentV2("c1", 4, 10, 2100),
-                ConfirmedProrationSegmentV2("c2", 11, 17, 2100)
-            )
+        val proration = SegmentedProrationSourceV2(
+            proration = ConfirmedSegmentedMonthlyProrationV2(
+                sourceId = "planning-confirme",
+                checkedAtMs = 1L,
+                segments = listOf(
+                    ConfirmedProrationSegmentV2("c1", 4, 10, 2100),
+                    ConfirmedProrationSegmentV2("c2", 11, 17, 2100)
+                )
+            ),
+            reliable = true,
+            warnings = emptyList()
         )
         val now = ms(18, 12)
         val source = SegmentedPayrollSessionSourceV2(
