@@ -18,7 +18,7 @@ class GpsZoneTypeView @JvmOverloads constructor(
     attrs: AttributeSet? = null
 ) : LinearLayout(context, attrs), SharedPreferences.OnSharedPreferenceChangeListener {
     companion object { const val TAG = "gps_zone_type_v2" }
-    private val prefs = context.getSharedPreferences("gps_settings", Context.MODE_PRIVATE)
+    private val prefs = GpsSettingsV2.preferences(context)
 
     init {
         tag = TAG
