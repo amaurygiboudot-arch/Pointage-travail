@@ -3,7 +3,7 @@ CHECKPOINT 32 — 26 SEPTEMBRE 2026 — SALAIRE V2 / SORTIES CANONIQUES
 ==============================================================================
 
 32.1 REPERE GIT ET PRINCIPE DE REPRISE
-main de référence au moment de ce checkpoint : 5d2997a867c3bc3adddfe8b6a465a660ea2fc92a.
+main de référence mis à jour : 80a33d56ee272251273e6b4e7fa0906af8e5d250. Le seul delta depuis 5d2997a8 au moment de cette mise à jour ajoute le pipeline Google Play interne et son trigger ; aucun fichier Salaire/runtime n'est modifié.
 Salaire V2 reste fail-closed : inconnu != zéro, corruption != absence, source partielle != résultat fiable.
 Même règle métier pour 100 % des utilisateurs concernés, tous métiers/classes/catégories et toutes plateformes Android/iOS compatibles. Les adaptateurs plateforme peuvent différer ; la vérité métier ne doit pas diverger.
 
@@ -44,8 +44,8 @@ Les références V2SalaryAdapter / V2SalaryNetBridgeV2 restantes dans V2PayslipS
 32.5 VALIDATION COMPLETE COURANTE
 Ancien candidat #555 : iOS, V2 unit tests, Android/build, Google Play, CodeQL, Firebase Functions et dependency-review réussis. Agent review gate rouge faute de preuve multi-agents pour le HEAD et OPENAI_API_KEY non configurée.
 Nouveau candidat VALIDATION ONLY #562 :
-- base main : 5d2997a867c3bc3adddfe8b6a465a660ea2fc92a ;
-- HEAD : 585b49555182784071d5f897133d00459a72ed4b ;
+- base main courante : 80a33d56ee272251273e6b4e7fa0906af8e5d250 ;
+- HEAD courant : 7b279600ec79e400c0d3c0a0b8bd7505de3bad34 ;
 - contient #528 + toute la pile consommateurs jusqu'à #554 ;
 - ne jamais fusionner #562.
 Au moment de l'écriture, V2 unit tests, Firebase Functions et dependency-review sont déjà réussis ; les autres jobs sont encore à terminer. Aucun job en cours n'est compté comme PASS.
@@ -53,7 +53,7 @@ Au moment de l'écriture, V2 unit tests, Firebase Functions et dependency-review
 32.6 ECART IOS ENCORE OUVERT
 Les adaptateurs iOS savent consommer SalarySegmentedCanonicalOutputV2, mais SalaryV2Store résout encore son snapshot de production via SalaryWorkspaceResolverV2.resolve(reference:incomeTaxRate:) et non via l'entrée segmented.
 La PR #542 ajoute le propriétaire iOS des primes contractuelles/personnelles avec confirmation mensuelle d'exhaustivité et fail-closed.
-Aucune PR ouverte vérifiée ne fournit encore un propriétaire iOS complet de prime d'ancienneté équivalent au bridge Android utilisé dans les composantes cash fixes. Ne pas inventer ce montant ni déclarer la parité iOS end-to-end acquise tant que ce propriétaire n'est pas construit et validé.
+Aucune PR antérieure ne fournissait encore un propriétaire iOS complet de prime d'ancienneté équivalent au bridge Android utilisé dans les composantes cash fixes. Un moteur pur iOS a été retrouvé localement, comparé au moteur Android puis versionné proprement dans #564, HEAD 20b3194d5f14b28d184173baa28c820ce2fbcce1, enfant de #542. Il reste volontairement non activé : aucun store/parser/bridge de production n'est encore ajouté par #564. Ne pas inventer ce montant ni déclarer la parité iOS end-to-end acquise tant que les sources officielles et le propriétaire de stockage/bridge ne sont pas construits et validés.
 
 32.7 REGLES SOURCES CHATGPT AJOUTEES
 Source projet « Mise à jours Play store.txt » :
