@@ -97,15 +97,23 @@ class SegmentedCashGrossAssemblyV2Test {
         reliable: Boolean = true,
         warnings: List<String> = emptyList()
     ): SegmentedWorkedGrossProductionResultV2 {
-        val source = SegmentedPayrollSessionSourceV2(
-            employerId = "company", sessions = emptyList(), sourceId = "source",
-            reliable = reliable, exhaustive = reliable, coveredStartEpochDay = 0,
-            coveredEndEpochDay = 0, checkedAtMs = 1, timeZoneId = "UTC", warnings = warnings
+        val evidence = SegmentedPayrollSessionEvidenceResultV2(
+            slices = emptyList(),
+            reliable = reliable,
+            warnings = warnings,
+            sourceId = "source",
+            contributingSessionIds = emptyList()
         )
         val variables = SegmentedWorkedVariableGrossSourceResultV2(
             pieces = emptyList(), reliable = reliable, warnings = warnings
         )
-        val assembled = SegmentedWorkedGrossAssemblyResultV2(
+        val base = SegmentedMonthlyBaseResultV2(
+            pieces = emptyList(),
+            baseGross = if (reliable) amount else null,
+            reliable = reliable,
+            warnings = warnings
+        )
+        val assembly = SegmentedWorkedGrossAssemblyResultV2(
             baseGross = if (reliable) amount else null,
             variableGross = if (reliable) 0.0 else null,
             workedGross = if (reliable) amount else null,
@@ -113,7 +121,10 @@ class SegmentedCashGrossAssemblyV2Test {
             warnings = warnings
         )
         return SegmentedWorkedGrossProductionResultV2(
-            source, variables, assembled, reliable, warnings
+            evidence = evidence,
+            variables = variables,
+            base = base,
+            assembly = assembly
         )
     }
 }

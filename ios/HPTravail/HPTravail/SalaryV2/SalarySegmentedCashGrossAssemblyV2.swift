@@ -40,8 +40,8 @@ enum SalarySegmentedCashGrossAssemblerV2 {
         fixed: SalaryConfirmedCashGrossComponentsV2
     ) -> SalarySegmentedCashGrossAssemblyResultV2 {
         let upstream = unique(worked.warnings + fixed.warnings)
-        guard worked.reliable, worked.worked.reliable,
-              let workedGross = worked.worked.workedGross,
+        guard worked.reliable, worked.assembly.reliable,
+              let workedGross = worked.assembly.workedGross,
               workedGross.isFinite, workedGross >= 0 else {
             return blocked(upstream + [workedWarning])
         }

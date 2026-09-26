@@ -94,21 +94,23 @@ final class SalarySegmentedCashGrossAssemblyV2Tests: XCTestCase {
         reliable: Bool = true,
         warnings: [String] = []
     ) -> SalarySegmentedWorkedGrossProductionResultV2 {
-        let source = SalarySegmentedPayrollSessionSourceV2(
-            employerId: "company",
-            work: .init(sessions: [], reliable: reliable),
+        let evidence = SalarySegmentedPayrollSessionEvidenceResultV2(
+            slices: [],
+            reliable: reliable,
+            warnings: warnings,
             sourceId: "source",
-            exhaustive: reliable,
-            coveredStartEpochDay: 0,
-            coveredEndEpochDay: 0,
-            checkedAt: Date(timeIntervalSince1970: 1),
-            timeZoneId: "UTC",
-            warnings: warnings
+            contributingSessionIds: []
         )
         let variables = SalarySegmentedWorkedVariableGrossSourceResultV2(
             pieces: [], reliable: reliable, warnings: warnings
         )
-        let assembled = SalarySegmentedWorkedGrossAssemblyResultV2(
+        let base = SegmentedMonthlyBaseResultV2(
+            pieces: [],
+            baseGross: reliable ? amount : nil,
+            reliable: reliable,
+            warnings: warnings
+        )
+        let assembly = SalarySegmentedWorkedGrossAssemblyResultV2(
             baseGross: reliable ? amount : nil,
             variableGross: reliable ? 0 : nil,
             workedGross: reliable ? amount : nil,
@@ -116,11 +118,10 @@ final class SalarySegmentedCashGrossAssemblyV2Tests: XCTestCase {
             warnings: warnings
         )
         return .init(
-            source: source,
+            evidence: evidence,
             variables: variables,
-            worked: assembled,
-            reliable: reliable,
-            warnings: warnings
+            base: base,
+            assembly: assembly
         )
     }
 }

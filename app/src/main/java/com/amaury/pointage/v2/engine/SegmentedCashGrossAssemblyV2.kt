@@ -44,8 +44,8 @@ object SegmentedCashGrossAssemblerV2 {
         fixed: ConfirmedCashGrossComponentsV2
     ): SegmentedCashGrossAssemblyResultV2 {
         val upstream = (worked.warnings + fixed.warnings).distinct()
-        val workedGross = worked.worked.workedGross
-        if (!worked.reliable || !worked.worked.reliable ||
+        val workedGross = worked.assembly.workedGross
+        if (!worked.reliable || !worked.assembly.reliable ||
             workedGross == null || !workedGross.isFinite() || workedGross < 0.0
         ) return blocked(upstream + WORKED_WARNING)
 
