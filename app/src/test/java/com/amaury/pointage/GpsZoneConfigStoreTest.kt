@@ -228,4 +228,22 @@ class GpsZoneConfigStoreTest {
         assertTrue(resolveGpsZoneRadiusForAddress(result, "1 rue A") is GpsZoneRadiusResolution.Corrupt)
     }
 
+    @Test
+    fun `le rayon existant reste prioritaire sur l ancien defaut global`() {
+        val existing = org.json.JSONObject()
+            .put("id", "zone-a")
+            .put("address", "1 rue A")
+            .put("latitude", 46.7)
+            .put("longitude", -1.4)
+            .put("radius", 320)
+
+        assertEquals(320, resolveGpsRadiusForRefresh(existing, 150))
+    }
+
+    @Test
+    fun `une nouvelle zone utilise seulement le rayon par defaut interne`() {
+        assertEquals(150, resolveGpsRadiusForRefresh(null, 150))
+    }
+
+
 }
