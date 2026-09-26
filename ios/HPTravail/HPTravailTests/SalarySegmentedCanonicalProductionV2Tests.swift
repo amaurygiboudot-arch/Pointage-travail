@@ -24,7 +24,9 @@ final class SalarySegmentedCanonicalProductionV2Tests: XCTestCase {
         XCTAssertTrue(result.output.netBeforeIncomeTaxComplete)
         XCTAssertEqual(result.output.cashGross, 1_000)
         XCTAssertEqual(result.output.complementaryMinutes, 0)
-    }    func testUnconfirmedFixedComponentsBlockCashAndNetWithoutErasingWorkedGross() {
+    }
+
+    func testUnconfirmedFixedComponentsBlockCashAndNetWithoutErasingWorkedGross() {
         let result = SalarySegmentedCanonicalProductionV2.calculate(
             worked: worked(),
             fixed: .init(
@@ -50,7 +52,8 @@ final class SalarySegmentedCanonicalProductionV2Tests: XCTestCase {
             weekOfYear: 40,
             week: PayrollWeekV2(
                 paidMinutes: 2_100,
-                nightMinutes: 0,                saturdayMinutes: 0,
+                nightMinutes: 0,
+                saturdayMinutes: 0,
                 sundayMinutes: 0,
                 publicHolidayMinutes: 0
             ),
@@ -83,7 +86,8 @@ final class SalarySegmentedCanonicalProductionV2Tests: XCTestCase {
             warnings: [],
             breakdowns: [
                 .init(
-                    companyId: "company",                    versionId: "c1",
+                    companyId: "company",
+                    versionId: "c1",
                     startEpochDay: 1,
                     endEpochDay: 7,
                     overtimeGross: 0,
@@ -113,7 +117,9 @@ final class SalarySegmentedCanonicalProductionV2Tests: XCTestCase {
             base: base,
             assembly: assembly
         )
-    }    private func completeContext() -> SalarySegmentedNetProjectionContextV2 {
+    }
+
+    private func completeContext() -> SalarySegmentedNetProjectionContextV2 {
         let period = Resolver.YearMonth(year: 2026, month: 4)!
         return .init(
             benefits: .init(applied: [], totalGross: 0, reliable: true, warnings: []),
@@ -137,7 +143,8 @@ final class SalarySegmentedCanonicalProductionV2Tests: XCTestCase {
                     record("employer-taxable", .employerProtectionTaxable, 8, period),
                     record("employer-csg", .employerProtectionCsgCrdsBase, 12, period),
                     record("provident-nd", .employeeProvidentNonDeductible, 4, period)
-                ],                period: period
+                ],
+                period: period
             ),
             period: period,
             incomeTaxRate: nil
