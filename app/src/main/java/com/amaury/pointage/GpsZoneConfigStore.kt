@@ -153,6 +153,38 @@ internal fun parsePersistedGpsZones(raw: String?): GpsZonesReadResult {
     return GpsZonesReadResult.Valid(zones)
 }
 
+
+internal sealed class GpsZoneRadiusResolution {
+    data class Known(val radiusMeters: Float) : GpsZoneRadiusResolution()
+    object Missing : GpsZoneRadiusResolution()
+    object Ambiguous : GpsZoneRadiusResolution()
+    object Corrupt : GpsZoneRadiusResolution()
+}
+
+internal fun resolveGpsZoneRadiusForAddress(
+    zonesResult: GpsZonesReadResult,
+    address: String
+): GpsZoneRadiusResolution = when (zonesResult) {
+    GpsZonesReadResult.Missing -> GpsZoneRadiusResolution.Missing
+    is GpsZonesReadResult.Corrupt -> GpsZoneRadiusResolution.Corrupt
+    is GpsZonesReadResult.Valid -> {
+        val normalized = address.trim()
+        val matches = zonesResult.zones.filter {
+            it.address?.trim()?.equals(normalized, ignoreCase = true) == true
+        }
+        if (matches.isEmpty()) {
+            GpsZoneRadiusResolution.Missing
+        } else {
+            val radii = matches.map { it.radius }.distinct()
+            if (radii.size == 1) {
+                GpsZoneRadiusResolution.Known(radii.single())
+            } else {
+                GpsZoneRadiusResolution.Ambiguous
+            }
+        }
+    }
+}
+
 /** Met à jour la géométrie sans perdre le type, l'entreprise ou les métadonnées existantes. */
 internal fun refreshedGpsZoneJson(
     existing: JSONObject?,
