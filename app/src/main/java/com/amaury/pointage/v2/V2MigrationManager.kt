@@ -149,6 +149,7 @@ object V2MigrationManager {
                 warnings = warnings
             )
         }
+        V2WorkHistoryCoverageStore.clearAll(app)
         app.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE).edit()
             .putInt("version", VERSION)
             .putInt("legacy_count", legacy.length())
