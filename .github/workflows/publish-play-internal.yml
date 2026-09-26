@@ -1,0 +1,147 @@
+name: Publish AGKGMG to Google Play internal
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/play-publish-trigger.txt"
+
+concurrency:
+  group: google-play-internal
+  cancel-in-progress: false
+
+jobs:
+  publish-internal:
+    name: Publish signed AAB to Google Play internal
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout exact trigger commit
+        uses: actions/checkout@v4
+
+      - name: Read expected version code
+        shell: bash
+        run: |
+          EXPECTED_VERSION_CODE="$(sed -n 's/^EXPECTED_VERSION_CODE=//p' .github/play-publish-trigger.txt | tail -1)"
+          test "$EXPECTED_VERSION_CODE" -gt 1470
+          echo "EXPECTED_VERSION_CODE=$EXPECTED_VERSION_CODE" >> "$GITHUB_ENV"
+
+      - name: Download canonical signed Play AAB
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/play"
+          gh release download dev-latest \
+            -p "HoraTrack-dev.aab" \
+            -p "HoraTrack-dev-version.txt" \
+            -p "SHA256-AAB-dev.txt" \
+            -D "$RUNNER_TEMP/play"
+          cd "$RUNNER_TEMP/play"
+          test -s HoraTrack-dev.aab
+          test -s HoraTrack-dev-version.txt
+          test -s SHA256-AAB-dev.txt
+          sha256sum -c SHA256-AAB-dev.txt
+          VERSION_NAME="$(cat HoraTrack-dev-version.txt)"
+          VERSION_CODE="$(printf '%s' "$VERSION_NAME" | sed -n 's/^1\.\([0-9][0-9]*\).*/\1/p')"
+          test "$VERSION_CODE" = "$EXPECTED_VERSION_CODE"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+
+      - name: Select secured Google credential
+        env:
+          GOOGLE_PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -n "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" ]; then
+            printf '%s' "$GOOGLE_PLAY_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-service-account.json"
+          elif [ -n "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/play-service-account.json"
+          else
+            echo "::error::Aucun compte de service Google disponible pour Android Publisher."
+            exit 1
+          fi
+          chmod 600 "$RUNNER_TEMP/play-service-account.json"
+          echo "PLAY_CREDENTIALS=$RUNNER_TEMP/play-service-account.json" >> "$GITHUB_ENV"
+
+      - name: Install Android Publisher client dependencies
+        run: python -m pip install --quiet google-auth requests
+
+      - name: Publish to internal testing
+        env:
+          PACKAGE_NAME: com.amaury.pointage
+        run: |
+          python <<'PY'
+          import json, os, pathlib, requests
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+
+          package = os.environ["PACKAGE_NAME"]
+          expected = int(os.environ["EXPECTED_VERSION_CODE"])
+          version_name = os.environ["VERSION_NAME"]
+          credential_file = os.environ["PLAY_CREDENTIALS"]
+          aab = pathlib.Path(os.environ["RUNNER_TEMP"]) / "play" / "HoraTrack-dev.aab"
+
+          credentials = service_account.Credentials.from_service_account_file(
+              credential_file,
+              scopes=["https://www.googleapis.com/auth/androidpublisher"],
+          )
+          credentials.refresh(Request())
+          headers = {"Authorization": f"Bearer {credentials.token}"}
+          api = "https://androidpublisher.googleapis.com/androidpublisher/v3"
+
+          edit_response = requests.post(
+              f"{api}/applications/{package}/edits",
+              headers={**headers, "Content-Type": "application/json"},
+              json={},
+              timeout=30,
+          )
+          edit_response.raise_for_status()
+          edit_id = edit_response.json()["id"]
+
+          with aab.open("rb") as handle:
+              upload = requests.post(
+                  f"https://androidpublisher.googleapis.com/upload/androidpublisher/v3/applications/{package}/edits/{edit_id}/bundles",
+                  params={"uploadType": "media"},
+                  headers={**headers, "Content-Type": "application/octet-stream"},
+                  data=handle,
+                  timeout=180,
+              )
+          upload.raise_for_status()
+          uploaded_code = int(upload.json()["versionCode"])
+          if uploaded_code != expected:
+              raise RuntimeError(f"VersionCode AAB inattendu: {uploaded_code} != {expected}")
+
+          track = requests.put(
+              f"{api}/applications/{package}/edits/{edit_id}/tracks/internal",
+              headers={**headers, "Content-Type": "application/json"},
+              json={
+                  "track": "internal",
+                  "releases": [{
+                      "name": f"AGKGMG {version_name}",
+                      "versionCodes": [str(uploaded_code)],
+                      "status": "completed",
+                      "releaseNotes": [{
+                          "language": "fr-FR",
+                          "text": "Mise à jour interne AGKGMG via Google Play."
+                      }]
+                  }]
+              },
+              timeout=30,
+          )
+          track.raise_for_status()
+
+          commit = requests.post(
+              f"{api}/applications/{package}/edits/{edit_id}:commit",
+              headers={**headers, "Content-Type": "application/json"},
+              json={},
+              timeout=30,
+          )
+          commit.raise_for_status()
+          print(f"Google Play internal: versionCode {uploaded_code} publiée.")
+          PY
+
+      - name: Remove temporary credential
+        if: always()
+        run: rm -f "$RUNNER_TEMP/play-service-account.json"
