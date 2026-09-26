@@ -29,6 +29,17 @@ final class SalarySegmentedPayrollSessionEvidenceBuilderV2Tests: XCTestCase {
         assertBlocked(try fixture([session("s", 4, 8, 4, 16, pauses: [
             PaidPauseFactV2(start: date(4, 12), end: date(4, 12, 30), paid: nil)])]))
     }
+
+    func testRealAuditLongUnpaidPauseOutsideSessionBlocksInsteadOfReliableZero() throws {
+        // Régression dérivée d’une propriété anonymisée du snapshot Firebase réel :
+        // une pause non payée incohérente ne doit jamais être clippée en zéro fiable.
+        let f = try fixture([session("audit-shape", 4, 22, 5, 6, pauses: [
+            PaidPauseFactV2(start: date(4, 23), end: date(5, 10), paid: false)])])
+        let proof = f.build()
+        XCTAssertFalse(proof.reliable)
+        XCTAssertTrue(proof.slices.isEmpty)
+        XCTAssertTrue(proof.warnings.contains(SalarySegmentedPayrollSessionEvidenceBuilderV2.pauseGeometryWarning))
+    }
     func testOpenSessionBlocks() throws {
         assertBlocked(try fixture([SalarySessionFactV2(id: "s", entry: date(4, 8), exit: nil, employerId: "company", pauses: [])]))
     }
