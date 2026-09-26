@@ -38,7 +38,8 @@ data class SegmentedWorkedVariableGrossBreakdownV2(
     val endEpochDay: Long,
     val overtimeGross: Double,
     val complementaryGross: Double,
-    val premiumGross: Double
+    val premiumGross: Double,
+    val complementaryMinutes: Int = 0
 ) {
     val variableGross: Double
         get() = overtimeGross + complementaryGross + premiumGross
@@ -304,7 +305,8 @@ object SegmentedWorkedVariableGrossSourceV2 {
                     endEpochDay = key.endEpochDay,
                     overtimeGross = item.overtimeGross,
                     complementaryGross = item.complementaryGross,
-                    premiumGross = item.premiumGross
+                    premiumGross = item.premiumGross,
+                    complementaryMinutes = item.complementaryMinutes.toInt()
                 )
             }
 
@@ -356,6 +358,7 @@ object SegmentedWorkedVariableGrossSourceV2 {
         warnings: MutableList<String>
     ): VariableAmounts? {
         val contractual = contractualWeeklyMinutes?.takeIf { it > 0 } ?: return null
+        var complementaryMinutes = 0L
         for (week in weeks) {
             val complementary = PartTimeComplementaryHoursV2.calculateWeek(
                 contractualMinutes = contractual,
@@ -363,10 +366,16 @@ object SegmentedWorkedVariableGrossSourceV2 {
                 grossHourlyRate = rate
             )
             warnings += complementary.warnings
+            if (complementary.complementaryMinutes < 0) return null
             if (complementary.complementaryMinutes > 0) return null
+            complementaryMinutes += complementary.complementaryMinutes.toLong()
+            if (complementaryMinutes > Int.MAX_VALUE) return null
         }
         val premiums = premiumGross(weeks, rate, rules) ?: return null
-        return VariableAmounts(premiumGross = premiums).takeIf { it.valid() }
+        return VariableAmounts(
+            complementaryMinutes = complementaryMinutes,
+            premiumGross = premiums
+        ).takeIf { it.valid() }
     }
 
     private fun premiumGross(
@@ -463,17 +472,21 @@ object SegmentedWorkedVariableGrossSourceV2 {
     private data class VariableAmounts(
         val overtimeGross: Double = 0.0,
         val complementaryGross: Double = 0.0,
-        val premiumGross: Double = 0.0
+        val premiumGross: Double = 0.0,
+        val complementaryMinutes: Long = 0L
     ) {
         val totalGross: Double get() = overtimeGross + complementaryGross + premiumGross
         operator fun plus(other: VariableAmounts) = VariableAmounts(
             overtimeGross + other.overtimeGross,
             complementaryGross + other.complementaryGross,
-            premiumGross + other.premiumGross
+            premiumGross + other.premiumGross,
+            complementaryMinutes + other.complementaryMinutes
         )
-        fun valid(): Boolean = listOf(
-            overtimeGross, complementaryGross, premiumGross, totalGross
-        ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }
+        fun valid(): Boolean =
+            complementaryMinutes in 0L..Int.MAX_VALUE.toLong() &&
+                listOf(
+                    overtimeGross, complementaryGross, premiumGross, totalGross
+                ).all { it.isFinite() && it >= -CURRENCY_TOLERANCE }
     }
 
     private data class SliceKey(
