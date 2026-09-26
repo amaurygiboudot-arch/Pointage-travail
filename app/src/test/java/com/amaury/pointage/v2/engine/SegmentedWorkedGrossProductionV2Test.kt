@@ -62,6 +62,22 @@ class SegmentedWorkedGrossProductionV2Test {
         )
     }
 
+    @Test
+    fun `bornes extremes bloquent sans overflow`() {
+        assertNull(
+            SegmentedWorkedGrossProductionV2.requiredCoverageBounds(
+                Long.MAX_VALUE,
+                Long.MAX_VALUE
+            )
+        )
+        assertNull(
+            SegmentedWorkedGrossProductionV2.requiredCoverageBounds(
+                Long.MIN_VALUE,
+                Long.MIN_VALUE
+            )
+        )
+    }
+
     private data class Fixture(
         val contracts: EmploymentContractPeriodResolutionV2,
         val rules: ConventionRulePeriodResolutionV2,
