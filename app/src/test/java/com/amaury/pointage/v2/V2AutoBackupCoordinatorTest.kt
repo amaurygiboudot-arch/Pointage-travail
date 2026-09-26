@@ -1,7 +1,9 @@
 package com.amaury.pointage.v2
 
+import com.amaury.pointage.BackupSecurityPolicy
 import com.amaury.pointage.SalaryCompanyStore
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -65,5 +67,16 @@ class V2AutoBackupCoordinatorTest {
         )
 
         assertEquals(listOf("salary_company_same"), files)
+    }
+
+    @Test
+    fun `auto backup only watches transferable preference files`() {
+        val watched = V2AutoBackupCoordinator.watchedPreferenceFilesForTest()
+
+        assertFalse(watched.contains("v2_app_lock"))
+        assertTrue(watched.isNotEmpty())
+        watched.forEach { name ->
+            assertTrue(name, BackupSecurityPolicy.canTransferPreferenceFile(name))
+        }
     }
 }
