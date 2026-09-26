@@ -5,6 +5,7 @@ data class SegmentedSalaryCanonicalOutputV2(
     val cash: SegmentedCashGrossAssemblyResultV2,
     val net: SegmentedCashGrossNetProjectionResultV2,
     val paidMinutes: Int?,
+    val complementaryMinutes: Int?,
     val nightMinutes: Int?,
     val saturdayMinutes: Int?,
     val sundayMinutes: Int?,
@@ -98,12 +99,18 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
                 worked.variables.breakdowns.all {
                     finiteNonNegative(it.overtimeGross) &&
                         finiteNonNegative(it.complementaryGross) &&
-                        finiteNonNegative(it.premiumGross)
+                        finiteNonNegative(it.premiumGross) &&
+                        it.complementaryMinutes >= 0
                 }
         val overtimeGross = if (variableBreakdownReliable) sumMoney(worked.variables.breakdowns.map { it.overtimeGross }) else null
         val complementaryGross = if (variableBreakdownReliable) sumMoney(worked.variables.breakdowns.map { it.complementaryGross }) else null
         val premiumGross = if (variableBreakdownReliable) sumMoney(worked.variables.breakdowns.map { it.premiumGross }) else null
-        if (!variableBreakdownReliable || overtimeGross == null || complementaryGross == null || premiumGross == null) {
+        val complementaryMinutes = if (variableBreakdownReliable) {
+            sumMinutes(worked.variables.breakdowns.map { it.complementaryMinutes })
+        } else null
+        if (!variableBreakdownReliable || overtimeGross == null || complementaryGross == null ||
+            premiumGross == null || complementaryMinutes == null
+        ) {
             warnings += VARIABLE_WARNING
         }
 
@@ -126,6 +133,7 @@ object SegmentedSalaryCanonicalOutputAssemblerV2 {
             cash = cash,
             net = net,
             paidMinutes = paidMinutes,
+            complementaryMinutes = complementaryMinutes,
             nightMinutes = nightMinutes,
             saturdayMinutes = saturdayMinutes,
             sundayMinutes = sundayMinutes,
