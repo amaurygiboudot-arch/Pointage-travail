@@ -50,7 +50,7 @@ object SettingsV2SectionOrganizer {
 
             view is V2BackupRestoreView || tag == V2BackupRestoreView.TAG -> 40
             tag == SettingsV2Host.TAG_DRIVE -> 41
-            tag == SettingsV2Host.TAG_UPDATES -> 45
+            tag == SettingsV2Host.TAG_UPDATES -> 5
 
             tag == SettingsV2Host.TAG_HELP -> 50
             tag == SettingsV2Host.TAG_EXTRAS -> 55
