@@ -74,6 +74,31 @@ final class SalarySegmentedWorkedGrossAssemblyV2Tests: XCTestCase {
         XCTAssertTrue(result.warnings.contains("B21 global : preuve datée conservée"))
     }
 
+    func testInconsistentB21BreakdownBlocksAssembly() {
+        let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
+            contracts: contracts(),
+            base: base(),
+            variableSource: SalarySegmentedWorkedVariableGrossSourceResultV2(
+                pieces: [
+                    variable("v1", 0, 14, 120),
+                    variable("v2", 15, 30, 80)
+                ],
+                reliable: true,
+                warnings: [],
+                breakdowns: [
+                    SalarySegmentedWorkedVariableGrossBreakdownV2(companyId: "company", versionId: "v1", startEpochDay: 0, endEpochDay: 14, overtimeGross: 121, complementaryGross: 0, premiumGross: 0),
+                    SalarySegmentedWorkedVariableGrossBreakdownV2(companyId: "company", versionId: "v2", startEpochDay: 15, endEpochDay: 30, overtimeGross: 80, complementaryGross: 0, premiumGross: 0)
+                ]
+            )
+        )
+
+        XCTAssertFalse(result.reliable)
+        XCTAssertNil(result.workedGross)
+        XCTAssertTrue(result.warnings.contains(
+            SalarySegmentedWorkedGrossAssemblerV2.breakdownWarning
+        ))
+    }
+
     func testMissingVariablePieceNeverBecomesImplicitZero() {
         let result = SalarySegmentedWorkedGrossAssemblerV2.assemble(
             contracts: contracts(),
