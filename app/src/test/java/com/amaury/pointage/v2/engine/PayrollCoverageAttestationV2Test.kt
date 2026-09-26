@@ -1,5 +1,6 @@
 package com.amaury.pointage.v2.engine
 
+import com.amaury.pointage.v2.V2PayrollCoverageStore
 import com.amaury.pointage.v2.model.DecisionStatusV2
 import com.amaury.pointage.v2.model.EventSourceV2
 import com.amaury.pointage.v2.model.PauseV2
@@ -15,112 +16,235 @@ import java.time.ZoneId
 
 class PayrollCoverageAttestationV2Test {
     private val zone = "Europe/Paris"
-    private val startDay = LocalDate.of(2026, 9, 21).toEpochDay()
-    private val endDay = LocalDate.of(2026, 9, 27).toEpochDay()
-    private val checkedAt = LocalDate.of(2026, 9, 28).atStartOfDay(ZoneId.of(zone)).toInstant().toEpochMilli()
+    private val weekStart = LocalDate.of(2026, 9, 21).toEpochDay()
+    private val weekEnd = LocalDate.of(2026, 9, 27).toEpochDay()
+    private val checkedAt = startOfDay(LocalDate.of(2026, 9, 28))
 
     @Test
-    fun `attestation exacte reste valide`() {
-        val sessions = listOf(session("a"))
-        val fingerprint = PayrollCoverageAttestationPolicyV2.fingerprint(sessions, startDay, endDay, zone)
-        assertNotNull(fingerprint)
-        val proof = proof(fingerprint!!)
-        assertTrue(PayrollCoverageAttestationPolicyV2.isValid(
-            proof, sessions, "company-a", startDay, endDay, zone, checkedAt + 1
+    fun `attestation exacte reste valide et correction horaire l invalide`() {
+        val original = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val attestation = attestation("one", weekStart, weekEnd, original)
+        assertTrue(PayrollCoverageAttestationPolicyV2.isCurrent(
+            attestation, original, checkedAt + 1
+        ))
+
+        val edited = listOf(original.first().copy(
+            countedExitMs = original.first().countedExitMs!! + 60_000L
+        ))
+        assertFalse(PayrollCoverageAttestationPolicyV2.isCurrent(
+            attestation, edited, checkedAt + 1
         ))
     }
 
     @Test
-    fun `correction horaire invalide attestation`() {
-        val original = listOf(session("a"))
-        val changed = listOf(original.first().copy(countedExitMs = original.first().countedExitMs!! + 60_000))
-        val proof = proof(PayrollCoverageAttestationPolicyV2.fingerprint(original, startDay, endDay, zone)!!)
-        assertFalse(PayrollCoverageAttestationPolicyV2.isValid(
-            proof, changed, "company-a", startDay, endDay, zone, checkedAt + 1
+    fun `correction pause ou nouveau pointage sans employeur invalide la plage`() {
+        val original = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val attestation = attestation("one", weekStart, weekEnd, original)
+
+        val pause = original.first().pauses.first().copy(paid = true)
+        val pauseEdited = listOf(original.first().copy(pauses = listOf(pause)))
+        assertFalse(PayrollCoverageAttestationPolicyV2.isCurrent(
+            attestation, pauseEdited, checkedAt + 1
+        ))
+
+        val unassigned = session("unknown", LocalDate.of(2026, 9, 23), employerId = null)
+        assertFalse(PayrollCoverageAttestationPolicyV2.isCurrent(
+            attestation, original + unassigned, checkedAt + 1
         ))
     }
 
     @Test
-    fun `correction pause invalide attestation`() {
-        val original = listOf(session("a"))
-        val changedPause = original.first().pauses.first().copy(paid = true)
-        val changed = listOf(original.first().copy(pauses = listOf(changedPause)))
-        val proof = proof(PayrollCoverageAttestationPolicyV2.fingerprint(original, startDay, endDay, zone)!!)
-        assertFalse(PayrollCoverageAttestationPolicyV2.isValid(
-            proof, changed, "company-a", startDay, endDay, zone, checkedAt + 1
-        ))
-    }
-
-    @Test
-    fun `nouveau pointage dans periode invalide attestation`() {
-        val original = listOf(session("a"))
-        val changed = original + session("b", dayOffset = 1)
-        val first = PayrollCoverageAttestationPolicyV2.fingerprint(original, startDay, endDay, zone)
-        val second = PayrollCoverageAttestationPolicyV2.fingerprint(changed, startDay, endDay, zone)
-        assertNotEquals(first, second)
-        val proof = proof(first!!)
-        assertFalse(PayrollCoverageAttestationPolicyV2.isValid(
-            proof, changed, "company-a", startDay, endDay, zone, checkedAt + 1
-        ))
-    }
-
-    @Test
-    fun `modification hors periode ne rend pas attestation stale`() {
-        val original = listOf(session("a"))
-        val outside = session("outside", dayOffset = 20)
-        val first = PayrollCoverageAttestationPolicyV2.fingerprint(original, startDay, endDay, zone)
-        val second = PayrollCoverageAttestationPolicyV2.fingerprint(original + outside, startDay, endDay, zone)
+    fun `autre employeur et modification hors plage ne rendent pas la preuve stale`() {
+        val original = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val first = PayrollCoverageAttestationPolicyV2.fingerprint(
+            original, "company-a", weekStart, weekEnd, zone
+        )
+        val otherEmployer = session(
+            "b",
+            LocalDate.of(2026, 9, 23),
+            employerId = "company-b"
+        ).copy(countedExitMs = startOfDay(LocalDate.of(2026, 9, 24)) - 60_000L)
+        val outside = session("outside", LocalDate.of(2026, 10, 20))
+        val second = PayrollCoverageAttestationPolicyV2.fingerprint(
+            original + otherEmployer + outside,
+            "company-a",
+            weekStart,
+            weekEnd,
+            zone
+        )
         assertTrue(first == second)
     }
 
     @Test
-    fun `attestation future ou autre fuseau est refusee`() {
-        val sessions = listOf(session("a"))
-        val fingerprint = PayrollCoverageAttestationPolicyV2.fingerprint(sessions, startDay, endDay, zone)!!
-        assertFalse(PayrollCoverageAttestationPolicyV2.isValid(
-            proof(fingerprint).copy(checkedAtMs = checkedAt + 10_000),
-            sessions, "company-a", startDay, endDay, zone, checkedAt
-        ))
-        assertFalse(PayrollCoverageAttestationPolicyV2.isValid(
-            proof(fingerprint), sessions, "company-a", startDay, endDay, "UTC", checkedAt + 1
-        ))
+    fun `deux attestations adjacentes couvrent la semaine complete`() {
+        val sessions = listOf(
+            session("a", LocalDate.of(2026, 9, 22)),
+            session("b", LocalDate.of(2026, 9, 25))
+        )
+        val first = attestation("first", weekStart, weekStart + 2, sessions)
+        val second = attestation("second", weekStart + 3, weekEnd, sessions)
+
+        val result = V2PayrollCoverageStore.resolve(
+            attestations = listOf(second, first),
+            sessions = sessions,
+            employerId = "company-a",
+            requestedStartEpochDay = weekStart,
+            requestedEndEpochDay = weekEnd,
+            timeZoneId = zone,
+            nowMs = checkedAt + 1
+        )
+
+        assertTrue(result.reliable)
+        assertTrue(result.exhaustive)
+        assertTrue(result.sourceId.contains("first"))
+        assertTrue(result.sourceId.contains("second"))
+        assertTrue(result.warnings.isEmpty())
+    }
+
+    @Test
+    fun `un jour manquant reste non exhaustif`() {
+        val sessions = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val first = attestation("first", weekStart, weekStart + 1, sessions)
+        val second = attestation("second", weekStart + 3, weekEnd, sessions)
+
+        val result = V2PayrollCoverageStore.resolve(
+            attestations = listOf(first, second),
+            sessions = sessions,
+            employerId = "company-a",
+            requestedStartEpochDay = weekStart,
+            requestedEndEpochDay = weekEnd,
+            timeZoneId = zone,
+            nowMs = checkedAt + 1
+        )
+
+        assertTrue(result.reliable)
+        assertFalse(result.exhaustive)
+        assertTrue(result.warnings.contains(PayrollCoverageAttestationPolicyV2.MISSING_WARNING))
+    }
+
+    @Test
+    fun `une attestation stale ne peut pas completer une chaine de couverture`() {
+        val original = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val first = attestation("first", weekStart, weekStart + 2, original)
+        val second = attestation("second", weekStart + 3, weekEnd, original)
+        val changed = original + session("new", LocalDate.of(2026, 9, 25))
+
+        val result = V2PayrollCoverageStore.resolve(
+            attestations = listOf(first, second),
+            sessions = changed,
+            employerId = "company-a",
+            requestedStartEpochDay = weekStart,
+            requestedEndEpochDay = weekEnd,
+            timeZoneId = zone,
+            nowMs = checkedAt + 1
+        )
+
+        assertTrue(result.reliable)
+        assertFalse(result.exhaustive)
+        assertTrue(result.warnings.contains(PayrollCoverageAttestationPolicyV2.STALE_WARNING))
+    }
+
+    @Test
+    fun `attestation future rend la resolution non fiable`() {
+        val sessions = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val proof = attestation("future", weekStart, weekEnd, sessions)
+            .copy(checkedAtMs = checkedAt + 10_000L)
+
+        val result = V2PayrollCoverageStore.resolve(
+            attestations = listOf(proof),
+            sessions = sessions,
+            employerId = "company-a",
+            requestedStartEpochDay = weekStart,
+            requestedEndEpochDay = weekEnd,
+            timeZoneId = zone,
+            nowMs = checkedAt
+        )
+
+        assertFalse(result.reliable)
+        assertFalse(result.exhaustive)
+        assertTrue(result.warnings.contains(PayrollCoverageAttestationPolicyV2.CORRUPT_WARNING))
+    }
+
+    @Test
+    fun `codec refuse doublons et payload incomplet`() {
+        val sessions = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val proof = attestation("same", weekStart, weekEnd, sessions)
+        assertNotNull(V2PayrollCoverageStore.encode(listOf(proof)))
+        assertTrue(V2PayrollCoverageStore.encode(listOf(proof, proof)) == null)
+        assertFalse(V2PayrollCoverageStore.decode("{}").reliable)
     }
 
     @Test
     fun `periode doit etre close avant confirmation`() {
-        assertTrue(PayrollCoverageAttestationPolicyV2.coverageClosedBeforeCheck(endDay, checkedAt, zone))
-        assertFalse(PayrollCoverageAttestationPolicyV2.coverageClosedBeforeCheck(endDay, checkedAt - 1, zone))
+        assertTrue(PayrollCoverageAttestationPolicyV2.coverageClosedBeforeCheck(
+            weekEnd, checkedAt, zone
+        ))
+        assertFalse(PayrollCoverageAttestationPolicyV2.coverageClosedBeforeCheck(
+            weekEnd, checkedAt - 1L, zone
+        ))
     }
 
-    private fun proof(fingerprint: String) = PayrollCoverageAttestationV2(
-        employerId = "company-a",
-        coveredStartEpochDay = startDay,
-        coveredEndEpochDay = endDay,
-        checkedAtMs = checkedAt,
-        timeZoneId = zone,
-        sourceId = "coverage:test",
-        sessionFingerprint = fingerprint
-    )
+    @Test
+    fun `empreinte change si la session de l employeur change`() {
+        val original = listOf(session("a", LocalDate.of(2026, 9, 22)))
+        val changed = listOf(original.first().copy(realExitMs = original.first().realExitMs!! + 1_000L))
+        val first = PayrollCoverageAttestationPolicyV2.fingerprint(
+            original, "company-a", weekStart, weekEnd, zone
+        )
+        val second = PayrollCoverageAttestationPolicyV2.fingerprint(
+            changed, "company-a", weekStart, weekEnd, zone
+        )
+        assertNotEquals(first, second)
+    }
 
-    private fun session(id: String, dayOffset: Long = 0): WorkSessionV2 {
-        val day = LocalDate.of(2026, 9, 22).plusDays(dayOffset)
+    private fun attestation(
+        id: String,
+        start: Long,
+        end: Long,
+        sessions: List<WorkSessionV2>
+    ): PayrollCoverageAttestationV2 {
+        val check = startOfDay(LocalDate.ofEpochDay(end).plusDays(1))
+        val fingerprint = PayrollCoverageAttestationPolicyV2.fingerprint(
+            sessions, "company-a", start, end, zone
+        )!!
+        return PayrollCoverageAttestationV2(
+            id = id,
+            employerId = "company-a",
+            coveredStartEpochDay = start,
+            coveredEndEpochDay = end,
+            checkedAtMs = check,
+            timeZoneId = zone,
+            sessionFingerprint = fingerprint
+        )
+    }
+
+    private fun session(
+        id: String,
+        day: LocalDate,
+        employerId: String? = "company-a"
+    ): WorkSessionV2 {
         val start = day.atTime(8, 0).atZone(ZoneId.of(zone)).toInstant().toEpochMilli()
         val end = day.atTime(17, 0).atZone(ZoneId.of(zone)).toInstant().toEpochMilli()
         return WorkSessionV2(
             id = id,
-            employerId = "company-a",
+            employerId = employerId,
             realArrivalMs = start,
             countedEntryMs = start,
             countedExitMs = end,
             realExitMs = end,
-            pauses = listOf(PauseV2(
-                start + 4 * 60 * 60_000L,
-                start + 5 * 60 * 60_000L,
-                paid = false,
-                source = EventSourceV2.MANUAL,
-                status = DecisionStatusV2.CONFIRMED
-            )),
+            pauses = listOf(
+                PauseV2(
+                    startMs = start + 4 * 60 * 60_000L,
+                    endMs = start + 5 * 60 * 60_000L,
+                    paid = false,
+                    source = EventSourceV2.MANUAL,
+                    status = DecisionStatusV2.CONFIRMED
+                )
+            ),
             status = SessionStatusV2.CLOSED
         )
     }
+
+    private fun startOfDay(day: LocalDate): Long =
+        day.atStartOfDay(ZoneId.of(zone)).toInstant().toEpochMilli()
 }
