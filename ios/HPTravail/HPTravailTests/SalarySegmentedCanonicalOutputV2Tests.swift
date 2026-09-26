@@ -8,7 +8,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
     func testRichOutputPreservesProvedLevels() {
         let worked = fixtureWorked()
         let cash = cash(worked, 1_100)
-        let net = net(cash, complete: true)
+        let net = net(cash, complete: false)
 
         let result = SalarySegmentedCanonicalOutputAssemblerV2.assemble(
             worked: worked,
@@ -20,7 +20,7 @@ final class SalarySegmentedCanonicalOutputV2Tests: XCTestCase {
         XCTAssertTrue(result.premiumTimeReliable)
         XCTAssertTrue(result.workedGrossReliable)
         XCTAssertTrue(result.cashGrossReliable)
-        XCTAssertTrue(result.netBeforeIncomeTaxComplete)
+        XCTAssertFalse(result.netBeforeIncomeTaxComplete)
         XCTAssertEqual(result.paidMinutes, 2_400)
         XCTAssertEqual(result.nightMinutes, 120)
         XCTAssertEqual(result.workedGross, 1_000)
