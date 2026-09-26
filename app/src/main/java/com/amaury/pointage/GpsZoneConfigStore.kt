@@ -185,6 +185,14 @@ internal fun resolveGpsZoneRadiusForAddress(
     }
 }
 
+internal fun resolveGpsRadiusForRefresh(existing: JSONObject?, fallbackRadius: Int): Int {
+    val existingRadius = existing
+        ?.optDouble("radius", Double.NaN)
+        ?.takeIf { it.isFinite() && it in 50.0..1000.0 }
+        ?.toInt()
+    return existingRadius ?: fallbackRadius.coerceIn(50, 1000)
+}
+
 /** Met à jour la géométrie sans perdre le type, l'entreprise ou les métadonnées existantes. */
 internal fun refreshedGpsZoneJson(
     existing: JSONObject?,
