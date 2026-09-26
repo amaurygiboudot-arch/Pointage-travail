@@ -220,7 +220,7 @@ object LuxuryUiInstaller {
         }
 
         wrapper.addView(heading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46)).apply {
+        wrapper.addView(button, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)).apply {
             topMargin = dp(activity, 2)
             bottomMargin = dp(activity, 2)
         })
@@ -237,9 +237,9 @@ object LuxuryUiInstaller {
                     child.minimumHeight = 0
                     child.gravity = Gravity.CENTER
                     child.setPadding(dp(activity, 14), 0, dp(activity, 14), 0)
-                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 46))).apply {
+                    child.layoutParams = (child.layoutParams as? LinearLayout.LayoutParams ?: LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP))).apply {
                         width = ViewGroup.LayoutParams.MATCH_PARENT
-                        height = dp(activity, 46)
+                        height = dp(activity, SettingsV2Host.MIN_INTERACTIVE_HEIGHT_DP)
                         topMargin = dp(activity, 4)
                         bottomMargin = dp(activity, 4)
                     }
