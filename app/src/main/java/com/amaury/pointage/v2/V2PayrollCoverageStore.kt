@@ -27,7 +27,7 @@ data class PayrollCoverageResolutionV2(
 
 object V2PayrollCoverageStore {
     const val PREFS = "horatrack_v2_payroll_coverage"
-    private const val KEY_ITEMS = "confirmed_ranges"
+    internal const val KEY_ITEMS = "confirmed_ranges"
     private const val SCHEMA_VERSION = 1
 
     fun saveConfirmed(
@@ -274,6 +274,11 @@ object V2PayrollCoverageStore {
             .put("items", array)
             .toString()
     }
+
+    internal fun replaceAllForRestore(
+        context: Context,
+        items: List<PayrollCoverageAttestationV2>
+    ): Boolean = write(context, items)
 
     private fun write(context: Context, items: List<PayrollCoverageAttestationV2>): Boolean {
         val raw = encode(items) ?: return false
