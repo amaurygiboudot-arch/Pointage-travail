@@ -7,11 +7,11 @@ import org.junit.Test
 class AdminDiagnosticsGatePolicyTest {
     @Test
     fun `developer mode is unavailable on public builds`() {
-        assertFalse(AdminDiagnosticsGate.developerModeAllowed(internalBuild = false))
+        assertFalse(AdminDiagnosticsGate.developerModeAllowed(debugBuild = false))
     }
 
     @Test
     fun `developer mode remains available on internal builds`() {
-        assertTrue(AdminDiagnosticsGate.developerModeAllowed(internalBuild = true))
+        assertTrue(AdminDiagnosticsGate.developerModeAllowed(debugBuild = true))
     }
 }
