@@ -262,6 +262,91 @@ class SegmentedWorkedGrossAssemblyV2Test {
         assertEquals(1_700.0, result.workedGross!!, 0.0001)
     }
 
+    @Test
+    fun globalB21WarningSurvivesSuccessfulB20Assembly() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(
+                variable("v1", 0, 14, 120.0),
+                variable("v2", 15, 30, 80.0)
+            ),
+            reliable = true,
+            warnings = listOf("trace-b21")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = source
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1_700.0, result.workedGross!!, 0.0001)
+        assertTrue(result.warnings.contains("trace-b21"))
+    }
+
+    @Test
+    fun unreliableB21SourceBlocksBeforePiecesCanBecomeImplicitZero() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = emptyList(),
+            reliable = false,
+            warnings = listOf("b21-bloque")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = source
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.baseGross)
+        assertNull(result.variableGross)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains("b21-bloque"))
+        assertTrue(result.warnings.contains(SegmentedWorkedGrossAssemblerV2.VARIABLE_RELIABILITY_WARNING))
+    }
+
+    @Test
+    fun reliableB21SourceWithMissingPieceStillBlocksCoverageAndKeepsGlobalWarning() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(variable("v1", 0, 14, 120.0)),
+            reliable = true,
+            warnings = listOf("trace-source")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = source
+        )
+
+        assertFalse(result.reliable)
+        assertNull(result.workedGross)
+        assertTrue(result.warnings.contains("trace-source"))
+        assertTrue(result.warnings.contains(SegmentedWorkedGrossAssemblerV2.COVERAGE_WARNING))
+    }
+
+    @Test
+    fun B21GlobalAndPieceWarningsAreDeduplicatedInB20() {
+        val source = SegmentedWorkedVariableGrossSourceResultV2(
+            pieces = listOf(
+                variable("v1", 0, 14, 120.0, warnings = listOf("same-warning")),
+                variable("v2", 15, 30, 80.0, warnings = listOf("same-warning"))
+            ),
+            reliable = true,
+            warnings = listOf("same-warning", "same-warning")
+        )
+
+        val result = SegmentedWorkedGrossAssemblerV2.assemble(
+            contracts = contracts(),
+            base = base(),
+            variableSource = source
+        )
+
+        assertTrue(result.reliable)
+        assertEquals(1, result.warnings.count { it == "same-warning" })
+    }
+
     private fun contracts(
         secondVersionId: String = "v2"
     ): EmploymentContractPeriodResolutionV2 {
